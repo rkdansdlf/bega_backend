@@ -1,0 +1,68 @@
+spring:
+  # 1. DB 설정: ${환경변수명:기본값} 형태로 사용하여 환경변수가 없을 때 기본값을 쓰도록 설정 가능
+  datasource:
+    url: ${DB_URL:jdbc:h2:~/local} # .env의 DB_URL 참조
+    driver-class-name: org.h2.Driver
+    username: ${DB_USERNAME:sa}     # .env의 DB_USERNAME 참조
+    password: ${DB_PASSWORD:}       # .env의 DB_PASSWORD 참조
+  
+  jpa:
+    # ... (생략: 기존과 동일)
+    hibernate:
+      ddl-auto: create
+    show-sql: true
+    properties:
+      hibernate:
+        format-sql: true
+  
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  
+  thymeleaf:
+    cache: false
+    
+  # 2. .env 파일 명시적 import (SpringBoot 2.4+ 버전부터 권장)
+  # 이 설정이 있으면 별도 라이브러리 없이도 .env 파일을 로드할 수 있습니다.
+  config:
+    import: optional:file:.env[.properties] # .env 파일을 로드하도록 설정
+    
+  # 3. OAuth2 설정: Client ID/Secret을 환경 변수로 변경
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}       # .env의 GOOGLE_CLIENT_ID 참조
+            client-secret: ${GOOGLE_CLIENT_SECRET} # .env의 GOOGLE_CLIENT_SECRET 참조
+            scope:
+              - profile
+              - email
+            client-authentication-method: client_secret_post
+          kakao:
+            client-id: ${KAKAO_CLIENT_ID}         # .env의 KAKAO_CLIENT_ID 참조
+            client-secret: ${KAKAO_CLIENT_SECRET}   # .env의 KAKAO_CLIENT_SECRET 참조
+            authorization-grant-type: authorization_code
+            redirect-uri: "http://localhost:8080/login/oauth2/code/kakao"
+            scope:
+              - profile_nickname
+              - account_email
+            client-authentication-method: client_secret_post
+            client-name: Kakao
+        # ... (생략: provider 섹션은 기존과 동일)
+        provider:
+          google:
+            user-info-uri: https://www.googleapis.com/oauth2/v3/userinfo
+            user-name-attribute: sub
+          kakao:
+            authorization-uri: https://kauth.kakao.com/oauth/authorize
+            token-uri: https://kauth.kakao.com/oauth/token
+            user-info-uri: https://kapi.kakao.com/v2/user/me
+            user-name-attribute: id
+            
+# --- logging 설정은 그대로 최상위 레벨 유지 ---
+logging:
+  level:
+    org.springframework.security: DEBUG
+    com.club.security: DEBUG
