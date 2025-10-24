@@ -2,68 +2,65 @@ package com.example.demo.dto;
 
 import java.util.Map;
 
+/**
+ * Kakao OAuth2 응답을 처리하는 DTO입니다.
+ * Kakao는 사용자 ID를 최상위 'id'에, 이메일과 닉네임은 'kakao_account' 내부에 중첩하여 제공합니다.
+ */
 public class KaKaoResponse implements OAuth2Response{
 
     private final Map<String, Object> attribute;
+    private final Map<String, Object> kakaoAccount;
+    private final Map<String, Object> profile;
 
     public KaKaoResponse(Map<String, Object> attribute) {
-
-    	this.attribute = attribute;
+        this.attribute = attribute;
+        // 카카오 응답에서 kakao_account와 profile을 미리 추출합니다.
+        this.kakaoAccount = (Map<String, Object>) attribute.get("kakao_account");
+        // profile 정보는 kakaoAccount 내부에 있습니다.
+        this.profile = (this.kakaoAccount != null) ? (Map<String, Object>) this.kakaoAccount.get("profile") : null;
     }
 
     @Override
     public String getProvider() {
-
         return "kakao";
     }
 
     @Override
     public String getProviderId() {
-
-        return attribute.get("id").toString();
+        // ID는 최상위 속성입니다.
+        Object id = attribute.get("id");
+        return id != null ? id.toString() : null;
     }
 
     @Override
     public String getEmail() {
-        // 1. kakao_account 맵을 가져옵니다.
-        Map<String, Object> kakaoAccount = (Map<String, Object>) attribute.get("kakao_account");
-
-        // 2. kakaoAccount 맵이 존재하고, 그 안에 "email" 키가 있을 때만 접근
-        if (kakaoAccount != null) {
-            Object email = kakaoAccount.get("email");
-            
-            // 3. email 값이 null이 아닐 때만 toString() 호출
-            if (email != null) {
-                return email.toString();
-            }
+        if (kakaoAccount == null) {
+            return null;
         }
+
+        // 🚨 카카오 핵심 로직: 'email_needs_agreement' 필드를 통해 사용자가 이메일 제공에 동의했는지 확인합니다.
+        // 이 필드가 true이면 이메일을 사용할 수 없습니다.
+        Boolean needsAgreement = (Boolean) kakaoAccount.get("email_needs_agreement");
         
-        return null; // 이메일 정보가 없으면 null 반환
+        // needsAgreement가 true이면 이메일 동의가 필요한 상태이므로 null을 반환합니다.
+        if (Boolean.TRUE.equals(needsAgreement)) {
+            return null; 
+        }
+
+        // 2. 이메일 필드에서 값을 가져옵니다.
+        Object email = kakaoAccount.get("email");
+        return email != null ? email.toString() : null;
     }
 
     @Override
     public String getName() {
-        // 1. kakao_account 맵을 가져옵니다.
-        Map<String, Object> kakaoAccount = (Map<String, Object>) attribute.get("kakao_account");
-
-        if (kakaoAccount == null) {
-            return "알 수 없는 사용자"; // 널 체크
+        if (profile == null) {
+            return "이름 없음";
         }
         
-        // 2. profile 맵을 가져옵니다. (닉네임은 보통 여기에 있습니다)
-        Map<String, Object> profile = (Map<String, Object>) kakaoAccount.get("profile");
-
-        if (profile != null) {
-            // 3. nickname 값을 가져옵니다.
-            Object name = profile.get("nickname");
-            
-            // 4. 안전하게 toString()을 호출합니다.
-            if (name != null) {
-                return name.toString();
-            }
-        }
+        // profile 맵에서 nickname을 추출합니다.
+        Object name = profile.get("nickname");
         
-        // 이름 정보가 없거나 null일 경우 대체 문자열 반환
-        return "이름 없음"; 
+        return name != null ? name.toString() : "이름 없음";
     }
 }

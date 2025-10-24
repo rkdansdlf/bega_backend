@@ -65,14 +65,14 @@ public class ReissueController {
         
         // 5. 새로운 Access Token 및 Refresh Token 생성
         String username = jwtUtil.getUsername(refreshToken);
-        String role = jwtUtil.getRole(refreshToken);
+        String role = jwtUtil.getRole(refreshToken); // 👈 JWTUtil의 getRole() 사용
         
         // Access Token 만료 시간 (예: 2시간)
         long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; 
-        String newAccessToken = jwtUtil.createJwt(username, role, accessTokenExpiredMs);
+        String newAccessToken = jwtUtil.createJwt(username, role, accessTokenExpiredMs); // 👈 role 포함하여 생성
         
         // Refresh Token Rotating: 기존 Refresh Token을 폐기하고 새로운 Refresh Token 발행
-        String newRefreshToken = jwtUtil.createRefreshToken(username, role);
+        String newRefreshToken = jwtUtil.createRefreshToken(username, role); // 👈 role 포함하여 생성
 
         // 6. DB 정보 업데이트 (기존 토큰 폐기 및 새 토큰 저장)
         existToken.setToken(newRefreshToken);
@@ -88,8 +88,8 @@ public class ReissueController {
         int refreshTokenMaxAge = (int)(jwtUtil.getRefreshTokenExpirationTime() / 1000);
         response.addCookie(createCookie("Refresh", newRefreshToken, refreshTokenMaxAge));
         
-        System.out.println("--- 토큰 재발급 성공 ---");
-        System.out.println("유저 이름: " + username + " -> 토큰 갱신 완료");
+        System.out.println("--- Token Reissue Success ---");
+        System.out.println("Username: " + username + " -> Tokens Renewed");
         System.out.println("-----------------------------");
 
         return new ResponseEntity<>("Token reissued successfully", HttpStatus.OK);
