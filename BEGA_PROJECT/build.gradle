@@ -1,6 +1,6 @@
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '3.5.6'
+	id 'org.springframework.boot' version '3.5.5'
 	id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -42,6 +42,7 @@ dependencies {
 	implementation 'io.github.cdimascio:dotenv-java:3.2.0'
 	implementation 'com.mysql:mysql-connector-j'
 	implementation 'org.postgresql:postgresql:42.6.0'
+	runtimeOnly 'org.postgresql:postgresql'
 }
 
 tasks.named('test') {
