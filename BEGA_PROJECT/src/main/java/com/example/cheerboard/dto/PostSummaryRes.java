@@ -1,0 +1,6 @@
+package com.example.cheerboard.dto;
+
+import java.time.Instant;
+
+public record PostSummaryRes(Long id, String teamId, String title, String author,
+                             Instant createdAt, int comments, int likes, int views, boolean isHot, String postType) {}
