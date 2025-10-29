@@ -12,7 +12,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-// 🚨 새로 추가된 Import
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler; 
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher; 
 
 import org.springframework.web.cors.CorsConfiguration;
@@ -24,12 +24,16 @@ import com.example.demo.Oauth2.CustomSuccessHandler;
 import com.example.demo.jwt.JWTFilter;
 import com.example.demo.jwt.JWTUtil;
 import com.example.demo.repo.RefreshRepository;
-import com.example.demo.security.LoginFilter; 
+import com.example.demo.security.LoginFilter;
+import com.example.demo.service.UserService; // UserService 임포트 유지
 
 import jakarta.servlet.http.HttpServletResponse; 
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.security.core.Authentication;
 
+import java.io.IOException;
 import java.util.Arrays;
-import java.util.List;
+import jakarta.servlet.ServletException;
 
 @Configuration
 @EnableWebSecurity
@@ -40,11 +44,13 @@ public class SecurityConfig {
 	private final CustomSuccessHandler customSuccessHandler;
     private final JWTUtil jwtUtil;
     private final RefreshRepository refreshRepository;
+    // 🚨 UserService 필드 제거 (순환 참조 방지)
 
     public SecurityConfig(CustomOAuth2UserService customOAuth2UserService,
     		CustomSuccessHandler customSuccessHandler, JWTUtil jwtUtil,
     		AuthenticationConfiguration authenticationConfiguration,
-    		RefreshRepository refreshRepository) {
+    		RefreshRepository refreshRepository
+            /* 🚨 UserService 인자 제거 */) {
     	
     	this.authenticationConfiguration = authenticationConfiguration;
         this.customOAuth2UserService = customOAuth2UserService;
@@ -70,48 +76,40 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         
-        // 프론트엔드 주소 명시
         configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000"));
-        
-        // 허용할 메서드 정의 (Preflight 요청을 위한 OPTIONS 포함)
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        
-        // Authorization, Content-Type 헤더 허용
-        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Cache-Control", "Content-Type"));
-        
-        // 중요: 쿠키 기반 인증 정보 전송 허용
+        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Cache-Control", "Content-Type")); 
         configuration.setAllowCredentials(true); 
-        
-        // Preflight 요청 캐싱 시간 설정 (3600초 = 1시간)
         configuration.setMaxAge(3600L);
 
+        // JWT Cookie를 설정한 경우 Set-Cookie 헤더를 노출하도록 설정 유지
+        configuration.setExposedHeaders(Arrays.asList("Authorization", "Set-Cookie")); 
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        // 모든 경로("/**")에 CORS 설정을 적용
         source.registerCorsConfiguration("/**", configuration); 
         
         return source;
     }
 
-    // ===================================================================
-    // 🚨 최종 해결책: WebSecurityCustomizer를 사용하여 특정 경로를 필터 체인에서 완전히 제외
-    // 두 가지 패턴을 모두 사용하여 확실하게 제외합니다.
-    // ===================================================================
+    // 정적 자원 및 H2 콘솔 제외
     @Bean
     public WebSecurityCustomizer webSecurityCustomizer() {
         return (web) -> web.ignoring()
-                // /api/test/hello, /api/test/echo와 같은 하위 경로 제외
-                .requestMatchers("/api/auth/**") 
-                // /api/test 그 자체 경로도 제외 (혹시 모를 Trailing Slash 문제 해결)
-                .requestMatchers("/api/auth"); 
+                .requestMatchers(AntPathRequestMatcher.antMatcher("/h2-console/**")); 
+    }
+    
+    // 💡 JWTFilter 빈 정의: 메서드 인자로 UserService를 주입받아 순환 참조 방지
+    @Bean
+    public JWTFilter jwtFilter(UserService userService) { // Spring이 UserService를 인자로 주입함
+        return new JWTFilter(jwtUtil, userService); 
     }
 
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    // 💡 [수정] JWTFilter를 인자로 받도록 변경하여 컴파일 오류 해결
+    public SecurityFilterChain filterChain(HttpSecurity http, JWTFilter jwtFilter) throws Exception {
 
-        // ===================================================================
         // 1순위: CORS 활성화 및 CSRF 비활성화
-        // ===================================================================
         http
                 .cors((cors) -> cors.configurationSource(corsConfigurationSource()));
         
@@ -127,19 +125,29 @@ public class SecurityConfig {
                 .httpBasic((auth) -> auth.disable());
         
         
-        // 필터 추가 (JWTFilter는 인증 전에 토큰 검사, LoginFilter는 실제 로그인 처리)
+        // 💡 [수정] 인자로 받은 jwtFilter를 사용
 		http
-            .addFilterBefore(new JWTFilter(jwtUtil), UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 		
-        // LoginFilter 처리 경로 명시
+        // LoginFilter 처리 경로 명시 및 등록
         LoginFilter loginFilter = new LoginFilter(authenticationManager(authenticationConfiguration), jwtUtil, refreshRepository);
         
-        // 🔑 핵심 수정: POST 요청만 인증 필터가 처리하도록 명시적으로 설정합니다.
-        // GET 요청은 이제 이 필터를 건너뛰고 다음 permitAll() 설정으로 전달됩니다.
-        loginFilter.setRequiresAuthenticationRequestMatcher(new AntPathRequestMatcher("/login", HttpMethod.POST.name()));
+        // 🚀 CRITICAL FIX: 인증 성공 시 200 OK 상태로 응답을 강제 종료하는 핸들러 추가
+        loginFilter.setAuthenticationSuccessHandler(new AuthenticationSuccessHandler() {
+            @Override
+            public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
+                // 1. 상태 코드를 명시적으로 200 OK로 설정합니다. (302 방지)
+                response.setStatus(HttpServletResponse.SC_OK);
+                
+                // 2. 응답 본문에 간단한 메시지를 쓰고 flush하여 응답을 즉시 종료(Commit)시킵니다.
+                response.getWriter().write("Login successful via REST.");
+                response.getWriter().flush();
+                
+                System.out.println("✅ LoginFilter Success Handler: Default redirect prevented and response committed with 200 OK.");
+            }
+        });
         
-        loginFilter.setFilterProcessesUrl("/login"); // 로그인 처리 경로 설정 (POST /login)
-        
+        // LoginFilter 등록: 기본 필터를 대체하여 인증 처리
         http
             .addFilterAt(loginFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -155,11 +163,13 @@ public class SecurityConfig {
                 })
             );
 
-        // 4. 경로별 인가 작업 - 권한 설정의 순서가 가장 중요합니다.
+        // 4. 경로별 인가 작업 - 권한 설정
         http
             .authorizeHttpRequests((auth) -> auth
-                // /api/test/** 경로는 WebSecurityCustomizer가 처리하므로, 여기서는 제거합니다.
-            	.requestMatchers("/", "/oauth2/**", "/login", "/error", "/reissue", "/join").permitAll()
+            	
+                // 로그인 경로 /api/auth/login 은 필터가 처리해야 하므로 permitAll()에서 제외 유지
+            	.requestMatchers("/api/auth/signup", "/api/auth/reissue").permitAll()
+            	.requestMatchers("/", "/oauth2/**", "/login", "/error").permitAll()
                 
                 // 2순위: OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll() 
@@ -168,7 +178,7 @@ public class SecurityConfig {
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 .requestMatchers("/team/be/**").hasRole("BE") 
                 
-                // 나머지 모든 요청은 인증 필
+                // 나머지 모든 요청은 인증 필요
                 .anyRequest().authenticated())
                 
                 // 302 리다이렉션 방지: 인증 실패 시 /login으로 리다이렉트 대신 401 응답 반환
@@ -191,3 +201,4 @@ public class SecurityConfig {
         return http.build();
     }
 }
+
