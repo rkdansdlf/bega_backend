@@ -3,6 +3,7 @@ package com.example.demo.controller;
 import com.example.demo.dto.UserDto;
 import com.example.demo.dto.ApiResponse;
 import com.example.demo.dto.LoginDto;
+import com.example.demo.dto.SignupDto;
 import com.example.demo.service.UserService;
 import lombok.RequiredArgsConstructor;
 
@@ -17,7 +18,7 @@ import jakarta.validation.Valid;
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
-public class TestController {
+public class APIController {
 
     private final UserService userService;
 
@@ -26,13 +27,24 @@ public class TestController {
      * POST /api/auth/signup
      */
     @PostMapping("/signup")
-    public ResponseEntity<ApiResponse> signUp(@Valid @RequestBody UserDto request) {
+    public ResponseEntity<ApiResponse> signUp(@Valid @RequestBody SignupDto signupDto) { // 👈 DTO 변경
         try {
-            userService.signUp(request);
+            // 🚨 비밀번호 일치 확인 로직 추가
+            if (!signupDto.getPassword().equals(signupDto.getConfirmPassword())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.error("비밀번호와 비밀번호 확인이 일치하지 않습니다."));
+            }
+
+            // SignupRequestDto를 UserDto로 변환하여 Service에 전달
+            UserDto userDto = signupDto.toUserDto();
+            
+            userService.signUp(userDto);
+            
             return ResponseEntity.status(HttpStatus.CREATED)
                     .body(ApiResponse.success("회원가입이 완료되었습니다."));
+                    
         } catch (IllegalArgumentException e) {
-            // 이미 존재하는 이메일, 비밀번호 불일치 등
+            // 이미 존재하는 이메일, 소셜 계정 연동 문제 등
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(ApiResponse.error(e.getMessage()));
         } catch (Exception e) {
@@ -45,13 +57,13 @@ public class TestController {
      * 일반 로그인 API
      * POST /api/auth/login
      * * [프론트엔드 요구사항]
-     * 성공 시 JSON 응답 본문에 'accessToken'과 'username'을 포함해야 합니다.
+     * 성공 시 JSON 응답 본문에 'accessToken'과 'name'을 포함해야 합니다. 
      */
     @PostMapping("/login")
     public ResponseEntity<ApiResponse> login(@Valid @RequestBody LoginDto request) { // 👈 LoginDto 사용
         try {
             // 1. UserService의 인증 로직 호출
-            // 이 메서드는 인증 성공 시 Map<String, Object> 형태의 { "accessToken": "...", "username": "..." }를 반환합니다.
+            // 이 메서드는 인증 성공 시 Map<String, Object> 형태의 { "accessToken": "...", "name": "..." }를 반환합니다.
             Map<String, Object> loginData = userService.authenticateAndGetToken(request.getEmail(), request.getPassword());
             
             // 2. 성공 응답 (HTTP 200 OK)

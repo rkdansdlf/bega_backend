@@ -1,9 +1,11 @@
 package com.example.demo.security;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.Map;
 
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -19,50 +21,67 @@ import com.example.demo.service.CustomUserDetails;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.authentication.AuthenticationServiceException; 
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 
 public class LoginFilter extends UsernamePasswordAuthenticationFilter {
 
     private final AuthenticationManager authenticationManager;
     private final JWTUtil jwtUtil;
     private final RefreshRepository refreshRepository; 
+    private final ObjectMapper objectMapper = new ObjectMapper(); 
 
     public LoginFilter(AuthenticationManager authenticationManager, JWTUtil jwtUtil, RefreshRepository refreshRepository) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
         
-        // 🚨 필터가 처리할 경로를 /login으로 설정합니다.
-        // 부모 클래스가 기본적으로 POST만 처리하도록 설정되어 있습니다.
-        setFilterProcessesUrl("/login"); 
+        // 필터가 처리할 URL을 명시
+        setFilterProcessesUrl("/api/auth/login"); 
     }
 
     @Override
     public Authentication attemptAuthentication(HttpServletRequest request, HttpServletResponse response) throws AuthenticationException {
 
-        // 🚨 [수정]: POST 요청이 아닐 경우, 부모 클래스(UsernamePasswordAuthenticationFilter)는 
-        // 기본적으로 AuthenticationException을 던지며, 이 예외를 catch하여 401 응답을 내보냅니다.
-        // 이 로직을 제거하고 부모 클래스의 기본 동작(POST만 처리)에 의존하도록 코드를 단순화합니다.
-        // 만약 GET 요청 시에도 필터가 작동하는 문제가 지속되면, SecurityConfig에서 
-        // .addFilterAt()을 사용할 때 RequestMatcher를 사용해 POST 요청만 명시적으로 필터가 잡도록 해야 합니다.
-        
-        // 현재는 POST 요청만 필터링하는 부모의 기본 기능을 사용한다고 가정하고, 
-        // 불필요한 GET 검사 로직을 제거합니다.
         if (!request.getMethod().equals("POST")) {
-            // GET 요청이 들어올 경우, 부모 클래스는 이 요청을 무시하고 다음 필터로 넘겨야 하지만,
-            // 커스텀 필터의 설정 문제로 인해 GET 요청을 처리하고 있다면 
-            // 아래의 예외 대신, Custom Authentication Manager를 통해 처리해야 합니다.
-            // 하지만 지금은 로직을 부모 클래스에 의존하여 단순화합니다.
+            throw new AuthenticationServiceException("Authentication method not supported: " + request.getMethod());
         }
 
+        String identifier = null; // email 또는 username으로 사용될 변수
+        String password = null;
 
-        String username = obtainUsername(request);
-        String password = obtainPassword(request);
+        // JSON 요청 본문 파싱
+        if (request.getContentType() != null && request.getContentType().contains("application/json")) {
+            try (InputStream is = request.getInputStream()) {
+                // JSON에서 로그인 데이터 추출 (클라이언트에서 'email' 키를 사용한다고 가정)
+                Map<String, String> loginData = objectMapper.readValue(is, Map.class);
+                
+                identifier = loginData.get("email"); 
+                password = loginData.get("password");
+                
+            } catch (IOException e) {
+                // 스트림 읽기 실패 또는 JSON 형식 오류
+                throw new AuthenticationServiceException("Invalid login request body format (expected JSON) or failed to read stream.", e);
+            }
+        } else {
+            // Content-Type이 JSON이 아닌 경우 (폼 데이터 등)
+            identifier = obtainUsername(request);
+            password = obtainPassword(request);
+        }
+        
+        // 유효성 검사
+        if (identifier == null || identifier.trim().isEmpty() || password == null || password.trim().isEmpty()) {
+             throw new AuthenticationServiceException("Email and password must be provided.");
+        }
 
-        UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(username, password, null);
+        System.out.println("로그인 시도 사용자 (Email): " + identifier);
+        
+        // 추출된 Email을 Spring Security의 principal (username)으로 전달
+        UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(identifier, password, null);
 
         return authenticationManager.authenticate(authToken);
     }
@@ -70,31 +89,40 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
     @Override
     protected void successfulAuthentication(HttpServletRequest request, HttpServletResponse response, FilterChain chain, Authentication authentication) throws IOException, ServletException {
 
-        CustomUserDetails customUserDetails = (CustomUserDetails) authentication.getPrincipal();
+        System.out.println("======> successfulAuthentication 필터 실행 시작! (REST API 모드) <======"); 
 
-        String username = customUserDetails.getUsername();
+        CustomUserDetails customUserDetails = (CustomUserDetails) authentication.getPrincipal();
+        String email = customUserDetails.getUsername(); 
 
         Collection<? extends GrantedAuthority> authorities = authentication.getAuthorities();
         Iterator<? extends GrantedAuthority> iterator = authorities.iterator();
         GrantedAuthority auth = iterator.next();
-
         String role = auth.getAuthority();
 
-        // Access Token 만료 시간 (예: 2시간)
+        // Access Token 유효 기간 설정 (예: 2시간)
         long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; 
 
-        // Access Token 생성
-        String accessToken = jwtUtil.createJwt(username, role, accessTokenExpiredMs);
+        // JWT 생성
+        String accessToken = jwtUtil.createJwt(email, role, accessTokenExpiredMs);
+        String refreshToken = jwtUtil.createRefreshToken(email, role);
         
-        // Refresh Token 생성
-        String refreshToken = jwtUtil.createRefreshToken(username, role);
+        
+        
+        // 💡 사용자 요청에 따라 JWT 토큰 정보를 출력합니다. (일반 로그인)
+        System.out.println("--- JWT 토큰 발행 성공 (일반 로그인) ---");
+        System.out.println("발행된 Access Token: " + accessToken.substring(0, 10) + "...");
+        System.out.println("Refresh Token (DB 저장됨): " + refreshToken.substring(0, 10) + "...");
+        System.out.println("토큰 사용자(Email): " + email); 
+        System.out.println("권한: " + role);
+        System.out.println("-------------------------------------");
 
-        // Refresh Token DB 저장/업데이트
-        RefreshToken existToken = refreshRepository.findByUsername(username);
+
+        // Refresh Token DB 저장/업데이트 로직
+        RefreshToken existToken = refreshRepository.findByEmail(email);
 
         if (existToken == null) {
             RefreshToken newRefreshToken = new RefreshToken();
-            newRefreshToken.setUsername(username);
+            newRefreshToken.setEmail(email); 
             newRefreshToken.setToken(refreshToken);
             newRefreshToken.setExpiryDate(LocalDateTime.now().plusWeeks(1)); 
             
@@ -106,40 +134,52 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
             refreshRepository.save(existToken);
         }
         
-        // 쿠키에 Access/Refresh Token 동시 추가
+        // 💡 [수정] 쿠키에 Access/Refresh Token 동시 추가 (addSameSiteCookie 사용)
+        int accessTokenMaxAge = (int)(accessTokenExpiredMs / 1000);
+        addSameSiteCookie(response, "Authorization", accessToken, accessTokenMaxAge);
         
-        // Access Token 쿠키 (Authorization 헤더 대신 쿠키 사용으로 변경, HttpOnly)
-        response.addCookie(createCookie("Authorization", accessToken, (int)(accessTokenExpiredMs / 1000)));
-        
-        // Refresh Token 쿠키
         int refreshTokenMaxAge = (int)(jwtUtil.getRefreshTokenExpirationTime() / 1000);
-        response.addCookie(createCookie("Refresh", refreshToken, refreshTokenMaxAge));
+        addSameSiteCookie(response, "Refresh", refreshToken, refreshTokenMaxAge);
 
 
-        // 🚨 로그 출력 형식 수정
-        System.out.println("로그인 성공");
-        System.out.println("--- JWT 토큰 발행 성공 (일반 로그인) ---");
-        System.out.println("발행된 Access Token: " + accessToken.substring(0, 10) + "...");
-        System.out.println("Refresh Token (DB 저장됨): " + refreshToken.substring(0, 10) + "...");
-        System.out.println("토큰 사용자: " + username);
-        System.out.println("권한: "+ role);
-        System.out.println("-------------------------------------");
+        // 200 OK 응답으로 REST API 호출을 종료합니다. (클라이언트에서 리다이렉션 처리)
+        response.setStatus(HttpServletResponse.SC_OK);
+        // 클라이언트에 성공 메시지 전송
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"status\": \"success\", \"message\": \"Login successful, cookies set.\"}");
+        response.getWriter().flush();
+        
+        System.out.println("로그인 성공: 200 OK 응답 전송 완료");
     }
 
     @Override
     protected void unsuccessfulAuthentication(HttpServletRequest request, HttpServletResponse response, AuthenticationException failed) throws IOException, ServletException {
-        // 인증 실패(비밀번호 오류, 사용자 없음 등) 시 401 반환
-        response.setStatus(401);
-        System.out.println("fail");
+        // 인증 실패 시 401 Unauthorized 응답
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"error\": \"Login Failed\", \"message\": \"" + failed.getMessage() + "\"}");
+        response.getWriter().flush();
+        System.out.println("fail: " + failed.getMessage());
     }
     
+    // 💡 [추가된 유틸리티 메서드] SameSite=Lax를 강제 적용하여 쿠키를 헤더에 직접 추가합니다.
+    private void addSameSiteCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
+        // HttpOnly: true, Path: / (모든 경로), SameSite: Lax (다른 포트 요청 허용)
+        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax", 
+                                            name, value, maxAgeSeconds);
+        response.addHeader("Set-Cookie", cookieString);
+    }
+    
+    // 💡 [제거] 기존 createCookie 메서드는 더 이상 사용하지 않으므로 삭제합니다.
+    /*
     private Cookie createCookie(String key, String value, int maxAgeSeconds) {
         Cookie cookie = new Cookie(key, value);
         cookie.setMaxAge(maxAgeSeconds);
         cookie.setPath("/");
         cookie.setHttpOnly(true);
-        // cookie.setSecure(true); 
-
+        // Secure, SameSite 속성은 개발 환경에 따라 조정이 필요하며, 현재는 기본적인 설정만 유지합니다.
         return cookie;
     }
+    */
 }
+

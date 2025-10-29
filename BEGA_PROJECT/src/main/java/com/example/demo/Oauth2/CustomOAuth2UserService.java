@@ -3,7 +3,7 @@ package com.example.demo.Oauth2;
 import com.example.demo.dto.CustomOAuth2User;
 import com.example.demo.dto.OAuth2Response;
 import com.example.demo.dto.GoogleResponse; 
-import com.example.demo.dto.KaKaoResponse; // 🚨 KakaoResponse DTO 임포트
+import com.example.demo.dto.KaKaoResponse;
 import com.example.demo.entity.UserEntity;
 import com.example.demo.repo.UserRepository;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
@@ -47,7 +47,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             // Kakao 응답 처리 DTO
             oAuth2Response = new KaKaoResponse(oAuth2User.getAttributes());
         } else {
-            // 지원하지 않는 제공자 처리 (Naver는 제외)
+            // 지원하지 않는 제공자 처리
             throw new OAuth2AuthenticationException("Unsupported OAuth2 provider: " + registrationId);
         }
 
@@ -88,9 +88,8 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         UserEntity userEntity = UserEntity.builder()
                 .email(oAuth2Response.getEmail())
                 .name(userName != null && !userName.isEmpty() ? userName : "소셜 사용자") // null/empty 방지 처리
-                .username(oAuth2Response.getEmail()) // username을 email로 통일 (로그인 식별자)
                 .password("oauth2_user") // OAuth2 사용자는 패스워드가 필요 없으므로 임시 값 설정
-                .role("ROLE_USER") // 🚨 신규 가입 시 기본 역할(ROLE_USER) 부여
+                .role("ROLE_USER") // 신규 가입 시 기본 역할(ROLE_USER) 부여
                 .provider(provider)
                 .providerId(oAuth2Response.getProviderId())
                 .favoriteTeam(null) 
@@ -101,7 +100,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     /**
      * 기존 사용자의 정보를 업데이트합니다. 
-     * 🚨 ROLE, favoriteTeam 등은 덮어쓰지 않고 보존합니다.
+     * ROLE, favoriteTeam 등은 덮어쓰지 않고 보존합니다.
      */
     private UserEntity updateExistingUser(UserEntity existingUser, OAuth2Response oAuth2Response) {
         // OAuth2 관련 필드만 업데이트: 이름(Name)과 Provider ID만 갱신
