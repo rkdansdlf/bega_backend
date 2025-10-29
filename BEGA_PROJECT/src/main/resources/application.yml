@@ -1,11 +1,20 @@
 spring:
   # 1. DB 설정: ${환경변수명:기본값} 형태로 사용하여 환경변수가 없을 때 기본값을 쓰도록 설정 가능
   datasource:
-    url: ${DB_URL:jdbc:h2:~/local} # .env의 DB_URL 참조
+    url: ${DB_URL:jdbc:h2:~/local} # .env의 DB_URL 참조 (환경변수로 PostgreSQL 사용 중 추정)
     driver-class-name: org.h2.Driver
     username: ${DB_USERNAME:sa}     # .env의 DB_USERNAME 참조
     password: ${DB_PASSWORD:}       # .env의 DB_PASSWORD 참조
-  
+    
+    # --- HikariCP (커넥션 풀) 설정 ---
+    hikari:
+      maximum-pool-size: 1           # 최대 연결 개수를 15개로 제한
+      minimum-idle: 0                # ✨ 추가/변경: 유휴 상태로 유지할 최소 연결 개수를 0으로 설정
+      connection-timeout: 30000       # 연결을 기다리는 최대 시간 (밀리초)
+      initialization-fail-timeout: 10000 # 초기화 실패 시 타임아웃
+      idle-timeout: 60000             # 유휴 연결의 최대 수명
+      max-lifetime: 1800000           # 연결의 최대 수명 (30분)
+      
   jpa:
     # ... (생략: 기존과 동일)
     hibernate:
@@ -23,8 +32,13 @@ spring:
   thymeleaf:
     cache: false
     
+  # --- [추가된 부분] DevTools restart 비활성화 ---
+  # 'restartedMain' 프로세스가 이전 연결을 해제할 시간 없이 새 연결을 시도하는 문제를 방지
+  devtools:
+    restart:
+      enabled: false # 자동 재시작 기능을 비활성화
+      
   # 2. .env 파일 명시적 import (SpringBoot 2.4+ 버전부터 권장)
-  # 이 설정이 있으면 별도 라이브러리 없이도 .env 파일을 로드할 수 있습니다.
   config:
     import: optional:file:.env[.properties] # .env 파일을 로드하도록 설정
     

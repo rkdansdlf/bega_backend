@@ -26,12 +26,12 @@ public class JWTUtil {
     }
 
     // Access Token 생성 메서드
-    public String createJwt(String username, String role, long expiredMs) {
+    public String createJwt(String email, String role, long expiredMs) { // 👈 인수를 email로 변경
 
-        // 🚨 JWT Claims에 username과 role (단일 String)을 추가합니다.
+        // 🚨 JWT Claims에 email과 role (단일 String)을 추가합니다.
         return Jwts.builder()
-                .claim("username", username)
-                .claim("role", role) // 👈 단일 Role String을 Claim에 추가
+                .claim("email", email) // 👈 Claim 키를 "email"로 변경
+                .claim("role", role)
                 .issuedAt(new Date(System.currentTimeMillis()))
                 .expiration(new Date(System.currentTimeMillis() + expiredMs))
                 .signWith(secretKey)
@@ -39,11 +39,11 @@ public class JWTUtil {
     }
     
     // Refresh Token 생성 메서드 (만료 시간은 설정값 사용)
-    public String createRefreshToken(String username, String role) {
+    public String createRefreshToken(String email, String role) { // 👈 인수를 email로 변경
         
         // Refresh Token에도 동일하게 role을 추가 (토큰 재발급 시 사용)
         return Jwts.builder()
-                .claim("username", username)
+                .claim("email", email) // 👈 Claim 키를 "email"로 변경
                 .claim("role", role)
                 // Refresh Token은 Access Token보다 긴 만료 시간(refreshExpirationTime)을 가집니다.
                 .issuedAt(new Date(System.currentTimeMillis()))
@@ -61,15 +61,15 @@ public class JWTUtil {
                     .parseSignedClaims(token)
                     .getPayload();
         } catch (ExpiredJwtException e) {
-            // 토큰이 만료되었을 때도 Claims를 반환하여 username, role 등을 추출할 수 있도록 합니다.
+            // 토큰이 만료되었을 때도 Claims를 반환하여 email, role 등을 추출할 수 있도록 합니다.
             return e.getClaims(); 
         }
     }
 
-    // JWT에서 Username 추출
-    public String getUsername(String token) {
-        // 토큰이 만료되었더라도 Claims를 얻어 username을 추출할 수 있습니다.
-        return getClaims(token).get("username", String.class);
+    // JWT에서 Email 추출
+    public String getEmail(String token) { // 👈 getEmail 메서드 추가
+        // 토큰이 만료되었더라도 Claims를 얻어 email을 추출할 수 있습니다.
+        return getClaims(token).get("email", String.class);
     }
 
     // JWT에서 Role (단일 String) 추출
@@ -84,8 +84,7 @@ public class JWTUtil {
             // 만료 날짜를 기준으로 현재 시간이 이후인지 확인
             return getClaims(token).getExpiration().before(new Date());
         } catch (Exception e) {
-            // 토큰 파싱 실패 시, 만료된 것으로 간주하거나 잘못된 토큰으로 처리할 수 있습니다.
-            // 여기서는 단순 만료 체크만 수행
+            // 토큰 파싱 실패 시, 만료된 것으로 간주하거나 잘못된 토큰으로 처리
             return true;
         }
     }
@@ -94,4 +93,6 @@ public class JWTUtil {
     public long getRefreshTokenExpirationTime() {
         return refreshExpirationTime;
     }
+    
+    // 기존 getUsername 메서드는 이제 사용하지 않습니다. 
 }

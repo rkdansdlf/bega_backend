@@ -85,11 +85,13 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         String refreshToken = jwtUtil.createRefreshToken(userEmail, role); 
 
         // 5. Refresh Token DB 저장 또는 업데이트
-        RefreshToken existToken = refreshRepository.findByUsername(userEmail); 
+        // ⭐️ 수정: findByUsername 대신 findByEmail 사용
+        RefreshToken existToken = refreshRepository.findByEmail(userEmail); 
 
         if (existToken == null) {
             RefreshToken newRefreshToken = new RefreshToken();
-            newRefreshToken.setUsername(userEmail); 
+            // ⭐️ 수정: setUsername 대신 setEmail 사용
+            newRefreshToken.setEmail(userEmail); 
             newRefreshToken.setToken(refreshToken);
             // 만료 시간을 1주로 설정 (JWTUtil의 리프레시 토큰 만료 시간과 일치시킬 필요가 있음)
             newRefreshToken.setExpiryDate(LocalDateTime.now().plusWeeks(1)); 
@@ -118,6 +120,8 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         getRedirectStrategy().sendRedirect(request, response, redirectUrl);
 
         System.out.println("--- JWT 토큰 발행 성공 (OAuth2 로그인) ---");
+        System.out.println("발행된 Access Token: " + accessToken.substring(0, 10) + "...");
+        System.out.println("Refresh Token (DB 저장됨): " + refreshToken.substring(0, 10) + "...");
         System.out.println("토큰 사용자(Email): " + userEmail); 
         System.out.println("권한: " + role);
         System.out.println("-------------------------------------");
@@ -134,3 +138,4 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         return cookie;
     }
 }
+

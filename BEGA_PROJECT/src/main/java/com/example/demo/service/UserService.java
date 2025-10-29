@@ -10,50 +10,34 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.example.demo.dto.UserDto;
+import com.example.demo.dto.SignupDto; 
 import com.example.demo.entity.UserEntity;
+import com.example.demo.entity.TeamEntity; 
 import com.example.demo.entity.Role;
 import com.example.demo.jwt.JWTUtil;
 import com.example.demo.repo.UserRepository;
+import com.example.demo.repo.TeamRepository; 
 
 
 @Service
 public class UserService {
 
-    private static final Logger log = LoggerFactory.getLogger(UserService.class); // 로거 추가
+    private static final Logger log = LoggerFactory.getLogger(UserService.class); 
 
     private final UserRepository userRepository;
+    private final TeamRepository teamRepository; 
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final JWTUtil jwtUtil;
     private static final long ACCESS_EXPIRATION_TIME = 1000L * 60 * 60;
 
-    public UserService(UserRepository userRepository, BCryptPasswordEncoder bCryptPasswordEncoder, JWTUtil jwtUtil) {
+    public UserService(UserRepository userRepository, TeamRepository teamRepository, BCryptPasswordEncoder bCryptPasswordEncoder, JWTUtil jwtUtil) {
         this.userRepository = userRepository;
+        this.teamRepository = teamRepository; 
         this.bCryptPasswordEncoder = bCryptPasswordEncoder;
         this.jwtUtil = jwtUtil;
     }
-
-    // 기존 관리자 회원가입 메서드 (로직 변경 없음)
-    public void joinProcess(UserDto userDto) {
-        String username = userDto.getName();
-        String password = userDto.getPassword();
-
-        Boolean isExist = userRepository.existsByUsername(username);
-
-        if (isExist) {
-            return;
-        }
-
-        UserEntity data = new UserEntity();
-        data.setUsername(username);
-        data.setPassword(bCryptPasswordEncoder.encode(password));
-        data.setRole("ROLE_ADMIN");
-
-        userRepository.save(data);
-    }
     
-    /**
-     * 선호 팀 이름(한글)에 따라 String 타입의 Role Key를 결정하는 헬퍼 메서드
-     */
+    // * 선호 팀 이름(한글)에 따라 String 타입의 Role Key를 결정하는 헬퍼 메서드
     private String getRoleKeyByFavoriteTeam(String teamName) {
         if (teamName == null || "없음".equals(teamName) || teamName.trim().isEmpty()) {
             return Role.USER.getKey();
@@ -75,11 +59,97 @@ public class UserService {
         
         return selectedRoleEnum.getKey();
     }
+    
+ //[신규 추가] 선호 팀 ID(약어)에 따라 Role Key를 결정하는 헬퍼 메서드 ⭐
+    private String getRoleKeyByTeamId(String teamId) {
+        if (teamId == null || teamId.trim().isEmpty()) {
+            return Role.USER.getKey(); // 팀 선택 안 할 시 ROLE_USER
+        }
+
+        // Team ID("KT") -> "ROLE_KT" 형태로 변환합니다.
+        // Role Enum의 키 정의 방식(ROLE_약칭)과 일치하도록 생성합니다.
+        return "ROLE_" + teamId.toUpperCase();
+    }
+    
+    private String getTeamIdByFavoriteTeamName(String teamName) {
+        if (teamName == null || "없음".equals(teamName) || teamName.trim().isEmpty()) {
+            return null;
+        }
+
+        return switch (teamName) {
+            case "삼성 라이온즈" -> "SS";
+            case "롯데 자이언츠" -> "LT";
+            case "LG 트윈스" -> "LG";
+            case "두산 베어스" -> "OB";
+            case "키움 히어로즈" -> "WO";
+            case "한화 이글스" -> "HH";
+            case "SSG 랜더스" -> "SK";
+            case "NC 다이노스" -> "NC";
+            case "KT 위즈" -> "KT";
+            case "기아 타이거즈" -> "HT";
+            default -> null; 
+        };
+    }
+
+    // [MyPage 핵심 메서드]
+    @Transactional(readOnly = true)
+    public UserEntity findUserById(Long id) {
+        return userRepository.findById(id)
+                // ID에 해당하는 사용자가 없으면 런타임 예외를 발생시킵니다.
+                .orElseThrow(() -> new RuntimeException("ID " + id + "에 해당하는 사용자가 없습니다."));
+    }
+
+    @Transactional
+    public UserEntity updateProfile(Long id, String nickname, String profileImageUrl, String favoriteTeamId) {
+        // 1. 사용자 조회 (없으면 예외 발생)
+        UserEntity user = findUserById(id); 
+
+        // 2. 닉네임 및 이미지 업데이트
+        user.setName(nickname);
+        user.setProfileImageUrl(profileImageUrl);
+
+        // 3. 응원팀 업데이트
+        if (favoriteTeamId != null && !favoriteTeamId.trim().isEmpty()) {
+            // 팀 ID가 유효한 경우, TeamEntity를 조회하여 매핑합니다.
+            TeamEntity favoriteTeam = teamRepository.findById(favoriteTeamId)
+                // TeamEntity가 없으면 프로필 수정 실패
+                .orElseThrow(() -> new RuntimeException("유효하지 않은 응원팀 ID입니다: " + favoriteTeamId));
+            
+            user.setFavoriteTeam(favoriteTeam); 
+        } else {
+            // favoriteTeamId가 null이거나 비어있으면 (프론트에서 '없음'을 선택), TeamEntity를 null로 설정합니다.
+            user.setFavoriteTeam(null);
+        }
+        
+        // ⭐ 4. Role 업데이트: 추가된 헬퍼 메서드를 사용합니다. ⭐
+        String newRoleKey = getRoleKeyByTeamId(favoriteTeamId); 
+        user.setRole(newRoleKey);
+        
+        // 5. DB에 변경 사항 저장 및 업데이트된 Entity 반환 (핵심 수정 부분)
+        // save()를 명시적으로 호출하고 반환하여, Controller가 최신 Role 값을 가진 Entity를 사용하도록 보장합니다.
+        return userRepository.save(user);
+    }
+
+    // [회원가입 로직: SignupDto 사용]
+    @Transactional
+    public UserEntity saveUser(SignupDto signupDto) {
+        // 1. 비밀번호 일치 확인 (SignupDto에만 있는 로직)
+        if (!signupDto.getPassword().equals(signupDto.getConfirmPassword())) {
+             throw new IllegalArgumentException("비밀번호와 비밀번호 확인이 일치하지 않습니다.");
+        }
+        
+        // 2. DTO 변환 후 핵심 로직 호출
+        UserDto userDto = signupDto.toUserDto();
+        this.signUp(userDto);
+        
+        // 새로 가입된 사용자를 다시 찾아서 반환 (ID가 포함된 엔티티 반환)
+        return userRepository.findByEmail(userDto.getEmail())
+            .orElseThrow(() -> new RuntimeException("회원가입 후 사용자 조회 실패"));
+    }
 
 
-    /**
-     * 일반 회원가입 및 소셜 연동/역연동 처리 로직 (제한적 연동 정책 적용)
-     */
+
+   //  * [핵심 로직] 일반 회원가입 및 소셜 연동/역연동 처리 로직.
     @Transactional
     public void signUp(UserDto userDto) {
         
@@ -89,7 +159,7 @@ public class UserService {
         // 1. 이메일로 기존 사용자 조회
         Optional<UserEntity> existingUserOptional = userRepository.findByEmail(userDto.getEmail());
 
-        // A. 기존 사용자가 존재하는 경우 (중복 처리)
+        // A. 기존 사용자가 존재하는 경우 (중복 처리 및 연동)
         if (existingUserOptional.isPresent()) {
             UserEntity existingUser = existingUserOptional.get();
             
@@ -125,15 +195,23 @@ public class UserService {
                 return;
             }
             
-            return; // 예외를 던지거나 연동을 처리했으므로 종료
+            return; 
         }
 
         // 2. 이메일이 존재하지 않는 경우 (신규 회원가입)
         log.info("New User Creation: Email '{}' not found in DB. Creating new account.", userDto.getEmail());
 
-        // 선호 팀에 따라 Role 결정 및 String Key 추출
-        String favoriteTeam = userDto.getFavoriteTeam();
-        String assignedRoleKey = getRoleKeyByFavoriteTeam(favoriteTeam);
+        String favoriteTeamName = userDto.getFavoriteTeam();
+        String assignedRoleKey = getRoleKeyByFavoriteTeam(favoriteTeamName);
+        String favoriteTeamId = getTeamIdByFavoriteTeamName(favoriteTeamName);
+
+        // 2-3. TeamEntity 조회
+        TeamEntity favoriteTeam = null;
+        if (favoriteTeamId != null) {
+            log.info("Fetching TeamEntity with ID: {}", favoriteTeamId);
+            favoriteTeam = teamRepository.findById(favoriteTeamId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 팀 ID입니다: " + favoriteTeamId));
+        }
         
         // 비밀번호 암호화 (로컬 가입 시에만 필요)
         String encodedPassword = null;
@@ -143,10 +221,10 @@ public class UserService {
 
         // 3. UserEntity 생성 및 DB 저장
         UserEntity user = UserEntity.builder()
-                .name(userDto.getUsername())
+                .name(userDto.getName()) 
                 .email(userDto.getEmail())
                 .password(encodedPassword) 
-                .favoriteTeam(favoriteTeam)
+                .favoriteTeam(favoriteTeam) // TeamEntity 객체 설정
                 .role(assignedRoleKey)             
                 .provider(userDto.getProvider() != null ? userDto.getProvider() : "LOCAL")
                 .providerId(userDto.getProviderId())
@@ -156,12 +234,10 @@ public class UserService {
         log.info("New account saved. Email: {}, ID: {}", user.getEmail(), user.getId());
     }
     
-    // ... (authenticateAndGetToken 및 isEmailExists, findUserByEmail 메서드는 변경 없음) ...
 
     @Transactional(readOnly = true)
     public Map<String, Object> authenticateAndGetToken(String email, String password) {
         
-        // 1. 이메일로 사용자 조회
         Optional<UserEntity> userOptional = userRepository.findByEmail(email);
         
         if (userOptional.isEmpty()) {
@@ -175,7 +251,6 @@ public class UserService {
             throw new IllegalArgumentException("비밀번호가 일치하지 않습니다.");
         }
         
-        // 비밀번호가 null이면 소셜 계정이므로, 로컬 로그인을 시도하면 비밀번호가 없다는 오류를 발생시킵니다.
         if (user.getPassword() == null) {
             throw new IllegalArgumentException("이 계정은 소셜 로그인 전용입니다. 비밀번호로 로그인할 수 없습니다.");
         }
@@ -190,30 +265,37 @@ public class UserService {
         
         return Map.of(
             "accessToken", accessToken, 
-            "username", user.getName()
+            "name", user.getName()
         );
     }
 
-    /**
-     * 이메일 중복 체크 (컨트롤러에서 사용)
-     */
+
+// 이메일 중복 체크 (컨트롤러에서 사용)
+
     @Transactional(readOnly = true)
     public boolean isEmailExists(String email) {
         return userRepository.existsByEmail(email);
     }
 
-    /**
-     * CustomOAuth2UserService에서 최종 사용자 정보(UserDto)를 가져오기 위한 메서드 추가
-     */
+    //[JWTFilter 지원] 이메일로 Long ID를 조회하는 메서드
+    @Transactional(readOnly = true)
+    public Long getUserIdByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .map(UserEntity::getId)
+                .orElseThrow(() -> new IllegalArgumentException("이메일로 사용자를 찾을 수 없습니다: " + email));
+    }
+
+
+//  CustomOAuth2UserService에서 최종 사용자 정보(UserDto)를 가져오기 위한 메서드 추가
     @Transactional(readOnly = true)
     public UserDto findUserByEmail(String email) {
         return userRepository.findByEmail(email)
             .map(userEntity -> UserDto.builder()
                 .id(userEntity.getId())
-                .username(userEntity.getName())
+                .name(userEntity.getName()) 
                 .email(userEntity.getEmail())
-                // 비밀번호는 노출하지 않음
-                .favoriteTeam(userEntity.getFavoriteTeam())
+                // UserEntity에 추가된 getFavoriteTeamId() 사용 가정 (null-safe)
+                .favoriteTeam(userEntity.getFavoriteTeamId()) 
                 .role(userEntity.getRole())
                 .provider(userEntity.getProvider())
                 .providerId(userEntity.getProviderId())

@@ -20,7 +20,7 @@ public class RefreshToken {
     private Long id;
 
     // 토큰 소유자를 식별하는 사용자명
-    private String username; 
+    private String email; 
 
     // 발행된 리프레시 토큰 문자열
     private String token; 

@@ -1,10 +1,12 @@
 package com.example.demo.entity;
 
-import com.example.demo.dto.UserDto; // 🚨 toDto() 사용을 위해 임포트
-
+import com.example.demo.dto.UserDto; 
 import lombok.*;
-
 import jakarta.persistence.*;
+import org.springframework.data.annotation.CreatedDate; // CreatedDate 임포트
+import org.springframework.data.jpa.domain.support.AuditingEntityListener; // AuditingEntityListener 임포트
+import java.time.LocalDateTime; // LocalDateTime 임포트
+import java.util.Optional;
 
 @Entity
 @Getter
@@ -13,31 +15,42 @@ import jakarta.persistence.*;
 @AllArgsConstructor
 @Builder
 @Table(name = "users", schema = "security")
+@EntityListeners(AuditingEntityListener.class) // 생성/수정일자 자동 관리를 위한 Auditing 리스너
 public class UserEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // 사용자 식별을 위한 고유 이름 (로그인 ID 또는 실제 이름으로 사용)
+    // 사용자에게 보여지는 이름 (닉네임/표시 이름)
     @Column(unique = true, nullable = false)
     private String name;
     
-    // (선택적) 사용자 이름 또는 별명
-    private String username;
-    
-    // 고유 이메일 (로그인 시 사용되는 식별자)
+    // 고유 이메일 (로그인 식별자 및 Spring Security Principal 역할)
     @Column(unique = true, nullable = false)
     private String email;
 
     // 비밀번호 (로컬 계정 전용, 소셜 계정은 null)
     private String password;
+    
+    // ⭐️ 추가: 프로필 이미지 URL (MyPageService에서 사용됨)
+    @Column(name = "profile_image_url", length = 512)
+    private String profileImageUrl;
 
     // 사용자 권한 (ROLE_USER, ROLE_ADMIN 또는 팀별 Role_SS 등)
+    @Column(name = "role", nullable = false)
     private String role;
 
     // 회원가입 시 응원팀 선택 정보
-    private String favoriteTeam;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "favorite_team", referencedColumnName = "team_id")
+    private TeamEntity favoriteTeam; // TeamEntity 객체로 매핑
+    
+    //가입일자
+    @CreatedDate
+    @Column(name = "created_at", updatable = false, nullable = false)
+    private LocalDateTime createdAt;
+
 
     // OAuth2 제공자 (LOCAL, GOOGLE, KAKAO 등)
     private String provider;
@@ -65,6 +78,12 @@ public class UserEntity {
         return provider != null && !"LOCAL".equals(provider);
     }
     
+    public String getFavoriteTeamId() {
+        return Optional.ofNullable(this.favoriteTeam)
+                       .map(TeamEntity::getTeamId)
+                       .orElse(null);
+    }
+    
     /**
      * 엔티티 객체를 DTO 객체로 변환하는 메서드
      * (민감 정보인 비밀번호는 제외하고 전송합니다.)
@@ -72,11 +91,10 @@ public class UserEntity {
     public UserDto toDto() {
         return UserDto.builder()
                 .id(this.id)
-                .username(this.username)
                 .name(this.name)
                 .email(this.email)
                 .role(this.role)
-                .favoriteTeam(this.favoriteTeam)
+                .favoriteTeam(this.favoriteTeam != null ? this.favoriteTeam.getTeamId() : null)
                 .provider(this.provider)
                 .providerId(this.providerId)
                 .build();
