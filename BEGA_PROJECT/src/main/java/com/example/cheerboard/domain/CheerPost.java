@@ -1,5 +1,7 @@
 package com.example.cheerboard.domain;
 
+import com.example.demo.entity.UserEntity;
+import com.example.cheerboard.domain.Team;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -15,8 +17,9 @@ public class CheerPost {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 10)
-    private String teamId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "team_id", nullable = false)
+    private Team team;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -25,7 +28,7 @@ public class CheerPost {
 
     @ManyToOne(fetch = FetchType.LAZY) 
     @JoinColumn(name = "author_id", nullable = false)
-    private AppUser author;
+    private UserEntity author;
 
     @Column(nullable = false)
     private String title;
@@ -34,19 +37,24 @@ public class CheerPost {
     private String content;
 
     @Column(nullable = false)
-    private int likeCount;
+    @Builder.Default
+    private int likeCount = 0;
 
     @Column(nullable = false)
-    private int commentCount;
+    @Builder.Default
+    private int commentCount = 0;
 
     @Column(nullable = false)
-    private int views;
+    @Builder.Default
+    private int views = 0;
 
     @Column(nullable = false)
-    private Instant createdAt;
+    @Builder.Default
+    private Instant createdAt = Instant.now();
 
     @Column(nullable = false)
-    private Instant updatedAt;
+    @Builder.Default
+    private Instant updatedAt = Instant.now();
 
     @ElementCollection
     @CollectionTable(name = "cheer_post_images", joinColumns = @JoinColumn(name = "post_id"))
@@ -74,5 +82,9 @@ public class CheerPost {
     @PreUpdate
     void onUpdate() { 
         updatedAt = Instant.now(); 
+    }
+
+    public String getTeamId() {
+        return team != null ? team.getId() : null;
     }
 }

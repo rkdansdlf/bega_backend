@@ -166,18 +166,19 @@ public class SecurityConfig {
         // 4. 경로별 인가 작업 - 권한 설정
         http
             .authorizeHttpRequests((auth) -> auth
-            	
+
                 // 로그인 경로 /api/auth/login 은 필터가 처리해야 하므로 permitAll()에서 제외 유지
             	.requestMatchers("/api/auth/signup", "/api/auth/reissue").permitAll()
             	.requestMatchers("/", "/oauth2/**", "/login", "/error").permitAll()
-                
+            	.requestMatchers(HttpMethod.GET, "/api/cheer/posts", "/api/cheer/posts/**").permitAll() // 게시글 조회만 공개
+
                 // 2순위: OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
-                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll() 
-                
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
                 // 기존 권한 설정
                 .requestMatchers("/admin/**").hasRole("ADMIN")
-                .requestMatchers("/team/be/**").hasRole("BE") 
-                
+                .requestMatchers("/team/be/**").hasRole("BE")
+
                 // 나머지 모든 요청은 인증 필요
                 .anyRequest().authenticated())
                 
