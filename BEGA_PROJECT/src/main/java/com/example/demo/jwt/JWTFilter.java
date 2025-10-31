@@ -30,15 +30,21 @@ public class JWTFilter extends OncePerRequestFilter {
     
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
-        
+
         String authorization = null;
-        
+
+        String requestUri = request.getRequestURI();
+        System.out.println("🔍 JWTFilter - URI: " + requestUri);
+
         // 1. 쿠키에서 Authorization 토큰 추출 시도
         Cookie[] cookies = request.getCookies();
+        System.out.println("🔍 JWTFilter - Cookies: " + (cookies != null ? cookies.length : 0));
         if (cookies != null) {
             for (Cookie cookie : cookies) {
+                System.out.println("🔍 JWTFilter - Cookie: " + cookie.getName() + " = " + cookie.getValue().substring(0, Math.min(20, cookie.getValue().length())) + "...");
                 if (cookie.getName().equals("Authorization")) {
                     authorization = cookie.getValue();
+                    System.out.println("✅ JWTFilter - Authorization 쿠키 발견!");
                     break;
                 }
             }
@@ -49,11 +55,10 @@ public class JWTFilter extends OncePerRequestFilter {
             String header = request.getHeader("Authorization");
             if (header != null && header.startsWith("Bearer ")) {
                 authorization = header.substring(7); // "Bearer " 이후의 문자열(토큰 값)만 추출
+                System.out.println("✅ JWTFilter - Authorization 헤더 발견!");
             }
         }
-        
-        String requestUri = request.getRequestURI();
-        
+
         // 로그인 및 OAuth2 경로는 필터 스킵 (변경 없음)
         if (requestUri.matches("^\\/login(?:\\/.*)?$") || requestUri.matches("^\\/oauth2(?:\\/.*)?$")) {
             filterChain.doFilter(request, response);
@@ -62,7 +67,7 @@ public class JWTFilter extends OncePerRequestFilter {
 
         // Authorization 토큰이 없는 경우 (쿠키, 헤더 모두 실패)
         if (authorization == null) {
-            System.out.println("토큰이 쿠키나 헤더에 없습니다. 인증 없이 통과.");
+            System.out.println("❌ JWTFilter - 토큰이 쿠키나 헤더에 없습니다. 인증 없이 통과.");
             filterChain.doFilter(request, response);
             return;
         }
@@ -77,26 +82,26 @@ public class JWTFilter extends OncePerRequestFilter {
         }
 
         // 💡 인증 성공 로직
-        String email = jwtUtil.getEmail(token); 
+        String email = jwtUtil.getEmail(token);
         String role = jwtUtil.getRole(token);
 
         try {
-            // 1. UserService를 사용하여 이메일로 Long ID를 조회
+            // 1. UserService를 사용하여 이메일로 Long ID를 조회 (유효성 확인용)
             Long userId = userService.getUserIdByEmail(email);
 
             // 2. 권한 생성
             Collection<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role));
 
-            // 3. Long 타입의 userId를 Principal로 설정하는 Authentication 객체 생성
+            // 3. email을 Principal로 설정하는 Authentication 객체 생성 (CurrentUser가 email로 조회하므로)
             Authentication authToken = new UsernamePasswordAuthenticationToken(
-                userId, // Long 타입의 userId를 Principal로 설정
+                email, // email을 Principal로 설정 (CurrentUser에서 findByEmail로 조회)
                 null,
-                authorities 
+                authorities
             );
-            
+
             // 세션에 사용자 등록
             SecurityContextHolder.getContext().setAuthentication(authToken);
-            System.out.println("✅ JWT 인증 성공: User ID " + userId + " 등록 완료.");
+            System.out.println("✅ JWT 인증 성공: " + email + " (User ID " + userId + ") 등록 완료.");
 
         } catch (IllegalArgumentException e) {
             System.out.println("User not found for email: " + email + " - Skipping authentication.");

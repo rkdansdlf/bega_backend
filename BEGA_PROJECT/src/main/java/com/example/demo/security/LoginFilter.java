@@ -144,12 +144,21 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
 
         // 200 OK 응답으로 REST API 호출을 종료합니다. (클라이언트에서 리다이렉션 처리)
         response.setStatus(HttpServletResponse.SC_OK);
-        // 클라이언트에 성공 메시지 전송
+        // 클라이언트에 성공 메시지 및 role 정보 전송
         response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write("{\"status\": \"success\", \"message\": \"Login successful, cookies set.\"}");
+
+        // JSON 응답 생성 (role 포함)
+        String jsonResponse = String.format(
+            "{\"success\": true, \"message\": null, \"data\": {\"accessToken\": \"%s\", \"name\": \"%s\", \"role\": \"%s\"}}",
+            accessToken,
+            email,
+            role
+        );
+
+        response.getWriter().write(jsonResponse);
         response.getWriter().flush();
-        
-        System.out.println("로그인 성공: 200 OK 응답 전송 완료");
+
+        System.out.println("로그인 성공: 200 OK 응답 전송 완료 (role: " + role + ")");
     }
 
     @Override
@@ -162,10 +171,11 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         System.out.println("fail: " + failed.getMessage());
     }
     
-    // 💡 [추가된 유틸리티 메서드] SameSite=Lax를 강제 적용하여 쿠키를 헤더에 직접 추가합니다.
+    // 💡 [수정] 개발 환경에서 cross-origin 쿠키 전송을 위해 SameSite 제거
     private void addSameSiteCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
-        // HttpOnly: true, Path: / (모든 경로), SameSite: Lax (다른 포트 요청 허용)
-        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax", 
+        // HttpOnly: true, Path: / (모든 경로)
+        // SameSite 제거: localhost:3000 -> localhost:8080 cross-origin 요청에서 쿠키 전송 허용
+        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly",
                                             name, value, maxAgeSeconds);
         response.addHeader("Set-Cookie", cookieString);
     }

@@ -1,9 +1,9 @@
 package com.example.cheerboard.service;
 
-import com.example.cheerboard.domain.AppUser;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.PostSummaryRes;
+import com.example.demo.entity.UserEntity;
 import org.springframework.stereotype.Component;
 
 /**
@@ -26,7 +26,7 @@ public class PostDtoMapper {
             post.getId(),
             post.getTeamId(),
             post.getTitle(),
-            post.getAuthor().getDisplayName(),
+            resolveDisplayName(post.getAuthor()),
             post.getCreatedAt(),
             post.getCommentCount(),
             post.getLikeCount(),
@@ -45,7 +45,7 @@ public class PostDtoMapper {
             post.getTeamId(),
             post.getTitle(),
             post.getContent(),
-            post.getAuthor().getDisplayName(),
+            resolveDisplayName(post.getAuthor()),
             post.getAuthor().getEmail(),
             post.getCreatedAt(),
             post.getCommentCount(),
@@ -61,13 +61,13 @@ public class PostDtoMapper {
     /**
      * 새로 생성된 게시글을 PostDetailRes로 변환 (좋아요/소유권 기본값 설정)
      */
-    public PostDetailRes toNewPostDetailRes(CheerPost post, AppUser author) {
+    public PostDetailRes toNewPostDetailRes(CheerPost post, UserEntity author) {
         return new PostDetailRes(
             post.getId(),
             post.getTeamId(),
             post.getTitle(),
             post.getContent(),
-            author.getDisplayName(),
+            resolveDisplayName(author),
             author.getEmail(),
             post.getCreatedAt(),
             0, // 새 게시글이므로 댓글 수 0
@@ -78,5 +78,12 @@ public class PostDtoMapper {
             0, // 새 게시글이므로 조회수 0
             post.getPostType().name()
         );
+    }
+
+    private String resolveDisplayName(UserEntity author) {
+        if (author.getName() != null && !author.getName().isBlank()) {
+            return author.getName();
+        }
+        return author.getEmail();
     }
 }
