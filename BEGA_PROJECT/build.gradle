@@ -43,6 +43,7 @@ dependencies {
 	implementation 'com.mysql:mysql-connector-j'
 	implementation 'org.postgresql:postgresql:42.6.0'
 	runtimeOnly 'org.postgresql:postgresql'
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'
 }
 
 tasks.named('test') {
