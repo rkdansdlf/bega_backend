@@ -168,11 +168,17 @@ public class SecurityConfig {
             	.requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                 //OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll() 
+                .requestMatchers("/api/stadiums/**").permitAll()
+                .requestMatchers("/api/places/**").permitAll()
+                .requestMatchers("/api/teams/**").permitAll()
+                .requestMatchers("/api/games/**").permitAll()
                 
                 // 기존 권한 설정
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 // 팀게시글 주소별 권한
                 .requestMatchers("/team/be/**").hasRole("BE")
+
+                
                 
                 
                 // 나머지 모든 요청은 인증 필요
