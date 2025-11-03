@@ -172,6 +172,10 @@ public class SecurityConfig {
             	.requestMatchers("/", "/oauth2/**", "/login", "/error").permitAll()
             	.requestMatchers(HttpMethod.GET, "/api/cheer/posts", "/api/cheer/posts/**").permitAll() // 게시글 조회만 공개
 
+                .requestMatchers("/api/stadiums/**").permitAll()
+                .requestMatchers("/api/places/**").permitAll()
+                .requestMatchers("/api/teams/**").permitAll()
+                .requestMatchers("/api/games/**").permitAll()
                 // 2순위: OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
