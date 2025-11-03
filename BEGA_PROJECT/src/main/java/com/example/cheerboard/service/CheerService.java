@@ -22,6 +22,7 @@ import com.example.demo.entity.UserEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +31,7 @@ import java.util.stream.Collectors;
 
 import static com.example.cheerboard.service.CheerServiceConstants.*;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CheerService {
@@ -129,21 +131,20 @@ public class CheerService {
      * 새 게시글 엔티티 생성
      */
     private CheerPost buildNewPost(CreatePostReq req, UserEntity author, PostType postType) {
-        System.out.println("🔍 buildNewPost - teamId: " + req.teamId());
+        log.debug("buildNewPost - teamId={}", req.teamId());
         var team = teamRepo.findById(req.teamId())
             .orElseThrow(() -> new java.util.NoSuchElementException("팀을 찾을 수 없습니다: " + req.teamId()));
-        System.out.println("✅ buildNewPost - Team found: " + team.getId());
+        log.debug("buildNewPost - team lookup succeeded: {}", team.getId());
 
         CheerPost post = CheerPost.builder()
             .author(author)
             .team(team)
             .title(req.title())
             .content(req.content())
-            .imageUrls(req.images() != null ? new java.util.ArrayList<>(req.images()) : new java.util.ArrayList<>())
             .postType(postType)
             .build();
 
-        System.out.println("🔍 buildNewPost - Post team: " + (post.getTeam() != null ? post.getTeam().getId() : "NULL"));
+        log.debug("buildNewPost - resolved post team={}", post.getTeam() != null ? post.getTeam().getId() : "NULL");
         return post;
     }
 
@@ -222,6 +223,9 @@ public class CheerService {
         UserEntity me = current.get();
         CheerPost post = findPostById(postId);
         permissionValidator.validateTeamAccess(me, post.getTeamId(), "댓글 작성");
+
+        // 중복 댓글 체크: 직전 3초 이내 동일 작성자·게시글·내용 댓글 확인
+        checkDuplicateComment(post.getId(), me.getId(), req.content(), null);
 
         CheerComment comment = saveNewComment(post, me, req);
         incrementCommentCount(post);
@@ -366,6 +370,9 @@ public class CheerService {
 
         permissionValidator.validateTeamAccess(me, post.getTeamId(), "대댓글 작성");
 
+        // 중복 대댓글 체크: 직전 3초 이내 동일 작성자·부모댓글·내용 대댓글 확인
+        checkDuplicateComment(post.getId(), me.getId(), req.content(), parentCommentId);
+
         CheerComment reply = saveNewReply(post, parentComment, me, req);
         incrementCommentCount(post);
 
@@ -382,5 +389,32 @@ public class CheerService {
             .author(author)
             .content(req.content())
             .build());
+    }
+
+    /**
+     * 중복 댓글/대댓글 체크
+     * 직전 3초 이내 동일 작성자·게시글·내용·부모댓글 조합이 있는지 확인
+     */
+    private void checkDuplicateComment(Long postId, Long authorId, String content, Long parentCommentId) {
+        java.time.Instant threeSecondsAgo = java.time.Instant.now().minusSeconds(3);
+
+        boolean isDuplicate = commentRepo.findAll().stream()
+            .filter(c -> c.getPost().getId().equals(postId))
+            .filter(c -> c.getAuthor().getId().equals(authorId))
+            .filter(c -> c.getContent().equals(content))
+            .filter(c -> {
+                if (parentCommentId == null) {
+                    return c.getParentComment() == null;
+                } else {
+                    return c.getParentComment() != null && c.getParentComment().getId().equals(parentCommentId);
+                }
+            })
+            .filter(c -> c.getCreatedAt().isAfter(threeSecondsAgo))
+            .findAny()
+            .isPresent();
+
+        if (isDuplicate) {
+            throw new IllegalStateException("중복된 댓글입니다. 잠시 후 다시 시도해주세요.");
+        }
     }
 }

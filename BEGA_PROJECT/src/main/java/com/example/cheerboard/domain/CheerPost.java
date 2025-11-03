@@ -2,6 +2,7 @@ package com.example.cheerboard.domain;
 
 import com.example.demo.entity.UserEntity;
 import com.example.cheerboard.domain.Team;
+import com.example.cheerboard.storage.entity.PostImage;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -56,17 +57,15 @@ public class CheerPost {
     @Builder.Default
     private Instant updatedAt = Instant.now();
 
-    @ElementCollection
-    @CollectionTable(name = "cheer_post_images", joinColumns = @JoinColumn(name = "post_id"))
-    @Column(name = "image_url")
-    @Builder.Default
-    private List<String> imageUrls = new ArrayList<>();
-    
     // 연관관계 매핑 (cascade 삭제를 위해 추가)
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
+    private List<PostImage> images = new ArrayList<>();
+
+    @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
     private List<CheerComment> comments = new ArrayList<>();
-    
+
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<CheerPostLike> likes = new ArrayList<>();

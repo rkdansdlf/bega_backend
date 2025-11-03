@@ -41,3 +41,6 @@ out/
 .venv
 env
 venv
+
+# 로그 파일 무시
+*.log

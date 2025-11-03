@@ -38,7 +38,7 @@ public class CheerComment {
     private List<CheerComment> replies = new ArrayList<>();
 
     // 좋아요 수
-    @Column(nullable = false)
+    @Column(name = "like_count", nullable = false)
     @Builder.Default
     private int likeCount = 0;
 
@@ -47,10 +47,10 @@ public class CheerComment {
     @Builder.Default
     private List<CheerCommentLike> likes = new ArrayList<>();
 
-    @Column(nullable = false)
+    @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
-    @Column(nullable = false)
+    @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
     @PrePersist
