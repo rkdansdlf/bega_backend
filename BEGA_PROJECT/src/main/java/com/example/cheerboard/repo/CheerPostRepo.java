@@ -6,10 +6,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.*;
 
 public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
-    @EntityGraph(attributePaths = {"author", "team"})
-    Page<CheerPost> findByTeam_IdOrderByCreatedAtDesc(String teamId, Pageable pageable);
+    @EntityGraph(attributePaths = "author")
+    Page<CheerPost> findByTeamIdOrderByCreatedAtDesc(String teamId, Pageable pageable);
     
-    @EntityGraph(attributePaths = {"author", "team"})
-    @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.id = :teamId) ORDER BY p.postType DESC, p.createdAt DESC")
+    @EntityGraph(attributePaths = "author")
+    @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.teamId = :teamId) ORDER BY p.postType DESC, p.createdAt DESC")
     Page<CheerPost> findAllOrderByPostTypeAndCreatedAt(String teamId, Pageable pageable);
 }

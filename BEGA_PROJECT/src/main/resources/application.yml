@@ -78,17 +78,5 @@ spring:
 # --- logging 설정은 그대로 최상위 레벨 유지 ---
 logging:
   level:
-    root: INFO
     org.springframework.security: DEBUG
     com.club.security: DEBUG
-    com.example.cheerboard: DEBUG
-
-# Supabase Storage 설정
-supabase:
-  url: ${SUPABASE_URL:https://zyofzvnkputevakepbdm.supabase.co}
-  service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
-  storage:
-    bucket: cheer-assets
-    signed-url-ttl-seconds: 3600
-    max-image-bytes: 5242880
-    max-images-per-post: 10
