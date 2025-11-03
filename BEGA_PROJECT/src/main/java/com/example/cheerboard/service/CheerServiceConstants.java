@@ -12,7 +12,7 @@ public final class CheerServiceConstants {
     public static final int HOT_COMMENT_THRESHOLD = 3;
     
     // 권한 관련
-    public static final String ADMIN_ROLE = "ROLE_ADMIN";
+    public static final String ADMIN_ROLE = "ADMIN";
     public static final String NOTICE_POST_TYPE = "NOTICE";
     
     // 에러 메시지

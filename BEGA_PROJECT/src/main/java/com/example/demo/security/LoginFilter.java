@@ -48,7 +48,7 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
     public Authentication attemptAuthentication(HttpServletRequest request, HttpServletResponse response) throws AuthenticationException {
 
         if (!request.getMethod().equals("POST")) {
-            throw new AuthenticationServiceException("Authentication method not supported: " + request.getMethod());
+            throw new AuthenticationServiceException("인증 방법이 지원되지 않습니다: " + request.getMethod());
         }
 
         String identifier = null; // email 또는 username으로 사용될 변수
@@ -57,7 +57,7 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         // JSON 요청 본문 파싱
         if (request.getContentType() != null && request.getContentType().contains("application/json")) {
             try (InputStream is = request.getInputStream()) {
-                // JSON에서 로그인 데이터 추출 (클라이언트에서 'email' 키를 사용한다고 가정)
+                // JSON에서 로그인 데이터 추출 
                 Map<String, String> loginData = objectMapper.readValue(is, Map.class);
                 
                 identifier = loginData.get("email"); 
@@ -65,7 +65,7 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
                 
             } catch (IOException e) {
                 // 스트림 읽기 실패 또는 JSON 형식 오류
-                throw new AuthenticationServiceException("Invalid login request body format (expected JSON) or failed to read stream.", e);
+                throw new AuthenticationServiceException("로그인 요청 본문 형식(예상 JSON)이 잘못되었거나 스트림을 읽지 못했습니다.", e);
             }
         } else {
             // Content-Type이 JSON이 아닌 경우 (폼 데이터 등)
@@ -89,7 +89,7 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
     @Override
     protected void successfulAuthentication(HttpServletRequest request, HttpServletResponse response, FilterChain chain, Authentication authentication) throws IOException, ServletException {
 
-        System.out.println("======> successfulAuthentication 필터 실행 시작! (REST API 모드) <======"); 
+        System.out.println("successfulAuthentication 필터 실행 확인 (REST API 모드)"); 
 
         CustomUserDetails customUserDetails = (CustomUserDetails) authentication.getPrincipal();
         String email = customUserDetails.getUsername(); 
@@ -99,16 +99,13 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         GrantedAuthority auth = iterator.next();
         String role = auth.getAuthority();
 
-        // Access Token 유효 기간 설정 (예: 2시간)
-        long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; 
+        // Access Token 유효 기간 설정 
+        long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; //2시간
 
         // JWT 생성
         String accessToken = jwtUtil.createJwt(email, role, accessTokenExpiredMs);
         String refreshToken = jwtUtil.createRefreshToken(email, role);
         
-        
-        
-        // 💡 사용자 요청에 따라 JWT 토큰 정보를 출력합니다. (일반 로그인)
         System.out.println("--- JWT 토큰 발행 성공 (일반 로그인) ---");
         System.out.println("발행된 Access Token: " + accessToken.substring(0, 10) + "...");
         System.out.println("Refresh Token (DB 저장됨): " + refreshToken.substring(0, 10) + "...");
@@ -117,7 +114,7 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         System.out.println("-------------------------------------");
 
 
-        // Refresh Token DB 저장/업데이트 로직
+        // Refresh Token DB 저장/업데이트
         RefreshToken existToken = refreshRepository.findByEmail(email);
 
         if (existToken == null) {
@@ -134,7 +131,7 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
             refreshRepository.save(existToken);
         }
         
-        // 💡 [수정] 쿠키에 Access/Refresh Token 동시 추가 (addSameSiteCookie 사용)
+        // 쿠키에 Access/Refresh Token 동시 추가
         int accessTokenMaxAge = (int)(accessTokenExpiredMs / 1000);
         addSameSiteCookie(response, "Authorization", accessToken, accessTokenMaxAge);
         
@@ -142,23 +139,14 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         addSameSiteCookie(response, "Refresh", refreshToken, refreshTokenMaxAge);
 
 
-        // 200 OK 응답으로 REST API 호출을 종료합니다. (클라이언트에서 리다이렉션 처리)
+        // 200 OK 응답으로 REST API 호출을 종료합니다.
         response.setStatus(HttpServletResponse.SC_OK);
-        // 클라이언트에 성공 메시지 및 role 정보 전송
+        // 클라이언트에 성공 메시지 전송
         response.setContentType("application/json;charset=UTF-8");
-
-        // JSON 응답 생성 (role 포함)
-        String jsonResponse = String.format(
-            "{\"success\": true, \"message\": null, \"data\": {\"accessToken\": \"%s\", \"name\": \"%s\", \"role\": \"%s\"}}",
-            accessToken,
-            email,
-            role
-        );
-
-        response.getWriter().write(jsonResponse);
+        response.getWriter().write("{\"status\": \"success\", \"message\": \"Login successful, cookies set.\"}");
         response.getWriter().flush();
-
-        System.out.println("로그인 성공: 200 OK 응답 전송 완료 (role: " + role + ")");
+        
+        System.out.println("로그인 성공: 200 OK 응답 전송 완료");
     }
 
     @Override
@@ -171,25 +159,12 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         System.out.println("fail: " + failed.getMessage());
     }
     
-    // 💡 [수정] 개발 환경에서 cross-origin 쿠키 전송을 위해 SameSite 제거
+    // SameSite=Lax를 강제 적용하여 쿠키를 헤더에 직접 추가합니다.
     private void addSameSiteCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
-        // HttpOnly: true, Path: / (모든 경로)
-        // SameSite 제거: localhost:3000 -> localhost:8080 cross-origin 요청에서 쿠키 전송 허용
-        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly",
+        // HttpOnly: true, Path: / (모든 경로), SameSite: Lax (다른 포트 요청 허용)
+        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax", 
                                             name, value, maxAgeSeconds);
         response.addHeader("Set-Cookie", cookieString);
     }
-    
-    // 💡 [제거] 기존 createCookie 메서드는 더 이상 사용하지 않으므로 삭제합니다.
-    /*
-    private Cookie createCookie(String key, String value, int maxAgeSeconds) {
-        Cookie cookie = new Cookie(key, value);
-        cookie.setMaxAge(maxAgeSeconds);
-        cookie.setPath("/");
-        cookie.setHttpOnly(true);
-        // Secure, SameSite 속성은 개발 환경에 따라 조정이 필요하며, 현재는 기본적인 설정만 유지합니다.
-        return cookie;
-    }
-    */
 }
 

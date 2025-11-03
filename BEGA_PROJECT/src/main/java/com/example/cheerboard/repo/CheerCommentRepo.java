@@ -8,13 +8,7 @@ import org.springframework.data.jpa.repository.*;
 public interface CheerCommentRepo extends JpaRepository<CheerComment, Long> {
     @EntityGraph(attributePaths = "author")
     Page<CheerComment> findByPostIdOrderByCreatedAtDesc(Long postId, Pageable pageable);
-
-    /**
-     * 최상위 댓글만 조회 (parentComment가 null인 댓글)
-     */
-    @EntityGraph(attributePaths = {"author", "replies", "replies.author"})
-    Page<CheerComment> findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(Long postId, Pageable pageable);
-
+    
     /**
      * 특정 게시글의 모든 댓글 삭제
      */

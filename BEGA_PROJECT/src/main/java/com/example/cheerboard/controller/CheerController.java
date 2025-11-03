@@ -6,7 +6,6 @@ import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.CreateCommentReq;
 import com.example.cheerboard.dto.CommentRes;
-import com.example.cheerboard.dto.LikeToggleResponse;
 import com.example.cheerboard.service.CheerService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -17,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/cheer")
 @RequiredArgsConstructor
+@CrossOrigin(origins = "*", allowedHeaders = "*")
 public class CheerController {
 
     private final CheerService svc;
@@ -52,8 +52,9 @@ public class CheerController {
     }
 
     @PostMapping("/posts/{id}/like")
-    public LikeToggleResponse toggleLike(@PathVariable Long id) {
-        return svc.toggleLike(id);
+    public java.util.Map<String, Object> toggleLike(@PathVariable Long id) {
+        boolean liked = svc.toggleLike(id);
+        return java.util.Map.of("liked", liked);
     }
 
     @GetMapping("/posts/{id}/comments")
@@ -72,18 +73,5 @@ public class CheerController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteComment(@PathVariable Long commentId) {
         svc.deleteComment(commentId);
-    }
-
-    @PostMapping("/comments/{commentId}/like")
-    public LikeToggleResponse toggleCommentLike(@PathVariable Long commentId) {
-        return svc.toggleCommentLike(commentId);
-    }
-
-    @PostMapping("/posts/{postId}/comments/{parentCommentId}/replies")
-    public CommentRes addReply(
-        @PathVariable Long postId,
-        @PathVariable Long parentCommentId,
-        @RequestBody CreateCommentReq req) {
-        return svc.addReply(postId, parentCommentId, req);
     }
 }

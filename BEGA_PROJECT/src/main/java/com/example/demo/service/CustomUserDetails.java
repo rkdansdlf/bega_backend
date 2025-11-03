@@ -20,7 +20,7 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        // 단일 Role을 SimpleGrantedAuthority로 변환하여 반환
+        // Role을 SimpleGrantedAuthority로 변환하여 반환
         return Collections.singletonList((GrantedAuthority) () -> userEntity.getRole());
     }
 
@@ -29,18 +29,11 @@ public class CustomUserDetails implements UserDetails {
         return userEntity.getPassword();
     }
 
-    /**
-     * Spring Security Principal의 식별자(username)를 반환합니다.
-     * UserEntity에서 username 필드를 제거하고 email을 사용하므로, email을 반환합니다.
-     */
     @Override
     public String getUsername() {
         return userEntity.getEmail(); 
     }
     
-    /**
-     * JWT 발행 등에 사용할 수 있도록 UserEntity의 Email을 직접 반환하는 메서드입니다.
-     */
     public String getEmail() {
         return userEntity.getEmail();
     }

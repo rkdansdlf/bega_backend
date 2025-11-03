@@ -1,78 +1,72 @@
 package com.example.cheerboard.config;
 
-import com.example.demo.dto.CustomOAuth2User;
-import com.example.demo.entity.UserEntity;
-import com.example.demo.repo.UserRepository;
-import com.example.demo.service.CustomUserDetails;
+import com.example.cheerboard.domain.AppUser;
+import com.example.cheerboard.repo.AppUserRepo;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.annotation.RequestScope;
 
+import jakarta.servlet.http.HttpServletRequest;
+import java.util.Base64;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+
 @Component
 @RequestScope
-@RequiredArgsConstructor
 public class CurrentUser {
-
-    private final UserRepository userRepository;
-
-    private UserEntity cached;
-    private boolean resolved;
-
-    public UserEntity get() {
-        UserEntity user = getOrNull();
-        if (user == null) {
-            throw new AuthenticationCredentialsNotFoundException("인증된 사용자만 이용할 수 있습니다.");
-        }
-        return user;
+    private final HttpServletRequest request;
+    private final AppUserRepo userRepo;
+    
+    public CurrentUser(HttpServletRequest request, AppUserRepo userRepo) {
+        this.request = request;
+        this.userRepo = userRepo;
+        System.out.println("🎯 CurrentUser 인스턴스 생성됨!");
     }
 
-    public UserEntity getOrNull() {
-        if (resolved) {
-            return cached;
+    private AppUser cached;
+
+    public AppUser get() {
+        if (cached != null) return cached;
+
+        String email = headerOr("X-Debug-Email", "test@bega.app");
+        String name  = decodeBase64Header(headerOr("X-Debug-Name",  "dGVzdA=="), "테스트");
+        String team  = headerOr("X-Debug-Team",  "LG");
+        String role  = headerOr("X-Debug-Role",  "USER");
+
+        cached = userRepo.findByEmail(email).orElseGet(() -> {
+            System.out.println("🆕 새 사용자 생성: " + email + ", 역할: " + role);
+            return userRepo.save(AppUser.builder()
+                .email(email).displayName(name).favoriteTeamId(team).role(role).build());
+        });
+        
+        // 역할이 변경된 경우 업데이트 (개발 단계에서만)
+        if (!cached.getRole().equals(role)) {
+            System.out.println("🔄 역할 업데이트: " + cached.getRole() + " → " + role);
+            cached.setRole(role);
+            cached = userRepo.save(cached);
         }
-
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()
-            || authentication.getPrincipal() == null
-            || "anonymousUser".equals(authentication.getPrincipal())) {
-            resolved = true;
-            cached = null;
-            return null;
-        }
-
-        String identifier = resolvePrincipal(authentication.getPrincipal());
-        cached = findUser(identifier);
-
-        resolved = true;
+        
+        System.out.println("👤 현재 사용자: " + cached.getEmail() + ", 역할: " + cached.getRole());
         return cached;
     }
 
-    private String resolvePrincipal(Object principal) {
-        if (principal instanceof CustomOAuth2User oAuth2User) {
-            var dto = oAuth2User.getUserDto();
-            if (dto.getEmail() != null && !dto.getEmail().isBlank()) {
-                return dto.getEmail();
-            }
-            return dto.getUsername();
+    private String headerOr(String key, String def) {
+        try {
+            String v = request.getHeader(key);
+            return (v == null || v.isBlank()) ? def : v;
+        } catch (Exception e) {
+            return def;
         }
-        if (principal instanceof CustomUserDetails details) {
-            return details.getUsername();
-        }
-        if (principal instanceof UserDetails springUser) {
-            return springUser.getUsername();
-        }
-        return principal.toString();
     }
-
-    private UserEntity findUser(String identifier) {
-        if (identifier == null || identifier.isBlank()) {
-            return null;
+    
+    private String decodeBase64Header(String encoded, String def) {
+        try {
+            if (encoded == null || encoded.isBlank()) return def;
+            byte[] decodedBytes = Base64.getDecoder().decode(encoded);
+            String decoded = new String(decodedBytes, StandardCharsets.UTF_8);
+            return URLDecoder.decode(decoded, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return def;
         }
-        return userRepository.findByEmail(identifier)
-                .orElseGet(() -> userRepository.findByName(identifier).orElse(null));
     }
 }
