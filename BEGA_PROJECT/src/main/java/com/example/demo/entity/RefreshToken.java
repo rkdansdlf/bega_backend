@@ -19,13 +19,12 @@ public class RefreshToken {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // 토큰 소유자를 식별하는 사용자명
+    // 토큰 소유자를 식별용 이메일
     private String email; 
 
-    // 발행된 리프레시 토큰 문자열
+    // 리프레시 토큰
     private String token; 
     
-    // 만료 시간 (필요시)
+    // 만료 시간
     private LocalDateTime expiryDate; 
-    // ... getter, setter, constructor
 }
