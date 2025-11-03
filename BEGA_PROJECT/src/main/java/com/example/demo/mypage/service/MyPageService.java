@@ -8,8 +8,8 @@ import com.example.demo.repo.TeamRepository;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.slf4j.Logger; 
-import org.slf4j.LoggerFactory; 
+import org.slf4j.Logger; // Logger import 추가
+import org.slf4j.LoggerFactory; // LoggerFactory import 추가
 
 import java.time.format.DateTimeFormatter;
 
@@ -26,7 +26,7 @@ public class MyPageService {
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ISO_DATE;
     
-    // Team ID(약어)를 한글 팀 이름으로 변환
+    // ** 헬퍼 메서드: Team ID(약어)를 한글 팀 이름으로 변환 (GET 요청 시 필요) **
     private String getTeamNameById(String teamId) {
         if (teamId == null) {
             return "없음";
@@ -47,17 +47,17 @@ public class MyPageService {
     }
     
     
-    // Team ID에 따라 Role Key 설정
+    // ⭐ 새로운 헬퍼 메서드: Team ID(약어)에 따라 Role Key를 결정 ⭐
     private String getRoleKeyByTeamId(String teamId) {
         if (teamId == null || "없음".equals(teamId) || teamId.trim().isEmpty()) {
             return "ROLE_USER"; 
         }
 
-        // ROLE_ID 형태로 Role Key를 생성합니다
+        // ROLE_ID 형태로 Role Key를 생성합니다. (대문자 사용)
         return "ROLE_" + teamId.toUpperCase();
     }
     
-    // 이메일을 기반으로 사용자 프로필을 조회하여 DTO로 변환합니다.
+//     * [READ] 이메일을 기반으로 사용자 프로필을 조회하여 DTO로 변환합니다.
     @Transactional(readOnly = true)
     public UserProfileDto getProfileByEmail(String email) {
         UserEntity user = userRepository.findByEmail(email)
@@ -66,48 +66,49 @@ public class MyPageService {
         // Entity 데이터를 DTO로 매핑
         String teamId = user.getFavoriteTeam() != null ? user.getFavoriteTeam().getTeamId() : null;
         
+        // DTO 반환 시에는 프론트엔드가 요구하는 한글 이름과 현재 Role을 포함합니다.
         return UserProfileDto.builder()
                 .name(user.getName())
                 .email(user.getEmail())
-                .favoriteTeam(teamId) 
+                .favoriteTeam(teamId) // ⭐ DTO에는 약칭을 담아 반환합니다. (프론트에서 LG를 받도록 약속했기 때문)
                 .profileImageUrl(user.getProfileImageUrl())
                 .createdAt(user.getCreatedAt().format(DATE_FORMATTER)) 
-                .role(user.getRole()) 
+                .role(user.getRole()) // ⭐ 현재 Role 필드도 포함
                 .build();
     }
 
-    // 사용자 프로필 정보를 업데이트
+//     * [UPDATE] 사용자 프로필 정보를 업데이트합니다.
     @Transactional
     public UserProfileDto updateProfile(String email, UserProfileDto updateDto) {
         UserEntity user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("사용자 정보를 찾을 수 없습니다."));
         
-        // 닉네임 업데이트
+        // 1. 닉네임 업데이트
         user.setName(updateDto.getName()); 
-        // 응원 구단 업데이트
+        // 2. 응원 구단 업데이트 (약칭을 Team ID로 사용)
         String newTeamId = updateDto.getFavoriteTeam(); 
         
         TeamEntity newTeam = null;
         if (newTeamId != null && !newTeamId.equals("없음")) {
-            // 새로 적용한 Team ID를 TeamEntity 조회
+            // 새 팀 ID(약칭)로 TeamEntity 조회
         	newTeam = teamRepository.findByTeamId(newTeamId) 
                     .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 팀 약어입니다: " + newTeamId));
         }
-        user.setFavoriteTeam(newTeam); // TeamEntity 객체 설정
+        user.setFavoriteTeam(newTeam); // TeamEntity 객체 설정 (null일 수 있음)
         
-        // 권한 (Role) 업데이트 
+        // 3. 권한 (Role) 업데이트 로직
         String newRoleKey = getRoleKeyByTeamId(newTeamId);
         user.setRole(newRoleKey); 
         
-        // 프로필 이미지 URL 업데이트 
+        // 4. 프로필 이미지 URL 업데이트 
         if (updateDto.getProfileImageUrl() != null) {
             user.setProfileImageUrl(updateDto.getProfileImageUrl());
         }
         
-        // DB에 반영되기 직전 Entity가 가진 Role 값을 확인 
+        // ⭐ DEBUG 로그 추가: DB에 반영되기 직전 Entity가 가진 Role 값을 확인 ⭐
         log.info("DEBUG-ROLE-CHECK: Entity Role set to: {}", user.getRole());
         
-        // 변경 사항을 DB에 저장
+        // save를 호출하여 변경 사항을 DB에 반영
         userRepository.save(user);
 
         // 업데이트된 정보를 DTO로 다시 변환하여 반환
