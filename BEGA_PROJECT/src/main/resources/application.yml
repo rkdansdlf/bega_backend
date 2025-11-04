@@ -9,7 +9,7 @@ spring:
     # --- HikariCP (커넥션 풀) 설정 ---
     hikari:
       maximum-pool-size: 1           # 최대 연결 개수를 15개로 제한
-      minimum-idle: 0                # ✨ 추가/변경: 유휴 상태로 유지할 최소 연결 개수를 0으로 설정
+      minimum-idle: 0                # 추가/변경: 유휴 상태로 유지할 최소 연결 개수를 0으로 설정
       connection-timeout: 30000       # 연결을 기다리는 최대 시간 (밀리초)
       initialization-fail-timeout: 10000 # 초기화 실패 시 타임아웃
       idle-timeout: 60000             # 유휴 연결의 최대 수명
@@ -85,8 +85,8 @@ logging:
 
 # Supabase Storage 설정
 supabase:
-  url: ${SUPABASE_URL:https://zyofzvnkputevakepbdm.supabase.co}
-  service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
+  url: ${DB_URL}
+  service-role-key: ${SUPABASE_SERVICE_ROLE_KEY}
   storage:
     bucket: cheer-assets
     signed-url-ttl-seconds: 3600

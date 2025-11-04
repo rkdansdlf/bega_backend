@@ -1,6 +1,7 @@
 package com.example.cheerboard.service;
 
 import com.example.cheerboard.domain.CheerPost;
+import com.example.cheerboard.domain.Team;
 import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.storage.service.ImageService;
@@ -34,6 +35,9 @@ public class PostDtoMapper {
         return new PostSummaryRes(
             post.getId(),
             post.getTeamId(),
+            resolveTeamName(post.getTeam()),
+            resolveTeamShortName(post.getTeam()),
+            resolveTeamColor(post.getTeam()),
             post.getTitle(),
             resolveDisplayName(post.getAuthor()),
             post.getCreatedAt(),
@@ -59,6 +63,9 @@ public class PostDtoMapper {
         return new PostDetailRes(
             post.getId(),
             post.getTeamId(),
+            resolveTeamName(post.getTeam()),
+            resolveTeamShortName(post.getTeam()),
+            resolveTeamColor(post.getTeam()),
             post.getTitle(),
             post.getContent(),
             resolveDisplayName(post.getAuthor()),
@@ -88,6 +95,9 @@ public class PostDtoMapper {
         return new PostDetailRes(
             post.getId(),
             post.getTeamId(),
+            resolveTeamName(post.getTeam()),
+            resolveTeamShortName(post.getTeam()),
+            resolveTeamColor(post.getTeam()),
             post.getTitle(),
             post.getContent(),
             resolveDisplayName(author),
@@ -108,5 +118,17 @@ public class PostDtoMapper {
             return author.getName();
         }
         return author.getEmail();
+    }
+
+    private String resolveTeamName(Team team) {
+        return team != null ? team.getName() : null;
+    }
+
+    private String resolveTeamShortName(Team team) {
+        return team != null ? team.getShortName() : null;
+    }
+
+    private String resolveTeamColor(Team team) {
+        return team != null ? team.getColor() : null;
     }
 }
