@@ -1,5 +1,6 @@
 package com.example.cheerboard.domain;
 
+import com.example.demo.entity.UserEntity;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -22,7 +23,7 @@ public class CheerPostLike {
     @ManyToOne(fetch = FetchType.LAZY) 
     @MapsId("userId")
     @JoinColumn(name = "user_id")
-    private AppUser user;
+    private UserEntity user;
 
     @Column(nullable = false)
     private Instant createdAt;

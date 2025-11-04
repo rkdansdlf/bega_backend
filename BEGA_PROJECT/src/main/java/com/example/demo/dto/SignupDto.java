@@ -10,6 +10,9 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 
+/**
+ * 회원가입 요청 전용 DTO (비밀번호 일치 확인용 confirmPassword 필드 포함)
+ */
 @Getter
 @Setter
 @Builder
@@ -34,10 +37,14 @@ public class SignupDto {
 
     private String favoriteTeam;
     
-    // 소셜 연동 관련 필드는 일반 가입 시 Local
+    // 소셜 연동 관련 필드는 일반 가입 시에는 null
     private String provider;
     private String providerId;
 
+    /**
+     * DTO to UserDto 변환 (Service 계층으로 전달할 때 사용)
+     * confirmPassword를 제외하고 UserDto를 생성합니다.
+     */
     public UserDto toUserDto() {
         return UserDto.builder()
                 .name(this.name)

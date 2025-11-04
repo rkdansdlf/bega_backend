@@ -7,13 +7,20 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Custom implementation of OAuth2User to store user details, using the application's
+ * UserDto as the core authenticated principal data.
+ */
 public class CustomOAuth2User implements OAuth2User {
 
+    // 내부 상태는 JWT와 OAuth2 모두에서 사용하기 쉬운 UserDto를 기반으로 합니다.
     private final UserDto userDto;
     private final Map<String, Object> attributes;
     private final Collection<? extends GrantedAuthority> authorities;
     private final String nameAttributeKey;
 
+    // 1. NEW: JWT Filter Flow Constructor (단일 인자: UserDto)
+    // 로그에서 발생한 "The constructor CustomOAuth2User(UserDto) is undefined" 오류 해결
     public CustomOAuth2User(UserDto userDto) {
         this.userDto = userDto;
         
@@ -25,7 +32,8 @@ public class CustomOAuth2User implements OAuth2User {
         this.nameAttributeKey = "username";
     }
 
-    // 2. OAuth2 Login Flow Constructor 
+    // 2. OAuth2 Login Flow Constructor (두 인자: UserDto + Attributes)
+    // CustomOAuth2UserService에서 발생하는 두 인자 생성자 호출 오류 해결 (UserEntity 대신 UserDto 사용)
     public CustomOAuth2User(UserDto userDto, Map<String, Object> attributes) {
         this.userDto = userDto;
         this.attributes = attributes;
@@ -37,6 +45,7 @@ public class CustomOAuth2User implements OAuth2User {
         this.nameAttributeKey = attributes.containsKey("sub") ? "sub" : "name"; 
     }
     
+    // --- OAuth2User 인터페이스 필수 구현 메서드 ---
     @Override
     public Map<String, Object> getAttributes() {
         return attributes;
@@ -53,6 +62,7 @@ public class CustomOAuth2User implements OAuth2User {
         return this.attributes.getOrDefault(this.nameAttributeKey, userDto.getUsername()).toString();
     }
 
+    // --- 추가 getter 메서드 ---
     public String getUsername() {
         return userDto.getUsername();
     }
