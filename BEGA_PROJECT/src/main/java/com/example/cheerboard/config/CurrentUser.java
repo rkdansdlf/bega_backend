@@ -73,6 +73,6 @@ public class CurrentUser {
             return null;
         }
         return userRepository.findByEmail(identifier)
-                .orElseGet(() -> userRepository.findByName(identifier).orElse(null));
+                .orElse(null);
     }
 }
