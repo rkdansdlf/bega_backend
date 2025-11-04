@@ -28,28 +28,26 @@ import jakarta.validation.Valid;
 @RequiredArgsConstructor
 public class MypageController {
 
-    // ⭐ 추가: JWT Access Token 만료 시간 (30분)
     private static final long ACCESS_TOKEN_EXPIRED_MS = 1000 * 60 * 30; // 30분 (ms 단위)
-
     private final UserService userService; 
     private final JWTUtil jwtUtil; 
 
-//[GET] 프로필 정보 조회 API
+    //프로필 정보 조회
     @GetMapping("/mypage")
     public ResponseEntity<ApiResponse> getMyProfile(
             @AuthenticationPrincipal Long userId) {
         try {
-            // 1. JWT 토큰에서 추출된 ID (userId) 사용    
-            // 2. UserService를 통해 실제 DB에서 사용자 정보 조회
+            // JWT 토큰에서 ID (userId) 사용    
+            // UserService를 통해 실제 DB에서 사용자 정보 조회
             UserEntity userEntity = userService.findUserById(userId);
 
-            // 3. Entity를 DTO로 변환
+            // Entity를 DTO로 변환
             UserProfileDto profileDto = UserProfileDto.builder()
                     .name(userEntity.getName())
                     .email(userEntity.getEmail()) 
                     .favoriteTeam(userEntity.getFavoriteTeamId() != null ? userEntity.getFavoriteTeamId() : "없음") 
                     .profileImageUrl(userEntity.getProfileImageUrl())
-                    .createdAt(userEntity.getCreatedAt().format(DateTimeFormatter.ISO_DATE_TIME)) // 👈 수정된 부분
+                    .createdAt(userEntity.getCreatedAt().format(DateTimeFormatter.ISO_DATE_TIME)) 
                     .role(userEntity.getRole()) 
                     .build();
 
@@ -67,10 +65,7 @@ public class MypageController {
         }
     }
 
-    /**
-     * [PUT] 프로필 정보 수정 API
-     * PUT /api/auth/mypage
-     */
+    // 프로필 정보 수정
     @PutMapping("/mypage")
     public ResponseEntity<ApiResponse> updateMyProfile(
             @AuthenticationPrincipal Long userId,
@@ -97,6 +92,7 @@ public class MypageController {
                     .createdAt(updatedEntity.getCreatedAt().format(DateTimeFormatter.ISO_DATE_TIME))
                     .build();
 
+            // 유저 정보가 수정되면 즉시 새로운 토큰 생성
             String newRoleKey = updatedEntity.getRole(); 
             String userEmail = updatedEntity.getEmail(); 
             
