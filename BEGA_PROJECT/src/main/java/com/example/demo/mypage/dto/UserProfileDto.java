@@ -25,7 +25,7 @@ public class UserProfileDto {
     @NotBlank(message = "이메일은 필수입니다.")
     private String email; // 이메일 (조회 전용, 수정 불가능)
     
-    // 응원 구단
+    // 응원 구단 (한글 이름으로 전송 및 수신)
     private String favoriteTeam; 
     
     // 프로필 이미지 URL
