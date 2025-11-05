@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,8 +30,8 @@ public class BegaDiaryService {
     private final BegaGameService gameService;
     
     // 전체 다이어리 조회
-    public List<DiaryResponseDto> getAllDiaries() {
-        List<BegaDiary> diaries = this.diaryRepository.findAll();
+    public List<DiaryResponseDto> getAllDiaries(String email) {
+        List<BegaDiary> diaries = this.diaryRepository.findByUser_Email(email);
         
         // Entity List → DTO List 변환
         return diaries.stream()
@@ -75,6 +76,8 @@ public class BegaDiaryService {
             .type(DiaryType.ATTENDED)
             .photoUrls(requestDto.getPhotos())
             .game(game)
+            .team(game.getHomeTeam()+"-"+game.getAwayTeam())
+            .stadium(game.getStadium())
             .build();
         
         // 5. DB 저장
