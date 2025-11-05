@@ -44,7 +44,14 @@ public class CurrentUser {
             return null;
         }
 
-        String identifier = resolvePrincipal(authentication.getPrincipal());
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof Long userId) {
+            cached = userRepository.findById(userId).orElse(null);
+            resolved = true;
+            return cached;
+        }
+
+        String identifier = resolvePrincipal(principal);
         cached = findUser(identifier);
 
         resolved = true;
@@ -71,6 +78,14 @@ public class CurrentUser {
     private UserEntity findUser(String identifier) {
         if (identifier == null || identifier.isBlank()) {
             return null;
+        }
+        if (identifier.chars().allMatch(Character::isDigit)) {
+            try {
+                Long userId = Long.valueOf(identifier);
+                return userRepository.findById(userId).orElse(null);
+            } catch (NumberFormatException ignore) {
+                // fall back to email lookup below
+            }
         }
         return userRepository.findByEmail(identifier)
                 .orElse(null);
