@@ -67,10 +67,6 @@ public class CheerService {
         UserEntity me = current.getOrNull();
         CheerPost post = findPostById(id);
 
-        if (me != null) {
-            permissionValidator.validateTeamAccess(me, post.getTeamId(), "게시글 상세보기");
-        }
-
         increaseViewCount(post, me);
 
         boolean liked = me != null && isPostLikedByUser(id, me.getId());
