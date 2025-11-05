@@ -5,6 +5,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.example.demo.entity.UserEntity;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
@@ -16,12 +18,14 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Entity
 @Getter
+@Table(name = "bega_diary")
 @NoArgsConstructor
 public class BegaDiary {
 	public static enum DiaryEmoji {
@@ -68,43 +72,55 @@ public class BegaDiary {
 	@JoinColumn(name="game_id")
 	private BegaGame game;
 	
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name="user_id", nullable=false)
+	private UserEntity user;
+	
 	@Column(length = 500)
-	private String memo;  // 메모
+	private String memo;
+	
+	@Column(nullable = false)
+	private String team;
+
+	@Column(nullable = false)
+	private String stadium;
 	
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false)
-	private DiaryEmoji mood;  // 기분
+	private DiaryEmoji mood;
 	
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false)
-	private DiaryType type;  // 다이어리 타입
+	private DiaryType type;
 	
 	@ElementCollection
 	private List<String> photoUrls = new ArrayList<>();  // 사진 URL 목록
 	
 	@Column(nullable = false, updatable = false)
-	private LocalDateTime createdAt;  // 생성 시간
+	private LocalDateTime createdAt; 
 	
 	@Column(nullable = false)
-	private LocalDateTime updatedAt;  // 수정 시간
+	private LocalDateTime updatedAt;  
 	
 	@Builder
 	public BegaDiary(LocalDate diaryDate, BegaGame game, 
-	                 String memo, DiaryEmoji mood, DiaryType type, List<String> photoUrls) {
+	                 String memo, DiaryEmoji mood, DiaryType type, 
+	                 List<String> photoUrls, UserEntity user, String team, String stadium) {
 	    this.diaryDate = diaryDate;
-	    
 	    this.game = game;
 	    this.memo = memo;
 	    this.mood = mood;
 	    this.type = type;
 	    this.photoUrls = photoUrls != null ? photoUrls : new ArrayList<>();
+	    this.user = user;
+	    this.team = team;
+	    this.stadium = stadium;
 	    this.createdAt = LocalDateTime.now();
 	    this.updatedAt = LocalDateTime.now();
 	}
 	
 	// 다이어리 수정 메서드
 	public void updateDiary(String memo, DiaryEmoji mood, List<String> photoUrls) {
-	    
 	    this.memo = memo;
 	    this.mood = mood;
 	    if (photoUrls != null) {
