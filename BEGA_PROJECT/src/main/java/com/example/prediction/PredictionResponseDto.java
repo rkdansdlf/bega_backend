@@ -1,4 +1,4 @@
-package com.example.demo.prediction;
+package com.example.prediction;
 
 import lombok.Builder;
 import lombok.Getter;
