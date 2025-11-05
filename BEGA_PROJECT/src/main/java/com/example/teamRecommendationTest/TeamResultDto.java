@@ -1,4 +1,4 @@
-package teamRecommendationTest;
+package com.example.teamRecommendationTest;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
