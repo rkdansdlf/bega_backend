@@ -85,8 +85,8 @@ logging:
 
 # Supabase Storage 설정
 supabase:
-  url: https://zyofzvnkputevakepbdm.supabase.co
-  service-role-key: postgresql://postgres.zyofzvnkputevakepbdm:kboplatform2025@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres
+  url: ${DB_URL}
+  service-role-key: ${SERVICE_ROLE}
   storage:
     bucket: cheer-assets
     signed-url-ttl-seconds: 3600
