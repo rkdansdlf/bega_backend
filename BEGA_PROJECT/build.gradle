@@ -19,6 +19,7 @@ repositories {
 }
 
 dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-web'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
     implementation 'nz.net.ultraq.thymeleaf:thymeleaf-layout-dialect'
@@ -41,6 +42,12 @@ dependencies {
 	runtimeOnly 'org.postgresql:postgresql'
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
 	implementation 'io.projectreactor:reactor-core'
+	 // Jakarta Servlet API 추가
+    implementation 'jakarta.servlet:jakarta.servlet-api:6.0.0'
+    // Logback/SLF4J (이미 Spring Boot에 포함되어 있지만 명시)
+    implementation 'org.slf4j:slf4j-api'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.junit.jupiter:junit-jupiter'
 }
 
 tasks.named('test') {
