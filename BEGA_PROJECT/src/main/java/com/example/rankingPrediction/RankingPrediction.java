@@ -1,4 +1,4 @@
-package com.example.demo.rankingPrediction;
+package com.example.rankingPrediction;
 
 import java.time.LocalDateTime;
 import java.util.List;

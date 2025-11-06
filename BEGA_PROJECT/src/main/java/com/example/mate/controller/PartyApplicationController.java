@@ -12,7 +12,6 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/applications")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class PartyApplicationController {
 
     private final PartyApplicationService applicationService;

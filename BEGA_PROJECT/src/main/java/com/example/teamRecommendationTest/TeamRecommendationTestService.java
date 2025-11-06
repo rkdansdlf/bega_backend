@@ -1,4 +1,4 @@
-package teamRecommendationTest;
+package com.example.teamRecommendationTest;
 
 import java.util.HashMap;
 import java.util.List;

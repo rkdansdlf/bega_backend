@@ -1,4 +1,4 @@
-package com.example.demo.prediction;
+package com.example.prediction;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
