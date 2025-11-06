@@ -1,4 +1,4 @@
-package teamRecommendationTest;
+package com.example.teamRecommendationTest;
 
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
