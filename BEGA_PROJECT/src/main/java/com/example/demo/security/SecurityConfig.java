@@ -7,13 +7,11 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer; 
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler; 
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher; 
 
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -21,6 +19,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.example.demo.Oauth2.CustomOAuth2UserService;
 import com.example.demo.Oauth2.CustomSuccessHandler;
+import com.example.demo.Oauth2.CookieAuthorizationRequestRepository; 
 import com.example.demo.jwt.JWTFilter;
 import com.example.demo.jwt.JWTUtil;
 import com.example.demo.repo.RefreshRepository;
@@ -35,6 +34,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import jakarta.servlet.ServletException;
 
+
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
@@ -44,11 +44,13 @@ public class SecurityConfig {
 	private final CustomSuccessHandler customSuccessHandler;
     private final JWTUtil jwtUtil;
     private final RefreshRepository refreshRepository;
+    private final CookieAuthorizationRequestRepository cookieauthorizationrequestRepository;
 
     public SecurityConfig(CustomOAuth2UserService customOAuth2UserService,
     		CustomSuccessHandler customSuccessHandler, JWTUtil jwtUtil,
     		AuthenticationConfiguration authenticationConfiguration,
-    		RefreshRepository refreshRepository
+    		RefreshRepository refreshRepository,
+    		CookieAuthorizationRequestRepository cookieauthorizationrequestRepository
     		) {
     	
     	this.authenticationConfiguration = authenticationConfiguration;
@@ -56,6 +58,7 @@ public class SecurityConfig {
         this.customSuccessHandler = customSuccessHandler;
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
+        this.cookieauthorizationrequestRepository = cookieauthorizationrequestRepository; // 저장
     }
     
     @Bean
@@ -88,13 +91,6 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/**", configuration); 
         
         return source;
-    }
-
-    // 정적 자원 및 H2 콘솔 제외
-    @Bean
-    public WebSecurityCustomizer webSecurityCustomizer() {
-        return (web) -> web.ignoring()
-                .requestMatchers(AntPathRequestMatcher.antMatcher("/h2-console/**")); 
     }
     
     // JWTFilter 빈 메서드 인자로 UserService를 주입받아 순환 참조 방지
@@ -147,6 +143,8 @@ public class SecurityConfig {
         http
             .addFilterAt(loginFilter, UsernamePasswordAuthenticationFilter.class);
 
+        loginFilter.setFilterProcessesUrl("/api/auth/login"); 
+        
         // OAuth2 설정 
 		http
             .oauth2Login((oauth2) -> oauth2
@@ -157,13 +155,16 @@ public class SecurityConfig {
                     System.err.println("OAuth2 로그인 최종 실패. 예외 메시지: " + exception.getMessage());
                     response.sendRedirect("/login?error=" + exception.getMessage()); 
                 })
+                .authorizationEndpoint(authorization -> authorization
+                    .authorizationRequestRepository(cookieauthorizationrequestRepository)
+                )
             );
 
         // 경로별 인가 작업 - 권한 설정
         http
             .authorizeHttpRequests((auth) -> auth
 
-            	.requestMatchers("/api/auth/signup", "/api/auth/reissue").permitAll()
+            	.requestMatchers("/api/auth/signup", "/api/auth/reissue", "/api/auth/login").permitAll()
             	.requestMatchers("/", "/oauth2/**", "/login", "/error").permitAll()
             	.requestMatchers(HttpMethod.GET, "/api/cheer/posts", "/api/cheer/posts/**").permitAll() // 게시글 조회만 공개
             	.requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
@@ -203,4 +204,3 @@ public class SecurityConfig {
         return http.build();
     }
 }
-

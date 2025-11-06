@@ -2,6 +2,10 @@ package com.example.demo.service;
 
 import java.util.Map;
 import java.util.Optional;
+import java.io.ByteArrayInputStream; 
+import java.io.InputStream;
+import java.util.Base64; 
+import java.io.IOException;
 
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -11,13 +15,13 @@ import org.slf4j.LoggerFactory;
 
 import com.example.demo.dto.UserDto;
 import com.example.demo.dto.SignupDto; 
+import com.example.demo.mypage.dto.MyPageUpdateDto; // 🚨 새로 추가된 DTO import
 import com.example.demo.entity.UserEntity;
 import com.example.demo.entity.TeamEntity; 
 import com.example.demo.entity.Role;
 import com.example.demo.jwt.JWTUtil;
 import com.example.demo.repo.UserRepository;
 import com.example.demo.repo.TeamRepository; 
-
 
 @Service
 public class UserService {
@@ -28,13 +32,19 @@ public class UserService {
     private final TeamRepository teamRepository; 
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final JWTUtil jwtUtil;
+    // 🚨 Supabase URL을 프론트에서 받으므로 S3Uploader의 역할이 축소되거나 없어집니다.
+    // private final S3Uploader s3Uploader; 
+    
     private static final long ACCESS_EXPIRATION_TIME = 1000L * 60 * 60;
 
-    public UserService(UserRepository userRepository, TeamRepository teamRepository, BCryptPasswordEncoder bCryptPasswordEncoder, JWTUtil jwtUtil) {
+    public UserService(UserRepository userRepository, TeamRepository teamRepository,
+    		BCryptPasswordEncoder bCryptPasswordEncoder, JWTUtil jwtUtil
+    		/* , S3Uploader s3Uploader */) { // 🚨 생성자에서도 S3Uploader 주입 제거
         this.userRepository = userRepository;
         this.teamRepository = teamRepository; 
         this.bCryptPasswordEncoder = bCryptPasswordEncoder;
         this.jwtUtil = jwtUtil;
+        // this.s3Uploader = s3Uploader;
     }
     
     // 회원가입의 favoriteTeam에 따라 Role 지정
@@ -98,14 +108,29 @@ public class UserService {
                 .orElseThrow(() -> new RuntimeException("ID " + id + "에 해당하는 사용자가 없습니다."));
     }
 
+    /**
+     * 프로필 업데이트 로직 (닉네임, 응원팀, 프로필 이미지 URL 포함)
+     * @param id 사용자 ID
+     * @param updateDto 업데이트할 정보를 담은 DTO
+     * @return 업데이트된 UserEntity
+     */
     @Transactional
-    public UserEntity updateProfile(Long id, String nickname, String profileImageUrl, String favoriteTeamId) {
+    public UserEntity updateProfile(Long id, MyPageUpdateDto updateDto) { // 🚨 Base64 대신 DTO를 받습니다.
         // 사용자 조회
         UserEntity user = findUserById(id); 
 
-        // 닉네임 및 이미지 수정
-        user.setName(nickname);
-        user.setProfileImageUrl(profileImageUrl);
+        // 닉네임 수정
+        user.setName(updateDto.getName());
+
+        // 🚨 프로필 이미지 URL 처리 (Supabase에서 업로드 후 받은 URL이 있을 경우에만 실행)
+        String newImageUrl = updateDto.getProfileImageUrl();
+        if (newImageUrl != null && !newImageUrl.isEmpty()) {
+            // 새 URL로 DB 업데이트
+            user.setProfileImageUrl(newImageUrl);
+            log.info("Profile image updated for user {}. New URL: {}", user.getId(), newImageUrl);
+        }
+        
+        String favoriteTeamId = updateDto.getFavoriteTeamId();
 
         // 응원팀 수정
         if (favoriteTeamId != null && !favoriteTeamId.trim().isEmpty()) {
@@ -126,7 +151,8 @@ public class UserService {
         // DB에 변경 사항 저장
         return userRepository.save(user);
     }
-
+    // ... (이하 기존 메서드들은 변경 없음)
+    
     // 회원가입
     @Transactional
     public UserEntity saveUser(SignupDto signupDto) {

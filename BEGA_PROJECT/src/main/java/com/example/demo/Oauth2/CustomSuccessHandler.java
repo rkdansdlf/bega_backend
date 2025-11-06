@@ -41,18 +41,15 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         // 1. Principal에서 사용자 정보 추출
         CustomOAuth2User principal = (CustomOAuth2User) authentication.getPrincipal();
         
-        // 이메일 추출을 OAuth2 Attributes와 CustomOAuth2User.getUsername() 두개를 시도
-        // Google, Kakao 등 모든 제공자에 대해 안전하게 이메일을 가져오기
+        // 이메일 추출
         String userEmail = (String) principal.getAttributes().get("email"); 
         
         if (userEmail == null || userEmail.isEmpty()) {
-            // Attributes에서 이메일이 바로 추출되지 않을 경우, CustomOAuth2UserService에서 설정한 username으로 시도합니다.
             userEmail = principal.getUsername(); 
         }
         
         if (userEmail == null || userEmail.isEmpty()) {
-            System.err.println("CustomSuccessHandler: Google/Kakao attributes 및 UserDto에서 유효한 email을 찾을 수 없습니다. (이메일 동의 필요 또는 데이터 누락)");
-            // 이메일이 없는 경우, 에러 페이지로 리다이렉트
+            System.err.println("CustomSuccessHandler: 유효한 email을 찾을 수 없습니다.");
             getRedirectStrategy().sendRedirect(request, response, "/oauth2/login/error?message=email_missing");
             return;
         }
@@ -61,9 +58,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         Optional<UserEntity> userEntityOptional = userRepository.findByEmail(userEmail); 
         
         if (userEntityOptional.isEmpty()) {
-            // 이메일로 사용자를 찾을 수 없는 경우
-            System.err.println("CustomSuccessHandler: DB에서 이메일(" + userEmail + ")로 사용자를 찾을 수 없습니다. (DB 저장 실패 가능성)");
-            // 이 경우 로그인 실패로 간주하고 에러 페이지로 리다이렉트
+            System.err.println("CustomSuccessHandler: DB에서 이메일(" + userEmail + ")로 사용자를 찾을 수 없습니다.");
             getRedirectStrategy().sendRedirect(request, response, "/oauth2/login/error?message=user_not_found_in_db");
             return;
         }
@@ -100,17 +95,21 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             refreshRepository.save(existToken);
         }
 
-        // 클라이언트에 토큰 응답 (쿠키)
-        // Access Token 쿠키
-        response.addCookie(createCookie("Authorization", accessToken, (int)(accessTokenExpiredMs / 1000)));
+        // 쿠키에 Access/Refresh Token 동시 추가 (LoginFilter와 동일한 메서드 사용)
+        int accessTokenMaxAge = (int)(accessTokenExpiredMs / 1000);
+        addSameSiteCookie(response, "Authorization", accessToken, accessTokenMaxAge);
         
-        // Refresh Token 쿠키
         int refreshTokenMaxAge = (int)(jwtUtil.getRefreshTokenExpirationTime() / 1000); 
-        response.addCookie(createCookie("Refresh", refreshToken, refreshTokenMaxAge));
+        addSameSiteCookie(response, "Refresh", refreshToken, refreshTokenMaxAge);
+            
+        if (request.getSession(false) != null) {
+            request.getSession(false).invalidate();
+            System.out.println("--- 기존 HTTP 세션(JSESSIONID) 명시적 무효화 완료 ---");
+        }
         
         // 7. 리다이렉션 
         String encodedUsername = URLEncoder.encode(userName, StandardCharsets.UTF_8);
-        String redirectUrl = "http://localhost:3000";
+        String redirectUrl = "http://localhost:3000"; // 쿠키를 추가한 후 리다이렉트
         
         getRedirectStrategy().sendRedirect(request, response, redirectUrl);
 
@@ -122,16 +121,12 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         System.out.println("-------------------------------------");
     }
     
-    // 쿠키 생성
-    private Cookie createCookie(String key, String value, int maxAgeSeconds) {
-        Cookie cookie = new Cookie(key, value);
-        cookie.setMaxAge(maxAgeSeconds);
-        cookie.setPath("/");
-        cookie.setHttpOnly(true);
-        // cookie.setSecure(true); // HTTPS 환경에서만 사용
-
-        return cookie;
+ 
+    private void addSameSiteCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
+        // SameSite=Lax는 보안은 유지하면서 로컬 환경(HTTP)에서도 잘 작동하도록 합니다.
+        // SameSite=None을 사용하려면 반드시 Secure 속성이 필요하고, HTTPS 환경이어야 합니다.
+        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax", 
+                                            name, value, maxAgeSeconds);
+        response.addHeader("Set-Cookie", cookieString);
     }
 }
-
-

@@ -1,10 +1,10 @@
 spring:
   # 1. DB 설정: ${환경변수명:기본값} 형태로 사용하여 환경변수가 없을 때 기본값을 쓰도록 설정 가능
   datasource:
-    url: ${DB_URL:jdbc:h2:~/local} # .env의 DB_URL 참조 (환경변수로 PostgreSQL 사용 중 추정)
-    driver-class-name: org.h2.Driver
-    username: ${DB_USERNAME:sa}     # .env의 DB_USERNAME 참조
-    password: ${DB_PASSWORD:}       # .env의 DB_PASSWORD 참조
+    url: ${DB_URL} # .env의 DB_URL 
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME}     # .env의 DB_USERNAME 참조
+    password: ${DB_PASSWORD}       # .env의 DB_PASSWORD 참조
     
     # --- HikariCP (커넥션 풀) 설정 ---
     hikari:
@@ -75,6 +75,11 @@ spring:
             user-info-uri: https://kapi.kakao.com/v2/user/me
             user-name-attribute: id
             
+jwt:
+  # .env의 JWT_SECRET 참조
+  secret: ${JWT_SECRET}
+  access-token-expired-ms: 3600000
+            
 # --- logging 설정은 그대로 최상위 레벨 유지 ---
 logging:
   level:
@@ -85,7 +90,7 @@ logging:
 
 # Supabase Storage 설정
 supabase:
-  url: ${DB_URL}
+  url: ${SUPABASE_PROJECT_URL}
   service-role-key: ${SERVICE_ROLE}
   storage:
     bucket: cheer-assets
