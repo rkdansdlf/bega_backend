@@ -71,12 +71,13 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         // DB에 저장된 사용자의 이름(name)을 리다이렉션에 사용
         String userName = userEntity.getName();
 
+        Long userId = userEntity.getId();
         // Access Token 생성
         long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; // 2시간
-        String accessToken = jwtUtil.createJwt(userEmail, role, accessTokenExpiredMs); 
+        String accessToken = jwtUtil.createJwt(userEmail, role, userId, accessTokenExpiredMs); 
 
         // Refresh Token 생성 
-        String refreshToken = jwtUtil.createRefreshToken(userEmail, role); 
+        String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId); 
 
         // Refresh Token DB 저장 또는 업데이트
         RefreshToken existToken = refreshRepository.findByEmail(userEmail); 

@@ -16,7 +16,10 @@ import org.slf4j.LoggerFactory;
 import com.example.demo.dto.UserDto;
 import com.example.demo.dto.SignupDto; 
 import com.example.demo.mypage.dto.MyPageUpdateDto; // 🚨 새로 추가된 DTO import
+import com.example.demo.mypage.dto.UserProfileDto;
 import com.example.demo.entity.UserEntity;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
 import com.example.demo.entity.TeamEntity; 
 import com.example.demo.entity.Role;
 import com.example.demo.jwt.JWTUtil;
@@ -115,7 +118,7 @@ public class UserService {
      * @return 업데이트된 UserEntity
      */
     @Transactional
-    public UserEntity updateProfile(Long id, MyPageUpdateDto updateDto) { // 🚨 Base64 대신 DTO를 받습니다.
+    public UserEntity updateProfile(Long id, UserProfileDto updateDto) { // 🚨 Base64 대신 DTO를 받습니다.
         // 사용자 조회
         UserEntity user = findUserById(id); 
 
@@ -130,7 +133,7 @@ public class UserService {
             log.info("Profile image updated for user {}. New URL: {}", user.getId(), newImageUrl);
         }
         
-        String favoriteTeamId = updateDto.getFavoriteTeamId();
+        String favoriteTeamId = updateDto.getFavoriteTeam();
 
         // 응원팀 수정
         if (favoriteTeamId != null && !favoriteTeamId.trim().isEmpty()) {
@@ -282,6 +285,7 @@ public class UserService {
         String accessToken = jwtUtil.createJwt(
             user.getEmail(),
             user.getRole(),
+            user.getId(),
             ACCESS_EXPIRATION_TIME
         );
         
