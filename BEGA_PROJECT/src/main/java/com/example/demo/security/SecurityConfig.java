@@ -171,6 +171,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/places/**").permitAll()
                 .requestMatchers("/api/teams/**").permitAll()
                 .requestMatchers("/api/games/**").permitAll()
+                .requestMatchers("/api/diary/**").permitAll()
                 //OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 

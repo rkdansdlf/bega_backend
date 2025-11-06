@@ -86,7 +86,7 @@ logging:
 # Supabase Storage 설정
 supabase:
   url: ${DB_URL}
-  service-role-key: ${SUPABASE_SERVICE_ROLE_KEY}
+  service-role-key: ${SERVICE_ROLE}
   storage:
     bucket: cheer-assets
     signed-url-ttl-seconds: 3600

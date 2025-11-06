@@ -1,4 +1,4 @@
-package com.example.demo.prediction;
+package com.example.prediction;
 
 import java.util.List;
 

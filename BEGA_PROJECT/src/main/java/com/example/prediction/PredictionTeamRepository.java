@@ -1,4 +1,4 @@
-package com.example.demo.prediction;
+package com.example.prediction;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
