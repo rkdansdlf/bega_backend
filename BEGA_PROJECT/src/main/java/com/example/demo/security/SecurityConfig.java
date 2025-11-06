@@ -164,7 +164,7 @@ public class SecurityConfig {
         http
             .authorizeHttpRequests((auth) -> auth
 
-            	.requestMatchers("/api/auth/signup", "/api/auth/reissue", "/api/auth/login").permitAll()
+            	.requestMatchers("/api/auth/signup", "/api/auth/reissue", "/api/auth/login", "/api/auth/supabasetoken").permitAll()
             	.requestMatchers("/", "/oauth2/**", "/login", "/error").permitAll()
             	.requestMatchers(HttpMethod.GET, "/api/cheer/posts", "/api/cheer/posts/**").permitAll() // 게시글 조회만 공개
             	.requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
