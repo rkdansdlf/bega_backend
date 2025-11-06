@@ -12,7 +12,6 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/checkin")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class CheckInRecordController {
 
     private final CheckInRecordService checkInRecordService;

@@ -13,7 +13,6 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/parties")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class PartyController {
 
     private final PartyService partyService;

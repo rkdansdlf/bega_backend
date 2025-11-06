@@ -1,4 +1,4 @@
-package com.example.demo.prediction;
+package com.example.prediction;
 
 import java.util.List;
 
@@ -19,7 +19,6 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/predictions")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "http://localhost:3000")
 public class PredictionController {
 	
 	private final PredictionService predictionService;
