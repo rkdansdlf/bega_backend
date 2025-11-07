@@ -2,21 +2,24 @@ package com.example.BegaDiary.Service;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.BegaDiary.DiaryEmoji;
 import com.example.BegaDiary.Entity.BegaDiary.DiaryType;
+import com.example.BegaDiary.Entity.BegaDiary.DiaryWinning;
 import com.example.BegaDiary.Entity.BegaGame;
 import com.example.BegaDiary.Entity.DiaryRequestDto;
 import com.example.BegaDiary.Entity.DiaryResponseDto;
 import com.example.BegaDiary.Exception.DiaryAlreadyExistsException;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Repository.BegaGameRepository;
+import com.example.demo.entity.UserEntity;
+import com.example.demo.repo.UserRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -28,10 +31,11 @@ public class BegaDiaryService {
     private final BegaDiaryRepository diaryRepository;
     private final BegaGameRepository gameRepository;
     private final BegaGameService gameService;
+    private final UserRepository userRepository;
     
     // 전체 다이어리 조회
-    public List<DiaryResponseDto> getAllDiaries(String email) {
-        List<BegaDiary> diaries = this.diaryRepository.findByUser_Email(email);
+    public List<DiaryResponseDto> getAllDiaries(Long userId) {
+        List<BegaDiary> diaries = this.diaryRepository.findByUser_Id(userId);
         
         // Entity List → DTO List 변환
         return diaries.stream()
@@ -49,9 +53,11 @@ public class BegaDiaryService {
     
     // 다이어리 저장
     @Transactional
-    public BegaDiary save(DiaryRequestDto requestDto) {
+    public BegaDiary save(Long userId, DiaryRequestDto requestDto) {
         // 1. 날짜 파싱
         LocalDate diaryDate = LocalDate.parse(requestDto.getDate());
+        
+        UserEntity user = this.userRepository.findById(userId).get();
         
         // 2. 중복 체크
         if (diaryRepository.existsByDiaryDate(diaryDate)) {
@@ -62,6 +68,7 @@ public class BegaDiaryService {
         
         // 3. Enum 변환
         DiaryEmoji mood = DiaryEmoji.fromKoreanName(requestDto.getEmojiName());
+        DiaryWinning winning = DiaryWinning.valueOf(requestDto.getWinningName());
         
         // 4. 빌더로 엔티티 생성
         BegaGame game = null;
@@ -74,10 +81,12 @@ public class BegaDiaryService {
             .memo(requestDto.getMemo())
             .mood(mood)
             .type(DiaryType.ATTENDED)
+            .winning(winning)
             .photoUrls(requestDto.getPhotos())
             .game(game)
             .team(game.getHomeTeam()+"-"+game.getAwayTeam())
             .stadium(game.getStadium())
+            .user(user)
             .build();
         
         // 5. DB 저장
