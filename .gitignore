@@ -2,3 +2,4 @@
 /.DS_Store/
 .DS_Store
 BEGA_PROJECT/gradle.properties
+BEGA_PROJECT/logs/app.log
