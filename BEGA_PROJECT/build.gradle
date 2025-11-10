@@ -52,6 +52,7 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter'
 	implementation 'org.springframework.boot:spring-boot-starter-websocket'
 	
+	implementation 'org.springframework.boot:spring-boot-starter-mail'	
 	implementation 'me.paulschwarz:spring-dotenv:4.0.0'
 }
 
