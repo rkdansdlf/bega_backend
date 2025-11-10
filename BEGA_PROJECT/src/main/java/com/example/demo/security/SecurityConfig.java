@@ -168,6 +168,8 @@ public class SecurityConfig {
             	.requestMatchers("/", "/oauth2/**", "/login", "/error").permitAll()
             	.requestMatchers(HttpMethod.GET, "/api/cheer/posts", "/api/cheer/posts/**").permitAll() // 게시글 조회만 공개
             	.requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
+            	.requestMatchers("/api/auth/password-reset/request").permitAll()  // 요청
+                .requestMatchers("/api/auth/password-reset/confirm").permitAll()  // 확인
                 .requestMatchers("/api/stadiums/**").permitAll()
                 .requestMatchers("/api/places/**").permitAll()
                 .requestMatchers("/api/teams/**").permitAll()
