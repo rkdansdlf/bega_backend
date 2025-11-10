@@ -85,8 +85,8 @@ logging:
 
 # Supabase Storage 설정
 supabase:
-  url: https://zyofzvnkputevakepbdm.supabase.co
-  service-role-key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp5b2Z6dm5rcHV0ZXZha2VwYmRtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MDQ5Mjk1NSwiZXhwIjoyMDc2MDY4OTU1fQ.B_-rZpxWfZ5hOJU1S-ANA-cP_2xIvse97RMLZZ7p1yM
+  url: ${DB_URL}
+  service-role-key: ${SERVICE_ROLE}
   storage:
     buckets: 
       cheer: cheer-assets
