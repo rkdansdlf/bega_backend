@@ -54,8 +54,8 @@ logging:
 
 # --- Supabase 설정 ---
 supabase:
-  url: ${DB_URL}
-  service-role-key: ${SERVICE_ROLE}
+  url: $https://zyofzvnkputevakepbdm.supabase.co
+  service-role-key: $postgresql://postgres.zyofzvnkputevakepbdm:kboplatform2025@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres
   storage:
     buckets: 
       cheer: cheer-assets
@@ -109,7 +109,9 @@ spring:
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
+
       ddl-auto: none # Disable DDL auto-operations for production (schema already exists)
+
       naming:
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
     properties:

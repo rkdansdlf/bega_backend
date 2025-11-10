@@ -75,7 +75,8 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         
-        configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000"));
+        configuration.setAllowedOriginPatterns(Arrays.asList("*"));
+        // configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Cache-Control", "Content-Type")); 
         configuration.setAllowCredentials(true); 
@@ -162,15 +163,25 @@ public class SecurityConfig {
         // 경로별 인가 작업 - 권한 설정
         http
             .authorizeHttpRequests((auth) -> auth
-
+                .requestMatchers("/api/auth/login").permitAll()
             	.requestMatchers("/api/auth/signup", "/api/auth/reissue").permitAll()
             	.requestMatchers("/", "/oauth2/**", "/login", "/error").permitAll()
+
             	.requestMatchers(HttpMethod.GET, "/api/cheer/posts", "/api/cheer/posts/**").permitAll() // 게시글 조회만 공개
             	.requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
                 .requestMatchers("/api/stadiums/**").permitAll()
                 .requestMatchers("/api/places/**").permitAll()
                 .requestMatchers("/api/teams/**").permitAll()
                 .requestMatchers("/api/games/**").permitAll()
+                .requestMatchers("/api/parties/**").permitAll()
+                .requestMatchers("/api/applications/**").permitAll()
+                .requestMatchers("/api/chat/**").permitAll()
+                .requestMatchers("/api/checkin/**").permitAll()
+
+                .requestMatchers("/ws/**").permitAll()
+                .requestMatchers("/api/chat/**").permitAll()
+                .requestMatchers("/api/users/email-to-id").permitAll()
+                // 2순위: OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
                 .requestMatchers("/api/diary/**").permitAll()
                 .requestMatchers("/api/predictions/**").permitAll()  
                 //OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
@@ -180,7 +191,9 @@ public class SecurityConfig {
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 // 팀게시글 주소별 권한
                 .requestMatchers("/team/be/**").hasRole("BE")
-
+                
+                
+                
                 // 나머지 모든 요청은 인증 필요
                 .anyRequest().authenticated())
                 

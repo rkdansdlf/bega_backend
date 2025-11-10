@@ -3,5 +3,60 @@
 .DS_Store
 BEGA_PROJECT/gradle.properties
 
-/BEGA_PROJECT/logs
 
+HELP.md
+.gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### .env ###
+.env
+.venv
+env
+venv
+
+# 로그 파일 무시
+*.log
+/.metadata/
+
+# Java compiled files
+*.class
+
+# Build folder
+/build
+
+# Log files
+BEGA_PROJECT/logs/
