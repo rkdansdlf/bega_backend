@@ -25,11 +25,12 @@ public class JWTUtil {
     }
 
     // Access Token 생성 
-    public String createJwt(String email, String role, long expiredMs) { 
+    public String createJwt(String email, String role, Long userId, long expiredMs) { 
 
         return Jwts.builder()
                 .claim("email", email) // Claim 키를 email로 설정
                 .claim("role", role)
+                .claim("user_id", userId)
                 .issuedAt(new Date(System.currentTimeMillis()))
                 .expiration(new Date(System.currentTimeMillis() + expiredMs))
                 .signWith(secretKey)
@@ -37,11 +38,12 @@ public class JWTUtil {
     }
     
     // Refresh Token 생성
-    public String createRefreshToken(String email, String role) { 
+    public String createRefreshToken(String email, String role, Long userId ) { 
         
         return Jwts.builder()
                 .claim("email", email) // Claim 키를 email로 변경
                 .claim("role", role)
+                .claim("user_id", userId)
                 .issuedAt(new Date(System.currentTimeMillis()))
                 .expiration(new Date(System.currentTimeMillis() + refreshExpirationTime))
                 .signWith(secretKey)
@@ -66,6 +68,10 @@ public class JWTUtil {
     public String getEmail(String token) { 
         // 토큰이 만료되었더라도 Claims를 얻어 email을 가져올 수 있음
         return getClaims(token).get("email", String.class);
+    }
+    
+    public String getUserId(String token) {
+        return getClaims(token).getSubject();
     }
 
     // JWT에서 Role 추출

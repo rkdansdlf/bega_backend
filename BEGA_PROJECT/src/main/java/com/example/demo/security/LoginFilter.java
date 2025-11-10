@@ -98,13 +98,13 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         Iterator<? extends GrantedAuthority> iterator = authorities.iterator();
         GrantedAuthority auth = iterator.next();
         String role = auth.getAuthority();
-
+        Long userId = customUserDetails.getId();
         // Access Token 유효 기간 설정 
         long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; //2시간
 
         // JWT 생성
-        String accessToken = jwtUtil.createJwt(email, role, accessTokenExpiredMs);
-        String refreshToken = jwtUtil.createRefreshToken(email, role);
+        String accessToken = jwtUtil.createJwt(email, role, userId, accessTokenExpiredMs);
+        String refreshToken = jwtUtil.createRefreshToken(email, role, userId);
         
         System.out.println("--- JWT 토큰 발행 성공 (일반 로그인) ---");
         System.out.println("발행된 Access Token: " + accessToken.substring(0, 10) + "...");
