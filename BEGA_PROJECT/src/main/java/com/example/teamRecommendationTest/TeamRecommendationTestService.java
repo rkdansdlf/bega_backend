@@ -15,7 +15,9 @@ public class TeamRecommendationTestService {
 
     private final TeamRecommendationTestRepository teamRecommendationTestRepository;
 
-    public TeamResultDto CalculateBestTeam(TeamUserAnswersDto teamUserAnswersDto) {
+    public TeamResultDto CalculateBestTeam(Long userId, TeamUserAnswersDto teamUserAnswersDto) {
+    	
+    	
     	// DB에 저장된 모든 팀의 정보를 리스트 형태로 불러옴
         List<TeamRecommendationTest> allTeams = teamRecommendationTestRepository.findAll();
         
