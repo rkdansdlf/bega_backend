@@ -22,7 +22,7 @@ public class WebSocketChatController {
      * 클라이언트가 /app/chat/{partyId} 로 메시지를 보내면
      * 서버가 처리 후 /topic/party/{partyId} 로 브로드캐스트
      * 
-     * ⚠️ WebSocket에서는 @AuthenticationPrincipal이 작동하지 않으므로
+     * WebSocket에서는 @AuthenticationPrincipal이 작동하지 않으므로
      * 메시지에 senderId를 포함해서 전송해야 함
      */
     @MessageMapping("/chat/{partyId}")
@@ -35,12 +35,12 @@ public class WebSocketChatController {
         // 헤더에서 사용자 정보 가져오기 (선택사항)
         // Principal principal = headerAccessor.getUser();
         
-        System.out.println("📨 메시지 수신: partyId=" + partyId + ", senderId=" + request.getSenderId());
+        System.out.println("메시지 수신: partyId=" + partyId + ", senderId=" + request.getSenderId());
         
         // DB에 메시지 저장
         ChatMessageDTO.Response savedMessage = chatMessageService.sendMessage(request);
         
-        System.out.println("✅ 메시지 저장 완료: id=" + savedMessage.getId());
+        System.out.println("메시지 저장 완료: id=" + savedMessage.getId());
         
         // 저장된 메시지를 구독자들에게 브로드캐스트
         return savedMessage;
