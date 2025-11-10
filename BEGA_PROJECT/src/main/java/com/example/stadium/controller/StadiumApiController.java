@@ -15,9 +15,6 @@ import java.util.List;
 @RestController
 @RequestMapping(value = "/api/stadiums", produces = "application/json; charset=UTF-8")
 @RequiredArgsConstructor
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173"},
-        allowCredentials = "true",
-        methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS})
 public class StadiumApiController {
 
     private final StadiumService stadiumService;
