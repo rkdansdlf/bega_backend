@@ -22,7 +22,6 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/predictions")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "http://localhost:3000")
 public class PredictionController {
 	
 	private final PredictionService predictionService;
