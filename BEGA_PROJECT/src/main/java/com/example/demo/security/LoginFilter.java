@@ -170,10 +170,9 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
     // SameSite=Lax를 강제 적용하여 쿠키를 헤더에 직접 추가합니다.
     private void addSameSiteCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
         // HttpOnly: true, Path: / (모든 경로), SameSite: Lax (다른 포트 요청 허용)
-        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax", 
+        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=None; Secure", 
                                             name, value, maxAgeSeconds);
         response.addHeader("Set-Cookie", cookieString);
     }
     
 }
-

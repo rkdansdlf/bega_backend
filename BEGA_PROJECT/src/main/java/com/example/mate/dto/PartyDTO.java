@@ -31,6 +31,7 @@ public class PartyDTO {
         private Integer maxParticipants;
         private String description;
         private String ticketImageUrl;
+        private Integer ticketPrice; 
     }
 
     @Data
@@ -57,6 +58,7 @@ public class PartyDTO {
         private String ticketImageUrl;
         private Party.PartyStatus status;
         private Integer price;
+        private Integer ticketPrice;
         private LocalDateTime createdAt;
         private LocalDateTime updatedAt;
 
@@ -81,6 +83,7 @@ public class PartyDTO {
                     .ticketImageUrl(party.getTicketImageUrl())
                     .status(party.getStatus())
                     .price(party.getPrice())
+                    .ticketPrice(party.getTicketPrice()) 
                     .createdAt(party.getCreatedAt())
                     .updatedAt(party.getUpdatedAt())
                     .build();

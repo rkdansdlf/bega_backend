@@ -78,6 +78,9 @@ public class Party {
     @Column
     private Integer price; // 티켓 판매가 (판매 모드일 때)
 
+    @Column(name = "ticketprice")
+    private Integer ticketPrice; // 티켓 가격(1인당)
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

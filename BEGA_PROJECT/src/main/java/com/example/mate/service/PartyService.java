@@ -20,6 +20,9 @@ public class PartyService {
     // 파티 생성
     @Transactional
     public PartyDTO.Response createParty(PartyDTO.Request request) {
+        System.out.println("🎫 백엔드 - 받은 Request DTO: " + request);
+        System.out.println("🎫 백엔드 - ticketPrice 값: " + request.getTicketPrice());
+
         Party party = Party.builder()
                 .hostId(request.getHostId())
                 .hostName(request.getHostName())
@@ -37,11 +40,18 @@ public class PartyService {
                 .description(request.getDescription())
                 .ticketVerified(request.getTicketImageUrl() != null)
                 .ticketImageUrl(request.getTicketImageUrl())
+                .ticketPrice(request.getTicketPrice())
                 .status(Party.PartyStatus.PENDING)
                 .build();
+                
 
-        Party savedParty = partyRepository.save(party);
-        return PartyDTO.Response.from(savedParty);
+            System.out.println("💾 백엔드 - 저장 전 Entity ticketPrice: " + party.getTicketPrice());
+    
+            Party savedParty = partyRepository.save(party);
+            
+            System.out.println("✅ 백엔드 - 저장 후 Entity ticketPrice: " + savedParty.getTicketPrice());
+            
+            return PartyDTO.Response.from(savedParty);
     }
 
     // 모든 파티 조회

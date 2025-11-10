@@ -163,7 +163,7 @@ public class SecurityConfig {
         // 경로별 인가 작업 - 권한 설정
         http
             .authorizeHttpRequests((auth) -> auth
-
+                .requestMatchers("/api/auth/login").permitAll()
             	.requestMatchers("/api/auth/signup", "/api/auth/reissue").permitAll()
             	.requestMatchers("/", "/oauth2/**", "/login", "/error").permitAll()
 
@@ -182,6 +182,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/chat/**").permitAll()
                 .requestMatchers("/api/users/email-to-id").permitAll()
                 // 2순위: OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
+                .requestMatchers("/api/diary/**").permitAll()
+                //OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                 // 기존 권한 설정
