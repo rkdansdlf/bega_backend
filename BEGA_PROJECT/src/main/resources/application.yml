@@ -14,6 +14,21 @@ spring:
   devtools:
     restart:
       enabled: false # 자동 재시작 비활성화
+
+        # 이메일 설정 (환경 변수 사용)
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            
+  # OAuth2 및 JWT 설정
   security:
     oauth2:
       client:
@@ -58,8 +73,10 @@ supabase:
   service-role-key: ${SERVICE_ROLE}
   storage:
     buckets: 
-      cheer: cheer-assets
-      diary: diary-images
+      cheer: cheer-posts
+      diary: diary-posts
+      #profile: profile-images  
+    #max-images-per-profile: 1  
     signed-url-ttl-seconds: 3600
     max-image-bytes: 5242880
     max-images-per-post: 10
