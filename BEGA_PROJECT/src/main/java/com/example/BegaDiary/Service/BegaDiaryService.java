@@ -1,12 +1,16 @@
 package com.example.BegaDiary.Service;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.BegaDiary.DiaryEmoji;
@@ -18,20 +22,24 @@ import com.example.BegaDiary.Entity.DiaryResponseDto;
 import com.example.BegaDiary.Exception.DiaryAlreadyExistsException;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Repository.BegaGameRepository;
+import com.example.cheerboard.storage.service.ImageService;
 import com.example.demo.entity.UserEntity;
 import com.example.demo.repo.UserRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
+@Slf4j
 public class BegaDiaryService {
     
     private final BegaDiaryRepository diaryRepository;
     private final BegaGameRepository gameRepository;
     private final BegaGameService gameService;
     private final UserRepository userRepository;
+    private final ImageService imageService;
     
     // 전체 다이어리 조회
     public List<DiaryResponseDto> getAllDiaries(Long userId) {
@@ -48,7 +56,11 @@ public class BegaDiaryService {
         BegaDiary diary = this.diaryRepository.findById(id)
             .orElseThrow(() -> new IllegalArgumentException("해당 다이어리를 찾을 수 없습니다. id: " + id));
         
-        return DiaryResponseDto.from(diary);
+        List<String> signedUrls = imageService
+                .getDiaryImageSignedUrls(diary.getPhotoUrls())
+                .block();
+        
+        return DiaryResponseDto.from(diary, signedUrls);
     }
     
     // 다이어리 저장
@@ -93,6 +105,42 @@ public class BegaDiaryService {
         return diaryRepository.save(diary);
     }
     
+    @Async
+    @Transactional
+    public CompletableFuture<List<String>> addImages(Long diaryId, Long userId, List<MultipartFile> images) {
+    	log.info("📢 [Async] 다이어리 이미지 추가 서비스 시작: diaryId={}, userId={}, 파일 수={}", diaryId, userId, images.size());
+    	if (images == null || images.isEmpty()) {
+            return CompletableFuture.completedFuture(List.of());
+        }
+        
+        try {
+            // 다이어리 조회
+            BegaDiary diary = diaryRepository.findById(diaryId)
+                .orElseThrow(() -> new IllegalArgumentException("다이어리를 찾을 수 없습니다."));
+            
+            // 이미지 업로드
+            List<String> uploadedPaths = imageService.uploadDiaryImages(userId, diaryId, images)
+                .block();
+            
+            if (uploadedPaths == null || uploadedPaths.isEmpty()) {
+                return CompletableFuture.completedFuture(List.of());
+            }
+            
+            // DB 업데이트 (기존 이미지 + 새 이미지)
+            List<String> allPaths = new ArrayList<>(diary.getPhotoUrls());
+            allPaths.addAll(uploadedPaths);
+            diary.updateDiary(diary.getMemo(), diary.getMood(), allPaths);
+            
+            diaryRepository.save(diary);
+            log.info("✅ [Async] 다이어리 이미지 업로드 및 DB 업데이트 성공: diaryId={}, 총 경로 수={}", diaryId, allPaths.size());
+            return CompletableFuture.completedFuture(uploadedPaths);
+            
+        } catch (Exception e) {
+        	log.error("❌ [Async] 다이어리 이미지 추가 중 치명적 오류 발생: diaryId={}, error={}", diaryId, e.getMessage(), e);
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+    
     // 다이어리 수정
     @Transactional
     public BegaDiary update(Long id, DiaryRequestDto requestDto) {
@@ -118,6 +166,14 @@ public class BegaDiaryService {
     public void delete(Long id) {
         BegaDiary diary = this.diaryRepository.findById(id)
             .orElseThrow(() -> new IllegalArgumentException("해당 다이어리를 찾을 수 없습니다. id: " + id));
+        
+        if(diary.getPhotoUrls() != null && !diary.getPhotoUrls().isEmpty()) {
+        	try {
+                imageService.deleteDiaryImages(diary.getPhotoUrls()).block();
+            } catch (Exception e) {
+                System.out.printf("이미지 삭제 실패 (다이어리는 삭제됨): diaryId={}", id, e);
+            }
+        }
         
         this.diaryRepository.delete(diary);
     }

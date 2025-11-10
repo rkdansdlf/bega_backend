@@ -57,10 +57,13 @@ supabase:
   url: ${DB_URL}
   service-role-key: ${SERVICE_ROLE}
   storage:
-    bucket: cheer-assets
+    buckets: 
+      cheer: cheer-assets
+      diary: diary-images
     signed-url-ttl-seconds: 3600
     max-image-bytes: 5242880
     max-images-per-post: 10
+    max-images-per-diary: 6
 
 ---
 # 'dev' 프로필: 로컬 개발 환경 (H2 사용) 
