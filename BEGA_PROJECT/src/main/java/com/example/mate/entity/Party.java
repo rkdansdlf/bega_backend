@@ -32,6 +32,9 @@ public class Party {
     @Enumerated(EnumType.STRING)
     private BadgeType hostBadge; // 호스트 뱃지 (NEW, VERIFIED, TRUSTED)
 
+    @Column(name = "host_profile_image_url")
+    private String hostProfileImageUrl;
+    
     @Column(nullable = false)
     private Double hostRating; // 호스트 평점
 

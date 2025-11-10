@@ -42,6 +42,7 @@ public class PartyDTO {
         private Long id;
         private Long hostId;
         private String hostName;
+        private String hostProfileImageUrl;
         private Party.BadgeType hostBadge;
         private Double hostRating;
         private String teamId;
@@ -67,6 +68,7 @@ public class PartyDTO {
                     .id(party.getId())
                     .hostId(party.getHostId())
                     .hostName(party.getHostName())
+                    .hostProfileImageUrl(party.getHostProfileImageUrl())
                     .hostBadge(party.getHostBadge())
                     .hostRating(party.getHostRating())
                     .teamId(party.getTeamId())

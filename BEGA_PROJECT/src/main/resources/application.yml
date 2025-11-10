@@ -99,6 +99,6 @@ spring:
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
-      ddl-auto: update # prod에서는 스키마를 업데이트
+      ddl-auto: validate # prod에서는 스키마를 업데이트
       naming:
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
