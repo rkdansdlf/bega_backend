@@ -1,5 +1,14 @@
 package com.example.cheerboard.storage.service;
 
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
 import com.example.cheerboard.config.CurrentUser;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.repo.CheerPostRepo;
@@ -12,16 +21,10 @@ import com.example.cheerboard.storage.entity.PostImage;
 import com.example.cheerboard.storage.repository.PostImageRepository;
 import com.example.cheerboard.storage.validator.ImageValidator;
 import com.example.demo.entity.UserEntity;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import reactor.core.publisher.Mono;
 
 /**
  * 이미지 업로드/삭제/조회 서비스
@@ -72,7 +75,7 @@ public class ImageService {
 
                 // 1. 스토리지 업로드
                 log.debug("Supabase Storage 업로드 시도: path={}", storagePath);
-                var uploadResult = storageClient.upload(file, storagePath).block();
+                var uploadResult = storageClient.upload(file, config.getCheerBucket(), storagePath).block();
                 if (uploadResult == null) {
                     log.error("스토리지 업로드 결과가 null입니다: path={}", storagePath);
                     throw new RuntimeException("스토리지 업로드 실패");
@@ -188,7 +191,7 @@ public class ImageService {
 
         // 2. 스토리지 삭제
         try {
-            storageClient.delete(image.getStoragePath()).block();
+            storageClient.delete(config.getCheerBucket(), image.getStoragePath()).block();
         } catch (Exception e) {
             log.error("스토리지 삭제 실패 (DB는 이미 삭제됨): path={}", image.getStoragePath(), e);
             // DB는 이미 삭제되었으므로 스토리지 삭제 실패는 로그만 남김
@@ -256,7 +259,7 @@ public class ImageService {
      */
     private String generateSignedUrl(String storagePath) {
         try {
-            var response = storageClient.createSignedUrl(storagePath, config.getSignedUrlTtlSeconds()).block();
+            var response = storageClient.createSignedUrl(config.getCheerBucket(), storagePath, config.getSignedUrlTtlSeconds()).block();
             return response != null ? response.signedUrl() : null;
         } catch (Exception e) {
             log.error("서명 URL 생성 실패: path={}", storagePath, e);
@@ -270,7 +273,7 @@ public class ImageService {
     private void compensateUploadFailure(List<String> uploadedPaths) {
         for (String path : uploadedPaths) {
             try {
-                storageClient.delete(path).block();
+                storageClient.delete(config.getCheerBucket(), path).block();
                 log.info("보상 삭제 성공: path={}", path);
             } catch (Exception e) {
                 log.error("보상 삭제 실패: path={}", path, e);
@@ -285,4 +288,123 @@ public class ImageService {
         return postRepo.findById(postId)
             .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
     }
+    
+    
+    
+    // 다이어리 스토리지
+
+    /**
+     * 다이어리 이미지 업로드 (0개, 1개, 여러 개 모두 처리)
+     */
+    @Transactional
+    public Mono<List<String>> uploadDiaryImages(Long userId, Long diaryId, List<MultipartFile> files) {
+        log.info("다이어리 이미지 업로드 시작: userId={}, diaryId={}, 파일 수={}", 
+            userId, diaryId, files != null ? files.size() : 0);
+        
+        // 빈 리스트 체크
+        if (files == null || files.isEmpty()) {
+            log.debug("업로드할 파일이 없습니다.");
+            return Mono.just(List.of());
+        }
+        
+        // 파일 개수 검증
+        if (files.size() > config.getMaxImagesPerPost()) {
+            return Mono.error(new IllegalArgumentException(
+                String.format("이미지는 최대 %d개까지 업로드할 수 있습니다.", config.getMaxImagesPerDiary())));
+        }
+        
+        List<Mono<String>> uploadMonos = new ArrayList<>();
+        
+        for (MultipartFile file : files) {
+            // 각 파일 유효성 검사
+            validator.validateFile(file);
+            
+            String fileName = UUID.randomUUID() + "_" + file.getOriginalFilename();
+            String storagePath = String.format("diary/%d/%d/%s", userId, diaryId, fileName);
+            
+            Mono<String> uploadMono = storageClient.upload(file, config.getDiaryBucket(), storagePath)
+                .map(response -> {
+                    log.info("다이어리 이미지 업로드 성공: path={}", storagePath);
+                    return storagePath;
+                })
+                .doOnError(err -> log.error("다이어리 이미지 업로드 실패: path={}, error={}", 
+                    storagePath, err.getMessage()));
+            
+            uploadMonos.add(uploadMono);
+        }
+        
+        // 모든 업로드를 병렬로 실행
+        return Mono.zip(uploadMonos, results -> {
+            List<String> paths = new ArrayList<>();
+            for (Object result : results) {
+                if (result != null) {
+                    paths.add((String) result);
+                }
+            }
+            log.info("다이어리 이미지 업로드 완료: userId={}, diaryId={}, 성공 {}개", 
+                userId, diaryId, paths.size());
+            return paths;
+        }).onErrorResume(err -> {
+            log.error("다이어리 이미지 업로드 중 오류 발생: userId={}, diaryId={}, error={}", 
+                userId, diaryId, err.getMessage());
+            return Mono.error(new RuntimeException("이미지 업로드 중 오류가 발생했습니다: " + err.getMessage()));
+        });
+    }
+
+    /**
+     * 다이어리 이미지 삭제 (0개, 1개, 여러 개 모두 처리)
+     */
+    @Transactional
+    public Mono<Void> deleteDiaryImages(List<String> storagePaths) {
+        log.info("다이어리 이미지 삭제 시작: 총 {}개", storagePaths != null ? storagePaths.size() : 0);
+        
+        // 빈 리스트 체크
+        if (storagePaths == null || storagePaths.isEmpty()) {
+            log.debug("삭제할 파일이 없습니다.");
+            return Mono.empty();
+        }
+        
+        List<Mono<Void>> deleteMonos = storagePaths.stream()
+            .map(path -> storageClient.delete(config.getDiaryBucket(), path)
+                .doOnSuccess(v -> log.info("다이어리 이미지 삭제 성공: path={}", path))
+                .doOnError(err -> log.error("다이어리 이미지 삭제 실패: path={}, error={}", 
+                    path, err.getMessage())))
+            .toList();
+        
+        return Mono.when(deleteMonos)
+            .doOnSuccess(v -> log.info("다이어리 이미지 삭제 완료: 총 {}개", storagePaths.size()))
+            .doOnError(err -> log.error("다이어리 이미지 삭제 중 오류 발생: error={}", err.getMessage()));
+    }
+
+    /**
+     * 다이어리 이미지 Signed URL 생성 (0개, 1개, 여러 개 모두 처리)
+     */
+    public Mono<List<String>> getDiaryImageSignedUrls(List<String> storagePaths) {
+        log.debug("다이어리 이미지 URL 생성 시작: 총 {}개", storagePaths != null ? storagePaths.size() : 0);
+        
+        // 빈 리스트 체크
+        if (storagePaths == null || storagePaths.isEmpty()) {
+            log.debug("URL 생성할 파일이 없습니다.");
+            return Mono.just(List.of());
+        }
+        
+        List<Mono<String>> urlMonos = storagePaths.stream()
+            .map(path -> storageClient.createSignedUrl(config.getDiaryBucket(), path, config.getSignedUrlTtlSeconds())
+                .map(response -> response.signedUrl())
+                .doOnError(err -> log.error("다이어리 이미지 URL 생성 실패: path={}, error={}", 
+                    path, err.getMessage())))
+            .toList();
+        
+        return Mono.zip(urlMonos, results -> {
+            List<String> urls = new ArrayList<>();
+            for (Object result : results) {
+                if (result != null && !result.toString().isEmpty()) {
+                    urls.add((String) result);
+                }
+            }
+            log.info("다이어리 이미지 URL 생성 완료: 총 {}개", urls.size());
+            return urls;
+        });
+    }
+    
 }

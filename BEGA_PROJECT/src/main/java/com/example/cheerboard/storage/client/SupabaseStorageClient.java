@@ -35,13 +35,13 @@ public class SupabaseStorageClient {
      * @param storagePath 저장 경로 (예: posts/123/uuid.jpg)
      * @return 업로드된 파일 정보
      */
-    public Mono<UploadResponse> upload(MultipartFile file, String storagePath) {
+    public Mono<UploadResponse> upload(MultipartFile file, String bucket, String storagePath) {
         try {
             byte[] bytes = file.getBytes();
 
             return supabaseStorageWebClient
                 .post()
-                .uri("/object/" + config.getBucket() + "/" + storagePath)
+                .uri("/object/" + bucket + "/" + storagePath)
                 .contentType(MediaType.parseMediaType(file.getContentType()))
                 .bodyValue(bytes)
                 .retrieve()
@@ -70,10 +70,10 @@ public class SupabaseStorageClient {
      * 파일 삭제
      * @param storagePath 삭제할 파일 경로
      */
-    public Mono<Void> delete(String storagePath) {
+    public Mono<Void> delete(String bucket, String storagePath) {
         return supabaseStorageWebClient
             .delete()
-            .uri("/object/{bucket}/{path}", config.getBucket(), storagePath)
+            .uri("/object/{bucket}/{path}", bucket, storagePath)
             .retrieve()
             .onStatus(
                 status -> !status.is2xxSuccessful(),
@@ -97,12 +97,12 @@ public class SupabaseStorageClient {
      * @param expiresIn 만료 시간 (초)
      * @return 서명된 URL
      */
-    public Mono<SignedUrlResponse> createSignedUrl(String storagePath, int expiresIn) {
+    public Mono<SignedUrlResponse> createSignedUrl(String bucket, String storagePath, int expiresIn) {
         String requestBody = String.format("{\"expiresIn\": %d}", expiresIn);
 
         return supabaseStorageWebClient
             .post()
-            .uri("/object/sign/" + config.getBucket() + "/" + storagePath)
+            .uri("/object/sign/" + bucket + "/" + storagePath)
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(requestBody)
             .retrieve()
@@ -140,10 +140,10 @@ public class SupabaseStorageClient {
      * @param fromPath 원본 경로
      * @param toPath 대상 경로
      */
-    public Mono<Void> move(String fromPath, String toPath) {
+    public Mono<Void> move(String bucket, String fromPath, String toPath) {
         String requestBody = String.format(
             "{\"bucketId\": \"%s\", \"sourceKey\": \"%s\", \"destinationKey\": \"%s\"}",
-            config.getBucket(), fromPath, toPath
+            bucket, fromPath, toPath
         );
 
         return supabaseStorageWebClient
