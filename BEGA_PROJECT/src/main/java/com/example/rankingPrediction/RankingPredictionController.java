@@ -26,7 +26,7 @@ public class RankingPredictionController {
 	public ResponseEntity<RankingPredictionResponseDto> savePrediction(
 			Principal principal, @RequestBody RankingPredictionRequestDto requestDto) {
 		
-		RankingPredictionResponseDto savedDto = rankingPredictionService.saveOrUpdatePrediction(requestDto, principal.getName());
+		RankingPredictionResponseDto savedDto = rankingPredictionService.savePrediction(requestDto, principal.getName());
 		
 		return ResponseEntity.ok(savedDto);
 	}
