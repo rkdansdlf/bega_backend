@@ -38,6 +38,10 @@ public class CustomUserDetails implements UserDetails {
         return userEntity.getEmail();
     }
     
+    public Long getId() {
+        return userEntity.getId();
+    }
+    
     // 계정 만료 여부
     @Override
     public boolean isAccountNonExpired() {
