@@ -14,7 +14,7 @@ public interface BegaDiaryRepository extends JpaRepository<BegaDiary, Long>{
 
 	Optional<BegaDiary> findByDiaryDate(LocalDate diaryDate);
 	boolean existsByDiaryDate(LocalDate diaryDate);
-	List<BegaDiary> findByUser_Email(String email);
+	List<BegaDiary> findByUser_Id(Long id);
 	
 
 }

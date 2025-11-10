@@ -16,4 +16,5 @@ public class DiaryRequestDto {
     private String memo;        // 메모
     private List<String> photos; // 사진 URL 목록
     private String emojiName;   // 이모지 한글명
+    private String winningName;
 }
