@@ -47,7 +47,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
 	// Flux/Mono 타입(Type)을 사용하려면 Reactor core가 클래스패스(Classpath)에 사용 가능해야 합니다.
 	implementation 'io.projectreactor:reactor-core'
-	
+	implementation 'org.springframework.boot:spring-boot-starter-mail'	
 	implementation 'me.paulschwarz:spring-dotenv:4.0.0'
 }
 
