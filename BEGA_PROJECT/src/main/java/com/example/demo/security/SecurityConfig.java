@@ -183,6 +183,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/users/email-to-id").permitAll()
                 // 2순위: OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
                 .requestMatchers("/api/diary/**").permitAll()
+                .requestMatchers("/api/predictions/**").permitAll()  
                 //OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 

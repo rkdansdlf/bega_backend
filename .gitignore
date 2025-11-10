@@ -58,10 +58,5 @@ venv
 # Build folder
 /build
 
-<<<<<<< Updated upstream
-/BEGA_PROJECT/logs
-
-=======
 # Log files
 BEGA_PROJECT/logs/
->>>>>>> Stashed changes

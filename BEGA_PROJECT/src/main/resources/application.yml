@@ -7,6 +7,8 @@ spring:
     properties:
       hibernate:
         format-sql: true
+        temp:
+          use_jdbc_metadata_defaults: false
   thymeleaf:
     cache: false
   devtools:
@@ -55,10 +57,13 @@ supabase:
   url: $https://zyofzvnkputevakepbdm.supabase.co
   service-role-key: $postgresql://postgres.zyofzvnkputevakepbdm:kboplatform2025@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres
   storage:
-    bucket: cheer-assets
+    buckets: 
+      cheer: cheer-assets
+      diary: diary-images
     signed-url-ttl-seconds: 3600
     max-image-bytes: 5242880
     max-images-per-post: 10
+    max-images-per-diary: 6
 
 ---
 # 'dev' 프로필: 로컬 개발 환경 (H2 사용) 
@@ -91,14 +96,43 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     hikari:
-      maximum-pool-size: 15
-      minimum-idle: 5
-      connection-timeout: 30000
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 60000
+      validation-timeout: 5000
+      initialization-fail-timeout: -1
       idle-timeout: 600000
       max-lifetime: 1800000
+      connection-test-query: SELECT 1
+      leak-detection-threshold: 60000
+      pool-name: HikariPool-KBO-Prod
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
-      ddl-auto: validate # prod에서는 스키마를 업데이트
+
+      ddl-auto: none # Disable DDL auto-operations for production (schema already exists)
+
       naming:
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+# Actuator health check (shared across profiles)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  health:
+    db:
+      enabled: true
+    diskspace:
+      enabled: true
