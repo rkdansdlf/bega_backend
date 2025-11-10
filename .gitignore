@@ -3,6 +3,7 @@
 .DS_Store
 BEGA_PROJECT/gradle.properties
 
+
 HELP.md
 .gradle
 build/
@@ -56,3 +57,6 @@ venv
 
 # Build folder
 /build
+
+/BEGA_PROJECT/logs
+
