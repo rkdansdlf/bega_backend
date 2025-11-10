@@ -1,5 +1,7 @@
 package com.example.teamRecommendationTest;
 
+import java.security.Principal;
+
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,8 +17,12 @@ public class TeamRecommendationTestController {
 	private final TeamRecommendationTestService teamRecommendationTestService;
 	
 	 @PostMapping("/result")
-	    public TeamResultDto getResult(@RequestBody TeamUserAnswersDto teamUserAnswersDto) {
-	        return teamRecommendationTestService.CalculateBestTeam(teamUserAnswersDto);
+	    public TeamResultDto getResult(
+	    		Principal principal,
+	    		@RequestBody TeamUserAnswersDto teamUserAnswersDto) {
+		 
+		 	Long userId = Long.valueOf(principal.getName());
+	        return teamRecommendationTestService.CalculateBestTeam(userId,teamUserAnswersDto);
 	    }
 
 }
