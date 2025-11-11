@@ -73,7 +73,7 @@ supabase:
   service-role-key: $postgresql://postgres.zyofzvnkputevakepbdm:kboplatform2025@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres
   storage:
     buckets: 
-      cheer: cheer-posts
+      cheer: cheer-assets
       diary: diary-posts
       #profile: profile-images  
     #max-images-per-profile: 1  
