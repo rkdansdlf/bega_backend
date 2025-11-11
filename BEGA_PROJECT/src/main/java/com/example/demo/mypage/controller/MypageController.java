@@ -3,6 +3,7 @@ package com.example.demo.mypage.controller;
 import com.example.demo.dto.ApiResponse;
 import com.example.demo.entity.UserEntity;
 import com.example.demo.mypage.dto.UserProfileDto;
+import com.example.demo.mypage.dto.MyPageUpdateDto; // 🚨 새 DTO import
 import com.example.demo.service.UserService;
 import com.example.demo.jwt.JWTUtil;
 
@@ -32,7 +33,7 @@ public class MypageController {
     private final UserService userService; 
     private final JWTUtil jwtUtil; 
 
-    //프로필 정보 조회
+    //프로필 정보 조회 (GET /mypage) - 수정 없음
     @GetMapping("/mypage")
     public ResponseEntity<ApiResponse> getMyProfile(
             @AuthenticationPrincipal Long userId) {
@@ -65,38 +66,30 @@ public class MypageController {
         }
     }
 
-    // 프로필 정보 수정
+    // 프로필 정보 수정 (PUT /mypage)
     @PutMapping("/mypage")
     public ResponseEntity<ApiResponse> updateMyProfile(
             @AuthenticationPrincipal Long userId,
-            @Valid @RequestBody UserProfileDto updateDto) {
+            @Valid @RequestBody UserProfileDto updateDto) { // 🚨 DTO를 MyPageUpdateDto로 변경
         try {
+            // DTO에서 이름 유효성 검증 (@Valid를 사용하므로 간소화)
             if (updateDto.getName() == null || updateDto.getName().trim().isEmpty()) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(ApiResponse.error("이름/닉네임은 필수 입력 항목입니다."));
             }
 
+            // 🚨 서비스 메서드 호출 시, DTO 객체를 바로 전달
             UserEntity updatedEntity = userService.updateProfile(
                     userId,
-                    updateDto.getName(),
-                    updateDto.getProfileImageUrl(),
-                    updateDto.getFavoriteTeam() != null && !updateDto.getFavoriteTeam().equals("없음") ? 
-                        updateDto.getFavoriteTeam() : null
+                    updateDto 
             );
-
-            UserProfileDto updatedProfile = UserProfileDto.builder()
-                    .name(updatedEntity.getName()) 
-                    .email(updatedEntity.getEmail())
-                    .favoriteTeam(updatedEntity.getFavoriteTeamId() != null ? updatedEntity.getFavoriteTeamId() : "없음")
-                    .profileImageUrl(updatedEntity.getProfileImageUrl())
-                    .createdAt(updatedEntity.getCreatedAt().format(DateTimeFormatter.ISO_DATE_TIME))
-                    .build();
 
             // 유저 정보가 수정되면 즉시 새로운 토큰 생성
             String newRoleKey = updatedEntity.getRole(); 
             String userEmail = updatedEntity.getEmail(); 
+            Long currentUserId = userId;
             
-            String newJwtToken = jwtUtil.createJwt(userEmail, newRoleKey, ACCESS_TOKEN_EXPIRED_MS); 
+            String newJwtToken = jwtUtil.createJwt(userEmail, newRoleKey, currentUserId, ACCESS_TOKEN_EXPIRED_MS);
             
             ResponseCookie cookie = ResponseCookie.from("Authorization", newJwtToken)
                     .httpOnly(true)
@@ -105,14 +98,22 @@ public class MypageController {
                     .maxAge(ACCESS_TOKEN_EXPIRED_MS / 1000)
                     .build();
 
-            Map<String, Object> responseData = new HashMap<>();
-            responseData.put("profile", updatedProfile); 
+         // 토큰을 응답 데이터에 포함하여 프론트엔드가 상태 관리에 사용하도록 합니다.
+            Map<String, Object> responseMap = new HashMap<>();
+            responseMap.put("token", newJwtToken); 
+            
+            // 프론트엔드 MyPage.tsx의 handleSave에서 필요한 필드들
+            responseMap.put("profileImageUrl", updatedEntity.getProfileImageUrl()); // 🚨 업데이트된 URL
+            responseMap.put("name", updatedEntity.getName());
+            responseMap.put("email", updatedEntity.getEmail());
+            responseMap.put("favoriteTeam", updatedEntity.getFavoriteTeamId() != null ? updatedEntity.getFavoriteTeamId() : "없음");
 
             return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                    .body(ApiResponse.success("프로필 수정 성공 및 JWT 쿠키 재설정 완료", responseData));
+                    .body(ApiResponse.success("프로필 수정 성공 및 JWT 쿠키 재설정 완료", responseMap));
 
         } catch (RuntimeException e) {
+            // 유효하지 않은 팀 ID 등 RuntimeException 처리
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(ApiResponse.error("프로필 수정 중 오류가 발생했습니다: " + e.getMessage()));
         } catch (Exception e) {
@@ -120,4 +121,27 @@ public class MypageController {
                     .body(ApiResponse.error("프로필 수정 중 서버 오류가 발생했습니다."));
         }
     }
+    
+    @GetMapping("/supabasetoken")
+    public ResponseEntity<ApiResponse> getSupabaseToken(
+            @CookieValue(name = "Authorization", required = false) String jwtToken) { // 쿠키에서 'Authorization' 값을 가져옴
+        
+        if (jwtToken != null && !jwtToken.isEmpty()) {
+            // 이 토큰이 Supabase JWT 역할을 수행합니다.
+            // 클라이언트가 HttpOnly 쿠키에 접근할 수 없으므로 백엔드가 토큰을 읽어 응답 본문에 넣어줍니다.
+            
+            // 만약 토큰이 "Bearer [토큰값]" 형태로 저장되어 있다면 "Bearer "를 제거해야 합니다.
+            // 쿠키에는 일반적으로 값만 저장되므로, 그대로 사용해도 무방합니다.
+            
+            Map<String, String> responseMap = new HashMap<>();
+            responseMap.put("token", jwtToken);
+            
+            return ResponseEntity.ok(ApiResponse.success("Supabase 토큰 조회 성공", responseMap));
+        } else {
+            // 인증 쿠키가 없다는 것은 로그인되지 않았다는 뜻
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("인증 쿠키를 찾을 수 없습니다."));
+        }
+    }
+    
 }

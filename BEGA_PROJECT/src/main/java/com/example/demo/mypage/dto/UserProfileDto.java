@@ -35,4 +35,5 @@ public class UserProfileDto {
     private String createdAt; 
     
     private String role; 
+    
 }

@@ -87,14 +87,16 @@ public class ReissueController {
         //새로운 Access Token 및 Refresh Token 생성
         String role = jwtUtil.getRole(refreshToken); 
         
+        Long userId = Long.valueOf(jwtUtil.getUserId(refreshToken));
+        
         // Access Token 만료 시간 (2시간)
         long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; 
         
-        // email을 사용하여 JWT 생성
-        String newAccessToken = jwtUtil.createJwt(email, role, accessTokenExpiredMs); 
+        // 🚨🚨🚨 FIX: userId와 role의 순서를 교정함 (email, userId, role, expiredMs)
+        String newAccessToken = jwtUtil.createJwt(email, role, userId, accessTokenExpiredMs); 
         
-        // email을 사용하여 Refresh JWT 생성
-        String newRefreshToken = jwtUtil.createRefreshToken(email, role); 
+        // 🚨🚨🚨 FIX: userId와 role의 순서를 교정함 (email, userId, role)
+        String newRefreshToken = jwtUtil.createRefreshToken(email, role, userId); 
 
         // DB 정보 저장
         existToken.setToken(newRefreshToken);
@@ -111,6 +113,7 @@ public class ReissueController {
         System.out.println("-----------------------------");
         System.out.println("토큰 재발급 완료");
         System.out.println("이메일 : " + email);
+        System.out.println("사용자 ID : " + userId);
         System.out.println("-----------------------------");
 
         return new ResponseEntity<>("Token reissued successfully", HttpStatus.OK);
@@ -127,4 +130,3 @@ public class ReissueController {
         return cookie;
     }
 }
-
