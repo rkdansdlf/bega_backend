@@ -21,6 +21,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.DiaryRequestDto;
 import com.example.BegaDiary.Entity.DiaryResponseDto;
+import com.example.BegaDiary.Entity.DiaryStatisticsDto;
 import com.example.BegaDiary.Entity.GameResponseDto;
 import com.example.BegaDiary.Service.BegaDiaryService;
 import com.example.BegaDiary.Service.BegaGameService;
@@ -125,4 +126,13 @@ public class DiaryController {
         this.diaryService.delete(id);
         return ResponseEntity.noContent().build();
     }
+    
+    // 다이어리 통계
+    @PreAuthorize("isAuthenticated()")
+	@GetMapping("/statistics")
+	public ResponseEntity<DiaryStatisticsDto> showStatistics(Principal principal) {
+		Long userId = Long.valueOf(principal.getName());
+		DiaryStatisticsDto statistics = this.diaryService.getStatistics(userId);
+		return ResponseEntity.ok(statistics);
+	}
 }

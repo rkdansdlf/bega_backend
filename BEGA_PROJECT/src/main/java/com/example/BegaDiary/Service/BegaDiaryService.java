@@ -3,7 +3,7 @@ package com.example.BegaDiary.Service;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -19,9 +19,11 @@ import com.example.BegaDiary.Entity.BegaDiary.DiaryWinning;
 import com.example.BegaDiary.Entity.BegaGame;
 import com.example.BegaDiary.Entity.DiaryRequestDto;
 import com.example.BegaDiary.Entity.DiaryResponseDto;
+import com.example.BegaDiary.Entity.DiaryStatisticsDto;
 import com.example.BegaDiary.Exception.DiaryAlreadyExistsException;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Repository.BegaGameRepository;
+import com.example.BegaDiary.Utils.BaseballConstants;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.demo.entity.UserEntity;
 import com.example.demo.repo.UserRepository;
@@ -45,10 +47,24 @@ public class BegaDiaryService {
     public List<DiaryResponseDto> getAllDiaries(Long userId) {
         List<BegaDiary> diaries = this.diaryRepository.findByUser_Id(userId);
         
-        // Entity List → DTO List 변환
         return diaries.stream()
-            .map(DiaryResponseDto::from)
-            .collect(Collectors.toList());
+                .map(diary -> {
+                    List<String> signedUrls = null;
+                    if (diary.getPhotoUrls() != null && !diary.getPhotoUrls().isEmpty()) {
+                        try {
+                            signedUrls = imageService
+                                .getDiaryImageSignedUrls(diary.getPhotoUrls())
+                                .block();
+                        } catch (Exception e) {
+                            log.error("다이어리 이미지 Signed URL 생성 실패: diaryId={}, error={}", 
+                                diary.getId(), e.getMessage());
+                            signedUrls = new ArrayList<>();
+                        }
+                    }
+                    
+                    return DiaryResponseDto.from(diary, signedUrls);
+                })
+                .collect(Collectors.toList());
     }
     
     // 특정 다이어리 조회
@@ -144,14 +160,11 @@ public class BegaDiaryService {
     // 다이어리 수정
     @Transactional
     public BegaDiary update(Long id, DiaryRequestDto requestDto) {
-        // 1. 기존 다이어리 조회
         BegaDiary diary = this.diaryRepository.findById(id)
             .orElseThrow(() -> new IllegalArgumentException("해당 다이어리를 찾을 수 없습니다. id: " + id));
         
-        // 2. Enum 변환
         DiaryEmoji mood = DiaryEmoji.fromKoreanName(requestDto.getEmojiName());
         
-        // 3. 다이어리 수정
         diary.updateDiary(
             requestDto.getMemo(),
             mood,
@@ -176,5 +189,61 @@ public class BegaDiaryService {
         }
         
         this.diaryRepository.delete(diary);
+    }
+    
+    public DiaryStatisticsDto getStatistics(Long userId) {
+    	
+        int currentYear = LocalDate.now().getYear();
+        int currentMonth = LocalDate.now().getMonthValue();
+        
+        int totalCount = diaryRepository.countByUserId(userId);
+        int totalWins = diaryRepository.countByUserIdAndWinning(userId, DiaryWinning.WIN);
+        int totalLosses = diaryRepository.countByUserIdAndWinning(userId, DiaryWinning.LOSE);
+        int totalDraws = diaryRepository.countByUserIdAndWinning(userId, DiaryWinning.DRAW);
+        
+        int monthlyCount = diaryRepository.countByUserIdAndYearAndMonth(userId, currentYear, currentMonth);
+        int yearlyCount = diaryRepository.countByUserIdAndYear(userId, currentYear);
+        int yearlyWins = diaryRepository.countYearlyWins(userId, currentYear);
+        
+        double winRate = totalCount > 0 ? (double) totalWins / totalCount * 100 : 0;
+        double yearlyWinRate = yearlyCount > 0 ? (double) yearlyWins / yearlyCount * 100 : 0;
+        
+        List<Object[]> stadiumResult = diaryRepository.findMostVisitedStadium(userId);
+        String mostVisitedStadium = null;
+        int mostVisitedCount = 0;
+        if (!stadiumResult.isEmpty() && stadiumResult.get(0).length >= 2) {
+        	String stadiumShortName = (String) stadiumResult.get(0)[0];
+            mostVisitedStadium = BaseballConstants.getFullStadiumName(stadiumShortName);
+            mostVisitedCount = ((Number) stadiumResult.get(0)[1]).intValue();
+        }
+        
+        List<Object[]> monthResult = diaryRepository.findHappiestMonth(userId);
+        String happiestMonth = null;
+        int happiestCount = 0;
+        if (!monthResult.isEmpty() && monthResult.get(0).length >= 2) {
+            int month = ((Number) monthResult.get(0)[0]).intValue();
+            happiestMonth = month + "월";
+            happiestCount = ((Number) monthResult.get(0)[1]).intValue();
+        }
+        
+        LocalDate firstDate = diaryRepository.findFirstDiaryDate(userId);
+        String firstDiaryDate = firstDate != null ? firstDate.toString() : null;
+        
+        return DiaryStatisticsDto.builder()
+            .totalCount(totalCount)
+            .totalWins(totalWins)
+            .totalLosses(totalLosses)
+            .totalDraws(totalDraws)
+            .winRate(Math.round(winRate * 10) / 10.0)
+            .monthlyCount(monthlyCount)
+            .yearlyCount(yearlyCount)
+            .yearlyWins(yearlyWins)
+            .yearlyWinRate(Math.round(yearlyWinRate * 10) / 10.0)
+            .mostVisitedStadium(mostVisitedStadium)
+            .mostVisitedCount(mostVisitedCount)
+            .happiestMonth(happiestMonth)
+            .happiestCount(happiestCount)
+            .firstDiaryDate(firstDiaryDate)
+            .build();
     }
 }
