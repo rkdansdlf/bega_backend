@@ -6,8 +6,11 @@ import com.example.demo.dto.LoginDto;
 import com.example.demo.dto.SignupDto;
 import com.example.demo.service.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -17,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 
 import jakarta.validation.Valid;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -52,26 +56,38 @@ public class APIController {
         }
     }
     
-    // 일반 로그인
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse> login(@Valid @RequestBody LoginDto request) {
+    public ResponseEntity<ApiResponse> login(@Valid @RequestBody LoginDto request, HttpServletResponse response) {  // 🔥 HttpServletResponse 추가
         try {
             // UserService의 인증 로직 호출
-            Map<String, Object> loginData = userService.authenticateAndGetToken(request.getEmail(), request.getPassword());
+            Map<String, Object> loginData = userService.authenticateAndGetToken(
+                request.getEmail(), 
+                request.getPassword()
+            );
             
-            // 2. 성공 응답 (HTTP 200 OK)
-            // 데이터에 loginData(Map)를 담아 전송
+            String accessToken = (String) loginData.get("accessToken");
+            
+            // 🔥 JWT를 쿠키에 설정
+            Cookie jwtCookie = new Cookie("Authorization", accessToken);
+            jwtCookie.setHttpOnly(true);
+            jwtCookie.setSecure(false);  // 개발 환경에서는 false, 프로덕션에서는 true
+            jwtCookie.setPath("/");
+            jwtCookie.setMaxAge(60 * 60);  // 1시간
+            response.addCookie(jwtCookie);
+            
+            log.info("✅ 로그인 성공 및 JWT 쿠키 설정: {}", request.getEmail());
+            
+            // 성공 응답
             return ResponseEntity.ok(ApiResponse.success(null, loginData));
 
         } catch (IllegalArgumentException e) {
-            // 인증 실패 (401 Unauthorized)
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED) 
+            log.warn("❌ 로그인 실패: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error(e.getMessage()));
         } catch (Exception e) {
-            // 기타 오류
-            e.printStackTrace(); // 서버 로그에 스택 트레이스를 출력하여 디버깅에 도움
+            log.error("로그인 중 예상치 못한 오류 발생: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("로그인 처리 중 오류가 발생했습니다."));
+                    .body(ApiResponse.error("로그인 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
         }
     }
 
