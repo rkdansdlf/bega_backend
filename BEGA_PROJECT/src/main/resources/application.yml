@@ -56,7 +56,7 @@ spring:
             user-info-uri: https://kapi.kakao.com/v2/user/me
             user-name-attribute: id
   jwt:
-    secret: ${JWT_SECRET:vmfhaltmskdlstkfkdgodyroqkfwkdbalroqkfwkdbalaaaaaaaaaaaaaaaabbbbb} # 환경변수 또는 기본값
+    secret: ${JWT_SECRET} # 환경변수 또는 기본값
     refresh-expiration: 86400000
 
 # --- 로깅 설정 ---
@@ -69,14 +69,14 @@ logging:
 
 # --- Supabase 설정 ---
 supabase:
-  url: $https://zyofzvnkputevakepbdm.supabase.co
-  service-role-key: $postgresql://postgres.zyofzvnkputevakepbdm:kboplatform2025@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres
+  url: ${SUPABASE_URL}
+  service-role-key: ${SUPABASE_SERVICE_ROLE_KEY}
   storage:
     buckets: 
       cheer: cheer-assets
       diary: diary-images
-      #profile: profile-images  
-    #max-images-per-profile: 1  
+      profile: profile-images  
+    max-images-per-profile: 1  
     signed-url-ttl-seconds: 3600
     max-image-bytes: 5242880
     max-images-per-post: 10
