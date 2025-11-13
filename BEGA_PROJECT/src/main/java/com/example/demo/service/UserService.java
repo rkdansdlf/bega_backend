@@ -266,14 +266,14 @@ public class UserService {
         Optional<UserEntity> userOptional = userRepository.findByEmail(email);
         
         if (userOptional.isEmpty()) {
-            throw new IllegalArgumentException("존재하지 않는 사용자입니다.");
+            throw new IllegalArgumentException("이메일 또는 비밀번호가 일치하지 않습니다.");
         }
         
         UserEntity user = userOptional.get();
         
         // 비밀번호 검증 (로컬 로그인이 가능한 경우에만 비밀번호 검증)
         if (user.getPassword() != null && !bCryptPasswordEncoder.matches(password, user.getPassword())) {
-            throw new IllegalArgumentException("비밀번호가 일치하지 않습니다.");
+            throw new IllegalArgumentException("이메일 또는 비밀번호가 일치하지 않습니다.");
         }
         
         if (user.getPassword() == null) {
@@ -291,7 +291,8 @@ public class UserService {
         
         return Map.of(
             "accessToken", accessToken, 
-            "name", user.getName()
+            "name", user.getName(),
+            "role", user.getRole()
         );
     }
 
