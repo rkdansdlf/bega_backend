@@ -1,6 +1,10 @@
 package com.example.cheerboard.repo;
 
 import com.example.cheerboard.domain.CheerComment;
+import com.example.demo.entity.UserEntity;
+
+import java.util.List;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.*;
@@ -21,4 +25,6 @@ public interface CheerCommentRepo extends JpaRepository<CheerComment, Long> {
     @Modifying(clearAutomatically = true)
     @Query("DELETE FROM CheerComment c WHERE c.post.id = :postId")
     void deleteByPostId(Long postId);
+    
+    List<CheerComment> findByAuthor(UserEntity author);
 }

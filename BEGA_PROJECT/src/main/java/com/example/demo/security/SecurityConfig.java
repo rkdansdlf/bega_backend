@@ -125,26 +125,26 @@ public class SecurityConfig {
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 		
         // LoginFilter 처리 경로 명시 및 등록
-        LoginFilter loginFilter = new LoginFilter(authenticationManager(authenticationConfiguration), jwtUtil, refreshRepository);
-        
-        // 인증 성공 시 200 OK 상태로 응답을 강제 종료
-        loginFilter.setAuthenticationSuccessHandler(new AuthenticationSuccessHandler() {
-            @Override
-            public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
-                // 상태 코드를 명시적으로 200 OK로 설정
-                response.setStatus(HttpServletResponse.SC_OK);
-                
-                // 응답 본문에 간단한 메시지를 쓰고 flush하여 응답을 즉시 종료(Commit)시킵니다.
-                response.getWriter().write("Login successful via REST.");
-                response.getWriter().flush();
-            }
-        });
-        
-        // LoginFilter 인증 처리
-        http
-            .addFilterAt(loginFilter, UsernamePasswordAuthenticationFilter.class);
-
-        loginFilter.setFilterProcessesUrl("/api/auth/login"); 
+//        LoginFilter loginFilter = new LoginFilter(authenticationManager(authenticationConfiguration), jwtUtil, refreshRepository);
+//        
+//        // 인증 성공 시 200 OK 상태로 응답을 강제 종료
+//        loginFilter.setAuthenticationSuccessHandler(new AuthenticationSuccessHandler() {
+//            @Override
+//            public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
+//                // 상태 코드를 명시적으로 200 OK로 설정
+//                response.setStatus(HttpServletResponse.SC_OK);
+//                
+//                // 응답 본문에 간단한 메시지를 쓰고 flush하여 응답을 즉시 종료(Commit)시킵니다.
+//                response.getWriter().write("Login successful via REST.");
+//                response.getWriter().flush();
+//            }
+//        });
+//        
+//        // LoginFilter 인증 처리
+//        http
+//            .addFilterAt(loginFilter, UsernamePasswordAuthenticationFilter.class);
+//
+//        loginFilter.setFilterProcessesUrl("/api/auth/login"); 
         
         // OAuth2 설정 
 		http
@@ -194,20 +194,20 @@ public class SecurityConfig {
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 // 팀게시글 주소별 권한
                 .requestMatchers("/team/be/**").hasRole("BE")
-                
-                
-                
+ 
                 // 나머지 모든 요청은 인증 필요
                 .anyRequest().authenticated())
                 
                 // 302 리다이렉션 방지: 인증 실패 시 /login으로 리다이렉트 대신 401 응답 반환
-                .exceptionHandling((exceptionHandling) ->
-                    exceptionHandling.authenticationEntryPoint((request, response, authException) -> {
-                        // 인증되지 않은 요청에 대해 302 대신 401 응답 강제
-                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                        response.getWriter().write("Unauthorized: Authentication failed and no 'permitAll()' rule matched.");
-                    })
-                );
+	            .exceptionHandling((exceptionHandling) ->
+	            exceptionHandling.authenticationEntryPoint((request, response, authException) -> {
+	                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+	                response.setContentType("application/json;charset=UTF-8");
+	                
+	                String jsonResponse = "{\"success\":false,\"message\":\"인증이 필요합니다.\",\"error\":\"Unauthorized\"}";
+	                response.getWriter().write(jsonResponse);
+	            })
+	        );
         		
 
         //jwt 기반 인증처리니 세션을 stateless로 설정
