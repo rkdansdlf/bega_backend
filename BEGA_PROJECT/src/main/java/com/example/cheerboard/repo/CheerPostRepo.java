@@ -16,7 +16,7 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
 
     @EntityGraph(attributePaths = {"author", "team"})
     @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.id = :teamId) ORDER BY p.postType DESC, p.createdAt DESC")
-    Page<CheerPost> findAllOrderByPostTypeAndCreatedAt(String teamId, Pageable pageable)
+    Page<CheerPost> findAllOrderByPostTypeAndCreatedAt(String teamId, Pageable pageable);
 
     /**
      * 조회수 증가 (UPDATE 쿼리만 실행)
@@ -27,7 +27,7 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
     void incrementViewCount(@Param("postId") Long postId);
     
     @Query("SELECT COUNT(p) FROM CheerPost p WHERE p.author.id = :userId")
-    long countByUserId(@Param("userId") Long userId);
+    int countByUserId(@Param("userId") Long userId);
     
     List<CheerPost> findAllByOrderByCreatedAtDesc();
     
