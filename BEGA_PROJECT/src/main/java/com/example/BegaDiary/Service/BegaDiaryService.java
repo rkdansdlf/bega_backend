@@ -3,7 +3,6 @@ package com.example.BegaDiary.Service;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -24,9 +23,11 @@ import com.example.BegaDiary.Exception.DiaryAlreadyExistsException;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Repository.BegaGameRepository;
 import com.example.BegaDiary.Utils.BaseballConstants;
+import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.demo.entity.UserEntity;
 import com.example.demo.repo.UserRepository;
+import com.example.mate.repository.PartyApplicationRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +43,8 @@ public class BegaDiaryService {
     private final BegaGameService gameService;
     private final UserRepository userRepository;
     private final ImageService imageService;
+    private final CheerPostRepo cheerPostRepository;
+    private final PartyApplicationRepository partyApplicationRepository;
     
     // 전체 다이어리 조회
     public List<DiaryResponseDto> getAllDiaries(Long userId) {
@@ -229,6 +232,9 @@ public class BegaDiaryService {
         LocalDate firstDate = diaryRepository.findFirstDiaryDate(userId);
         String firstDiaryDate = firstDate != null ? firstDate.toString() : null;
         
+        int cheerPostCount = cheerPostRepository.countByUserId(userId);
+        int mateParticipationCount = partyApplicationRepository.countCheckedInPartiesByUserId(userId);
+        
         return DiaryStatisticsDto.builder()
             .totalCount(totalCount)
             .totalWins(totalWins)
@@ -244,6 +250,8 @@ public class BegaDiaryService {
             .happiestMonth(happiestMonth)
             .happiestCount(happiestCount)
             .firstDiaryDate(firstDiaryDate)
+            .cheerPostCount(cheerPostCount)
+            .mateParticipationCount(mateParticipationCount)
             .build();
     }
 }

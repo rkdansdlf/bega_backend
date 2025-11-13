@@ -1,11 +1,14 @@
 package com.example.mate.repository;
 
-import com.example.mate.entity.PartyApplication;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
-
 import java.util.List;
 import java.util.Optional;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import com.example.mate.entity.PartyApplication;
 
 @Repository
 public interface PartyApplicationRepository extends JpaRepository<PartyApplication, Long> {
@@ -30,4 +33,15 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
 
     // 신청자의 승인된 신청 목록
     List<PartyApplication> findByApplicantIdAndIsApprovedTrue(Long applicantId);
+    
+    // 통계
+    @Query("SELECT COUNT(DISTINCT p.id) FROM Party p " +
+            "WHERE p.status = 'CHECKED_IN' AND " +
+            "(p.hostId = :userId OR " +
+            "EXISTS (SELECT 1 FROM PartyApplication pa " +
+            "        WHERE pa.partyId = p.id " +
+            "        AND pa.applicantId = :userId " +
+            "        AND pa.isApproved = true))")
+     int countCheckedInPartiesByUserId(@Param("userId") Long userId);
+    
 }
