@@ -13,6 +13,7 @@ import org.springframework.data.domain.*;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
 @RequestMapping("/api/cheer")
@@ -22,6 +23,7 @@ public class CheerController {
     private final CheerService svc;
 
     @GetMapping("/posts")
+    @PreAuthorize("isAuthenticated()")
     public Page<PostSummaryRes> list(
         @RequestParam(required = false) String teamId,
         @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)

@@ -67,21 +67,21 @@ public class CheerService {
         UserEntity me = current.getOrNull();
         CheerPost post = findPostById(id);
 
-        increaseViewCount(post, me);
+        increaseViewCount(id, post, me);
 
         boolean liked = me != null && isPostLikedByUser(id, me.getId());
         boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
 
         return postDtoMapper.toPostDetailRes(post, liked, isOwner);
     }
-    
+
     /**
      * 게시글 조회수 증가 (작성자가 아닌 경우에만)
+     * UPDATE 쿼리만 실행하여 성능 최적화
      */
-    private void increaseViewCount(CheerPost post, UserEntity user) {
+    private void increaseViewCount(Long postId, CheerPost post, UserEntity user) {
         if (user == null || !post.getAuthor().getId().equals(user.getId())) {
-            post.setViews(post.getViews() + 1);
-            postRepo.save(post);
+            postRepo.incrementViewCount(postId);
         }
     }
     
