@@ -15,11 +15,14 @@ RUN chmod +x gradlew
 # Copy source code
 COPY src src
 
+# 환경 변수 명시
+ENV SPRING_PROFILES_ACTIVE=prod
+
 # Build the application
 RUN ./gradlew clean build -x test
 
 # Expose port 8080
 EXPOSE 8080
 
-# Run the application
-CMD ["java", "-jar", "build/libs/BEGA_PROJECT-0.0.1-SNAPSHOT.jar"]
+# Run the application with prod profile
+CMD ["java", "-Dspring.profiles.active=prod", "-jar", "build/libs/BEGA_PROJECT-0.0.1-SNAPSHOT.jar"]
