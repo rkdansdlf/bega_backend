@@ -1,5 +1,7 @@
 package com.example.demo.dto;
 
+import com.example.demo.validation.PasswordMatches;
+import com.example.demo.validation.ValidPassword;
 import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -10,13 +12,16 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
+@PasswordMatches  // 🔥 클래스 레벨에서 비밀번호 일치 검증
 public class PasswordResetConfirmDto {
+    
     @NotBlank(message = "토큰은 필수입니다.")
     private String token;
-    
+
     @NotBlank(message = "새 비밀번호는 필수입니다.")
+    @ValidPassword  // 🔥 비밀번호 복잡도 검증
     private String newPassword;
-    
+
     @NotBlank(message = "비밀번호 확인은 필수입니다.")
     private String confirmPassword;
 }

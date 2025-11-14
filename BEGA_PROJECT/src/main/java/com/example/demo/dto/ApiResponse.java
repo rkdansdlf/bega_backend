@@ -2,8 +2,10 @@ package com.example.demo.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Getter
+@NoArgsConstructor
 @AllArgsConstructor
 public class ApiResponse {
     private boolean success;
@@ -20,5 +22,10 @@ public class ApiResponse {
 
     public static ApiResponse error(String message) {
         return new ApiResponse(false, message, null);
+    }
+    
+    // 🔥 Validation 에러용
+    public static ApiResponse error(String message, Object data) {
+        return new ApiResponse(false, message, data);
     }
 }
