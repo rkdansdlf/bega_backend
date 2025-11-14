@@ -74,7 +74,7 @@ supabase:
   storage:
     buckets: 
       cheer: cheer-assets
-      diary: diary-posts
+      diary: diary-images
       profile: profile-images  
     max-images-per-profile: 1  
     signed-url-ttl-seconds: 3600

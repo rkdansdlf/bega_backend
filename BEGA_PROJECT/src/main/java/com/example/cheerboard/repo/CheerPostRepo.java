@@ -27,7 +27,7 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
     void incrementViewCount(@Param("postId") Long postId);
     
     @Query("SELECT COUNT(p) FROM CheerPost p WHERE p.author.id = :userId")
-    long countByUserId(@Param("userId") Long userId);
+    int countByUserId(@Param("userId") Long userId);
     
     List<CheerPost> findAllByOrderByCreatedAtDesc();
     
