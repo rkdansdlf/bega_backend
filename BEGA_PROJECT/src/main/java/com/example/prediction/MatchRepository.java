@@ -16,7 +16,7 @@ public interface MatchRepository extends JpaRepository<Match, String>{
 	// 특정 날짜의 경기 목록
 	List<Match> findByGameDate(LocalDate today);
 	
-	// 특정 날짜 범위의 경기 목록 (내림차순)
+	// 지난 일주일치 이전 경기 목록 조회
 	List<Match> findByGameDateBetweenOrderByGameDateDesc(LocalDate startDate, LocalDate endDate);
 	
 	
