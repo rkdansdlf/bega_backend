@@ -43,8 +43,7 @@ public class PredictionService {
 	}
 	
 	
-	
-	
+		
 	// 투표 현황 조회
 	
 	@Transactional
@@ -93,7 +92,16 @@ public class PredictionService {
     public List<Match> getMatchesByDate(LocalDate date) {
         return matchRepository.findByGameDate(date);
     }
-
+    
+    // 지난 일주일치 이전 경기 목록 조회
+    @Transactional
+    public List<Match> getPreviousWeekMatches() {
+        LocalDate today = LocalDate.now(); 
+        LocalDate startDate = today.minusDays(8); // 8일 전부터
+        LocalDate endDate = today.minusDays(1); // 어제까지
+        
+        return matchRepository.findByGameDateBetweenOrderByGameDateDesc(startDate, endDate);
+    }
 	
 	// 최종 투표 결과 저장
 	@Transactional

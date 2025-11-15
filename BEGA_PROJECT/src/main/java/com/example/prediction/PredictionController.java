@@ -31,6 +31,8 @@ public class PredictionController {
 	public ResponseEntity<String> vote(
 			Principal principal,
 			@RequestBody PredictionRequestDto request) {
+		
+		
 		try {
 			Long userId = Long.valueOf(principal.getName());
 			
@@ -80,6 +82,13 @@ public class PredictionController {
         return ResponseEntity.ok(matches);
     }
 
+    // 지난 일주일치 이전 경기 목록을 최신순으로 조회
+    @GetMapping("/previous-week")
+    public ResponseEntity<List<Match>> getPreviousWeekMatches() {
+        // 새로 정의된 기간별 조회 메소드 호출
+        List<Match> matches = predictionService.getPreviousWeekMatches();
+        return ResponseEntity.ok(matches);
+    }
 
 	
 	
