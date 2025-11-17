@@ -4,7 +4,6 @@ import java.security.Principal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,6 +24,7 @@ import com.example.BegaDiary.Entity.DiaryStatisticsDto;
 import com.example.BegaDiary.Entity.GameResponseDto;
 import com.example.BegaDiary.Service.BegaDiaryService;
 import com.example.BegaDiary.Service.BegaGameService;
+import com.example.cheerboard.storage.service.ImageService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +37,7 @@ public class DiaryController {
 	
 	private final BegaDiaryService diaryService;
 	private final BegaGameService gameService;
+	private final ImageService imageService;
 	
 	@GetMapping("/games")
 	public ResponseEntity<List<GameResponseDto>> getGamesByDate(
@@ -83,21 +84,34 @@ public class DiaryController {
         
         Long userId = Long.valueOf(principal.getName());
 
-        // 비동기로 처리되므로 즉시 응답
-        CompletableFuture<List<String>> future = diaryService.addImages(diaryId, userId, images);
-        
-        // 비동기 작업 완료 시 로그 (선택사항)
-        future.thenAccept(paths -> 
-            log.info("이미지 업로드 완료: diaryId={}, 업로드된 이미지 수={}", diaryId, paths.size())
-        ).exceptionally(ex -> {
-            log.error("이미지 업로드 실패: diaryId={}", diaryId, ex);
-            return null;
-        });
-        
-        return ResponseEntity.accepted().body(Map.of(
-            "message", "이미지 업로드가 진행 중입니다.",
-            "diaryId", diaryId
-        ));
+        try {
+            List<String> storagePaths = imageService.uploadDiaryImages(userId, diaryId, images)
+                                                    .block();
+            
+            if (storagePaths == null || storagePaths.isEmpty()) {
+                return ResponseEntity.ok().body(Map.of(
+                    "message", "업로드할 이미지가 없습니다.",
+                    "diaryId", diaryId,
+                    "photos", List.of()
+                ));
+            }
+
+            List<String> signedUrls = imageService.getDiaryImageSignedUrls(storagePaths)
+                                                  .block(); 
+
+            return ResponseEntity.ok().body(Map.of(
+                "message", "이미지 업로드가 완료되었습니다.",
+                "diaryId", diaryId,
+                "photos", signedUrls
+            ));
+            
+        } catch (Exception ex) {
+            log.error("이미지 업로드/URL 생성 실패: diaryId={}", diaryId, ex);
+            return ResponseEntity.internalServerError().body(Map.of(
+                "message", "이미지 처리 중 오류가 발생했습니다.",
+                "error", ex.getMessage()
+            ));
+        }
     }
 	
     // 특정 다이어리 조회
