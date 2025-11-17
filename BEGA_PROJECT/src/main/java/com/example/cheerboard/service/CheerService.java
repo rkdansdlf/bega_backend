@@ -290,6 +290,7 @@ public class CheerService {
             resolveDisplayName(comment.getAuthor()),
             comment.getAuthor().getEmail(),
             comment.getAuthor().getFavoriteTeamId(),
+            comment.getAuthor().getProfileImageUrl(),
             comment.getContent(),
             comment.getCreatedAt(),
             comment.getLikeCount(),
