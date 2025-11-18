@@ -1,53 +1,47 @@
+
 package com.example.prediction;
 
-import java.time.LocalDateTime;
-
-import org.hibernate.annotations.Collate;
-
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Entity
-@Table(name = "predictions", uniqueConstraints = {
-	    @UniqueConstraint(columnNames = {"game_id", "user_id"}, name = "uk_game_user_vote")
-})
+@Table(name = "predictions")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Prediction {
-	
-	@Id
-	@GeneratedValue(strategy = GenerationType.IDENTITY)
-	private Long id;
-	
-	@Column(name = "game_id" , nullable = false)
-	private String gameId;
-	
-	@Column(name = "user_id")
-	private Long userId;
-	
-	@Column(name = "voted_team")
-	private String votedTeam;
-	
-	@Column(name = "created_at")
-	private LocalDateTime createdAt;
-
-	@Builder
-	public Prediction(String gameId, Long userId, String votedTeam) {
-		this.gameId = gameId;
-		this.userId = userId;
-		this.votedTeam = votedTeam;
-		this.createdAt = LocalDateTime.now();
-	}
-	
-	
-
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(name = "game_id", nullable = false)
+    private String gameId;
+    
+    @Column(name = "user_id")
+    private Long userId;
+    
+    @Column(name = "voted_team", nullable = false)
+    private String votedTeam;  // "home" 또는 "away"
+    
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+    
+    @Builder
+    public Prediction(String gameId, Long userId, String votedTeam) {
+        this.gameId = gameId;
+        this.userId = userId;
+        this.votedTeam = votedTeam;
+        this.createdAt = LocalDateTime.now();
+    }
+    
+ // [추가/통합] 투표 변경 시 사용
+    public void updateVotedTeam(String newVotedTeam) {
+        this.votedTeam = newVotedTeam;
+        this.createdAt = LocalDateTime.now();
+    }
 }

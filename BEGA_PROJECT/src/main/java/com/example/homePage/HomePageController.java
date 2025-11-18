@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,6 +30,13 @@ public class HomePageController {
         return ResponseEntity.ok(games);
     }
 	
+	// 특정 시즌의 팀 순위 조회
+	@GetMapping("/rankings/{seasonYear}")
+    public ResponseEntity<List<HomePageTeamRankingDto>> getTeamRankings(
+        @PathVariable int seasonYear
+    ) {
+        List<HomePageTeamRankingDto> rankings = homePageGameService.getTeamRankings(seasonYear);
+        return ResponseEntity.ok(rankings);
+    }
 	
-	// 순위 api 추가 
 }
