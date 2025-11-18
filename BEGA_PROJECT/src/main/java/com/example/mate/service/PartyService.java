@@ -3,9 +3,6 @@ package com.example.mate.service;
 import com.example.demo.repo.UserRepository;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
-import com.example.mate.exception.InvalidApplicationStatusException;
-import com.example.mate.exception.PartyFullException;
-import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.repository.PartyRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -57,7 +54,7 @@ public class PartyService {
             Party party = Party.builder()
                 .hostId(request.getHostId())
                 .hostName(request.getHostName())
-                .hostProfileImageUrl(hostProfileImageUrl) //  변환된 URL 사용
+                .hostProfileImageUrl(hostProfileImageUrl) // ✅ 변환된 URL 사용
                 .hostBadge(request.getHostBadge() != null ? request.getHostBadge() : Party.BadgeType.NEW)
                 .hostRating(request.getHostRating() != null ? request.getHostRating() : 5.0)
                 .teamId(request.getTeamId())
@@ -99,7 +96,7 @@ public class PartyService {
     @Transactional(readOnly = true)
     public PartyDTO.Response getPartyById(Long id) {
         Party party = partyRepository.findById(id)
-                .orElseThrow(() -> new PartyNotFoundException(id));
+                .orElseThrow(() -> new RuntimeException("파티를 찾을 수 없습니다."));
         return PartyDTO.Response.from(party);
     }
 
@@ -140,7 +137,7 @@ public class PartyService {
     @Transactional
     public PartyDTO.Response updateParty(Long id, PartyDTO.UpdateRequest request) {
         Party party = partyRepository.findById(id)
-                .orElseThrow(() -> new PartyNotFoundException(id));
+                .orElseThrow(() -> new RuntimeException("파티를 찾을 수 없습니다."));
 
         if (request.getStatus() != null) {
             party.setStatus(request.getStatus());
@@ -160,10 +157,10 @@ public class PartyService {
     @Transactional
     public PartyDTO.Response incrementParticipants(Long id) {
         Party party = partyRepository.findById(id)
-                .orElseThrow(() -> new PartyNotFoundException(id));
+                .orElseThrow(() -> new RuntimeException("파티를 찾을 수 없습니다."));
 
         if (party.getCurrentParticipants() >= party.getMaxParticipants()) {
-            throw new PartyFullException(id);
+            throw new RuntimeException("파티가 이미 가득 찼습니다.");
         }
 
         party.setCurrentParticipants(party.getCurrentParticipants() + 1);
@@ -181,10 +178,10 @@ public class PartyService {
     @Transactional
     public PartyDTO.Response decrementParticipants(Long id) {
         Party party = partyRepository.findById(id)
-                .orElseThrow(() -> new PartyNotFoundException(id));
+                .orElseThrow(() -> new RuntimeException("파티를 찾을 수 없습니다."));
 
         if (party.getCurrentParticipants() <= 1) {
-            throw new InvalidApplicationStatusException("호스트는 파티를 떠날 수 없습니다.");
+            throw new RuntimeException("호스트는 파티를 떠날 수 없습니다.");
         }
 
         party.setCurrentParticipants(party.getCurrentParticipants() - 1);
@@ -198,7 +195,7 @@ public class PartyService {
     @Transactional
     public void deleteParty(Long id) {
         Party party = partyRepository.findById(id)
-                .orElseThrow(() -> new PartyNotFoundException(id));
+                .orElseThrow(() -> new RuntimeException("파티를 찾을 수 없습니다."));
         partyRepository.delete(party);
     }
 }

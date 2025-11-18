@@ -26,6 +26,6 @@ public class DiaryStatisticsDto {
  private Integer happiestCount;        
  private String firstDiaryDate;    
  
- private Long cheerPostCount;
+ private Integer cheerPostCount;
  private Integer mateParticipationCount;
 }

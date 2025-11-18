@@ -20,8 +20,12 @@ public class PartyController {
     // 파티 생성
     @PostMapping
     public ResponseEntity<PartyDTO.Response> createParty(@RequestBody PartyDTO.Request request) {
-        PartyDTO.Response response = partyService.createParty(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        try {
+            PartyDTO.Response response = partyService.createParty(request);
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+        }
     }
 
     // 모든 파티 조회
@@ -34,17 +38,24 @@ public class PartyController {
     // 파티 ID로 조회
     @GetMapping("/{id}")
     public ResponseEntity<PartyDTO.Response> getPartyById(@PathVariable Long id) {
-        PartyDTO.Response response = partyService.getPartyById(id);
-        return ResponseEntity.ok(response);
+        try {
+            PartyDTO.Response response = partyService.getPartyById(id);
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+        }
     }
 
     // 상태별 파티 조회
     @GetMapping("/status/{status}")
     public ResponseEntity<List<PartyDTO.Response>> getPartiesByStatus(@PathVariable String status) {
-        Party.PartyStatus partyStatus = Party.PartyStatus.valueOf(status.toUpperCase());
-        List<PartyDTO.Response> parties = partyService.getPartiesByStatus(partyStatus);
-        return ResponseEntity.ok(parties);
-        
+        try {
+            Party.PartyStatus partyStatus = Party.PartyStatus.valueOf(status.toUpperCase());
+            List<PartyDTO.Response> parties = partyService.getPartiesByStatus(partyStatus);
+            return ResponseEntity.ok(parties);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+        }
     }
 
     // 호스트별 파티 조회
@@ -73,16 +84,22 @@ public class PartyController {
     public ResponseEntity<PartyDTO.Response> updateParty(
             @PathVariable Long id,
             @RequestBody PartyDTO.UpdateRequest request) {
-        PartyDTO.Response response = partyService.updateParty(id, request);
-        return ResponseEntity.ok(response);
-        
+        try {
+            PartyDTO.Response response = partyService.updateParty(id, request);
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+        }
     }
 
     // 파티 삭제
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteParty(@PathVariable Long id) {
-        partyService.deleteParty(id);
-        return ResponseEntity.noContent().build();
-      
+        try {
+            partyService.deleteParty(id);
+            return ResponseEntity.noContent().build();
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
     }
 }
