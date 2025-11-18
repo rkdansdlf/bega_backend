@@ -2,10 +2,6 @@ package com.example.demo.service;
 
 import java.util.Map;
 import java.util.Optional;
-import java.io.ByteArrayInputStream; 
-import java.io.InputStream;
-import java.util.Base64; 
-import java.io.IOException;
 
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -15,48 +11,303 @@ import org.slf4j.LoggerFactory;
 
 import com.example.demo.dto.UserDto;
 import com.example.demo.dto.SignupDto; 
-import com.example.demo.mypage.dto.MyPageUpdateDto; // 🚨 새로 추가된 DTO import
 import com.example.demo.mypage.dto.UserProfileDto;
 import com.example.demo.entity.UserEntity;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.userdetails.UserDetails;
 import com.example.demo.entity.TeamEntity; 
 import com.example.demo.entity.Role;
 import com.example.demo.jwt.JWTUtil;
 import com.example.demo.repo.UserRepository;
-import com.example.demo.repo.TeamRepository; 
+import com.example.demo.repo.TeamRepository;
+
+import com.example.demo.exception.UserNotFoundException;
+import com.example.demo.exception.TeamNotFoundException;
+import com.example.demo.exception.DuplicateEmailException;
+import com.example.demo.exception.InvalidCredentialsException;
+import com.example.demo.exception.SocialLoginRequiredException;
+
+import lombok.RequiredArgsConstructor;
 
 @Service
+@RequiredArgsConstructor
 public class UserService {
 
     private static final Logger log = LoggerFactory.getLogger(UserService.class); 
+    private static final long ACCESS_EXPIRATION_TIME = 1000L * 60 * 60;
 
     private final UserRepository userRepository;
     private final TeamRepository teamRepository; 
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final JWTUtil jwtUtil;
-    // 🚨 Supabase URL을 프론트에서 받으므로 S3Uploader의 역할이 축소되거나 없어집니다.
-    // private final S3Uploader s3Uploader; 
-    
-    private static final long ACCESS_EXPIRATION_TIME = 1000L * 60 * 60;
-
-    public UserService(UserRepository userRepository, TeamRepository teamRepository,
-    		BCryptPasswordEncoder bCryptPasswordEncoder, JWTUtil jwtUtil
-    		/* , S3Uploader s3Uploader */) { // 🚨 생성자에서도 S3Uploader 주입 제거
-        this.userRepository = userRepository;
-        this.teamRepository = teamRepository; 
-        this.bCryptPasswordEncoder = bCryptPasswordEncoder;
-        this.jwtUtil = jwtUtil;
-        // this.s3Uploader = s3Uploader;
+  
+    /**
+     * 회원가입
+     */
+    @Transactional
+    public UserEntity saveUser(SignupDto signupDto) {
+        UserDto userDto = signupDto.toUserDto();
+        this.signUp(userDto);
+        
+        return findUserByEmailOrThrow(userDto.getEmail());
     }
-    
-    // 회원가입의 favoriteTeam에 따라 Role 지정
+
+    /**
+     * 회원가입 메인 로직
+     */
+    @Transactional
+    public void signUp(UserDto userDto) {
+        log.info("--- [SignUp] Attempt - Email: {} ---", userDto.getEmail());
+
+        Optional<UserEntity> existingUser = userRepository.findByEmail(userDto.getEmail());
+
+        if (existingUser.isPresent()) {
+            handleExistingUser(existingUser.get(), userDto);
+            return;
+        }
+
+        createNewUser(userDto);
+    }
+
+    /**
+     * 기존 사용자 처리 (중복 체크 및 소셜 연동)
+     */
+    private void handleExistingUser(UserEntity existingUser, UserDto userDto) {
+        log.info("Existing User Found - ID: {}, Provider: {}", 
+            existingUser.getId(), existingUser.getProvider());
+
+        boolean isLocalSignup = isLocalSignupAttempt(userDto);
+        
+        if (isLocalSignup) {
+            handleLocalSignupConflict(existingUser);
+            return;
+        }
+        
+        if (userDto.getProviderId() != null) {
+            handleSocialLinking(existingUser, userDto);
+        }
+    }
+
+    /**
+     * 로컬 회원가입 충돌 처리
+     */
+    private void handleLocalSignupConflict(UserEntity existingUser) {
+        if (existingUser.isOAuth2User()) {
+            log.warn("Attempted Local Signup with existing Social Account");
+            throw new SocialLoginRequiredException();
+        } else {
+            log.warn("Attempted Local Signup with existing Local Account");
+            throw new DuplicateEmailException(existingUser.getEmail());
+        }
+    }
+
+    /**
+     * 소셜 계정 연동 처리
+     */
+    private void handleSocialLinking(UserEntity existingUser, UserDto userDto) {
+        if (existingUser.getProvider() == null || "LOCAL".equals(existingUser.getProvider())) {
+            log.info("Linking Social Provider '{}' to Local Account", userDto.getProvider());
+            existingUser.setProvider(userDto.getProvider());
+            existingUser.setProviderId(userDto.getProviderId());
+            userRepository.save(existingUser);
+        }
+    }
+
+    /**
+     * 신규 사용자 생성
+     */
+    private void createNewUser(UserDto userDto) {
+        log.info("Creating new user - Email: {}", userDto.getEmail());
+
+        String favoriteTeamName = userDto.getFavoriteTeam();
+        String roleKey = getRoleKeyByFavoriteTeam(favoriteTeamName);
+        String teamId = getTeamIdByFavoriteTeamName(favoriteTeamName);
+        TeamEntity team = findTeamById(teamId);
+        String encodedPassword = encodePasswordIfPresent(userDto.getPassword());
+
+        UserEntity user = UserEntity.builder()
+            .name(userDto.getName()) 
+            .email(userDto.getEmail())
+            .password(encodedPassword) 
+            .favoriteTeam(team) 
+            .role(roleKey)             
+            .provider(userDto.getProvider() != null ? userDto.getProvider() : "LOCAL")
+            .providerId(userDto.getProviderId())
+            .build();
+
+        userRepository.save(user);
+        log.info("New user created - Email: {}, ID: {}", user.getEmail(), user.getId());
+    }
+
+
+    /**
+     * 로그인 인증 및 JWT 토큰 생성
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> authenticateAndGetToken(String email, String password) {
+        UserEntity user = findUserByEmailOrThrow(email);
+        
+        validatePassword(user, password);
+
+        String accessToken = jwtUtil.createJwt(
+            user.getEmail(),
+            user.getRole(),
+            user.getId(),
+            ACCESS_EXPIRATION_TIME
+        );
+        
+        return Map.of(
+            "accessToken", accessToken, 
+            "name", user.getName(),
+            "role", user.getRole()
+        );
+    }
+
+
+    /**
+     * 프로필 업데이트
+     */
+    @Transactional
+    public UserEntity updateProfile(Long id, UserProfileDto updateDto) {
+        UserEntity user = findUserById(id);
+
+        updateUserName(user, updateDto.getName());
+        updateProfileImage(user, updateDto.getProfileImageUrl());
+        updateFavoriteTeam(user, updateDto.getFavoriteTeam());
+
+        return userRepository.save(user);
+    }
+
+    private void updateUserName(UserEntity user, String name) {
+        user.setName(name);
+    }
+
+    private void updateProfileImage(UserEntity user, String imageUrl) {
+        if (imageUrl != null && !imageUrl.isEmpty()) {
+            user.setProfileImageUrl(imageUrl);
+            log.info("Profile image updated for user {}", user.getId());
+        }
+    }
+
+    /**
+     * 응원팀 업데이트
+     */
+    private void updateFavoriteTeam(UserEntity user, String teamId) {
+        if (teamId != null && !teamId.trim().isEmpty()) {
+            TeamEntity team = teamRepository.findById(teamId)
+                .orElseThrow(() -> new TeamNotFoundException(teamId));
+            user.setFavoriteTeam(team);
+        } else {
+            user.setFavoriteTeam(null);
+        }
+        
+        String roleKey = getRoleKeyByTeamId(teamId);
+        user.setRole(roleKey);
+    }
+
+
+    /**
+     * ID로 사용자 조회
+     */
+    @Transactional(readOnly = true)
+    public UserEntity findUserById(Long id) {
+        return userRepository.findById(id)
+            .orElseThrow(() -> new UserNotFoundException(id));  
+    }
+
+    /**
+     * 이메일 중복 체크
+     */
+    @Transactional(readOnly = true)
+    public boolean isEmailExists(String email) {
+        return userRepository.existsByEmail(email);
+    }
+
+    /**
+     * 이메일로 사용자 ID 조회
+     */
+    @Transactional(readOnly = true)
+    public Long getUserIdByEmail(String email) {
+        return userRepository.findByEmail(email)
+            .map(UserEntity::getId)
+            .orElseThrow(() -> new UserNotFoundException("email", email));  
+    }
+
+    /**
+     * 이메일로 사용자 DTO 조회
+     */
+    @Transactional(readOnly = true)
+    public UserDto findUserByEmail(String email) {
+        return userRepository.findByEmail(email)
+            .map(this::convertToUserDto)
+            .orElseThrow(() -> new UserNotFoundException("email", email));  
+    }
+
+    /**
+     * Private 헬퍼 메서드
+     */
+    private boolean isLocalSignupAttempt(UserDto userDto) {
+        return userDto.getProvider() == null || "LOCAL".equals(userDto.getProvider());
+    }
+
+
+    /**
+     * 비밀번호 검증
+     */
+    private void validatePassword(UserEntity user, String password) {
+        if (user.getPassword() == null) {
+            throw new SocialLoginRequiredException();  
+        }
+        
+        if (!bCryptPasswordEncoder.matches(password, user.getPassword())) {
+            throw new InvalidCredentialsException();  
+        }
+    }
+
+    /**
+     * 이메일로 사용자 조회 (로그인용)
+     */
+    private UserEntity findUserByEmailOrThrow(String email) {
+        return userRepository.findByEmail(email)
+            .orElseThrow(() -> new InvalidCredentialsException());  
+    }
+
+    /**
+     * 팀 ID로 팀 조회
+     */
+    private TeamEntity findTeamById(String teamId) {
+        if (teamId == null) {
+            return null;
+        }
+        
+        log.info("Fetching TeamEntity with ID: {}", teamId);
+        return teamRepository.findById(teamId)
+            .orElseThrow(() -> new TeamNotFoundException(teamId));  
+    }
+
+    private String encodePasswordIfPresent(String password) {
+        return password != null ? bCryptPasswordEncoder.encode(password) : null;
+    }
+
+    private UserDto convertToUserDto(UserEntity userEntity) {
+        return UserDto.builder()
+            .id(userEntity.getId())
+            .name(userEntity.getName()) 
+            .email(userEntity.getEmail())
+            .favoriteTeam(userEntity.getFavoriteTeamId()) 
+            .role(userEntity.getRole())
+            .provider(userEntity.getProvider())
+            .providerId(userEntity.getProviderId())
+            .build();
+    }
+
+    /**
+     * Role 및 Team 매핑 메서드
+     */
     private String getRoleKeyByFavoriteTeam(String teamName) {
         if (teamName == null || "없음".equals(teamName) || teamName.trim().isEmpty()) {
             return Role.USER.getKey();
         }
 
-        Role selectedRoleEnum = switch (teamName) {
+        Role role = switch (teamName) {
             case "삼성 라이온즈" -> Role.Role_SS;
             case "롯데 자이언츠" -> Role.Role_LT;
             case "LG 트윈스" -> Role.Role_LG;
@@ -70,19 +321,16 @@ public class UserService {
             default -> Role.USER;
         };
         
-        return selectedRoleEnum.getKey();
+        return role.getKey();
     }
-    
-    // favoriteTeam ID에 따라 Role 지정
+
     private String getRoleKeyByTeamId(String teamId) {
         if (teamId == null || teamId.trim().isEmpty()) {
-            return Role.USER.getKey(); // 팀 선택 안 할 시 ROLE_USER
+            return Role.USER.getKey();
         }
-
-        // Team ID("KT") -> "ROLE_KT" 형태로 변환합니다.
         return "ROLE_" + teamId.toUpperCase();
     }
-    // team이름을 기준으로 db에 favoriteTeam 저장
+
     private String getTeamIdByFavoriteTeamName(String teamName) {
         if (teamName == null || "없음".equals(teamName) || teamName.trim().isEmpty()) {
             return null;
@@ -101,230 +349,5 @@ public class UserService {
             case "기아 타이거즈" -> "HT";
             default -> null; 
         };
-    }
-
-    // MyPage
-    @Transactional(readOnly = true)
-    public UserEntity findUserById(Long id) {
-        return userRepository.findById(id)
-                // ID에 해당하는 사용자가 없으면 런타임 예외
-                .orElseThrow(() -> new RuntimeException("ID " + id + "에 해당하는 사용자가 없습니다."));
-    }
-
-    /**
-     * 프로필 업데이트 로직 (닉네임, 응원팀, 프로필 이미지 URL 포함)
-     * @param id 사용자 ID
-     * @param updateDto 업데이트할 정보를 담은 DTO
-     * @return 업데이트된 UserEntity
-     */
-    @Transactional
-    public UserEntity updateProfile(Long id, UserProfileDto updateDto) { // 🚨 Base64 대신 DTO를 받습니다.
-        // 사용자 조회
-        UserEntity user = findUserById(id); 
-
-        // 닉네임 수정
-        user.setName(updateDto.getName());
-
-        // 🚨 프로필 이미지 URL 처리 (Supabase에서 업로드 후 받은 URL이 있을 경우에만 실행)
-        String newImageUrl = updateDto.getProfileImageUrl();
-        if (newImageUrl != null && !newImageUrl.isEmpty()) {
-            // 새 URL로 DB 업데이트
-            user.setProfileImageUrl(newImageUrl);
-            log.info("Profile image updated for user {}. New URL: {}", user.getId(), newImageUrl);
-        }
-        
-        String favoriteTeamId = updateDto.getFavoriteTeam();
-
-        // 응원팀 수정
-        if (favoriteTeamId != null && !favoriteTeamId.trim().isEmpty()) {
-            // 팀 ID가 유효한 경우, TeamEntity를 조회하여 매핑합니다.
-            TeamEntity favoriteTeam = teamRepository.findById(favoriteTeamId)
-                .orElseThrow(() -> new RuntimeException("유효하지 않은 응원팀 ID입니다: " + favoriteTeamId));
-            
-            user.setFavoriteTeam(favoriteTeam); 
-        } else {
-            // favoriteTeamId가 null이거나 비어있으면 ('없음'을 선택), TeamEntity를 null로 설정
-            user.setFavoriteTeam(null);
-        }
-        
-        // 권한 수정
-        String newRoleKey = getRoleKeyByTeamId(favoriteTeamId); 
-        user.setRole(newRoleKey);
-        
-        // DB에 변경 사항 저장
-        return userRepository.save(user);
-    }
-    // ... (이하 기존 메서드들은 변경 없음)
-    
-    // 회원가입
-    @Transactional
-    public UserEntity saveUser(SignupDto signupDto) {
-        // 비밀번호 일치 확인 
-        if (!signupDto.getPassword().equals(signupDto.getConfirmPassword())) {
-             throw new IllegalArgumentException("비밀번호와 비밀번호 확인이 일치하지 않습니다.");
-        }
-        
-        UserDto userDto = signupDto.toUserDto();
-        this.signUp(userDto);
-        
-        // 새로 가입된 사용자를 다시 찾아서 반환 
-        return userRepository.findByEmail(userDto.getEmail())
-            .orElseThrow(() -> new RuntimeException("회원가입 후 사용자 조회 실패"));
-    }
-
-
-
-   // 일반 회원가입 및 소셜 연동
-    @Transactional
-    public void signUp(UserDto userDto) {
-        
-        log.info("--- [SignUp] Attempt ---");
-        log.info("DTO Email: {}", userDto.getEmail());
-
-        // 이메일로 기존 사용자 조회
-        Optional<UserEntity> existingUserOptional = userRepository.findByEmail(userDto.getEmail());
-
-        // A. 기존 사용자가 존재하는 경우 (중복 처리 및 연동)
-        if (existingUserOptional.isPresent()) {
-            UserEntity existingUser = existingUserOptional.get();
-            
-            log.info("Existing User Found. ID: {}, DB Email: {}, DB Provider: {}", 
-                     existingUser.getId(), existingUser.getEmail(), existingUser.getProvider());
-            
-            boolean isLocalSignupAttempt = userDto.getProvider() == null || "LOCAL".equals(userDto.getProvider());
-            
-            // 회원가입 시도 시
-            if (isLocalSignupAttempt) {
-                if (existingUser.isOAuth2User()) {
-                    // Provider가 google, kakao 등 소셜인 경우
-                    log.warn("Attempted Local Signup with existing Social Account. Blocked.");
-                    throw new IllegalArgumentException("이 이메일은 소셜 로그인 계정으로 사용 중입니다. 소셜 로그인을 이용해 주세요.");
-                } else {
-                    // Provider가 LOCAL일 경우
-                    log.warn("Attempted Local Signup with existing Local/Linked Account. Blocked.");
-                    throw new IllegalArgumentException("이미 사용 중인 이메일입니다.");
-                }
-            } 
-            
-            // 소셜 로그인 시도 (userDto.providerId != null)
-            else if (userDto.getProviderId() != null) {
-                //  순방향 연동: 기존 로컬 계정에 소셜 정보 추가
-                if (existingUser.getProvider() == null || "LOCAL".equals(existingUser.getProvider())) {
-                    log.info("Executing Forward Link: Adding Social Provider '{}' to Local Account. Email: {}", 
-                             userDto.getProvider(), userDto.getEmail());
-                    existingUser.setProvider(userDto.getProvider());
-                    existingUser.setProviderId(userDto.getProviderId());
-                    userRepository.save(existingUser);
-                }
-                // 이미 연동된 계정이거나,연동 완료 후에는 아무것도 하지 않고 종료
-                return;
-            }
-            
-            return; 
-        }
-
-        // 이메일이 존재하지 않는 경우 (신규 회원가입)
-        log.info("New User Creation: Email '{}' not found in DB. Creating new account.", userDto.getEmail());
-
-        String favoriteTeamName = userDto.getFavoriteTeam();
-        String assignedRoleKey = getRoleKeyByFavoriteTeam(favoriteTeamName);
-        String favoriteTeamId = getTeamIdByFavoriteTeamName(favoriteTeamName);
-
-        // TeamEntity 조회
-        TeamEntity favoriteTeam = null;
-        if (favoriteTeamId != null) {
-            log.info("Fetching TeamEntity with ID: {}", favoriteTeamId);
-            favoriteTeam = teamRepository.findById(favoriteTeamId)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 팀 ID입니다: " + favoriteTeamId));
-        }
-        
-        // 비밀번호 암호화 (로컬 가입 시에만 필요)
-        String encodedPassword = null;
-        if (userDto.getPassword() != null) {
-             encodedPassword = bCryptPasswordEncoder.encode(userDto.getPassword());
-        }
-
-        // UserEntity 생성 및 DB 저장
-        UserEntity user = UserEntity.builder()
-                .name(userDto.getName()) 
-                .email(userDto.getEmail())
-                .password(encodedPassword) 
-                .favoriteTeam(favoriteTeam) 
-                .role(assignedRoleKey)             
-                .provider(userDto.getProvider() != null ? userDto.getProvider() : "LOCAL")
-                .providerId(userDto.getProviderId())
-                .build();
-
-        userRepository.save(user);
-        log.info("New account saved. Email: {}, ID: {}", user.getEmail(), user.getId());
-    }
-    
-
-    @Transactional(readOnly = true)
-    public Map<String, Object> authenticateAndGetToken(String email, String password) {
-        
-        Optional<UserEntity> userOptional = userRepository.findByEmail(email);
-        
-        if (userOptional.isEmpty()) {
-            throw new IllegalArgumentException("이메일 또는 비밀번호가 일치하지 않습니다.");
-        }
-        
-        UserEntity user = userOptional.get();
-        
-        // 비밀번호 검증 (로컬 로그인이 가능한 경우에만 비밀번호 검증)
-        if (user.getPassword() != null && !bCryptPasswordEncoder.matches(password, user.getPassword())) {
-            throw new IllegalArgumentException("이메일 또는 비밀번호가 일치하지 않습니다.");
-        }
-        
-        if (user.getPassword() == null) {
-            throw new IllegalArgumentException("이 계정은 소셜 로그인 전용입니다. 비밀번호로 로그인할 수 없습니다.");
-        }
-
-        // 인증 성공 시 JWT 토큰 생성 및 데이터 보내기
-        
-        String accessToken = jwtUtil.createJwt(
-            user.getEmail(),
-            user.getRole(),
-            user.getId(),
-            ACCESS_EXPIRATION_TIME
-        );
-        
-        return Map.of(
-            "accessToken", accessToken, 
-            "name", user.getName(),
-            "role", user.getRole()
-        );
-    }
-
-
-    // 이메일 중복 체크
-    @Transactional(readOnly = true)
-    public boolean isEmailExists(String email) {
-        return userRepository.existsByEmail(email);
-    }
-
-    //이메일로 ID를 찾는 메서드
-    @Transactional(readOnly = true)
-    public Long getUserIdByEmail(String email) {
-        return userRepository.findByEmail(email)
-                .map(UserEntity::getId)
-                .orElseThrow(() -> new IllegalArgumentException("이메일로 사용자를 찾을 수 없습니다: " + email));
-    }
-
-
-    // CustomOAuth2UserService에서 사용자 정보를 가져오기 위한 메서드
-    @Transactional(readOnly = true)
-    public UserDto findUserByEmail(String email) {
-        return userRepository.findByEmail(email)
-            .map(userEntity -> UserDto.builder()
-                .id(userEntity.getId())
-                .name(userEntity.getName()) 
-                .email(userEntity.getEmail())
-                .favoriteTeam(userEntity.getFavoriteTeamId()) 
-                .role(userEntity.getRole())
-                .provider(userEntity.getProvider())
-                .providerId(userEntity.getProviderId())
-                .build())
-            .orElseThrow(() -> new IllegalArgumentException("사용자 정보를 찾을 수 없습니다."));
     }
 }
