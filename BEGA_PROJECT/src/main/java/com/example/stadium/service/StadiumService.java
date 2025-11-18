@@ -5,13 +5,11 @@ import com.example.stadium.dto.StadiumDto;
 import com.example.stadium.dto.StadiumDetailDto;
 import com.example.stadium.entity.Place;
 import com.example.stadium.entity.Stadium;
-import com.example.stadium.exception.StadiumNotFoundException;
 import com.example.stadium.repository.PlaceRepository;
 import com.example.stadium.repository.StadiumRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.example.stadium.exception.StadiumNotFoundException;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -33,7 +31,7 @@ public class StadiumService {
     
     public StadiumDetailDto getStadiumDetail(String stadiumId) {  
         Stadium stadium = stadiumRepository.findById(stadiumId)
-                .orElseThrow(() -> new StadiumNotFoundException(stadiumId));
+                .orElseThrow(() -> new RuntimeException("Stadium not found with id: " + stadiumId));
         
         List<Place> places = placeRepository.findByStadiumIdWithSort(stadiumId);
         
@@ -51,7 +49,7 @@ public class StadiumService {
     
     public StadiumDetailDto getStadiumDetailByName(String stadiumName) {
         Stadium stadium = stadiumRepository.findByStadiumName(stadiumName)
-                .orElseThrow(() -> new StadiumNotFoundException("경기장명", stadiumName));
+                .orElseThrow(() -> new RuntimeException("Stadium not found with name: " + stadiumName));
         
         return getStadiumDetail(stadium.getStadiumId());
     }
