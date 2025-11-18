@@ -73,7 +73,7 @@ supabase:
   service-role-key: ${SUPABASE_SERVICE_ROLE_KEY}
   storage:
     buckets: 
-      cheer: cheer-assets
+      cheer: cheer-posts
       diary: diary-posts
       #profile: profile-images  
     #max-images-per-profile: 1  

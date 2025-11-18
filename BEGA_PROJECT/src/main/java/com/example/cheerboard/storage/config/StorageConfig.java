@@ -41,15 +41,22 @@ public class StorageConfig {
 
     @Value("${supabase.storage.max-images-per-diary}")
     private Integer maxImagesPerDiary;
+    
+    @Value("${supabase.storage.buckets.profile}")
+    private String profileBucket;  
 
+    @Value("${supabase.storage.max-images-per-profile:1}")
+    private Integer maxImagesPerProfile;  
+    
     @PostConstruct
     public void logConfig() {
         log.info("=== Supabase Storage 설정 ===");
         log.info("URL: {}", supabaseUrl);
         log.info("Service Role Key: {}", serviceRoleKey != null && !serviceRoleKey.isEmpty()
             ? "설정됨 (길이: " + serviceRoleKey.length() + ")" : "설정되지 않음");
-        log.info("Bucket: [cheer={}, diary={}]", cheerBucket, diaryBucket);
+        log.info("Bucket: [cheer={}, diary={}, profile={}]", cheerBucket, diaryBucket, profileBucket);
         log.info("Max Images Per Post: {}", maxImagesPerPost);
+        log.info("Max Images Per Profile: {}", maxImagesPerProfile); 
         log.info("Max Image Bytes: {} MB", maxImageBytes / 1024 / 1024);
 
         if (serviceRoleKey == null || serviceRoleKey.isEmpty()) {
