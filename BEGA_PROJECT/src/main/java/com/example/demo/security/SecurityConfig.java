@@ -190,6 +190,7 @@ public class SecurityConfig {
                 //OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/api/kbo/schedule/**").permitAll()
+                .requestMatchers("/api/kbo/rankings/**").permitAll()
 
                 // 기존 권한 설정
                 .requestMatchers("/admin/**").hasRole("ADMIN")
