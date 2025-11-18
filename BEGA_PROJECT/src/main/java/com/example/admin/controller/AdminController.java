@@ -71,7 +71,7 @@ public class AdminController {
         List<AdminMateDto> mates = adminService.getMates();
         return ResponseEntity.ok(ApiResponse.success("메이트 목록 조회 성공", mates));
     }
-
+    
     /**
      * 유저 삭제
      * DELETE /api/admin/users/{userId}

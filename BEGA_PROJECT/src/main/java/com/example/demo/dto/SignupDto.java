@@ -1,8 +1,9 @@
 package com.example.demo.dto;
 
+import com.example.demo.validation.PasswordMatches;
+import com.example.demo.validation.ValidPassword;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -16,6 +17,7 @@ import lombok.ToString;
 @ToString
 @NoArgsConstructor
 @AllArgsConstructor
+@PasswordMatches  // 🔥 클래스 레벨에서 비밀번호 일치 검증
 public class SignupDto {
 
     @NotBlank(message = "이름은 필수 입력 항목입니다.")
@@ -26,15 +28,15 @@ public class SignupDto {
     private String email;
 
     @NotBlank(message = "비밀번호는 필수 입력 항목입니다.")
-    @Size(min = 8, message = "비밀번호는 8자 이상이어야 합니다.")
+    @ValidPassword  // 🔥 비밀번호 복잡도 검증
     private String password;
 
     @NotBlank(message = "비밀번호 확인은 필수 입력 항목입니다.")
     private String confirmPassword;
 
     private String favoriteTeam;
-    
-    // 소셜 연동 관련 필드는 일반 가입 시 Local
+
+    // 소셜 연동 관련 필드
     private String provider;
     private String providerId;
 
