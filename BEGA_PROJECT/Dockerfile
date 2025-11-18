@@ -15,6 +15,10 @@ RUN ./gradlew dependencies
 
 COPY src src
 
+# 환경 변수 명시
+ENV SPRING_PROFILES_ACTIVE=prod
+
+# Build the application
 RUN ./gradlew clean build -x test
 
 # Stage 2: Runtime - 실행 전용 환경
@@ -34,5 +38,7 @@ USER appuser
 
 EXPOSE 8080
 
+# Run the application with prod profile
+CMD ["java", "-Dspring.profiles.active=prod", "-jar", "build/libs/BEGA_PROJECT-0.0.1-SNAPSHOT.jar"]
 # 컨테이너 실행 시 JAR 파일을 실행합니다.
 ENTRYPOINT ["java", "-jar", "app.jar"]

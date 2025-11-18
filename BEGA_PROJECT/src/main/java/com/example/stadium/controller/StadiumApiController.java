@@ -21,32 +21,26 @@ public class StadiumApiController {
 
     @GetMapping
     public ResponseEntity<List<StadiumDto>> getStadiums() {
-        log.debug("구장 목록 조회 요청");
         List<StadiumDto> stadiums = stadiumService.getAllStadiums();
-        log.debug("구장 목록 조회 성공: {}개", stadiums.size());
         return ResponseEntity.ok(stadiums);
     }
 
     @GetMapping("/{stadiumId}")
     public ResponseEntity<StadiumDetailDto> getStadiumDetail(
             @PathVariable("stadiumId") String stadiumId) {  
-        log.debug("구장 상세 조회 요청: ID={}", stadiumId);
         return ResponseEntity.ok(stadiumService.getStadiumDetail(stadiumId));
     }
 
     @GetMapping("/name/{stadiumName}")
     public ResponseEntity<StadiumDetailDto> getStadiumDetailByName(
-            @PathVariable("stadiumName") String stadiumName) {
-        log.debug("구장 상세 조회 요청: 이름={}", stadiumName);
+            @PathVariable("stadiumName") String stadiumName) {;
         return ResponseEntity.ok(stadiumService.getStadiumDetailByName(stadiumName));
     }
 
     @GetMapping("/{stadiumId}/places")
     public ResponseEntity<List<PlaceDto>> getPlacesByStadium(
-            @PathVariable("stadiumId") String stadiumId,  // Long → String
+            @PathVariable("stadiumId") String stadiumId, 
             @RequestParam(name = "category", required = false) String category) {
-
-        log.debug("구장 장소 조회 요청: stadiumId={}, category={}", stadiumId, category);
 
         if (category != null && !category.isEmpty()) {
             return ResponseEntity.ok(stadiumService.getPlacesByStadiumAndCategory(stadiumId, category));
@@ -60,8 +54,6 @@ public class StadiumApiController {
             @PathVariable("stadiumName") String stadiumName,
             @RequestParam(name = "category", required = false) String category) {
 
-        log.debug("구장 장소 조회 요청: stadiumName={}, category={}", stadiumName, category);
-
         if (category != null && !category.isEmpty()) {
             return ResponseEntity.ok(stadiumService.getPlacesByStadiumNameAndCategory(stadiumName, category));
         } else {
@@ -71,7 +63,7 @@ public class StadiumApiController {
 
     @GetMapping("/places/all")
     public ResponseEntity<List<PlaceDto>> getAllPlaces() {
-        log.debug("전체 장소 조회 요청");
+
         return ResponseEntity.ok(stadiumService.getAllPlaces());
     }
 }

@@ -232,7 +232,7 @@ public class BegaDiaryService {
         LocalDate firstDate = diaryRepository.findFirstDiaryDate(userId);
         String firstDiaryDate = firstDate != null ? firstDate.toString() : null;
         
-        int cheerPostCount = cheerPostRepository.countByUserId(userId);
+        long cheerPostCount = cheerPostRepository.countByUserId(userId);
         int mateParticipationCount = partyApplicationRepository.countCheckedInPartiesByUserId(userId);
         
         return DiaryStatisticsDto.builder()
