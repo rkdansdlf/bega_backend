@@ -19,9 +19,25 @@ public class RankingPredictionService {
 			RankingPredictionRequestDto requestDto, 
 			String userIdString) {
 
+		// 1. 예측 가능 기간 체크
+		if (!SeasonUtils.isPredictionPeriod()) {
+			throw new IllegalStateException(
+				"현재는 순위 예측 기간이 아닙니다. (예측 가능 기간: 11월 1일 ~ 5월 31일)"
+			);
+		}
+
+		// 2. 현재 시즌 연도 가져오기
+		int currentSeasonYear = SeasonUtils.getCurrentPredictionSeason();
+				
+		// 3. 요청한 시즌이 현재 예측 가능한 시즌인지 확인
+			if (requestDto.getSeasonYear() != currentSeasonYear) {
+				throw new IllegalStateException(
+					"현재는 " + currentSeasonYear + " 시즌만 예측 가능합니다."
+			);
+		}
+		
 		// 1. Principal에서 받은 String ID를 Long 타입으로 변환
 		Long currentUserId = Long.valueOf(userIdString);
-		int currentSeasonYear = requestDto.getSeasonYear();
 
 		// 2. 이미 예측했는지 확인
 		boolean alreadyPredicted = rankingPredictionRepository
@@ -58,4 +74,14 @@ public class RankingPredictionService {
 				.map(RankingPrediction::toDto)
 				.orElse(null);
 	}
+	
+	public int getCurrentSeason() {
+		if (!SeasonUtils.isPredictionPeriod()) {
+			throw new IllegalStateException(
+				"현재는 순위 예측 기간이 아닙니다. (예측 가능 기간: 11월 1일 ~ 5월 31일)"
+			);
+		}
+		return SeasonUtils.getCurrentPredictionSeason();
+	}
+	
 }
