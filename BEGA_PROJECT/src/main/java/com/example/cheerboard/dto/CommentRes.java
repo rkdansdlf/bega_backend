@@ -8,6 +8,7 @@ public record CommentRes(
     String author,
     String authorEmail,
     String authorTeamId,
+    String authorProfileImageUrl,
     String content,
     Instant createdAt,
     int likeCount,
