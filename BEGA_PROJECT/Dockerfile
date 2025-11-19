@@ -7,6 +7,10 @@ COPY gradlew gradlew.bat ./
 COPY gradle gradle
 COPY build.gradle settings.gradle ./
 
+# [수정된 부분] gradlew 파일의 줄 끝 문자를 Windows(CRLF)에서 Linux(LF)로 변환합니다.
+RUN apt-get update && apt-get install -y dos2unix && \
+    dos2unix gradlew
+
 RUN chmod +x gradlew
 
 # 소스 코드를 복사하기 전에 의존성을 먼저 다운로드하여 Docker 캐시 효율을 높입니다.
