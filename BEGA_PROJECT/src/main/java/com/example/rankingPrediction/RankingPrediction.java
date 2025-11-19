@@ -26,8 +26,10 @@ public class RankingPrediction {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 	
+	@Column(name = "user_id")
 	private Long userId;
 	
+	@Column(name = "season_year")
 	private int seasonYear;
 	
 	@Column(name = "prediction_data", columnDefinition = "jsonb")

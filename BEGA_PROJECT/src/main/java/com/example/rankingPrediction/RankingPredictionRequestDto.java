@@ -11,7 +11,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class RankingPredictionRequestDto {
 
-	private Long userId;
 	private int seasonYear;
 	private List<String> teamIdsInOrder;
 }
