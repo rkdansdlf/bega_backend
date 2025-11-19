@@ -13,6 +13,7 @@ public record PostDetailRes(
     String content,
     String author,
     String authorEmail,
+    String authorProfileImageUrl,
     Instant createdAt,
     int comments,
     int likes,

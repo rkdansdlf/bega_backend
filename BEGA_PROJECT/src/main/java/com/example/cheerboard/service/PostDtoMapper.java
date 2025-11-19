@@ -40,6 +40,7 @@ public class PostDtoMapper {
             resolveTeamColor(post.getTeam()),
             post.getTitle(),
             resolveDisplayName(post.getAuthor()),
+            post.getAuthor().getProfileImageUrl(),
             post.getCreatedAt(),
             post.getCommentCount(),
             post.getLikeCount(),
@@ -70,6 +71,7 @@ public class PostDtoMapper {
             post.getContent(),
             resolveDisplayName(post.getAuthor()),
             post.getAuthor().getEmail(),
+            post.getAuthor().getProfileImageUrl(),
             post.getCreatedAt(),
             post.getCommentCount(),
             post.getLikeCount(),
@@ -102,6 +104,7 @@ public class PostDtoMapper {
             post.getContent(),
             resolveDisplayName(author),
             author.getEmail(),
+            author.getProfileImageUrl(),
             post.getCreatedAt(),
             0, // 새 게시글이므로 댓글 수 0
             0, // 새 게시글이므로 좋아요 수 0

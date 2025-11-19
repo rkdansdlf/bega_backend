@@ -10,6 +10,7 @@ public record PostSummaryRes(
     String teamColor,
     String title,
     String author,
+    String authorProfileImageUrl,
     Instant createdAt,
     int comments,
     int likes,
