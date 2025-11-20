@@ -39,7 +39,7 @@ public class Prediction {
         this.createdAt = LocalDateTime.now();
     }
     
- // [추가/통합] 투표 변경 시 사용
+ 
     public void updateVotedTeam(String newVotedTeam) {
         this.votedTeam = newVotedTeam;
         this.createdAt = LocalDateTime.now();
