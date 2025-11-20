@@ -3,6 +3,12 @@ package com.example.mate.service;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
+import com.example.mate.exception.DuplicateApplicationException;
+import com.example.mate.exception.InvalidApplicationStatusException;
+import com.example.mate.exception.PartyApplicationNotFoundException;
+import com.example.mate.exception.PartyFullException;
+import com.example.mate.exception.PartyNotFoundException;
+import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,16 +33,15 @@ public class PartyApplicationService {
         // 중복 신청 체크
         applicationRepository.findByPartyIdAndApplicantId(request.getPartyId(), request.getApplicantId())
                 .ifPresent(app -> {
-                    throw new RuntimeException("이미 신청한 파티입니다.");
+                    throw new DuplicateApplicationException(request.getPartyId(), request.getApplicantId());
                 });
 
         // 파티 존재 여부 확인
         Party party = partyRepository.findById(request.getPartyId())
-                .orElseThrow(() -> new RuntimeException("파티를 찾을 수 없습니다."));
-
+                .orElseThrow(() -> new PartyNotFoundException(request.getPartyId()));
         // 파티가 가득 찼는지 확인
         if (party.getCurrentParticipants() >= party.getMaxParticipants()) {
-            throw new RuntimeException("파티가 이미 가득 찼습니다.");
+            throw new PartyFullException(request.getPartyId());
         }
 
         PartyApplication application = PartyApplication.builder()
@@ -108,14 +113,14 @@ public class PartyApplicationService {
     @Transactional
     public PartyApplicationDTO.Response approveApplication(Long applicationId) {
         PartyApplication application = applicationRepository.findById(applicationId)
-                .orElseThrow(() -> new RuntimeException("신청을 찾을 수 없습니다."));
+                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
 
         if (application.getIsApproved()) {
-            throw new RuntimeException("이미 승인된 신청입니다.");
+            throw new InvalidApplicationStatusException("이미 승인된 신청입니다.");
         }
 
         if (application.getIsRejected()) {
-            throw new RuntimeException("거절된 신청은 승인할 수 없습니다.");
+            throw new InvalidApplicationStatusException("거절된 신청은 승인할 수 없습니다.");
         }
 
         application.setIsApproved(true);
@@ -132,14 +137,14 @@ public class PartyApplicationService {
     @Transactional
     public PartyApplicationDTO.Response rejectApplication(Long applicationId) {
         PartyApplication application = applicationRepository.findById(applicationId)
-                .orElseThrow(() -> new RuntimeException("신청을 찾을 수 없습니다."));
+                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
 
         if (application.getIsApproved()) {
-            throw new RuntimeException("승인된 신청은 거절할 수 없습니다.");
+            throw new InvalidApplicationStatusException("승인된 신청은 거절할 수 없습니다.");
         }
 
         if (application.getIsRejected()) {
-            throw new RuntimeException("이미 거절된 신청입니다.");
+            throw new InvalidApplicationStatusException("이미 거절된 신청입니다.");
         }
 
         application.setIsRejected(true);
@@ -153,10 +158,10 @@ public class PartyApplicationService {
     @Transactional
     public void cancelApplication(Long applicationId, Long applicantId) {
         PartyApplication application = applicationRepository.findById(applicationId)
-                .orElseThrow(() -> new RuntimeException("신청을 찾을 수 없습니다."));
+                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
 
         if (!application.getApplicantId().equals(applicantId)) {
-            throw new RuntimeException("본인의 신청만 취소할 수 있습니다.");
+            throw new UnauthorizedAccessException("본인의 신청만 취소할 수 있습니다.");
         }
 
         if (application.getIsApproved()) {
