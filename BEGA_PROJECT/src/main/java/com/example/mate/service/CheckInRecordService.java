@@ -3,6 +3,8 @@ package com.example.mate.service;
 import com.example.mate.dto.CheckInRecordDTO;
 import com.example.mate.entity.CheckInRecord;
 import com.example.mate.entity.Party;
+import com.example.mate.exception.DuplicateCheckInException;
+import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.repository.CheckInRecordRepository;
 import com.example.mate.repository.PartyRepository;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +27,7 @@ public class CheckInRecordService {
         // 중복 체크인 확인
         checkInRecordRepository.findByPartyIdAndUserId(request.getPartyId(), request.getUserId())
                 .ifPresent(record -> {
-                    throw new RuntimeException("이미 체크인하셨습니다.");
+                    throw new DuplicateCheckInException(request.getPartyId(), request.getUserId());
                 });
 
         CheckInRecord record = CheckInRecord.builder()
@@ -74,7 +76,7 @@ public class CheckInRecordService {
     @Transactional
     public void checkAndUpdatePartyStatus(Long partyId) {
         Party party = partyRepository.findById(partyId)
-                .orElseThrow(() -> new RuntimeException("파티를 찾을 수 없습니다."));
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
 
         long checkInCount = checkInRecordRepository.countByPartyId(partyId);
 
