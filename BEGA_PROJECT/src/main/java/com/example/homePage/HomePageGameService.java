@@ -121,19 +121,20 @@ public class HomePageGameService {
         }
     }
     
+ // v_team_rank_all 뷰에서 순위 데이터를 가져오도록 수정
     public List<HomePageTeamRankingDto> getTeamRankings(int seasonYear) {
         List<Object[]> results = homePageGameRepository.findTeamRankingsBySeason(seasonYear);
         
         return results.stream()
             .map(row -> HomePageTeamRankingDto.builder()
-                .rank(((Number) row[0]).intValue())
-                .teamId((String) row[1])
-                .teamName((String) row[2])
-                .wins(((Number) row[3]).intValue())
-                .losses(((Number) row[4]).intValue())
-                .draws(((Number) row[5]).intValue())
-                .winRate(row[6].toString())
-                .games(((Number) row[7]).intValue())
+                .rank(((Number) row[0]).intValue())           // season_rank (bigint)
+                .teamId((String) row[1])                       // team_id
+                .teamName((String) row[2])                     // team_name
+                .wins(((Number) row[3]).intValue())            // wins (bigint)
+                .losses(((Number) row[4]).intValue())          // losses (bigint)
+                .draws(((Number) row[5]).intValue())           // draws (bigint)
+                .winRate(row[6].toString())                    // win_pct (numeric)
+                .games(((Number) row[7]).intValue())           // games_played (bigint)
                 .build())
             .collect(Collectors.toList());
     }

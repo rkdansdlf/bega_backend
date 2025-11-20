@@ -17,80 +17,68 @@ import java.util.List;
 @CrossOrigin(origins = "http://localhost:3000")
 @PreAuthorize("isAuthenticated()")
 public class PredictionController {
-    
+
     private final PredictionService predictionService;
     
+    // 과거 경기 조회 (10월 25~31일 일주일치)
+    @GetMapping("/games/past")
+    public ResponseEntity<List<MatchDto>> getPastGames() {
+        List<MatchDto> matches = predictionService.getMatchesByDateRange(
+            LocalDate.of(2024, 10, 25),
+            LocalDate.of(2024, 10, 31)
+        );
+        return ResponseEntity.ok(matches);
+    }
+
+    // 특정 날짜의 경기 조회 (모든 경우에 사용)
+    @GetMapping("/matches")
+    public ResponseEntity<List<MatchDto>> getMatches(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        List<MatchDto> matches = predictionService.getMatchesByDate(date);
+        return ResponseEntity.ok(matches);
+    }
     
+    // 특정 기간의 경기 조회 (과거 일주일치 등)
+    @GetMapping("/matches/range")
+    public ResponseEntity<List<MatchDto>> getMatchesByRange(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        List<MatchDto> matches = predictionService.getMatchesByDateRange(startDate, endDate);
+        return ResponseEntity.ok(matches);
+    }
+
     // 투표하기
-     // POST /api/predictions/vote?userId=1
-     // Body: { "gameId": "20240427LGOB0", "votedTeam": "home" }
-     
     @PostMapping("/predictions/vote")
     public ResponseEntity<String> vote(
             Principal principal,
             @RequestBody PredictionRequestDto request) {
         try {
-		    Long userId = Long.valueOf(principal.getName());
-		        
+            Long userId = Long.valueOf(principal.getName());
             predictionService.vote(userId, request);
             return ResponseEntity.ok("투표가 완료되었습니다.");
-        } catch (IllegalStateException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalStateException | IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
-    
-     // 투표 현황 조회
-     // GET /api/predictions/status/{gameId}
-     
+
+    // 투표 현황 조회
     @GetMapping("/predictions/status/{gameId}")
     public ResponseEntity<PredictionResponseDto> getVoteStatus(@PathVariable String gameId) {
         PredictionResponseDto response = predictionService.getVoteStatus(gameId);
         return ResponseEntity.ok(response);
     }
-    
-    
-     // 투표 취소
-     // DELETE /api/predictions/{gameId}?userId=1
-     
+
+    // 투표 취소
     @DeleteMapping("/predictions/{gameId}")
     public ResponseEntity<String> cancelVote(
-				    Principal principal,
+            Principal principal,
             @PathVariable String gameId) {
         try {
-		        Long userId = Long.valueOf(principal.getName());
-		        
+            Long userId = Long.valueOf(principal.getName());
             predictionService.cancelVote(userId, gameId);
             return ResponseEntity.ok("투표가 취소되었습니다.");
-        } catch (IllegalStateException e) {
+        } catch (IllegalStateException | IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
-    // 과거 경기 결과 조회 (스코어 및 결과)
-    @GetMapping("/games/past")
-    public ResponseEntity<List<MatchDto>> getPastGames() {
-        
-    	// Service 메서드 호출 시 파라미터가 불필요함
-        List<MatchDto> pastGames = predictionService.getPastGames();
-        return ResponseEntity.ok(pastGames);
-    }
-    
-    // 오늘 경기 목록 조회
-    //  GET /api/predictions/matches/today
-     
-    @GetMapping("/matches/today")
-    public ResponseEntity<List<Match>> getTodayMatches() {
-        List<Match> matches = predictionService.getTodayMatches();
-        return ResponseEntity.ok(matches);
-    }
-    
-    // 특정 날짜의 경기 목록 조회
-    @GetMapping("/matches/date")
-    public ResponseEntity<List<Match>> getMatchesByDate(
-		        @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        List<Match> matches = predictionService.getMatchesByDate(date);
-        return ResponseEntity.ok(matches);
-    }
-    
 }

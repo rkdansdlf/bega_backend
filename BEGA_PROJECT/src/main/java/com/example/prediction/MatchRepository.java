@@ -19,18 +19,18 @@ public interface MatchRepository extends JpaRepository<Match, String>{
 	// 특정 날짜의 경기 목록
 	List<Match> findByGameDate(LocalDate today);
 	
-	// @Query를 단일로 사용하여 오류 해결. Service에서 날짜를 계산하여 삽입
-		@Query("SELECT m FROM Match m " +
+	// 특정 기간의 완료된 경기만
+	@Query("SELECT m FROM Match m " +
 		           "WHERE m.gameDate BETWEEN :startDate AND :endDate " +
-		           "AND m.winningTeam IS NOT NULL " +
+		           "AND m.homeScore IS NOT NULL " +
+		           "AND m.awayScore IS NOT NULL " +
 		           "ORDER BY m.gameDate DESC")
-		    List<Match> findCompletedByDateRange(
-		        @Param("startDate") LocalDate startDate, 
-		        @Param("endDate") LocalDate endDate);
+	List<Match> findCompletedByDateRange(
+		@Param("startDate") LocalDate startDate, 
+		@Param("endDate") LocalDate endDate);
 	
-	
-	
+	// 더미 데이터 조회
+	List<Match> findByIsDummy(Boolean isDummy);
 		
-
 
 }
