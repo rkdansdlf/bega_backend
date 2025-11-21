@@ -45,6 +45,7 @@ public class CurrentUser {
         }
 
         Object principal = authentication.getPrincipal();
+
         if (principal instanceof Long userId) {
             cached = userRepository.findById(userId).orElse(null);
             resolved = true;
