@@ -15,7 +15,7 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
     Page<CheerPost> findByTeam_IdOrderByCreatedAtDesc(String teamId, Pageable pageable);
 
     @EntityGraph(attributePaths = {"author", "team"})
-    @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.id = :teamId) ORDER BY p.postType DESC, p.createdAt DESC")
+    @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.id = :teamId) ORDER BY CASE WHEN p.postType = 'NOTICE' THEN 0 ELSE 1 END, p.createdAt DESC")
     Page<CheerPost> findAllOrderByPostTypeAndCreatedAt(String teamId, Pageable pageable);
 
     /**

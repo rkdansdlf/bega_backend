@@ -20,6 +20,8 @@ public final class CheerServiceConstants {
     public static final String PERMISSION_ERROR = "%s 권한이 없습니다.";
     public static final String NOTICE_ADMIN_ONLY_ERROR = "공지사항은 관리자만 작성할 수 있습니다.";
     
+    public static final String GLOBAL_TEAM_ID = "KBO_GLOBAL";
+    
     private CheerServiceConstants() {
         // 유틸리티 클래스이므로 인스턴스화 방지
         throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");
