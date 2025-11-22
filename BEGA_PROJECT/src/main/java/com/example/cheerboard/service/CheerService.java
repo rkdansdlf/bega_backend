@@ -116,10 +116,11 @@ public class CheerService {
      * 게시글 타입 결정 (공지사항 권한 체크 포함)
      */
     private PostType determinePostType(CreatePostReq req, UserEntity user) {
-        if (req.postType() != null && NOTICE_POST_TYPE.equals(req.postType())) {
-            permissionValidator.validateNoticePermission(user);
+        // 관리자(ADMIN) 역할인지 확인하여 공지사항 여부 결정
+        if (user != null && "ROLE_ADMIN".equals(user.getRole())) {
             return PostType.NOTICE;
         }
+        // 그 외 모든 사용자는 일반 게시글로 처리
         return PostType.NORMAL;
     }
     
@@ -128,8 +129,18 @@ public class CheerService {
      */
     private CheerPost buildNewPost(CreatePostReq req, UserEntity author, PostType postType) {
         log.debug("buildNewPost - teamId={}", req.teamId());
-        var team = teamRepo.findById(req.teamId())
-            .orElseThrow(() -> new java.util.NoSuchElementException("팀을 찾을 수 없습니다: " + req.teamId()));
+
+        final String finalTeamId; // Declare a final variable
+        String requestTeamId = req.teamId();
+        if (postType == PostType.NOTICE && (requestTeamId == null || requestTeamId.isBlank())) {
+            finalTeamId = GLOBAL_TEAM_ID;
+            log.debug("Admin notice post: resolved teamId to GLOBAL_TEAM_ID: {}", finalTeamId);
+        } else {
+            finalTeamId = requestTeamId;
+        }
+
+        var team = teamRepo.findById(finalTeamId) // Use finalTeamId
+            .orElseThrow(() -> new java.util.NoSuchElementException("팀을 찾을 수 없습니다: " + finalTeamId)); // Use finalTeamId
         log.debug("buildNewPost - team lookup succeeded: {}", team.getId());
 
         CheerPost post = CheerPost.builder()

@@ -14,6 +14,13 @@ spring:
   devtools:
     restart:
       enabled: false # 자동 재시작 비활성화
+      
+  # 파일 업로드 설정
+  servlet:
+    multipart:
+      max-file-size: 10MB # 단일 파일 최대 크기
+      max-request-size: 50MB # 전체 요청 최대 크기
+      enabled: true
 
         # 이메일 설정 (환경 변수 사용)
   mail:

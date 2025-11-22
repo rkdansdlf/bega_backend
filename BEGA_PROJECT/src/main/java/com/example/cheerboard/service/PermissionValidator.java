@@ -10,6 +10,12 @@ import static com.example.cheerboard.service.CheerServiceConstants.*;
 public class PermissionValidator {
 
     public void validateTeamAccess(UserEntity user, String teamId, String action) {
+        // Admins can bypass favoriteTeam check for any teamId
+        if (isAdmin(user)) {
+            return; // Allow access for admins
+        }
+
+        // For non-admins, teamId cannot be null and must match their favoriteTeam
         if (teamId == null) {
             throw new AccessDeniedException(String.format(TEAM_ACCESS_ERROR, action));
         }
