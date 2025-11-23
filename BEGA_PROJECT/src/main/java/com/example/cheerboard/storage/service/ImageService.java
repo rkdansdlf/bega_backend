@@ -318,8 +318,14 @@ public class ImageService {
         for (MultipartFile file : files) {
             // 각 파일 유효성 검사
             validator.validateFile(file);
-            
-            String fileName = UUID.randomUUID() + "_" + file.getOriginalFilename();
+
+            String originalFilename = file.getOriginalFilename();
+            String extension = "";
+            if (originalFilename != null && originalFilename.contains(".")) {
+                extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+            }
+
+            String fileName = UUID.randomUUID() + extension;
             String storagePath = String.format("diary/%d/%d/%s", userId, diaryId, fileName);
             
             Mono<String> uploadMono = storageClient.upload(file, config.getDiaryBucket(), storagePath)
