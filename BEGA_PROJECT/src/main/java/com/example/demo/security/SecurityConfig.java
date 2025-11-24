@@ -189,6 +189,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/predictions/**").permitAll()  
                 //OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                .requestMatchers("/api/kbo/league-start-dates").permitAll()
                 .requestMatchers("/api/kbo/schedule/**").permitAll()
                 .requestMatchers("/api/kbo/rankings/**").permitAll()
                 .requestMatchers("/api/matches/**").permitAll()
