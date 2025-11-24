@@ -34,6 +34,10 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
     // 신청자의 승인된 신청 목록
     List<PartyApplication> findByApplicantIdAndIsApprovedTrue(Long applicantId);
     
+    
+    void deleteByPartyId(Long partyId);
+
+    
     // 통계
     @Query("SELECT COUNT(DISTINCT p.id) FROM Party p " +
             "WHERE p.status = 'CHECKED_IN' AND " +
@@ -44,4 +48,5 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
             "        AND pa.isApproved = true))")
      int countCheckedInPartiesByUserId(@Param("userId") Long userId);
     
+     
 }
