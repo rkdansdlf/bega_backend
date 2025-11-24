@@ -11,13 +11,19 @@ import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
+import com.example.notification.service.NotificationService;
+import com.example.notification.entity.Notification;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.stream.Collectors;
+
 
 @Service
 @RequiredArgsConstructor
@@ -26,6 +32,7 @@ public class PartyApplicationService {
     private final PartyApplicationRepository applicationRepository;
     private final PartyRepository partyRepository;
     private final PartyService partyService;
+    private final NotificationService notificationService;
 
     // 신청 생성
     @Transactional
@@ -66,6 +73,15 @@ public class PartyApplicationService {
         }
 
         PartyApplication savedApplication = applicationRepository.save(application);
+        
+        notificationService.createNotification(
+                party.getHostId(),
+                Notification.NotificationType.APPLICATION_RECEIVED,
+                "새로운 참여 신청",
+                request.getApplicantName() + "님이 파티에 참여 신청했습니다.",
+                savedApplication.getPartyId()
+        );
+        
         return PartyApplicationDTO.Response.from(savedApplication);
     }
 
@@ -130,6 +146,16 @@ public class PartyApplicationService {
         partyService.incrementParticipants(application.getPartyId());
 
         PartyApplication savedApplication = applicationRepository.save(application);
+        
+        // 신청자에게 알림 발송
+        notificationService.createNotification(
+                application.getApplicantId(),
+                Notification.NotificationType.APPLICATION_APPROVED,
+                "참여 승인 완료",
+                "파티 참여 신청이 승인되었습니다!",
+                application.getPartyId()
+        );
+         
         return PartyApplicationDTO.Response.from(savedApplication);
     }
 
@@ -151,8 +177,17 @@ public class PartyApplicationService {
         application.setRejectedAt(LocalDateTime.now());
 
         PartyApplication savedApplication = applicationRepository.save(application);
+        // 신청자에게 알림 발송
+        notificationService.createNotification(
+                application.getApplicantId(),
+                Notification.NotificationType.APPLICATION_REJECTED,
+                "참여 신청 거절",
+                "파티 참여 신청이 거절되었습니다.",
+                application.getPartyId()
+        );
+        
         return PartyApplicationDTO.Response.from(savedApplication);
-    }
+        }
 
     // 신청 취소 (신청자가 취소)
     @Transactional
@@ -160,15 +195,44 @@ public class PartyApplicationService {
         PartyApplication application = applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
 
+        // 본인 확인
         if (!application.getApplicantId().equals(applicantId)) {
             throw new UnauthorizedAccessException("본인의 신청만 취소할 수 있습니다.");
         }
 
-        if (application.getIsApproved()) {
-            // 승인된 신청 취소 시 참여 인원 감소
-            partyService.decrementParticipants(application.getPartyId());
+        // 거절된 신청은 취소 불필요
+        if (application.getIsRejected()) {
+            throw new InvalidApplicationStatusException("이미 거절된 신청입니다.");
         }
 
+        Party party = partyRepository.findById(application.getPartyId())
+                .orElseThrow(() -> new PartyNotFoundException(application.getPartyId()));
+
+        // 승인 전: 자유롭게 취소 가능 (전액 환불)
+        if (!application.getIsApproved()) {
+            applicationRepository.delete(application);
+            return;
+        }
+
+        // 승인 후: 경기 D-1까지만 취소 가능
+        LocalDate today = LocalDate.now();
+        long daysUntilGame = ChronoUnit.DAYS.between(today, party.getGameDate());
+
+        if (daysUntilGame < 1) {
+            throw new InvalidApplicationStatusException("경기 하루 전부터는 취소할 수 없습니다.");
+        }
+
+                // 체크인 이후에는 취소 불가
+                if (party.getStatus() == Party.PartyStatus.CHECKED_IN || 
+                    party.getStatus() == Party.PartyStatus.COMPLETED) {
+                    throw new InvalidApplicationStatusException("체크인 이후에는 참여를 취소할 수 없습니다.");
+                }
+
+        // 승인된 신청 취소 시 참여 인원 감소
+        partyService.decrementParticipants(application.getPartyId());
+        
+        // 신청 삭제
         applicationRepository.delete(application);
     }
+  
 }

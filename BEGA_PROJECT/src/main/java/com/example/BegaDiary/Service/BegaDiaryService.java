@@ -3,6 +3,7 @@ package com.example.BegaDiary.Service;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -28,6 +29,7 @@ import com.example.cheerboard.storage.service.ImageService;
 import com.example.demo.entity.UserEntity;
 import com.example.demo.repo.UserRepository;
 import com.example.mate.repository.PartyApplicationRepository;
+import com.example.BegaDiary.Utils.BaseballConstants;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +50,7 @@ public class BegaDiaryService {
     
     // 전체 다이어리 조회
     public List<DiaryResponseDto> getAllDiaries(Long userId) {
-        List<BegaDiary> diaries = this.diaryRepository.findByUser_Id(userId);
+        List<BegaDiary> diaries = this.diaryRepository.findByUserId(userId);
         
         return diaries.stream()
                 .map(diary -> {
@@ -91,7 +93,7 @@ public class BegaDiaryService {
         UserEntity user = this.userRepository.findById(userId).get();
         
         // 2. 중복 체크
-        if (diaryRepository.existsByDiaryDate(diaryDate)) {
+        if (diaryRepository.existsByUserAndDiaryDate(user, diaryDate)) {
             throw new DiaryAlreadyExistsException(
                 diaryDate + "에 이미 다이어리가 작성되어 있습니다."
             );
@@ -103,8 +105,16 @@ public class BegaDiaryService {
         
         // 4. 빌더로 엔티티 생성
         BegaGame game = null;
+        String team = "";
+        String stadium = "";
     	if(requestDto.getGameId() != null) {
     		game = gameService.getGameById(requestDto.getGameId());
+
+            String homeTeamKorean = BaseballConstants.getTeamKoreanName(game.getHomeTeam());
+            String awayTeamKorean = BaseballConstants.getTeamKoreanName(game.getAwayTeam());
+            team = homeTeamKorean + " vs " + awayTeamKorean;
+
+            stadium = BaseballConstants.getFullStadiumName(game.getStadium());
     	}
     	
         BegaDiary diary = BegaDiary.builder()
@@ -115,7 +125,7 @@ public class BegaDiaryService {
             .winning(winning)
             .photoUrls(requestDto.getPhotos())
             .game(game)
-            .team(game.getHomeTeam()+"-"+game.getAwayTeam())
+            .team(team)
             .stadium(game.getStadium())
             .user(user)
             .build();
@@ -195,7 +205,8 @@ public class BegaDiaryService {
     }
     
     public DiaryStatisticsDto getStatistics(Long userId) {
-    	
+    	List<BegaDiary> diaries = diaryRepository.findByUserId(userId);
+        
         int currentYear = LocalDate.now().getYear();
         int currentMonth = LocalDate.now().getMonthValue();
         
@@ -234,6 +245,12 @@ public class BegaDiaryService {
         
         int cheerPostCount = cheerPostRepository.countByUserId(userId);
         int mateParticipationCount = partyApplicationRepository.countCheckedInPartiesByUserId(userId);
+
+        Map<String, Long> emojiCounts = diaries.stream()
+        .collect(Collectors.groupingBy(
+            diary -> diary.getMood().getKoreanName(),
+            Collectors.counting()
+        ));
         
         return DiaryStatisticsDto.builder()
             .totalCount(totalCount)
@@ -252,6 +269,7 @@ public class BegaDiaryService {
             .firstDiaryDate(firstDiaryDate)
             .cheerPostCount(cheerPostCount)
             .mateParticipationCount(mateParticipationCount)
+            .emojiCounts(emojiCounts)
             .build();
     }
 }

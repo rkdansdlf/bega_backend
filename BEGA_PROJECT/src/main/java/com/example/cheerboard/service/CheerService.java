@@ -19,6 +19,8 @@ import com.example.cheerboard.repo.CheerPostLikeRepo;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerTeamRepository;
 import com.example.demo.entity.UserEntity;
+import com.example.notification.service.NotificationService;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
@@ -42,6 +44,7 @@ public class CheerService {
     private final CheerCommentLikeRepo commentLikeRepo;
     private final CheerTeamRepository teamRepo;
     private final CurrentUser current;
+    private final NotificationService notificationService;
     
     // 리팩토링된 컴포넌트들
     private final PermissionValidator permissionValidator;
@@ -237,6 +240,25 @@ public class CheerService {
         CheerComment comment = saveNewComment(post, me, req);
         incrementCommentCount(post);
 
+        // 게시글 작성자에게 알림 (본인이 아닐 때만)
+        if (!post.getAuthor().getId().equals(me.getId())) {
+            try {
+                String authorName = me.getName() != null && !me.getName().isBlank() 
+                    ? me.getName() 
+                    : me.getEmail();
+                
+                notificationService.createNotification(
+                    post.getAuthor().getId(),
+                    com.example.notification.entity.Notification.NotificationType.POST_COMMENT,
+                    "새 댓글",
+                    authorName + "님이 회원님의 게시글에 댓글을 남겼습니다.",
+                    post.getId()
+                );
+            } catch (Exception e) {
+                log.warn("댓글 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
+            }
+        }
+
         return toCommentRes(comment);
     }
 
@@ -383,6 +405,26 @@ public class CheerService {
 
         CheerComment reply = saveNewReply(post, parentComment, me, req);
         incrementCommentCount(post);
+
+        // 원댓글 작성자에게 알림 (본인이 아닐 때만)
+        if (!parentComment.getAuthor().getId().equals(me.getId())) {
+            try {
+                String authorName = me.getName() != null && !me.getName().isBlank() 
+                    ? me.getName() 
+                    : me.getEmail();
+                
+                notificationService.createNotification(
+                    parentComment.getAuthor().getId(),
+                    com.example.notification.entity.Notification.NotificationType.COMMENT_REPLY,
+                    "새 대댓글",
+                    authorName + "님이 회원님의 댓글에 답글을 남겼습니다.",
+                    post.getId()
+                );
+            } catch (Exception e) {
+                log.warn("대댓글 알림 생성 실패: postId={}, parentCommentId={}, error={}", 
+                    post.getId(), parentCommentId, e.getMessage());
+            }
+        }
 
         return toCommentRes(reply);
     }

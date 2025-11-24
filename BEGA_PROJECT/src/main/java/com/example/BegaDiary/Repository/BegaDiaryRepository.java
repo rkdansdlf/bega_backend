@@ -11,13 +11,14 @@ import org.springframework.stereotype.Repository;
 
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.BegaDiary.DiaryWinning;
+import com.example.demo.entity.UserEntity;
 
 @Repository
 public interface BegaDiaryRepository extends JpaRepository<BegaDiary, Long>{
 
 	Optional<BegaDiary> findByDiaryDate(LocalDate diaryDate);
-	boolean existsByDiaryDate(LocalDate diaryDate);
-	List<BegaDiary> findByUser_Id(Long id);
+	boolean existsByUserAndDiaryDate(UserEntity user, LocalDate diaryDate);
+	List<BegaDiary> findByUserId(Long id);
 	
 	// 총 개수
     @Query("SELECT COUNT(d) FROM BegaDiary d WHERE d.user.id = :userId")
