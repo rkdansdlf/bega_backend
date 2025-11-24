@@ -35,19 +35,19 @@ public class MatchScheduler {
         LocalDate tomorrow = today.plusDays(1);
         
         List<Match> dummyMatches = matchRepository.findByIsDummy(true);
-        
+
         if (dummyMatches.isEmpty()) {
             log.info("업데이트할 더미 경기가 없습니다.");
             return;
         }
-        
+
         for (Match match : dummyMatches) {
-            match.setGameDate(tomorrow);
-            log.info("더미 경기 날짜 업데이트: {} -> {}", match.getGameId(), tomorrow);
+            match.setGameDate(today); // today로 변경
+            log.info("더미 경기 날짜 업데이트: {} -> {}", match.getGameId(), today);
         }
-        
+
         matchRepository.saveAll(dummyMatches);
-        
+
         log.info("더미 경기 날짜 업데이트 완료: {}건", dummyMatches.size());
     }
 
