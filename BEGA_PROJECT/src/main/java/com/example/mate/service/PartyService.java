@@ -3,10 +3,15 @@ package com.example.mate.service;
 import com.example.demo.repo.UserRepository;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
+import com.example.mate.entity.PartyApplication;
 import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.exception.PartyFullException;
 import com.example.mate.exception.PartyNotFoundException;
+import com.example.mate.exception.UnauthorizedAccessException;
+import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +26,7 @@ public class PartyService {
 
     private final PartyRepository partyRepository;
     private final UserRepository userRepository;
+    private final PartyApplicationRepository applicationRepository;
 
     @Transactional
     public PartyDTO.Response createParty(PartyDTO.Request request) {
@@ -28,8 +34,11 @@ public class PartyService {
         System.out.println("백엔드 - ticketPrice 값: " + request.getTicketPrice());
 
         String hostProfileImageUrl = null;
+        String hostFavoriteTeam = null;
+
         try {
-            hostProfileImageUrl = userRepository.findById(request.getHostId())
+            // 사용자 정보에서 favoriteTeam도 가져오기
+            var userInfo = userRepository.findById(request.getHostId())
                 .map(user -> {
                     String imageUrl = user.getProfileImageUrl();
                     System.out.println("백엔드 - 원본 프로필 이미지: " + imageUrl);
@@ -38,18 +47,24 @@ public class PartyService {
                     if (imageUrl != null && imageUrl.startsWith("/images/")) {
                         String fullUrl = "https://zyofzvnkputevakepbdm.supabase.co/storage/v1/object/public/profile-images" + imageUrl;
                         System.out.println("백엔드 - 변환된 프로필 이미지: " + fullUrl);
-                        return fullUrl;
+                        imageUrl = fullUrl;
                     }
                     
                     // blob URL은 무시
                     if (imageUrl != null && imageUrl.startsWith("blob:")) {
                         System.out.println("백엔드 - blob URL 무시: " + imageUrl);
-                        return null;
+                        imageUrl = null;
                     }
-                    
-                    return imageUrl;
+                    String favoriteTeamId = user.getFavoriteTeamId();
+
+                    return new Object[] { imageUrl, favoriteTeamId };
                 })
-                .orElse(null);
+                .orElse(new Object[] { null, null });
+                
+            hostProfileImageUrl = (String) userInfo[0];
+            hostFavoriteTeam = (String) userInfo[1];  // favoriteTeam 저장
+            
+            System.out.println("백엔드 - 호스트 응원팀: " + hostFavoriteTeam);  
                 
         } catch (Exception e) {
             System.out.println("백엔드 - 호스트 정보 조회 실패: " + e.getMessage());
@@ -58,6 +73,7 @@ public class PartyService {
                 .hostId(request.getHostId())
                 .hostName(request.getHostName())
                 .hostProfileImageUrl(hostProfileImageUrl) //  변환된 URL 사용
+                .hostFavoriteTeam(hostFavoriteTeam)
                 .hostBadge(request.getHostBadge() != null ? request.getHostBadge() : Party.BadgeType.NEW)
                 .hostRating(request.getHostRating() != null ? request.getHostRating() : 5.0)
                 .teamId(request.getTeamId())
@@ -89,10 +105,35 @@ public class PartyService {
 
     // 모든 파티 조회
     @Transactional(readOnly = true)
-    public List<PartyDTO.Response> getAllParties() {
-        return partyRepository.findAllByOrderByCreatedAtDesc().stream()
-                .map(PartyDTO.Response::from)
-                .collect(Collectors.toList());
+    public Page<PartyDTO.Response> getAllParties(String teamId, String stadium, Pageable pageable) {
+        Page<Party> parties;
+
+        List<Party.PartyStatus> excludedStatuses = List.of(
+            Party.PartyStatus.CHECKED_IN, 
+            Party.PartyStatus.COMPLETED
+         );
+        
+        if (teamId != null && !teamId.isBlank()) {
+            if (stadium != null && !stadium.isBlank()) {
+                parties = partyRepository.findByTeamIdAndStadiumAndStatusNotInOrderByCreatedAtDesc(
+                    teamId, stadium, excludedStatuses, pageable
+                );
+            } else {
+                parties = partyRepository.findByTeamIdAndStatusNotInOrderByCreatedAtDesc(
+                    teamId, excludedStatuses, pageable
+                );
+            }
+        } else if (stadium != null && !stadium.isBlank()) {
+            parties = partyRepository.findByStadiumAndStatusNotInOrderByCreatedAtDesc(
+                stadium, excludedStatuses, pageable
+            );
+        } else {
+            parties = partyRepository.findByStatusNotInOrderByCreatedAtDesc(
+                excludedStatuses, pageable
+            );
+        }
+        
+        return parties.map(PartyDTO.Response::from);
     }
 
     // 파티 ID로 조회
@@ -194,11 +235,38 @@ public class PartyService {
         return PartyDTO.Response.from(updatedParty);
     }
 
-    // 파티 삭제
     @Transactional
-    public void deleteParty(Long id) {
+    public void deleteParty(Long id, Long hostId) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
+        
+        // 호스트 본인 확인
+        if (!party.getHostId().equals(hostId)) {
+            throw new UnauthorizedAccessException("파티 호스트만 삭제할 수 있습니다.");
+        }
+        
+        // 이미 매칭된 파티는 삭제 불가
+        if (party.getStatus() == Party.PartyStatus.MATCHED || 
+            party.getStatus() == Party.PartyStatus.CHECKED_IN ||
+            party.getStatus() == Party.PartyStatus.COMPLETED) {
+            throw new InvalidApplicationStatusException("진행 중이거나 완료된 파티는 삭제할 수 없습니다.");
+        }
+        
+        // 승인된 신청자가 있는지 확인
+        List<PartyApplication> approvedApplications = 
+            applicationRepository.findByPartyIdAndIsApprovedTrue(id);
+        
+        if (!approvedApplications.isEmpty()) {
+            throw new InvalidApplicationStatusException(
+                "승인된 참여자가 있는 파티는 삭제할 수 없습니다. 참여자가 취소하거나 거절 후 삭제해주세요."
+            );
+        }
+        
+        // 대기 중인 신청들은 함께 삭제
+        applicationRepository.deleteAll(
+            applicationRepository.findByPartyId(id)
+        );
+        
         partyRepository.delete(party);
     }
 }

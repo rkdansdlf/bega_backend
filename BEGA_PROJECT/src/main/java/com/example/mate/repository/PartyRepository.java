@@ -1,8 +1,12 @@
 package com.example.mate.repository;
 
 import com.example.mate.entity.Party;
+import com.example.mate.entity.Party.PartyStatus;
+
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
@@ -44,4 +48,12 @@ public interface PartyRepository extends JpaRepository<Party, Long> {
 
     // 경기 날짜 이후 파티 조회
     List<Party> findByGameDateAfterOrderByGameDateAsc(LocalDate date);
+
+    Page<Party> findByStatusNotInOrderByCreatedAtDesc(List<PartyStatus> statuses, Pageable pageable);
+    Page<Party> findByTeamIdAndStatusNotInOrderByCreatedAtDesc(String teamId, List<PartyStatus> statuses, Pageable pageable);
+    Page<Party> findByStadiumAndStatusNotInOrderByCreatedAtDesc(String stadium, List<PartyStatus> statuses, Pageable pageable);
+    Page<Party> findByTeamIdAndStadiumAndStatusNotInOrderByCreatedAtDesc(String teamId, String stadium, List<PartyStatus> statuses, Pageable pageable);
+
+    Page<Party> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
 }
