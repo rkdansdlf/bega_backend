@@ -2,8 +2,14 @@ package com.example.mate.controller;
 
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
+import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.service.PartyService;
 import lombok.RequiredArgsConstructor;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -29,11 +35,22 @@ public class PartyController {
     }
 
     // 모든 파티 조회
-    @GetMapping
-    public ResponseEntity<List<PartyDTO.Response>> getAllParties() {
-        List<PartyDTO.Response> parties = partyService.getAllParties();
+   @GetMapping
+    public ResponseEntity<Page<PartyDTO.Response>> getAllParties(
+            @RequestParam(required = false) String teamId,
+            @RequestParam(required = false) String stadium,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "9") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir 
+    ) {
+        Sort.Direction direction = sortDir.equalsIgnoreCase("asc") ? Sort.Direction.ASC : Sort.Direction.DESC;
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
+        Page<PartyDTO.Response> parties = partyService.getAllParties(teamId, stadium, pageable);
         return ResponseEntity.ok(parties);
     }
+
+   
 
     // 파티 ID로 조회
     @GetMapping("/{id}")
@@ -94,10 +111,14 @@ public class PartyController {
 
     // 파티 삭제
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteParty(@PathVariable Long id) {
+    public ResponseEntity<Void> deleteParty(
+            @PathVariable Long id,
+            @RequestParam Long hostId) {
         try {
-            partyService.deleteParty(id);
+            partyService.deleteParty(id, hostId);  
             return ResponseEntity.noContent().build();
+        } catch (UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }

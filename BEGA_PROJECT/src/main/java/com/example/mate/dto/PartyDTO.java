@@ -31,6 +31,7 @@ public class PartyDTO {
         private Integer maxParticipants;
         private String description;
         private String ticketImageUrl;
+        private String hostFavoriteTeam;
         private Integer ticketPrice; 
     }
 
@@ -43,6 +44,7 @@ public class PartyDTO {
         private Long hostId;
         private String hostName;
         private String hostProfileImageUrl;
+        private String hostFavoriteTeam;
         private Party.BadgeType hostBadge;
         private Double hostRating;
         private String teamId;
@@ -69,6 +71,7 @@ public class PartyDTO {
                     .hostId(party.getHostId())
                     .hostName(party.getHostName())
                     .hostProfileImageUrl(party.getHostProfileImageUrl())
+                    .hostFavoriteTeam(party.getHostFavoriteTeam())
                     .hostBadge(party.getHostBadge())
                     .hostRating(party.getHostRating())
                     .teamId(party.getTeamId())
