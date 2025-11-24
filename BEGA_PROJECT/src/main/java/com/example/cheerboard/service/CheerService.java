@@ -240,7 +240,7 @@ public class CheerService {
         CheerComment comment = saveNewComment(post, me, req);
         incrementCommentCount(post);
 
-        // 게시글 작성자에게 알림 (본인이 아닐 때만)
+                // 게시글 작성자에게 알림 (본인이 아닐 때만)
         if (!post.getAuthor().getId().equals(me.getId())) {
             try {
                 String authorName = me.getName() != null && !me.getName().isBlank() 
@@ -259,8 +259,11 @@ public class CheerService {
             }
         }
 
+
         return toCommentRes(comment);
     }
+
+    
 
     @Transactional
     public void deleteComment(Long commentId) {
