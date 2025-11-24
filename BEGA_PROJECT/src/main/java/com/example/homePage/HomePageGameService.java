@@ -138,4 +138,31 @@ public class HomePageGameService {
                 .build())
             .collect(Collectors.toList());
     }
+    
+    // 리그 시작 날짜 조회
+    @Transactional(readOnly = true)
+    public LeagueStartDatesDto getLeagueStartDates() {
+        LocalDate now = LocalDate.now();
+        int currentYear = now.getYear();
+        int seasonYear = now.getMonthValue() >= 11 ? currentYear + 1 : currentYear;
+        
+        // DB에서 각 리그의 첫 경기 날짜 조회
+        LocalDate regularStart = homePageGameRepository
+            .findFirstRegularSeasonDate(seasonYear)
+            .orElse(LocalDate.of(seasonYear, 3, 22));
+        
+        LocalDate postseasonStart = homePageGameRepository
+            .findFirstPostseasonDate(seasonYear)
+            .orElse(LocalDate.of(seasonYear, 10, 6));
+        
+        LocalDate koreanSeriesStart = homePageGameRepository
+            .findFirstKoreanSeriesDate(seasonYear)
+            .orElse(LocalDate.of(seasonYear, 10, 26));
+        
+        return LeagueStartDatesDto.builder()
+            .regularSeasonStart(regularStart.toString())
+            .postseasonStart(postseasonStart.toString())
+            .koreanSeriesStart(koreanSeriesStart.toString())
+            .build();
+    }
 }

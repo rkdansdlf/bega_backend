@@ -38,5 +38,11 @@ public class HomePageController {
         List<HomePageTeamRankingDto> rankings = homePageGameService.getTeamRankings(seasonYear);
         return ResponseEntity.ok(rankings);
     }
+	// 
+	@GetMapping("/league-start-dates")
+	public ResponseEntity<LeagueStartDatesDto> getLeagueStartDates() {
+	    LeagueStartDatesDto startDates = homePageGameService.getLeagueStartDates();
+	    return ResponseEntity.ok(startDates);
+	}
 	
 }
