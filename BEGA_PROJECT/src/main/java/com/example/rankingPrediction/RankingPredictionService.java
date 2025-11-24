@@ -84,4 +84,12 @@ public class RankingPredictionService {
 		return SeasonUtils.getCurrentPredictionSeason();
 	}
 	
+	// 공유용 예측 조회 (userId를 직접 받음)
+	@Transactional(readOnly = true)
+	public RankingPredictionResponseDto getPredictionByUserIdAndSeason(Long userId, int seasonYear) {
+	    return rankingPredictionRepository.findByUserIdAndSeasonYear(userId, seasonYear)
+	            .map(RankingPrediction::toDto)
+	            .orElse(null);
+	}
+	
 }
