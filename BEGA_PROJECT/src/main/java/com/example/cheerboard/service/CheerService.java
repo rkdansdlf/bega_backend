@@ -20,7 +20,6 @@ import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerTeamRepository;
 import com.example.demo.entity.UserEntity;
 import com.example.notification.service.NotificationService;
-
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
@@ -119,11 +118,11 @@ public class CheerService {
      * 게시글 타입 결정 (공지사항 권한 체크 포함)
      */
     private PostType determinePostType(CreatePostReq req, UserEntity user) {
-        // 관리자(ADMIN) 역할인지 확인하여 공지사항 여부 결정
-        if (user != null && "ROLE_ADMIN".equals(user.getRole())) {
+        // 관리자가 공지사항으로 체크한 경우에만 NOTICE로 설정
+        if (user != null && "ROLE_ADMIN".equals(user.getRole()) && "NOTICE".equals(req.postType())) {
             return PostType.NOTICE;
         }
-        // 그 외 모든 사용자는 일반 게시글로 처리
+        // 그 외 모든 경우는 일반 게시글로 처리
         return PostType.NORMAL;
     }
     
@@ -131,10 +130,11 @@ public class CheerService {
      * 새 게시글 엔티티 생성
      */
     private CheerPost buildNewPost(CreatePostReq req, UserEntity author, PostType postType) {
-        log.debug("buildNewPost - teamId={}", req.teamId());
+        log.debug("buildNewPost - teamId={}, postType={}", req.teamId(), postType);
 
-        final String finalTeamId; // Declare a final variable
+        final String finalTeamId;
         String requestTeamId = req.teamId();
+        
         if (postType == PostType.NOTICE && (requestTeamId == null || requestTeamId.isBlank())) {
             finalTeamId = GLOBAL_TEAM_ID;
             log.debug("Admin notice post: resolved teamId to GLOBAL_TEAM_ID: {}", finalTeamId);
@@ -142,8 +142,8 @@ public class CheerService {
             finalTeamId = requestTeamId;
         }
 
-        var team = teamRepo.findById(finalTeamId) // Use finalTeamId
-            .orElseThrow(() -> new java.util.NoSuchElementException("팀을 찾을 수 없습니다: " + finalTeamId)); // Use finalTeamId
+        var team = teamRepo.findById(finalTeamId)
+            .orElseThrow(() -> new java.util.NoSuchElementException("팀을 찾을 수 없습니다: " + finalTeamId));
         log.debug("buildNewPost - team lookup succeeded: {}", team.getId());
 
         CheerPost post = CheerPost.builder()
@@ -240,7 +240,7 @@ public class CheerService {
         CheerComment comment = saveNewComment(post, me, req);
         incrementCommentCount(post);
 
-        // 게시글 작성자에게 알림 (본인이 아닐 때만)
+                // 게시글 작성자에게 알림 (본인이 아닐 때만)
         if (!post.getAuthor().getId().equals(me.getId())) {
             try {
                 String authorName = me.getName() != null && !me.getName().isBlank() 
@@ -259,8 +259,11 @@ public class CheerService {
             }
         }
 
+
         return toCommentRes(comment);
     }
+
+    
 
     @Transactional
     public void deleteComment(Long commentId) {
@@ -406,7 +409,7 @@ public class CheerService {
         CheerComment reply = saveNewReply(post, parentComment, me, req);
         incrementCommentCount(post);
 
-        // 원댓글 작성자에게 알림 (본인이 아닐 때만)
+         // 원댓글 작성자에게 알림 (본인이 아닐 때만)
         if (!parentComment.getAuthor().getId().equals(me.getId())) {
             try {
                 String authorName = me.getName() != null && !me.getName().isBlank() 
@@ -425,6 +428,7 @@ public class CheerService {
                     post.getId(), parentCommentId, e.getMessage());
             }
         }
+
 
         return toCommentRes(reply);
     }
