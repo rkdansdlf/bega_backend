@@ -60,3 +60,5 @@ venv
 
 # Log files
 BEGA_PROJECT/logs/
+BEGA_PROJECT/src/test/java/.placeholder
+BEGA_PROJECT/src/main/java/.placeholder
