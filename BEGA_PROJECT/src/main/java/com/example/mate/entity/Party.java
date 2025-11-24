@@ -50,6 +50,9 @@ public class Party {
     @Column(nullable = false, length = 100)
     private String stadium; // 구장명
 
+    @Column(name = "host_favorite_team", length = 20)
+    private String hostFavoriteTeam; // 호스트가 응원하는 팀 ID
+
     @Column(nullable = false, length = 20)
     private String homeTeam; // 홈 팀 ID
 
