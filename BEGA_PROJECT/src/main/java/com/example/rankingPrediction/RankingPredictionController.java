@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,6 +27,8 @@ public class RankingPredictionController {
 	
 	@GetMapping("/current-season")
 	public ResponseEntity<?> getCurrentSeason() {
+
+	    
 		try {
 			int currentSeason = rankingPredictionService.getCurrentSeason();
 			return ResponseEntity.ok(Map.of("seasonYear", currentSeason));
@@ -70,6 +73,11 @@ public class RankingPredictionController {
 			Principal principal,
 			@RequestParam int seasonYear) {
 		
+		if (principal == null) {
+	        // @PreAuthorize("isAuthenticated()")에 의해 차단되지만, 안전을 위해 추가
+	        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build(); 
+	    }
+		
 		RankingPredictionResponseDto prediction = rankingPredictionService.getPrediction(principal.getName(), seasonYear);
 		
 		if (prediction != null) {
@@ -77,6 +85,22 @@ public class RankingPredictionController {
 		} else {
 			return ResponseEntity.notFound().build();
 		}
+	}
+	
+	// 공유용 예측 조회 (로그인 불필요)
+	@GetMapping("/share/{userId}/{seasonYear}")
+	public ResponseEntity<RankingPredictionResponseDto> getSharedPrediction(
+	        @PathVariable Long userId,
+	        @PathVariable int seasonYear) {
+	    
+	    RankingPredictionResponseDto prediction = 
+	        rankingPredictionService.getPredictionByUserIdAndSeason(userId, seasonYear);
+	    
+	    if (prediction != null) {
+	        return ResponseEntity.ok(prediction);
+	    } else {
+	        return ResponseEntity.notFound().build();
+	    }
 	}
 	
 	

@@ -191,6 +191,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/api/kbo/schedule/**").permitAll()
                 .requestMatchers("/api/kbo/rankings/**").permitAll()
+                .requestMatchers("/api/matches/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/predictions/vote").authenticated() // 인증된 사용자만 허용
 
                 // 기존 권한 설정
                 .requestMatchers("/admin/**").hasRole("ADMIN")
