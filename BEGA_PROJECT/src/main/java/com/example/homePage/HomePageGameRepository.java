@@ -2,6 +2,7 @@ package com.example.homePage;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -41,4 +42,37 @@ public interface HomePageGameRepository extends JpaRepository<HomePageGame, Long
         LIMIT 1
         """, nativeQuery = true)
     String findChampionBySeason(@Param("seasonYear") int seasonYear);
+    
+    // 정규시즌 첫 경기 날짜 조회 3월 22일 ~ 10월 5일 사이의 가장 빠른 경기 날짜
+    
+   @Query(value = """
+       SELECT MIN(g.game_date)
+       FROM game g
+       JOIN kbo_seasons s ON g.season_id = s.season_id
+       WHERE s.season_year = :seasonYear
+         AND s.league_type_code = 1
+       """, nativeQuery = true)
+   Optional<LocalDate> findFirstRegularSeasonDate(@Param("seasonYear") int seasonYear);
+
+   
+   // 포스트시즌 첫 경기 날짜 조회 10월 6일 ~ 10월 25일 사이의 가장 빠른 경기 날짜
+   @Query(value = """
+       SELECT MIN(g.game_date)
+       FROM game g
+       JOIN kbo_seasons s ON g.season_id = s.season_id
+       WHERE s.season_year = :seasonYear
+         AND s.league_type_code = 2
+       """, nativeQuery = true)
+   Optional<LocalDate> findFirstPostseasonDate(@Param("seasonYear") int seasonYear);
+
+   // 한국시리즈 첫 경기 날짜 조회 10월 26일 ~ 10월 31일 사이의 가장 빠른 경기 날짜
+   @Query(value = """
+       SELECT MIN(g.game_date)
+       FROM game g
+       JOIN kbo_seasons s ON g.season_id = s.season_id
+       WHERE s.season_year = :seasonYear
+         AND s.league_type_code = 5
+       """, nativeQuery = true)
+   Optional<LocalDate> findFirstKoreanSeriesDate(@Param("seasonYear") int seasonYear);
+    
 }
