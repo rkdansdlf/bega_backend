@@ -25,3 +25,4 @@ public class LeagueStartDatesDto {
     // 한국시리즈 시작 날짜  예: "2025-10-26"
     private String koreanSeriesStart;
 }
+
