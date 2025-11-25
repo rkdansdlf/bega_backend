@@ -12,7 +12,7 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@PasswordMatches  // 🔥 클래스 레벨에서 비밀번호 일치 검증
+@PasswordMatches  
 public class PasswordResetConfirmDto {
     
     @NotBlank(message = "토큰은 필수입니다.")

@@ -120,7 +120,6 @@ public class SecurityConfig {
                     .userService(customOAuth2UserService))
                 .successHandler(customSuccessHandler)
                 .failureHandler((request, response, exception) -> {
-                    System.err.println("OAuth2 로그인 최종 실패. 예외 메시지: " + exception.getMessage());
                     response.sendRedirect("/login?error=" + exception.getMessage()); 
                 })
                 .authorizationEndpoint(authorization -> authorization

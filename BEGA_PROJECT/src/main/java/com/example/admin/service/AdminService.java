@@ -44,9 +44,6 @@ public class AdminService {
         long totalPosts = cheerPostRepository.count();
         long totalMates = partyRepository.count();
 
-        log.info("📊 관리자 통계 - 유저: {}, 게시글: {}, 메이트: {}", 
-            totalUsers, totalPosts, totalMates);
-
         return AdminStatsDto.builder()
             .totalUsers(totalUsers)
             .totalPosts(totalPosts)
@@ -66,11 +63,9 @@ public class AdminService {
                 search.trim(), 
                 search.trim()
             );
-            log.info("🔍 유저 검색: '{}' - {}명 발견", search, users.size());
         } else {
             // 🔥 전체 조회 (ID 순)
             users = userRepository.findAllByOrderByIdAsc();
-            log.info("👥 전체 유저 조회: {}명 (ID 순)", users.size());
         }
 
         return users.stream()
@@ -84,8 +79,6 @@ public class AdminService {
     public List<AdminPostDto> getPosts() {
         // 🔥 createdAt 기준 내림차순 정렬
         List<CheerPost> posts = cheerPostRepository.findAllByOrderByCreatedAtDesc();
-        
-        log.info("📝 전체 게시글 조회: {}개 (최신순)", posts.size());
         
         return posts.stream()
             .map(this::convertToAdminPostDto)
@@ -117,8 +110,6 @@ public class AdminService {
      */
     public List<AdminMateDto> getMates() {
         List<Party> parties = partyRepository.findAllByOrderByCreatedAtDesc();
-        
-        log.info("🎫 전체 메이트 조회: {}개 (최신순)", parties.size());
         
         return parties.stream()
             .map(this::convertToAdminMateDto)
@@ -155,41 +146,33 @@ public class AdminService {
     public void deleteUser(Long userId) {
         UserEntity user = userRepository.findById(userId)
             .orElseThrow(() -> new IllegalArgumentException("유저를 찾을 수 없습니다."));
-
-        log.warn("🗑️ 유저 삭제 시작: userId={}, email={}", userId, user.getEmail());
         
-        // 🔥 1. 좋아요 삭제 (가장 먼저!)
+        // 좋아요 삭제
         List<CheerPostLike> userLikes = likeRepository.findByUser(user);
         if (!userLikes.isEmpty()) {
-            log.info("❤️ 유저의 좋아요 {}개 삭제", userLikes.size());
             likeRepository.deleteAll(userLikes);
         }
         
-        // 🔥 2. 댓글 삭제 (두 번째)
+        // 댓글 삭제
         List<CheerComment> userComments = commentRepository.findByAuthor(user);
         if (!userComments.isEmpty()) {
-            log.info("💬 유저의 댓글 {}개 삭제", userComments.size());
             commentRepository.deleteAll(userComments);
         }
         
-        // 🔥 3. 게시글 삭제 (세 번째)
+        // 게시글 삭제
         List<CheerPost> userPosts = cheerPostRepository.findByAuthor(user);
         if (!userPosts.isEmpty()) {
-            log.info("📝 유저의 게시글 {}개 삭제", userPosts.size());
             cheerPostRepository.deleteAll(userPosts);
         }
         
-        // 🔥 4. 메이트 모임 삭제 (네 번째)
+        // 메이트 모임 삭제
         List<Party> userParties = partyRepository.findByHostId(userId);
         if (!userParties.isEmpty()) {
-            log.info("🎫 유저의 메이트 모임 {}개 삭제", userParties.size());
             partyRepository.deleteAll(userParties);
         }
         
-        // 🔥 5. 마지막으로 유저 삭제
+        // 유저 삭제
         userRepository.delete(user);
-        
-        log.warn("✅ 유저 삭제 완료: userId={}", userId);
     }
 
     /**
@@ -200,8 +183,7 @@ public class AdminService {
         if (!cheerPostRepository.existsById(postId)) {
             throw new IllegalArgumentException("게시글을 찾을 수 없습니다.");
         }
-
-        log.warn("🗑️ 게시글 삭제: postId={}", postId);
+        
         cheerPostRepository.deleteById(postId);
     }
 
@@ -214,7 +196,6 @@ public class AdminService {
             throw new IllegalArgumentException("메이트 모임을 찾을 수 없습니다.");
         }
 
-        log.warn("🗑️ 메이트 삭제: mateId={}", mateId);
         partyRepository.deleteById(mateId);
     }
 
