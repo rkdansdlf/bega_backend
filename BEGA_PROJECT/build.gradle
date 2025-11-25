@@ -1,6 +1,6 @@
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '3.5.7'
+	id 'org.springframework.boot' version '3.5.8'
 	id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -42,6 +42,7 @@ dependencies {
 	implementation 'com.mysql:mysql-connector-j'
 	implementation 'org.postgresql:postgresql:42.6.0'
 	runtimeOnly 'org.postgresql:postgresql'
+	runtimeOnly 'com.h2database:h2' // dev 프로필용 H2 데이터베이스
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
 	implementation 'io.projectreactor:reactor-core'
     implementation 'jakarta.servlet:jakarta.servlet-api:6.0.0'
