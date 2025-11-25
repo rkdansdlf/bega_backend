@@ -42,8 +42,8 @@ public class MatchScheduler {
         }
 
         for (Match match : dummyMatches) {
-            match.setGameDate(today); // today로 변경
-            log.info("더미 경기 날짜 업데이트: {} -> {}", match.getGameId(), today);
+            match.setGameDate(tomorrow); 
+            log.info("더미 경기 날짜 업데이트: {} -> {}", match.getGameId(), tomorrow);
         }
 
         matchRepository.saveAll(dummyMatches);
