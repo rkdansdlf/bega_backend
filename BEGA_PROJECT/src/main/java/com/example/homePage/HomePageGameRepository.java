@@ -49,7 +49,6 @@ public interface HomePageGameRepository extends JpaRepository<HomePageGame, Long
         FROM kbo_seasons s
         WHERE s.season_year = :seasonYear
           AND s.league_type_code = 1
-          AND g.game_date >= CONCAT(:seasonYear, '-03-15')
         """, nativeQuery = true)
     Optional<LocalDate> findFirstRegularSeasonDate(@Param("seasonYear") int seasonYear);
 
