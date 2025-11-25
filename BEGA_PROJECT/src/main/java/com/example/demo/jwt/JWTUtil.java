@@ -6,6 +6,7 @@ import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.ExpiredJwtException;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -16,7 +17,7 @@ import java.util.Date;
 public class JWTUtil {
 
     private final SecretKey secretKey;
-    private final long refreshExpirationTime; 
+    private final long refreshExpirationTime;
 
     public JWTUtil(@Value("${spring.jwt.secret}") String secret, 
                    @Value("${spring.jwt.refresh-expiration}") long refreshExpirationTime) {
@@ -26,9 +27,8 @@ public class JWTUtil {
 
     // Access Token 생성 
     public String createJwt(String email, String role, Long userId, long expiredMs) { 
-
         return Jwts.builder()
-                .claim("email", email) // Claim 키를 email로 설정
+                .claim("email", email)
                 .claim("role", role)
                 .claim("user_id", userId)
                 .issuedAt(new Date(System.currentTimeMillis()))
@@ -38,10 +38,9 @@ public class JWTUtil {
     }
     
     // Refresh Token 생성
-    public String createRefreshToken(String email, String role, Long userId ) { 
-        
+    public String createRefreshToken(String email, String role, Long userId) { 
         return Jwts.builder()
-                .claim("email", email) // Claim 키를 email로 변경
+                .claim("email", email)
                 .claim("role", role)
                 .claim("user_id", userId)
                 .issuedAt(new Date(System.currentTimeMillis()))
@@ -51,6 +50,7 @@ public class JWTUtil {
     }
 
     // JWT에서 특정 Claim 가져오기
+    @Cacheable(value = "jwtUserCache", key = "#token")
     private Claims getClaims(String token) {
         try {
             return Jwts.parser()
@@ -59,34 +59,30 @@ public class JWTUtil {
                     .parseSignedClaims(token)
                     .getPayload();
         } catch (ExpiredJwtException e) {
-            // 토큰이 만료되었을 때도 Claims를 반환하여 email, role 등을 가져올 수 있도록 하기
             return e.getClaims(); 
         }
     }
 
-    // JWT에서 Email 추출
+    // Email 추출 (캐싱 적용)
     public String getEmail(String token) { 
-        // 토큰이 만료되었더라도 Claims를 얻어 email을 가져올 수 있음
         return getClaims(token).get("email", String.class);
     }
     
-    public String getUserId(String token) {
-        return getClaims(token).getSubject();
+    // User ID 추출 (캐싱 적용)
+    public Long getUserId(String token) {
+        return getClaims(token).get("user_id", Long.class);
     }
 
-    // JWT에서 Role 추출
+    // Role 추출 (캐싱 적용)
     public String getRole(String token) {
-        // Role Claim을 String 형태로 추출합니다.
         return getClaims(token).get("role", String.class);
     }
 
     // JWT 만료 여부 확인
     public Boolean isExpired(String token) {
         try {
-            // 만료 날짜를 기준으로 현재 시간이 이후인지 확인
             return getClaims(token).getExpiration().before(new Date());
         } catch (Exception e) {
-            // 토큰 파싱 실패 시, 만료된 것으로 간주하거나 잘못된 토큰으로 처리
             return true;
         }
     }
