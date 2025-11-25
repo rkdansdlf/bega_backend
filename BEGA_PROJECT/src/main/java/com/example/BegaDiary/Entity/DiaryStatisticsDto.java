@@ -1,5 +1,7 @@
 package com.example.BegaDiary.Entity;
 
+import java.util.Map;
+
 import lombok.Builder;
 import lombok.Data;
 
@@ -28,4 +30,6 @@ public class DiaryStatisticsDto {
  
  private Integer cheerPostCount;
  private Integer mateParticipationCount;
+
+ private Map<String, Long> emojiCounts;
 }
