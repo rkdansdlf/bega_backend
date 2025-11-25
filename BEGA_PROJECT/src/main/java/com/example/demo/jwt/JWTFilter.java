@@ -59,7 +59,6 @@ public class JWTFilter extends OncePerRequestFilter {
 
         // Authorization 토큰이 없는 경우 
         if (authorization == null) {
-            System.out.println("토큰이 쿠키나 헤더에 없습니다. 인증 없이 통과.");
             filterChain.doFilter(request, response);
             return;
         }
@@ -68,7 +67,6 @@ public class JWTFilter extends OncePerRequestFilter {
 
         // 토큰 소멸 시간 검증
         if (jwtUtil.isExpired(token)) {
-            System.out.println("토큰 만료");
             filterChain.doFilter(request, response);
             return;
         }
@@ -80,7 +78,6 @@ public class JWTFilter extends OncePerRequestFilter {
             Long userId = jwtUtil.getUserId(token);
 
             if (userId == null) {
-                System.out.println("❌ JWT에서 user_id를 찾을 수 없습니다.");
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -96,12 +93,10 @@ public class JWTFilter extends OncePerRequestFilter {
             
             // 사용자 등록
             SecurityContextHolder.getContext().setAuthentication(authToken);
-            System.out.println("✅ JWT 인증 성공 (캐싱): User ID " + userId);
 
         } catch (Exception e) {
-            System.out.println("❌ JWT 파싱 실패: " + e.getMessage());
         }
 
         filterChain.doFilter(request, response);
-    }
+    }  
 }

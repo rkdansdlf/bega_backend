@@ -104,9 +104,6 @@ public class MyPageService {
             user.setProfileImageUrl(updateDto.getProfileImageUrl());
         }
         
-        // DB에 반영되기 직전 Entity가 가진 Role 값을 확인 
-        log.info("DEBUG-ROLE-CHECK: Entity Role set to: {}", user.getRole());
-        
         // 변경 사항을 DB에 저장
         userRepository.save(user);
 

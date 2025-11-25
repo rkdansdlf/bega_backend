@@ -23,7 +23,7 @@ public class UserEntity {
     private Long id;
 
     // 닉네임/표시 이름
-    @Column(unique = true, nullable = false)
+    @Column(nullable = false)
     private String name;
     
     // 로그인 식별자 및 Spring Security Principal 역할

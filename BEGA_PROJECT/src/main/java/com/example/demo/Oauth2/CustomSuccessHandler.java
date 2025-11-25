@@ -49,7 +49,6 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         }
         
         if (userEmail == null || userEmail.isEmpty()) {
-            System.err.println("CustomSuccessHandler: 유효한 email을 찾을 수 없습니다.");
             getRedirectStrategy().sendRedirect(request, response, "/oauth2/login/error?message=email_missing");
             return;
         }
@@ -58,7 +57,6 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         Optional<UserEntity> userEntityOptional = userRepository.findByEmail(userEmail); 
         
         if (userEntityOptional.isEmpty()) {
-            System.err.println("CustomSuccessHandler: DB에서 이메일(" + userEmail + ")로 사용자를 찾을 수 없습니다.");
             getRedirectStrategy().sendRedirect(request, response, "/oauth2/login/error?message=user_not_found_in_db");
             return;
         }
@@ -105,7 +103,6 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             
         if (request.getSession(false) != null) {
             request.getSession(false).invalidate();
-            System.out.println("--- 기존 HTTP 세션(JSESSIONID) 명시적 무효화 완료 ---");
         }
         
         // 7. 리다이렉션 
@@ -113,13 +110,6 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         String redirectUrl = "http://localhost:3000"; // 쿠키를 추가한 후 리다이렉트
         
         getRedirectStrategy().sendRedirect(request, response, redirectUrl);
-
-        System.out.println("--- JWT 토큰 발행 성공 (OAuth2 로그인) ---");
-        System.out.println("발행된 Access Token: " + accessToken.substring(0, 10) + "...");
-        System.out.println("Refresh Token (DB 저장됨): " + refreshToken.substring(0, 10) + "...");
-        System.out.println("토큰 사용자(Email): " + userEmail); 
-        System.out.println("권한: " + role);
-        System.out.println("-------------------------------------");
     }
     
  

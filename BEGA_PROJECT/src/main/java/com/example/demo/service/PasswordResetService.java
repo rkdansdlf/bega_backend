@@ -54,8 +54,6 @@ public class PasswordResetService {
     
     @Transactional
     public void confirmPasswordReset(PasswordResetConfirmDto request) {
-        System.out.println("받은 토큰: " + request.getToken()); // 디버깅 로그
-        System.out.println("새 비밀번호 길이: " + request.getNewPassword().length());
         
         // 비밀번호 일치 확인
         if (!request.getNewPassword().equals(request.getConfirmPassword())) {
@@ -70,7 +68,6 @@ public class PasswordResetService {
         // 토큰 조회
         PasswordResetToken resetToken = tokenRepository.findByToken(request.getToken())
             .orElseThrow(() -> {
-                System.err.println("토큰을 찾을 수 없음: " + request.getToken()); // 에러 로그
                 return new IllegalArgumentException("유효하지 않은 토큰입니다.");
             });
         

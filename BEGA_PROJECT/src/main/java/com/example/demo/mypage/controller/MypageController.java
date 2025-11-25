@@ -56,7 +56,6 @@ public class MypageController {
             return ResponseEntity.ok(ApiResponse.success("프로필 조회 성공", profileDto));
 
         } catch (RuntimeException e) {
-            System.err.println("프로필 조회 오류: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(ApiResponse.error("요청한 사용자의 프로필 정보를 찾을 수 없습니다."));
             

@@ -62,9 +62,7 @@ public class APIController {
         jwtCookie.setPath("/");
         jwtCookie.setMaxAge(60 * 60);  // 1시간
         response.addCookie(jwtCookie);
-        
-        log.info("✅ 로그인 성공: {}", request.getEmail());
-        
+                
         // 성공 응답
         return ResponseEntity.ok(ApiResponse.success("로그인 성공", loginData));
     }
