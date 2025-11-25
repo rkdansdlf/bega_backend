@@ -1,5 +1,5 @@
 package com.example.mate.service;
-
+import java.util.Optional;
 import com.example.demo.repo.UserRepository;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
@@ -268,5 +268,37 @@ public class PartyService {
         );
         
         partyRepository.delete(party);
+    }
+
+    // 사용자가 참여한 모든 파티 조회 (호스트 + 참여자)
+    @Transactional(readOnly = true)
+    public List<PartyDTO.Response> getMyParties(Long userId) {
+        // 1. 호스트로 생성한 파티
+        List<Party> hostedParties = partyRepository.findByHostId(userId);
+        
+        // 2. 참여자로 승인된 파티
+        List<PartyApplication> approvedApplications = 
+            applicationRepository.findByApplicantIdAndIsApprovedTrue(userId);
+        
+        List<Party> participatedParties = approvedApplications.stream()
+            .map(app -> partyRepository.findById(app.getPartyId()))
+            .filter(Optional::isPresent)
+            .map(Optional::get)
+            .collect(Collectors.toList());
+        
+        // 3. 두 리스트 합치기 (중복 제거)
+        List<Party> allParties = new java.util.ArrayList<>(hostedParties);
+        participatedParties.forEach(party -> {
+            if (allParties.stream().noneMatch(p -> p.getId().equals(party.getId()))) {
+                allParties.add(party);
+            }
+        });
+        
+        // 4. 최신순 정렬
+        allParties.sort((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()));
+        
+        return allParties.stream()
+                .map(PartyDTO.Response::from)
+                .collect(Collectors.toList());
     }
 }
