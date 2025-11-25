@@ -143,8 +143,8 @@ public class HomePageGameService {
     @Transactional(readOnly = true)
     public LeagueStartDatesDto getLeagueStartDates() {
         LocalDate now = LocalDate.now();
-        int currentYear = now.getYear();
-        int seasonYear = now.getMonthValue() >= 11 ? currentYear + 1 : currentYear;
+       // int currentYear = now.getYear();
+        int seasonYear = now.getYear();
         
         // DB에서 각 리그의 첫 경기 날짜 조회
         LocalDate regularStart = homePageGameRepository
