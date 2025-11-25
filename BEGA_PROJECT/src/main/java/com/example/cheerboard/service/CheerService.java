@@ -273,7 +273,10 @@ public class CheerService {
 
         CheerPost post = comment.getPost();
         commentRepo.delete(comment);
-        decrementCommentCount(post);
+        
+        // 실제 DB에서 댓글 수 재계산 (댓글 + 대댓글 모두 포함)
+        Long actualCount = commentRepo.countByPostId(post.getId());
+        post.setCommentCount(actualCount.intValue());
     }
     
     /**
@@ -304,7 +307,10 @@ public class CheerService {
     
     /**
      * 게시글 댓글 수 감소
+     * @deprecated 댓글 삭제 시 cascade로 대댓글이 함께 삭제되어 카운트 불일치 발생. 
+     * 대신 commentRepo.countByPostId()로 실제 댓글 수를 재계산하여 사용.
      */
+    @Deprecated
     private void decrementCommentCount(CheerPost post) {
         post.setCommentCount(Math.max(0, post.getCommentCount() - 1));
     }
@@ -451,21 +457,19 @@ public class CheerService {
      */
     private void checkDuplicateComment(Long postId, Long authorId, String content, Long parentCommentId) {
         java.time.Instant threeSecondsAgo = java.time.Instant.now().minusSeconds(3);
+        boolean isDuplicate;
 
-        boolean isDuplicate = commentRepo.findAll().stream()
-            .filter(c -> c.getPost().getId().equals(postId))
-            .filter(c -> c.getAuthor().getId().equals(authorId))
-            .filter(c -> c.getContent().equals(content))
-            .filter(c -> {
-                if (parentCommentId == null) {
-                    return c.getParentComment() == null;
-                } else {
-                    return c.getParentComment() != null && c.getParentComment().getId().equals(parentCommentId);
-                }
-            })
-            .filter(c -> c.getCreatedAt().isAfter(threeSecondsAgo))
-            .findAny()
-            .isPresent();
+        if (parentCommentId == null) {
+            // 최상위 댓글 중복 체크
+            isDuplicate = commentRepo.existsByPostIdAndAuthorIdAndContentAndParentCommentIsNullAndCreatedAtAfter(
+                postId, authorId, content, threeSecondsAgo
+            );
+        } else {
+            // 대댓글 중복 체크
+            isDuplicate = commentRepo.existsByPostIdAndAuthorIdAndContentAndParentCommentIdAndCreatedAtAfter(
+                postId, authorId, content, parentCommentId, threeSecondsAgo
+            );
+        }
 
         if (isDuplicate) {
             throw new IllegalStateException("중복된 댓글입니다. 잠시 후 다시 시도해주세요.");
