@@ -25,7 +25,6 @@ public class CustomUserDetailsService implements UserDetailsService {
         // 1. DB에서 이메일을 기준으로 사용자 조회.
         UserEntity userData = userRepository.findByEmail(username)
                 .orElseThrow(() -> {
-                    System.err.println("사용자 인증 실패: " + username + " 이메일을 DB에서 찾을 수 없습니다.");
                     return new UsernameNotFoundException("사용자 이메일 " + username + "을 찾을 수 없습니다.");
                 });
 

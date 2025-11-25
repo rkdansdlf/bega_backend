@@ -54,10 +54,9 @@ public class ReissueController {
                 RefreshToken expiredToken = refreshRepository.findByEmail(expiredEmail);
                 if (expiredToken != null) {
                     refreshRepository.delete(expiredToken);
-                    System.out.println("만료된 Refresh Token 및 DB 레코드 삭제: " + expiredEmail);
                 }
             } catch (Exception e) {
-                System.err.println("만료 토큰 삭제 중 오류 발생: " + e.getMessage());
+            	
             }
             return new ResponseEntity<>("토큰이 만료되었습니다", HttpStatus.BAD_REQUEST);
         }
@@ -79,7 +78,6 @@ public class ReissueController {
         // DB에 저장된 토큰 값과 요청된 토큰 값이 일치하는지 최종 확인
         if (!existToken.getToken().equals(refreshToken)) {
              // DB에 저장된 토큰이 요청된 토큰과 다르면, 모든 기존 토큰을 무효화하고 해당 사용자 로그아웃 처리 가능
-             System.err.println("Refresh Token Re-use detected for email: " + email);
              refreshRepository.delete(existToken);
              return new ResponseEntity<>("invalid or reused refresh token", HttpStatus.BAD_REQUEST);
         }
@@ -92,10 +90,10 @@ public class ReissueController {
         // Access Token 만료 시간 (2시간)
         long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; 
         
-        // 🚨🚨🚨 FIX: userId와 role의 순서를 교정함 (email, userId, role, expiredMs)
+        // userId와 role의 순서를 교정함 (email, userId, role, expiredMs)
         String newAccessToken = jwtUtil.createJwt(email, role, userId, accessTokenExpiredMs); 
         
-        // 🚨🚨🚨 FIX: userId와 role의 순서를 교정함 (email, userId, role)
+        // userId와 role의 순서를 교정함 (email, userId, role)
         String newRefreshToken = jwtUtil.createRefreshToken(email, role, userId); 
 
         // DB 정보 저장
@@ -110,11 +108,6 @@ public class ReissueController {
         int refreshTokenMaxAge = (int)(jwtUtil.getRefreshTokenExpirationTime() / 1000);
         response.addCookie(createCookie("Refresh", newRefreshToken, refreshTokenMaxAge));
         
-        System.out.println("-----------------------------");
-        System.out.println("토큰 재발급 완료");
-        System.out.println("이메일 : " + email);
-        System.out.println("사용자 ID : " + userId);
-        System.out.println("-----------------------------");
 
         return new ResponseEntity<>("Token reissued successfully", HttpStatus.OK);
     }

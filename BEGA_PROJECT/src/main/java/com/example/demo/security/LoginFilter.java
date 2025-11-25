@@ -77,8 +77,6 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         if (identifier == null || identifier.trim().isEmpty() || password == null || password.trim().isEmpty()) {
              throw new AuthenticationServiceException("Email and password must be provided.");
         }
-
-        System.out.println("로그인 시도 사용자 (Email): " + identifier);
         
         // 추출된 Email을 Spring Security의 principal (username)으로 전달
         UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(identifier, password, null);
@@ -89,7 +87,7 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
     @Override
     protected void successfulAuthentication(HttpServletRequest request, HttpServletResponse response, FilterChain chain, Authentication authentication) throws IOException, ServletException {
 
-        System.out.println("successfulAuthentication 필터 실행 확인 (REST API 모드)"); 
+
 
         CustomUserDetails customUserDetails = (CustomUserDetails) authentication.getPrincipal();
         String email = customUserDetails.getUsername(); 
@@ -105,13 +103,6 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         // JWT 생성
         String accessToken = jwtUtil.createJwt(email, role, userId, accessTokenExpiredMs);
         String refreshToken = jwtUtil.createRefreshToken(email, role, userId);
-        
-        System.out.println("--- JWT 토큰 발행 성공 (일반 로그인) ---");
-        System.out.println("발행된 Access Token: " + accessToken.substring(0, 10) + "...");
-        System.out.println("Refresh Token (DB 저장됨): " + refreshToken.substring(0, 10) + "...");
-        System.out.println("토큰 사용자(Email): " + email); 
-        System.out.println("권한: " + role);
-        System.out.println("-------------------------------------");
 
         // Refresh Token DB 저장/업데이트
         RefreshToken existToken = refreshRepository.findByEmail(email);
@@ -154,7 +145,6 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         response.getWriter().write(jsonResponse);
         response.getWriter().flush();
 
-        System.out.println("로그인 성공: 200 OK 응답 전송 완료 (role: " + role + ")");
     }
 
     @Override
@@ -164,7 +154,6 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write("{\"error\": \"Login Failed\", \"message\": \"" + failed.getMessage() + "\"}");
         response.getWriter().flush();
-        System.out.println("fail: " + failed.getMessage());
     }
     
     // SameSite=Lax를 강제 적용하여 쿠키를 헤더에 직접 추가합니다.
