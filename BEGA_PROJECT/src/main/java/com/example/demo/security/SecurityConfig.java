@@ -11,7 +11,6 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.web.authentication.AuthenticationSuccessHandler; 
 
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -23,16 +22,10 @@ import com.example.demo.Oauth2.CookieAuthorizationRequestRepository;
 import com.example.demo.jwt.JWTFilter;
 import com.example.demo.jwt.JWTUtil;
 import com.example.demo.repo.RefreshRepository;
-import com.example.demo.security.LoginFilter;
-import com.example.demo.service.UserService;
 
 import jakarta.servlet.http.HttpServletResponse; 
-import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.security.core.Authentication;
 
-import java.io.IOException;
 import java.util.Arrays;
-import jakarta.servlet.ServletException;
 
 
 @Configuration
@@ -58,18 +51,16 @@ public class SecurityConfig {
         this.customSuccessHandler = customSuccessHandler;
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
-        this.cookieauthorizationrequestRepository = cookieauthorizationrequestRepository; // 저장
+        this.cookieauthorizationrequestRepository = cookieauthorizationrequestRepository;
     }
     
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
-
         return configuration.getAuthenticationManager();
     }
     
     @Bean
     public BCryptPasswordEncoder bCryptPasswordEncoder() {
-
         return new BCryptPasswordEncoder();
     }
     
@@ -79,7 +70,6 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         
         configuration.setAllowedOriginPatterns(Arrays.asList("*"));
-        // configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Cache-Control", "Content-Type")); 
         configuration.setAllowCredentials(true); 
@@ -94,10 +84,9 @@ public class SecurityConfig {
         return source;
     }
     
-    // JWTFilter 빈 메서드 인자로 UserService를 주입받아 순환 참조 방지
     @Bean
-    public JWTFilter jwtFilter(UserService userService) { // Spring이 UserService를 인자로 주입함
-        return new JWTFilter(jwtUtil, userService); 
+    public JWTFilter jwtFilter() {
+        return new JWTFilter(jwtUtil); 
     }
 
 
@@ -113,38 +102,16 @@ public class SecurityConfig {
         
         // From 로그인 방식 disable
         http
-        .formLogin((auth) -> auth.disable());
+                .formLogin((auth) -> auth.disable());
 
         // HTTP Basic 인증 방식 disable
         http
                 .httpBasic((auth) -> auth.disable());
         
         
-        // 인자로 받은 jwtFilter를 사용
+        // 인자로 받은 jwtFilter를 사용 
 		http
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
-		
-        // LoginFilter 처리 경로 명시 및 등록
-//        LoginFilter loginFilter = new LoginFilter(authenticationManager(authenticationConfiguration), jwtUtil, refreshRepository);
-//        
-//        // 인증 성공 시 200 OK 상태로 응답을 강제 종료
-//        loginFilter.setAuthenticationSuccessHandler(new AuthenticationSuccessHandler() {
-//            @Override
-//            public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
-//                // 상태 코드를 명시적으로 200 OK로 설정
-//                response.setStatus(HttpServletResponse.SC_OK);
-//                
-//                // 응답 본문에 간단한 메시지를 쓰고 flush하여 응답을 즉시 종료(Commit)시킵니다.
-//                response.getWriter().write("Login successful via REST.");
-//                response.getWriter().flush();
-//            }
-//        });
-//        
-//        // LoginFilter 인증 처리
-//        http
-//            .addFilterAt(loginFilter, UsernamePasswordAuthenticationFilter.class);
-//
-//        loginFilter.setFilterProcessesUrl("/api/auth/login"); 
         
         // OAuth2 설정 
 		http
@@ -220,8 +187,6 @@ public class SecurityConfig {
             .sessionManagement((session) -> session
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         
-
-
         return http.build();
     }
 }

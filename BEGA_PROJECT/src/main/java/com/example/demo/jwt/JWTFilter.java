@@ -10,8 +10,6 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import com.example.demo.service.UserService; 
-
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
@@ -21,11 +19,10 @@ import jakarta.servlet.http.HttpServletResponse;
 public class JWTFilter extends OncePerRequestFilter {
 
     private final JWTUtil jwtUtil;
-    private final UserService userService; 
 
-    public JWTFilter(JWTUtil jwtUtil, UserService userService) { 
+    // ✅ UserService 제거 (더 이상 필요 없음!)
+    public JWTFilter(JWTUtil jwtUtil) { 
         this.jwtUtil = jwtUtil;
-        this.userService = userService;
     }
     
     @Override
@@ -48,7 +45,7 @@ public class JWTFilter extends OncePerRequestFilter {
         if (authorization == null) {
             String header = request.getHeader("Authorization");
             if (header != null && header.startsWith("Bearer ")) {
-                authorization = header.substring(7); // "Bearer " 이후의 문자열(토큰 값)만 추출
+                authorization = header.substring(7);
             }
         }
         
@@ -76,18 +73,21 @@ public class JWTFilter extends OncePerRequestFilter {
             return;
         }
 
-        // 인증 성공
-        String email = jwtUtil.getEmail(token); 
-        String role = jwtUtil.getRole(token);
-
+        // ✅ JWT에서 필요한 정보 모두 추출 (캐싱 적용, DB 조회 없음!)
         try {
-            // UserService를 사용하여 이메일로 ID를 조회
-            Long userId = userService.getUserIdByEmail(email);
+            String email = jwtUtil.getEmail(token); 
+            String role = jwtUtil.getRole(token);
+            Long userId = jwtUtil.getUserId(token);
 
-            // 권한 생성
+            if (userId == null) {
+                System.out.println("❌ JWT에서 user_id를 찾을 수 없습니다.");
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            // ✅ DB 조회 없이 Authentication 객체 생성
             Collection<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role));
 
-            // userId를 Principal로 설정하는 Authentication 객체 생성
             Authentication authToken = new UsernamePasswordAuthenticationToken(
                 userId, // Principal로 설정
                 null,
@@ -96,10 +96,10 @@ public class JWTFilter extends OncePerRequestFilter {
             
             // 사용자 등록
             SecurityContextHolder.getContext().setAuthentication(authToken);
-            System.out.println("✅ JWT 인증 성공: User ID " + userId + " 등록 완료.");
+            System.out.println("✅ JWT 인증 성공 (캐싱): User ID " + userId);
 
-        } catch (IllegalArgumentException e) {
-            System.out.println("해당 이메일로 사용자를 찾을 수 없습니다: " + email);
+        } catch (Exception e) {
+            System.out.println("❌ JWT 파싱 실패: " + e.getMessage());
         }
 
         filterChain.doFilter(request, response);
