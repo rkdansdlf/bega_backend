@@ -193,7 +193,7 @@ public class CheerService {
         UserEntity me = current.get();
         CheerPost post = findPostById(postId);
 
-        permissionValidator.validateTeamAccess(me, post.getTeamId(), "좋아요");
+        // 좋아요는 모든 팀에서 허용
 
         CheerPostLike.Id likeId = new CheerPostLike.Id(post.getId(), me.getId());
 
