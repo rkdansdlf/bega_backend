@@ -96,13 +96,13 @@ public class DiaryController {
                 ));
             }
 
-            List<String> signedUrls = imageService.getDiaryImageSignedUrls(storagePaths)
-                                                  .block(); 
+//            List<String> signedUrls = imageService.getDiaryImageSignedUrls(storagePaths)
+//                                                  .block(); 
 
             return ResponseEntity.ok().body(Map.of(
                 "message", "이미지 업로드가 완료되었습니다.",
                 "diaryId", diaryId,
-                "photos", signedUrls
+                "photos", storagePaths
             ));
             
         } catch (Exception ex) {

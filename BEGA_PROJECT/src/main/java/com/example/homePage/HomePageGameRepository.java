@@ -2,6 +2,7 @@ package com.example.homePage;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -41,4 +42,35 @@ public interface HomePageGameRepository extends JpaRepository<HomePageGame, Long
         LIMIT 1
         """, nativeQuery = true)
     String findChampionBySeason(@Param("seasonYear") int seasonYear);
+
+    // 정규시즌 시작 날짜 조회 (kbo_seasons 테이블의 start_date 활용)
+    @Query(value = """
+        SELECT s.start_date
+        FROM kbo_seasons s
+        WHERE s.season_year = :seasonYear
+          AND s.league_type_code = 1
+          AND g.game_date >= CONCAT(:seasonYear, '-03-15')
+        """, nativeQuery = true)
+    Optional<LocalDate> findFirstRegularSeasonDate(@Param("seasonYear") int seasonYear);
+
+    // 포스트시즌 시작 날짜 조회 (kbo_seasons 테이블의 start_date 활용)
+    @Query(value = """
+        SELECT s.start_date
+        FROM kbo_seasons s
+        WHERE s.season_year = :seasonYear
+          AND s.league_type_code = 2
+        LIMIT 1
+        """, nativeQuery = true)
+    Optional<LocalDate> findFirstPostseasonDate(@Param("seasonYear") int seasonYear);
+
+    // 한국시리즈 시작 날짜 조회 (kbo_seasons 테이블의 start_date 활용)
+    @Query(value = """
+        SELECT s.start_date
+        FROM kbo_seasons s
+        WHERE s.season_year = :seasonYear
+          AND s.league_type_code = 5
+        LIMIT 1
+        """, nativeQuery = true)
+    Optional<LocalDate> findFirstKoreanSeriesDate(@Param("seasonYear") int seasonYear);
+
 }

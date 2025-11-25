@@ -3,6 +3,7 @@ package com.example.BegaDiary.Service;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -49,7 +50,7 @@ public class BegaDiaryService {
     
     // 전체 다이어리 조회
     public List<DiaryResponseDto> getAllDiaries(Long userId) {
-        List<BegaDiary> diaries = this.diaryRepository.findByUser_Id(userId);
+        List<BegaDiary> diaries = this.diaryRepository.findByUserId(userId);
         
         return diaries.stream()
                 .map(diary -> {
@@ -204,7 +205,8 @@ public class BegaDiaryService {
     }
     
     public DiaryStatisticsDto getStatistics(Long userId) {
-    	
+    	List<BegaDiary> diaries = diaryRepository.findByUserId(userId);
+        
         int currentYear = LocalDate.now().getYear();
         int currentMonth = LocalDate.now().getMonthValue();
         
@@ -243,6 +245,12 @@ public class BegaDiaryService {
         
         int cheerPostCount = cheerPostRepository.countByUserId(userId);
         int mateParticipationCount = partyApplicationRepository.countCheckedInPartiesByUserId(userId);
+
+        Map<String, Long> emojiCounts = diaries.stream()
+        .collect(Collectors.groupingBy(
+            diary -> diary.getMood().getKoreanName(),
+            Collectors.counting()
+        ));
         
         return DiaryStatisticsDto.builder()
             .totalCount(totalCount)
@@ -261,6 +269,7 @@ public class BegaDiaryService {
             .firstDiaryDate(firstDiaryDate)
             .cheerPostCount(cheerPostCount)
             .mateParticipationCount(mateParticipationCount)
+            .emojiCounts(emojiCounts)
             .build();
     }
 }

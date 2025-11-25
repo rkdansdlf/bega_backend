@@ -39,4 +39,11 @@ public class HomePageController {
         return ResponseEntity.ok(rankings);
     }
 	
+	 // 각 리그별 시즌 시작 날짜를 조회
+	@GetMapping("/league-start-dates")
+	public ResponseEntity<LeagueStartDatesDto> getLeagueStartDates() {
+	    LeagueStartDatesDto startDates = homePageGameService.getLeagueStartDates();
+	    return ResponseEntity.ok(startDates);
+	}
+	
 }

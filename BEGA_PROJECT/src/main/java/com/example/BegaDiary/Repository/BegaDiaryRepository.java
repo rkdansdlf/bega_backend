@@ -18,7 +18,7 @@ public interface BegaDiaryRepository extends JpaRepository<BegaDiary, Long>{
 
 	Optional<BegaDiary> findByDiaryDate(LocalDate diaryDate);
 	boolean existsByUserAndDiaryDate(UserEntity user, LocalDate diaryDate);
-	List<BegaDiary> findByUser_Id(Long id);
+	List<BegaDiary> findByUserId(Long id);
 	
 	// 총 개수
     @Query("SELECT COUNT(d) FROM BegaDiary d WHERE d.user.id = :userId")
