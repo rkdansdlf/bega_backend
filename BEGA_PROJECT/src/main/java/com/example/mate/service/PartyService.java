@@ -1,5 +1,6 @@
 package com.example.mate.service;
-
+import java.util.Optional;
+import org.springframework.beans.factory.annotation.Value;
 import com.example.demo.repo.UserRepository;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
@@ -28,10 +29,15 @@ public class PartyService {
     private final UserRepository userRepository;
     private final PartyApplicationRepository applicationRepository;
 
+    @Value("${supabase.url}")
+    private String supabaseUrl;
+    
+    @Value("${supabase.storage.buckets.profile}")
+    private String profileBucket;
+
+
     @Transactional
     public PartyDTO.Response createParty(PartyDTO.Request request) {
-        System.out.println("백엔드 - 받은 Request DTO: " + request);
-        System.out.println("백엔드 - ticketPrice 값: " + request.getTicketPrice());
 
         String hostProfileImageUrl = null;
         String hostFavoriteTeam = null;
@@ -41,18 +47,15 @@ public class PartyService {
             var userInfo = userRepository.findById(request.getHostId())
                 .map(user -> {
                     String imageUrl = user.getProfileImageUrl();
-                    System.out.println("백엔드 - 원본 프로필 이미지: " + imageUrl);
                     
                     // 상대 경로를 완전한 URL로 변환
                     if (imageUrl != null && imageUrl.startsWith("/images/")) {
-                        String fullUrl = "https://zyofzvnkputevakepbdm.supabase.co/storage/v1/object/public/profile-images" + imageUrl;
-                        System.out.println("백엔드 - 변환된 프로필 이미지: " + fullUrl);
+                        String fullUrl = supabaseUrl + "/storage/v1/object/public/" + profileBucket + imageUrl;
                         imageUrl = fullUrl;
-                    }
+}
                     
                     // blob URL은 무시
                     if (imageUrl != null && imageUrl.startsWith("blob:")) {
-                        System.out.println("백엔드 - blob URL 무시: " + imageUrl);
                         imageUrl = null;
                     }
                     String favoriteTeamId = user.getFavoriteTeamId();
@@ -63,11 +66,10 @@ public class PartyService {
                 
             hostProfileImageUrl = (String) userInfo[0];
             hostFavoriteTeam = (String) userInfo[1];  // favoriteTeam 저장
-            
-            System.out.println("백엔드 - 호스트 응원팀: " + hostFavoriteTeam);  
+             
                 
         } catch (Exception e) {
-            System.out.println("백엔드 - 호스트 정보 조회 실패: " + e.getMessage());
+            System.out.println("호스트 정보 조회 실패: " + e.getMessage());
         }
             Party party = Party.builder()
                 .hostId(request.getHostId())
@@ -92,13 +94,8 @@ public class PartyService {
                 .status(Party.PartyStatus.PENDING)
                 .build();
 
-        System.out.println("백엔드 - 저장 전 Entity ticketPrice: " + party.getTicketPrice());
-        System.out.println("백엔드 - 저장 전 Entity hostProfileImageUrl: " + party.getHostProfileImageUrl()); 
         
         Party savedParty = partyRepository.save(party);
-        
-        System.out.println("백엔드 - 저장 후 Entity ticketPrice: " + savedParty.getTicketPrice());
-        System.out.println("백엔드 - 저장 후 Entity hostProfileImageUrl: " + savedParty.getHostProfileImageUrl());
         
         return PartyDTO.Response.from(savedParty);
     }
@@ -268,5 +265,37 @@ public class PartyService {
         );
         
         partyRepository.delete(party);
+    }
+
+    // 사용자가 참여한 모든 파티 조회 (호스트 + 참여자)
+    @Transactional(readOnly = true)
+    public List<PartyDTO.Response> getMyParties(Long userId) {
+        // 1. 호스트로 생성한 파티
+        List<Party> hostedParties = partyRepository.findByHostId(userId);
+        
+        // 2. 참여자로 승인된 파티
+        List<PartyApplication> approvedApplications = 
+            applicationRepository.findByApplicantIdAndIsApprovedTrue(userId);
+        
+        List<Party> participatedParties = approvedApplications.stream()
+            .map(app -> partyRepository.findById(app.getPartyId()))
+            .filter(Optional::isPresent)
+            .map(Optional::get)
+            .collect(Collectors.toList());
+        
+        // 3. 두 리스트 합치기 (중복 제거)
+        List<Party> allParties = new java.util.ArrayList<>(hostedParties);
+        participatedParties.forEach(party -> {
+            if (allParties.stream().noneMatch(p -> p.getId().equals(party.getId()))) {
+                allParties.add(party);
+            }
+        });
+        
+        // 4. 최신순 정렬
+        allParties.sort((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()));
+        
+        return allParties.stream()
+                .map(PartyDTO.Response::from)
+                .collect(Collectors.toList());
     }
 }

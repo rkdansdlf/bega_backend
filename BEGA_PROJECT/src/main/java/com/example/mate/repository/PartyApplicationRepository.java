@@ -34,7 +34,6 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
     // 신청자의 승인된 신청 목록
     List<PartyApplication> findByApplicantIdAndIsApprovedTrue(Long applicantId);
     
-    
     void deleteByPartyId(Long partyId);
 
     

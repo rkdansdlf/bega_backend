@@ -31,6 +31,7 @@ public interface PartyRepository extends JpaRepository<Party, Long> {
     // 팀별 파티 조회
     List<Party> findByTeamId(String teamId);
 
+
     // 검색 (구장, 팀, 섹션, 호스트명)
     @Query("SELECT p FROM Party p WHERE " +
            "LOWER(p.stadium) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
