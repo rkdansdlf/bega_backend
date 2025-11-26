@@ -104,7 +104,6 @@ public class UserService {
      */
     private void handleSocialLinking(UserEntity existingUser, UserDto userDto) {
         if (existingUser.getProvider() == null || "LOCAL".equals(existingUser.getProvider())) {
-            log.info("Linking Social Provider '{}' to Local Account", userDto.getProvider());
             existingUser.setProvider(userDto.getProvider());
             existingUser.setProviderId(userDto.getProviderId());
             userRepository.save(existingUser);
@@ -115,7 +114,6 @@ public class UserService {
      * 신규 사용자 생성
      */
     private void createNewUser(UserDto userDto) {
-        log.info("Creating new user - Email: {}", userDto.getEmail());
 
         String favoriteTeamName = userDto.getFavoriteTeam();
         String roleKey = getRoleKeyByFavoriteTeam(favoriteTeamName);
@@ -134,7 +132,6 @@ public class UserService {
             .build();
 
         userRepository.save(user);
-        log.info("New user created - Email: {}, ID: {}", user.getEmail(), user.getId());
     }
 
 
@@ -183,7 +180,6 @@ public class UserService {
     private void updateProfileImage(UserEntity user, String imageUrl) {
         if (imageUrl != null && !imageUrl.isEmpty()) {
             user.setProfileImageUrl(imageUrl);
-            log.info("Profile image updated for user {}", user.getId());
         }
     }
 
