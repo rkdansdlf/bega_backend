@@ -2,6 +2,7 @@ package com.example.notification.service;
 
 import com.example.notification.dto.NotificationDTO;
 import com.example.notification.entity.Notification;
+import com.example.notification.exception.NotificationNotFoundException;
 import com.example.notification.repository.NotificationRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -75,7 +76,7 @@ public class NotificationService {
     @Transactional
     public void markAsRead(Long notificationId) {
         Notification notification = notificationRepository.findById(notificationId)
-                .orElseThrow(() -> new RuntimeException("알림을 찾을 수 없습니다."));
+                .orElseThrow(() -> new NotificationNotFoundException(notificationId));
         
         notification.setIsRead(true);
         notificationRepository.save(notification);
