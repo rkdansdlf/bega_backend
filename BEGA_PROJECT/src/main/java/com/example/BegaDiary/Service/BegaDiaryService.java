@@ -105,15 +105,17 @@ public class BegaDiaryService {
         
         // 3. Enum 변환
         DiaryEmoji mood = DiaryEmoji.fromKoreanName(requestDto.getEmojiName());
-        DiaryWinning winning = DiaryWinning.valueOf(requestDto.getWinningName());
+        DiaryWinning winning = null;
+        
+        try {
+        	winning = DiaryWinning.valueOf(requestDto.getWinningName());
+        } catch (IllegalArgumentException e) {
+        	throw new WinningNameNotFoundException();
+        }
         
         // 4. 빌더로 엔티티 생성
         if(requestDto.getGameId() == null) {
         	throw new GameNotFoundException();
-        }
-        
-        if(winning == null) {
-        	throw new WinningNameNotFoundException();
         }
         
         BegaGame game = null;
