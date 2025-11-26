@@ -21,6 +21,10 @@ import com.example.BegaDiary.Entity.DiaryRequestDto;
 import com.example.BegaDiary.Entity.DiaryResponseDto;
 import com.example.BegaDiary.Entity.DiaryStatisticsDto;
 import com.example.BegaDiary.Exception.DiaryAlreadyExistsException;
+import com.example.BegaDiary.Exception.DiaryNotFoundException;
+import com.example.BegaDiary.Exception.GameNotFoundException;
+import com.example.BegaDiary.Exception.ImageProcessingException;
+import com.example.BegaDiary.Exception.WinningNameNotFoundException;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Repository.BegaGameRepository;
 import com.example.BegaDiary.Utils.BaseballConstants;
@@ -75,7 +79,7 @@ public class BegaDiaryService {
     // 특정 다이어리 조회
     public DiaryResponseDto getDiaryById(Long id) {
         BegaDiary diary = this.diaryRepository.findById(id)
-            .orElseThrow(() -> new IllegalArgumentException("해당 다이어리를 찾을 수 없습니다. id: " + id));
+            .orElseThrow(() -> new DiaryNotFoundException(id));
         
         List<String> signedUrls = imageService
                 .getDiaryImageSignedUrls(diary.getPhotoUrls())
@@ -104,10 +108,18 @@ public class BegaDiaryService {
         DiaryWinning winning = DiaryWinning.valueOf(requestDto.getWinningName());
         
         // 4. 빌더로 엔티티 생성
+        if(requestDto.getGameId() == null) {
+        	throw new GameNotFoundException();
+        }
+        
+        if(winning == null) {
+        	throw new WinningNameNotFoundException();
+        }
+        
         BegaGame game = null;
         String team = "";
         String stadium = "";
-    	if(requestDto.getGameId() != null) {
+        if(requestDto.getGameId() != null) {
     		game = gameService.getGameById(requestDto.getGameId());
 
             String homeTeamKorean = BaseballConstants.getTeamKoreanName(game.getHomeTeam());
@@ -137,7 +149,6 @@ public class BegaDiaryService {
     @Async
     @Transactional
     public CompletableFuture<List<String>> addImages(Long diaryId, Long userId, List<MultipartFile> images) {
-    	log.info("📢 [Async] 다이어리 이미지 추가 서비스 시작: diaryId={}, userId={}, 파일 수={}", diaryId, userId, images.size());
     	if (images == null || images.isEmpty()) {
             return CompletableFuture.completedFuture(List.of());
         }
@@ -145,7 +156,7 @@ public class BegaDiaryService {
         try {
             // 다이어리 조회
             BegaDiary diary = diaryRepository.findById(diaryId)
-                .orElseThrow(() -> new IllegalArgumentException("다이어리를 찾을 수 없습니다."));
+                .orElseThrow(() -> new DiaryNotFoundException(diaryId));
             
             // 이미지 업로드
             List<String> uploadedPaths = imageService.uploadDiaryImages(userId, diaryId, images)
@@ -166,7 +177,7 @@ public class BegaDiaryService {
             
         } catch (Exception e) {
         	log.error("❌ [Async] 다이어리 이미지 추가 중 치명적 오류 발생: diaryId={}, error={}", diaryId, e.getMessage(), e);
-            return CompletableFuture.failedFuture(e);
+            return CompletableFuture.failedFuture(new ImageProcessingException(e.getMessage()));
         }
     }
     
@@ -174,7 +185,7 @@ public class BegaDiaryService {
     @Transactional
     public BegaDiary update(Long id, DiaryRequestDto requestDto) {
         BegaDiary diary = this.diaryRepository.findById(id)
-            .orElseThrow(() -> new IllegalArgumentException("해당 다이어리를 찾을 수 없습니다. id: " + id));
+            .orElseThrow(() -> new DiaryNotFoundException(id));
         
         DiaryEmoji mood = DiaryEmoji.fromKoreanName(requestDto.getEmojiName());
         
@@ -191,7 +202,7 @@ public class BegaDiaryService {
     @Transactional
     public void delete(Long id) {
         BegaDiary diary = this.diaryRepository.findById(id)
-            .orElseThrow(() -> new IllegalArgumentException("해당 다이어리를 찾을 수 없습니다. id: " + id));
+            .orElseThrow(() -> new DiaryNotFoundException(id));
         
         if(diary.getPhotoUrls() != null && !diary.getPhotoUrls().isEmpty()) {
         	try {
