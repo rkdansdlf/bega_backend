@@ -73,12 +73,5 @@ public class Match {
         return homeScore != null && awayScore != null;
     }
     
-    // 더미 데이터 날짜 변경 (스케줄러 전용)
-    public void setGameDate(LocalDate newDate) {
-        if (!this.isDummy) {
-            throw new IllegalStateException("실제 경기 데이터의 날짜는 변경할 수 없습니다.");
-        }
-        this.gameDate = newDate;
-    }
     
 }
