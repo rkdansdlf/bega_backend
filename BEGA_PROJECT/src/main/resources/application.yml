@@ -1,0 +1,161 @@
+spring:
+  profiles:
+    active: dev
+  # --- 공통 설정 ---
+  config:
+    import: optional:file:.env[.properties] # .env 파일 로드
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format-sql: true
+        temp:
+          use_jdbc_metadata_defaults: false
+  thymeleaf:
+    cache: false
+  devtools:
+    restart:
+      enabled: false # 자동 재시작 비활성화
+      
+  # 파일 업로드 설정
+  servlet:
+    multipart:
+      max-file-size: 10MB # 단일 파일 최대 크기
+      max-request-size: 50MB # 전체 요청 최대 크기
+      enabled: true
+
+        # 이메일 설정 (환경 변수 사용)
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            
+  # OAuth2 및 JWT 설정
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope: [ profile, email ]
+            client-authentication-method: client_secret_post
+          kakao:
+            client-id: ${KAKAO_CLIENT_ID}
+            client-secret: ${KAKAO_CLIENT_SECRET}
+            authorization-grant-type: authorization_code
+            redirect-uri: "http://localhost:8080/login/oauth2/code/kakao"
+            scope: [ profile_nickname, account_email ]
+            client-authentication-method: client_secret_post
+            client-name: Kakao
+        provider:
+          google:
+            user-info-uri: https://www.googleapis.com/oauth2/v3/userinfo
+            user-name-attribute: sub
+          kakao:
+            authorization-uri: https://kauth.kakao.com/oauth/authorize
+            token-uri: https://kauth.kakao.com/oauth/token
+            user-info-uri: https://kapi.kakao.com/v2/user/me
+            user-name-attribute: id
+  jwt:
+    secret: ${JWT_SECRET} # 환경변수 또는 기본값
+    refresh-expiration: 86400000
+
+# --- Supabase 설정 ---
+supabase:
+  url: ${SUPABASE_URL}
+  service-role-key: ${SUPABASE_SERVICE_ROLE_KEY}
+  storage:
+    buckets: 
+      cheer: cheer-assets
+      diary: diary-images
+      profile: profile-images  
+    max-images-per-profile: 1  
+    signed-url-ttl-seconds: 3600
+    max-image-bytes: 5242880
+    max-images-per-post: 10
+    max-images-per-diary: 6
+
+---
+# 'dev' 프로필: 로컬 개발 환경 (PostgreSQL 사용)
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 20000
+      validation-timeout: 5000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+      connection-test-query: SELECT 1
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: none # DB에 이미 데이터와 뷰가 있으므로 DDL 자동 실행 비활성화
+
+---
+# 'prod' 프로필: 배포 환경 (PostgreSQL 사용)
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 60000
+      validation-timeout: 5000
+      initialization-fail-timeout: -1
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      connection-test-query: SELECT 1
+      leak-detection-threshold: 60000
+      pool-name: HikariPool-KBO-Prod
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+
+      ddl-auto: none # Disable DDL auto-operations for production (schema already exists)
+
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+# Actuator health check (shared across profiles)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  health:
+    db:
+      enabled: true
+    diskspace:
+      enabled: true
