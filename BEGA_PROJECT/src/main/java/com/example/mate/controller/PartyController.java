@@ -96,6 +96,13 @@ public class PartyController {
         return ResponseEntity.ok(parties);
     }
 
+    // 내가 참여한 모든 파티 조회 (호스트 + 참여자)
+    @GetMapping("/my/{userId}")
+    public ResponseEntity<List<PartyDTO.Response>> getMyParties(@PathVariable Long userId) {
+        List<PartyDTO.Response> parties = partyService.getMyParties(userId);
+        return ResponseEntity.ok(parties);
+    }
+
     // 파티 업데이트
     @PatchMapping("/{id}")
     public ResponseEntity<PartyDTO.Response> updateParty(

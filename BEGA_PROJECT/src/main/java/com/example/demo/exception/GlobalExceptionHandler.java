@@ -9,6 +9,7 @@ import com.example.mate.exception.PartyApplicationNotFoundException;
 import com.example.mate.exception.PartyFullException;
 import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.exception.UnauthorizedAccessException;
+import com.example.notification.exception.NotificationNotFoundException;
 import com.example.stadium.exception.StadiumNotFoundException;
 
 import lombok.extern.slf4j.Slf4j;
@@ -222,5 +223,14 @@ public class GlobalExceptionHandler {
             .status(HttpStatus.FORBIDDEN)
             .body(ApiResponse.error(e.getMessage()));
     }
+
+    @ExceptionHandler(NotificationNotFoundException.class)
+    public ResponseEntity<ApiResponse> handleNotificationNotFoundException(NotificationNotFoundException e) {
+        log.warn("NotificationNotFoundException: {}", e.getMessage());
+        return ResponseEntity
+            .status(HttpStatus.NOT_FOUND)
+            .body(ApiResponse.error(e.getMessage()));
+    }
+    
 }
 

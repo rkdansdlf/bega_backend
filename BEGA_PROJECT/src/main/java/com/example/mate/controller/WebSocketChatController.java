@@ -35,12 +35,8 @@ public class WebSocketChatController {
         // 헤더에서 사용자 정보 가져오기 (선택사항)
         // Principal principal = headerAccessor.getUser();
         
-        System.out.println("메시지 수신: partyId=" + partyId + ", senderId=" + request.getSenderId());
-        
         // DB에 메시지 저장
         ChatMessageDTO.Response savedMessage = chatMessageService.sendMessage(request);
-        
-        System.out.println("메시지 저장 완료: id=" + savedMessage.getId());
         
         // 저장된 메시지를 구독자들에게 브로드캐스트
         return savedMessage;
