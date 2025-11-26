@@ -8,7 +8,6 @@ import com.example.demo.entity.UserEntity;
 import com.example.demo.repo.UserRepository;
 
 import jakarta.servlet.ServletException;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -18,7 +17,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
-import java.util.Optional; 
+import java.util.Optional;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
@@ -38,10 +37,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
 
-        // 1. Principal에서 사용자 정보 추출
         CustomOAuth2User principal = (CustomOAuth2User) authentication.getPrincipal();
-        
-        // 이메일 추출
         String userEmail = (String) principal.getAttributes().get("email"); 
         
         if (userEmail == null || userEmail.isEmpty()) {
@@ -49,27 +45,31 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         }
         
         if (userEmail == null || userEmail.isEmpty()) {
-            getRedirectStrategy().sendRedirect(request, response, "/oauth2/login/error?message=email_missing");
+            getRedirectStrategy().sendRedirect(request, response, "http://localhost:3000/login?error=email_missing");
             return;
         }
         
-        // DB에서 UserEntity 조회
         Optional<UserEntity> userEntityOptional = userRepository.findByEmail(userEmail); 
         
         if (userEntityOptional.isEmpty()) {
-            getRedirectStrategy().sendRedirect(request, response, "/oauth2/login/error?message=user_not_found_in_db");
+            getRedirectStrategy().sendRedirect(request, response, "http://localhost:3000/login?error=user_not_found");
             return;
         }
 
         UserEntity userEntity = userEntityOptional.get();
-        
-        //UserEntity에서 Role 가져오기 
         String role = userEntity.getRole(); 
-        
-        // DB에 저장된 사용자의 이름(name)을 리다이렉션에 사용
         String userName = userEntity.getName();
-
         Long userId = userEntity.getId();
+        String profileImageUrl = userEntity.getProfileImageUrl();
+        
+        // ✅ 수정: getFavoriteTeamId() 사용 (String 반환)
+        String favoriteTeamId = userEntity.getFavoriteTeamId();
+        
+        // ✅ null이면 "없음"으로 설정
+        if (favoriteTeamId == null || favoriteTeamId.isEmpty()) {
+            favoriteTeamId = "없음";
+        }
+
         // Access Token 생성
         long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; // 2시간
         String accessToken = jwtUtil.createJwt(userEmail, role, userId, accessTokenExpiredMs); 
@@ -77,24 +77,22 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         // Refresh Token 생성 
         String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId); 
 
-        // Refresh Token DB 저장 또는 업데이트
+        // Refresh Token DB 저장
         RefreshToken existToken = refreshRepository.findByEmail(userEmail); 
 
         if (existToken == null) {
             RefreshToken newRefreshToken = new RefreshToken();
             newRefreshToken.setEmail(userEmail); 
             newRefreshToken.setToken(refreshToken);
-            newRefreshToken.setExpiryDate(LocalDateTime.now().plusWeeks(1)); //만료시간 1주일
+            newRefreshToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
             refreshRepository.save(newRefreshToken);
-
         } else {
-            // 기존 토큰 업데이트
             existToken.setToken(refreshToken);
             existToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
             refreshRepository.save(existToken);
         }
 
-        // 쿠키에 Access/Refresh Token 동시 추가 (LoginFilter와 동일한 메서드 사용)
+        // 쿠키에 토큰 저장
         int accessTokenMaxAge = (int)(accessTokenExpiredMs / 1000);
         addSameSiteCookie(response, "Authorization", accessToken, accessTokenMaxAge);
         
@@ -105,17 +103,25 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             request.getSession(false).invalidate();
         }
         
-        // 7. 리다이렉션 
-        String encodedUsername = URLEncoder.encode(userName, StandardCharsets.UTF_8);
-        String redirectUrl = "http://localhost:3000"; // 쿠키를 추가한 후 리다이렉트
+        // ✅ 사용자 정보를 쿼리 파라미터로 전달
+        String encodedEmail = URLEncoder.encode(userEmail, StandardCharsets.UTF_8);
+        String encodedName = URLEncoder.encode(userName, StandardCharsets.UTF_8);
+        String encodedRole = URLEncoder.encode(role, StandardCharsets.UTF_8);
+        String encodedProfileUrl = profileImageUrl != null 
+            ? URLEncoder.encode(profileImageUrl, StandardCharsets.UTF_8) 
+            : "";
+        String encodedFavoriteTeam = URLEncoder.encode(favoriteTeamId, StandardCharsets.UTF_8);
+        
+        String redirectUrl = String.format(
+            "http://localhost:3000/oauth/callback?email=%s&name=%s&role=%s&profileImageUrl=%s&favoriteTeam=%s",
+            encodedEmail, encodedName, encodedRole, encodedProfileUrl, encodedFavoriteTeam
+        );
         
         getRedirectStrategy().sendRedirect(request, response, redirectUrl);
+
     }
     
- 
     private void addSameSiteCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
-        // SameSite=Lax는 보안은 유지하면서 로컬 환경(HTTP)에서도 잘 작동하도록 합니다.
-        // SameSite=None을 사용하려면 반드시 Secure 속성이 필요하고, HTTPS 환경이어야 합니다.
         String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax", 
                                             name, value, maxAgeSeconds);
         response.addHeader("Set-Cookie", cookieString);
