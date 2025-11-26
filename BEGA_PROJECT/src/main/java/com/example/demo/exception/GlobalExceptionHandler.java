@@ -1,5 +1,10 @@
 package com.example.demo.exception;
 
+import com.example.BegaDiary.Exception.DiaryAlreadyExistsException;
+import com.example.BegaDiary.Exception.DiaryNotFoundException;
+import com.example.BegaDiary.Exception.GameNotFoundException;
+import com.example.BegaDiary.Exception.ImageProcessingException;
+import com.example.BegaDiary.Exception.WinningNameNotFoundException;
 import com.example.demo.dto.ApiResponse;
 import com.example.mate.exception.DuplicateApplicationException;
 import com.example.mate.exception.DuplicateCheckInException;
@@ -229,6 +234,60 @@ public class GlobalExceptionHandler {
         log.warn("NotificationNotFoundException: {}", e.getMessage());
         return ResponseEntity
             .status(HttpStatus.NOT_FOUND)
+            .body(ApiResponse.error(e.getMessage()));
+    }
+    
+    // --- BegaDiary 관련 예외 추가 ---
+    
+    /**
+     * 404 Not Found - 경기 정보를 찾을 수 없음
+     */
+    @ExceptionHandler(GameNotFoundException.class)
+    public ResponseEntity<ApiResponse> handleGameNotFoundException(GameNotFoundException e) {
+        log.warn("GameNotFoundException: {}", e.getMessage());
+        return ResponseEntity
+            .status(HttpStatus.NOT_FOUND)
+            .body(ApiResponse.error(e.getMessage()));
+    }
+    
+    /**
+     * 404 Not Found - 다이어리를 찾을 수 없음
+     */
+    @ExceptionHandler(DiaryNotFoundException.class)
+    public ResponseEntity<ApiResponse> handleDiaryNotFoundException(DiaryNotFoundException e) {
+        log.warn("DiaryNotFoundException: {}", e.getMessage());
+        return ResponseEntity
+            .status(HttpStatus.NOT_FOUND)
+            .body(ApiResponse.error(e.getMessage()));
+    }
+
+    /**
+     * 409 Conflict - 이미 작성된 다이어리 존재
+     */
+    @ExceptionHandler(DiaryAlreadyExistsException.class)
+    public ResponseEntity<ApiResponse> handleDiaryAlreadyExistsException(DiaryAlreadyExistsException e) {
+        log.warn("DiaryAlreadyExistsException: {}", e.getMessage());
+        return ResponseEntity
+            .status(HttpStatus.CONFLICT)
+            .body(ApiResponse.error(e.getMessage()));
+    }
+
+    /**
+     * 500 Internal Server Error - 이미지 처리 중 오류 발생
+     */
+    @ExceptionHandler(ImageProcessingException.class)
+    public ResponseEntity<ApiResponse> handleImageProcessingException(ImageProcessingException e) {
+        log.error("ImageProcessingException: {}", e.getMessage()); // 시스템 오류이므로 error 레벨 로그 권장
+        return ResponseEntity
+            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body(ApiResponse.error(e.getMessage()));
+    }
+    
+    @ExceptionHandler(WinningNameNotFoundException.class)
+    public ResponseEntity<ApiResponse> handleWinningNameNotFoundException(WinningNameNotFoundException e) {
+        log.error("WinningNameNotFoundException: {}", e.getMessage()); 
+        return ResponseEntity
+            .status(HttpStatus.BAD_REQUEST)
             .body(ApiResponse.error(e.getMessage()));
     }
     
