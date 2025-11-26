@@ -17,20 +17,27 @@ public class MatchDto {
     private Integer homeScore;
     private Integer awayScore;
     private String winner;
-
-    @Tolerate
-    public MatchDto() {}
-
+    private Boolean isDummy;
+    
     public static MatchDto fromEntity(Match match) {
+        LocalDate displayDate = match.getGameDate();
+        
+        // 더미 데이터면 항상 내일 날짜로 표시
+        if (Boolean.TRUE.equals(match.getIsDummy())) {
+            displayDate = LocalDate.now().plusDays(1);
+        }
+
+  
         return MatchDto.builder()
                 .gameId(match.getGameId())
-                .gameDate(match.getGameDate())
+                .gameDate(displayDate)
                 .homeTeam(match.getHomeTeam())
                 .awayTeam(match.getAwayTeam())
                 .stadium(match.getStadium())
                 .homeScore(match.getHomeScore())
                 .awayScore(match.getAwayScore())
                 .winner(match.getWinner())
+                .isDummy(match.getIsDummy())
                 .build();
     }
 }
