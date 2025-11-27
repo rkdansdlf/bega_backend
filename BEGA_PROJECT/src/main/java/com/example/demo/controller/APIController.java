@@ -56,13 +56,21 @@ public class APIController {
         String accessToken = (String) loginData.get("accessToken");
         
         // JWT를 쿠키에 설정
-        Cookie jwtCookie = new Cookie("Authorization", accessToken);
-        jwtCookie.setHttpOnly(true);
-        jwtCookie.setSecure(true);  // 개발: false, 프로덕션: true
-        jwtCookie.setPath("/");
-        jwtCookie.setMaxAge(60 * 60);  // 1시간
-        response.addCookie(jwtCookie);
-                
+//        Cookie jwtCookie = new Cookie("Authorization", accessToken);
+//        jwtCookie.setHttpOnly(true);
+//        jwtCookie.setSecure(true);  // 개발: false, 프로덕션: true
+//        jwtCookie.setPath("/");
+//        jwtCookie.setMaxAge(60 * 60);  // 1시간
+//        response.addCookie(jwtCookie);
+        
+        String cookieString = String.format(
+            "Authorization=%s; Max-Age=%d; Path=/; HttpOnly; Secure; SameSite=None",
+            accessToken, 60 * 60
+        );
+        response.addHeader("Set-Cookie", cookieString);
+        
+        
+        
         // 성공 응답
         return ResponseEntity.ok(ApiResponse.success("로그인 성공", loginData));
     }
