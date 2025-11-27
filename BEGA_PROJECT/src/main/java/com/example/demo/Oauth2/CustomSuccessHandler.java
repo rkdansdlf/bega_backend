@@ -113,7 +113,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         String encodedFavoriteTeam = URLEncoder.encode(favoriteTeamId, StandardCharsets.UTF_8);
         
         String redirectUrl = String.format(
-            "http://localhost:3000/oauth/callback?email=%s&name=%s&role=%s&profileImageUrl=%s&favoriteTeam=%s",
+            "https://bega-frontend.vercel.app/oauth/callback?email=%s&name=%s&role=%s&profileImageUrl=%s&favoriteTeam=%s",
             encodedEmail, encodedName, encodedRole, encodedProfileUrl, encodedFavoriteTeam
         );
         
@@ -122,7 +122,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     }
     
     private void addSameSiteCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
-        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax", 
+        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; Secure; SameSite=None", 
                                             name, value, maxAgeSeconds);
         response.addHeader("Set-Cookie", cookieString);
     }
