@@ -45,14 +45,14 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         }
         
         if (userEmail == null || userEmail.isEmpty()) {
-            getRedirectStrategy().sendRedirect(request, response, "http://localhost:3000/login?error=email_missing");
+            getRedirectStrategy().sendRedirect(request, response, "https://bega-frontend.vercel.app/login?error=email_missing");
             return;
         }
         
         Optional<UserEntity> userEntityOptional = userRepository.findByEmail(userEmail); 
         
         if (userEntityOptional.isEmpty()) {
-            getRedirectStrategy().sendRedirect(request, response, "http://localhost:3000/login?error=user_not_found");
+            getRedirectStrategy().sendRedirect(request, response, "https://bega-frontend.vercel.app/login?error=user_not_found");
             return;
         }
 
