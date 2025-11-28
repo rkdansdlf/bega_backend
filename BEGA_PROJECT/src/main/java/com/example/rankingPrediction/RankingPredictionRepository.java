@@ -12,5 +12,5 @@ public interface RankingPredictionRepository extends JpaRepository<RankingPredic
 	Optional<RankingPrediction> findByUserIdAndSeasonYear(String email, Integer seasonYear);
 	
 	// 이미 예측을 저장했는지 확인
-	boolean existsByUserIdAndSeasonYear(Long userId, Integer seasonYear);
+	boolean existsByUserIdAndSeasonYear(String userIdString, Integer seasonYear);
 }

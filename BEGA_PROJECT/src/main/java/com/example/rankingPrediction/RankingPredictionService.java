@@ -37,11 +37,11 @@ public class RankingPredictionService {
 		}
 		
 		// 1. Principal에서 받은 String ID를 Long 타입으로 변환
-		Long currentUserId = Long.valueOf(userIdString);
+//		Long currentUserId = Long.valueOf(userIdString);
 
 		// 2. 이미 예측했는지 확인
 		boolean alreadyPredicted = rankingPredictionRepository
-				.existsByUserIdAndSeasonYear(currentUserId, currentSeasonYear);
+				.existsByUserIdAndSeasonYear(userIdString, currentSeasonYear);
 
 		// 3. 이미 예측했으면 에러 발생
 		if (alreadyPredicted) {
@@ -52,7 +52,7 @@ public class RankingPredictionService {
 
 		// 4. 새로운 예측 생성
 		RankingPrediction newPrediction = new RankingPrediction(
-				currentUserId,
+				userIdString,
 				currentSeasonYear,
 				requestDto.getTeamIdsInOrder()
 		);

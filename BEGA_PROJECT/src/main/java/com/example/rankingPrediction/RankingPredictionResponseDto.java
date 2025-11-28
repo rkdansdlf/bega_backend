@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 public class RankingPredictionResponseDto {
 
 	private Long id;
-	private Long userId;
+	private String userId;
 	private int seasonYear;
 	private List<String> teamIdsInOrder;
 	private LocalDateTime createdAt;

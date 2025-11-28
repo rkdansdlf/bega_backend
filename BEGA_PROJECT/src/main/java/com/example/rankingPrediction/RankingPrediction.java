@@ -40,7 +40,7 @@ public class RankingPrediction {
 	private LocalDateTime createdAt;
 
 	// 새로운 예측 데이터를 DB에 저장할 때 사용
-	public RankingPrediction(Long userId, int seasonYear, List<String> predictionData) {
+	public RankingPrediction(String userId, int seasonYear, List<String> predictionData) {
 		this.userId = userId;
 		this.seasonYear = seasonYear;
 		this.predictionData = predictionData;
