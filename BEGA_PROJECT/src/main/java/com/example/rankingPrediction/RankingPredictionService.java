@@ -64,13 +64,13 @@ public class RankingPredictionService {
 
 	// 현재 로그인된 사용자의 특정 시즌 예측 조회
 	@Transactional(readOnly = true)
-	public RankingPredictionResponseDto getPrediction(String userIdString, int seasonYear) {
+	public RankingPredictionResponseDto getPrediction(String email, int seasonYear) {
 
 		// String ID를 Long 타입으로 변환
-		Long userId = Long.valueOf(userIdString);
+//		Long userId = Long.valueOf(email);
 
 		// userId와 seasonYear를 기준으로 DB에서 데이터 조회
-		return rankingPredictionRepository.findByUserIdAndSeasonYear(userId, seasonYear)
+		return rankingPredictionRepository.findByUserIdAndSeasonYear(email, seasonYear)
 				.map(RankingPrediction::toDto)
 				.orElse(null);
 	}
@@ -86,8 +86,8 @@ public class RankingPredictionService {
 	
 	// 공유용 예측 조회 (userId를 직접 받음)
 	@Transactional(readOnly = true)
-	public RankingPredictionResponseDto getPredictionByUserIdAndSeason(Long userId, int seasonYear) {
-	    return rankingPredictionRepository.findByUserIdAndSeasonYear(userId, seasonYear)
+	public RankingPredictionResponseDto getPredictionByUserIdAndSeason(String email, int seasonYear) {
+	    return rankingPredictionRepository.findByUserIdAndSeasonYear(email, seasonYear)
 	            .map(RankingPrediction::toDto)
 	            .orElse(null);
 	}

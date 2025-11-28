@@ -88,13 +88,13 @@ public class RankingPredictionController {
 	}
 	
 	// 공유용 예측 조회 (로그인 불필요)
-	@GetMapping("/share/{userId}/{seasonYear}")
+	@GetMapping("/share/{email}/{seasonYear}")
 	public ResponseEntity<RankingPredictionResponseDto> getSharedPrediction(
-	        @PathVariable Long userId,
+	        @PathVariable String email,
 	        @PathVariable int seasonYear) {
 	    
 	    RankingPredictionResponseDto prediction = 
-	        rankingPredictionService.getPredictionByUserIdAndSeason(userId, seasonYear);
+	        rankingPredictionService.getPredictionByUserIdAndSeason(email, seasonYear);
 	    
 	    if (prediction != null) {
 	        return ResponseEntity.ok(prediction);
