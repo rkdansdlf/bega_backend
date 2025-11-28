@@ -18,7 +18,6 @@ import java.util.Optional;
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "http://localhost:3000")
 @PreAuthorize("isAuthenticated()")
 public class PredictionController {
 
