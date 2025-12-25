@@ -13,6 +13,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 
 /**
  * Cheerboard API 전용 예외 핸들러.
@@ -70,7 +71,7 @@ public class ApiExceptionHandler {
             }
         }
 
-        return ResponseEntity.status(status).body(Map.of(
+        return ResponseEntity.status(Objects.requireNonNull(status)).body(Map.of(
             "timestamp", Instant.now().toString(),
             "status", status.value(),
             "code", code,

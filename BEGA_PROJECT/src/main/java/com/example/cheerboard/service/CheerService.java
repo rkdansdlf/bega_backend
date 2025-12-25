@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import static com.example.cheerboard.service.CheerServiceConstants.*;
@@ -48,7 +49,6 @@ public class CheerService {
     // 리팩토링된 컴포넌트들
     private final PermissionValidator permissionValidator;
     private final PostDtoMapper postDtoMapper;
-    private final HotPostChecker hotPostChecker;
 
     public Page<PostSummaryRes> list(String teamId, Pageable pageable) {
         if (teamId != null && !teamId.isBlank()) {
@@ -83,7 +83,7 @@ public class CheerService {
      */
     private void increaseViewCount(Long postId, CheerPost post, UserEntity user) {
         if (user == null || !post.getAuthor().getId().equals(user.getId())) {
-            postRepo.incrementViewCount(postId);
+            postRepo.incrementViewCount(Objects.requireNonNull(postId));
         }
     }
     
@@ -91,7 +91,7 @@ public class CheerService {
      * 게시글 ID로 게시글 조회
      */
     private CheerPost findPostById(Long postId) {
-        return postRepo.findById(postId)
+        return postRepo.findById(Objects.requireNonNull(postId))
             .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
     }
     
@@ -109,7 +109,7 @@ public class CheerService {
         
         PostType postType = determinePostType(req, me);
         CheerPost post = buildNewPost(req, me, postType);
-        CheerPost savedPost = postRepo.save(post);
+        CheerPost savedPost = postRepo.save(Objects.requireNonNull(post));
 
         return postDtoMapper.toNewPostDetailRes(savedPost, me);
     }
@@ -142,7 +142,7 @@ public class CheerService {
             finalTeamId = requestTeamId;
         }
 
-        var team = teamRepo.findById(finalTeamId)
+        var team = teamRepo.findById(Objects.requireNonNull(finalTeamId))
             .orElseThrow(() -> new java.util.NoSuchElementException("팀을 찾을 수 없습니다: " + finalTeamId));
         log.debug("buildNewPost - team lookup succeeded: {}", team.getId());
 
@@ -224,7 +224,7 @@ public class CheerService {
 
     public Page<CommentRes> listComments(Long postId, Pageable pageable) {
         // 최상위 댓글만 조회 (대댓글은 각 댓글의 replies에 포함됨)
-        return commentRepo.findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(postId, pageable)
+        return commentRepo.findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(Objects.requireNonNull(postId), pageable)
             .map(this::toCommentRes);
     }
 
@@ -291,11 +291,11 @@ public class CheerService {
      * 새 댓글 저장
      */
     private CheerComment saveNewComment(CheerPost post, UserEntity author, CreateCommentReq req) {
-        return commentRepo.save(CheerComment.builder()
+        return commentRepo.save(Objects.requireNonNull(CheerComment.builder()
             .post(post)
             .author(author)
             .content(req.content())
-            .build());
+            .build()));
     }
     
     /**
@@ -303,16 +303,6 @@ public class CheerService {
      */
     private void incrementCommentCount(CheerPost post) {
         post.setCommentCount(post.getCommentCount() + 1);
-    }
-    
-    /**
-     * 게시글 댓글 수 감소
-     * @deprecated 댓글 삭제 시 cascade로 대댓글이 함께 삭제되어 카운트 불일치 발생. 
-     * 대신 commentRepo.countByPostId()로 실제 댓글 수를 재계산하여 사용.
-     */
-    @Deprecated
-    private void decrementCommentCount(CheerPost post) {
-        post.setCommentCount(Math.max(0, post.getCommentCount() - 1));
     }
     
     /**
@@ -443,12 +433,12 @@ public class CheerService {
      * 새 대댓글 저장
      */
     private CheerComment saveNewReply(CheerPost post, CheerComment parentComment, UserEntity author, CreateCommentReq req) {
-        return commentRepo.save(CheerComment.builder()
+        return commentRepo.save(Objects.requireNonNull(CheerComment.builder()
             .post(post)
             .parentComment(parentComment)
             .author(author)
             .content(req.content())
-            .build());
+            .build()));
     }
 
     /**

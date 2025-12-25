@@ -2,7 +2,7 @@ package com.example.BegaDiary.Service;
 
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -28,7 +28,10 @@ public class BegaGameService {
 	}
 	
 	public BegaGame getGameById(Long id) {
-		return gameRepository.findById(id).orElse(null);
+		if (id == null) {
+			return null;
+		}
+		return gameRepository.findById(Objects.requireNonNull(id)).orElse(null);
 	}
 	
 	private GameResponseDto convertToDto(BegaGame game) {
