@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -144,6 +145,8 @@ public class AdminService {
      */
     @Transactional
     public void deleteUser(Long userId) {
+        Objects.requireNonNull(userId, "userId must not be null");
+        
         UserEntity user = userRepository.findById(userId)
             .orElseThrow(() -> new IllegalArgumentException("유저를 찾을 수 없습니다."));
         
@@ -172,7 +175,7 @@ public class AdminService {
         }
         
         // 유저 삭제
-        userRepository.delete(user);
+        userRepository.delete(Objects.requireNonNull(user));
     }
 
     /**
@@ -180,11 +183,13 @@ public class AdminService {
      */
     @Transactional
     public void deletePost(Long postId) {
-        if (!cheerPostRepository.existsById(postId)) {
+        Long id = Objects.requireNonNull(postId, "postId must not be null");
+        
+        if (!cheerPostRepository.existsById(id)) {
             throw new IllegalArgumentException("게시글을 찾을 수 없습니다.");
         }
         
-        cheerPostRepository.deleteById(postId);
+        cheerPostRepository.deleteById(id);
     }
 
     /**
@@ -192,24 +197,30 @@ public class AdminService {
      */
     @Transactional
     public void deleteMate(Long mateId) {
-        if (!partyRepository.existsById(mateId)) {
+        Long id = Objects.requireNonNull(mateId, "mateId must not be null");
+        
+        if (!partyRepository.existsById(id)) {
             throw new IllegalArgumentException("메이트 모임을 찾을 수 없습니다.");
         }
 
-        partyRepository.deleteById(mateId);
+        partyRepository.deleteById(id);
     }
 
     /**
      * UserEntity → AdminUserDto 변환
      */
     private AdminUserDto convertToAdminUserDto(UserEntity user) {
+        Long userId = Objects.requireNonNull(user.getId(), "User ID must not be null");
+        String email = Objects.requireNonNull(user.getEmail(), "User email must not be null");
+        String name = Objects.requireNonNull(user.getName(), "User name must not be null");
+
         // 해당 유저의 게시글 수 조회
-        long postCount = cheerPostRepository.countByUserId(user.getId());
+        long postCount = cheerPostRepository.countByUserId(userId);
 
         return AdminUserDto.builder()
-            .id(user.getId())
-            .email(user.getEmail())
-            .name(user.getName())
+            .id(userId)
+            .email(email)
+            .name(name)
             .favoriteTeam(user.getFavoriteTeam() != null ? user.getFavoriteTeam().getTeamId() : null)
             .createdAt(user.getCreatedAt())
             .postCount(postCount)

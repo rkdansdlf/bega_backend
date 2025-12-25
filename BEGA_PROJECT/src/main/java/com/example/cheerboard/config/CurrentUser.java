@@ -12,6 +12,8 @@ import org.springframework.security.authentication.AuthenticationCredentialsNotF
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.annotation.RequestScope;
 
+import java.util.Objects;
+
 @Component
 @RequestScope
 @RequiredArgsConstructor
@@ -83,7 +85,7 @@ public class CurrentUser {
         if (identifier.chars().allMatch(Character::isDigit)) {
             try {
                 Long userId = Long.valueOf(identifier);
-                return userRepository.findById(userId).orElse(null);
+                return userRepository.findById(Objects.requireNonNull(userId)).orElse(null);
             } catch (NumberFormatException ignore) {
                 // fall back to email lookup below
             }

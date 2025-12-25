@@ -1,7 +1,6 @@
 package com.example.cheerboard.domain;
 
 import com.example.demo.entity.UserEntity;
-import com.example.cheerboard.domain.Team;
 import com.example.cheerboard.storage.entity.PostImage;
 import jakarta.persistence.*;
 import lombok.*;
