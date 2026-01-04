@@ -50,23 +50,33 @@ public class HomePageGameService {
     private HomePageGameDto convertToDto(HomePageGame homePageGame) {
         HomePageTeam homeTeam = getTeam(homePageGame.getHomeTeamId());
         HomePageTeam awayTeam = getTeam(homePageGame.getAwayTeamId());
-        
+
         String leagueType = determineLeagueType(homePageGame.getGameDate());
         String gameInfo = "";
-        
+
         // 한국시리즈 경기 정보
         if ("KOREAN_SERIES".equals(leagueType)) {
             gameInfo = "한국시리즈";
         }
         // 포스트시즌 특정 경기 정보
-        else if ("POSTSEASON".equals(leagueType) && 
-            homePageGame.getAwayTeamId().equals("삼성") && 
+        else if ("POSTSEASON".equals(leagueType) &&
+            homePageGame.getAwayTeamId().equals("삼성") &&
             homePageGame.getHomeTeamId().equals("한화")) {
             gameInfo = "PO 4차전";
         }
-        
+
         String gameStatusKr = convertGameStatus(homePageGame.getGameStatus());
-        
+
+        // 점수 데이터 처리 with 상태별 검증
+        Integer homeScore = homePageGame.getHomeScore();
+        Integer awayScore = homePageGame.getAwayScore();
+
+        // 경기 종료 상태인데 점수가 없으면 0으로 초기화 (데이터 정합성 보장)
+        if ("COMPLETED".equals(homePageGame.getGameStatus())) {
+            homeScore = (homeScore != null) ? homeScore : 0;
+            awayScore = (awayScore != null) ? awayScore : 0;
+        }
+
         return HomePageGameDto.builder()
             .gameId(homePageGame.getGameId())
             .stadium(homePageGame.getStadium())
@@ -76,6 +86,8 @@ public class HomePageGameService {
             .homeTeamFull(homeTeam.getTeamName())
             .awayTeam(awayTeam.getTeamId())
             .awayTeamFull(awayTeam.getTeamName())
+            .homeScore(homeScore)
+            .awayScore(awayScore)
             .time("18:30")
             .leagueType(leagueType)
             .gameInfo(gameInfo)

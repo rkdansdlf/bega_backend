@@ -275,14 +275,16 @@ public class CheerService {
         commentRepo.delete(comment);
         
         // 실제 DB에서 댓글 수 재계산 (댓글 + 대댓글 모두 포함)
-        Long actualCount = commentRepo.countByPostId(post.getId());
-        post.setCommentCount(actualCount.intValue());
+        // Null type safety 해결을 위해 primitive type 변환 후 전달
+        Long actualCount = commentRepo.countByPostId(Objects.requireNonNull(post.getId()).longValue());
+        post.setCommentCount(actualCount != null ? actualCount.intValue() : 0);
     }
     
     /**
      * 댓글 ID로 댓글 조회
      */
     private CheerComment findCommentById(Long commentId) {
+        Objects.requireNonNull(commentId, "댓글 ID는 null일 수 없습니다");
         return commentRepo.findById(commentId)
             .orElseThrow(() -> new java.util.NoSuchElementException("댓글을 찾을 수 없습니다: " + commentId));
     }

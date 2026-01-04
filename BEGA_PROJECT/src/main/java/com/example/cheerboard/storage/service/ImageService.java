@@ -3,6 +3,7 @@ package com.example.cheerboard.storage.service;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -57,7 +58,8 @@ public class ImageService {
         permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "이미지 업로드");
 
         // 현재 이미지 개수 확인
-        long currentCount = postImageRepo.countByPostId(postId);
+        // Null type safety 해결: Primitive long으로 변환하여 전달
+        long currentCount = postImageRepo.countByPostId(Objects.requireNonNull(postId).longValue());
         log.debug("현재 저장된 이미지 수: {}", currentCount);
         validator.validateFiles(files, (int) currentCount);
 
@@ -92,7 +94,8 @@ public class ImageService {
                     .isThumbnail(false)
                     .build();
 
-                postImageRepo.save(image);
+                // Null type safety 해결: image 객체 null 체크
+                postImageRepo.save(Objects.requireNonNull(image));
                 log.info("DB 저장 성공: imageId={}, path={}", image.getId(), storagePath);
 
                 uploadedImages.add(new PostImageDto(
@@ -251,7 +254,8 @@ public class ImageService {
     private String generateStoragePath(String prefix, Long entityId, MultipartFile file) {
         String extension = validator.getFileExtension(file.getOriginalFilename());
         String uuid = UUID.randomUUID().toString();
-        return String.format("%s/%d/%s.%s", prefix, entityId, uuid, extension);
+        // entityId가 Nullable로 오인되지 않도록 Objects.requireNonNull 사용
+        return String.format("%s/%d/%s.%s", prefix, Objects.requireNonNull(entityId), uuid, extension);
     }
 
     /**
@@ -326,7 +330,9 @@ public class ImageService {
             }
 
             String fileName = UUID.randomUUID() + extension;
-            String storagePath = String.format("diary/%d/%d/%s", userId, diaryId, fileName);
+            // diaryId가 Nullable로 감지되어 Objects.requireNonNull 및 .longValue() 추가
+            // String.format에서는 Object를 받지만, 명시적 Null 체크를 위해 사용
+            String storagePath = String.format("diary/%d/%d/%s", userId, Objects.requireNonNull(diaryId).longValue(), fileName);
             
             Mono<String> uploadMono = storageClient.upload(file, config.getDiaryBucket(), storagePath)
                 .map(response -> {
@@ -395,7 +401,8 @@ public class ImageService {
         }
         
         List<Mono<String>> urlMonos = storagePaths.stream()
-            .map(path -> storageClient.createSignedUrl(config.getDiaryBucket(), path, config.getSignedUrlTtlSeconds())
+            // config.getDiaryBucket()이 null일 가능성 차단
+            .map(path -> storageClient.createSignedUrl(Objects.requireNonNull(config.getDiaryBucket()), path, config.getSignedUrlTtlSeconds())
                 .map(response -> response.signedUrl())
                 .doOnError(err -> log.error("다이어리 이미지 URL 생성 실패: path={}, error={}", 
                     path, err.getMessage())))

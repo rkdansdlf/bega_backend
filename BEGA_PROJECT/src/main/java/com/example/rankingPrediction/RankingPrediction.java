@@ -59,6 +59,7 @@ public class RankingPrediction {
 				this.userId,
 				this.seasonYear,
 				this.predictionData,
+				null, // teamDetails 필드 추가됨
 				this.createdAt
 			);		
 	}

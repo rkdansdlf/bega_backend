@@ -111,5 +111,16 @@ public class PredictionController {
                 return ResponseEntity.ok(responseMap);
             }
     }
+
+    // 내 예측 통계 조회
+    @GetMapping("/prediction/stats/me")
+    public ResponseEntity<UserPredictionStatsDto> getMyStats(Principal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        Long userId = Long.valueOf(principal.getName());
+        UserPredictionStatsDto stats = predictionService.getUserStats(userId);
+        return ResponseEntity.ok(stats);
+    }
     
 }

@@ -181,4 +181,47 @@ public class PredictionService {
         
         voteFinalResultRepository.save(finalResult);
     }
+
+    @Transactional(readOnly = true)
+    public UserPredictionStatsDto getUserStats(Long userId) {
+        List<Prediction> predictions = predictionRepository.findAllByUserIdOrderByCreatedAtDesc(userId);
+        
+        int totalFinished = 0;
+        int correctCount = 0;
+        int currentStreak = 0;
+        boolean streakBroken = false;
+
+        for (Prediction prediction : predictions) {
+            Optional<Match> matchOpt = matchRepository.findById(prediction.getGameId());
+            if (matchOpt.isPresent()) {
+                Match match = matchOpt.get();
+                if (match.isFinished()) {
+                    totalFinished++;
+                    String actualWinner = match.getWinner(); // "home", "away", or "draw"
+                    boolean isCorrect = prediction.getVotedTeam().equalsIgnoreCase(actualWinner);
+
+                    if (isCorrect) {
+                        correctCount++;
+                        if (!streakBroken) {
+                            currentStreak++;
+                        }
+                    } else {
+                        // 결과가 나왔는데 틀린 경우 streak 종료
+                        streakBroken = true;
+                    }
+                }
+                // 경기가 아직 안 끝났으면 streak 계산에는 영향을 주지 않고 건너뜀 (최신순이므로)
+            }
+        }
+
+        double accuracy = totalFinished > 0 ? 
+                Math.round((correctCount * 100.0 / totalFinished) * 10.0) / 10.0 : 0.0;
+
+        return UserPredictionStatsDto.builder()
+                .totalPredictions(totalFinished)
+                .correctPredictions(correctCount)
+                .accuracy(accuracy)
+                .streak(currentStreak)
+                .build();
+    }
 }

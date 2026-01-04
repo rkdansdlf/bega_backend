@@ -3,19 +3,13 @@ package com.example.cheerboard.storage.client;
 import com.example.cheerboard.storage.config.StorageConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.core.io.buffer.DataBufferUtils;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.time.Instant;
+import java.util.Objects;
 
 /**
  * Supabase Storage API 클라이언트
@@ -38,11 +32,15 @@ public class SupabaseStorageClient {
     public Mono<UploadResponse> upload(MultipartFile file, String bucket, String storagePath) {
         try {
             byte[] bytes = file.getBytes();
+            String contentType = file.getContentType();
+            if (contentType == null) {
+                contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
+            }
 
             return supabaseStorageWebClient
                 .post()
                 .uri("/object/" + bucket + "/" + storagePath)
-                .contentType(MediaType.parseMediaType(file.getContentType()))
+                .contentType(Objects.requireNonNull(MediaType.parseMediaType(contentType)))
                 .bodyValue(bytes)
                 .retrieve()
                 .onStatus(
@@ -103,8 +101,8 @@ public class SupabaseStorageClient {
         return supabaseStorageWebClient
             .post()
             .uri("/object/sign/" + bucket + "/" + storagePath)
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(requestBody)
+            .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+            .bodyValue(Objects.requireNonNull(requestBody))
             .retrieve()
             .onStatus(
                 status -> !status.is2xxSuccessful(),
@@ -149,8 +147,8 @@ public class SupabaseStorageClient {
         return supabaseStorageWebClient
             .post()
             .uri("/object/move")
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(requestBody)
+            .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+            .bodyValue(Objects.requireNonNull(requestBody))
             .retrieve()
             .onStatus(
                 status -> !status.is2xxSuccessful(),
