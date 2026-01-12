@@ -1,9 +1,9 @@
 package com.example.rankingPrediction;
 
-import java.util.Optional;
-
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.example.demo.repo.GameRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -12,7 +12,7 @@ import lombok.RequiredArgsConstructor;
 public class RankingPredictionService {
 
 	private final RankingPredictionRepository rankingPredictionRepository;
-	private final com.example.homePage.HomePageGameRepository homePageGameRepository;
+	private final GameRepository gameRepository;
 	private final com.example.homePage.HomePageTeamRepository homePageTeamRepository;
 
 	// 순위 예측을 저장 (수정 불가, 1회만 가능)
@@ -68,8 +68,8 @@ public class RankingPredictionService {
 		java.util.List<com.example.rankingPrediction.RankingPredictionResponseDto.TeamRankingDetail> details = new java.util.ArrayList<>();
 		
 		// 이번 시즌 및 지난 시즌 순위 데이터 가져오기
-		java.util.List<Object[]> currentRankings = homePageGameRepository.findTeamRankingsBySeason(prediction.getSeasonYear());
-		java.util.List<Object[]> lastRankings = homePageGameRepository.findTeamRankingsBySeason(prediction.getSeasonYear() - 1);
+		java.util.List<Object[]> currentRankings = gameRepository.findTeamRankingsBySeason(prediction.getSeasonYear());
+		java.util.List<Object[]> lastRankings = gameRepository.findTeamRankingsBySeason(prediction.getSeasonYear() - 1);
 		
 		java.util.Map<String, Integer> currentRankMap = new java.util.HashMap<>();
 		for (Object[] row : currentRankings) {

@@ -17,7 +17,6 @@ import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.BegaDiary.DiaryEmoji;
 import com.example.BegaDiary.Entity.BegaDiary.DiaryType;
 import com.example.BegaDiary.Entity.BegaDiary.DiaryWinning;
-import com.example.BegaDiary.Entity.BegaGame;
 import com.example.BegaDiary.Entity.DiaryRequestDto;
 import com.example.BegaDiary.Entity.DiaryResponseDto;
 import com.example.BegaDiary.Entity.DiaryStatisticsDto;
@@ -30,6 +29,7 @@ import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Utils.BaseballConstants;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.service.ImageService;
+import com.example.demo.entity.GameEntity;
 import com.example.demo.entity.UserEntity;
 import com.example.demo.repo.UserRepository;
 import com.example.mate.repository.PartyApplicationRepository;
@@ -134,7 +134,7 @@ public class BegaDiaryService {
         	throw new GameNotFoundException();
         }
         
-        BegaGame game = gameService.getGameById(requestDto.getGameId());
+        GameEntity game = gameService.getGameById(requestDto.getGameId());
 
         String homeTeamKorean = BaseballConstants.getTeamKoreanName(game.getHomeTeam());
         String awayTeamKorean = BaseballConstants.getTeamKoreanName(game.getAwayTeam());

@@ -12,10 +12,10 @@ import org.springframework.data.repository.query.Param;
 
 public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
     @EntityGraph(attributePaths = {"author", "team"})
-    Page<CheerPost> findByTeam_IdOrderByCreatedAtDesc(String teamId, Pageable pageable);
+    Page<CheerPost> findByTeam_TeamIdOrderByCreatedAtDesc(String teamId, Pageable pageable);
 
     @EntityGraph(attributePaths = {"author", "team"})
-    @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.id = :teamId) ORDER BY CASE WHEN p.postType = 'NOTICE' THEN 0 ELSE 1 END, p.createdAt DESC")
+    @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.teamId = :teamId) ORDER BY CASE WHEN p.postType = 'NOTICE' THEN 0 ELSE 1 END, p.createdAt DESC")
     Page<CheerPost> findAllOrderByPostTypeAndCreatedAt(String teamId, Pageable pageable);
 
     /**

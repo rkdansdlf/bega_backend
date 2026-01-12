@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import com.example.BegaDiary.Utils.BaseballConstants;
+import com.example.demo.entity.GameEntity;
 
 @Getter
 @Setter
@@ -28,7 +29,7 @@ public class DiaryResponseDto {
     private String type;
     
     public static DiaryResponseDto from(BegaDiary diary) {
-    	BegaGame game = diary.getGame();
+    	GameEntity game = diary.getGame();
         return DiaryResponseDto.builder()
             .id(diary.getId())
             .date(diary.getDiaryDate().toString())
@@ -44,7 +45,7 @@ public class DiaryResponseDto {
     }
     
     public static DiaryResponseDto from(BegaDiary diary, List<String> signedUrls) {
-        BegaGame game = diary.getGame();
+        GameEntity game = diary.getGame();
         String team = diary.getTeam();
         String stadium = diary.getStadium();
         if (team != null && team.contains("-") && team.length() <= 10) {
