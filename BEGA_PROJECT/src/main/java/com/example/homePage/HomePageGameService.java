@@ -9,6 +9,9 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.demo.entity.GameEntity;
+import com.example.demo.repo.GameRepository;
+
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 
@@ -16,7 +19,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class HomePageGameService {
 
-    private final HomePageGameRepository homePageGameRepository;
+    private final GameRepository gameRepository;
     private final HomePageTeamRepository homePageTeamRepository;
 
     private final Map<String, HomePageTeam> teamMap = new ConcurrentHashMap<>();
@@ -40,18 +43,18 @@ public class HomePageGameService {
     }
     
     public List<HomePageGameDto> getGamesByDate(LocalDate date) {
-        List<HomePageGame> games = homePageGameRepository.findByGameDate(date);
-        
+        List<GameEntity> games = gameRepository.findByGameDate(date);
+
         return games.stream()
             .map(this::convertToDto)
             .collect(Collectors.toList());
     }
 
-    private HomePageGameDto convertToDto(HomePageGame homePageGame) {
-        HomePageTeam homeTeam = getTeam(homePageGame.getHomeTeamId());
-        HomePageTeam awayTeam = getTeam(homePageGame.getAwayTeamId());
+    private HomePageGameDto convertToDto(GameEntity game) {
+        HomePageTeam homeTeam = getTeam(game.getHomeTeam());
+        HomePageTeam awayTeam = getTeam(game.getAwayTeam());
 
-        String leagueType = determineLeagueType(homePageGame.getGameDate());
+        String leagueType = determineLeagueType(game.getGameDate());
         String gameInfo = "";
 
         // 한국시리즈 경기 정보
@@ -60,27 +63,27 @@ public class HomePageGameService {
         }
         // 포스트시즌 특정 경기 정보
         else if ("POSTSEASON".equals(leagueType) &&
-            homePageGame.getAwayTeamId().equals("삼성") &&
-            homePageGame.getHomeTeamId().equals("한화")) {
+            game.getAwayTeam().equals("삼성") &&
+            game.getHomeTeam().equals("한화")) {
             gameInfo = "PO 4차전";
         }
 
-        String gameStatusKr = convertGameStatus(homePageGame.getGameStatus());
+        String gameStatusKr = convertGameStatus(game.getGameStatus());
 
         // 점수 데이터 처리 with 상태별 검증
-        Integer homeScore = homePageGame.getHomeScore();
-        Integer awayScore = homePageGame.getAwayScore();
+        Integer homeScore = game.getHomeScore();
+        Integer awayScore = game.getAwayScore();
 
         // 경기 종료 상태인데 점수가 없으면 0으로 초기화 (데이터 정합성 보장)
-        if ("COMPLETED".equals(homePageGame.getGameStatus())) {
+        if ("COMPLETED".equals(game.getGameStatus())) {
             homeScore = (homeScore != null) ? homeScore : 0;
             awayScore = (awayScore != null) ? awayScore : 0;
         }
 
         return HomePageGameDto.builder()
-            .gameId(homePageGame.getGameId())
-            .stadium(homePageGame.getStadium())
-            .gameStatus(homePageGame.getGameStatus())
+            .gameId(game.getGameId())
+            .stadium(game.getStadium())
+            .gameStatus(game.getGameStatus())
             .gameStatusKr(gameStatusKr)
             .homeTeam(homeTeam.getTeamId())
             .homeTeamFull(homeTeam.getTeamName())
@@ -135,7 +138,7 @@ public class HomePageGameService {
     
  // v_team_rank_all 뷰에서 순위 데이터를 가져오도록 수정
     public List<HomePageTeamRankingDto> getTeamRankings(int seasonYear) {
-        List<Object[]> results = homePageGameRepository.findTeamRankingsBySeason(seasonYear);
+        List<Object[]> results = gameRepository.findTeamRankingsBySeason(seasonYear);
         
         return results.stream()
             .map(row -> HomePageTeamRankingDto.builder()
@@ -159,15 +162,15 @@ public class HomePageGameService {
         int seasonYear = now.getYear();
         
         // DB에서 각 리그의 첫 경기 날짜 조회
-        LocalDate regularStart = homePageGameRepository
+        LocalDate regularStart = gameRepository
             .findFirstRegularSeasonDate(seasonYear)
             .orElse(LocalDate.of(seasonYear, 3, 22));
-        
-        LocalDate postseasonStart = homePageGameRepository
+
+        LocalDate postseasonStart = gameRepository
             .findFirstPostseasonDate(seasonYear)
             .orElse(LocalDate.of(seasonYear, 10, 6));
-        
-        LocalDate koreanSeriesStart = homePageGameRepository
+
+        LocalDate koreanSeriesStart = gameRepository
             .findFirstKoreanSeriesDate(seasonYear)
             .orElse(LocalDate.of(seasonYear, 10, 26));
         

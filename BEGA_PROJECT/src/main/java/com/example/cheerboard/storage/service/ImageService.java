@@ -254,8 +254,8 @@ public class ImageService {
     private String generateStoragePath(String prefix, Long entityId, MultipartFile file) {
         String extension = validator.getFileExtension(file.getOriginalFilename());
         String uuid = UUID.randomUUID().toString();
-        // entityId가 Nullable로 오인되지 않도록 Objects.requireNonNull 사용
-        return String.format("%s/%d/%s.%s", prefix, Objects.requireNonNull(entityId), uuid, extension);
+        // entityId가 Nullable로 오인되지 않도록 Objects.requireNonNull 및 primitive 변환 사용
+        return String.format("%s/%d/%s.%s", prefix, Objects.requireNonNull(entityId).longValue(), uuid, extension);
     }
 
     /**
@@ -263,7 +263,7 @@ public class ImageService {
      */
     private String generateSignedUrl(String storagePath) {
         try {
-            var response = storageClient.createSignedUrl(config.getCheerBucket(), storagePath, config.getSignedUrlTtlSeconds()).block();
+            var response = storageClient.createSignedUrl(config.getCheerBucket(), storagePath, Objects.requireNonNull(config.getSignedUrlTtlSeconds()).intValue()).block();
             return response != null ? response.signedUrl() : null;
         } catch (Exception e) {
             log.error("서명 URL 생성 실패: path={}", storagePath, e);
@@ -312,9 +312,9 @@ public class ImageService {
         }
         
         // 파일 개수 검증
-        if (files.size() > config.getMaxImagesPerPost()) {
+        if (files.size() > Objects.requireNonNull(config.getMaxImagesPerDiary()).intValue()) {
             return Mono.error(new IllegalArgumentException(
-                String.format("이미지는 최대 %d개까지 업로드할 수 있습니다.", config.getMaxImagesPerDiary())));
+                String.format("이미지는 최대 %d개까지 업로드할 수 있습니다.", Objects.requireNonNull(config.getMaxImagesPerDiary()).intValue())));
         }
         
         List<Mono<String>> uploadMonos = new ArrayList<>();
@@ -330,9 +330,8 @@ public class ImageService {
             }
 
             String fileName = UUID.randomUUID() + extension;
-            // diaryId가 Nullable로 감지되어 Objects.requireNonNull 및 .longValue() 추가
-            // String.format에서는 Object를 받지만, 명시적 Null 체크를 위해 사용
-            String storagePath = String.format("diary/%d/%d/%s", userId, Objects.requireNonNull(diaryId).longValue(), fileName);
+            // userId와 diaryId 명시적 Null 체크 및 primitive 변환
+            String storagePath = String.format("diary/%d/%d/%s", Objects.requireNonNull(userId).longValue(), Objects.requireNonNull(diaryId).longValue(), fileName);
             
             Mono<String> uploadMono = storageClient.upload(file, config.getDiaryBucket(), storagePath)
                 .map(response -> {
@@ -402,7 +401,7 @@ public class ImageService {
         
         List<Mono<String>> urlMonos = storagePaths.stream()
             // config.getDiaryBucket()이 null일 가능성 차단
-            .map(path -> storageClient.createSignedUrl(Objects.requireNonNull(config.getDiaryBucket()), path, config.getSignedUrlTtlSeconds())
+            .map(path -> storageClient.createSignedUrl(Objects.requireNonNull(config.getDiaryBucket()), path, Objects.requireNonNull(config.getSignedUrlTtlSeconds()).intValue())
                 .map(response -> response.signedUrl())
                 .doOnError(err -> log.error("다이어리 이미지 URL 생성 실패: path={}, error={}", 
                     path, err.getMessage())))

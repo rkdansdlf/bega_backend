@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.example.demo.entity.GameEntity;
 import com.example.demo.entity.UserEntity;
 
 import jakarta.persistence.Column;
@@ -79,7 +80,7 @@ public class BegaDiary {
 	
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name="game_id", nullable=false)
-	private BegaGame game;
+	private GameEntity game;
 	
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name="user_id", nullable=false)
@@ -116,7 +117,7 @@ public class BegaDiary {
 	private LocalDateTime updatedAt;  
 	
 	@Builder
-	public BegaDiary(LocalDate diaryDate, BegaGame game, 
+	public BegaDiary(LocalDate diaryDate, GameEntity game,
 	                 String memo, DiaryEmoji mood, DiaryType type, DiaryWinning winning,
 	                 List<String> photoUrls, UserEntity user, String team, String stadium) {
 	    this.diaryDate = diaryDate;

@@ -1,6 +1,7 @@
 package com.example.cheerboard.domain;
 
 import com.example.demo.entity.UserEntity;
+import com.example.demo.entity.TeamEntity;
 import com.example.cheerboard.storage.entity.PostImage;
 import jakarta.persistence.*;
 import lombok.*;
@@ -9,17 +10,17 @@ import java.time.Instant;
 import java.util.List;
 import java.util.ArrayList;
 
-@Entity 
+@Entity
 @Table(name = "cheer_post")
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class CheerPost {
-    @Id 
+    @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "team_id", nullable = false)
-    private Team team;
+    private TeamEntity team;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -83,6 +84,6 @@ public class CheerPost {
     }
 
     public String getTeamId() {
-        return team != null ? team.getId() : null;
+        return team != null ? team.getTeamId() : null;
     }
 }
