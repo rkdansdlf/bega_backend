@@ -8,6 +8,7 @@ import com.example.cheerboard.dto.CreateCommentReq;
 import com.example.cheerboard.dto.CommentRes;
 import com.example.cheerboard.dto.LikeToggleResponse;
 import com.example.cheerboard.dto.BookmarkResponse;
+import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.service.CheerService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -24,7 +25,6 @@ public class CheerController {
     private final CheerService svc;
 
     @GetMapping("/posts")
-    @PreAuthorize("isAuthenticated()")
     public Page<PostSummaryRes> list(
             @RequestParam(required = false) String teamId,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
@@ -68,6 +68,15 @@ public class CheerController {
     public Page<PostSummaryRes> getBookmarks(
             @PageableDefault(size = 20) Pageable pageable) {
         return svc.getBookmarkedPosts(pageable);
+    }
+
+    @PostMapping("/posts/{id}/report")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> reportPost(
+            @PathVariable Long id,
+            @RequestBody ReportRequest req) {
+        svc.reportPost(id, req);
+        return ResponseEntity.ok().build();
     }
 
     @GetMapping("/posts/{id}/comments")

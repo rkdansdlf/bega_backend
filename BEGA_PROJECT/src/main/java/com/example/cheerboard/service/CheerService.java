@@ -5,6 +5,7 @@ import com.example.cheerboard.domain.CheerComment;
 import com.example.cheerboard.domain.CheerCommentLike;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.CheerPostLike;
+import com.example.cheerboard.domain.CheerPostReport;
 import com.example.cheerboard.domain.PostType;
 import com.example.cheerboard.dto.CreatePostReq;
 import com.example.cheerboard.dto.UpdatePostReq;
@@ -13,11 +14,13 @@ import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.CreateCommentReq;
 import com.example.cheerboard.dto.CommentRes;
 import com.example.cheerboard.dto.LikeToggleResponse;
+import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.repo.CheerCommentLikeRepo;
 import com.example.cheerboard.repo.CheerCommentRepo;
 import com.example.cheerboard.repo.CheerPostLikeRepo;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerBookmarkRepo;
+import com.example.cheerboard.repo.CheerReportRepo;
 import com.example.cheerboard.domain.CheerPostBookmark;
 import com.example.cheerboard.dto.BookmarkResponse;
 import java.util.Set;
@@ -48,6 +51,7 @@ public class CheerService {
     private final CheerPostLikeRepo likeRepo;
     private final CheerCommentLikeRepo commentLikeRepo;
     private final CheerBookmarkRepo bookmarkRepo;
+    private final CheerReportRepo reportRepo; // [NEW]
     private final TeamRepository teamRepo;
     private final CurrentUser current;
     private final NotificationService notificationService;
@@ -262,6 +266,21 @@ public class CheerService {
             bookmarked = true;
         }
         return new BookmarkResponse(bookmarked);
+    }
+
+    @Transactional
+    public void reportPost(Long postId, ReportRequest req) {
+        UserEntity reporter = current.get();
+        CheerPost post = findPostById(postId);
+
+        CheerPostReport report = CheerPostReport.builder()
+                .post(post)
+                .reporter(reporter)
+                .reason(req.reason())
+                .description(req.description())
+                .build();
+
+        reportRepo.save(report);
     }
 
     public Page<PostSummaryRes> getBookmarkedPosts(Pageable pageable) {
