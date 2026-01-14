@@ -69,7 +69,7 @@ public class ImageService {
         for (int i = 0; i < files.size(); i++) {
             MultipartFile file = files.get(i);
             log.info("파일 업로드 중 ({}/{}): name={}, size={} bytes, type={}",
-                i + 1, files.size(), file.getOriginalFilename(), file.getSize(), file.getContentType());
+                    i + 1, files.size(), file.getOriginalFilename(), file.getSize(), file.getContentType());
 
             try {
                 String storagePath = generateStoragePath("posts", postId, file);
@@ -87,28 +87,27 @@ public class ImageService {
 
                 // 2. DB 저장
                 PostImage image = PostImage.builder()
-                    .post(post)
-                    .storagePath(storagePath)
-                    .mimeType(file.getContentType())
-                    .bytes(file.getSize())
-                    .isThumbnail(false)
-                    .build();
+                        .post(post)
+                        .storagePath(storagePath)
+                        .mimeType(file.getContentType())
+                        .bytes(file.getSize())
+                        .isThumbnail(false)
+                        .build();
 
                 // Null type safety 해결: image 객체 null 체크
                 postImageRepo.save(Objects.requireNonNull(image));
                 log.info("DB 저장 성공: imageId={}, path={}", image.getId(), storagePath);
 
                 uploadedImages.add(new PostImageDto(
-                    image.getId(),
-                    image.getStoragePath(),
-                    image.getMimeType(),
-                    image.getBytes(),
-                    image.getIsThumbnail()
-                ));
+                        image.getId(),
+                        image.getStoragePath(),
+                        image.getMimeType(),
+                        image.getBytes(),
+                        image.getIsThumbnail()));
 
             } catch (Exception e) {
                 log.error("이미지 업로드 실패, 보상 삭제 수행: postId={}, 파일={}, uploadedPaths={}",
-                    postId, file.getOriginalFilename(), uploadedPaths, e);
+                        postId, file.getOriginalFilename(), uploadedPaths, e);
                 // 보상 트랜잭션: 이미 업로드된 파일들 삭제
                 compensateUploadFailure(uploadedPaths);
                 throw new RuntimeException("이미지 업로드 중 오류가 발생했습니다: " + e.getMessage(), e);
@@ -127,14 +126,13 @@ public class ImageService {
         List<PostImage> images = postImageRepo.findByPostIdOrderByCreatedAtAsc(postId);
 
         return images.stream()
-            .map(image -> new PostImageDto(
-                image.getId(),
-                image.getStoragePath(),
-                image.getMimeType(),
-                image.getBytes(),
-                image.getIsThumbnail()
-            ))
-            .toList();
+                .map(image -> new PostImageDto(
+                        image.getId(),
+                        image.getStoragePath(),
+                        image.getMimeType(),
+                        image.getBytes(),
+                        image.getIsThumbnail()))
+                .toList();
     }
 
     /**
@@ -147,9 +145,9 @@ public class ImageService {
         log.debug("DB에서 조회된 이미지 수: {}", images.size());
 
         List<String> keys = images.stream()
-            .map(PostImage::getStoragePath)
-            .filter(path -> path != null && !path.isEmpty())
-            .toList();
+                .map(PostImage::getStoragePath)
+                .filter(path -> path != null && !path.isEmpty())
+                .toList();
 
         log.info("이미지 경로 조회 완료: postId={}, 총 {}개", postId, keys.size());
         return keys;
@@ -165,13 +163,13 @@ public class ImageService {
         log.debug("DB에서 조회된 이미지 수: {}", images.size());
 
         List<String> urls = images.stream()
-            .map(image -> {
-                String url = generateSignedUrl(image.getStoragePath());
-                log.debug("이미지 URL 생성: path={}, url={}", image.getStoragePath(), url != null ? "성공" : "실패");
-                return url;
-            })
-            .filter(url -> url != null && !url.isEmpty())
-            .toList();
+                .map(image -> {
+                    String url = generateSignedUrl(image.getStoragePath());
+                    log.debug("이미지 URL 생성: path={}, url={}", image.getStoragePath(), url != null ? "성공" : "실패");
+                    return url;
+                })
+                .filter(url -> url != null && !url.isEmpty())
+                .toList();
 
         log.info("이미지 URL 조회 완료: postId={}, 총 {}개", postId, urls.size());
         return urls;
@@ -183,8 +181,8 @@ public class ImageService {
     @Transactional
     public void deleteImage(Long imageId) {
         UserEntity me = currentUser.get();
-        PostImage image = postImageRepo.findById(imageId)
-            .orElseThrow(() -> new java.util.NoSuchElementException("이미지를 찾을 수 없습니다: " + imageId));
+        PostImage image = postImageRepo.findById(Objects.requireNonNull(imageId))
+                .orElseThrow(() -> new java.util.NoSuchElementException("이미지를 찾을 수 없습니다: " + imageId));
 
         // 권한 체크
         permissionValidator.validateOwnerOrAdmin(me, image.getPost().getAuthor(), "이미지 삭제");
@@ -205,8 +203,8 @@ public class ImageService {
      * 서명 URL 갱신
      */
     public SignedUrlDto renewSignedUrl(Long imageId) {
-        PostImage image = postImageRepo.findById(imageId)
-            .orElseThrow(() -> new java.util.NoSuchElementException("이미지를 찾을 수 없습니다: " + imageId));
+        PostImage image = postImageRepo.findById(Objects.requireNonNull(imageId))
+                .orElseThrow(() -> new java.util.NoSuchElementException("이미지를 찾을 수 없습니다: " + imageId));
 
         String signedUrl = generateSignedUrl(image.getStoragePath());
         Instant expiresAt = Instant.now().plusSeconds(config.getSignedUrlTtlSeconds());
@@ -221,30 +219,29 @@ public class ImageService {
     @Transactional
     public PostImageDto markAsThumbnail(Long imageId) {
         UserEntity me = currentUser.get();
-        PostImage image = postImageRepo.findById(imageId)
-            .orElseThrow(() -> new java.util.NoSuchElementException("이미지를 찾을 수 없습니다: " + imageId));
+        PostImage image = postImageRepo.findById(Objects.requireNonNull(imageId))
+                .orElseThrow(() -> new java.util.NoSuchElementException("이미지를 찾을 수 없습니다: " + imageId));
 
         // 권한 체크
         permissionValidator.validateOwnerOrAdmin(me, image.getPost().getAuthor(), "썸네일 지정");
 
         // 기존 썸네일 해제
         postImageRepo.findByPostIdAndIsThumbnailTrue(image.getPost().getId())
-            .ifPresent(oldThumbnail -> {
-                oldThumbnail.setIsThumbnail(false);
-                postImageRepo.save(oldThumbnail);
-            });
+                .ifPresent(oldThumbnail -> {
+                    oldThumbnail.setIsThumbnail(false);
+                    postImageRepo.save(oldThumbnail);
+                });
 
         // 새 썸네일 지정
         image.setIsThumbnail(true);
         postImageRepo.save(image);
 
         return new PostImageDto(
-            image.getId(),
-            image.getStoragePath(),
-            image.getMimeType(),
-            image.getBytes(),
-            image.getIsThumbnail()
-        );
+                image.getId(),
+                image.getStoragePath(),
+                image.getMimeType(),
+                image.getBytes(),
+                image.getIsThumbnail());
     }
 
     /**
@@ -263,7 +260,8 @@ public class ImageService {
      */
     private String generateSignedUrl(String storagePath) {
         try {
-            var response = storageClient.createSignedUrl(config.getCheerBucket(), storagePath, Objects.requireNonNull(config.getSignedUrlTtlSeconds()).intValue()).block();
+            var response = storageClient.createSignedUrl(config.getCheerBucket(), storagePath,
+                    Objects.requireNonNull(config.getSignedUrlTtlSeconds()).intValue()).block();
             return response != null ? response.signedUrl() : null;
         } catch (Exception e) {
             log.error("서명 URL 생성 실패: path={}", storagePath, e);
@@ -289,12 +287,10 @@ public class ImageService {
      * 게시글 조회
      */
     private CheerPost findPostById(Long postId) {
-        return postRepo.findById(postId)
-            .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
+        return postRepo.findById(Objects.requireNonNull(postId))
+                .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
     }
-    
-    
-    
+
     // 다이어리 스토리지
 
     /**
@@ -302,23 +298,24 @@ public class ImageService {
      */
     @Transactional
     public Mono<List<String>> uploadDiaryImages(Long userId, Long diaryId, List<MultipartFile> files) {
-        log.info("다이어리 이미지 업로드 시작: userId={}, diaryId={}, 파일 수={}", 
-            userId, diaryId, files != null ? files.size() : 0);
-        
+        log.info("다이어리 이미지 업로드 시작: userId={}, diaryId={}, 파일 수={}",
+                userId, diaryId, files != null ? files.size() : 0);
+
         // 빈 리스트 체크
         if (files == null || files.isEmpty()) {
             log.debug("업로드할 파일이 없습니다.");
             return Mono.just(List.of());
         }
-        
+
         // 파일 개수 검증
         if (files.size() > Objects.requireNonNull(config.getMaxImagesPerDiary()).intValue()) {
             return Mono.error(new IllegalArgumentException(
-                String.format("이미지는 최대 %d개까지 업로드할 수 있습니다.", Objects.requireNonNull(config.getMaxImagesPerDiary()).intValue())));
+                    String.format("이미지는 최대 %d개까지 업로드할 수 있습니다.",
+                            Objects.requireNonNull(config.getMaxImagesPerDiary()).intValue())));
         }
-        
+
         List<Mono<String>> uploadMonos = new ArrayList<>();
-        
+
         for (MultipartFile file : files) {
             // 각 파일 유효성 검사
             validator.validateFile(file);
@@ -331,19 +328,20 @@ public class ImageService {
 
             String fileName = UUID.randomUUID() + extension;
             // userId와 diaryId 명시적 Null 체크 및 primitive 변환
-            String storagePath = String.format("diary/%d/%d/%s", Objects.requireNonNull(userId).longValue(), Objects.requireNonNull(diaryId).longValue(), fileName);
-            
+            String storagePath = String.format("diary/%d/%d/%s", Objects.requireNonNull(userId).longValue(),
+                    Objects.requireNonNull(diaryId).longValue(), fileName);
+
             Mono<String> uploadMono = storageClient.upload(file, config.getDiaryBucket(), storagePath)
-                .map(response -> {
-                    log.info("다이어리 이미지 업로드 성공: path={}", storagePath);
-                    return storagePath;
-                })
-                .doOnError(err -> log.error("다이어리 이미지 업로드 실패: path={}, error={}", 
-                    storagePath, err.getMessage()));
-            
+                    .map(response -> {
+                        log.info("다이어리 이미지 업로드 성공: path={}", storagePath);
+                        return storagePath;
+                    })
+                    .doOnError(err -> log.error("다이어리 이미지 업로드 실패: path={}, error={}",
+                            storagePath, err.getMessage()));
+
             uploadMonos.add(uploadMono);
         }
-        
+
         // 모든 업로드를 병렬로 실행
         return Mono.zip(uploadMonos, results -> {
             List<String> paths = new ArrayList<>();
@@ -352,12 +350,12 @@ public class ImageService {
                     paths.add((String) result);
                 }
             }
-            log.info("다이어리 이미지 업로드 완료: userId={}, diaryId={}, 성공 {}개", 
-                userId, diaryId, paths.size());
+            log.info("다이어리 이미지 업로드 완료: userId={}, diaryId={}, 성공 {}개",
+                    userId, diaryId, paths.size());
             return paths;
         }).onErrorResume(err -> {
-            log.error("다이어리 이미지 업로드 중 오류 발생: userId={}, diaryId={}, error={}", 
-                userId, diaryId, err.getMessage());
+            log.error("다이어리 이미지 업로드 중 오류 발생: userId={}, diaryId={}, error={}",
+                    userId, diaryId, err.getMessage());
             return Mono.error(new RuntimeException("이미지 업로드 중 오류가 발생했습니다: " + err.getMessage()));
         });
     }
@@ -368,23 +366,23 @@ public class ImageService {
     @Transactional
     public Mono<Void> deleteDiaryImages(List<String> storagePaths) {
         log.info("다이어리 이미지 삭제 시작: 총 {}개", storagePaths != null ? storagePaths.size() : 0);
-        
+
         // 빈 리스트 체크
         if (storagePaths == null || storagePaths.isEmpty()) {
             log.debug("삭제할 파일이 없습니다.");
             return Mono.empty();
         }
-        
+
         List<Mono<Void>> deleteMonos = storagePaths.stream()
-            .map(path -> storageClient.delete(config.getDiaryBucket(), path)
-                .doOnSuccess(v -> log.info("다이어리 이미지 삭제 성공: path={}", path))
-                .doOnError(err -> log.error("다이어리 이미지 삭제 실패: path={}, error={}", 
-                    path, err.getMessage())))
-            .toList();
-        
+                .map(path -> storageClient.delete(config.getDiaryBucket(), path)
+                        .doOnSuccess(v -> log.info("다이어리 이미지 삭제 성공: path={}", path))
+                        .doOnError(err -> log.error("다이어리 이미지 삭제 실패: path={}, error={}",
+                                path, err.getMessage())))
+                .toList();
+
         return Mono.when(deleteMonos)
-            .doOnSuccess(v -> log.info("다이어리 이미지 삭제 완료: 총 {}개", storagePaths.size()))
-            .doOnError(err -> log.error("다이어리 이미지 삭제 중 오류 발생: error={}", err.getMessage()));
+                .doOnSuccess(v -> log.info("다이어리 이미지 삭제 완료: 총 {}개", storagePaths.size()))
+                .doOnError(err -> log.error("다이어리 이미지 삭제 중 오류 발생: error={}", err.getMessage()));
     }
 
     /**
@@ -392,21 +390,23 @@ public class ImageService {
      */
     public Mono<List<String>> getDiaryImageSignedUrls(List<String> storagePaths) {
         log.debug("다이어리 이미지 URL 생성 시작: 총 {}개", storagePaths != null ? storagePaths.size() : 0);
-        
+
         // 빈 리스트 체크
         if (storagePaths == null || storagePaths.isEmpty()) {
             log.debug("URL 생성할 파일이 없습니다.");
             return Mono.just(List.of());
         }
-        
+
         List<Mono<String>> urlMonos = storagePaths.stream()
-            // config.getDiaryBucket()이 null일 가능성 차단
-            .map(path -> storageClient.createSignedUrl(Objects.requireNonNull(config.getDiaryBucket()), path, Objects.requireNonNull(config.getSignedUrlTtlSeconds()).intValue())
-                .map(response -> response.signedUrl())
-                .doOnError(err -> log.error("다이어리 이미지 URL 생성 실패: path={}, error={}", 
-                    path, err.getMessage())))
-            .toList();
-        
+                // config.getDiaryBucket()이 null일 가능성 차단
+                .map(path -> storageClient
+                        .createSignedUrl(Objects.requireNonNull(config.getDiaryBucket()), path,
+                                Objects.requireNonNull(config.getSignedUrlTtlSeconds()).intValue())
+                        .map(response -> response.signedUrl())
+                        .doOnError(err -> log.error("다이어리 이미지 URL 생성 실패: path={}, error={}",
+                                path, err.getMessage())))
+                .toList();
+
         return Mono.zip(urlMonos, results -> {
             List<String> urls = new ArrayList<>();
             for (Object result : results) {
@@ -418,5 +418,5 @@ public class ImageService {
             return urls;
         });
     }
-    
+
 }

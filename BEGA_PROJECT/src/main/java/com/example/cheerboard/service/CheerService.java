@@ -243,7 +243,7 @@ public class CheerService {
             liked = true;
         }
 
-        postRepo.save(post);
+        postRepo.save(Objects.requireNonNull(post));
         return new LikeToggleResponse(liked, likes);
     }
 
@@ -262,7 +262,7 @@ public class CheerService {
             bookmark.setId(bookmarkId);
             bookmark.setPost(post);
             bookmark.setUser(me);
-            bookmarkRepo.save(bookmark);
+            bookmarkRepo.save(Objects.requireNonNull(bookmark));
             bookmarked = true;
         }
         return new BookmarkResponse(bookmarked);
@@ -280,7 +280,7 @@ public class CheerService {
                 .description(req.description())
                 .build();
 
-        reportRepo.save(report);
+        reportRepo.save(Objects.requireNonNull(report));
     }
 
     public Page<PostSummaryRes> getBookmarkedPosts(Pageable pageable) {
@@ -445,7 +445,7 @@ public class CheerService {
             liked = true;
         }
 
-        commentRepo.save(comment);
+        commentRepo.save(Objects.requireNonNull(comment));
         return new LikeToggleResponse(liked, likes);
     }
 

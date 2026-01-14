@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import java.util.Map;
 import java.util.Optional;
+import java.time.LocalDateTime;
 
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -10,14 +11,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.example.demo.dto.UserDto;
-import com.example.demo.dto.SignupDto; 
+import com.example.demo.dto.SignupDto;
 import com.example.demo.mypage.dto.UserProfileDto;
 import com.example.demo.entity.UserEntity;
-import com.example.demo.entity.TeamEntity; 
+import com.example.demo.entity.TeamEntity;
 import com.example.demo.entity.Role;
 import com.example.demo.jwt.JWTUtil;
 import com.example.demo.repo.UserRepository;
 import com.example.demo.repo.TeamRepository;
+import com.example.demo.repo.RefreshRepository;
+import com.example.demo.entity.RefreshToken;
 
 import com.example.demo.exception.UserNotFoundException;
 import com.example.demo.exception.TeamNotFoundException;
@@ -31,14 +34,15 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class UserService {
 
-    private static final Logger log = LoggerFactory.getLogger(UserService.class); 
+    private static final Logger log = LoggerFactory.getLogger(UserService.class);
     private static final long ACCESS_EXPIRATION_TIME = 1000L * 60 * 60;
 
     private final UserRepository userRepository;
-    private final TeamRepository teamRepository; 
+    private final TeamRepository teamRepository;
+    private final RefreshRepository refreshRepository;
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final JWTUtil jwtUtil;
-  
+
     /**
      * 회원가입
      */
@@ -46,7 +50,7 @@ public class UserService {
     public UserEntity saveUser(SignupDto signupDto) {
         UserDto userDto = signupDto.toUserDto();
         this.signUp(userDto);
-        
+
         return findUserByEmailOrThrow(userDto.getEmail());
     }
 
@@ -71,16 +75,16 @@ public class UserService {
      * 기존 사용자 처리 (중복 체크 및 소셜 연동)
      */
     private void handleExistingUser(UserEntity existingUser, UserDto userDto) {
-        log.info("Existing User Found - ID: {}, Provider: {}", 
-            existingUser.getId(), existingUser.getProvider());
+        log.info("Existing User Found - ID: {}, Provider: {}",
+                existingUser.getId(), existingUser.getProvider());
 
         boolean isLocalSignup = isLocalSignupAttempt(userDto);
-        
+
         if (isLocalSignup) {
             handleLocalSignupConflict(existingUser);
             return;
         }
-        
+
         if (userDto.getProviderId() != null) {
             handleSocialLinking(existingUser, userDto);
         }
@@ -122,18 +126,17 @@ public class UserService {
         String encodedPassword = encodePasswordIfPresent(userDto.getPassword());
 
         UserEntity user = UserEntity.builder()
-            .name(userDto.getName()) 
-            .email(userDto.getEmail())
-            .password(encodedPassword) 
-            .favoriteTeam(team) 
-            .role(roleKey)             
-            .provider(userDto.getProvider() != null ? userDto.getProvider() : "LOCAL")
-            .providerId(userDto.getProviderId())
-            .build();
+                .name(userDto.getName())
+                .email(userDto.getEmail())
+                .password(encodedPassword)
+                .favoriteTeam(team)
+                .role(roleKey)
+                .provider(userDto.getProvider() != null ? userDto.getProvider() : "LOCAL")
+                .providerId(userDto.getProviderId())
+                .build();
 
         userRepository.save(user);
     }
-
 
     /**
      * 로그인 인증 및 JWT 토큰 생성
@@ -141,23 +144,47 @@ public class UserService {
     @Transactional(readOnly = true)
     public Map<String, Object> authenticateAndGetToken(String email, String password) {
         UserEntity user = findUserByEmailOrThrow(email);
-        
+
         validatePassword(user, password);
 
         String accessToken = jwtUtil.createJwt(
-            user.getEmail(),
-            user.getRole(),
-            user.getId(),
-            ACCESS_EXPIRATION_TIME
-        );
-        
+                user.getEmail(),
+                user.getRole(),
+                user.getId(),
+                ACCESS_EXPIRATION_TIME);
+
+        // Refresh Token 생성
+        String refreshToken = jwtUtil.createRefreshToken(user.getEmail(), user.getRole(), user.getId());
+
+        // Refresh Token DB 저장
+        saveOrUpdateRefreshToken(user.getEmail(), refreshToken);
+
         return Map.of(
-            "accessToken", accessToken, 
-            "name", user.getName(),
-            "role", user.getRole()
-        );
+                "accessToken", accessToken,
+                "refreshToken", refreshToken,
+                "name", user.getName(),
+                "role", user.getRole());
     }
 
+    /**
+     * 리프레시 토큰 저장 또는 업데이트
+     */
+    @Transactional
+    private void saveOrUpdateRefreshToken(String email, String token) {
+        RefreshToken existingToken = refreshRepository.findByEmail(email);
+
+        if (existingToken != null) {
+            existingToken.setToken(token);
+            existingToken.setExpiryDate(LocalDateTime.now().plusWeeks(1)); // 1주
+            refreshRepository.save(existingToken);
+        } else {
+            RefreshToken newToken = new RefreshToken();
+            newToken.setEmail(email);
+            newToken.setToken(token);
+            newToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
+            refreshRepository.save(newToken);
+        }
+    }
 
     /**
      * 프로필 업데이트
@@ -189,16 +216,15 @@ public class UserService {
     private void updateFavoriteTeam(UserEntity user, String teamId) {
         if (teamId != null && !teamId.trim().isEmpty()) {
             TeamEntity team = teamRepository.findById(teamId)
-                .orElseThrow(() -> new TeamNotFoundException(teamId));
+                    .orElseThrow(() -> new TeamNotFoundException(teamId));
             user.setFavoriteTeam(team);
         } else {
             user.setFavoriteTeam(null);
         }
-        
+
         String roleKey = getRoleKeyByTeamId(teamId);
         user.setRole(roleKey);
     }
-
 
     /**
      * ID로 사용자 조회
@@ -206,7 +232,7 @@ public class UserService {
     @Transactional(readOnly = true)
     public UserEntity findUserById(Long id) {
         return userRepository.findById(id)
-            .orElseThrow(() -> new UserNotFoundException(id));  
+                .orElseThrow(() -> new UserNotFoundException(id));
     }
 
     /**
@@ -223,8 +249,8 @@ public class UserService {
     @Transactional(readOnly = true)
     public Long getUserIdByEmail(String email) {
         return userRepository.findByEmail(email)
-            .map(UserEntity::getId)
-            .orElseThrow(() -> new UserNotFoundException("email", email));  
+                .map(UserEntity::getId)
+                .orElseThrow(() -> new UserNotFoundException("email", email));
     }
 
     /**
@@ -233,8 +259,8 @@ public class UserService {
     @Transactional(readOnly = true)
     public UserDto findUserByEmail(String email) {
         return userRepository.findByEmail(email)
-            .map(this::convertToUserDto)
-            .orElseThrow(() -> new UserNotFoundException("email", email));  
+                .map(this::convertToUserDto)
+                .orElseThrow(() -> new UserNotFoundException("email", email));
     }
 
     /**
@@ -244,17 +270,16 @@ public class UserService {
         return userDto.getProvider() == null || "LOCAL".equals(userDto.getProvider());
     }
 
-
     /**
      * 비밀번호 검증
      */
     private void validatePassword(UserEntity user, String password) {
         if (user.getPassword() == null) {
-            throw new SocialLoginRequiredException();  
+            throw new SocialLoginRequiredException();
         }
-        
+
         if (!bCryptPasswordEncoder.matches(password, user.getPassword())) {
-            throw new InvalidCredentialsException();  
+            throw new InvalidCredentialsException();
         }
     }
 
@@ -263,7 +288,7 @@ public class UserService {
      */
     private UserEntity findUserByEmailOrThrow(String email) {
         return userRepository.findByEmail(email)
-            .orElseThrow(() -> new InvalidCredentialsException());  
+                .orElseThrow(() -> new InvalidCredentialsException());
     }
 
     /**
@@ -273,10 +298,10 @@ public class UserService {
         if (teamId == null) {
             return null;
         }
-        
+
         log.info("Fetching TeamEntity with ID: {}", teamId);
         return teamRepository.findById(teamId)
-            .orElseThrow(() -> new TeamNotFoundException(teamId));  
+                .orElseThrow(() -> new TeamNotFoundException(teamId));
     }
 
     private String encodePasswordIfPresent(String password) {
@@ -285,14 +310,14 @@ public class UserService {
 
     private UserDto convertToUserDto(UserEntity userEntity) {
         return UserDto.builder()
-            .id(userEntity.getId())
-            .name(userEntity.getName()) 
-            .email(userEntity.getEmail())
-            .favoriteTeam(userEntity.getFavoriteTeamId()) 
-            .role(userEntity.getRole())
-            .provider(userEntity.getProvider())
-            .providerId(userEntity.getProviderId())
-            .build();
+                .id(userEntity.getId())
+                .name(userEntity.getName())
+                .email(userEntity.getEmail())
+                .favoriteTeam(userEntity.getFavoriteTeamId())
+                .role(userEntity.getRole())
+                .provider(userEntity.getProvider())
+                .providerId(userEntity.getProviderId())
+                .build();
     }
 
     /**
@@ -316,7 +341,7 @@ public class UserService {
             case "기아 타이거즈" -> Role.Role_HT;
             default -> Role.USER;
         };
-        
+
         return role.getKey();
     }
 
@@ -343,7 +368,7 @@ public class UserService {
             case "NC 다이노스" -> "NC";
             case "KT 위즈" -> "KT";
             case "기아 타이거즈" -> "HT";
-            default -> null; 
+            default -> null;
         };
     }
 }

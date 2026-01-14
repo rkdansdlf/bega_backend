@@ -17,33 +17,39 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/api/kbo")
 @RequiredArgsConstructor
 public class HomePageController {
-	
-	private final HomePageGameService homePageGameService;
 
-	// 특정 날짜의 KBO 경기 목록을 조회
-	@GetMapping("/schedule")
+    private final HomePageGameService homePageGameService;
+
+    // 특정 날짜의 KBO 경기 목록을 조회
+    @GetMapping("/schedule")
     public ResponseEntity<List<HomePageGameDto>> getGamesByDate(
-        // @RequestParam으로 "date" 파라미터를 받고, ISO_DATE 형식(YYYY-MM-DD)으로 LocalDate 변환
-        @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date 
-    ) {
+            // @RequestParam으로 "date" 파라미터를 받고, ISO_DATE 형식(YYYY-MM-DD)으로 LocalDate 변환
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         List<HomePageGameDto> games = homePageGameService.getGamesByDate(date);
         return ResponseEntity.ok(games);
     }
-	
-	// 특정 시즌의 팀 순위 조회
-	@GetMapping("/rankings/{seasonYear}")
+
+    // 특정 시즌의 팀 순위 조회
+    @GetMapping("/rankings/{seasonYear}")
     public ResponseEntity<List<HomePageTeamRankingDto>> getTeamRankings(
-        @PathVariable int seasonYear
-    ) {
+            @PathVariable int seasonYear) {
         List<HomePageTeamRankingDto> rankings = homePageGameService.getTeamRankings(seasonYear);
         return ResponseEntity.ok(rankings);
     }
-	
-	 // 각 리그별 시즌 시작 날짜를 조회
-	@GetMapping("/league-start-dates")
-	public ResponseEntity<LeagueStartDatesDto> getLeagueStartDates() {
-	    LeagueStartDatesDto startDates = homePageGameService.getLeagueStartDates();
-	    return ResponseEntity.ok(startDates);
-	}
-	
+
+    // 각 리그별 시즌 시작 날짜를 조회
+    @GetMapping("/league-start-dates")
+    public ResponseEntity<LeagueStartDatesDto> getLeagueStartDates() {
+        LeagueStartDatesDto startDates = homePageGameService.getLeagueStartDates();
+        return ResponseEntity.ok(startDates);
+    }
+
+    // 날짜 네비게이션 정보 조회
+    @GetMapping("/schedule/navigation")
+    public ResponseEntity<ScheduleNavigationDto> getScheduleNavigation(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        ScheduleNavigationDto navigation = homePageGameService.getScheduleNavigation(date);
+        return ResponseEntity.ok(navigation);
+    }
+
 }
