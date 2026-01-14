@@ -11,12 +11,12 @@ import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
 public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
-    @EntityGraph(attributePaths = {"author", "team"})
+    @EntityGraph(attributePaths = { "author", "team" })
     Page<CheerPost> findByTeam_TeamIdOrderByCreatedAtDesc(String teamId, Pageable pageable);
 
-    @EntityGraph(attributePaths = {"author", "team"})
+    @EntityGraph(attributePaths = { "author", "team" })
     @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.teamId = :teamId) ORDER BY CASE WHEN p.postType = 'NOTICE' THEN 0 ELSE 1 END, p.createdAt DESC")
-    Page<CheerPost> findAllOrderByPostTypeAndCreatedAt(String teamId, Pageable pageable);
+    Page<CheerPost> findAllOrderByPostTypeAndCreatedAt(@Param("teamId") String teamId, Pageable pageable);
 
     /**
      * 조회수 증가 (UPDATE 쿼리만 실행)
@@ -25,11 +25,11 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
     @Modifying
     @Query("UPDATE CheerPost p SET p.views = p.views + 1 WHERE p.id = :postId")
     void incrementViewCount(@Param("postId") Long postId);
-    
+
     @Query("SELECT COUNT(p) FROM CheerPost p WHERE p.author.id = :userId")
     int countByUserId(@Param("userId") Long userId);
-    
+
     List<CheerPost> findAllByOrderByCreatedAtDesc();
-    
+
     List<CheerPost> findByAuthor(UserEntity author);
 }
