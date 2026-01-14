@@ -5,7 +5,6 @@ import java.time.LocalDate;
 
 import lombok.Builder;
 import lombok.Getter;
-import lombok.experimental.Tolerate;
 
 @Getter
 @Builder(toBuilder = true)
@@ -19,13 +18,13 @@ public class MatchDto {
     private Integer awayScore;
     private String winner;
     private Boolean isDummy;
-    
+
     // New Fields
     private PitcherDto homePitcher;
     private PitcherDto awayPitcher;
     private String aiSummary;
     private WinProbabilityDto winProbability;
-    
+
     @Getter
     @Builder
     public static class PitcherDto {
@@ -42,7 +41,7 @@ public class MatchDto {
         private Double home;
         private Double away;
     }
-    
+
     public static MatchDto fromEntity(GameEntity game) {
         LocalDate displayDate = game.getGameDate();
 

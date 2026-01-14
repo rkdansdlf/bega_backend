@@ -23,6 +23,7 @@ public class CheckInRecordService {
 
     // 체크인
     @Transactional
+    @SuppressWarnings("null")
     public CheckInRecordDTO.Response checkIn(CheckInRecordDTO.Request request) {
         // 중복 체크인 확인
         checkInRecordRepository.findByPartyIdAndUserId(request.getPartyId(), request.getUserId())
@@ -74,6 +75,7 @@ public class CheckInRecordService {
 
     // 모든 참여자가 체크인했는지 확인하고 파티 상태 업데이트
     @Transactional
+    @SuppressWarnings("null")
     public void checkAndUpdatePartyStatus(Long partyId) {
         Party party = partyRepository.findById(partyId)
                 .orElseThrow(() -> new PartyNotFoundException(partyId));

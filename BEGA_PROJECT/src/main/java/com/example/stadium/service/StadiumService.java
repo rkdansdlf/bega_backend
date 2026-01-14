@@ -11,8 +11,6 @@ import com.example.stadium.repository.StadiumRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.example.stadium.exception.StadiumNotFoundException;
-
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -21,23 +19,24 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class StadiumService {
-    
+
     private final StadiumRepository stadiumRepository;
     private final PlaceRepository placeRepository;
-    
+
     public List<StadiumDto> getAllStadiums() {
         return stadiumRepository.findAll().stream()
-                .filter(stadium -> stadium.getLat() != null && stadium.getLng() != null) 
+                .filter(stadium -> stadium.getLat() != null && stadium.getLng() != null)
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
-    
-    public StadiumDetailDto getStadiumDetail(String stadiumId) {  
+
+    @SuppressWarnings("null")
+    public StadiumDetailDto getStadiumDetail(String stadiumId) {
         Stadium stadium = stadiumRepository.findById(stadiumId)
                 .orElseThrow(() -> new StadiumNotFoundException(stadiumId));
-        
+
         List<Place> places = placeRepository.findByStadiumIdWithSort(stadiumId);
-        
+
         return StadiumDetailDto.builder()
                 .stadiumId(stadium.getStadiumId())
                 .stadiumName(stadium.getStadiumName())
@@ -49,33 +48,33 @@ public class StadiumService {
                 .places(places.stream().map(this::convertPlaceToDto).collect(Collectors.toList()))
                 .build();
     }
-    
+
     public StadiumDetailDto getStadiumDetailByName(String stadiumName) {
         Stadium stadium = stadiumRepository.findByStadiumName(stadiumName)
                 .orElseThrow(() -> new StadiumNotFoundException("경기장명", stadiumName));
-        
+
         return getStadiumDetail(stadium.getStadiumId());
     }
-    
+
     public List<PlaceDto> getPlacesByStadiumAndCategory(String stadiumId, String category) {
         // 변경: findByStadiumStadiumIdAndCategory → findByStadium_StadiumIdAndCategory
         return placeRepository.findByStadium_StadiumIdAndCategory(stadiumId, category).stream()
                 .map(this::convertPlaceToDto)
                 .collect(Collectors.toList());
     }
-    
+
     public List<PlaceDto> getPlacesByStadiumNameAndCategory(String stadiumName, String category) {
         return placeRepository.findByStadiumNameAndCategory(stadiumName, category).stream()
                 .map(this::convertPlaceToDto)
                 .collect(Collectors.toList());
     }
-    
+
     public List<PlaceDto> getAllPlaces() {
         return placeRepository.findAll().stream()
                 .map(this::convertPlaceToDto)
                 .collect(Collectors.toList());
     }
-    
+
     private StadiumDto convertToDto(Stadium stadium) {
         return StadiumDto.builder()
                 .stadiumId(stadium.getStadiumId())
@@ -87,7 +86,7 @@ public class StadiumService {
                 .phone(stadium.getPhone())
                 .build();
     }
-    
+
     private PlaceDto convertPlaceToDto(Place place) {
         return PlaceDto.builder()
                 .id(place.getId())

@@ -1,4 +1,5 @@
 package com.example.mate.service;
+
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
 import com.example.demo.repo.UserRepository;
@@ -31,12 +32,12 @@ public class PartyService {
 
     @Value("${supabase.url}")
     private String supabaseUrl;
-    
+
     @Value("${supabase.storage.buckets.profile}")
     private String profileBucket;
 
-
     @Transactional
+    @SuppressWarnings("null")
     public PartyDTO.Response createParty(PartyDTO.Request request) {
 
         String hostProfileImageUrl = null;
@@ -45,36 +46,35 @@ public class PartyService {
         try {
             // 사용자 정보에서 favoriteTeam도 가져오기
             var userInfo = userRepository.findById(request.getHostId())
-                .map(user -> {
-                    String imageUrl = user.getProfileImageUrl();
-                    
-                    // 상대 경로를 완전한 URL로 변환
-                    if (imageUrl != null && imageUrl.startsWith("/images/")) {
-                        String fullUrl = supabaseUrl + "/storage/v1/object/public/" + profileBucket + imageUrl;
-                        imageUrl = fullUrl;
-}
-                    
-                    // blob URL은 무시
-                    if (imageUrl != null && imageUrl.startsWith("blob:")) {
-                        imageUrl = null;
-                    }
-                    String favoriteTeamId = user.getFavoriteTeamId();
+                    .map(user -> {
+                        String imageUrl = user.getProfileImageUrl();
 
-                    return new Object[] { imageUrl, favoriteTeamId };
-                })
-                .orElse(new Object[] { null, null });
-                
+                        // 상대 경로를 완전한 URL로 변환
+                        if (imageUrl != null && imageUrl.startsWith("/images/")) {
+                            String fullUrl = supabaseUrl + "/storage/v1/object/public/" + profileBucket + imageUrl;
+                            imageUrl = fullUrl;
+                        }
+
+                        // blob URL은 무시
+                        if (imageUrl != null && imageUrl.startsWith("blob:")) {
+                            imageUrl = null;
+                        }
+                        String favoriteTeamId = user.getFavoriteTeamId();
+
+                        return new Object[] { imageUrl, favoriteTeamId };
+                    })
+                    .orElse(new Object[] { null, null });
+
             hostProfileImageUrl = (String) userInfo[0];
-            hostFavoriteTeam = (String) userInfo[1];  // favoriteTeam 저장
-             
-                
+            hostFavoriteTeam = (String) userInfo[1]; // favoriteTeam 저장
+
         } catch (Exception e) {
             System.out.println("호스트 정보 조회 실패: " + e.getMessage());
         }
-            Party party = Party.builder()
+        Party party = Party.builder()
                 .hostId(request.getHostId())
                 .hostName(request.getHostName())
-                .hostProfileImageUrl(hostProfileImageUrl) //  변환된 URL 사용
+                .hostProfileImageUrl(hostProfileImageUrl) // 변환된 URL 사용
                 .hostFavoriteTeam(hostFavoriteTeam)
                 .hostBadge(request.getHostBadge() != null ? request.getHostBadge() : Party.BadgeType.NEW)
                 .hostRating(request.getHostRating() != null ? request.getHostRating() : 5.0)
@@ -94,9 +94,8 @@ public class PartyService {
                 .status(Party.PartyStatus.PENDING)
                 .build();
 
-        
         Party savedParty = partyRepository.save(party);
-        
+
         return PartyDTO.Response.from(savedParty);
     }
 
@@ -106,35 +105,31 @@ public class PartyService {
         Page<Party> parties;
 
         List<Party.PartyStatus> excludedStatuses = List.of(
-            Party.PartyStatus.CHECKED_IN, 
-            Party.PartyStatus.COMPLETED
-         );
-        
+                Party.PartyStatus.CHECKED_IN,
+                Party.PartyStatus.COMPLETED);
+
         if (teamId != null && !teamId.isBlank()) {
             if (stadium != null && !stadium.isBlank()) {
                 parties = partyRepository.findByTeamIdAndStadiumAndStatusNotInOrderByCreatedAtDesc(
-                    teamId, stadium, excludedStatuses, pageable
-                );
+                        teamId, stadium, excludedStatuses, pageable);
             } else {
                 parties = partyRepository.findByTeamIdAndStatusNotInOrderByCreatedAtDesc(
-                    teamId, excludedStatuses, pageable
-                );
+                        teamId, excludedStatuses, pageable);
             }
         } else if (stadium != null && !stadium.isBlank()) {
             parties = partyRepository.findByStadiumAndStatusNotInOrderByCreatedAtDesc(
-                stadium, excludedStatuses, pageable
-            );
+                    stadium, excludedStatuses, pageable);
         } else {
             parties = partyRepository.findByStatusNotInOrderByCreatedAtDesc(
-                excludedStatuses, pageable
-            );
+                    excludedStatuses, pageable);
         }
-        
+
         return parties.map(PartyDTO.Response::from);
     }
 
     // 파티 ID로 조회
     @Transactional(readOnly = true)
+    @SuppressWarnings("null")
     public PartyDTO.Response getPartyById(Long id) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
@@ -176,6 +171,7 @@ public class PartyService {
 
     // 파티 업데이트
     @Transactional
+    @SuppressWarnings("null")
     public PartyDTO.Response updateParty(Long id, PartyDTO.UpdateRequest request) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
@@ -196,6 +192,7 @@ public class PartyService {
 
     // 파티 참여 인원 증가
     @Transactional
+    @SuppressWarnings("null")
     public PartyDTO.Response incrementParticipants(Long id) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
@@ -217,6 +214,7 @@ public class PartyService {
 
     // 파티 참여 인원 감소
     @Transactional
+    @SuppressWarnings("null")
     public PartyDTO.Response decrementParticipants(Long id) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
@@ -233,56 +231,54 @@ public class PartyService {
     }
 
     @Transactional
+    @SuppressWarnings("null")
     public void deleteParty(Long id, Long hostId) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
-        
+
         // 호스트 본인 확인
         if (!party.getHostId().equals(hostId)) {
             throw new UnauthorizedAccessException("파티 호스트만 삭제할 수 있습니다.");
         }
-        
+
         // 이미 매칭된 파티는 삭제 불가
-        if (party.getStatus() == Party.PartyStatus.MATCHED || 
-            party.getStatus() == Party.PartyStatus.CHECKED_IN ||
-            party.getStatus() == Party.PartyStatus.COMPLETED) {
+        if (party.getStatus() == Party.PartyStatus.MATCHED ||
+                party.getStatus() == Party.PartyStatus.CHECKED_IN ||
+                party.getStatus() == Party.PartyStatus.COMPLETED) {
             throw new InvalidApplicationStatusException("진행 중이거나 완료된 파티는 삭제할 수 없습니다.");
         }
-        
+
         // 승인된 신청자가 있는지 확인
-        List<PartyApplication> approvedApplications = 
-            applicationRepository.findByPartyIdAndIsApprovedTrue(id);
-        
+        List<PartyApplication> approvedApplications = applicationRepository.findByPartyIdAndIsApprovedTrue(id);
+
         if (!approvedApplications.isEmpty()) {
             throw new InvalidApplicationStatusException(
-                "승인된 참여자가 있는 파티는 삭제할 수 없습니다. 참여자가 취소하거나 거절 후 삭제해주세요."
-            );
+                    "승인된 참여자가 있는 파티는 삭제할 수 없습니다. 참여자가 취소하거나 거절 후 삭제해주세요.");
         }
-        
+
         // 대기 중인 신청들은 함께 삭제
         applicationRepository.deleteAll(
-            applicationRepository.findByPartyId(id)
-        );
-        
+                applicationRepository.findByPartyId(id));
+
         partyRepository.delete(party);
     }
 
     // 사용자가 참여한 모든 파티 조회 (호스트 + 참여자)
     @Transactional(readOnly = true)
+    @SuppressWarnings("null")
     public List<PartyDTO.Response> getMyParties(Long userId) {
         // 1. 호스트로 생성한 파티
         List<Party> hostedParties = partyRepository.findByHostId(userId);
-        
+
         // 2. 참여자로 승인된 파티
-        List<PartyApplication> approvedApplications = 
-            applicationRepository.findByApplicantIdAndIsApprovedTrue(userId);
-        
+        List<PartyApplication> approvedApplications = applicationRepository.findByApplicantIdAndIsApprovedTrue(userId);
+
         List<Party> participatedParties = approvedApplications.stream()
-            .map(app -> partyRepository.findById(app.getPartyId()))
-            .filter(Optional::isPresent)
-            .map(Optional::get)
-            .collect(Collectors.toList());
-        
+                .map(app -> partyRepository.findById(app.getPartyId()))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .collect(Collectors.toList());
+
         // 3. 두 리스트 합치기 (중복 제거)
         List<Party> allParties = new java.util.ArrayList<>(hostedParties);
         participatedParties.forEach(party -> {
@@ -290,10 +286,10 @@ public class PartyService {
                 allParties.add(party);
             }
         });
-        
+
         // 4. 최신순 정렬
         allParties.sort((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()));
-        
+
         return allParties.stream()
                 .map(PartyDTO.Response::from)
                 .collect(Collectors.toList());

@@ -117,6 +117,7 @@ public class UserService {
     /**
      * 신규 사용자 생성
      */
+    @SuppressWarnings("null")
     private void createNewUser(UserDto userDto) {
 
         String favoriteTeamName = userDto.getFavoriteTeam();
@@ -141,7 +142,7 @@ public class UserService {
     /**
      * 로그인 인증 및 JWT 토큰 생성
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public Map<String, Object> authenticateAndGetToken(String email, String password) {
         UserEntity user = findUserByEmailOrThrow(email);
 
@@ -162,6 +163,7 @@ public class UserService {
         return Map.of(
                 "accessToken", accessToken,
                 "refreshToken", refreshToken,
+                "id", user.getId(),
                 "name", user.getName(),
                 "role", user.getRole());
     }
@@ -190,6 +192,7 @@ public class UserService {
      * 프로필 업데이트
      */
     @Transactional
+    @SuppressWarnings("null")
     public UserEntity updateProfile(Long id, UserProfileDto updateDto) {
         UserEntity user = findUserById(id);
 
@@ -230,6 +233,7 @@ public class UserService {
      * ID로 사용자 조회
      */
     @Transactional(readOnly = true)
+    @SuppressWarnings("null")
     public UserEntity findUserById(Long id) {
         return userRepository.findById(id)
                 .orElseThrow(() -> new UserNotFoundException(id));

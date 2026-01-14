@@ -14,17 +14,18 @@ import java.util.concurrent.TimeUnit;
 public class CacheConfig {
 
     @Bean
+    @SuppressWarnings("null")
     public CacheManager cacheManager() {
         CaffeineCacheManager cacheManager = new CaffeineCacheManager(
-            "jwtUserCache"  // 캐시 이름
+                "jwtUserCache" // 캐시 이름
         );
-        
+
         cacheManager.setCaffeine(Caffeine.newBuilder()
-            .maximumSize(10000)  // 최대 10,000개 토큰 캐싱
-            .expireAfterWrite(60, TimeUnit.MINUTES)  // 60분 후 자동 삭제
-            .recordStats()  // 캐시 통계 기록 (선택)
+                .maximumSize(10000) // 최대 10,000개 토큰 캐싱
+                .expireAfterWrite(60, TimeUnit.MINUTES) // 60분 후 자동 삭제
+                .recordStats() // 캐시 통계 기록 (선택)
         );
-        
+
         return cacheManager;
     }
 }

@@ -49,6 +49,7 @@ public class ImageService {
      * 게시글 이미지 업로드 (여러 파일)
      */
     @Transactional
+
     public List<PostImageDto> uploadPostImages(Long postId, List<MultipartFile> files) {
         log.info("이미지 업로드 시작: postId={}, 파일 수={}", postId, files.size());
         UserEntity me = currentUser.get();
@@ -179,6 +180,7 @@ public class ImageService {
      * 이미지 삭제
      */
     @Transactional
+
     public void deleteImage(Long imageId) {
         UserEntity me = currentUser.get();
         PostImage image = postImageRepo.findById(Objects.requireNonNull(imageId))
@@ -202,6 +204,7 @@ public class ImageService {
     /**
      * 서명 URL 갱신
      */
+
     public SignedUrlDto renewSignedUrl(Long imageId) {
         PostImage image = postImageRepo.findById(Objects.requireNonNull(imageId))
                 .orElseThrow(() -> new java.util.NoSuchElementException("이미지를 찾을 수 없습니다: " + imageId));
@@ -217,6 +220,7 @@ public class ImageService {
      * - 기존 썸네일이 있으면 해제하고 새로 지정
      */
     @Transactional
+
     public PostImageDto markAsThumbnail(Long imageId) {
         UserEntity me = currentUser.get();
         PostImage image = postImageRepo.findById(Objects.requireNonNull(imageId))
@@ -286,6 +290,7 @@ public class ImageService {
     /**
      * 게시글 조회
      */
+
     private CheerPost findPostById(Long postId) {
         return postRepo.findById(Objects.requireNonNull(postId))
                 .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
