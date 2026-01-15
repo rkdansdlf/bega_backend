@@ -55,12 +55,31 @@ public class CheerService {
     private final TeamRepository teamRepo;
     private final CurrentUser current;
     private final NotificationService notificationService;
+    private final com.example.cheerboard.storage.service.ImageService imageService;
 
     // 리팩토링된 컴포넌트들
     private final PermissionValidator permissionValidator;
     private final PostDtoMapper postDtoMapper;
 
-    public Page<PostSummaryRes> list(String teamId, Pageable pageable) {
+    // ... (list method remains the same as recently updated, skipping to avoid
+    // overwriting)
+
+    // ...
+
+    @Transactional
+    public List<String> uploadImages(Long postId,
+            java.util.List<org.springframework.web.multipart.MultipartFile> files) {
+        // ImageService가 권한 체크 및 업로드 수행
+        var imageDtos = imageService.uploadPostImages(postId, files);
+
+        // DTO 리스트를 URL 리스트로 변환
+        return imageDtos.stream()
+                .map(com.example.cheerboard.storage.dto.PostImageDto::url)
+                .filter(url -> url != null)
+                .toList();
+    }
+
+    public Page<PostSummaryRes> list(String teamId, String postTypeStr, Pageable pageable) {
         if (teamId != null && !teamId.isBlank()) {
             UserEntity me = current.getOrNull();
             if (me == null) {
@@ -69,7 +88,28 @@ public class CheerService {
             permissionValidator.validateTeamAccess(me, teamId, "게시글 조회");
         }
 
-        Page<CheerPost> page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, pageable);
+        // PostType 필터링 적용
+        PostType postType = null;
+        if (postTypeStr != null && !postTypeStr.isBlank()) {
+            try {
+                postType = PostType.valueOf(postTypeStr);
+            } catch (IllegalArgumentException e) {
+                // 무시하고 전체 조회하거나 에러 처리 (여기서는 무시)
+            }
+        }
+
+        Page<CheerPost> page;
+        boolean hasSort = pageable.getSort().isSorted();
+
+        // 정렬 조건이 있으면(예: views) Custom Query 대신 기본 JPA Query 사용
+        // (findByTeamIdAndPostType)
+        // 정렬 조건이 없으면(기본) Notice Pinning 로직 사용 (findAllOrderByPostTypeAndCreatedAt)
+        // 단, findAllOrderByPostTypeAndCreatedAt는 postType 필터링 추가됨
+        if (hasSort && pageable.getSort().stream().anyMatch(order -> !order.getProperty().equals("createdAt"))) {
+            page = postRepo.findByTeamIdAndPostType(teamId, postType, pageable);
+        } else {
+            page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, postType, pageable);
+        }
 
         UserEntity me = current.getOrNull();
         Set<Long> bookmarkedPostIds = new HashSet<>();
@@ -80,7 +120,10 @@ public class CheerService {
         }
         final Set<Long> finalBookmarks = bookmarkedPostIds;
 
-        return page.map(post -> postDtoMapper.toPostSummaryRes(post, finalBookmarks.contains(post.getId())));
+        return page.map(post -> {
+            boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
+            return postDtoMapper.toPostSummaryRes(post, finalBookmarks.contains(post.getId()), isOwner);
+        });
     }
 
     @Transactional
@@ -241,6 +284,24 @@ public class CheerService {
             likes = post.getLikeCount() + 1;
             post.setLikeCount(likes);
             liked = true;
+
+            // 게시글 작성자에게 알림 (본인이 아닐 때만)
+            if (!post.getAuthor().getId().equals(me.getId())) {
+                try {
+                    String authorName = me.getName() != null && !me.getName().isBlank()
+                            ? me.getName()
+                            : me.getEmail();
+
+                    notificationService.createNotification(
+                            post.getAuthor().getId(),
+                            com.example.notification.entity.Notification.NotificationType.POST_LIKE,
+                            "좋아요 알림",
+                            authorName + "님이 회원님의 게시글을 좋아합니다.",
+                            post.getId());
+                } catch (Exception e) {
+                    log.warn("좋아요 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
+                }
+            }
         }
 
         postRepo.save(Objects.requireNonNull(post));
@@ -287,7 +348,10 @@ public class CheerService {
         UserEntity me = current.get();
         Page<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdOrderByCreatedAtDesc(me.getId(), pageable);
 
-        return bookmarks.map(b -> postDtoMapper.toPostSummaryRes(b.getPost(), true));
+        return bookmarks.map(b -> {
+            boolean isOwner = permissionValidator.isOwnerOrAdmin(me, b.getPost().getAuthor());
+            return postDtoMapper.toPostSummaryRes(b.getPost(), true, isOwner);
+        });
     }
 
     public Page<CommentRes> listComments(Long postId, Pageable pageable) {

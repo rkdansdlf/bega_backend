@@ -31,7 +31,17 @@ public class PostDtoMapper {
     /**
      * CheerPost를 PostSummaryRes로 변환
      */
-    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean isBookmarked) {
+    /**
+     * CheerPost를 PostSummaryRes로 변환
+     */
+    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean isBookmarked, boolean isOwner) {
+        List<String> imageUrls = Collections.emptyList();
+        try {
+            imageUrls = imageService.getPostImageUrls(post.getId());
+        } catch (Exception e) {
+            log.warn("이미지 URL 조회 실패: postId={}, error={}", post.getId(), e.getMessage());
+        }
+
         return new PostSummaryRes(
                 post.getId(),
                 post.getTeamId(),
@@ -41,13 +51,16 @@ public class PostDtoMapper {
                 post.getTitle(),
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor().getProfileImageUrl(),
+                post.getAuthor().getFavoriteTeamId(),
                 post.getCreatedAt(),
                 post.getCommentCount(),
                 post.getLikeCount(),
                 post.getViews(),
                 hotPostChecker.isHotPost(post),
                 isBookmarked,
-                post.getPostType().name());
+                isOwner,
+                post.getPostType().name(),
+                imageUrls);
     }
 
     /**

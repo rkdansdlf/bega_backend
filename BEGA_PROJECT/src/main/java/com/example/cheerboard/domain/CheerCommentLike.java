@@ -9,7 +9,10 @@ import java.time.Instant;
 
 @Entity
 @Table(name = "cheer_comment_like")
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class CheerCommentLike {
 
     @EmbeddedId
@@ -25,7 +28,7 @@ public class CheerCommentLike {
     @JoinColumn(name = "user_id", nullable = false)
     private UserEntity user;
 
-    @Column(nullable = false)
+    @Column(name = "createdat", nullable = false)
     private Instant createdAt;
 
     @PrePersist
@@ -34,7 +37,10 @@ public class CheerCommentLike {
     }
 
     @Embeddable
-    @Getter @Setter @NoArgsConstructor @AllArgsConstructor
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
     @EqualsAndHashCode
     public static class Id implements Serializable {
         private Long commentId;

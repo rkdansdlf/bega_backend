@@ -15,8 +15,14 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
     Page<CheerPost> findByTeam_TeamIdOrderByCreatedAtDesc(String teamId, Pageable pageable);
 
     @EntityGraph(attributePaths = { "author", "team" })
-    @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.teamId = :teamId) ORDER BY CASE WHEN p.postType = 'NOTICE' THEN 0 ELSE 1 END, p.createdAt DESC")
-    Page<CheerPost> findAllOrderByPostTypeAndCreatedAt(@Param("teamId") String teamId, Pageable pageable);
+    @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.teamId = :teamId) AND (:postType IS NULL OR p.postType = :postType) ORDER BY CASE WHEN p.postType = 'NOTICE' THEN 0 ELSE 1 END, p.createdAt DESC")
+    Page<CheerPost> findAllOrderByPostTypeAndCreatedAt(@Param("teamId") String teamId,
+            @Param("postType") com.example.cheerboard.domain.PostType postType, Pageable pageable);
+
+    @EntityGraph(attributePaths = { "author", "team" })
+    @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.teamId = :teamId) AND (:postType IS NULL OR p.postType = :postType)")
+    Page<CheerPost> findByTeamIdAndPostType(@Param("teamId") String teamId,
+            @Param("postType") com.example.cheerboard.domain.PostType postType, Pageable pageable);
 
     /**
      * 조회수 증가 (UPDATE 쿼리만 실행)

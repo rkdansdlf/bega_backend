@@ -39,7 +39,7 @@ public class Notification {
     @Column(name = "is_read", nullable = false)
     private Boolean isRead; // 읽음 여부
 
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column(name = "createdat", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @PrePersist
@@ -56,9 +56,10 @@ public class Notification {
         APPLICATION_APPROVED("신청 승인"),
         APPLICATION_REJECTED("신청 거절"),
 
-         // 응원게시판 관련
+        // 응원게시판 관련
         POST_COMMENT("게시글 댓글"),
-        COMMENT_REPLY("댓글 대댓글");
+        COMMENT_REPLY("댓글 대댓글"),
+        POST_LIKE("게시글 좋아요");
 
         private final String description;
 

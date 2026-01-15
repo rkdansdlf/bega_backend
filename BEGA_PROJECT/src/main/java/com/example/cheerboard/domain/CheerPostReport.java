@@ -34,7 +34,7 @@ public class CheerPostReport {
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    @Column(nullable = false, updatable = false)
+    @Column(name = "createdat", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @PrePersist

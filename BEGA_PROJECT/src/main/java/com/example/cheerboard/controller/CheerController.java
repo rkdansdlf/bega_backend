@@ -27,8 +27,16 @@ public class CheerController {
     @GetMapping("/posts")
     public Page<PostSummaryRes> list(
             @RequestParam(required = false) String teamId,
+            @RequestParam(required = false) String postType,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        return svc.list(teamId, pageable);
+        return svc.list(teamId, postType, pageable);
+    }
+
+    @PostMapping(value = "/posts/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public java.util.List<String> uploadImages(
+            @PathVariable Long id,
+            @RequestPart("images") java.util.List<org.springframework.web.multipart.MultipartFile> images) {
+        return svc.uploadImages(id, images);
     }
 
     @GetMapping("/posts/{id}")

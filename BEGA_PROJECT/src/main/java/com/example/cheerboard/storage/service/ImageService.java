@@ -104,7 +104,8 @@ public class ImageService {
                         image.getStoragePath(),
                         image.getMimeType(),
                         image.getBytes(),
-                        image.getIsThumbnail()));
+                        image.getIsThumbnail(),
+                        generateSignedUrl(image.getStoragePath())));
 
             } catch (Exception e) {
                 log.error("이미지 업로드 실패, 보상 삭제 수행: postId={}, 파일={}, uploadedPaths={}",
@@ -132,7 +133,8 @@ public class ImageService {
                         image.getStoragePath(),
                         image.getMimeType(),
                         image.getBytes(),
-                        image.getIsThumbnail()))
+                        image.getIsThumbnail(),
+                        generateSignedUrl(image.getStoragePath())))
                 .toList();
     }
 
@@ -245,7 +247,8 @@ public class ImageService {
                 image.getStoragePath(),
                 image.getMimeType(),
                 image.getBytes(),
-                image.getIsThumbnail());
+                image.getIsThumbnail(),
+                generateSignedUrl(image.getStoragePath()));
     }
 
     /**

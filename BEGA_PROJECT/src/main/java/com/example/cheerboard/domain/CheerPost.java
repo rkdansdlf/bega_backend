@@ -12,7 +12,11 @@ import java.util.ArrayList;
 
 @Entity
 @Table(name = "cheer_post")
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class CheerPost {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -23,11 +27,11 @@ public class CheerPost {
     private TeamEntity team;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(name = "posttype", nullable = false, length = 20)
     @Builder.Default
     private PostType postType = PostType.NORMAL;
 
-    @ManyToOne(fetch = FetchType.LAZY) 
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "author_id", nullable = false)
     private UserEntity author;
 
@@ -37,11 +41,11 @@ public class CheerPost {
     @Column(nullable = false, columnDefinition = "text")
     private String content;
 
-    @Column(nullable = false)
+    @Column(name = "likecount", nullable = false)
     @Builder.Default
     private int likeCount = 0;
 
-    @Column(nullable = false)
+    @Column(name = "commentcount", nullable = false)
     @Builder.Default
     private int commentCount = 0;
 
@@ -49,11 +53,11 @@ public class CheerPost {
     @Builder.Default
     private int views = 0;
 
-    @Column(nullable = false)
+    @Column(name = "createdat", nullable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();
 
-    @Column(nullable = false)
+    @Column(name = "updatedat", nullable = false)
     @Builder.Default
     private Instant updatedAt = Instant.now();
 
@@ -73,14 +77,14 @@ public class CheerPost {
     @PrePersist
     void onCreate() {
         createdAt = updatedAt = Instant.now();
-        likeCount = 0; 
+        likeCount = 0;
         commentCount = 0;
         views = 0;
     }
 
     @PreUpdate
-    void onUpdate() { 
-        updatedAt = Instant.now(); 
+    void onUpdate() {
+        updatedAt = Instant.now();
     }
 
     public String getTeamId() {
