@@ -45,14 +45,14 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         }
         
         if (userEmail == null || userEmail.isEmpty()) {
-            getRedirectStrategy().sendRedirect(request, response, "http://localhost:3000/login?error=email_missing");
+            getRedirectStrategy().sendRedirect(request, response, "https://bega-frontend.vercel.app/login?error=email_missing");
             return;
         }
         
         Optional<UserEntity> userEntityOptional = userRepository.findByEmail(userEmail); 
         
         if (userEntityOptional.isEmpty()) {
-            getRedirectStrategy().sendRedirect(request, response, "http://localhost:3000/login?error=user_not_found");
+            getRedirectStrategy().sendRedirect(request, response, "https://bega-frontend.vercel.app/login?error=user_not_found");
             return;
         }
 
@@ -113,7 +113,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         String encodedFavoriteTeam = URLEncoder.encode(favoriteTeamId, StandardCharsets.UTF_8);
         
         String redirectUrl = String.format(
-            "http://localhost:3000/oauth/callback?email=%s&name=%s&role=%s&profileImageUrl=%s&favoriteTeam=%s",
+            "https://bega-frontend.vercel.app/oauth/callback?email=%s&name=%s&role=%s&profileImageUrl=%s&favoriteTeam=%s",
             encodedEmail, encodedName, encodedRole, encodedProfileUrl, encodedFavoriteTeam
         );
         
@@ -122,7 +122,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     }
     
     private void addSameSiteCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
-        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax", 
+        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; Secure; SameSite=None", 
                                             name, value, maxAgeSeconds);
         response.addHeader("Set-Cookie", cookieString);
     }
