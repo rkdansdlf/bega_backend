@@ -104,7 +104,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 .favoriteTeam(null)
                 .build();
 
-        UserEntity savedUser = userRepository.save(userEntity);
+        UserEntity savedUser = userRepository.save(java.util.Objects.requireNonNull(userEntity));
 
         // UserProvider 생성
         linkAccount(java.util.Objects.requireNonNull(savedUser), provider, providerId);

@@ -1,4 +1,4 @@
-package com.example.rankingPrediction;
+package com.example.demo.rankingPrediction;
 
 import java.util.Optional;
 
@@ -9,8 +9,8 @@ import org.springframework.stereotype.Repository;
 public interface RankingPredictionRepository extends JpaRepository<RankingPrediction, Long> {
 
 	// 특정 사용자의 특정 시즌 예측 찾기
-	Optional<RankingPrediction> findByUserIdAndSeasonYear(Long userId, Integer seasonYear);
+	Optional<RankingPrediction> findByUserIdAndSeasonYear(String userId, Integer seasonYear);
 
 	// 이미 예측을 저장했는지 확인
-	boolean existsByUserIdAndSeasonYear(Long userId, Integer seasonYear);
+	boolean existsByUserIdAndSeasonYear(String userId, Integer seasonYear);
 }

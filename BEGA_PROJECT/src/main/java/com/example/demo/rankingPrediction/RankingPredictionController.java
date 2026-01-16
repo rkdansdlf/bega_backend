@@ -1,4 +1,4 @@
-package com.example.rankingPrediction;
+package com.example.demo.rankingPrediction;
 
 import java.security.Principal;
 import java.util.Map;
@@ -25,6 +25,7 @@ public class RankingPredictionController {
 
 	private final RankingPredictionService rankingPredictionService;
 
+	@PreAuthorize("permitAll()")
 	@GetMapping("/current-season")
 	public ResponseEntity<?> getCurrentSeason() {
 
@@ -87,18 +88,26 @@ public class RankingPredictionController {
 	}
 
 	// 공유용 예측 조회 (로그인 불필요)
+	@PreAuthorize("permitAll()")
 	@GetMapping("/share/{userId}/{seasonYear}")
-	public ResponseEntity<RankingPredictionResponseDto> getSharedPrediction(
-			@PathVariable Long userId,
+	public ResponseEntity<?> getSharedPrediction(
+			@PathVariable String userId,
 			@PathVariable int seasonYear) {
 
-		RankingPredictionResponseDto prediction = rankingPredictionService.getPredictionByUserIdAndSeason(userId,
-				seasonYear);
+		try {
+			RankingPredictionResponseDto prediction = rankingPredictionService.getPredictionByUserIdAndSeason(userId,
+					seasonYear);
 
-		if (prediction != null) {
-			return ResponseEntity.ok(prediction);
-		} else {
-			return ResponseEntity.notFound().build();
+			if (prediction != null) {
+				return ResponseEntity.ok(prediction);
+			} else {
+				return ResponseEntity.notFound().build();
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			return ResponseEntity
+					.status(HttpStatus.INTERNAL_SERVER_ERROR)
+					.body(Map.of("error", "공유 예측 조회 중 오류 발생: " + e.getMessage()));
 		}
 	}
 

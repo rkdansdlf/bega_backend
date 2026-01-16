@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -28,6 +29,7 @@ import java.util.Arrays;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 public class SecurityConfig {
 
         private final CustomOAuth2UserService customOAuth2UserService;
@@ -162,8 +164,18 @@ public class SecurityConfig {
                                                 .requestMatchers("/api/chat/**").permitAll()
                                                 .requestMatchers("/api/users/email-to-id").permitAll()
                                                 // 2순위: OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
-                                                .requestMatchers("/api/diary/**").permitAll()
-                                                .requestMatchers("/api/predictions/**").permitAll()
+                                                .requestMatchers(HttpMethod.GET, "/api/diary/games").permitAll()
+                                                .requestMatchers("/api/diary/**").authenticated()
+                                                .requestMatchers(HttpMethod.GET, "/api/games/past").permitAll()
+                                                .requestMatchers(HttpMethod.GET, "/api/matches/**").permitAll()
+                                                .requestMatchers(HttpMethod.GET, "/api/predictions/status/**")
+                                                .permitAll()
+                                                .requestMatchers(HttpMethod.GET,
+                                                                "/api/predictions/ranking/current-season")
+                                                .permitAll()
+                                                .requestMatchers(HttpMethod.GET, "/api/predictions/ranking/share/**")
+                                                .permitAll()
+                                                .requestMatchers("/api/predictions/**").authenticated()
                                                 // OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
                                                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                                                 .requestMatchers("/api/kbo/league-start-dates").permitAll()

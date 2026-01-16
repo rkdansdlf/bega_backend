@@ -140,7 +140,7 @@ public class GlobalExceptionHandler {
         log.error("Unexpected error occurred", e);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
+                .body(ApiResponse.error("서버 오류가 발생했습니다: " + e.getMessage()));
     }
 
     // ------ stadiumguide 관련 예외 ----------

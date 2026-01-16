@@ -1,4 +1,4 @@
-package com.example.rankingPrediction;
+package com.example.demo.rankingPrediction;
 
 import java.util.List;
 

@@ -1,4 +1,4 @@
-package com.example.rankingPrediction;
+package com.example.demo.rankingPrediction;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -27,7 +27,7 @@ public class RankingPrediction {
 	private Long id;
 
 	@Column(name = "user_id")
-	private Long userId;
+	private String userId;
 
 	@Column(name = "season_year")
 	private int seasonYear;
@@ -40,7 +40,7 @@ public class RankingPrediction {
 	private LocalDateTime createdAt;
 
 	// 새로운 예측 데이터를 DB에 저장할 때 사용
-	public RankingPrediction(Long userId, int seasonYear, List<String> predictionData) {
+	public RankingPrediction(String userId, int seasonYear, List<String> predictionData) {
 		this.userId = userId;
 		this.seasonYear = seasonYear;
 		this.predictionData = predictionData;
