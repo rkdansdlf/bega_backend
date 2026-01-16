@@ -40,8 +40,13 @@ public class UserService {
     private final UserRepository userRepository;
     private final TeamRepository teamRepository;
     private final RefreshRepository refreshRepository;
+    private final com.example.demo.repo.UserProviderRepository userProviderRepository; // Inject repository
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final JWTUtil jwtUtil;
+
+    public JWTUtil getJWTUtil() {
+        return jwtUtil;
+    }
 
     /**
      * 회원가입
@@ -49,6 +54,9 @@ public class UserService {
     @Transactional
     public UserEntity saveUser(SignupDto signupDto) {
         UserDto userDto = signupDto.toUserDto();
+        if (userDto.getEmail() != null) {
+            userDto.setEmail(userDto.getEmail().trim().toLowerCase());
+        }
         this.signUp(userDto);
 
         return findUserByEmailOrThrow(userDto.getEmail());
@@ -59,6 +67,9 @@ public class UserService {
      */
     @Transactional
     public void signUp(UserDto userDto) {
+        if (userDto.getEmail() != null) {
+            userDto.setEmail(userDto.getEmail().trim().toLowerCase());
+        }
         log.info("--- [SignUp] Attempt - Email: {} ---", userDto.getEmail());
 
         Optional<UserEntity> existingUser = userRepository.findByEmail(userDto.getEmail());
@@ -144,7 +155,8 @@ public class UserService {
      */
     @Transactional
     public Map<String, Object> authenticateAndGetToken(String email, String password) {
-        UserEntity user = findUserByEmailOrThrow(email);
+        String normalizedEmail = (email != null) ? email.trim().toLowerCase() : null;
+        UserEntity user = findUserByEmailOrThrow(normalizedEmail);
 
         validatePassword(user, password);
 
@@ -166,6 +178,17 @@ public class UserService {
                 "id", user.getId(),
                 "name", user.getName(),
                 "role", user.getRole());
+    }
+
+    /**
+     * 리프레시 토큰 저장 또는 업데이트
+     */
+    @Transactional
+    public void deleteRefreshTokenByEmail(String email) {
+        RefreshToken token = refreshRepository.findByEmail(email);
+        if (token != null) {
+            refreshRepository.delete(token);
+        }
     }
 
     /**
@@ -291,6 +314,55 @@ public class UserService {
     }
 
     /**
+     * 연동된 소셜 계정 목록 조회
+     */
+    @Transactional(readOnly = true)
+    public java.util.List<com.example.demo.mypage.dto.UserProviderDto> getConnectedProviders(Long userId) {
+        return userProviderRepository.findByUserId(userId).stream()
+                .map(provider -> com.example.demo.mypage.dto.UserProviderDto.builder()
+                        .provider(provider.getProvider())
+                        .connectedAt(provider.getConnectedAt() != null
+                                ? provider.getConnectedAt().format(java.time.format.DateTimeFormatter.ISO_DATE_TIME)
+                                : null)
+                        .build())
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    /**
+     * 소셜 계정 연동 해제
+     */
+    @Transactional
+    public void unlinkProvider(Long userId, String provider) {
+        // 최소 1개의 로그인 방식은 남겨둬야 함 (비밀번호가 있거나, 다른 연동 계정이 있어야 함)
+        UserEntity user = findUserById(userId);
+        boolean hasPassword = user.getPassword() != null && !user.getPassword().startsWith("oauth2_user"); // "oauth2_user"
+                                                                                                           // is
+                                                                                                           // deprecated
+                                                                                                           // but
+                                                                                                           // checking
+                                                                                                           // just in
+                                                                                                           // case
+
+        long linkedCount = userProviderRepository.findByUserId(userId).size();
+
+        if (!hasPassword && linkedCount <= 1) {
+            throw new IllegalStateException("최소 하나의 로그인 방식(비밀번호 또는 소셜 연동)이 존재해야 합니다.");
+        }
+
+        userProviderRepository.deleteByUserIdAndProvider(userId, provider);
+        log.info("Unlinked info for user ID: {}, provider: {}", userId, provider);
+    }
+
+    /**
+     * 사용자가 카카오 또는 네이버로 연동되어 있는지 확인 (메이트 인증용)
+     */
+    @Transactional(readOnly = true)
+    public boolean isSocialVerified(Long userId) {
+        return userProviderRepository.findByUserId(userId).stream()
+                .anyMatch(p -> "kakao".equalsIgnoreCase(p.getProvider()) || "naver".equalsIgnoreCase(p.getProvider()));
+    }
+
+    /**
      * ID로 사용자 조회
      */
     @Transactional(readOnly = true)
@@ -323,7 +395,8 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     public UserDto findUserByEmail(String email) {
-        return userRepository.findByEmail(email)
+        String normalizedEmail = email.trim().toLowerCase();
+        return userRepository.findByEmail(normalizedEmail)
                 .map(this::convertToUserDto)
                 .orElseThrow(() -> new UserNotFoundException("email", email));
     }
@@ -390,16 +463,6 @@ public class UserService {
      */
     private String getRoleKeyByFavoriteTeam(String teamName) {
         // 모든 일반 가입자는 ROLE_USER
-        return Role.USER.getKey();
-    }
-
-    /**
-     * 팀 ID로 역할 조회 - 더 이상 사용되지 않음 (하위 호환)
-     * 
-     * @deprecated 팀과 Role은 분리되었습니다.
-     */
-    @Deprecated
-    private String getRoleKeyByTeamId(String teamId) {
         return Role.USER.getKey();
     }
 

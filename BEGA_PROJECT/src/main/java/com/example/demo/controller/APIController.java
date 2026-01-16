@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.http.HttpHeaders;
@@ -57,7 +58,7 @@ public class APIController {
         // JWT를 쿠키에 설정 (Access Token)
         Cookie jwtCookie = new Cookie("Authorization", accessToken);
         jwtCookie.setHttpOnly(true);
-        jwtCookie.setSecure(true); // 개발: false, 프로덕션: true
+        jwtCookie.setSecure(false); // 개발: false, 프로덕션: true
         jwtCookie.setPath("/");
         jwtCookie.setMaxAge(60 * 60); // 1시간
         response.addCookie(jwtCookie);
@@ -65,7 +66,7 @@ public class APIController {
         // Refresh Token 쿠키 설정
         Cookie refreshCookie = new Cookie("Refresh", refreshToken);
         refreshCookie.setHttpOnly(true);
-        refreshCookie.setSecure(true); // 개발: false, 프로덕션: true
+        refreshCookie.setSecure(false); // 개발: false, 프로덕션: true
         refreshCookie.setPath("/");
         refreshCookie.setMaxAge(60 * 60 * 24 * 7); // 7일
         response.addCookie(refreshCookie);
@@ -79,7 +80,7 @@ public class APIController {
      */
     @GetMapping("/check-email")
     public ResponseEntity<ApiResponse> checkEmail(@RequestParam String email) {
-        boolean exists = userService.isEmailExists(email);
+        boolean exists = userService.isEmailExists(email.trim().toLowerCase());
 
         if (exists) {
             return ResponseEntity.ok(ApiResponse.error("이미 사용 중인 이메일입니다."));
@@ -88,20 +89,47 @@ public class APIController {
         return ResponseEntity.ok(ApiResponse.success("사용 가능한 이메일입니다."));
     }
 
-    /**
-     * 로그아웃
-     */
     @PostMapping("/logout")
-    public ResponseEntity<ApiResponse> logout() {
-        ResponseCookie expiredCookie = ResponseCookie.from("Authorization", "")
+    public ResponseEntity<ApiResponse> logout(HttpServletRequest request, HttpServletResponse response) {
+        // 1. JWT (Authorization) 및 Refresh 쿠키 추출하여 이메일 확인
+        String email = null;
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if (cookie.getName().equals("Authorization")) {
+                    try {
+                        email = userService.getJWTUtil().getEmail(cookie.getValue());
+                    } catch (Exception e) {
+                        // 토큰 만료 등의 경우 무시
+                    }
+                }
+            }
+        }
+
+        // 2. DB에서 리프레시 토큰 삭제
+        if (email != null) {
+            userService.deleteRefreshTokenByEmail(email);
+        }
+
+        // 3. Authorization 쿠키 삭제
+        ResponseCookie expireAuthCookie = ResponseCookie.from("Authorization", "")
                 .httpOnly(true)
-                .secure(true) // 개발: false, 프로덕션: true
+                .secure(false) // local 개발 환경에서는 false
+                .path("/")
+                .maxAge(0)
+                .build();
+
+        // 4. Refresh 쿠키 삭제
+        ResponseCookie expireRefreshCookie = ResponseCookie.from("Refresh", "")
+                .httpOnly(true)
+                .secure(false) // local 개발 환경에서는 false
                 .path("/")
                 .maxAge(0)
                 .build();
 
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, expiredCookie.toString())
+                .header(HttpHeaders.SET_COOKIE, expireAuthCookie.toString())
+                .header(HttpHeaders.SET_COOKIE, expireRefreshCookie.toString())
                 .body(ApiResponse.success("로그아웃 성공"));
     }
 }

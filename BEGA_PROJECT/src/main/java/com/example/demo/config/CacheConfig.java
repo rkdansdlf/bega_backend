@@ -28,6 +28,7 @@ public class CacheConfig {
     public static final String TEAM_DATA = "teamData";
     public static final String GAME_SCHEDULE = "gameSchedule";
     public static final String JWT_USER_CACHE = "jwtUserCache";
+    public static final String POST_IMAGE_URLS = "postImageUrls";
 
     @Bean
     @SuppressWarnings("null")
@@ -38,7 +39,8 @@ public class CacheConfig {
                 LEAGUE_DATES, // 리그 시작일 캐시
                 STADIUMS, // 구장 정보 캐시
                 TEAM_DATA, // 팀 정보 캐시
-                GAME_SCHEDULE // 경기 일정 캐시
+                GAME_SCHEDULE, // 경기 일정 캐시
+                POST_IMAGE_URLS // 게시글 이미지 URL 캐시
         );
 
         // 기본 캐시 설정: 10분 TTL, 최대 1000개 항목

@@ -208,4 +208,38 @@ public class MypageController {
         }
     }
 
+    /**
+     * 연동된 계정 목록 조회
+     */
+    @GetMapping("/providers")
+    public ResponseEntity<ApiResponse> getConnectedProviders(@AuthenticationPrincipal Long userId) {
+        try {
+            java.util.List<com.example.demo.mypage.dto.UserProviderDto> providers = userService
+                    .getConnectedProviders(userId);
+            return ResponseEntity.ok(ApiResponse.success("연동된 계정 목록 조회 성공", providers));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("연동된 계정 목록을 불러오는 중 오류가 발생했습니다."));
+        }
+    }
+
+    /**
+     * 계정 연동 해제
+     */
+    @DeleteMapping("/providers/{provider}")
+    public ResponseEntity<ApiResponse> unlinkProvider(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable String provider) {
+        try {
+            userService.unlinkProvider(userId, provider);
+            return ResponseEntity.ok(ApiResponse.success("계정 연동이 해제되었습니다."));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error(e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("계정 연동 해제 중 오류가 발생했습니다."));
+        }
+    }
+
 }

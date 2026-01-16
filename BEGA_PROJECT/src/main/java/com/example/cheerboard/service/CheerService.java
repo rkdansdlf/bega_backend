@@ -359,9 +359,40 @@ public class CheerService {
     @Transactional(readOnly = true)
     public Page<CommentRes> listComments(Long postId, Pageable pageable) {
         // 최상위 댓글만 조회 (대댓글은 각 댓글의 replies에 포함됨)
-        return commentRepo
-                .findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(Objects.requireNonNull(postId), pageable)
-                .map(this::toCommentRes);
+        Page<CheerComment> comments = commentRepo
+                .findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(Objects.requireNonNull(postId), pageable);
+
+        UserEntity me = current.getOrNull();
+        Set<Long> likedCommentIds = new HashSet<>();
+
+        if (me != null && comments.hasContent()) {
+            // 모든 댓글 ID 수집 (대댓글 포함)
+            List<Long> allCommentIds = collectAllCommentIds(comments.getContent());
+
+            // 한 번의 쿼리로 좋아요 여부 확인
+            if (!allCommentIds.isEmpty()) {
+                likedCommentIds = new HashSet<>(
+                        commentLikeRepo.findLikedCommentIdsByUserIdAndCommentIdIn(me.getId(), allCommentIds));
+            }
+        }
+
+        final Set<Long> finalLikedIds = likedCommentIds;
+        return comments.map(comment -> toCommentResWithLikedSet(comment, finalLikedIds));
+    }
+
+    /**
+     * 댓글과 대댓글의 모든 ID 수집
+     */
+    private List<Long> collectAllCommentIds(List<CheerComment> comments) {
+        List<Long> ids = new java.util.ArrayList<>();
+        for (CheerComment comment : comments) {
+            ids.add(comment.getId());
+            // 대댓글 ID도 수집
+            if (comment.getReplies() != null && !comment.getReplies().isEmpty()) {
+                ids.addAll(collectAllCommentIds(comment.getReplies()));
+            }
+        }
+        return ids;
     }
 
     @Transactional
@@ -440,7 +471,7 @@ public class CheerService {
     }
 
     /**
-     * CheerComment를 CommentRes로 변환
+     * CheerComment를 CommentRes로 변환 (단일 댓글용 - 새 댓글 작성 시 사용)
      */
     private CommentRes toCommentRes(CheerComment comment) {
         UserEntity me = current.getOrNull();
@@ -449,6 +480,31 @@ public class CheerService {
         // 대댓글 변환 (재귀적으로 처리)
         List<CommentRes> replies = comment.getReplies().stream()
                 .map(this::toCommentRes)
+                .collect(Collectors.toList());
+
+        return new CommentRes(
+                comment.getId(),
+                resolveDisplayName(comment.getAuthor()),
+                comment.getAuthor().getEmail(),
+                comment.getAuthor().getFavoriteTeamId(),
+                comment.getAuthor().getProfileImageUrl(),
+                comment.getContent(),
+                comment.getCreatedAt(),
+                comment.getLikeCount(),
+                likedByMe,
+                replies);
+    }
+
+    /**
+     * CheerComment를 CommentRes로 변환 (일괄 조회 최적화 버전)
+     * 미리 조회한 likedCommentIds를 사용하여 N+1 문제 방지
+     */
+    private CommentRes toCommentResWithLikedSet(CheerComment comment, Set<Long> likedCommentIds) {
+        boolean likedByMe = likedCommentIds.contains(comment.getId());
+
+        // 대댓글 변환 (재귀적으로 처리, 동일한 likedCommentIds 세트 사용)
+        List<CommentRes> replies = comment.getReplies().stream()
+                .map(reply -> toCommentResWithLikedSet(reply, likedCommentIds))
                 .collect(Collectors.toList());
 
         return new CommentRes(

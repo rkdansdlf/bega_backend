@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.HashMap;
 import java.util.Map;
+
 /**
  * 전역 예외 처리 핸들러
  * 모든 컨트롤러에서 발생하는 예외를 일괄 처리
@@ -42,8 +43,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleUserNotFoundException(UserNotFoundException e) {
         log.warn("UserNotFoundException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.NOT_FOUND)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -53,8 +54,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleTeamNotFoundException(TeamNotFoundException e) {
         log.warn("TeamNotFoundException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.NOT_FOUND)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -64,8 +65,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleDuplicateEmailException(DuplicateEmailException e) {
         log.warn("DuplicateEmailException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.CONFLICT)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -75,8 +76,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleInvalidCredentialsException(InvalidCredentialsException e) {
         log.warn("InvalidCredentialsException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.UNAUTHORIZED)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -86,8 +87,20 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleSocialLoginRequiredException(SocialLoginRequiredException e) {
         log.warn("SocialLoginRequiredException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.FORBIDDEN)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error(e.getMessage()));
+    }
+
+    /**
+     * 403 Forbidden - 본인인증(소셜 연동) 필요
+     */
+    @ExceptionHandler(IdentityVerificationRequiredException.class)
+    public ResponseEntity<ApiResponse> handleIdentityVerificationRequiredException(
+            IdentityVerificationRequiredException e) {
+        log.warn("IdentityVerificationRequiredException: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -101,11 +114,11 @@ public class GlobalExceptionHandler {
             String errorMessage = error.getDefaultMessage();
             errors.put(fieldName, errorMessage);
         });
-        
+
         log.warn("Validation failed: {}", errors);
         return ResponseEntity
-            .status(HttpStatus.BAD_REQUEST)
-            .body(ApiResponse.error("입력값이 올바르지 않습니다.", errors));
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error("입력값이 올바르지 않습니다.", errors));
     }
 
     /**
@@ -115,8 +128,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleIllegalArgumentException(IllegalArgumentException e) {
         log.warn("IllegalArgumentException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.BAD_REQUEST)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -126,11 +139,11 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleGlobalException(Exception e) {
         log.error("Unexpected error occurred", e);
         return ResponseEntity
-            .status(HttpStatus.INTERNAL_SERVER_ERROR)
-            .body(ApiResponse.error("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
     }
 
-    // ------ stadiumguide 관련 예외 ---------- 
+    // ------ stadiumguide 관련 예외 ----------
     /**
      * 404 Not Found - 경기장을 찾을 수 없음
      */
@@ -138,29 +151,31 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleStadiumNotFoundException(StadiumNotFoundException e) {
         log.warn("StadiumNotFoundException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.NOT_FOUND)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(e.getMessage()));
     }
-     // -------- Mate 관련 예외 ------------
-     /**
+
+    // -------- Mate 관련 예외 ------------
+    /**
      * 404 Not Found - 파티를 찾을 수 없음
      */
     @ExceptionHandler(PartyNotFoundException.class)
     public ResponseEntity<ApiResponse> handlePartyNotFoundException(PartyNotFoundException e) {
         log.warn("PartyNotFoundException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.NOT_FOUND)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(e.getMessage()));
     }
-     /**
+
+    /**
      * 404 Not Found - 신청을 찾을 수 없음
      */
     @ExceptionHandler(PartyApplicationNotFoundException.class)
     public ResponseEntity<ApiResponse> handlePartyApplicationNotFoundException(PartyApplicationNotFoundException e) {
         log.warn("PartyApplicationNotFoundException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.NOT_FOUND)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -170,8 +185,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleDuplicateApplicationException(DuplicateApplicationException e) {
         log.warn("DuplicateApplicationException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.CONFLICT)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -181,8 +196,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleDuplicateCheckInException(DuplicateCheckInException e) {
         log.warn("DuplicateCheckInException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.CONFLICT)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -192,8 +207,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handlePartyFullException(PartyFullException e) {
         log.warn("PartyFullException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.BAD_REQUEST)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -203,8 +218,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleInvalidApplicationStatusException(InvalidApplicationStatusException e) {
         log.warn("InvalidApplicationStatusException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.BAD_REQUEST)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -214,8 +229,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleInvalidPartyStatusException(InvalidPartyStatusException e) {
         log.warn("InvalidPartyStatusException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.BAD_REQUEST)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -225,20 +240,20 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleUnauthorizedAccessException(UnauthorizedAccessException e) {
         log.warn("UnauthorizedAccessException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.FORBIDDEN)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     @ExceptionHandler(NotificationNotFoundException.class)
     public ResponseEntity<ApiResponse> handleNotificationNotFoundException(NotificationNotFoundException e) {
         log.warn("NotificationNotFoundException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.NOT_FOUND)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(e.getMessage()));
     }
-    
+
     // --- BegaDiary 관련 예외 추가 ---
-    
+
     /**
      * 404 Not Found - 경기 정보를 찾을 수 없음
      */
@@ -246,10 +261,10 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleGameNotFoundException(GameNotFoundException e) {
         log.warn("GameNotFoundException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.NOT_FOUND)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(e.getMessage()));
     }
-    
+
     /**
      * 404 Not Found - 다이어리를 찾을 수 없음
      */
@@ -257,8 +272,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleDiaryNotFoundException(DiaryNotFoundException e) {
         log.warn("DiaryNotFoundException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.NOT_FOUND)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -268,8 +283,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleDiaryAlreadyExistsException(DiaryAlreadyExistsException e) {
         log.warn("DiaryAlreadyExistsException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.CONFLICT)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(e.getMessage()));
     }
 
     /**
@@ -279,17 +294,16 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleImageProcessingException(ImageProcessingException e) {
         log.error("ImageProcessingException: {}", e.getMessage()); // 시스템 오류이므로 error 레벨 로그 권장
         return ResponseEntity
-            .status(HttpStatus.INTERNAL_SERVER_ERROR)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error(e.getMessage()));
     }
-    
+
     @ExceptionHandler(WinningNameNotFoundException.class)
     public ResponseEntity<ApiResponse> handleWinningNameNotFoundException(WinningNameNotFoundException e) {
-        log.error("WinningNameNotFoundException: {}", e.getMessage()); 
+        log.error("WinningNameNotFoundException: {}", e.getMessage());
         return ResponseEntity
-            .status(HttpStatus.BAD_REQUEST)
-            .body(ApiResponse.error(e.getMessage()));
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(e.getMessage()));
     }
-    
-}
 
+}

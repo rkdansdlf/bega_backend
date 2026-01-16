@@ -51,12 +51,15 @@ public class UserEntity {
     @Column(name = "created_at", updatable = false, nullable = false)
     private LocalDateTime createdAt;
 
-    // OAuth2 제공자 (LOCAL, GOOGLE, KAKAO 등)
+    // OAuth2 제공자 (LOCAL, GOOGLE, KAKAO 등) - Deprecated (Use providers list)
     private String provider;
 
-    // OAuth2 제공자의 고유ID (소셜 계정 연동 시 사용)
+    // OAuth2 제공자의 고유ID (소셜 계정 연동 시 사용) - Deprecated (Use providers list)
     @Column(name = "providerid")
     private String providerId;
+
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    private java.util.List<UserProvider> providers = new java.util.ArrayList<>();
 
     // JWT에 넣기 위해 단일 권한 키 문자열을 반환하는 메서드
     public String getRoleKey() {
