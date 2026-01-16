@@ -79,6 +79,7 @@ public class CheerService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     public Page<PostSummaryRes> list(String teamId, String postTypeStr, Pageable pageable) {
         if (teamId != null && !teamId.isBlank()) {
             UserEntity me = current.getOrNull();
@@ -344,6 +345,7 @@ public class CheerService {
         reportRepo.save(Objects.requireNonNull(report));
     }
 
+    @Transactional(readOnly = true)
     public Page<PostSummaryRes> getBookmarkedPosts(Pageable pageable) {
         UserEntity me = current.get();
         Page<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdOrderByCreatedAtDesc(me.getId(), pageable);
@@ -354,6 +356,7 @@ public class CheerService {
         });
     }
 
+    @Transactional(readOnly = true)
     public Page<CommentRes> listComments(Long postId, Pageable pageable) {
         // 최상위 댓글만 조회 (대댓글은 각 댓글의 replies에 포함됨)
         return commentRepo

@@ -119,6 +119,80 @@ public class MypageController {
         }
     }
 
+    /**
+     * 비밀번호 변경 (일반 로그인 사용자만)
+     */
+    @PutMapping("/password")
+    public ResponseEntity<ApiResponse> changePassword(
+            @AuthenticationPrincipal Long userId,
+            @Valid @RequestBody com.example.demo.mypage.dto.ChangePasswordRequest request) {
+        try {
+            // 새 비밀번호와 확인 일치 체크
+            if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.error("새 비밀번호와 비밀번호 확인이 일치하지 않습니다."));
+            }
+
+            userService.changePassword(userId, request.getCurrentPassword(), request.getNewPassword());
+
+            return ResponseEntity.ok(ApiResponse.success("비밀번호가 성공적으로 변경되었습니다."));
+
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error(e.getMessage()));
+        } catch (com.example.demo.exception.InvalidCredentialsException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("현재 비밀번호가 일치하지 않습니다."));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("비밀번호 변경 중 오류가 발생했습니다."));
+        }
+    }
+
+    /**
+     * 계정 삭제 (회원탈퇴)
+     */
+    @DeleteMapping("/account")
+    public ResponseEntity<ApiResponse> deleteAccount(
+            @AuthenticationPrincipal Long userId,
+            @RequestBody(required = false) com.example.demo.mypage.dto.DeleteAccountRequest request) {
+        try {
+            String password = request != null ? request.getPassword() : null;
+
+            userService.deleteAccount(userId, password);
+
+            // 쿠키 삭제를 위한 빈 쿠키 생성
+            ResponseCookie authCookie = ResponseCookie.from("Authorization", "")
+                    .httpOnly(true)
+                    .secure(false)
+                    .path("/")
+                    .maxAge(0)
+                    .build();
+
+            ResponseCookie refreshCookie = ResponseCookie.from("Refresh", "")
+                    .httpOnly(true)
+                    .secure(false)
+                    .path("/")
+                    .maxAge(0)
+                    .build();
+
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE, authCookie.toString())
+                    .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
+                    .body(ApiResponse.success("계정이 성공적으로 삭제되었습니다."));
+
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error(e.getMessage()));
+        } catch (com.example.demo.exception.InvalidCredentialsException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("비밀번호가 일치하지 않습니다."));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("계정 삭제 중 오류가 발생했습니다."));
+        }
+    }
+
     @GetMapping("/supabasetoken")
     public ResponseEntity<ApiResponse> getSupabaseToken(
             @CookieValue(name = "Authorization", required = false) String jwtToken) { // 쿠키에서 'Authorization' 값을 가져옴

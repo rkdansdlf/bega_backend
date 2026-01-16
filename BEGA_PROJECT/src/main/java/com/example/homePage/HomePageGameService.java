@@ -14,6 +14,9 @@ import com.example.demo.repo.GameRepository;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
+
+import static com.example.demo.config.CacheConfig.*;
 
 @Service
 @RequiredArgsConstructor
@@ -41,6 +44,7 @@ public class HomePageGameService {
         return teamMap.getOrDefault(teamId, new HomePageTeam());
     }
 
+    @Cacheable(value = GAME_SCHEDULE, key = "#date.toString()")
     public List<HomePageGameDto> getGamesByDate(LocalDate date) {
         List<GameEntity> games = gameRepository.findByGameDate(date);
 
@@ -143,6 +147,8 @@ public class HomePageGameService {
     }
 
     // v_team_rank_all 뷰에서 순위 데이터를 가져오도록 수정
+    @Cacheable(value = TEAM_RANKINGS, key = "#seasonYear")
+    @Transactional(readOnly = true)
     public List<HomePageTeamRankingDto> getTeamRankings(int seasonYear) {
         List<Object[]> results = gameRepository.findTeamRankingsBySeason(seasonYear);
 
@@ -161,6 +167,7 @@ public class HomePageGameService {
     }
 
     // 리그 시작 날짜 조회
+    @Cacheable(value = LEAGUE_DATES, key = "T(java.time.LocalDate).now().getYear()")
     @Transactional(readOnly = true)
     public LeagueStartDatesDto getLeagueStartDates() {
         LocalDate now = LocalDate.now();

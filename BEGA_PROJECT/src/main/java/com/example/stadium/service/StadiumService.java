@@ -9,8 +9,11 @@ import com.example.stadium.exception.StadiumNotFoundException;
 import com.example.stadium.repository.PlaceRepository;
 import com.example.stadium.repository.StadiumRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import static com.example.demo.config.CacheConfig.*;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -23,6 +26,7 @@ public class StadiumService {
     private final StadiumRepository stadiumRepository;
     private final PlaceRepository placeRepository;
 
+    @Cacheable(value = STADIUMS, key = "'all'")
     public List<StadiumDto> getAllStadiums() {
         return stadiumRepository.findAll().stream()
                 .filter(stadium -> stadium.getLat() != null && stadium.getLng() != null)
@@ -31,6 +35,7 @@ public class StadiumService {
     }
 
     @SuppressWarnings("null")
+    @Cacheable(value = STADIUMS, key = "#stadiumId")
     public StadiumDetailDto getStadiumDetail(String stadiumId) {
         Stadium stadium = stadiumRepository.findById(stadiumId)
                 .orElseThrow(() -> new StadiumNotFoundException(stadiumId));

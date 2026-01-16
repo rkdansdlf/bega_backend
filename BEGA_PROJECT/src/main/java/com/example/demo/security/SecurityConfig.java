@@ -55,6 +55,18 @@ public class SecurityConfig {
                 return new BCryptPasswordEncoder();
         }
 
+        /**
+         * 역할 계층 설정: ADMIN > USER
+         * 관리자는 일반 사용자의 모든 권한을 자동으로 가집니다.
+         */
+        @Bean
+        public org.springframework.security.access.hierarchicalroles.RoleHierarchy roleHierarchy() {
+                return org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl
+                                .withDefaultRolePrefix()
+                                .role("ADMIN").implies("USER")
+                                .build();
+        }
+
         // CORS Configuration Source Bean 정의
         @Bean
         public CorsConfigurationSource corsConfigurationSource() {
@@ -161,8 +173,6 @@ public class SecurityConfig {
 
                                                 // 기존 권한 설정
                                                 .requestMatchers("/admin/**").hasRole("ADMIN")
-                                                // 팀게시글 주소별 권한
-                                                .requestMatchers("/team/be/**").hasRole("BE")
 
                                                 // 나머지 모든 요청은 인증 필요
                                                 .anyRequest().authenticated())

@@ -84,6 +84,13 @@ public class UserEntity {
                 .orElse(null);
     }
 
+    /**
+     * 관리자인지 확인하는 헬퍼 메서드
+     */
+    public boolean isAdmin() {
+        return "ROLE_ADMIN".equals(this.role);
+    }
+
     public UserDto toDto() {
         return UserDto.builder()
                 .id(this.id)

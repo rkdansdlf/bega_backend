@@ -22,16 +22,6 @@ public class MyPageService {
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ISO_DATE;
 
-    // Team ID에 따라 Role Key 설정
-    private String getRoleKeyByTeamId(String teamId) {
-        if (teamId == null || "없음".equals(teamId) || teamId.trim().isEmpty()) {
-            return "ROLE_USER";
-        }
-
-        // ROLE_ID 형태로 Role Key를 생성합니다
-        return "ROLE_" + teamId.toUpperCase();
-    }
-
     // 이메일을 기반으로 사용자 프로필을 조회하여 DTO로 변환합니다.
     @Transactional(readOnly = true)
     public UserProfileDto getProfileByEmail(String email) {
@@ -59,20 +49,18 @@ public class MyPageService {
 
         // 닉네임 업데이트
         user.setName(updateDto.getName());
-        // 응원 구단 업데이트
+
+        // 응원 구단 업데이트 (관리자는 null 허용)
         String newTeamId = updateDto.getFavoriteTeam();
 
         TeamEntity newTeam = null;
-        if (newTeamId != null && !newTeamId.equals("없음")) {
-            // 새로 적용한 Team ID를 TeamEntity 조회
+        if (newTeamId != null && !newTeamId.equals("없음") && !newTeamId.trim().isEmpty()) {
             newTeam = teamRepository.findByTeamId(newTeamId)
                     .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 팀 약어입니다: " + newTeamId));
         }
-        user.setFavoriteTeam(newTeam); // TeamEntity 객체 설정
+        user.setFavoriteTeam(newTeam);
 
-        // 권한 (Role) 업데이트
-        String newRoleKey = getRoleKeyByTeamId(newTeamId);
-        user.setRole(newRoleKey);
+        // Role은 변경하지 않음 (ADMIN/USER는 독립적으로 관리)
 
         // 프로필 이미지 URL 업데이트
         if (updateDto.getProfileImageUrl() != null) {

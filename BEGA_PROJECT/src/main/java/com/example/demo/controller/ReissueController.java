@@ -120,7 +120,7 @@ public class ReissueController {
         cookie.setMaxAge(maxAgeSeconds);
         cookie.setPath("/");
         cookie.setHttpOnly(true);
-        cookie.setSecure(true); // HTTPS 환경에서 사용 권장
+        cookie.setSecure(false); // 로컬 개발 환경(HTTP)에서는 false로 설정
 
         return cookie;
     }

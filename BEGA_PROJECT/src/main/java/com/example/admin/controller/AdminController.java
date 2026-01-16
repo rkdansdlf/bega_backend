@@ -42,12 +42,11 @@ public class AdminController {
      */
     @GetMapping("/users")
     public ResponseEntity<ApiResponse> getUsers(
-            @RequestParam(required = false) String search
-    ) {
+            @RequestParam(required = false) String search) {
         List<AdminUserDto> users = adminService.getUsers(search);
         return ResponseEntity.ok(ApiResponse.success("유저 목록 조회 성공", users));
     }
-    
+
     /**
      * 게시글 목록 조회
      * GET /api/admin/posts
@@ -57,7 +56,7 @@ public class AdminController {
         List<AdminPostDto> posts = adminService.getPosts();
         return ResponseEntity.ok(ApiResponse.success("게시글 목록 조회 성공", posts));
     }
-    
+
     /**
      * 메이트 목록 조회
      * GET /api/admin/mates
@@ -67,7 +66,7 @@ public class AdminController {
         List<AdminMateDto> mates = adminService.getMates();
         return ResponseEntity.ok(ApiResponse.success("메이트 목록 조회 성공", mates));
     }
-    
+
     /**
      * 유저 삭제
      * DELETE /api/admin/users/{userId}
@@ -96,5 +95,15 @@ public class AdminController {
     public ResponseEntity<ApiResponse> deleteMate(@PathVariable Long mateId) {
         adminService.deleteMate(mateId);
         return ResponseEntity.ok(ApiResponse.success("메이트 모임이 삭제되었습니다."));
+    }
+
+    /**
+     * 캐시 통계 조회 (관리자 전용)
+     * GET /api/admin/cache-stats
+     */
+    @GetMapping("/cache-stats")
+    public ResponseEntity<ApiResponse> getCacheStats() {
+        var stats = adminService.getCacheStats();
+        return ResponseEntity.ok(ApiResponse.success("캐시 통계 조회 성공", stats));
     }
 }

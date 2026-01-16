@@ -27,7 +27,7 @@ public class CheerPostBookmark {
     @JoinColumn(name = "user_id")
     private UserEntity user;
 
-    @Column(name = "createdat", nullable = false)
+    @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
     @PrePersist

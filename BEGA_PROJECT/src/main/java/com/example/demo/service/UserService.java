@@ -214,7 +214,7 @@ public class UserService {
     }
 
     /**
-     * 응원팀 업데이트
+     * 응원팀 업데이트 (관리자가 아닌 경우에만 팀 확인)
      */
     private void updateFavoriteTeam(UserEntity user, String teamId) {
         if (teamId != null && !teamId.trim().isEmpty()) {
@@ -224,9 +224,70 @@ public class UserService {
         } else {
             user.setFavoriteTeam(null);
         }
+        // 팀 변경 시 role은 변경하지 않음 (ADMIN/USER 유지)
+    }
 
-        String roleKey = getRoleKeyByTeamId(teamId);
-        user.setRole(roleKey);
+    /**
+     * 비밀번호 변경 (일반 로그인 사용자만)
+     */
+    @Transactional
+    public void changePassword(Long userId, String currentPassword, String newPassword) {
+        UserEntity user = findUserById(userId);
+
+        // OAuth2 사용자 체크
+        if (user.isOAuth2User()) {
+            throw new IllegalStateException("소셜 로그인 사용자는 비밀번호를 변경할 수 없습니다.");
+        }
+
+        // 현재 비밀번호가 없는 경우 (소셜 로그인 후 로컬 연동 등)
+        if (user.getPassword() == null) {
+            throw new IllegalStateException("비밀번호가 설정되어 있지 않습니다.");
+        }
+
+        // 현재 비밀번호 검증
+        if (!bCryptPasswordEncoder.matches(currentPassword, user.getPassword())) {
+            throw new InvalidCredentialsException("현재 비밀번호가 일치하지 않습니다.");
+        }
+
+        // 새 비밀번호 암호화 및 저장
+        user.setPassword(bCryptPasswordEncoder.encode(newPassword));
+        userRepository.save(user);
+
+        log.info("Password changed for user ID: {}", userId);
+    }
+
+    /**
+     * 계정 삭제 (회원탈퇴)
+     */
+    @Transactional
+    public void deleteAccount(Long userId, String password) {
+        UserEntity user = findUserById(userId);
+
+        // LOCAL 사용자는 비밀번호 확인 필요
+        if (!user.isOAuth2User()) {
+            if (password == null || password.isEmpty()) {
+                throw new IllegalArgumentException("비밀번호를 입력해주세요.");
+            }
+            if (user.getPassword() == null) {
+                throw new IllegalStateException("비밀번호가 설정되어 있지 않습니다.");
+            }
+            if (!bCryptPasswordEncoder.matches(password, user.getPassword())) {
+                throw new InvalidCredentialsException("비밀번호가 일치하지 않습니다.");
+            }
+        }
+
+        String userEmail = user.getEmail();
+
+        // Refresh Token 삭제
+        RefreshToken refreshToken = refreshRepository.findByEmail(userEmail);
+        if (refreshToken != null) {
+            refreshRepository.delete(refreshToken);
+        }
+
+        // 사용자 삭제 (관련 데이터는 DB의 CASCADE 설정에 따라 처리됨)
+        userRepository.delete(user);
+
+        log.info("Account deleted for user ID: {}, email: {}", userId, userEmail);
     }
 
     /**
@@ -325,35 +386,21 @@ public class UserService {
     }
 
     /**
-     * Role 및 Team 매핑 메서드
+     * 일반 회원가입 시 항상 USER 역할 부여 (팀과 무관)
      */
     private String getRoleKeyByFavoriteTeam(String teamName) {
-        if (teamName == null || "없음".equals(teamName) || teamName.trim().isEmpty()) {
-            return Role.USER.getKey();
-        }
-
-        Role role = switch (teamName) {
-            case "삼성 라이온즈" -> Role.Role_SS;
-            case "롯데 자이언츠" -> Role.Role_LT;
-            case "LG 트윈스" -> Role.Role_LG;
-            case "두산 베어스" -> Role.Role_OB;
-            case "키움 히어로즈" -> Role.Role_WO;
-            case "한화 이글스" -> Role.Role_HH;
-            case "SSG 랜더스" -> Role.Role_SK;
-            case "NC 다이노스" -> Role.Role_NC;
-            case "KT 위즈" -> Role.Role_KT;
-            case "기아 타이거즈" -> Role.Role_HT;
-            default -> Role.USER;
-        };
-
-        return role.getKey();
+        // 모든 일반 가입자는 ROLE_USER
+        return Role.USER.getKey();
     }
 
+    /**
+     * 팀 ID로 역할 조회 - 더 이상 사용되지 않음 (하위 호환)
+     * 
+     * @deprecated 팀과 Role은 분리되었습니다.
+     */
+    @Deprecated
     private String getRoleKeyByTeamId(String teamId) {
-        if (teamId == null || teamId.trim().isEmpty()) {
-            return Role.USER.getKey();
-        }
-        return "ROLE_" + teamId.toUpperCase();
+        return Role.USER.getKey();
     }
 
     private String getTeamIdByFavoriteTeamName(String teamName) {
