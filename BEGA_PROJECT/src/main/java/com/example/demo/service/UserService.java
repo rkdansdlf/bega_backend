@@ -222,6 +222,7 @@ public class UserService {
         updateUserName(user, updateDto.getName());
         updateProfileImage(user, updateDto.getProfileImageUrl());
         updateFavoriteTeam(user, updateDto.getFavoriteTeam());
+        updateBio(user, updateDto.getBio());
 
         return userRepository.save(user);
     }
@@ -233,6 +234,17 @@ public class UserService {
     private void updateProfileImage(UserEntity user, String imageUrl) {
         if (imageUrl != null && !imageUrl.isEmpty()) {
             user.setProfileImageUrl(imageUrl);
+        }
+    }
+
+    private void updateBio(UserEntity user, String bio) {
+        // null이거나 빈 문자열이면 업데이트 (삭제 가능)
+        if (bio != null) {
+            String trimmedBio = bio.trim();
+            if (trimmedBio.length() > 500) {
+                trimmedBio = trimmedBio.substring(0, 500);
+            }
+            user.setBio(trimmedBio);
         }
     }
 
@@ -294,6 +306,7 @@ public class UserService {
             if (user.getPassword() == null) {
                 throw new IllegalStateException("비밀번호가 설정되어 있지 않습니다.");
             }
+
             if (!bCryptPasswordEncoder.matches(password, user.getPassword())) {
                 throw new InvalidCredentialsException("비밀번호가 일치하지 않습니다.");
             }
@@ -399,6 +412,21 @@ public class UserService {
         return userRepository.findByEmail(normalizedEmail)
                 .map(this::convertToUserDto)
                 .orElseThrow(() -> new UserNotFoundException("email", email));
+    }
+
+    /**
+     * 공개 프로필 조회
+     */
+    @Transactional(readOnly = true)
+    public com.example.demo.dto.PublicUserProfileDto getPublicUserProfile(Long userId) {
+        UserEntity user = findUserById(userId);
+        return com.example.demo.dto.PublicUserProfileDto.builder()
+                .id(user.getId())
+                .name(user.getName())
+                .favoriteTeam(user.getFavoriteTeamId())
+                .profileImageUrl(user.getProfileImageUrl())
+                .bio(user.getBio())
+                .build();
     }
 
     /**

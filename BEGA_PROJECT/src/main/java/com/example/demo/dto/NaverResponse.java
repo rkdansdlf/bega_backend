@@ -7,6 +7,7 @@ public class NaverResponse implements OAuth2Response {
 
     private final Map<String, Object> attribute;
 
+    @SuppressWarnings("unchecked")
     public NaverResponse(Map<String, Object> attribute) {
         // Naver의 속성은 "response" 키 안에 중첩되어 있습니다.
         this.attribute = (Map<String, Object>) attribute.get("response");

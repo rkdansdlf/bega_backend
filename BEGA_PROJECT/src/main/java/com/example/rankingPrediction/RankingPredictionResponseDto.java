@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 public class RankingPredictionResponseDto {
 
 	private Long id;
-	private String userId;
+	private Long userId;
 	private int seasonYear;
 	private List<String> teamIdsInOrder;
 	private List<TeamRankingDetail> teamDetails; // 상세 정보 추가
@@ -28,8 +28,5 @@ public class RankingPredictionResponseDto {
 		private Integer currentRank; // 현재 시즌 순위
 		private Integer lastSeasonRank; // 전 시즌 순위
 	}
-	
+
 }
-	
-
-

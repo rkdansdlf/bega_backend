@@ -107,7 +107,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         UserEntity savedUser = userRepository.save(userEntity);
 
         // UserProvider 생성
-        linkAccount(savedUser, provider, providerId);
+        linkAccount(java.util.Objects.requireNonNull(savedUser), provider, providerId);
 
         return savedUser;
     }
@@ -133,7 +133,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 .providerId(providerId)
                 .build();
 
-        userProviderRepository.save(userProvider);
+        userProviderRepository.save(java.util.Objects.requireNonNull(userProvider));
     }
 
     private void updateUser(UserEntity user, String newName) {
