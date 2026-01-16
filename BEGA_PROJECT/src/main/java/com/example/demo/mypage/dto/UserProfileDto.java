@@ -24,16 +24,20 @@ public class UserProfileDto {
     @Email(message = "유효하지 않은 이메일 형식입니다.")
     @NotBlank(message = "이메일은 필수입니다.")
     private String email; // 이메일 (조회 전용, 수정 불가능)
-    
+
     // 응원 구단
-    private String favoriteTeam; 
-    
+    private String favoriteTeam;
+
     // 프로필 이미지 URL
     private String profileImageUrl;
-    
+
     // 가입일자 (조회 전용)
-    private String createdAt; 
-    
-    private String role; 
-    
+    private String createdAt;
+
+    private String role;
+
+    // 자기소개 (수정 가능)
+    @Size(max = 500, message = "자기소개는 500자 이내여야 합니다.")
+    private String bio;
+
 }

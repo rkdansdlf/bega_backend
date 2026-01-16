@@ -25,7 +25,8 @@ public class SupabaseStorageClient {
 
     /**
      * 파일 업로드
-     * @param file 업로드할 파일
+     * 
+     * @param file        업로드할 파일
      * @param storagePath 저장 경로 (예: posts/123/uuid.jpg)
      * @return 업로드된 파일 정보
      */
@@ -38,25 +39,24 @@ public class SupabaseStorageClient {
             }
 
             return supabaseStorageWebClient
-                .post()
-                .uri("/object/" + bucket + "/" + storagePath)
-                .contentType(Objects.requireNonNull(MediaType.parseMediaType(contentType)))
-                .bodyValue(bytes)
-                .retrieve()
-                .onStatus(
-                    status -> !status.is2xxSuccessful(),
-                    response -> response.bodyToMono(String.class)
-                        .flatMap(body -> {
-                            log.error("Supabase Storage upload failed: status={}, body={}",
-                                response.statusCode(), body);
-                            return Mono.error(new RuntimeException(
-                                "파일 업로드에 실패했습니다: " + body));
-                        })
-                )
-                .bodyToMono(UploadResponse.class)
-                .doOnSuccess(res -> log.info("파일 업로드 성공: path={}", storagePath))
-                .doOnError(err -> log.error("파일 업로드 실패: path={}, error={}",
-                    storagePath, err.getMessage()));
+                    .post()
+                    .uri("/object/" + bucket + "/" + storagePath)
+                    .contentType(Objects.requireNonNull(MediaType.parseMediaType(contentType)))
+                    .bodyValue(bytes)
+                    .retrieve()
+                    .onStatus(
+                            status -> !status.is2xxSuccessful(),
+                            response -> response.bodyToMono(String.class)
+                                    .flatMap(body -> {
+                                        log.error("Supabase Storage upload failed: status={}, body={}",
+                                                response.statusCode(), body);
+                                        return Mono.error(new RuntimeException(
+                                                "파일 업로드에 실패했습니다: " + body));
+                                    }))
+                    .bodyToMono(UploadResponse.class)
+                    .doOnSuccess(res -> log.info("파일 업로드 성공: path={}", storagePath))
+                    .doOnError(err -> log.error("파일 업로드 실패: path={}, error={}",
+                            storagePath, err.getMessage()));
 
         } catch (Exception e) {
             log.error("파일 업로드 중 오류 발생: path={}", storagePath, e);
@@ -66,9 +66,10 @@ public class SupabaseStorageClient {
 
     /**
      * 바이트 배열 업로드 (압축된 이미지용)
-     * @param bytes 업로드할 바이트 배열
+     * 
+     * @param bytes       업로드할 바이트 배열
      * @param contentType MIME 타입
-     * @param bucket 버킷명
+     * @param bucket      버킷명
      * @param storagePath 저장 경로
      * @return 업로드된 파일 정보
      */
@@ -79,143 +80,140 @@ public class SupabaseStorageClient {
 
         final String finalContentType = contentType;
         return supabaseStorageWebClient
-            .post()
-            .uri("/object/" + bucket + "/" + storagePath)
-            .contentType(Objects.requireNonNull(MediaType.parseMediaType(finalContentType)))
-            .bodyValue(bytes)
-            .retrieve()
-            .onStatus(
-                status -> !status.is2xxSuccessful(),
-                response -> response.bodyToMono(String.class)
-                    .flatMap(body -> {
-                        log.error("Supabase Storage upload failed: status={}, body={}",
-                            response.statusCode(), body);
-                        return Mono.error(new RuntimeException(
-                            "파일 업로드에 실패했습니다: " + body));
-                    })
-            )
-            .bodyToMono(UploadResponse.class)
-            .doOnSuccess(res -> log.info("파일 업로드 성공: path={}, size={}bytes", storagePath, bytes.length))
-            .doOnError(err -> log.error("파일 업로드 실패: path={}, error={}",
-                storagePath, err.getMessage()));
+                .post()
+                .uri("/object/" + bucket + "/" + storagePath)
+                .contentType(Objects.requireNonNull(MediaType.parseMediaType(finalContentType)))
+                .bodyValue(java.util.Objects.requireNonNull(bytes))
+                .retrieve()
+                .onStatus(
+                        status -> !status.is2xxSuccessful(),
+                        response -> response.bodyToMono(String.class)
+                                .flatMap(body -> {
+                                    log.error("Supabase Storage upload failed: status={}, body={}",
+                                            response.statusCode(), body);
+                                    return Mono.error(new RuntimeException(
+                                            "파일 업로드에 실패했습니다: " + body));
+                                }))
+                .bodyToMono(UploadResponse.class)
+                .doOnSuccess(res -> log.info("파일 업로드 성공: path={}, size={}bytes", storagePath, bytes.length))
+                .doOnError(err -> log.error("파일 업로드 실패: path={}, error={}",
+                        storagePath, err.getMessage()));
     }
 
     /**
      * 파일 삭제
+     * 
      * @param storagePath 삭제할 파일 경로
      */
     public Mono<Void> delete(String bucket, String storagePath) {
         return supabaseStorageWebClient
-            .delete()
-            .uri("/object/{bucket}/{path}", bucket, storagePath)
-            .retrieve()
-            .onStatus(
-                status -> !status.is2xxSuccessful(),
-                response -> response.bodyToMono(String.class)
-                    .flatMap(body -> {
-                        log.error("Supabase Storage delete failed: status={}, body={}",
-                            response.statusCode(), body);
-                        return Mono.error(new RuntimeException(
-                            "파일 삭제에 실패했습니다: " + body));
-                    })
-            )
-            .bodyToMono(Void.class)
-            .doOnSuccess(v -> log.info("파일 삭제 성공: path={}", storagePath))
-            .doOnError(err -> log.error("파일 삭제 실패: path={}, error={}",
-                storagePath, err.getMessage()));
+                .delete()
+                .uri("/object/{bucket}/{path}", bucket, storagePath)
+                .retrieve()
+                .onStatus(
+                        status -> !status.is2xxSuccessful(),
+                        response -> response.bodyToMono(String.class)
+                                .flatMap(body -> {
+                                    log.error("Supabase Storage delete failed: status={}, body={}",
+                                            response.statusCode(), body);
+                                    return Mono.error(new RuntimeException(
+                                            "파일 삭제에 실패했습니다: " + body));
+                                }))
+                .bodyToMono(Void.class)
+                .doOnSuccess(v -> log.info("파일 삭제 성공: path={}", storagePath))
+                .doOnError(err -> log.error("파일 삭제 실패: path={}, error={}",
+                        storagePath, err.getMessage()));
     }
 
     /**
      * 서명된 URL 생성 (읽기 전용)
+     * 
      * @param storagePath 파일 경로
-     * @param expiresIn 만료 시간 (초)
+     * @param expiresIn   만료 시간 (초)
      * @return 서명된 URL
      */
     public Mono<SignedUrlResponse> createSignedUrl(String bucket, String storagePath, int expiresIn) {
         String requestBody = String.format("{\"expiresIn\": %d}", expiresIn);
 
         return supabaseStorageWebClient
-            .post()
-            .uri("/object/sign/" + bucket + "/" + storagePath)
-            .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-            .bodyValue(Objects.requireNonNull(requestBody))
-            .retrieve()
-            .onStatus(
-                status -> !status.is2xxSuccessful(),
-                response -> response.bodyToMono(String.class)
-                    .flatMap(body -> {
-                        log.error("Supabase Storage signed URL failed: status={}, body={}",
-                            response.statusCode(), body);
-                        return Mono.error(new RuntimeException(
-                            "서명 URL 생성에 실패했습니다: " + body));
-                    })
-            )
-            .bodyToMono(SignedUrlResponse.class)
-            .doOnSuccess(res -> log.info("Supabase 응답 signedURL={}", res != null ? res.signedUrl() : "null"))
-            .map(res -> {
-                if (res == null || res.signedUrl() == null) {
-                    log.warn("signedUrl이 null입니다");
-                    return new SignedUrlResponse(null);
-                }
-                String base = config.getSupabaseUrl().replaceAll("/$", "");
-                // Supabase가 내려준 문자열 그대로 붙여줍니다 (JWT 서명 보존)
-                // /storage/v1 경로를 추가해야 올바른 URL이 됩니다
-                String fullUrl = base + "/storage/v1" + res.signedUrl();
-                log.info("최종 URL 생성: {}", fullUrl);
-                return new SignedUrlResponse(fullUrl);
-            })
-            .doOnSuccess(res -> log.debug("서명 URL 생성 성공: path={}, url={}", storagePath, res.signedUrl()))
-            .doOnError(err -> log.error("서명 URL 생성 실패: path={}, error={}",
-                storagePath, err.getMessage()));
+                .post()
+                .uri("/object/sign/" + bucket + "/" + storagePath)
+                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                .bodyValue(Objects.requireNonNull(requestBody))
+                .retrieve()
+                .onStatus(
+                        status -> !status.is2xxSuccessful(),
+                        response -> response.bodyToMono(String.class)
+                                .flatMap(body -> {
+                                    log.error("Supabase Storage signed URL failed: status={}, body={}",
+                                            response.statusCode(), body);
+                                    return Mono.error(new RuntimeException(
+                                            "서명 URL 생성에 실패했습니다: " + body));
+                                }))
+                .bodyToMono(SignedUrlResponse.class)
+                .doOnSuccess(res -> log.info("Supabase 응답 signedURL={}", res != null ? res.signedUrl() : "null"))
+                .map(res -> {
+                    if (res == null || res.signedUrl() == null) {
+                        log.warn("signedUrl이 null입니다");
+                        return new SignedUrlResponse(null);
+                    }
+                    String base = config.getSupabaseUrl().replaceAll("/$", "");
+                    // Supabase가 내려준 문자열 그대로 붙여줍니다 (JWT 서명 보존)
+                    // /storage/v1 경로를 추가해야 올바른 URL이 됩니다
+                    String fullUrl = base + "/storage/v1" + res.signedUrl();
+                    log.info("최종 URL 생성: {}", fullUrl);
+                    return new SignedUrlResponse(fullUrl);
+                })
+                .doOnSuccess(res -> log.debug("서명 URL 생성 성공: path={}, url={}", storagePath, res.signedUrl()))
+                .doOnError(err -> log.error("서명 URL 생성 실패: path={}, error={}",
+                        storagePath, err.getMessage()));
     }
 
     /**
      * 파일 이동 (썸네일 지정 시 사용)
+     * 
      * @param fromPath 원본 경로
-     * @param toPath 대상 경로
+     * @param toPath   대상 경로
      */
     public Mono<Void> move(String bucket, String fromPath, String toPath) {
         String requestBody = String.format(
-            "{\"bucketId\": \"%s\", \"sourceKey\": \"%s\", \"destinationKey\": \"%s\"}",
-            bucket, fromPath, toPath
-        );
+                "{\"bucketId\": \"%s\", \"sourceKey\": \"%s\", \"destinationKey\": \"%s\"}",
+                bucket, fromPath, toPath);
 
         return supabaseStorageWebClient
-            .post()
-            .uri("/object/move")
-            .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-            .bodyValue(Objects.requireNonNull(requestBody))
-            .retrieve()
-            .onStatus(
-                status -> !status.is2xxSuccessful(),
-                response -> response.bodyToMono(String.class)
-                    .flatMap(body -> {
-                        log.error("Supabase Storage move failed: status={}, body={}",
-                            response.statusCode(), body);
-                        return Mono.error(new RuntimeException(
-                            "파일 이동에 실패했습니다: " + body));
-                    })
-            )
-            .bodyToMono(Void.class)
-            .doOnSuccess(v -> log.info("파일 이동 성공: from={}, to={}", fromPath, toPath))
-            .doOnError(err -> log.error("파일 이동 실패: from={}, to={}, error={}",
-                fromPath, toPath, err.getMessage()));
+                .post()
+                .uri("/object/move")
+                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                .bodyValue(Objects.requireNonNull(requestBody))
+                .retrieve()
+                .onStatus(
+                        status -> !status.is2xxSuccessful(),
+                        response -> response.bodyToMono(String.class)
+                                .flatMap(body -> {
+                                    log.error("Supabase Storage move failed: status={}, body={}",
+                                            response.statusCode(), body);
+                                    return Mono.error(new RuntimeException(
+                                            "파일 이동에 실패했습니다: " + body));
+                                }))
+                .bodyToMono(Void.class)
+                .doOnSuccess(v -> log.info("파일 이동 성공: from={}, to={}", fromPath, toPath))
+                .doOnError(err -> log.error("파일 이동 실패: from={}, to={}, error={}",
+                        fromPath, toPath, err.getMessage()));
     }
 
     /**
      * 업로드 응답 DTO
      */
     public record UploadResponse(
-        String Key,
-        String Id,
-        String Bucket
-    ) {}
+            String Key,
+            String Id,
+            String Bucket) {
+    }
 
     /**
      * 서명 URL 응답 DTO
      */
     public record SignedUrlResponse(
-        @com.fasterxml.jackson.annotation.JsonProperty("signedURL")
-        String signedUrl
-    ) {}
+            @com.fasterxml.jackson.annotation.JsonProperty("signedURL") String signedUrl) {
+    }
 }
