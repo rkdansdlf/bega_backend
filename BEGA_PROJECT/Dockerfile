@@ -1,5 +1,5 @@
 # Stage 1: Build - 빌드 전용 환경
-FROM eclipse-temurin:17-jdk-jammy AS builder
+FROM eclipse-temurin:21-jdk-jammy AS builder
 
 WORKDIR /build
 
@@ -22,7 +22,7 @@ COPY src src
 RUN ./gradlew clean build -x test
 
 # Stage 2: Runtime - 실행 전용 환경
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:21-jre-jammy
 
 WORKDIR /app
 

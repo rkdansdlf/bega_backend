@@ -24,5 +24,9 @@ public class HomePageGameDto {
     private String homeTeamFull; 		// 팀 전체 이름 (LG 트윈스)
     private String awayTeam; 			// 팀 약어 ID (KT)
     private String awayTeamFull; 		// 팀 전체 이름 (KT 위즈)
-    
+
+    // 점수 정보 (경기 종료/진행 중일 때 필수)
+    private Integer homeScore;			// 홈팀 득점
+    private Integer awayScore;			// 원정팀 득점
+
 }

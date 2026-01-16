@@ -3,19 +3,13 @@ package com.example.cheerboard.storage.client;
 import com.example.cheerboard.storage.config.StorageConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.core.io.buffer.DataBufferUtils;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.time.Instant;
+import java.util.Objects;
 
 /**
  * Supabase Storage API 클라이언트
@@ -38,11 +32,15 @@ public class SupabaseStorageClient {
     public Mono<UploadResponse> upload(MultipartFile file, String bucket, String storagePath) {
         try {
             byte[] bytes = file.getBytes();
+            String contentType = file.getContentType();
+            if (contentType == null) {
+                contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
+            }
 
             return supabaseStorageWebClient
                 .post()
                 .uri("/object/" + bucket + "/" + storagePath)
-                .contentType(MediaType.parseMediaType(file.getContentType()))
+                .contentType(Objects.requireNonNull(MediaType.parseMediaType(contentType)))
                 .bodyValue(bytes)
                 .retrieve()
                 .onStatus(
@@ -64,6 +62,42 @@ public class SupabaseStorageClient {
             log.error("파일 업로드 중 오류 발생: path={}", storagePath, e);
             return Mono.error(new RuntimeException("파일 업로드 중 오류가 발생했습니다: " + e.getMessage()));
         }
+    }
+
+    /**
+     * 바이트 배열 업로드 (압축된 이미지용)
+     * @param bytes 업로드할 바이트 배열
+     * @param contentType MIME 타입
+     * @param bucket 버킷명
+     * @param storagePath 저장 경로
+     * @return 업로드된 파일 정보
+     */
+    public Mono<UploadResponse> uploadBytes(byte[] bytes, String contentType, String bucket, String storagePath) {
+        if (contentType == null) {
+            contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        }
+
+        final String finalContentType = contentType;
+        return supabaseStorageWebClient
+            .post()
+            .uri("/object/" + bucket + "/" + storagePath)
+            .contentType(Objects.requireNonNull(MediaType.parseMediaType(finalContentType)))
+            .bodyValue(bytes)
+            .retrieve()
+            .onStatus(
+                status -> !status.is2xxSuccessful(),
+                response -> response.bodyToMono(String.class)
+                    .flatMap(body -> {
+                        log.error("Supabase Storage upload failed: status={}, body={}",
+                            response.statusCode(), body);
+                        return Mono.error(new RuntimeException(
+                            "파일 업로드에 실패했습니다: " + body));
+                    })
+            )
+            .bodyToMono(UploadResponse.class)
+            .doOnSuccess(res -> log.info("파일 업로드 성공: path={}, size={}bytes", storagePath, bytes.length))
+            .doOnError(err -> log.error("파일 업로드 실패: path={}, error={}",
+                storagePath, err.getMessage()));
     }
 
     /**
@@ -103,8 +137,8 @@ public class SupabaseStorageClient {
         return supabaseStorageWebClient
             .post()
             .uri("/object/sign/" + bucket + "/" + storagePath)
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(requestBody)
+            .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+            .bodyValue(Objects.requireNonNull(requestBody))
             .retrieve()
             .onStatus(
                 status -> !status.is2xxSuccessful(),
@@ -149,8 +183,8 @@ public class SupabaseStorageClient {
         return supabaseStorageWebClient
             .post()
             .uri("/object/move")
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(requestBody)
+            .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+            .bodyValue(Objects.requireNonNull(requestBody))
             .retrieve()
             .onStatus(
                 status -> !status.is2xxSuccessful(),

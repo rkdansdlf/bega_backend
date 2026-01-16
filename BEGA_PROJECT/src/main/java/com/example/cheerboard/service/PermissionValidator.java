@@ -48,6 +48,6 @@ public class PermissionValidator {
     }
 
     public boolean isAdmin(UserEntity user) {
-        return ADMIN_ROLE.equals(user.getRole());
+        return user.isAdmin();
     }
 }

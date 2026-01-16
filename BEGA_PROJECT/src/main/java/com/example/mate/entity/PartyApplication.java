@@ -20,10 +20,10 @@ public class PartyApplication {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(name = "partyid", nullable = false)
     private Long partyId; // 파티 ID
 
-    @Column(nullable = false)
+    @Column(name = "applicantid", nullable = false)
     private Long applicantId; // 신청자 사용자 ID
 
     @Column(nullable = false, length = 50)

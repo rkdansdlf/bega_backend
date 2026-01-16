@@ -4,9 +4,11 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 
+import org.springframework.lang.NonNull;
+
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.authority.SimpleGrantedAuthority; 
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -21,15 +23,17 @@ public class JWTFilter extends OncePerRequestFilter {
     private final JWTUtil jwtUtil;
 
     // ✅ UserService 제거 (더 이상 필요 없음!)
-    public JWTFilter(JWTUtil jwtUtil) { 
+    public JWTFilter(JWTUtil jwtUtil) {
         this.jwtUtil = jwtUtil;
     }
-    
+
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
-        
+    protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response,
+            @NonNull FilterChain filterChain)
+            throws ServletException, IOException {
+
         String authorization = null;
-        
+
         // 쿠키에서 Authorization 토큰 추출 시도
         Cookie[] cookies = request.getCookies();
         if (cookies != null) {
@@ -48,19 +52,41 @@ public class JWTFilter extends OncePerRequestFilter {
                 authorization = header.substring(7);
             }
         }
-        
+
         String requestUri = request.getRequestURI();
-        
-        // 로그인 및 OAuth2 경로는 필터 스킵 
+
+        // 로그인 및 OAuth2 경로는 필터 스킵
         if (requestUri.matches("^\\/login(?:\\/.*)?$") || requestUri.matches("^\\/oauth2(?:\\/.*)?$")) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        // Authorization 토큰이 없는 경우 
+        // Authorization 토큰이 없는 경우
         if (authorization == null) {
             filterChain.doFilter(request, response);
             return;
+        }
+
+        // 🚨 CSRF 방지: Referer 체크 (상태 변경 요청에 대해)
+        String method = request.getMethod();
+        if (!method.equals("GET") && !method.equals("HEAD") && !method.equals("OPTIONS")) {
+            String referer = request.getHeader("Referer");
+            String origin = request.getHeader("Origin");
+
+            // 허용된 도메인 리스트 (프로덕션에서는 환경변수나 설정파일로 관리 권장)
+            String allowedDomain = "http://localhost:3000";
+            String allowedBackend = "http://localhost:8080";
+
+            boolean isValidRef = (referer != null
+                    && (referer.startsWith(allowedDomain) || referer.startsWith(allowedBackend)));
+            boolean isValidOrigin = (origin != null && (origin.equals(allowedDomain) || origin.equals(allowedBackend)));
+
+            if (!isValidRef && !isValidOrigin) {
+                // Referer나 Origin이 없거나 허용되지 않은 도메인이면 차단
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                response.getWriter().write("CSRF Protection: Invalid Referer/Origin");
+                return;
+            }
         }
 
         String token = authorization;
@@ -73,7 +99,7 @@ public class JWTFilter extends OncePerRequestFilter {
 
         // ✅ JWT에서 필요한 정보 모두 추출 (캐싱 적용, DB 조회 없음!)
         try {
-            String email = jwtUtil.getEmail(token); 
+            // String email = jwtUtil.getEmail(token);
             String role = jwtUtil.getRole(token);
             Long userId = jwtUtil.getUserId(token);
 
@@ -86,11 +112,10 @@ public class JWTFilter extends OncePerRequestFilter {
             Collection<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role));
 
             Authentication authToken = new UsernamePasswordAuthenticationToken(
-                userId, // Principal로 설정
-                null,
-                authorities 
-            );
-            
+                    userId, // Principal로 설정
+                    null,
+                    authorities);
+
             // 사용자 등록
             SecurityContextHolder.getContext().setAuthentication(authToken);
 
@@ -98,5 +123,5 @@ public class JWTFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
-    }  
+    }
 }

@@ -5,6 +5,7 @@ import com.example.cheerboard.domain.CheerComment;
 import com.example.cheerboard.domain.CheerCommentLike;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.CheerPostLike;
+import com.example.cheerboard.domain.CheerPostReport;
 import com.example.cheerboard.domain.PostType;
 import com.example.cheerboard.dto.CreatePostReq;
 import com.example.cheerboard.dto.UpdatePostReq;
@@ -13,12 +14,19 @@ import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.CreateCommentReq;
 import com.example.cheerboard.dto.CommentRes;
 import com.example.cheerboard.dto.LikeToggleResponse;
+import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.repo.CheerCommentLikeRepo;
 import com.example.cheerboard.repo.CheerCommentRepo;
 import com.example.cheerboard.repo.CheerPostLikeRepo;
 import com.example.cheerboard.repo.CheerPostRepo;
-import com.example.cheerboard.repo.CheerTeamRepository;
+import com.example.cheerboard.repo.CheerBookmarkRepo;
+import com.example.cheerboard.repo.CheerReportRepo;
+import com.example.cheerboard.domain.CheerPostBookmark;
+import com.example.cheerboard.dto.BookmarkResponse;
+import java.util.Set;
+import java.util.HashSet;
 import com.example.demo.entity.UserEntity;
+import com.example.demo.repo.TeamRepository;
 import com.example.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -28,6 +36,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import static com.example.cheerboard.service.CheerServiceConstants.*;
@@ -41,16 +50,37 @@ public class CheerService {
     private final CheerCommentRepo commentRepo;
     private final CheerPostLikeRepo likeRepo;
     private final CheerCommentLikeRepo commentLikeRepo;
-    private final CheerTeamRepository teamRepo;
+    private final CheerBookmarkRepo bookmarkRepo;
+    private final CheerReportRepo reportRepo; // [NEW]
+    private final TeamRepository teamRepo;
     private final CurrentUser current;
     private final NotificationService notificationService;
-    
+    private final com.example.cheerboard.storage.service.ImageService imageService;
+
     // 리팩토링된 컴포넌트들
     private final PermissionValidator permissionValidator;
     private final PostDtoMapper postDtoMapper;
-    private final HotPostChecker hotPostChecker;
 
-    public Page<PostSummaryRes> list(String teamId, Pageable pageable) {
+    // ... (list method remains the same as recently updated, skipping to avoid
+    // overwriting)
+
+    // ...
+
+    @Transactional
+    public List<String> uploadImages(Long postId,
+            java.util.List<org.springframework.web.multipart.MultipartFile> files) {
+        // ImageService가 권한 체크 및 업로드 수행
+        var imageDtos = imageService.uploadPostImages(postId, files);
+
+        // DTO 리스트를 URL 리스트로 변환
+        return imageDtos.stream()
+                .map(com.example.cheerboard.storage.dto.PostImageDto::url)
+                .filter(url -> url != null)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PostSummaryRes> list(String teamId, String postTypeStr, Pageable pageable) {
         if (teamId != null && !teamId.isBlank()) {
             UserEntity me = current.getOrNull();
             if (me == null) {
@@ -59,9 +89,42 @@ public class CheerService {
             permissionValidator.validateTeamAccess(me, teamId, "게시글 조회");
         }
 
-        Page<CheerPost> page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, pageable);
-        
-        return page.map(postDtoMapper::toPostSummaryRes);
+        // PostType 필터링 적용
+        PostType postType = null;
+        if (postTypeStr != null && !postTypeStr.isBlank()) {
+            try {
+                postType = PostType.valueOf(postTypeStr);
+            } catch (IllegalArgumentException e) {
+                // 무시하고 전체 조회하거나 에러 처리 (여기서는 무시)
+            }
+        }
+
+        Page<CheerPost> page;
+        boolean hasSort = pageable.getSort().isSorted();
+
+        // 정렬 조건이 있으면(예: views) Custom Query 대신 기본 JPA Query 사용
+        // (findByTeamIdAndPostType)
+        // 정렬 조건이 없으면(기본) Notice Pinning 로직 사용 (findAllOrderByPostTypeAndCreatedAt)
+        // 단, findAllOrderByPostTypeAndCreatedAt는 postType 필터링 추가됨
+        if (hasSort && pageable.getSort().stream().anyMatch(order -> !order.getProperty().equals("createdAt"))) {
+            page = postRepo.findByTeamIdAndPostType(teamId, postType, pageable);
+        } else {
+            page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, postType, pageable);
+        }
+
+        UserEntity me = current.getOrNull();
+        Set<Long> bookmarkedPostIds = new HashSet<>();
+        if (me != null && page.hasContent()) {
+            List<Long> postIds = page.getContent().stream().map(CheerPost::getId).toList();
+            List<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            bookmarkedPostIds = bookmarks.stream().map(b -> b.getId().getPostId()).collect(Collectors.toSet());
+        }
+        final Set<Long> finalBookmarks = bookmarkedPostIds;
+
+        return page.map(post -> {
+            boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
+            return postDtoMapper.toPostSummaryRes(post, finalBookmarks.contains(post.getId()), isOwner);
+        });
     }
 
     @Transactional
@@ -72,9 +135,10 @@ public class CheerService {
         increaseViewCount(id, post, me);
 
         boolean liked = me != null && isPostLikedByUser(id, me.getId());
+        boolean isBookmarked = me != null && isPostBookmarkedByUser(id, me.getId());
         boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
 
-        return postDtoMapper.toPostDetailRes(post, liked, isOwner);
+        return postDtoMapper.toPostDetailRes(post, liked, isBookmarked, isOwner);
     }
 
     /**
@@ -83,18 +147,18 @@ public class CheerService {
      */
     private void increaseViewCount(Long postId, CheerPost post, UserEntity user) {
         if (user == null || !post.getAuthor().getId().equals(user.getId())) {
-            postRepo.incrementViewCount(postId);
+            postRepo.incrementViewCount(Objects.requireNonNull(postId));
         }
     }
-    
+
     /**
      * 게시글 ID로 게시글 조회
      */
     private CheerPost findPostById(Long postId) {
-        return postRepo.findById(postId)
-            .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
+        return postRepo.findById(Objects.requireNonNull(postId))
+                .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
     }
-    
+
     /**
      * 사용자가 게시글에 좋아요를 눌렀는지 확인
      */
@@ -102,18 +166,22 @@ public class CheerService {
         return likeRepo.existsById(new CheerPostLike.Id(postId, userId));
     }
 
+    private boolean isPostBookmarkedByUser(Long postId, Long userId) {
+        return bookmarkRepo.existsById(new CheerPostBookmark.Id(postId, userId));
+    }
+
     @Transactional
     public PostDetailRes createPost(CreatePostReq req) {
         UserEntity me = current.get();
         permissionValidator.validateTeamAccess(me, req.teamId(), "게시글 작성");
-        
+
         PostType postType = determinePostType(req, me);
         CheerPost post = buildNewPost(req, me, postType);
-        CheerPost savedPost = postRepo.save(post);
+        CheerPost savedPost = postRepo.save(Objects.requireNonNull(post));
 
         return postDtoMapper.toNewPostDetailRes(savedPost, me);
     }
-    
+
     /**
      * 게시글 타입 결정 (공지사항 권한 체크 포함)
      */
@@ -125,7 +193,7 @@ public class CheerService {
         // 그 외 모든 경우는 일반 게시글로 처리
         return PostType.NORMAL;
     }
-    
+
     /**
      * 새 게시글 엔티티 생성
      */
@@ -134,7 +202,7 @@ public class CheerService {
 
         final String finalTeamId;
         String requestTeamId = req.teamId();
-        
+
         if (postType == PostType.NOTICE && (requestTeamId == null || requestTeamId.isBlank())) {
             finalTeamId = GLOBAL_TEAM_ID;
             log.debug("Admin notice post: resolved teamId to GLOBAL_TEAM_ID: {}", finalTeamId);
@@ -142,19 +210,19 @@ public class CheerService {
             finalTeamId = requestTeamId;
         }
 
-        var team = teamRepo.findById(finalTeamId)
-            .orElseThrow(() -> new java.util.NoSuchElementException("팀을 찾을 수 없습니다: " + finalTeamId));
-        log.debug("buildNewPost - team lookup succeeded: {}", team.getId());
+        var team = teamRepo.findById(Objects.requireNonNull(finalTeamId))
+                .orElseThrow(() -> new java.util.NoSuchElementException("팀을 찾을 수 없습니다: " + finalTeamId));
+        log.debug("buildNewPost - team lookup succeeded: {}", team.getTeamId());
 
         CheerPost post = CheerPost.builder()
-            .author(author)
-            .team(team)
-            .title(req.title())
-            .content(req.content())
-            .postType(postType)
-            .build();
+                .author(author)
+                .team(team)
+                .title(req.title())
+                .content(req.content())
+                .postType(postType)
+                .build();
 
-        log.debug("buildNewPost - resolved post team={}", post.getTeam() != null ? post.getTeam().getId() : "NULL");
+        log.debug("buildNewPost - resolved post team={}", post.getTeam() != null ? post.getTeam().getTeamId() : "NULL");
         return post;
     }
 
@@ -167,9 +235,10 @@ public class CheerService {
         updatePostContent(post, req);
 
         boolean liked = isPostLikedByUser(id, me.getId());
-        return postDtoMapper.toPostDetailRes(post, liked, true);
+        boolean isBookmarked = isPostBookmarkedByUser(id, me.getId());
+        return postDtoMapper.toPostDetailRes(post, liked, isBookmarked, true);
     }
-    
+
     /**
      * 게시글 내용 업데이트
      */
@@ -183,7 +252,7 @@ public class CheerService {
         UserEntity me = current.get();
         CheerPost post = findPostById(id);
         permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "게시글 삭제");
-        
+
         // JPA cascade 옵션으로 관련 데이터 자동 삭제
         postRepo.delete(post);
     }
@@ -216,16 +285,114 @@ public class CheerService {
             likes = post.getLikeCount() + 1;
             post.setLikeCount(likes);
             liked = true;
+
+            // 게시글 작성자에게 알림 (본인이 아닐 때만)
+            if (!post.getAuthor().getId().equals(me.getId())) {
+                try {
+                    String authorName = me.getName() != null && !me.getName().isBlank()
+                            ? me.getName()
+                            : me.getEmail();
+
+                    notificationService.createNotification(
+                            post.getAuthor().getId(),
+                            com.example.notification.entity.Notification.NotificationType.POST_LIKE,
+                            "좋아요 알림",
+                            authorName + "님이 회원님의 게시글을 좋아합니다.",
+                            post.getId());
+                } catch (Exception e) {
+                    log.warn("좋아요 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
+                }
+            }
         }
 
-        postRepo.save(post);
+        postRepo.save(Objects.requireNonNull(post));
         return new LikeToggleResponse(liked, likes);
     }
 
+    @Transactional
+    public BookmarkResponse toggleBookmark(Long postId) {
+        UserEntity me = current.get();
+        CheerPost post = findPostById(postId);
+        CheerPostBookmark.Id bookmarkId = new CheerPostBookmark.Id(postId, me.getId());
+
+        boolean bookmarked;
+        if (bookmarkRepo.existsById(bookmarkId)) {
+            bookmarkRepo.deleteById(bookmarkId);
+            bookmarked = false;
+        } else {
+            CheerPostBookmark bookmark = new CheerPostBookmark();
+            bookmark.setId(bookmarkId);
+            bookmark.setPost(post);
+            bookmark.setUser(me);
+            bookmarkRepo.save(Objects.requireNonNull(bookmark));
+            bookmarked = true;
+        }
+        return new BookmarkResponse(bookmarked);
+    }
+
+    @Transactional
+    public void reportPost(Long postId, ReportRequest req) {
+        UserEntity reporter = current.get();
+        CheerPost post = findPostById(postId);
+
+        CheerPostReport report = CheerPostReport.builder()
+                .post(post)
+                .reporter(reporter)
+                .reason(req.reason())
+                .description(req.description())
+                .build();
+
+        reportRepo.save(Objects.requireNonNull(report));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PostSummaryRes> getBookmarkedPosts(Pageable pageable) {
+        UserEntity me = current.get();
+        Page<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdOrderByCreatedAtDesc(me.getId(), pageable);
+
+        return bookmarks.map(b -> {
+            boolean isOwner = permissionValidator.isOwnerOrAdmin(me, b.getPost().getAuthor());
+            return postDtoMapper.toPostSummaryRes(b.getPost(), true, isOwner);
+        });
+    }
+
+    @Transactional(readOnly = true)
     public Page<CommentRes> listComments(Long postId, Pageable pageable) {
         // 최상위 댓글만 조회 (대댓글은 각 댓글의 replies에 포함됨)
-        return commentRepo.findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(postId, pageable)
-            .map(this::toCommentRes);
+        Page<CheerComment> comments = commentRepo
+                .findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(Objects.requireNonNull(postId), pageable);
+
+        UserEntity me = current.getOrNull();
+        Set<Long> likedCommentIds = new HashSet<>();
+
+        if (me != null && comments.hasContent()) {
+            // 모든 댓글 ID 수집 (대댓글 포함)
+            List<Long> allCommentIds = collectAllCommentIds(comments.getContent());
+
+            // 한 번의 쿼리로 좋아요 여부 확인
+            if (!allCommentIds.isEmpty()) {
+                likedCommentIds = new HashSet<>(
+                        commentLikeRepo.findLikedCommentIdsByUserIdAndCommentIdIn(me.getId(), allCommentIds));
+            }
+        }
+
+        final Set<Long> finalLikedIds = likedCommentIds;
+        return comments.map(comment -> toCommentResWithLikedSet(comment, finalLikedIds));
+    }
+
+    /**
+     * 댓글과 대댓글의 모든 ID 수집
+     */
+    private List<Long> collectAllCommentIds(List<CheerComment> comments) {
+        List<Long> ids = new java.util.ArrayList<>();
+        for (CheerComment comment : comments) {
+            ids.add(comment.getId());
+            // 대댓글 ID도 수집
+            if (comment.getReplies() != null && !comment.getReplies().isEmpty()) {
+                ids.addAll(collectAllCommentIds(comment.getReplies()));
+            }
+        }
+        return ids;
     }
 
     @Transactional
@@ -240,30 +407,26 @@ public class CheerService {
         CheerComment comment = saveNewComment(post, me, req);
         incrementCommentCount(post);
 
-                // 게시글 작성자에게 알림 (본인이 아닐 때만)
+        // 게시글 작성자에게 알림 (본인이 아닐 때만)
         if (!post.getAuthor().getId().equals(me.getId())) {
             try {
-                String authorName = me.getName() != null && !me.getName().isBlank() 
-                    ? me.getName() 
-                    : me.getEmail();
-                
+                String authorName = me.getName() != null && !me.getName().isBlank()
+                        ? me.getName()
+                        : me.getEmail();
+
                 notificationService.createNotification(
-                    post.getAuthor().getId(),
-                    com.example.notification.entity.Notification.NotificationType.POST_COMMENT,
-                    "새 댓글",
-                    authorName + "님이 회원님의 게시글에 댓글을 남겼습니다.",
-                    post.getId()
-                );
+                        post.getAuthor().getId(),
+                        com.example.notification.entity.Notification.NotificationType.POST_COMMENT,
+                        "새 댓글",
+                        authorName + "님이 회원님의 게시글에 댓글을 남겼습니다.",
+                        post.getId());
             } catch (Exception e) {
                 log.warn("댓글 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
             }
         }
 
-
         return toCommentRes(comment);
     }
-
-    
 
     @Transactional
     public void deleteComment(Long commentId) {
@@ -273,50 +436,42 @@ public class CheerService {
 
         CheerPost post = comment.getPost();
         commentRepo.delete(comment);
-        
+
         // 실제 DB에서 댓글 수 재계산 (댓글 + 대댓글 모두 포함)
-        Long actualCount = commentRepo.countByPostId(post.getId());
-        post.setCommentCount(actualCount.intValue());
+        // Null type safety 해결을 위해 primitive type 변환 후 전달
+        Long actualCount = commentRepo.countByPostId(Objects.requireNonNull(post.getId()).longValue());
+        post.setCommentCount(actualCount != null ? actualCount.intValue() : 0);
     }
-    
+
     /**
      * 댓글 ID로 댓글 조회
      */
     private CheerComment findCommentById(Long commentId) {
+        Objects.requireNonNull(commentId, "댓글 ID는 null일 수 없습니다");
         return commentRepo.findById(commentId)
-            .orElseThrow(() -> new java.util.NoSuchElementException("댓글을 찾을 수 없습니다: " + commentId));
+                .orElseThrow(() -> new java.util.NoSuchElementException("댓글을 찾을 수 없습니다: " + commentId));
     }
-    
+
     /**
      * 새 댓글 저장
      */
     private CheerComment saveNewComment(CheerPost post, UserEntity author, CreateCommentReq req) {
-        return commentRepo.save(CheerComment.builder()
-            .post(post)
-            .author(author)
-            .content(req.content())
-            .build());
+        return commentRepo.save(Objects.requireNonNull(CheerComment.builder()
+                .post(post)
+                .author(author)
+                .content(req.content())
+                .build()));
     }
-    
+
     /**
      * 게시글 댓글 수 증가
      */
     private void incrementCommentCount(CheerPost post) {
         post.setCommentCount(post.getCommentCount() + 1);
     }
-    
+
     /**
-     * 게시글 댓글 수 감소
-     * @deprecated 댓글 삭제 시 cascade로 대댓글이 함께 삭제되어 카운트 불일치 발생. 
-     * 대신 commentRepo.countByPostId()로 실제 댓글 수를 재계산하여 사용.
-     */
-    @Deprecated
-    private void decrementCommentCount(CheerPost post) {
-        post.setCommentCount(Math.max(0, post.getCommentCount() - 1));
-    }
-    
-    /**
-     * CheerComment를 CommentRes로 변환
+     * CheerComment를 CommentRes로 변환 (단일 댓글용 - 새 댓글 작성 시 사용)
      */
     private CommentRes toCommentRes(CheerComment comment) {
         UserEntity me = current.getOrNull();
@@ -324,21 +479,45 @@ public class CheerService {
 
         // 대댓글 변환 (재귀적으로 처리)
         List<CommentRes> replies = comment.getReplies().stream()
-            .map(this::toCommentRes)
-            .collect(Collectors.toList());
+                .map(this::toCommentRes)
+                .collect(Collectors.toList());
 
         return new CommentRes(
-            comment.getId(),
-            resolveDisplayName(comment.getAuthor()),
-            comment.getAuthor().getEmail(),
-            comment.getAuthor().getFavoriteTeamId(),
-            comment.getAuthor().getProfileImageUrl(),
-            comment.getContent(),
-            comment.getCreatedAt(),
-            comment.getLikeCount(),
-            likedByMe,
-            replies
-        );
+                comment.getId(),
+                resolveDisplayName(comment.getAuthor()),
+                comment.getAuthor().getEmail(),
+                comment.getAuthor().getFavoriteTeamId(),
+                comment.getAuthor().getProfileImageUrl(),
+                comment.getContent(),
+                comment.getCreatedAt(),
+                comment.getLikeCount(),
+                likedByMe,
+                replies);
+    }
+
+    /**
+     * CheerComment를 CommentRes로 변환 (일괄 조회 최적화 버전)
+     * 미리 조회한 likedCommentIds를 사용하여 N+1 문제 방지
+     */
+    private CommentRes toCommentResWithLikedSet(CheerComment comment, Set<Long> likedCommentIds) {
+        boolean likedByMe = likedCommentIds.contains(comment.getId());
+
+        // 대댓글 변환 (재귀적으로 처리, 동일한 likedCommentIds 세트 사용)
+        List<CommentRes> replies = comment.getReplies().stream()
+                .map(reply -> toCommentResWithLikedSet(reply, likedCommentIds))
+                .collect(Collectors.toList());
+
+        return new CommentRes(
+                comment.getId(),
+                resolveDisplayName(comment.getAuthor()),
+                comment.getAuthor().getEmail(),
+                comment.getAuthor().getFavoriteTeamId(),
+                comment.getAuthor().getProfileImageUrl(),
+                comment.getContent(),
+                comment.getCreatedAt(),
+                comment.getLikeCount(),
+                likedByMe,
+                replies);
     }
 
     /**
@@ -389,7 +568,7 @@ public class CheerService {
             liked = true;
         }
 
-        commentRepo.save(comment);
+        commentRepo.save(Objects.requireNonNull(comment));
         return new LikeToggleResponse(liked, likes);
     }
 
@@ -415,26 +594,24 @@ public class CheerService {
         CheerComment reply = saveNewReply(post, parentComment, me, req);
         incrementCommentCount(post);
 
-         // 원댓글 작성자에게 알림 (본인이 아닐 때만)
+        // 원댓글 작성자에게 알림 (본인이 아닐 때만)
         if (!parentComment.getAuthor().getId().equals(me.getId())) {
             try {
-                String authorName = me.getName() != null && !me.getName().isBlank() 
-                    ? me.getName() 
-                    : me.getEmail();
-                
+                String authorName = me.getName() != null && !me.getName().isBlank()
+                        ? me.getName()
+                        : me.getEmail();
+
                 notificationService.createNotification(
-                    parentComment.getAuthor().getId(),
-                    com.example.notification.entity.Notification.NotificationType.COMMENT_REPLY,
-                    "새 대댓글",
-                    authorName + "님이 회원님의 댓글에 답글을 남겼습니다.",
-                    post.getId()
-                );
+                        parentComment.getAuthor().getId(),
+                        com.example.notification.entity.Notification.NotificationType.COMMENT_REPLY,
+                        "새 대댓글",
+                        authorName + "님이 회원님의 댓글에 답글을 남겼습니다.",
+                        post.getId());
             } catch (Exception e) {
-                log.warn("대댓글 알림 생성 실패: postId={}, parentCommentId={}, error={}", 
-                    post.getId(), parentCommentId, e.getMessage());
+                log.warn("대댓글 알림 생성 실패: postId={}, parentCommentId={}, error={}",
+                        post.getId(), parentCommentId, e.getMessage());
             }
         }
-
 
         return toCommentRes(reply);
     }
@@ -442,13 +619,14 @@ public class CheerService {
     /**
      * 새 대댓글 저장
      */
-    private CheerComment saveNewReply(CheerPost post, CheerComment parentComment, UserEntity author, CreateCommentReq req) {
-        return commentRepo.save(CheerComment.builder()
-            .post(post)
-            .parentComment(parentComment)
-            .author(author)
-            .content(req.content())
-            .build());
+    private CheerComment saveNewReply(CheerPost post, CheerComment parentComment, UserEntity author,
+            CreateCommentReq req) {
+        return commentRepo.save(Objects.requireNonNull(CheerComment.builder()
+                .post(post)
+                .parentComment(parentComment)
+                .author(author)
+                .content(req.content())
+                .build()));
     }
 
     /**
@@ -462,13 +640,11 @@ public class CheerService {
         if (parentCommentId == null) {
             // 최상위 댓글 중복 체크
             isDuplicate = commentRepo.existsByPostIdAndAuthorIdAndContentAndParentCommentIsNullAndCreatedAtAfter(
-                postId, authorId, content, threeSecondsAgo
-            );
+                    postId, authorId, content, threeSecondsAgo);
         } else {
             // 대댓글 중복 체크
             isDuplicate = commentRepo.existsByPostIdAndAuthorIdAndContentAndParentCommentIdAndCreatedAtAfter(
-                postId, authorId, content, parentCommentId, threeSecondsAgo
-            );
+                    postId, authorId, content, parentCommentId, threeSecondsAgo);
         }
 
         if (isDuplicate) {

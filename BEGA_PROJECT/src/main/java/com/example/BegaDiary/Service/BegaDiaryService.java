@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -16,7 +17,6 @@ import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.BegaDiary.DiaryEmoji;
 import com.example.BegaDiary.Entity.BegaDiary.DiaryType;
 import com.example.BegaDiary.Entity.BegaDiary.DiaryWinning;
-import com.example.BegaDiary.Entity.BegaGame;
 import com.example.BegaDiary.Entity.DiaryRequestDto;
 import com.example.BegaDiary.Entity.DiaryResponseDto;
 import com.example.BegaDiary.Entity.DiaryStatisticsDto;
@@ -26,14 +26,13 @@ import com.example.BegaDiary.Exception.GameNotFoundException;
 import com.example.BegaDiary.Exception.ImageProcessingException;
 import com.example.BegaDiary.Exception.WinningNameNotFoundException;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
-import com.example.BegaDiary.Repository.BegaGameRepository;
 import com.example.BegaDiary.Utils.BaseballConstants;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.service.ImageService;
+import com.example.demo.entity.GameEntity;
 import com.example.demo.entity.UserEntity;
 import com.example.demo.repo.UserRepository;
 import com.example.mate.repository.PartyApplicationRepository;
-import com.example.BegaDiary.Utils.BaseballConstants;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,7 +44,6 @@ import lombok.extern.slf4j.Slf4j;
 public class BegaDiaryService {
     
     private final BegaDiaryRepository diaryRepository;
-    private final BegaGameRepository gameRepository;
     private final BegaGameService gameService;
     private final UserRepository userRepository;
     private final ImageService imageService;
@@ -54,6 +52,9 @@ public class BegaDiaryService {
     
     // 전체 다이어리 조회
     public List<DiaryResponseDto> getAllDiaries(Long userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("User ID cannot be null");
+        }
         List<BegaDiary> diaries = this.diaryRepository.findByUserId(userId);
         
         return diaries.stream()
@@ -65,8 +66,9 @@ public class BegaDiaryService {
                                 .getDiaryImageSignedUrls(diary.getPhotoUrls())
                                 .block();
                         } catch (Exception e) {
+                            Long diaryId = diary.getId();
                             log.error("다이어리 이미지 Signed URL 생성 실패: diaryId={}, error={}", 
-                                diary.getId(), e.getMessage());
+                                diaryId != null ? diaryId : "unknown", e.getMessage());
                             signedUrls = new ArrayList<>();
                         }
                     }
@@ -78,12 +80,22 @@ public class BegaDiaryService {
     
     // 특정 다이어리 조회
     public DiaryResponseDto getDiaryById(Long id) {
+        if (id == null) {
+            throw new IllegalArgumentException("Diary ID cannot be null");
+        }
         BegaDiary diary = this.diaryRepository.findById(id)
             .orElseThrow(() -> new DiaryNotFoundException(id));
         
-        List<String> signedUrls = imageService
-                .getDiaryImageSignedUrls(diary.getPhotoUrls())
-                .block();
+        List<String> signedUrls = null;
+        if (diary.getPhotoUrls() != null && !diary.getPhotoUrls().isEmpty()) {
+             try {
+                signedUrls = imageService
+                    .getDiaryImageSignedUrls(diary.getPhotoUrls())
+                    .block();
+             } catch (Exception e) {
+                 log.warn("Failed to generate signed URLs for diary {}", id);
+             }
+        }
         
         return DiaryResponseDto.from(diary, signedUrls);
     }
@@ -91,10 +103,14 @@ public class BegaDiaryService {
     // 다이어리 저장
     @Transactional
     public BegaDiary save(Long userId, DiaryRequestDto requestDto) {
+        if (userId == null) {
+             throw new IllegalArgumentException("User ID cannot be null");
+        }
         // 1. 날짜 파싱
         LocalDate diaryDate = LocalDate.parse(requestDto.getDate());
         
-        UserEntity user = this.userRepository.findById(userId).get();
+        UserEntity user = this.userRepository.findById(userId)
+            .orElseThrow(() -> new IllegalArgumentException("User not found"));
         
         // 2. 중복 체크
         if (diaryRepository.existsByUserAndDiaryDate(user, diaryDate)) {
@@ -118,19 +134,12 @@ public class BegaDiaryService {
         	throw new GameNotFoundException();
         }
         
-        BegaGame game = null;
-        String team = "";
-        String stadium = "";
-        if(requestDto.getGameId() != null) {
-    		game = gameService.getGameById(requestDto.getGameId());
+        GameEntity game = gameService.getGameById(requestDto.getGameId());
 
-            String homeTeamKorean = BaseballConstants.getTeamKoreanName(game.getHomeTeam());
-            String awayTeamKorean = BaseballConstants.getTeamKoreanName(game.getAwayTeam());
-            team = homeTeamKorean + " vs " + awayTeamKorean;
+        String homeTeamKorean = BaseballConstants.getTeamKoreanName(game.getHomeTeam());
+        String awayTeamKorean = BaseballConstants.getTeamKoreanName(game.getAwayTeam());
+        String team = homeTeamKorean + " vs " + awayTeamKorean;
 
-            stadium = BaseballConstants.getFullStadiumName(game.getStadium());
-    	}
-    	
         BegaDiary diary = BegaDiary.builder()
             .diaryDate(diaryDate)
             .memo(requestDto.getMemo())
@@ -145,12 +154,15 @@ public class BegaDiaryService {
             .build();
         
         // 5. DB 저장
-        return diaryRepository.save(diary);
+        return diaryRepository.save(Objects.requireNonNull(diary));
     }
     
     @Async
     @Transactional
     public CompletableFuture<List<String>> addImages(Long diaryId, Long userId, List<MultipartFile> images) {
+        if (diaryId == null) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Diary ID cannot be null"));
+        }
     	if (images == null || images.isEmpty()) {
             return CompletableFuture.completedFuture(List.of());
         }
@@ -169,7 +181,10 @@ public class BegaDiaryService {
             }
             
             // DB 업데이트 (기존 이미지 + 새 이미지)
-            List<String> allPaths = new ArrayList<>(diary.getPhotoUrls());
+            List<String> allPaths = new ArrayList<>();
+            if (diary.getPhotoUrls() != null) {
+                allPaths.addAll(diary.getPhotoUrls());
+            }
             allPaths.addAll(uploadedPaths);
             diary.updateDiary(diary.getMemo(), diary.getMood(), allPaths);
             
@@ -186,6 +201,9 @@ public class BegaDiaryService {
     // 다이어리 수정
     @Transactional
     public BegaDiary update(Long id, DiaryRequestDto requestDto) {
+        if (id == null) {
+            throw new IllegalArgumentException("Diary ID cannot be null");
+        }
         BegaDiary diary = this.diaryRepository.findById(id)
             .orElseThrow(() -> new DiaryNotFoundException(id));
         
@@ -203,6 +221,9 @@ public class BegaDiaryService {
     // 다이어리 삭제
     @Transactional
     public void delete(Long id) {
+        if (id == null) {
+             throw new IllegalArgumentException("Diary ID cannot be null");
+        }
         BegaDiary diary = this.diaryRepository.findById(id)
             .orElseThrow(() -> new DiaryNotFoundException(id));
         
@@ -210,7 +231,7 @@ public class BegaDiaryService {
         	try {
                 imageService.deleteDiaryImages(diary.getPhotoUrls()).block();
             } catch (Exception e) {
-                System.out.printf("이미지 삭제 실패 (다이어리는 삭제됨): diaryId={}", id, e);
+                log.error("이미지 삭제 실패 (다이어리는 삭제됨): diaryId={}", id, e);
             }
         }
         
@@ -218,6 +239,9 @@ public class BegaDiaryService {
     }
     
     public DiaryStatisticsDto getStatistics(Long userId) {
+        if (userId == null) {
+             throw new IllegalArgumentException("User ID cannot be null");
+        }
     	List<BegaDiary> diaries = diaryRepository.findByUserId(userId);
         
         int currentYear = LocalDate.now().getYear();

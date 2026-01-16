@@ -3,6 +3,7 @@ package com.example.mate.service;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
+import com.example.demo.service.UserService;
 import com.example.mate.exception.DuplicateApplicationException;
 import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.exception.PartyApplicationNotFoundException;
@@ -24,7 +25,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.stream.Collectors;
 
-
 @Service
 @RequiredArgsConstructor
 public class PartyApplicationService {
@@ -33,10 +33,18 @@ public class PartyApplicationService {
     private final PartyRepository partyRepository;
     private final PartyService partyService;
     private final NotificationService notificationService;
+    private final UserService userService;
 
     // 신청 생성
     @Transactional
+    @SuppressWarnings("null")
     public PartyApplicationDTO.Response createApplication(PartyApplicationDTO.Request request) {
+        // 본인인증(소셜 연동) 여부 확인
+        if (!userService.isSocialVerified(request.getApplicantId())) {
+            throw new com.example.demo.exception.IdentityVerificationRequiredException(
+                    "메이트에 신청하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
+        }
+
         // 중복 신청 체크
         applicationRepository.findByPartyIdAndApplicantId(request.getPartyId(), request.getApplicantId())
                 .ifPresent(app -> {
@@ -73,15 +81,14 @@ public class PartyApplicationService {
         }
 
         PartyApplication savedApplication = applicationRepository.save(application);
-        
+
         notificationService.createNotification(
                 party.getHostId(),
                 Notification.NotificationType.APPLICATION_RECEIVED,
                 "새로운 참여 신청",
                 request.getApplicantName() + "님이 파티에 참여 신청했습니다.",
-                savedApplication.getPartyId()
-        );
-        
+                savedApplication.getPartyId());
+
         return PartyApplicationDTO.Response.from(savedApplication);
     }
 
@@ -127,6 +134,7 @@ public class PartyApplicationService {
 
     // 신청 승인
     @Transactional
+    @SuppressWarnings("null")
     public PartyApplicationDTO.Response approveApplication(Long applicationId) {
         PartyApplication application = applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
@@ -146,21 +154,21 @@ public class PartyApplicationService {
         partyService.incrementParticipants(application.getPartyId());
 
         PartyApplication savedApplication = applicationRepository.save(application);
-        
+
         // 신청자에게 알림 발송
         notificationService.createNotification(
                 application.getApplicantId(),
                 Notification.NotificationType.APPLICATION_APPROVED,
                 "참여 승인 완료",
                 "파티 참여 신청이 승인되었습니다!",
-                application.getPartyId()
-        );
-         
+                application.getPartyId());
+
         return PartyApplicationDTO.Response.from(savedApplication);
     }
 
     // 신청 거절
     @Transactional
+    @SuppressWarnings("null")
     public PartyApplicationDTO.Response rejectApplication(Long applicationId) {
         PartyApplication application = applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
@@ -183,14 +191,14 @@ public class PartyApplicationService {
                 Notification.NotificationType.APPLICATION_REJECTED,
                 "참여 신청 거절",
                 "파티 참여 신청이 거절되었습니다.",
-                application.getPartyId()
-        );
-        
+                application.getPartyId());
+
         return PartyApplicationDTO.Response.from(savedApplication);
-        }
+    }
 
     // 신청 취소 (신청자가 취소)
     @Transactional
+    @SuppressWarnings("null")
     public void cancelApplication(Long applicationId, Long applicantId) {
         PartyApplication application = applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
@@ -222,17 +230,17 @@ public class PartyApplicationService {
             throw new InvalidApplicationStatusException("경기 하루 전부터는 취소할 수 없습니다.");
         }
 
-                // 체크인 이후에는 취소 불가
-                if (party.getStatus() == Party.PartyStatus.CHECKED_IN || 
-                    party.getStatus() == Party.PartyStatus.COMPLETED) {
-                    throw new InvalidApplicationStatusException("체크인 이후에는 참여를 취소할 수 없습니다.");
-                }
+        // 체크인 이후에는 취소 불가
+        if (party.getStatus() == Party.PartyStatus.CHECKED_IN ||
+                party.getStatus() == Party.PartyStatus.COMPLETED) {
+            throw new InvalidApplicationStatusException("체크인 이후에는 참여를 취소할 수 없습니다.");
+        }
 
         // 승인된 신청 취소 시 참여 인원 감소
         partyService.decrementParticipants(application.getPartyId());
-        
+
         // 신청 삭제
         applicationRepository.delete(application);
     }
-  
+
 }

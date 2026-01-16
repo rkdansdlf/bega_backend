@@ -7,13 +7,14 @@ import org.springframework.security.oauth2.client.web.AuthorizationRequestReposi
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.util.SerializationUtils;
-import java.util.Base64; 
+import java.util.Base64;
 
 import java.util.Arrays;
 import java.util.Optional;
 
 @Component
-public class CookieAuthorizationRequestRepository implements AuthorizationRequestRepository<OAuth2AuthorizationRequest> {
+public class CookieAuthorizationRequestRepository
+        implements AuthorizationRequestRepository<OAuth2AuthorizationRequest> {
 
     // 쿠키 이름 정의
     public static final String OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME = "oauth2_auth_request";
@@ -30,7 +31,8 @@ public class CookieAuthorizationRequestRepository implements AuthorizationReques
     }
 
     @Override
-    public void saveAuthorizationRequest(OAuth2AuthorizationRequest authorizationRequest, HttpServletRequest request, HttpServletResponse response) {
+    public void saveAuthorizationRequest(OAuth2AuthorizationRequest authorizationRequest, HttpServletRequest request,
+            HttpServletResponse response) {
         if (authorizationRequest == null) {
             // 요청이 null이면 쿠키를 제거합니다.
             removeAuthorizationRequestCookies(request, response);
@@ -57,7 +59,8 @@ public class CookieAuthorizationRequestRepository implements AuthorizationReques
     }
 
     @Override
-    public OAuth2AuthorizationRequest removeAuthorizationRequest(HttpServletRequest request, HttpServletResponse response) {
+    public OAuth2AuthorizationRequest removeAuthorizationRequest(HttpServletRequest request,
+            HttpServletResponse response) {
         OAuth2AuthorizationRequest originalRequest = this.loadAuthorizationRequest(request);
         removeAuthorizationRequestCookies(request, response);
         return originalRequest;
@@ -102,6 +105,7 @@ public class CookieAuthorizationRequestRepository implements AuthorizationReques
         return Base64.getUrlEncoder().encodeToString(bytes);
     }
 
+    @SuppressWarnings("deprecation")
     private OAuth2AuthorizationRequest deserialize(Cookie cookie) {
         byte[] bytes = Base64.getUrlDecoder().decode(cookie.getValue());
         return (OAuth2AuthorizationRequest) SerializationUtils.deserialize(bytes);

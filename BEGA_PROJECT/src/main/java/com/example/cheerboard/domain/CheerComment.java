@@ -10,7 +10,11 @@ import java.util.List;
 
 @Entity
 @Table(name = "cheer_comment")
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class CheerComment {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -34,6 +38,7 @@ public class CheerComment {
 
     // 대댓글 목록 (자식 댓글들)
     @OneToMany(mappedBy = "parentComment", cascade = CascadeType.ALL, orphanRemoval = true)
+    @org.hibernate.annotations.BatchSize(size = 20)
     @Builder.Default
     private List<CheerComment> replies = new ArrayList<>();
 
