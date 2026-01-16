@@ -95,8 +95,7 @@ public class ImageService {
                         compressedBytes,
                         file.getContentType(),
                         config.getCheerBucket(),
-                        storagePath
-                ).block();
+                        storagePath).block();
                 if (uploadResult == null) {
                     log.error("스토리지 업로드 결과가 null입니다: path={}", storagePath);
                     throw new RuntimeException("스토리지 업로드 실패");
@@ -234,7 +233,7 @@ public class ImageService {
     private void evictPostImageCache(Long postId) {
         var cache = cacheManager.getCache(POST_IMAGE_URLS);
         if (cache != null) {
-            cache.evict(postId);
+            cache.evict(Objects.requireNonNull(postId));
             log.debug("이미지 URL 캐시 무효화: postId={}", postId);
         }
     }

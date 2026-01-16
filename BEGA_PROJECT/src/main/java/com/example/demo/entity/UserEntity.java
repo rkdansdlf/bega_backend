@@ -41,6 +41,10 @@ public class UserEntity {
     @Column(name = "role", nullable = false)
     private String role;
 
+    // 자기소개
+    @Column(name = "bio", length = 500)
+    private String bio;
+
     // 회원가입 시 응원팀 선택 정보
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "favorite_team", referencedColumnName = "team_id")
@@ -58,6 +62,7 @@ public class UserEntity {
     @Column(name = "providerid")
     private String providerId;
 
+    @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private java.util.List<UserProvider> providers = new java.util.ArrayList<>();
 

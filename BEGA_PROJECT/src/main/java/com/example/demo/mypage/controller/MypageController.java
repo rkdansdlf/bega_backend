@@ -48,6 +48,7 @@ public class MypageController {
                     .profileImageUrl(userEntity.getProfileImageUrl())
                     .createdAt(userEntity.getCreatedAt().format(DateTimeFormatter.ISO_DATE_TIME))
                     .role(userEntity.getRole())
+                    .bio(userEntity.getBio())
                     .build();
 
             // 성공 응답 (HTTP 200 OK)
@@ -104,6 +105,7 @@ public class MypageController {
             responseMap.put("email", updatedEntity.getEmail());
             responseMap.put("favoriteTeam",
                     updatedEntity.getFavoriteTeamId() != null ? updatedEntity.getFavoriteTeamId() : "없음");
+            responseMap.put("bio", updatedEntity.getBio());
 
             return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, cookie.toString())
