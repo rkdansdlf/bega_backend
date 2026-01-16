@@ -232,6 +232,7 @@ public class AdminService {
     /**
      * 캐시 통계 조회 (관리자 전용)
      */
+    @SuppressWarnings("null")
     public java.util.Map<String, Object> getCacheStats() {
         java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
 

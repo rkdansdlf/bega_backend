@@ -6,9 +6,15 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+
+import static com.example.demo.config.CacheConfig.POST_IMAGE_URLS;
+
+import org.springframework.cache.CacheManager;
 
 import com.example.cheerboard.config.CurrentUser;
 import com.example.cheerboard.domain.CheerPost;
@@ -44,12 +50,14 @@ public class ImageService {
     private final StorageConfig config;
     private final CurrentUser currentUser;
     private final PermissionValidator permissionValidator;
+    private final CacheManager cacheManager;
+    private final ImageCompressor imageCompressor;
 
     /**
      * 게시글 이미지 업로드 (여러 파일)
      */
+    @CacheEvict(value = POST_IMAGE_URLS, key = "#postId")
     @Transactional
-
     public List<PostImageDto> uploadPostImages(Long postId, List<MultipartFile> files) {
         log.info("이미지 업로드 시작: postId={}, 파일 수={}", postId, files.size());
         UserEntity me = currentUser.get();
@@ -73,12 +81,22 @@ public class ImageService {
                     i + 1, files.size(), file.getOriginalFilename(), file.getSize(), file.getContentType());
 
             try {
+                // 1. 서버 사이드 이미지 압축
+                byte[] compressedBytes = imageCompressor.compress(file);
+                long compressedSize = compressedBytes.length;
+                log.debug("이미지 압축 완료: 원본={}bytes, 압축 후={}bytes", file.getSize(), compressedSize);
+
                 String storagePath = generateStoragePath("posts", postId, file);
                 log.debug("스토리지 경로 생성: {}", storagePath);
 
-                // 1. 스토리지 업로드
+                // 2. 스토리지 업로드 (압축된 바이트 배열 사용)
                 log.debug("Supabase Storage 업로드 시도: path={}", storagePath);
-                var uploadResult = storageClient.upload(file, config.getCheerBucket(), storagePath).block();
+                var uploadResult = storageClient.uploadBytes(
+                        compressedBytes,
+                        file.getContentType(),
+                        config.getCheerBucket(),
+                        storagePath
+                ).block();
                 if (uploadResult == null) {
                     log.error("스토리지 업로드 결과가 null입니다: path={}", storagePath);
                     throw new RuntimeException("스토리지 업로드 실패");
@@ -86,12 +104,12 @@ public class ImageService {
                 log.info("Supabase Storage 업로드 성공: path={}", storagePath);
                 uploadedPaths.add(storagePath);
 
-                // 2. DB 저장
+                // 3. DB 저장 (압축된 크기 저장)
                 PostImage image = PostImage.builder()
                         .post(post)
                         .storagePath(storagePath)
                         .mimeType(file.getContentType())
-                        .bytes(file.getSize())
+                        .bytes(compressedSize)
                         .isThumbnail(false)
                         .build();
 
@@ -158,7 +176,9 @@ public class ImageService {
 
     /**
      * 게시글의 이미지 서명 URL 목록 조회 (DTO 변환용)
+     * 캐싱: postId 기준으로 5분간 캐시 (signed URL TTL보다 짧게 설정)
      */
+    @Cacheable(value = POST_IMAGE_URLS, key = "#postId")
     @Transactional(readOnly = true)
     public List<String> getPostImageUrls(Long postId) {
         log.debug("이미지 URL 조회 시작: postId={}", postId);
@@ -182,7 +202,6 @@ public class ImageService {
      * 이미지 삭제
      */
     @Transactional
-
     public void deleteImage(Long imageId) {
         UserEntity me = currentUser.get();
         PostImage image = postImageRepo.findById(Objects.requireNonNull(imageId))
@@ -190,6 +209,9 @@ public class ImageService {
 
         // 권한 체크
         permissionValidator.validateOwnerOrAdmin(me, image.getPost().getAuthor(), "이미지 삭제");
+
+        // 캐시 무효화를 위해 postId 저장
+        Long postId = image.getPost().getId();
 
         // 1. DB 삭제
         postImageRepo.delete(image);
@@ -200,6 +222,20 @@ public class ImageService {
         } catch (Exception e) {
             log.error("스토리지 삭제 실패 (DB는 이미 삭제됨): path={}", image.getStoragePath(), e);
             // DB는 이미 삭제되었으므로 스토리지 삭제 실패는 로그만 남김
+        }
+
+        // 3. 이미지 URL 캐시 무효화
+        evictPostImageCache(postId);
+    }
+
+    /**
+     * 게시글 이미지 URL 캐시 무효화
+     */
+    private void evictPostImageCache(Long postId) {
+        var cache = cacheManager.getCache(POST_IMAGE_URLS);
+        if (cache != null) {
+            cache.evict(postId);
+            log.debug("이미지 URL 캐시 무효화: postId={}", postId);
         }
     }
 

@@ -22,7 +22,7 @@ public class Party {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(name = "hostid", nullable = false)
     private Long hostId; // 호스트 사용자 ID
 
     @Column(nullable = false, length = 50)
@@ -34,7 +34,7 @@ public class Party {
 
     @Column(name = "host_profile_image_url")
     private String hostProfileImageUrl;
-    
+
     @Column(nullable = false)
     private Double hostRating; // 호스트 평점
 

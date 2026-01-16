@@ -1,6 +1,7 @@
 package com.example.mate.service;
 
 import java.util.Optional;
+import com.example.demo.service.UserService;
 import org.springframework.beans.factory.annotation.Value;
 import com.example.demo.repo.UserRepository;
 import com.example.mate.dto.PartyDTO;
@@ -29,6 +30,7 @@ public class PartyService {
     private final PartyRepository partyRepository;
     private final UserRepository userRepository;
     private final PartyApplicationRepository applicationRepository;
+    private final UserService userService;
 
     @Value("${supabase.url}")
     private String supabaseUrl;
@@ -39,6 +41,12 @@ public class PartyService {
     @Transactional
     @SuppressWarnings("null")
     public PartyDTO.Response createParty(PartyDTO.Request request) {
+
+        // 본인인증(소셜 연동) 여부 확인
+        if (!userService.isSocialVerified(request.getHostId())) {
+            throw new com.example.demo.exception.IdentityVerificationRequiredException(
+                    "메이트를 생성하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
+        }
 
         String hostProfileImageUrl = null;
         String hostFavoriteTeam = null;

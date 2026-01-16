@@ -65,6 +65,42 @@ public class SupabaseStorageClient {
     }
 
     /**
+     * 바이트 배열 업로드 (압축된 이미지용)
+     * @param bytes 업로드할 바이트 배열
+     * @param contentType MIME 타입
+     * @param bucket 버킷명
+     * @param storagePath 저장 경로
+     * @return 업로드된 파일 정보
+     */
+    public Mono<UploadResponse> uploadBytes(byte[] bytes, String contentType, String bucket, String storagePath) {
+        if (contentType == null) {
+            contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        }
+
+        final String finalContentType = contentType;
+        return supabaseStorageWebClient
+            .post()
+            .uri("/object/" + bucket + "/" + storagePath)
+            .contentType(Objects.requireNonNull(MediaType.parseMediaType(finalContentType)))
+            .bodyValue(bytes)
+            .retrieve()
+            .onStatus(
+                status -> !status.is2xxSuccessful(),
+                response -> response.bodyToMono(String.class)
+                    .flatMap(body -> {
+                        log.error("Supabase Storage upload failed: status={}, body={}",
+                            response.statusCode(), body);
+                        return Mono.error(new RuntimeException(
+                            "파일 업로드에 실패했습니다: " + body));
+                    })
+            )
+            .bodyToMono(UploadResponse.class)
+            .doOnSuccess(res -> log.info("파일 업로드 성공: path={}, size={}bytes", storagePath, bytes.length))
+            .doOnError(err -> log.error("파일 업로드 실패: path={}, error={}",
+                storagePath, err.getMessage()));
+    }
+
+    /**
      * 파일 삭제
      * @param storagePath 삭제할 파일 경로
      */

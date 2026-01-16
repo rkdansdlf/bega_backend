@@ -3,6 +3,7 @@ package com.example.mate.service;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
+import com.example.demo.service.UserService;
 import com.example.mate.exception.DuplicateApplicationException;
 import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.exception.PartyApplicationNotFoundException;
@@ -32,11 +33,18 @@ public class PartyApplicationService {
     private final PartyRepository partyRepository;
     private final PartyService partyService;
     private final NotificationService notificationService;
+    private final UserService userService;
 
     // 신청 생성
     @Transactional
     @SuppressWarnings("null")
     public PartyApplicationDTO.Response createApplication(PartyApplicationDTO.Request request) {
+        // 본인인증(소셜 연동) 여부 확인
+        if (!userService.isSocialVerified(request.getApplicantId())) {
+            throw new com.example.demo.exception.IdentityVerificationRequiredException(
+                    "메이트에 신청하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
+        }
+
         // 중복 신청 체크
         applicationRepository.findByPartyIdAndApplicantId(request.getPartyId(), request.getApplicantId())
                 .ifPresent(app -> {

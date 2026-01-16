@@ -33,19 +33,17 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
 
     // 신청자의 승인된 신청 목록
     List<PartyApplication> findByApplicantIdAndIsApprovedTrue(Long applicantId);
-    
+
     void deleteByPartyId(Long partyId);
 
-    
     // 통계
     @Query("SELECT COUNT(DISTINCT p.id) FROM Party p " +
-            "WHERE p.status = 'CHECKED_IN' AND " +
+            "WHERE p.status = com.example.mate.entity.Party$PartyStatus.CHECKED_IN AND " +
             "(p.hostId = :userId OR " +
             "EXISTS (SELECT 1 FROM PartyApplication pa " +
             "        WHERE pa.partyId = p.id " +
             "        AND pa.applicantId = :userId " +
             "        AND pa.isApproved = true))")
-     int countCheckedInPartiesByUserId(@Param("userId") Long userId);
-    
-     
+    int countCheckedInPartiesByUserId(@Param("userId") Long userId);
+
 }

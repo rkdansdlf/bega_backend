@@ -5,7 +5,7 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "password_reset_tokens")
+@Table(name = "password_reset_tokens", schema = "security")
 @Getter
 @Setter
 @NoArgsConstructor
