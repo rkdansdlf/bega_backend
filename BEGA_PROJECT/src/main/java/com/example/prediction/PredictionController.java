@@ -25,6 +25,7 @@ public class PredictionController {
     private final PredictionRepository predictionRepository;
 
     // 과거 경기 조회 (오늘 기준 이전 일주일치 - 최신순)
+    @PreAuthorize("permitAll()")
     @GetMapping("/games/past")
     public ResponseEntity<List<MatchDto>> getPastGames() {
         List<MatchDto> matches = predictionService.getRecentCompletedGames();
@@ -32,6 +33,7 @@ public class PredictionController {
     }
 
     // 특정 날짜의 경기 조회 (모든 경우에 사용)
+    @PreAuthorize("permitAll()")
     @GetMapping("/matches")
     public ResponseEntity<List<MatchDto>> getMatches(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
@@ -40,6 +42,7 @@ public class PredictionController {
     }
 
     // 특정 기간의 경기 조회 (과거 일주일치 등)
+    @PreAuthorize("permitAll()")
     @GetMapping("/matches/range")
     public ResponseEntity<List<MatchDto>> getMatchesByRange(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
@@ -53,19 +56,19 @@ public class PredictionController {
     public ResponseEntity<?> vote(@RequestBody PredictionRequestDto request, Principal principal) {
         if (principal == null) {
             // 사용자 정보가 없으면, 401 Unauthorized 또는 적절한 오류 응답을 반환
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다."); 
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다.");
         }
 
         String username = principal.getName();
-        
+
         Long userId = Long.valueOf(username);
-        
+
         predictionService.vote(userId, request);
         return ResponseEntity.ok("투표 성공");
     }
 
-
     // 투표 현황 조회
+    @PreAuthorize("permitAll()")
     @GetMapping("/predictions/status/{gameId}")
     public ResponseEntity<PredictionResponseDto> getVoteStatus(@PathVariable String gameId) {
         PredictionResponseDto response = predictionService.getVoteStatus(gameId);
@@ -85,30 +88,30 @@ public class PredictionController {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
-    
- // 사용자의 특정 경기 투표 조회
+
+    // 사용자의 특정 경기 투표 조회
     @GetMapping("/predictions/my-vote/{gameId}")
     public ResponseEntity<?> getMyVote(
             Principal principal,
             @PathVariable String gameId) {
-        
+
         if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다.");
         }
-        
+
         Long userId = Long.valueOf(principal.getName());
-        
+
         Optional<Prediction> prediction = predictionRepository.findByGameIdAndUserId(gameId, userId);
-        
+
         if (prediction.isPresent()) {
             return ResponseEntity.ok(Map.of("votedTeam", prediction.get().getVotedTeam()));
         } else {
-                // NullPointerException을 피하기 위해 HashMap을 사용
-                // Map.of()는 null 값을 허용하지 않음
-                Map<String, Object> responseMap = new HashMap<>();
-                responseMap.put("votedTeam", null);
-                return ResponseEntity.ok(responseMap);
-            }
+            // NullPointerException을 피하기 위해 HashMap을 사용
+            // Map.of()는 null 값을 허용하지 않음
+            Map<String, Object> responseMap = new HashMap<>();
+            responseMap.put("votedTeam", null);
+            return ResponseEntity.ok(responseMap);
+        }
     }
 
     // 내 예측 통계 조회
@@ -121,5 +124,5 @@ public class PredictionController {
         UserPredictionStatsDto stats = predictionService.getUserStats(userId);
         return ResponseEntity.ok(stats);
     }
-    
+
 }

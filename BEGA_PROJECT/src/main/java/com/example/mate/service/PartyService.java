@@ -1,9 +1,9 @@
 package com.example.mate.service;
 
 import java.util.Optional;
-import com.example.demo.service.UserService;
+import com.example.auth.service.UserService;
 import org.springframework.beans.factory.annotation.Value;
-import com.example.demo.repo.UserRepository;
+import com.example.auth.repository.UserRepository;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
@@ -44,7 +44,7 @@ public class PartyService {
 
         // 본인인증(소셜 연동) 여부 확인
         if (!userService.isSocialVerified(request.getHostId())) {
-            throw new com.example.demo.exception.IdentityVerificationRequiredException(
+            throw new com.example.common.exception.IdentityVerificationRequiredException(
                     "메이트를 생성하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
         }
 

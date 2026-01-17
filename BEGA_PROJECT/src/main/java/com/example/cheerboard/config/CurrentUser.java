@@ -1,9 +1,9 @@
 package com.example.cheerboard.config;
 
-import com.example.demo.dto.CustomOAuth2User;
-import com.example.demo.entity.UserEntity;
-import com.example.demo.repo.UserRepository;
-import com.example.demo.service.CustomUserDetails;
+import com.example.auth.dto.CustomOAuth2User;
+import com.example.auth.entity.UserEntity;
+import com.example.auth.repository.UserRepository;
+import com.example.auth.service.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;

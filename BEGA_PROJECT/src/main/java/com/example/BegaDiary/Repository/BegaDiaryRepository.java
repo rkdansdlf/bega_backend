@@ -11,7 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.BegaDiary.DiaryWinning;
-import com.example.demo.entity.UserEntity;
+import com.example.auth.entity.UserEntity;
 
 @Repository
 public interface BegaDiaryRepository extends JpaRepository<BegaDiary, Long>{

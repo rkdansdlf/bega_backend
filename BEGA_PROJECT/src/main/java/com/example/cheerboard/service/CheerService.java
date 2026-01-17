@@ -23,10 +23,12 @@ import com.example.cheerboard.repo.CheerBookmarkRepo;
 import com.example.cheerboard.repo.CheerReportRepo;
 import com.example.cheerboard.domain.CheerPostBookmark;
 import com.example.cheerboard.dto.BookmarkResponse;
+import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
-import com.example.demo.entity.UserEntity;
-import com.example.demo.repo.TeamRepository;
+import com.example.auth.entity.UserEntity;
+import com.example.kbo.repository.TeamRepository;
 import com.example.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -37,6 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static com.example.cheerboard.service.CheerServiceConstants.*;
@@ -109,21 +112,33 @@ public class CheerService {
         if (hasSort && pageable.getSort().stream().anyMatch(order -> !order.getProperty().equals("createdAt"))) {
             page = postRepo.findByTeamIdAndPostType(teamId, postType, pageable);
         } else {
-            page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, postType, pageable);
+            // 공지사항 상단 고정 정책: 최근 3일 이내의 공지사항만 상단에 고정
+            java.time.Instant cutoffDate = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS);
+            page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, postType, cutoffDate, pageable);
         }
+
+        List<Long> postIds = page.hasContent()
+                ? page.getContent().stream().map(CheerPost::getId).toList()
+                : Collections.emptyList();
+
+        Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
+                ? Collections.emptyMap()
+                : imageService.getPostImageUrlsByPostIds(postIds);
 
         UserEntity me = current.getOrNull();
         Set<Long> bookmarkedPostIds = new HashSet<>();
-        if (me != null && page.hasContent()) {
-            List<Long> postIds = page.getContent().stream().map(CheerPost::getId).toList();
+        if (me != null && !postIds.isEmpty()) {
             List<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             bookmarkedPostIds = bookmarks.stream().map(b -> b.getId().getPostId()).collect(Collectors.toSet());
         }
+
         final Set<Long> finalBookmarks = bookmarkedPostIds;
+        final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
 
         return page.map(post -> {
             boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
-            return postDtoMapper.toPostSummaryRes(post, finalBookmarks.contains(post.getId()), isOwner);
+            List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
+            return postDtoMapper.toPostSummaryRes(post, finalBookmarks.contains(post.getId()), isOwner, imageUrls);
         });
     }
 
@@ -350,24 +365,50 @@ public class CheerService {
         UserEntity me = current.get();
         Page<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdOrderByCreatedAtDesc(me.getId(), pageable);
 
+        List<Long> postIds = bookmarks.hasContent()
+                ? bookmarks.getContent().stream().map(b -> b.getPost().getId()).toList()
+                : Collections.emptyList();
+        Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
+                ? Collections.emptyMap()
+                : imageService.getPostImageUrlsByPostIds(postIds);
+        final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
+
         return bookmarks.map(b -> {
             boolean isOwner = permissionValidator.isOwnerOrAdmin(me, b.getPost().getAuthor());
-            return postDtoMapper.toPostSummaryRes(b.getPost(), true, isOwner);
+            List<String> imageUrls = finalImageUrls.getOrDefault(b.getPost().getId(), Collections.emptyList());
+            return postDtoMapper.toPostSummaryRes(b.getPost(), true, isOwner, imageUrls);
         });
     }
 
     @Transactional(readOnly = true)
     public Page<CommentRes> listComments(Long postId, Pageable pageable) {
         // 최상위 댓글만 조회 (대댓글은 각 댓글의 replies에 포함됨)
-        Page<CheerComment> comments = commentRepo
+        Page<CheerComment> page = commentRepo
                 .findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(Objects.requireNonNull(postId), pageable);
+
+        if (!page.hasContent()) {
+            return new PageImpl<>(List.of(), Objects.requireNonNull(pageable), page.getTotalElements());
+        }
+
+        List<Long> commentIds = page.getContent().stream()
+                .map(CheerComment::getId)
+                .toList();
+
+        List<CheerComment> hydrated = commentRepo.findWithRepliesByIdIn(commentIds);
+        Map<Long, CheerComment> hydratedById = hydrated.stream()
+                .collect(Collectors.toMap(CheerComment::getId, Function.identity(), (a, b) -> a));
+
+        List<CheerComment> comments = commentIds.stream()
+                .map(hydratedById::get)
+                .filter(Objects::nonNull)
+                .toList();
 
         UserEntity me = current.getOrNull();
         Set<Long> likedCommentIds = new HashSet<>();
 
-        if (me != null && comments.hasContent()) {
+        if (me != null && !comments.isEmpty()) {
             // 모든 댓글 ID 수집 (대댓글 포함)
-            List<Long> allCommentIds = collectAllCommentIds(comments.getContent());
+            List<Long> allCommentIds = collectAllCommentIds(comments);
 
             // 한 번의 쿼리로 좋아요 여부 확인
             if (!allCommentIds.isEmpty()) {
@@ -377,7 +418,10 @@ public class CheerService {
         }
 
         final Set<Long> finalLikedIds = likedCommentIds;
-        return comments.map(comment -> toCommentResWithLikedSet(comment, finalLikedIds));
+        List<CommentRes> mapped = comments.stream()
+                .map(comment -> toCommentResWithLikedSet(comment, finalLikedIds))
+                .toList();
+        return new PageImpl<>(mapped, Objects.requireNonNull(pageable), page.getTotalElements());
     }
 
     /**

@@ -25,32 +25,34 @@ public class PartyController {
 
     // 파티 생성
     @PostMapping
-    public ResponseEntity<PartyDTO.Response> createParty(@RequestBody PartyDTO.Request request) {
+    public ResponseEntity<?> createParty(@RequestBody PartyDTO.Request request) {
         try {
             PartyDTO.Response response = partyService.createParty(request);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        } catch (com.example.common.exception.IdentityVerificationRequiredException e) {
+            System.err.println("파티 생성 실패 - 본인인증 필요: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+            System.err.println("파티 생성 중 오류: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
         }
     }
 
     // 모든 파티 조회
-   @GetMapping
+    @GetMapping
     public ResponseEntity<Page<PartyDTO.Response>> getAllParties(
             @RequestParam(required = false) String teamId,
             @RequestParam(required = false) String stadium,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "9") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
-            @RequestParam(defaultValue = "desc") String sortDir 
-    ) {
+            @RequestParam(defaultValue = "desc") String sortDir) {
         Sort.Direction direction = sortDir.equalsIgnoreCase("asc") ? Sort.Direction.ASC : Sort.Direction.DESC;
         Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
         Page<PartyDTO.Response> parties = partyService.getAllParties(teamId, stadium, pageable);
         return ResponseEntity.ok(parties);
     }
-
-   
 
     // 파티 ID로 조회
     @GetMapping("/{id}")
@@ -122,7 +124,7 @@ public class PartyController {
             @PathVariable Long id,
             @RequestParam Long hostId) {
         try {
-            partyService.deleteParty(id, hostId);  
+            partyService.deleteParty(id, hostId);
             return ResponseEntity.noContent().build();
         } catch (UnauthorizedAccessException e) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();

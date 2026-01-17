@@ -7,8 +7,8 @@ import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
-import com.example.demo.entity.GameEntity;
-import com.example.demo.repo.GameRepository;
+import com.example.kbo.entity.GameEntity;
+import com.example.kbo.repository.GameRepository;
 import com.example.BegaDiary.Entity.GameResponseDto;
 import com.example.BegaDiary.Utils.BaseballConstants;
 
