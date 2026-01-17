@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import com.example.BegaDiary.Utils.BaseballConstants;
-import com.example.demo.entity.GameEntity;
+import com.example.kbo.entity.GameEntity;
 
 @Getter
 @Setter

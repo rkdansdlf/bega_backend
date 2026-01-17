@@ -4,8 +4,8 @@ import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.storage.service.ImageService;
-import com.example.demo.entity.TeamEntity;
-import com.example.demo.entity.UserEntity;
+import com.example.kbo.entity.TeamEntity;
+import com.example.auth.entity.UserEntity;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -42,6 +42,14 @@ public class PostDtoMapper {
             log.warn("이미지 URL 조회 실패: postId={}, error={}", post.getId(), e.getMessage());
         }
 
+        return toPostSummaryRes(post, isBookmarked, isOwner, imageUrls);
+    }
+
+    /**
+     * CheerPost를 PostSummaryRes로 변환 (이미지 URL 미리 로딩된 경우)
+     */
+    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean isBookmarked, boolean isOwner, List<String> imageUrls) {
+        List<String> resolvedUrls = imageUrls != null ? imageUrls : Collections.emptyList();
         return new PostSummaryRes(
                 post.getId(),
                 post.getTeamId(),
@@ -61,7 +69,7 @@ public class PostDtoMapper {
                 isBookmarked,
                 isOwner,
                 post.getPostType().name(),
-                imageUrls);
+                resolvedUrls);
     }
 
     /**

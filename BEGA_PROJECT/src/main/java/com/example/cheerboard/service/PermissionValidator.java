@@ -1,6 +1,6 @@
 package com.example.cheerboard.service;
 
-import com.example.demo.entity.UserEntity;
+import com.example.auth.entity.UserEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 

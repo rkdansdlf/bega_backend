@@ -23,10 +23,12 @@ import com.example.cheerboard.repo.CheerBookmarkRepo;
 import com.example.cheerboard.repo.CheerReportRepo;
 import com.example.cheerboard.domain.CheerPostBookmark;
 import com.example.cheerboard.dto.BookmarkResponse;
+import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
-import com.example.demo.entity.UserEntity;
-import com.example.demo.repo.TeamRepository;
+import com.example.auth.entity.UserEntity;
+import com.example.kbo.repository.TeamRepository;
 import com.example.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -112,18 +114,28 @@ public class CheerService {
             page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, postType, pageable);
         }
 
+        List<Long> postIds = page.hasContent()
+                ? page.getContent().stream().map(CheerPost::getId).toList()
+                : Collections.emptyList();
+
+        Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
+                ? Collections.emptyMap()
+                : imageService.getPostImageUrlsByPostIds(postIds);
+
         UserEntity me = current.getOrNull();
         Set<Long> bookmarkedPostIds = new HashSet<>();
-        if (me != null && page.hasContent()) {
-            List<Long> postIds = page.getContent().stream().map(CheerPost::getId).toList();
+        if (me != null && !postIds.isEmpty()) {
             List<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             bookmarkedPostIds = bookmarks.stream().map(b -> b.getId().getPostId()).collect(Collectors.toSet());
         }
+
         final Set<Long> finalBookmarks = bookmarkedPostIds;
+        final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
 
         return page.map(post -> {
             boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
-            return postDtoMapper.toPostSummaryRes(post, finalBookmarks.contains(post.getId()), isOwner);
+            List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
+            return postDtoMapper.toPostSummaryRes(post, finalBookmarks.contains(post.getId()), isOwner, imageUrls);
         });
     }
 
@@ -350,9 +362,18 @@ public class CheerService {
         UserEntity me = current.get();
         Page<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdOrderByCreatedAtDesc(me.getId(), pageable);
 
+        List<Long> postIds = bookmarks.hasContent()
+                ? bookmarks.getContent().stream().map(b -> b.getPost().getId()).toList()
+                : Collections.emptyList();
+        Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
+                ? Collections.emptyMap()
+                : imageService.getPostImageUrlsByPostIds(postIds);
+        final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
+
         return bookmarks.map(b -> {
             boolean isOwner = permissionValidator.isOwnerOrAdmin(me, b.getPost().getAuthor());
-            return postDtoMapper.toPostSummaryRes(b.getPost(), true, isOwner);
+            List<String> imageUrls = finalImageUrls.getOrDefault(b.getPost().getId(), Collections.emptyList());
+            return postDtoMapper.toPostSummaryRes(b.getPost(), true, isOwner, imageUrls);
         });
     }
 
