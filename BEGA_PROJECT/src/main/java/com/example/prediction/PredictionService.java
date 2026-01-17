@@ -1,7 +1,7 @@
 package com.example.prediction;
 
-import com.example.demo.entity.GameEntity;
-import com.example.demo.repo.GameRepository;
+import com.example.kbo.entity.GameEntity;
+import com.example.kbo.repository.GameRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

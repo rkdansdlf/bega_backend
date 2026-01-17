@@ -1,7 +1,7 @@
 package com.example.cheerboard.domain;
 
-import com.example.demo.entity.UserEntity;
-import com.example.demo.entity.TeamEntity;
+import com.example.auth.entity.UserEntity;
+import com.example.kbo.entity.TeamEntity;
 import com.example.cheerboard.storage.entity.PostImage;
 import jakarta.persistence.*;
 import lombok.*;

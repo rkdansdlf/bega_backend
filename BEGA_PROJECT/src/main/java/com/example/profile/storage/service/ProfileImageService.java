@@ -2,8 +2,8 @@ package com.example.profile.storage.service;
 
 import com.example.cheerboard.storage.client.SupabaseStorageClient;
 import com.example.cheerboard.storage.config.StorageConfig;
-import com.example.demo.entity.UserEntity;
-import com.example.demo.repo.UserRepository;
+import com.example.auth.entity.UserEntity;
+import com.example.auth.repository.UserRepository;
 import com.example.profile.storage.dto.ProfileImageDto;
 import com.example.profile.storage.validator.ProfileImageValidator;
 import lombok.RequiredArgsConstructor;

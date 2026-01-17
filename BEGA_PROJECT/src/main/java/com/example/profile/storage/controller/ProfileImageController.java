@@ -1,6 +1,6 @@
 package com.example.profile.storage.controller;
 
-import com.example.demo.dto.ApiResponse;
+import com.example.common.dto.ApiResponse;
 import com.example.profile.storage.dto.ProfileImageDto;
 import com.example.profile.storage.service.ProfileImageService;
 import lombok.RequiredArgsConstructor;

@@ -9,14 +9,14 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.example.demo.entity.GameEntity;
-import com.example.demo.repo.GameRepository;
+import com.example.kbo.entity.GameEntity;
+import com.example.kbo.repository.GameRepository;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.Cacheable;
 
-import static com.example.demo.config.CacheConfig.*;
+import static com.example.common.config.CacheConfig.*;
 
 @Service
 @RequiredArgsConstructor

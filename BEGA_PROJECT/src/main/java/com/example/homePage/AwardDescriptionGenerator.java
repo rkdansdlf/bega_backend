@@ -1,6 +1,6 @@
 package com.example.homePage;
 
-import com.example.demo.entity.AwardEntity;
+import com.example.kbo.entity.AwardEntity;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;

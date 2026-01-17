@@ -1,6 +1,6 @@
 package com.example.cheerboard.domain;
 
-import com.example.demo.entity.UserEntity;
+import com.example.auth.entity.UserEntity;
 import jakarta.persistence.*;
 import lombok.*;
 

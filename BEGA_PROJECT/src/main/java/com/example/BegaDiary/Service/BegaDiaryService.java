@@ -29,9 +29,9 @@ import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Utils.BaseballConstants;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.service.ImageService;
-import com.example.demo.entity.GameEntity;
-import com.example.demo.entity.UserEntity;
-import com.example.demo.repo.UserRepository;
+import com.example.kbo.entity.GameEntity;
+import com.example.auth.entity.UserEntity;
+import com.example.auth.repository.UserRepository;
 import com.example.mate.repository.PartyApplicationRepository;
 
 import lombok.RequiredArgsConstructor;

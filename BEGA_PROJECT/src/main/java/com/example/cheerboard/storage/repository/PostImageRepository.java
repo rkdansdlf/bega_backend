@@ -14,6 +14,11 @@ public interface PostImageRepository extends JpaRepository<PostImage, Long> {
     List<PostImage> findByPostIdOrderByCreatedAtAsc(Long postId);
 
     /**
+     * 여러 게시글의 이미지 일괄 조회
+     */
+    List<PostImage> findByPostIdInOrderByPostIdAscCreatedAtAsc(List<Long> postIds);
+
+    /**
      * 게시글의 이미지 개수 카운트
      */
     long countByPostId(Long postId);

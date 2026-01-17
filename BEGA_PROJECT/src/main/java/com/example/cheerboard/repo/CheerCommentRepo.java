@@ -1,7 +1,7 @@
 package com.example.cheerboard.repo;
 
 import com.example.cheerboard.domain.CheerComment;
-import com.example.demo.entity.UserEntity;
+import com.example.auth.entity.UserEntity;
 
 import java.time.Instant;
 import java.util.List;

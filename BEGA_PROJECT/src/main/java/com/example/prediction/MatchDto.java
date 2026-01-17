@@ -1,6 +1,6 @@
 package com.example.prediction;
 
-import com.example.demo.entity.GameEntity;
+import com.example.kbo.entity.GameEntity;
 import java.time.LocalDate;
 
 import lombok.Builder;

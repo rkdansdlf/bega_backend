@@ -1,7 +1,7 @@
 package com.example.homePage;
 
-import com.example.demo.entity.PlayerMovement;
-import com.example.demo.repo.PlayerMovementRepository;
+import com.example.kbo.entity.PlayerMovement;
+import com.example.kbo.repository.PlayerMovementRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -108,18 +108,18 @@ public class OffseasonService {
         // Simulating DB fetch: List<AwardEntity> awardEntities =
         // awardRepository.findByYear(year);
         // We create them manually here to demonstrate the generator logic
-        List<com.example.demo.entity.AwardEntity> awardEntities = java.util.List.of(
-                com.example.demo.entity.AwardEntity.builder().awardType("MVP").playerName("코디 폰세").team("한화").year(2025)
+        List<com.example.kbo.entity.AwardEntity> awardEntities = java.util.List.of(
+                com.example.kbo.entity.AwardEntity.builder().awardType("MVP").playerName("코디 폰세").team("한화").year(2025)
                         .build(),
-                com.example.demo.entity.AwardEntity.builder().awardType("신인상").playerName("안현민").team("KT").year(2025)
+                com.example.kbo.entity.AwardEntity.builder().awardType("신인상").playerName("안현민").team("KT").year(2025)
                         .build(),
-                com.example.demo.entity.AwardEntity.builder().awardType("홈런상").playerName("르윈 디아즈").team("삼성")
+                com.example.kbo.entity.AwardEntity.builder().awardType("홈런상").playerName("르윈 디아즈").team("삼성")
                         .year(2025).build(),
-                com.example.demo.entity.AwardEntity.builder().awardType("홀드상").playerName("노경은").team("SSG").year(2025)
+                com.example.kbo.entity.AwardEntity.builder().awardType("홀드상").playerName("노경은").team("SSG").year(2025)
                         .build(),
-                com.example.demo.entity.AwardEntity.builder().awardType("도루상").playerName("박해민").team("LG").year(2025)
+                com.example.kbo.entity.AwardEntity.builder().awardType("도루상").playerName("박해민").team("LG").year(2025)
                         .build(),
-                com.example.demo.entity.AwardEntity.builder().awardType("타율상").playerName("양의지").team("두산").year(2025)
+                com.example.kbo.entity.AwardEntity.builder().awardType("타율상").playerName("양의지").team("두산").year(2025)
                         .build());
 
         List<OffseasonMetaDto.AwardDto> awards = awardEntities.stream()

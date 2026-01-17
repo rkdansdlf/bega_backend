@@ -2,7 +2,7 @@ package com.example.cheerboard.repo;
 
 import com.example.cheerboard.domain.CheerPostLike;
 import com.example.cheerboard.domain.CheerPostLike.Id;
-import com.example.demo.entity.UserEntity;
+import com.example.auth.entity.UserEntity;
 
 import java.util.List;
 

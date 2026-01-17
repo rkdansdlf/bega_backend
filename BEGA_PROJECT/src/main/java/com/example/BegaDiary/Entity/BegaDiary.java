@@ -5,8 +5,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.example.demo.entity.GameEntity;
-import com.example.demo.entity.UserEntity;
+import com.example.kbo.entity.GameEntity;
+import com.example.auth.entity.UserEntity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
