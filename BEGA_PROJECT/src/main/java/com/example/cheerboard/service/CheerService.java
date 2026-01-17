@@ -39,6 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static com.example.cheerboard.service.CheerServiceConstants.*;
@@ -111,7 +112,9 @@ public class CheerService {
         if (hasSort && pageable.getSort().stream().anyMatch(order -> !order.getProperty().equals("createdAt"))) {
             page = postRepo.findByTeamIdAndPostType(teamId, postType, pageable);
         } else {
-            page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, postType, pageable);
+            // 공지사항 상단 고정 정책: 최근 3일 이내의 공지사항만 상단에 고정
+            java.time.Instant cutoffDate = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS);
+            page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, postType, cutoffDate, pageable);
         }
 
         List<Long> postIds = page.hasContent()
@@ -380,15 +383,32 @@ public class CheerService {
     @Transactional(readOnly = true)
     public Page<CommentRes> listComments(Long postId, Pageable pageable) {
         // 최상위 댓글만 조회 (대댓글은 각 댓글의 replies에 포함됨)
-        Page<CheerComment> comments = commentRepo
+        Page<CheerComment> page = commentRepo
                 .findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(Objects.requireNonNull(postId), pageable);
+
+        if (!page.hasContent()) {
+            return new PageImpl<>(List.of(), Objects.requireNonNull(pageable), page.getTotalElements());
+        }
+
+        List<Long> commentIds = page.getContent().stream()
+                .map(CheerComment::getId)
+                .toList();
+
+        List<CheerComment> hydrated = commentRepo.findWithRepliesByIdIn(commentIds);
+        Map<Long, CheerComment> hydratedById = hydrated.stream()
+                .collect(Collectors.toMap(CheerComment::getId, Function.identity(), (a, b) -> a));
+
+        List<CheerComment> comments = commentIds.stream()
+                .map(hydratedById::get)
+                .filter(Objects::nonNull)
+                .toList();
 
         UserEntity me = current.getOrNull();
         Set<Long> likedCommentIds = new HashSet<>();
 
-        if (me != null && comments.hasContent()) {
+        if (me != null && !comments.isEmpty()) {
             // 모든 댓글 ID 수집 (대댓글 포함)
-            List<Long> allCommentIds = collectAllCommentIds(comments.getContent());
+            List<Long> allCommentIds = collectAllCommentIds(comments);
 
             // 한 번의 쿼리로 좋아요 여부 확인
             if (!allCommentIds.isEmpty()) {
@@ -398,7 +418,10 @@ public class CheerService {
         }
 
         final Set<Long> finalLikedIds = likedCommentIds;
-        return comments.map(comment -> toCommentResWithLikedSet(comment, finalLikedIds));
+        List<CommentRes> mapped = comments.stream()
+                .map(comment -> toCommentResWithLikedSet(comment, finalLikedIds))
+                .toList();
+        return new PageImpl<>(mapped, Objects.requireNonNull(pageable), page.getTotalElements());
     }
 
     /**

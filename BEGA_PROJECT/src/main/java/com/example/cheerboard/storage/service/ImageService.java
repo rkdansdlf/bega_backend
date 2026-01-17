@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import static com.example.common.config.CacheConfig.POST_IMAGE_URLS;
+import static com.example.common.config.CacheConfig.SIGNED_URLS;
 
 import org.springframework.cache.CacheManager;
 
@@ -217,6 +218,8 @@ public class ImageService {
 
         if (cache != null) {
             for (Long postId : postIds) {
+                if (postId == null)
+                    continue;
                 @SuppressWarnings("unchecked")
                 List<String> cached = cache.get(postId, List.class);
                 if (cached != null) {
@@ -248,7 +251,7 @@ public class ImageService {
         for (Long postId : missingPostIds) {
             List<String> urls = groupedUrls.getOrDefault(postId, Collections.emptyList());
             result.put(postId, urls);
-            if (cache != null) {
+            if (cache != null && postId != null) {
                 cache.put(postId, urls);
             }
         }
@@ -284,6 +287,7 @@ public class ImageService {
 
         // 3. 이미지 URL 캐시 무효화
         evictPostImageCache(postId);
+        evictSignedUrlCache(image.getStoragePath());
     }
 
     /**
@@ -294,6 +298,17 @@ public class ImageService {
         if (cache != null) {
             cache.evict(Objects.requireNonNull(postId));
             log.debug("이미지 URL 캐시 무효화: postId={}", postId);
+        }
+    }
+
+    /**
+     * 개별 Signed URL 캐시 무효화
+     */
+    private void evictSignedUrlCache(String storagePath) {
+        var cache = cacheManager.getCache(SIGNED_URLS);
+        if (cache != null && storagePath != null) {
+            cache.evict(storagePath);
+            log.debug("Signed URL 캐시 무효화: path={}", storagePath);
         }
     }
 
@@ -360,10 +375,23 @@ public class ImageService {
      * 서명 URL 생성
      */
     private String generateSignedUrl(String storagePath) {
+        var cache = cacheManager.getCache(SIGNED_URLS);
+        if (cache != null && storagePath != null) {
+            String cached = cache.get(storagePath, String.class);
+            if (cached != null && !cached.isBlank()) {
+                log.info("Signed URL cache hit: path={}", storagePath);
+                return cached;
+            }
+            log.info("Signed URL cache miss: path={}", storagePath);
+        }
         try {
             var response = storageClient.createSignedUrl(config.getCheerBucket(), storagePath,
                     Objects.requireNonNull(config.getSignedUrlTtlSeconds()).intValue()).block();
-            return response != null ? response.signedUrl() : null;
+            String signedUrl = response != null ? response.signedUrl() : null;
+            if (cache != null && signedUrl != null && !signedUrl.isBlank() && storagePath != null) {
+                cache.put(storagePath, signedUrl);
+            }
+            return signedUrl;
         } catch (Exception e) {
             log.error("서명 URL 생성 실패: path={}", storagePath, e);
             return null;

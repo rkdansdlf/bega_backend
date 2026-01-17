@@ -26,8 +26,5 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setAllowedOriginPatterns("*")
                 .withSockJS();
 
-        // Native WebSocket도 지원
-        registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*");
     }
 }

@@ -52,6 +52,19 @@ public interface CheerCommentRepo extends JpaRepository<CheerComment, Long> {
            "WHERE c.post.id = :postId AND c.parentComment IS NULL " +
            "ORDER BY c.createdAt DESC")
     List<CheerComment> findCommentsWithRepliesByPostId(@Param("postId") Long postId);
+
+    /**
+     * 댓글 ID 리스트로 댓글 트리를 일괄 로딩 (페이지네이션 후 상세 로딩용)
+     */
+    @EntityGraph(attributePaths = {
+        "author",
+        "replies",
+        "replies.author",
+        "replies.replies",
+        "replies.replies.author"
+    })
+    @Query("SELECT DISTINCT c FROM CheerComment c WHERE c.id IN :commentIds ORDER BY c.createdAt DESC")
+    List<CheerComment> findWithRepliesByIdIn(@Param("commentIds") List<Long> commentIds);
     
     List<CheerComment> findByAuthor(UserEntity author);
 

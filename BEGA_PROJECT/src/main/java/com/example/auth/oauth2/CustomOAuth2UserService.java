@@ -22,11 +22,14 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     private final UserRepository userRepository;
     private final com.example.auth.repository.UserProviderRepository userProviderRepository;
+    private final jakarta.servlet.http.HttpServletRequest request;
 
     public CustomOAuth2UserService(UserRepository userRepository,
-            com.example.auth.repository.UserProviderRepository userProviderRepository) {
+            com.example.auth.repository.UserProviderRepository userProviderRepository,
+            jakarta.servlet.http.HttpServletRequest request) {
         this.userRepository = userRepository;
         this.userProviderRepository = userProviderRepository;
+        this.request = request;
     }
 
     @Override
@@ -67,22 +70,83 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
         UserEntity userEntity;
 
-        if (userProviderOpt.isPresent()) {
-            // 5-1. 이미 연동된 계정이 있는 경우 -> 해당 사용자 반환
+        // 세션에서 연동 모드 확인 (쿠키 대신 세션 사용)
+        jakarta.servlet.http.HttpSession session = request.getSession(false);
+        String linkMode = (session != null) ? (String) session.getAttribute("oauth2_link_mode") : null;
+        String linkUserIdStr = (session != null) ? (String) session.getAttribute("oauth2_link_user_id") : null;
+
+        System.out.println("=== CustomOAuth2UserService loadUser ===");
+        System.out.println("RegistrationId: " + registrationId);
+        System.out.println("Email: " + email);
+        System.out.println("LinkMode Session: " + linkMode);
+        System.out.println("LinkUserId Session: " + linkUserIdStr);
+
+        if ("link".equals(linkMode) && linkUserIdStr != null) {
+            // [계정 연동 모드]
+            Long userId = Long.parseLong(linkUserIdStr);
+            System.out.println("Processing Account Link for UserID: " + userId);
+
+            Optional<UserEntity> targetUserOpt = userRepository.findById(userId);
+
+            if (targetUserOpt.isPresent()) {
+                userEntity = targetUserOpt.get();
+
+                // [중복 연동 방지 및 소유권 이전 로직]
+                // 1. 해당 provider + providerId로 이미 연동된 정보가 있는지 전역 조회
+                Optional<com.example.auth.entity.UserProvider> existingProviderOpt = userProviderRepository
+                        .findByProviderAndProviderId(provider, providerId);
+
+                if (existingProviderOpt.isPresent()) {
+                    com.example.auth.entity.UserProvider existingProvider = existingProviderOpt.get();
+                    if (!existingProvider.getUser().getId().equals(userId)) {
+                        // 다른 사용자에게 이미 연동되어 있음 -> 소유권 이전 (기존 버그로 생성된 껍데기 계정 등)
+                        System.out.println("Conflict Detected: Social Account already linked to User ID "
+                                + existingProvider.getUser().getId());
+                        System.out.println("Moving Linkage to Target User ID " + userId);
+
+                        existingProvider.setUser(userEntity); // 소유자 변경
+                        userProviderRepository.saveAndFlush(existingProvider); // 즉시 반영
+                    } else {
+                        // 이미 내 계정에 연동되어 있음 (정상)
+                        System.out.println("Already linked to correct user.");
+                    }
+                } else {
+                    // 2. 연동된 정보가 없으면 신규 연동 생성
+                    linkAccount(userEntity, provider, providerId);
+                }
+
+                System.out.println("Account Linked/Moved Successfully for User: " + userEntity.getEmail());
+
+                // 사용 완료된 세션 속성 제거
+                if (session != null) {
+                    session.removeAttribute("oauth2_link_mode");
+                    session.removeAttribute("oauth2_link_user_id");
+                }
+            } else {
+                System.out.println("Target User Not Found for ID: " + userId);
+                throw new OAuth2AuthenticationException("연동할 대상 사용자를 찾을 수 없습니다.");
+            }
+        } else if (userProviderOpt.isPresent()) {
+            // [일반 로그인] 5-1. 이미 연동된 계정이 있는 경우 -> 해당 사용자 반환 (기존 로직)
+            System.out.println("Existing Provider Found. Logging in.");
             userEntity = userProviderOpt.get().getUser();
-            // 필요 시 사용자 정보(이름 등) 업데이트
+            // 이름 강제 업데이트 방지 (선택적 업데이트)
             updateUser(userEntity, userName);
         } else {
-            // 5-2. 연동된 계정이 없는 경우 -> 이메일로 기존 사용자 검색
+            // [일반 로그인] 5-2. 연동된 계정이 없는 경우 -> 이메일로 기존 사용자 검색 (기존 로직)
+            System.out.println("No Provider Found. Checking by Email.");
             Optional<UserEntity> existingUserOpt = userRepository.findByEmail(email);
 
             if (existingUserOpt.isPresent()) {
                 // A. 기존 사용자가 존재함 -> 계정 자동 연동 (Auto-Link)
+                System.out.println("Existing Email Found. Auto-linking.");
                 userEntity = existingUserOpt.get();
                 linkAccount(userEntity, provider, providerId);
+                // 이름 강제 업데이트 방지
                 updateUser(userEntity, userName);
             } else {
                 // B. 신규 사용자 -> 회원가입 + 연동 정보 생성
+                System.out.println("New User Required. Creating Account.");
                 userEntity = saveNewUser(email, userName, provider, providerId);
             }
         }
@@ -137,9 +201,12 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     }
 
     private void updateUser(UserEntity user, String newName) {
-        if (newName != null && !newName.isEmpty() && !newName.equals(user.getName())) {
-            user.setName(newName);
-            userRepository.save(user);
+        // 이름이 "소셜 사용자"이거나 비어있을 때만 소셜 정보로 업데이트 (기존 닉네임 유지)
+        if (user.getName() == null || user.getName().isEmpty() || "소셜 사용자".equals(user.getName())) {
+            if (newName != null && !newName.isEmpty()) {
+                user.setName(newName);
+                userRepository.save(user);
+            }
         }
     }
 }

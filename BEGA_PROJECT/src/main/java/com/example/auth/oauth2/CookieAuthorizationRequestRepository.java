@@ -19,6 +19,8 @@ public class CookieAuthorizationRequestRepository
     // 쿠키 이름 정의
     public static final String OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME = "oauth2_auth_request";
     public static final String REDIRECT_URI_PARAM_COOKIE_NAME = "redirect_uri";
+    public static final String LINK_MODE_COOKIE_NAME = "oauth2_link_mode";
+    public static final String LINK_USER_ID_COOKIE_NAME = "oauth2_link_user_id";
     // 쿠키 만료 시간 (초 단위)
     private static final int COOKIE_EXPIRE_SECONDS = 300; // 5분
 
@@ -56,6 +58,17 @@ public class CookieAuthorizationRequestRepository
             redirectCookie.setMaxAge(COOKIE_EXPIRE_SECONDS);
             response.addCookie(redirectCookie);
         }
+
+        // 3. 계정 연동 모드 및 사용자 ID 저장 ('mode', 'userId' 파라미터) -> 세션에 저장 (쿠키 불안정 해결)
+        String mode = request.getParameter("mode");
+        if (mode != null && !mode.isBlank()) {
+            request.getSession().setAttribute("oauth2_link_mode", mode);
+        }
+
+        String userId = request.getParameter("userId");
+        if (userId != null && !userId.isBlank()) {
+            request.getSession().setAttribute("oauth2_link_user_id", userId);
+        }
     }
 
     @Override
@@ -72,6 +85,8 @@ public class CookieAuthorizationRequestRepository
     public void removeAuthorizationRequestCookies(HttpServletRequest request, HttpServletResponse response) {
         deleteCookie(request, response, OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME);
         deleteCookie(request, response, REDIRECT_URI_PARAM_COOKIE_NAME);
+        deleteCookie(request, response, LINK_MODE_COOKIE_NAME);
+        deleteCookie(request, response, LINK_USER_ID_COOKIE_NAME);
     }
 
     // --- 유틸리티 메서드 ---

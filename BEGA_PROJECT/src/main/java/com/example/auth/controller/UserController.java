@@ -25,4 +25,13 @@ public class UserController {
         Long userId = userService.getUserIdByEmail(email);
         return ResponseEntity.ok(ApiResponse.success("사용자 ID 조회 성공", userId));
     }
+
+    /**
+     * 사용자의 소셜 연동(카카오/네이버) 여부 확인
+     */
+    @GetMapping("/{userId}/social-verified")
+    public ResponseEntity<ApiResponse> checkSocialVerified(@PathVariable Long userId) {
+        boolean verified = userService.isSocialVerified(userId);
+        return ResponseEntity.ok(ApiResponse.success("소셜 연동 상태 조회", verified));
+    }
 }

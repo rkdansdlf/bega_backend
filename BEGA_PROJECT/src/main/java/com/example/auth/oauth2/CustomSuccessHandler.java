@@ -21,12 +21,17 @@ import java.util.Optional;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
+import org.springframework.beans.factory.annotation.Value;
+
 @Component
 public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
 
     private final JWTUtil jwtUtil;
     private final RefreshRepository refreshRepository;
     private final UserRepository userRepository;
+
+    @Value("${app.frontend.url:http://localhost:3000}")
+    private String frontendUrl;
 
     public CustomSuccessHandler(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository) {
         this.jwtUtil = jwtUtil;
@@ -47,7 +52,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         if (userEmail == null || userEmail.isEmpty()) {
             getRedirectStrategy().sendRedirect(request, response,
-                    "https://bega-frontend.vercel.app/login?error=email_missing");
+                    frontendUrl + "/login?error=email_missing");
             return;
         }
 
@@ -55,7 +60,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         if (userEntityOptional.isEmpty()) {
             getRedirectStrategy().sendRedirect(request, response,
-                    "https://bega-frontend.vercel.app/login?error=user_not_found");
+                    frontendUrl + "/login?error=user_not_found");
             return;
         }
 
@@ -72,6 +77,41 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         if (favoriteTeamId == null || favoriteTeamId.isEmpty()) {
             favoriteTeamId = "없음";
         }
+
+        // --- 계정 연동 모드 체크 ---
+        // 세션 확인 (CookieAuthorizationRequestRepository -> CustomOAuth2UserService ->
+        // 여기서도 확인 가능하도록 세션 유지 필요)
+        // 주의: CustomOAuth2UserService에서 이미 한번 확인하고 처리했지만,
+        // 여기서도 리다이렉트 분기를 위해 확인이 필요하다면 세션에서 값을 가져와야 함.
+        // 다만 CustomOAuth2UserService에서 처리가 끝나면 세션 속성을 지우도록 로직을 짰다면 여기서 확인이 안 될 수 있음.
+        // 따라서 CustomOAuth2UserService에서 성공 시 'oauth2_link_success' 같은 플래그를 request 속성에
+        // 담는 것이 더 안전함.
+        // 하지만 간단하게 세션 값을 CustomOAuth2UserService에서 지우지 않도록 하고, 여기서 지우는 방식으로 변경하거나
+        // 혹은 CustomSuccessHandler가 먼저 실행되지 않으므로(UserRequest -> Provider -> Service ->
+        // SuccessHandler 순),
+        // Service에서 처리 후 SuccessHandler로 넘어옴.
+
+        // 전략 수정: CustomOAuth2UserService에서는 로직만 수행하고,
+        // SuccessHandler에서 최종 리다이렉트를 결정하기 위해 세션 값을 확인하고 여기서 삭제함.
+
+        jakarta.servlet.http.HttpSession session = request.getSession(false);
+        String linkMode = (session != null) ? (String) session.getAttribute("oauth2_link_mode") : null;
+        boolean isLinkMode = "link".equals(linkMode);
+
+        if (isLinkMode) {
+            // 연동 모드일 경우: 토큰 발급/쿠키 갱신 없이 마이페이지로 리턴 (기존 세션 유지)
+            System.out.println("Processing Account Link Success (Skipping Token Generation)");
+
+            // 세션 정리
+            if (session != null) {
+                session.removeAttribute("oauth2_link_mode");
+                session.removeAttribute("oauth2_link_user_id");
+            }
+
+            getRedirectStrategy().sendRedirect(request, response, frontendUrl + "/mypage?status=linked");
+            return;
+        }
+        // -----------------------
 
         // Access Token 생성
         long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; // 2시간
@@ -116,7 +156,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         String encodedFavoriteTeam = URLEncoder.encode(favoriteTeamId, StandardCharsets.UTF_8);
 
         String redirectUrl = String.format(
-                "https://bega-frontend.vercel.app/oauth/callback?email=%s&name=%s&role=%s&profileImageUrl=%s&favoriteTeam=%s",
+                frontendUrl + "/oauth/callback?email=%s&name=%s&role=%s&profileImageUrl=%s&favoriteTeam=%s",
                 encodedEmail, encodedName, encodedRole, encodedProfileUrl, encodedFavoriteTeam);
 
         getRedirectStrategy().sendRedirect(request, response, redirectUrl);
