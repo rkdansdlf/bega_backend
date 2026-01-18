@@ -16,6 +16,19 @@ spring:
   devtools:
     restart:
       enabled: false # 자동 재시작 비활성화
+
+  # Redis 설정
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 5
+          min-idle: 2
+          max-wait: 1000ms
       
   # 파일 업로드 설정
   servlet:
@@ -109,8 +122,8 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     hikari:
-      maximum-pool-size: 5
-      minimum-idle: 1
+      maximum-pool-size: 15
+      minimum-idle: 5
       connection-timeout: 20000
       validation-timeout: 5000
       idle-timeout: 300000
@@ -119,7 +132,7 @@ spring:
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
-      ddl-auto: none # DB에 이미 데이터와 뷰가 있으므로 DDL 자동 실행 비활성화
+      ddl-auto: update # 엔티티 변경(컬럼 추가) 반영을 위해 update로 변경
       naming:
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
 

@@ -381,6 +381,7 @@ public class CheerService {
     }
 
     @Transactional(readOnly = true)
+    @SuppressWarnings("null")
     public Page<CommentRes> listComments(Long postId, Pageable pageable) {
         // 최상위 댓글만 조회 (대댓글은 각 댓글의 replies에 포함됨)
         Page<CheerComment> page = commentRepo

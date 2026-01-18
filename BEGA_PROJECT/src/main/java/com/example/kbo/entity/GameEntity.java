@@ -71,8 +71,8 @@ public class GameEntity {
     @Column(name = "season_id")
     private Integer seasonId;
 
-    @Column(name = "stadium_id")
-    private Integer stadiumId;
+    @Column(name = "stadium_id", length = 50)
+    private String stadiumId;
 
     @Column(name = "game_status", length = 20)
     private String gameStatus; // SCHEDULED, COMPLETED, CANCELLED 등
