@@ -58,13 +58,15 @@ public class SecurityConfig {
         }
 
         /**
-         * 역할 계층 설정: ADMIN > USER
-         * 관리자는 일반 사용자의 모든 권한을 자동으로 가집니다.
+         * 역할 계층 설정: SUPER_ADMIN > ADMIN > USER
+         * SUPER_ADMIN은 모든 권한을 가지며, 권한 관리 기능에 접근할 수 있습니다.
+         * ADMIN은 일반 관리 기능에 접근할 수 있습니다.
          */
         @Bean
         public org.springframework.security.access.hierarchicalroles.RoleHierarchy roleHierarchy() {
                 return org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl
                                 .withDefaultRolePrefix()
+                                .role("SUPER_ADMIN").implies("ADMIN")
                                 .role("ADMIN").implies("USER")
                                 .build();
         }

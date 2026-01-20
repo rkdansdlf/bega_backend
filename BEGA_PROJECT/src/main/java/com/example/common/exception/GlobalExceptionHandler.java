@@ -5,6 +5,8 @@ import com.example.BegaDiary.Exception.DiaryNotFoundException;
 import com.example.BegaDiary.Exception.GameNotFoundException;
 import com.example.BegaDiary.Exception.ImageProcessingException;
 import com.example.BegaDiary.Exception.WinningNameNotFoundException;
+import com.example.admin.exception.InsufficientPrivilegeException;
+import com.example.admin.exception.InvalidRoleChangeException;
 import com.example.common.dto.ApiResponse;
 import com.example.mate.exception.DuplicateApplicationException;
 import com.example.mate.exception.DuplicateCheckInException;
@@ -301,6 +303,30 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(WinningNameNotFoundException.class)
     public ResponseEntity<ApiResponse> handleWinningNameNotFoundException(WinningNameNotFoundException e) {
         log.error("WinningNameNotFoundException: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(e.getMessage()));
+    }
+
+    // -------- Admin Role 관련 예외 ------------
+
+    /**
+     * 403 Forbidden - 권한 부족 (SUPER_ADMIN 필요)
+     */
+    @ExceptionHandler(InsufficientPrivilegeException.class)
+    public ResponseEntity<ApiResponse> handleInsufficientPrivilegeException(InsufficientPrivilegeException e) {
+        log.warn("InsufficientPrivilegeException: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error(e.getMessage()));
+    }
+
+    /**
+     * 400 Bad Request - 유효하지 않은 권한 변경
+     */
+    @ExceptionHandler(InvalidRoleChangeException.class)
+    public ResponseEntity<ApiResponse> handleInvalidRoleChangeException(InvalidRoleChangeException e) {
+        log.warn("InvalidRoleChangeException: {}", e.getMessage());
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error(e.getMessage()));
