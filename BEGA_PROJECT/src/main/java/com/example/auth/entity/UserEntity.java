@@ -95,9 +95,18 @@ public class UserEntity {
 
     /**
      * 관리자인지 확인하는 헬퍼 메서드
+     * ADMIN 또는 SUPER_ADMIN 역할을 가진 경우 true 반환
      */
     public boolean isAdmin() {
-        return "ROLE_ADMIN".equals(this.role);
+        return "ROLE_ADMIN".equals(this.role) || "ROLE_SUPER_ADMIN".equals(this.role);
+    }
+
+    /**
+     * 최고 관리자인지 확인하는 헬퍼 메서드
+     * SUPER_ADMIN만 true 반환
+     */
+    public boolean isSuperAdmin() {
+        return "ROLE_SUPER_ADMIN".equals(this.role);
     }
 
     public UserDto toDto() {

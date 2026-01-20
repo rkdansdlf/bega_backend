@@ -116,10 +116,24 @@ public class BegaDiary {
 	@Column(name = "updatedat", nullable = false)
 	private LocalDateTime updatedAt;
 
+	// 좌석 정보 필드 추가
+	@Column(length = 50)
+	private String section; // 예: "블루석", "1루 내야"
+
+	@Column(length = 50)
+	private String block; // 예: "101구역", "A열"
+
+	@Column(length = 50)
+	private String seatRow; // "row"는 SQL 예약어일 가능성 있음
+
+	@Column(length = 50)
+	private String seatNumber;
+
 	@Builder
 	public BegaDiary(LocalDate diaryDate, GameEntity game,
 			String memo, DiaryEmoji mood, DiaryType type, DiaryWinning winning,
-			List<String> photoUrls, UserEntity user, String team, String stadium) {
+			List<String> photoUrls, UserEntity user, String team, String stadium,
+			String section, String block, String seatRow, String seatNumber) {
 		this.diaryDate = diaryDate;
 		this.game = game;
 		this.memo = memo;
@@ -130,6 +144,10 @@ public class BegaDiary {
 		this.user = user;
 		this.team = team;
 		this.stadium = stadium;
+		this.section = section;
+		this.block = block;
+		this.seatRow = seatRow;
+		this.seatNumber = seatNumber;
 		this.createdAt = LocalDateTime.now();
 		this.updatedAt = LocalDateTime.now();
 	}
