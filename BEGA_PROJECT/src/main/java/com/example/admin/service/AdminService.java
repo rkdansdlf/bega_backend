@@ -4,6 +4,8 @@ import com.example.admin.dto.AdminMateDto;
 import com.example.admin.dto.AdminPostDto;
 import com.example.admin.dto.AdminStatsDto;
 import com.example.admin.dto.AdminUserDto;
+import com.example.admin.entity.AuditLog;
+import com.example.admin.repository.AuditLogRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.cheerboard.domain.CheerComment;
@@ -38,6 +40,7 @@ public class AdminService {
     private final CheerCommentRepo commentRepository;
     private final CheerPostLikeRepo likeRepository;
     private final CacheManager cacheManager;
+    private final AuditLogRepository auditLogRepository;
 
     /**
      * 대시보드 통계 조회
@@ -143,13 +146,17 @@ public class AdminService {
 
     /**
      * 유저 삭제 (연관된 데이터도 함께 삭제)
+     * @param userId 삭제할 유저 ID
+     * @param adminId 삭제를 수행하는 관리자 ID (감사 로그용, nullable)
      */
     @Transactional
-    public void deleteUser(Long userId) {
+    public void deleteUser(Long userId, Long adminId) {
         Objects.requireNonNull(userId, "userId must not be null");
 
         UserEntity user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("유저를 찾을 수 없습니다."));
+
+        String userEmail = user.getEmail();
 
         // 좋아요 삭제
         List<CheerPostLike> userLikes = likeRepository.findByUser(user);
@@ -177,34 +184,84 @@ public class AdminService {
 
         // 유저 삭제
         userRepository.delete(Objects.requireNonNull(user));
+
+        // 감사 로그 기록
+        if (adminId != null) {
+            AuditLog auditLog = AuditLog.builder()
+                    .adminId(adminId)
+                    .targetUserId(userId)
+                    .action(AuditLog.AuditAction.DELETE_USER)
+                    .oldValue(userEmail)
+                    .newValue(null)
+                    .description("사용자 삭제")
+                    .build();
+            auditLogRepository.save(auditLog);
+            log.info("User {} deleted by admin {}. Email: {}", userId, adminId, userEmail);
+        }
     }
 
     /**
      * 응원 게시글 삭제
+     * @param postId 삭제할 게시글 ID
+     * @param adminId 삭제를 수행하는 관리자 ID (감사 로그용, nullable)
      */
     @Transactional
-    public void deletePost(Long postId) {
+    public void deletePost(Long postId, Long adminId) {
         Long id = Objects.requireNonNull(postId, "postId must not be null");
 
-        if (!cheerPostRepository.existsById(id)) {
-            throw new IllegalArgumentException("게시글을 찾을 수 없습니다.");
-        }
+        CheerPost post = cheerPostRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("게시글을 찾을 수 없습니다."));
+
+        String postTitle = post.getTitle();
+        Long authorId = post.getAuthor().getId();
 
         cheerPostRepository.deleteById(id);
+
+        // 감사 로그 기록
+        if (adminId != null) {
+            AuditLog auditLog = AuditLog.builder()
+                    .adminId(adminId)
+                    .targetUserId(authorId)
+                    .action(AuditLog.AuditAction.DELETE_POST)
+                    .oldValue(postTitle)
+                    .newValue(null)
+                    .description("게시글 삭제 (ID: " + postId + ")")
+                    .build();
+            auditLogRepository.save(auditLog);
+            log.info("Post {} deleted by admin {}. Title: {}", postId, adminId, postTitle);
+        }
     }
 
     /**
      * 메이트 모임 삭제
+     * @param mateId 삭제할 메이트 모임 ID
+     * @param adminId 삭제를 수행하는 관리자 ID (감사 로그용, nullable)
      */
     @Transactional
-    public void deleteMate(Long mateId) {
+    public void deleteMate(Long mateId, Long adminId) {
         Long id = Objects.requireNonNull(mateId, "mateId must not be null");
 
-        if (!partyRepository.existsById(id)) {
-            throw new IllegalArgumentException("메이트 모임을 찾을 수 없습니다.");
-        }
+        Party party = partyRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("메이트 모임을 찾을 수 없습니다."));
+
+        String partyDesc = party.getDescription();
+        Long hostId = party.getHostId();
 
         partyRepository.deleteById(id);
+
+        // 감사 로그 기록
+        if (adminId != null) {
+            AuditLog auditLog = AuditLog.builder()
+                    .adminId(adminId)
+                    .targetUserId(hostId)
+                    .action(AuditLog.AuditAction.DELETE_MATE)
+                    .oldValue(partyDesc)
+                    .newValue(null)
+                    .description("메이트 모임 삭제 (ID: " + mateId + ")")
+                    .build();
+            auditLogRepository.save(auditLog);
+            log.info("Mate {} deleted by admin {}. Description: {}", mateId, adminId, partyDesc);
+        }
     }
 
     /**

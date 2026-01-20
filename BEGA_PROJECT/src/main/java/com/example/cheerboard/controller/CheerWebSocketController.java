@@ -13,12 +13,13 @@ public class CheerWebSocketController {
 
     private final CheerBattleService battleService;
 
-    @MessageMapping("/battle/vote")
-    @SendTo("/topic/battle/stats")
-    public Map<String, Integer> vote(String teamId) {
+    @MessageMapping("/battle/vote/{gameId}")
+    @SendTo("/topic/battle/{gameId}")
+    public Map<String, Integer> vote(
+            @org.springframework.messaging.handler.annotation.DestinationVariable String gameId, String teamId) {
         // Increment vote
-        battleService.vote(teamId);
-        // Return updated stats for all teams
-        return battleService.getStats();
+        battleService.vote(gameId, teamId);
+        // Return updated stats for this game
+        return battleService.getGameStats(gameId);
     }
 }
