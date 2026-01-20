@@ -140,8 +140,13 @@ public class SecurityConfig {
                                 .authorizeHttpRequests((auth) -> auth
                                                 .requestMatchers("/api/auth/login").permitAll()
                                                 .requestMatchers("/api/auth/signup", "/api/auth/reissue").permitAll()
-                                                .requestMatchers("/", "/oauth2/**", "/login", "/error").permitAll()
-                                                .requestMatchers("/api/profile/image").permitAll()
+                                                .requestMatchers("/api/auth/**", "/oauth2/**", "/login/**", "/error",
+                                                                "/api/diary/public/**")
+                                                .permitAll()
+                                                .requestMatchers("/actuator/**").permitAll() // Actuator 엔드포인트 허용
+                                                .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN") // 관리자
+                                                                                                                     // 권한
+                                                                                                                     // 필요
                                                 .requestMatchers(HttpMethod.GET, "/api/cheer/posts",
                                                                 "/api/cheer/posts/**")
                                                 .permitAll() // 게시글

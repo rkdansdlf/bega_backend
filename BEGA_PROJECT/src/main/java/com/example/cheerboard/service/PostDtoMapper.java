@@ -34,7 +34,7 @@ public class PostDtoMapper {
     /**
      * CheerPost를 PostSummaryRes로 변환
      */
-    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean isBookmarked, boolean isOwner) {
+    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner) {
         List<String> imageUrls = Collections.emptyList();
         try {
             imageUrls = imageService.getPostImageUrls(post.getId());
@@ -42,13 +42,14 @@ public class PostDtoMapper {
             log.warn("이미지 URL 조회 실패: postId={}, error={}", post.getId(), e.getMessage());
         }
 
-        return toPostSummaryRes(post, isBookmarked, isOwner, imageUrls);
+        return toPostSummaryRes(post, liked, isBookmarked, isOwner, imageUrls);
     }
 
     /**
      * CheerPost를 PostSummaryRes로 변환 (이미지 URL 미리 로딩된 경우)
      */
-    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean isBookmarked, boolean isOwner, List<String> imageUrls) {
+    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
+            List<String> imageUrls) {
         List<String> resolvedUrls = imageUrls != null ? imageUrls : Collections.emptyList();
         return new PostSummaryRes(
                 post.getId(),
@@ -59,11 +60,13 @@ public class PostDtoMapper {
                 post.getTitle(),
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor().getId(),
+                post.getAuthor().getHandle(),
                 post.getAuthor().getProfileImageUrl(),
                 post.getAuthor().getFavoriteTeamId(),
                 post.getCreatedAt(),
                 post.getCommentCount(),
                 post.getLikeCount(),
+                liked,
                 post.getViews(),
                 hotPostChecker.isHotPost(post),
                 isBookmarked,
@@ -93,6 +96,7 @@ public class PostDtoMapper {
                 post.getContent(),
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor().getId(),
+                post.getAuthor().getHandle(),
                 post.getAuthor().getEmail(),
                 post.getAuthor().getProfileImageUrl(),
                 post.getCreatedAt(),
@@ -127,6 +131,7 @@ public class PostDtoMapper {
                 post.getContent(),
                 resolveDisplayName(author),
                 author.getId(),
+                author.getHandle(),
                 author.getEmail(),
                 author.getProfileImageUrl(),
                 post.getCreatedAt(),

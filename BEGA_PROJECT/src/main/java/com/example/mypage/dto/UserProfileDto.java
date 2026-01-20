@@ -40,4 +40,7 @@ public class UserProfileDto {
     @Size(max = 500, message = "자기소개는 500자 이내여야 합니다.")
     private String bio;
 
+    // 응원 포인트
+    @com.fasterxml.jackson.annotation.JsonProperty("cheerPoints")
+    private Integer cheerPoints;
 }

@@ -14,7 +14,9 @@ import lombok.Setter;
 public class PublicUserProfileDto {
     private Long id;
     private String name;
+    private String handle;
     private String favoriteTeam;
     private String profileImageUrl;
     private String bio;
+    private Integer cheerPoints; // Added
 }

@@ -16,9 +16,17 @@ public class CheerWebSocketController {
     @MessageMapping("/battle/vote/{gameId}")
     @SendTo("/topic/battle/{gameId}")
     public Map<String, Integer> vote(
-            @org.springframework.messaging.handler.annotation.DestinationVariable String gameId, String teamId) {
-        // Increment vote
-        battleService.vote(gameId, teamId);
+            @org.springframework.messaging.handler.annotation.DestinationVariable String gameId,
+            String teamId,
+            java.security.Principal principal) {
+
+        if (principal == null) {
+            throw new IllegalArgumentException("로그인이 필요합니다.");
+        }
+
+        // Increment vote with point deduction
+        battleService.vote(gameId, teamId, principal.getName());
+
         // Return updated stats for this game
         return battleService.getGameStats(gameId);
     }
