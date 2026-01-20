@@ -130,6 +130,10 @@ public class UserService {
      */
     @SuppressWarnings("null")
     private void createNewUser(UserDto userDto) {
+        String handle = validateAndNormalizeHandle(userDto.getHandle());
+        if (userRepository.existsByHandle(handle)) {
+            throw new IllegalArgumentException("이미 사용 중인 아이디(@handle)입니다: " + handle);
+        }
 
         String favoriteTeamName = userDto.getFavoriteTeam();
         String roleKey = getRoleKeyByFavoriteTeam(favoriteTeamName);
@@ -139,6 +143,8 @@ public class UserService {
 
         UserEntity user = UserEntity.builder()
                 .name(userDto.getName())
+                .handle(handle)
+                .uniqueId(java.util.UUID.randomUUID())
                 .email(userDto.getEmail())
                 .password(encodedPassword)
                 .favoriteTeam(team)
@@ -151,6 +157,32 @@ public class UserService {
     }
 
     /**
+     * 핸들 유효성 검증 및 정규화
+     */
+    public String validateAndNormalizeHandle(String handle) {
+        if (handle == null || handle.trim().isEmpty()) {
+            throw new IllegalArgumentException("아이디(@handle)는 필수 입력 항목입니다.");
+        }
+
+        String trimmedHandle = handle.trim();
+        if (!trimmedHandle.startsWith("@")) {
+            trimmedHandle = "@" + trimmedHandle;
+        }
+
+        // 정책: 시작은 @, 최대 15자, 영문/숫자/_ 만 허용
+        if (trimmedHandle.length() > 15) {
+            throw new IllegalArgumentException("아이디(@handle)는 최대 15자까지 가능합니다.");
+        }
+
+        String pattern = "^@[a-zA-Z0-9_]{1,14}$";
+        if (!trimmedHandle.matches(pattern)) {
+            throw new IllegalArgumentException("아이디(@handle)는 영문, 숫자, 밑줄(_)만 포함할 수 있습니다.");
+        }
+
+        return trimmedHandle;
+    }
+
+    /**
      * 로그인 인증 및 JWT 토큰 생성
      */
     @Transactional
@@ -159,6 +191,9 @@ public class UserService {
         UserEntity user = findUserByEmailOrThrow(normalizedEmail);
 
         validatePassword(user, password);
+
+        // 일일 출석 보너스 체크
+        checkAndApplyDailyLoginBonus(user);
 
         String accessToken = jwtUtil.createJwt(
                 user.getEmail(),
@@ -177,7 +212,22 @@ public class UserService {
                 "refreshToken", refreshToken,
                 "id", user.getId(),
                 "name", user.getName(),
-                "role", user.getRole());
+                "role", user.getRole(),
+                "cheerPoints", user.getCheerPoints());
+    }
+
+    /**
+     * 일일 출석 보너스 지급 (5포인트)
+     */
+    @Transactional
+    public void checkAndApplyDailyLoginBonus(UserEntity user) {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        if (user.getLastBonusDate() == null || !user.getLastBonusDate().equals(today)) {
+            user.addCheerPoints(5);
+            user.setLastBonusDate(today);
+            userRepository.save(user);
+            log.info("Daily Login Bonus (5 points) awarded to user: {}", user.getEmail());
+        }
     }
 
     /**
@@ -415,6 +465,23 @@ public class UserService {
     }
 
     /**
+     * 공개 프로필 조회 (핸들 기준)
+     */
+    @Transactional(readOnly = true)
+    public com.example.auth.dto.PublicUserProfileDto getPublicUserProfileByHandle(String handle) {
+        UserEntity user = userRepository.findByHandle(handle)
+                .orElseThrow(() -> new UserNotFoundException("handle", handle));
+        return com.example.auth.dto.PublicUserProfileDto.builder()
+                .id(user.getId())
+                .name(user.getName())
+                .handle(user.getHandle())
+                .favoriteTeam(user.getFavoriteTeamId())
+                .bio(user.getBio())
+                .cheerPoints(user.getCheerPoints())
+                .build();
+    }
+
+    /**
      * 공개 프로필 조회
      */
     @Transactional(readOnly = true)
@@ -423,9 +490,10 @@ public class UserService {
         return com.example.auth.dto.PublicUserProfileDto.builder()
                 .id(user.getId())
                 .name(user.getName())
+                .handle(user.getHandle())
                 .favoriteTeam(user.getFavoriteTeamId())
-                .profileImageUrl(user.getProfileImageUrl())
                 .bio(user.getBio())
+                .cheerPoints(user.getCheerPoints())
                 .build();
     }
 
@@ -477,12 +545,14 @@ public class UserService {
     private UserDto convertToUserDto(UserEntity userEntity) {
         return UserDto.builder()
                 .id(userEntity.getId())
+                .handle(userEntity.getHandle())
                 .name(userEntity.getName())
                 .email(userEntity.getEmail())
                 .favoriteTeam(userEntity.getFavoriteTeamId())
                 .role(userEntity.getRole())
                 .provider(userEntity.getProvider())
                 .providerId(userEntity.getProviderId())
+                .cheerPoints(userEntity.getCheerPoints())
                 .build();
     }
 

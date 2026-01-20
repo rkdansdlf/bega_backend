@@ -18,16 +18,38 @@ public class CheerBattleService {
 
     private final CheerVoteRepository cheerVoteRepository;
 
+    private final com.example.auth.repository.UserRepository userRepository;
+
     // Game ID -> Team ID -> Vote Count (In-memory cache)
     private final Map<String, Map<String, AtomicInteger>> gameVotes = new ConcurrentHashMap<>();
 
     @Transactional
-    public int vote(String gameId, String teamId) {
-        // Update memory
-        Map<String, AtomicInteger> teamVotes = gameVotes.computeIfAbsent(gameId, k -> new ConcurrentHashMap<>());
-        int newValue = teamVotes.computeIfAbsent(teamId, k -> new AtomicInteger(0)).incrementAndGet();
+    public int vote(String gameId, String teamId, String userEmail) {
+        // 1. 사용자 포인트 차감
+        com.example.auth.entity.UserEntity user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
 
-        // Update DB
+        // 포인트 차감 (부족하면 예외 발생)
+        user.deductCheerPoints(1);
+        userRepository.save(user);
+
+        // 2. Update memory (DB backup fallback)
+        Map<String, AtomicInteger> teamVotes = gameVotes.computeIfAbsent(gameId, k -> new ConcurrentHashMap<>());
+
+        AtomicInteger counter = teamVotes.computeIfAbsent(teamId, k -> {
+            // Memory miss -> Load from DB
+            CheerVoteId id = CheerVoteId.builder()
+                    .gameId(gameId)
+                    .teamId(teamId)
+                    .build();
+            return cheerVoteRepository.findById(id)
+                    .map(entity -> new AtomicInteger(entity.getVoteCount()))
+                    .orElse(new AtomicInteger(0));
+        });
+
+        int newValue = counter.incrementAndGet();
+
+        // 3. Update DB
         CheerVoteId id = CheerVoteId.builder()
                 .gameId(gameId)
                 .teamId(teamId)
@@ -64,5 +86,10 @@ public class CheerBattleService {
         }
 
         return result;
+    }
+
+    public void clearMemoryCache() {
+        // 메모리 상의 투표 집계 초기화
+        gameVotes.clear();
     }
 }

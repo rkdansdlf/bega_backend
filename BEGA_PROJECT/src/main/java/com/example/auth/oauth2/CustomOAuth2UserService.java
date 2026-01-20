@@ -151,6 +151,15 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             }
         }
 
+        // [일일 출석 보너스 지급]
+        java.time.LocalDate today = java.time.LocalDate.now();
+        if (userEntity.getLastBonusDate() == null || !userEntity.getLastBonusDate().equals(today)) {
+            userEntity.addCheerPoints(5);
+            userEntity.setLastBonusDate(today);
+            userRepository.save(userEntity);
+            System.out.println("Daily Login Bonus (5 points) awarded to Social User: " + userEntity.getEmail());
+        }
+
         // 6. CustomOAuth2User 객체 반환
         return new CustomOAuth2User(userEntity.toDto(), oAuth2User.getAttributes());
     }

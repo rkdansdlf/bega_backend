@@ -8,9 +8,11 @@ import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
-    // 기존 메서드 (주석 처리)
-    // Boolean existsByUsername(String username);
-    // UserEntity findByUsername(String username);
+    Optional<UserEntity> findByHandle(String handle);
+
+    Boolean existsByHandle(String handle);
+
+    Optional<UserEntity> findByUniqueId(java.util.UUID uniqueId);
 
     Optional<UserEntity> findByName(String name);
 
@@ -24,4 +26,8 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
     List<UserEntity> findAllByOrderByIdAsc();
 
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("UPDATE UserEntity u SET u.cheerPoints = COALESCE(u.cheerPoints, 0) + :points WHERE u.id = :userId")
+    void modifyCheerPoints(@org.springframework.data.repository.query.Param("userId") Long userId,
+            @org.springframework.data.repository.query.Param("points") int points);
 }

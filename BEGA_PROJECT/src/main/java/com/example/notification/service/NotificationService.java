@@ -8,7 +8,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.transaction.annotation.Propagation;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -20,7 +19,7 @@ public class NotificationService {
     private final SimpMessagingTemplate messagingTemplate;
 
     // 알림 생성
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     @SuppressWarnings("null")
     public void createNotification(
             Long userId,
@@ -42,15 +41,21 @@ public class NotificationService {
         // DTO 생성
         NotificationDTO.Response dto = NotificationDTO.Response.from(saved);
 
-        // WebSocket으로 실시간 알림 전송
-        try {
-            messagingTemplate.convertAndSend(
-                    "/topic/notifications/" + userId,
-                    (Object) dto);
-            System.out.println("알림 전송 성공: userId=" + userId + ", type=" + type);
-        } catch (Exception e) {
-            System.err.println("알림 전송 실패: " + e.getMessage());
-        }
+        // WebSocket으로 실시간 알림 전송 (트랜잭션 커밋 후 전송)
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try {
+                            messagingTemplate.convertAndSend(
+                                    "/topic/notifications/" + userId,
+                                    (Object) dto);
+                            System.out.println("알림 전송 성공 (After Commit): userId=" + userId + ", type=" + type);
+                        } catch (Exception e) {
+                            System.err.println("알림 전송 실패: " + e.getMessage());
+                        }
+                    }
+                });
 
     }
 
