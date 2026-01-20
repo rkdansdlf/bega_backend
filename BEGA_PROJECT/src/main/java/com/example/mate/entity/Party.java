@@ -32,7 +32,7 @@ public class Party {
     @Enumerated(EnumType.STRING)
     private BadgeType hostBadge; // 호스트 뱃지 (NEW, VERIFIED, TRUSTED)
 
-    @Column(name = "host_profile_image_url")
+    @Column(name = "host_profile_image_url", length = 2048)
     private String hostProfileImageUrl;
 
     @Column(nullable = false)

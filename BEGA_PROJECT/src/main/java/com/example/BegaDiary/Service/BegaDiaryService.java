@@ -150,6 +150,10 @@ public class BegaDiaryService {
                 .team(team)
                 .stadium(game.getStadium())
                 .user(user)
+                .section(requestDto.getSection())
+                .block(requestDto.getBlock())
+                .seatRow(requestDto.getSeatRow())
+                .seatNumber(requestDto.getSeatNumber())
                 .build();
 
         // 5. DB 저장

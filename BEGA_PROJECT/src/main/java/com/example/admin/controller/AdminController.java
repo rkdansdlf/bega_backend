@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -72,8 +73,10 @@ public class AdminController {
      * DELETE /api/admin/users/{userId}
      */
     @DeleteMapping("/users/{userId}")
-    public ResponseEntity<ApiResponse> deleteUser(@PathVariable Long userId) {
-        adminService.deleteUser(userId);
+    public ResponseEntity<ApiResponse> deleteUser(
+            @AuthenticationPrincipal Long adminId,
+            @PathVariable Long userId) {
+        adminService.deleteUser(userId, adminId);
         return ResponseEntity.ok(ApiResponse.success("유저가 삭제되었습니다."));
     }
 
@@ -82,8 +85,10 @@ public class AdminController {
      * DELETE /api/admin/posts/{postId}
      */
     @DeleteMapping("/posts/{postId}")
-    public ResponseEntity<ApiResponse> deletePost(@PathVariable Long postId) {
-        adminService.deletePost(postId);
+    public ResponseEntity<ApiResponse> deletePost(
+            @AuthenticationPrincipal Long adminId,
+            @PathVariable Long postId) {
+        adminService.deletePost(postId, adminId);
         return ResponseEntity.ok(ApiResponse.success("게시글이 삭제되었습니다."));
     }
 
@@ -92,8 +97,10 @@ public class AdminController {
      * DELETE /api/admin/mates/{mateId}
      */
     @DeleteMapping("/mates/{mateId}")
-    public ResponseEntity<ApiResponse> deleteMate(@PathVariable Long mateId) {
-        adminService.deleteMate(mateId);
+    public ResponseEntity<ApiResponse> deleteMate(
+            @AuthenticationPrincipal Long adminId,
+            @PathVariable Long mateId) {
+        adminService.deleteMate(mateId, adminId);
         return ResponseEntity.ok(ApiResponse.success("메이트 모임이 삭제되었습니다."));
     }
 
