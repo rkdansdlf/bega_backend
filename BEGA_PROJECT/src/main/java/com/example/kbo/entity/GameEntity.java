@@ -17,7 +17,11 @@ import java.time.LocalDate;
  * - HomePageGame.java (homePage 패키지) - 홈페이지용
  */
 @Entity
-@Table(name = "game")
+@Table(name = "game", indexes = {
+        @Index(name = "idx_game_date", columnList = "game_date"),
+        @Index(name = "idx_season_id", columnList = "season_id"),
+        @Index(name = "idx_game_teams", columnList = "home_team, away_team")
+})
 @Getter
 @Setter
 @NoArgsConstructor

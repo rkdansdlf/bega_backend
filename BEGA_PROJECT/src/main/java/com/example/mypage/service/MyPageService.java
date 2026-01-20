@@ -37,7 +37,9 @@ public class MyPageService {
                 .favoriteTeam(teamId)
                 .profileImageUrl(user.getProfileImageUrl())
                 .createdAt(user.getCreatedAt().format(DATE_FORMATTER))
+                .createdAt(user.getCreatedAt().format(DATE_FORMATTER))
                 .role(user.getRole())
+                .cheerPoints(user.getCheerPoints())
                 .build();
     }
 

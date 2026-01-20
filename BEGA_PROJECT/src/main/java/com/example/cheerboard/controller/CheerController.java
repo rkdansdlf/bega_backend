@@ -116,4 +116,10 @@ public class CheerController {
             @RequestBody CreateCommentReq req) {
         return svc.addReply(postId, parentCommentId, req);
     }
+
+    @GetMapping("/user/{handle}/posts")
+    public Page<PostSummaryRes> listByUser(@PathVariable String handle,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return svc.listByUserHandle(handle, pageable);
+    }
 }

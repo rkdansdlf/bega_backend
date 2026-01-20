@@ -9,6 +9,8 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
+import java.util.UUID;
+
 @Entity
 @Getter
 @Setter
@@ -22,6 +24,14 @@ public class UserEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    // 내부 보안 식별자 (무작위 UUID)
+    @Column(name = "unique_id", unique = true, nullable = false)
+    private UUID uniqueId;
+
+    // 사용자 아이디 (@handle)
+    @Column(unique = true, nullable = false, length = 15)
+    private String handle;
 
     // 닉네임/표시 이름
     @Column(nullable = false)
@@ -50,6 +60,15 @@ public class UserEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "favorite_team", referencedColumnName = "team_id")
     private TeamEntity favoriteTeam; // TeamEntity 객체로 매핑
+
+    // 응원 포인트 (좋아요 받으면 증가, 응원 배틀에 사용)
+    @Column(name = "cheer_points", nullable = false)
+    @Builder.Default
+    private Integer cheerPoints = 0;
+
+    // 마지막으로 출석 보너스를 받은 날짜 (매일 1회 지급용)
+    @Column(name = "last_bonus_date")
+    private java.time.LocalDate lastBonusDate;
 
     // 가입일자
     @CreatedDate
@@ -113,11 +132,24 @@ public class UserEntity {
         return UserDto.builder()
                 .id(this.id)
                 .name(this.name)
+                .handle(this.handle)
                 .email(this.email)
                 .role(this.role)
                 .favoriteTeam(this.favoriteTeam != null ? this.favoriteTeam.getTeamId() : null)
                 .provider(this.provider)
                 .providerId(this.providerId)
                 .build();
+    }
+
+    public void addCheerPoints(int points) {
+        this.cheerPoints = (this.cheerPoints == null ? 0 : this.cheerPoints) + points;
+    }
+
+    public void deductCheerPoints(int points) {
+        int currentPoints = (this.cheerPoints == null ? 0 : this.cheerPoints);
+        if (currentPoints < points) {
+            throw new IllegalStateException("응원 포인트가 부족합니다.");
+        }
+        this.cheerPoints = currentPoints - points;
     }
 }

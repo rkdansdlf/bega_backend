@@ -14,9 +14,9 @@ public class UserController {
 
     private final UserService userService;
 
-    @GetMapping("/{userId}/profile")
-    public ResponseEntity<ApiResponse> getPublicUserProfile(@PathVariable Long userId) {
-        PublicUserProfileDto profile = userService.getPublicUserProfile(userId);
+    @GetMapping("/profile/{handle}")
+    public ResponseEntity<ApiResponse> getPublicUserProfile(@PathVariable String handle) {
+        PublicUserProfileDto profile = userService.getPublicUserProfileByHandle(handle);
         return ResponseEntity.ok(ApiResponse.success("사용자 프로필 조회 성공", profile));
     }
 

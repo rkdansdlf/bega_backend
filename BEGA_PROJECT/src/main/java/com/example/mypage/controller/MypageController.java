@@ -8,6 +8,7 @@ import com.example.auth.service.UserService;
 import com.example.auth.util.JWTUtil;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j; // Add Slf4j
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +26,7 @@ import jakarta.validation.Valid;
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
+@Slf4j
 public class MypageController {
 
     private static final long ACCESS_TOKEN_EXPIRED_MS = 1000 * 60 * 30; // 30분 (ms 단위)
@@ -35,6 +37,12 @@ public class MypageController {
     @GetMapping("/mypage")
     public ResponseEntity<ApiResponse> getMyProfile(
             @AuthenticationPrincipal Long userId) {
+        // 인증되지 않은 사용자인 경우 401 반환
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("인증이 필요합니다."));
+        }
+
         try {
             // JWT 토큰에서 ID (userId) 사용
             // UserService를 통해 실제 DB에서 사용자 정보 조회
@@ -49,14 +57,18 @@ public class MypageController {
                     .createdAt(userEntity.getCreatedAt().format(DateTimeFormatter.ISO_DATE_TIME))
                     .role(userEntity.getRole())
                     .bio(userEntity.getBio())
+                    .cheerPoints(userEntity.getCheerPoints())
                     .build();
 
             // 성공 응답 (HTTP 200 OK)
+            log.info("getMyProfile - userId: {}, email: {}, points: {}", userId, userEntity.getEmail(),
+                    userEntity.getCheerPoints());
             return ResponseEntity.ok(ApiResponse.success("프로필 조회 성공", profileDto));
 
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiResponse.error("요청한 사용자의 프로필 정보를 찾을 수 없습니다."));
+            // 토큰은 유효하지만 DB에 유저가 없는 경우 (Zombie Session) -> 401로 응답하여 재로그인 유도
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)"));
 
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
