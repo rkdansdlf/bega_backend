@@ -5,17 +5,27 @@ spring:
   config:
     import: optional:file:.env[.properties] # .env 파일 로드
   jpa:
+    open-in-view: false # N+1 방지
     show-sql: false
     properties:
       hibernate:
         format-sql: true
-        temp:
-          use_jdbc_metadata_defaults: false
+        boot:
+          allow_jdbc_metadata_access: false
   thymeleaf:
     cache: false
+    check-template-location: false
   devtools:
     restart:
       enabled: false # 자동 재시작 비활성화
+
+  # 로깅 설정 (기본값)
+  logging:
+    level:
+      root: INFO
+      com.example: INFO
+      org.hibernate.SQL: WARN
+      org.springframework: INFO
 
   # Redis 설정
   data:
@@ -110,8 +120,26 @@ supabase:
     max-images-per-post: 10
     max-images-per-diary: 6
 
+# Actuator health check (shared across profiles)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  health:
+    db:
+      enabled: true
+    diskspace:
+      enabled: true
+
 ---
-# 'dev' 프로필: 로컬 개발 환경 (PostgreSQL 사용)
+# 'dev' 프로필: 개발 환경 (PostgreSQL - Supabase OCI 사용)
 spring:
   config:
     activate:
@@ -122,9 +150,9 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     hikari:
-      maximum-pool-size: 15
-      minimum-idle: 5
-      connection-timeout: 20000
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
       validation-timeout: 5000
       idle-timeout: 300000
       max-lifetime: 1200000
@@ -132,7 +160,7 @@ spring:
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
-      ddl-auto: update # 엔티티 변경(컬럼 추가) 반영을 위해 update로 변경
+      ddl-auto: update # 개발 편의를 위해 update 유지 (필요시 none으로 변경)
       naming:
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
 
@@ -171,20 +199,4 @@ spring:
         jdbc:
           time_zone: UTC
 
-# Actuator health check (shared across profiles)
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info
-      base-path: /actuator
-  endpoint:
-    health:
-      show-details: when-authorized
-      probes:
-        enabled: true
-  health:
-    db:
-      enabled: true
-    diskspace:
-      enabled: true
+

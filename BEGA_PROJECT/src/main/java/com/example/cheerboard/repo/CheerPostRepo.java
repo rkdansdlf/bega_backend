@@ -37,6 +37,9 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
         @Query("SELECT COUNT(p) FROM CheerPost p WHERE p.author.id = :userId")
         int countByUserId(@Param("userId") Long userId);
 
+        @EntityGraph(attributePaths = { "author", "team" })
+        Page<CheerPost> findByAuthor_HandleOrderByCreatedAtDesc(String handle, Pageable pageable);
+
         List<CheerPost> findAllByOrderByCreatedAtDesc();
 
         List<CheerPost> findByAuthor(UserEntity author);

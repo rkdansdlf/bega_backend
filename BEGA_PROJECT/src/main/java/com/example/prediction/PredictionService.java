@@ -18,6 +18,7 @@ public class PredictionService {
     private final PredictionRepository predictionRepository;
     private final GameRepository gameRepository;
     private final VoteFinalResultRepository voteFinalResultRepository;
+    private final com.example.auth.repository.UserRepository userRepository;
 
     @Transactional(readOnly = true)
     public List<MatchDto> getRecentCompletedGames() {
@@ -92,6 +93,12 @@ public class PredictionService {
             prediction.updateVotedTeam(request.getVotedTeam());
 
         } else {
+            // 포인트 차감 (Entity Update)
+            com.example.auth.entity.UserEntity user = userRepository.findById(userId)
+                    .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다."));
+            user.deductCheerPoints(1);
+            userRepository.save(user);
+
             Prediction prediction = Prediction.builder()
                     .gameId(request.getGameId())
                     .userId(userId)
@@ -150,6 +157,8 @@ public class PredictionService {
         Prediction prediction = predictionRepository
                 .findByGameIdAndUserId(gameId, userId)
                 .orElseThrow(() -> new IllegalStateException("투표 내역이 없습니다."));
+
+        // 포인트 반환 없음 (No Refund Policy)
 
         predictionRepository.delete(prediction);
     }

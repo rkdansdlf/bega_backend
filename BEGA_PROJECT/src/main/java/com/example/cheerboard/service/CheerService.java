@@ -56,6 +56,7 @@ public class CheerService {
     private final CheerBookmarkRepo bookmarkRepo;
     private final CheerReportRepo reportRepo; // [NEW]
     private final TeamRepository teamRepo;
+    private final com.example.auth.repository.UserRepository userRepo;
     private final CurrentUser current;
     private final NotificationService notificationService;
     private final com.example.cheerboard.storage.service.ImageService imageService;
@@ -127,18 +128,61 @@ public class CheerService {
 
         UserEntity me = current.getOrNull();
         Set<Long> bookmarkedPostIds = new HashSet<>();
+        Set<Long> likedPostIds = new HashSet<>();
         if (me != null && !postIds.isEmpty()) {
             List<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             bookmarkedPostIds = bookmarks.stream().map(b -> b.getId().getPostId()).collect(Collectors.toSet());
+
+            // 좋아요 여부 조회
+            List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
         }
 
         final Set<Long> finalBookmarks = bookmarkedPostIds;
+        final Set<Long> finalLikes = likedPostIds;
         final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
 
         return page.map(post -> {
             boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
-            return postDtoMapper.toPostSummaryRes(post, finalBookmarks.contains(post.getId()), isOwner, imageUrls);
+            return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
+                    finalBookmarks.contains(post.getId()), isOwner, imageUrls);
+        });
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PostSummaryRes> listByUserHandle(String handle, Pageable pageable) {
+        Page<CheerPost> page = postRepo.findByAuthor_HandleOrderByCreatedAtDesc(handle, pageable);
+
+        List<Long> postIds = page.hasContent()
+                ? page.getContent().stream().map(CheerPost::getId).toList()
+                : Collections.emptyList();
+
+        Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
+                ? Collections.emptyMap()
+                : imageService.getPostImageUrlsByPostIds(postIds);
+
+        UserEntity me = current.getOrNull();
+        Set<Long> bookmarkedPostIds = new HashSet<>();
+        Set<Long> likedPostIds = new HashSet<>();
+        if (me != null && !postIds.isEmpty()) {
+            List<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            bookmarkedPostIds = bookmarks.stream().map(b -> b.getId().getPostId()).collect(Collectors.toSet());
+
+            // 좋아요 여부 조회
+            List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
+        }
+
+        final Set<Long> finalBookmarks = bookmarkedPostIds;
+        final Set<Long> finalLikes = likedPostIds;
+        final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
+
+        return page.map(post -> {
+            boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
+            List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
+            return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
+                    finalBookmarks.contains(post.getId()), isOwner, imageUrls);
         });
     }
 
@@ -290,6 +334,14 @@ public class CheerService {
             likes = Math.max(0, post.getLikeCount() - 1);
             post.setLikeCount(likes);
             liked = false;
+
+            // 작성자 포인트 차감 (Entity Update)
+            UserEntity author = userRepo.findById(post.getAuthor().getId())
+                    .orElseThrow(() -> new IllegalStateException("Author not found"));
+            author.deductCheerPoints(1); // Entity method
+            userRepo.save(author);
+            log.info("Points deducted for user {}: -1 (Entity Update)", author.getId());
+
         } else {
             // 좋아요 추가
             CheerPostLike like = new CheerPostLike();
@@ -301,8 +353,15 @@ public class CheerService {
             post.setLikeCount(likes);
             liked = true;
 
+            // 작성자 포인트 증가 (Entity Update)
+            UserEntity author = userRepo.findById(post.getAuthor().getId())
+                    .orElseThrow(() -> new IllegalStateException("Author not found"));
+            author.addCheerPoints(1); // Entity method
+            userRepo.save(author);
+            log.info("Points awarded to user {}: +1 (Entity Update)", author.getId());
+
             // 게시글 작성자에게 알림 (본인이 아닐 때만)
-            if (!post.getAuthor().getId().equals(me.getId())) {
+            if (!author.getId().equals(me.getId())) {
                 try {
                     String authorName = me.getName() != null && !me.getName().isBlank()
                             ? me.getName()
@@ -371,12 +430,21 @@ public class CheerService {
         Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
                 ? Collections.emptyMap()
                 : imageService.getPostImageUrlsByPostIds(postIds);
+
         final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
+
+        Set<Long> likedPostIds = new HashSet<>();
+        if (!postIds.isEmpty()) {
+            List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
+        }
+        final Set<Long> finalLikes = likedPostIds;
 
         return bookmarks.map(b -> {
             boolean isOwner = permissionValidator.isOwnerOrAdmin(me, b.getPost().getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(b.getPost().getId(), Collections.emptyList());
-            return postDtoMapper.toPostSummaryRes(b.getPost(), true, isOwner, imageUrls);
+            return postDtoMapper.toPostSummaryRes(b.getPost(), finalLikes.contains(b.getPost().getId()), true, isOwner,
+                    imageUrls);
         });
     }
 
@@ -533,6 +601,7 @@ public class CheerService {
                 comment.getAuthor().getEmail(),
                 comment.getAuthor().getFavoriteTeamId(),
                 comment.getAuthor().getProfileImageUrl(),
+                comment.getAuthor().getHandle(),
                 comment.getContent(),
                 comment.getCreatedAt(),
                 comment.getLikeCount(),
@@ -558,6 +627,7 @@ public class CheerService {
                 comment.getAuthor().getEmail(),
                 comment.getAuthor().getFavoriteTeamId(),
                 comment.getAuthor().getProfileImageUrl(),
+                comment.getAuthor().getHandle(),
                 comment.getContent(),
                 comment.getCreatedAt(),
                 comment.getLikeCount(),
@@ -601,6 +671,14 @@ public class CheerService {
             likes = Math.max(0, comment.getLikeCount() - 1);
             comment.setLikeCount(likes);
             liked = false;
+
+            // 댓글 작성자 포인트 차감 (Entity Update)
+            UserEntity author = userRepo.findById(comment.getAuthor().getId())
+                    .orElseThrow(() -> new IllegalStateException("Author not found"));
+            author.deductCheerPoints(1);
+            userRepo.save(author);
+            log.info("Points deducted for comment author {}: -1 (Entity Update)", author.getId());
+
         } else {
             // 좋아요 추가
             CheerCommentLike like = new CheerCommentLike();
@@ -611,6 +689,13 @@ public class CheerService {
             likes = comment.getLikeCount() + 1;
             comment.setLikeCount(likes);
             liked = true;
+
+            // 댓글 작성자 포인트 증가 (Entity Update)
+            UserEntity author = userRepo.findById(comment.getAuthor().getId())
+                    .orElseThrow(() -> new IllegalStateException("Author not found"));
+            author.addCheerPoints(1);
+            userRepo.save(author);
+            log.info("Points awarded to comment author {}: +1 (Entity Update)", author.getId());
         }
 
         commentRepo.save(Objects.requireNonNull(comment));
