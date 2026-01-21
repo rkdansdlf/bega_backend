@@ -43,4 +43,11 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
         List<CheerPost> findAllByOrderByCreatedAtDesc();
 
         List<CheerPost> findByAuthor(UserEntity author);
+
+        @Query(value = "SELECT * FROM cheer_post WHERE deleted = true", nativeQuery = true)
+        List<CheerPost> findSoftDeletedPosts();
+
+        @Modifying
+        @Query(value = "DELETE FROM cheer_post WHERE id = :id", nativeQuery = true)
+        void hardDeleteById(@Param("id") Long id);
 }

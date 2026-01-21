@@ -120,7 +120,7 @@ public class CacheConfig {
                 cacheConfigs.put(LEAGUE_DATES, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofHours(1))));
                 cacheConfigs.put(TEAM_DATA, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(30))));
                 cacheConfigs.put(POST_IMAGE_URLS,
-                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(10))));
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(50))));
 
                 // L2 전용 캐시 - 라이브 데이터 (짧은 TTL)
                 cacheConfigs.put(LIVE_GAME_SCORE,

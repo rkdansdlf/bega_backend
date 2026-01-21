@@ -29,14 +29,17 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     private final JWTUtil jwtUtil;
     private final RefreshRepository refreshRepository;
     private final UserRepository userRepository;
+    private final com.example.auth.service.UserService userService; // Inject UserService
 
     @Value("${app.frontend.url:http://localhost:3000}")
     private String frontendUrl;
 
-    public CustomSuccessHandler(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository) {
+    public CustomSuccessHandler(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository,
+            @org.springframework.context.annotation.Lazy com.example.auth.service.UserService userService) {
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
         this.userRepository = userRepository;
+        this.userService = userService;
     }
 
     @Override
@@ -112,6 +115,9 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             return;
         }
         // -----------------------
+
+        // 일일 출석 보너스 체크 (OAuth2 로그인 시)
+        userService.checkAndApplyDailyLoginBonus(userEntity);
 
         // Access Token 생성
         long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; // 2시간

@@ -4,6 +4,7 @@ spring:
   # --- 공통 설정 ---
   config:
     import: optional:file:.env[.properties] # .env 파일 로드
+
   jpa:
     open-in-view: false # N+1 방지
     show-sql: false
@@ -27,9 +28,13 @@ spring:
       org.hibernate.SQL: WARN
       org.springframework: INFO
 
-  # Redis 설정
+  # 데이터 설정 (Web & Redis)
   data:
+    web:
+      page-serialization-mode: via-dto # Fix PageImpl warning
     redis:
+      repositories:
+        enabled: false # Fix Redis repository scanning warning
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       timeout: 2000ms
@@ -158,11 +163,11 @@ spring:
       max-lifetime: 1200000
       connection-test-query: SELECT 1
   jpa:
-    database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: update # 개발 편의를 위해 update 유지 (필요시 none으로 변경)
       naming:
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
 
 ---
 # 'prod' 프로필: 배포 환경 (PostgreSQL 사용)
@@ -187,7 +192,6 @@ spring:
       leak-detection-threshold: 60000
       pool-name: HikariPool-KBO-Prod
   jpa:
-    database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
 
       ddl-auto: none # Disable DDL auto-operations for production (schema already exists)

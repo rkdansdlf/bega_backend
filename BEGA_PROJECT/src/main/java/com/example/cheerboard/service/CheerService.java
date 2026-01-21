@@ -84,6 +84,11 @@ public class CheerService {
     }
 
     @Transactional(readOnly = true)
+    public java.util.List<com.example.cheerboard.storage.dto.PostImageDto> getPostImages(Long postId) {
+        return imageService.listPostImages(postId);
+    }
+
+    @Transactional(readOnly = true)
     public Page<PostSummaryRes> list(String teamId, String postTypeStr, Pageable pageable) {
         if (teamId != null && !teamId.isBlank()) {
             UserEntity me = current.getOrNull();
@@ -312,8 +317,19 @@ public class CheerService {
         CheerPost post = findPostById(id);
         permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "게시글 삭제");
 
-        // JPA cascade 옵션으로 관련 데이터 자동 삭제
-        postRepo.delete(post);
+        // 1. Soft Delete (안전장치 - 트랜잭션 도중 실패 대비)
+        post.setDeleted(true);
+        postRepo.save(post);
+
+        // 2. 스토리지 삭제 시도
+        boolean storageClean = imageService.deleteImagesByPostId(post.getId());
+
+        // 3. 스토리지 삭제 완료 시 Hard Delete (DB Clean)
+        if (storageClean) {
+            postRepo.delete(post);
+        } else {
+            log.warn("게시글 삭제 중 일부 이미지 삭제 실패. Soft Delete 상태 유지 및 스케줄러 위임: postId={}", id);
+        }
     }
 
     @Transactional
