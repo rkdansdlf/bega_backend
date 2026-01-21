@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -53,9 +54,10 @@ public class ImageService {
     private final ImageValidator validator;
     private final StorageConfig config;
     private final CurrentUser currentUser;
+    // 리팩토링된 컴포넌트들
     private final PermissionValidator permissionValidator;
     private final CacheManager cacheManager;
-    private final ImageCompressor imageCompressor;
+    private final com.example.common.image.ImageUtil imageUtil; // ✅ Renamed
 
     /**
      * 게시글 이미지 업로드 (여러 파일)
@@ -63,7 +65,7 @@ public class ImageService {
     @CacheEvict(value = POST_IMAGE_URLS, key = "#postId")
     @Transactional
     public List<PostImageDto> uploadPostImages(Long postId, List<MultipartFile> files) {
-        log.info("이미지 업로드 시작: postId={}, 파일 수={}", postId, files.size());
+        log.info("이미지 업로드 시작 (Parallel): postId={}, 파일 수={}", postId, files.size());
         UserEntity me = currentUser.get();
         CheerPost post = findPostById(postId);
 
@@ -71,70 +73,86 @@ public class ImageService {
         permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "이미지 업로드");
 
         // 현재 이미지 개수 확인
-        // Null type safety 해결: Primitive long으로 변환하여 전달
         long currentCount = postImageRepo.countByPostId(Objects.requireNonNull(postId).longValue());
         log.debug("현재 저장된 이미지 수: {}", currentCount);
         validator.validateFiles(files, (int) currentCount);
 
         List<PostImageDto> uploadedImages = new ArrayList<>();
-        List<String> uploadedPaths = new ArrayList<>(); // 보상 삭제용
 
-        for (int i = 0; i < files.size(); i++) {
-            MultipartFile file = files.get(i);
-            log.info("파일 업로드 중 ({}/{}): name={}, size={} bytes, type={}",
-                    i + 1, files.size(), file.getOriginalFilename(), file.getSize(), file.getContentType());
+        // Async Result Helper
+        record UploadResult(String path, com.example.common.image.ImageUtil.ProcessedImage info) {
+        }
 
-            try {
-                // 1. 서버 사이드 이미지 압축
-                byte[] compressedBytes = imageCompressor.compress(file);
-                long compressedSize = compressedBytes.length;
-                log.debug("이미지 압축 완료: 원본={}bytes, 압축 후={}bytes", file.getSize(), compressedSize);
+        // 1. Parallel Process & Upload
+        List<CompletableFuture<UploadResult>> futures = files.stream()
+                .map(file -> CompletableFuture.supplyAsync(() -> {
+                    try {
+                        // 1. 서버 사이드 이미지 압축 및 WebP 변환
+                        var processed = imageUtil.process(file);
+                        log.debug("이미지 처리 완료: 원본={}bytes -> 처리후={}bytes ({})",
+                                file.getSize(), processed.getSize(), processed.getExtension());
 
-                String storagePath = generateStoragePath("posts", postId, file);
-                log.debug("스토리지 경로 생성: {}", storagePath);
+                        // 스토리지 경로 생성
+                        String storagePath = generateStoragePath("posts", postId, processed.getExtension());
 
-                // 2. 스토리지 업로드 (압축된 바이트 배열 사용)
-                log.debug("Supabase Storage 업로드 시도: path={}", storagePath);
-                var uploadResult = storageClient.uploadBytes(
-                        compressedBytes,
-                        file.getContentType(),
-                        config.getCheerBucket(),
-                        storagePath).block();
-                if (uploadResult == null) {
-                    log.error("스토리지 업로드 결과가 null입니다: path={}", storagePath);
-                    throw new RuntimeException("스토리지 업로드 실패");
-                }
-                log.info("Supabase Storage 업로드 성공: path={}", storagePath);
-                uploadedPaths.add(storagePath);
+                        // 2. 스토리지 업로드 (Blocking IO in Async Thread)
+                        log.debug("Parallel Upload Start: path={}", storagePath);
+                        var uploadResult = storageClient.uploadBytes(
+                                processed.getBytes(),
+                                processed.getContentType(),
+                                config.getCheerBucket(),
+                                storagePath)
+                                .block();
 
-                // 3. DB 저장 (압축된 크기 저장)
-                PostImage image = PostImage.builder()
-                        .post(post)
-                        .storagePath(storagePath)
-                        .mimeType(file.getContentType())
-                        .bytes(compressedSize)
-                        .isThumbnail(false)
-                        .build();
+                        if (uploadResult == null) {
+                            throw new RuntimeException("스토리지 업로드 결과가 null입니다.");
+                        }
 
-                // Null type safety 해결: image 객체 null 체크
-                postImageRepo.save(Objects.requireNonNull(image));
-                log.info("DB 저장 성공: imageId={}, path={}", image.getId(), storagePath);
+                        log.debug("Parallel Upload Success: path={}", storagePath);
+                        return new UploadResult(storagePath, processed);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Async Upload Failed: " + file.getOriginalFilename(), e);
+                    }
+                }))
+                .toList();
 
-                uploadedImages.add(new PostImageDto(
-                        image.getId(),
-                        image.getStoragePath(),
-                        image.getMimeType(),
-                        image.getBytes(),
-                        image.getIsThumbnail(),
-                        generateSignedUrl(image.getStoragePath())));
+        // 2. Wait for All & Handle Failures
+        try {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        } catch (Exception e) {
+            log.error("병렬 업로드 중 오류 발생. 보상 삭제 수행.", e);
+            // 성공한 파일들만 추출하여 삭제
+            List<String> pathsToDelete = futures.stream()
+                    .filter(f -> !f.isCompletedExceptionally() && f.getNow(null) != null)
+                    .map(f -> f.getNow(null).path())
+                    .toList();
 
-            } catch (Exception e) {
-                log.error("이미지 업로드 실패, 보상 삭제 수행: postId={}, 파일={}, uploadedPaths={}",
-                        postId, file.getOriginalFilename(), uploadedPaths, e);
-                // 보상 트랜잭션: 이미 업로드된 파일들 삭제
-                compensateUploadFailure(uploadedPaths);
-                throw new RuntimeException("이미지 업로드 중 오류가 발생했습니다: " + e.getMessage(), e);
-            }
+            compensateUploadFailure(pathsToDelete);
+            throw new RuntimeException("이미지 업로드 중 오류가 발생했습니다.", e);
+        }
+
+        // 3. DB Save (Single Batch Transaction)
+        List<UploadResult> results = futures.stream().map(CompletableFuture::join).toList();
+
+        for (UploadResult res : results) {
+            PostImage image = PostImage.builder()
+                    .post(post)
+                    .storagePath(res.path())
+                    .mimeType(res.info().getContentType())
+                    .bytes(res.info().getSize())
+                    .isThumbnail(false)
+                    .build();
+
+            postImageRepo.save(Objects.requireNonNull(image));
+            log.info("DB 저장 성공: imageId={}, path={}", image.getId(), res.path());
+
+            uploadedImages.add(new PostImageDto(
+                    image.getId(),
+                    image.getStoragePath(),
+                    image.getMimeType(),
+                    image.getBytes(),
+                    image.getIsThumbnail(),
+                    generateSignedUrl(image.getStoragePath())));
         }
 
         log.info("이미지 업로드 완료: postId={}, 성공 {}개", postId, uploadedImages.size());
@@ -302,6 +320,40 @@ public class ImageService {
     }
 
     /**
+     * 게시글의 모든 이미지 삭제 (스토리지 삭제 및 캐시 초기화)
+     * DB 데이터는 CheerPost 삭제 시 Cascade로 삭제됨을 가정하거나, 필요 시 여기서 삭제
+     */
+    @Transactional
+    public boolean deleteImagesByPostId(Long postId) {
+        log.info("게시글 이미지 일괄 삭제 시작: postId={}", postId);
+        List<PostImage> images = postImageRepo.findByPostIdOrderByCreatedAtAsc(postId);
+
+        if (images.isEmpty()) {
+            log.debug("삭제할 이미지가 없습니다.");
+            return true;
+        }
+
+        boolean allSuccess = true;
+
+        // 스토리지 삭제
+        for (PostImage image : images) {
+            try {
+                storageClient.delete(config.getCheerBucket(), image.getStoragePath()).block();
+                // 개별 Signed URL 캐시 무효화
+                evictSignedUrlCache(image.getStoragePath());
+            } catch (Exception e) {
+                log.error("스토리지 이미지 삭제 실패: path={}, error={}", image.getStoragePath(), e.getMessage());
+                allSuccess = false;
+            }
+        }
+
+        // 게시글 이미지 목록 캐시 무효화
+        evictPostImageCache(postId);
+
+        return allSuccess;
+    }
+
+    /**
      * 개별 Signed URL 캐시 무효화
      */
     private void evictSignedUrlCache(String storagePath) {
@@ -364,8 +416,7 @@ public class ImageService {
      * 스토리지 경로 생성
      * 형식: posts/{postId}/{uuid}.{ext} 또는 comments/{commentId}/{uuid}.{ext}
      */
-    private String generateStoragePath(String prefix, Long entityId, MultipartFile file) {
-        String extension = validator.getFileExtension(file.getOriginalFilename());
+    private String generateStoragePath(String prefix, Long entityId, String extension) {
         String uuid = UUID.randomUUID().toString();
         // entityId가 Nullable로 오인되지 않도록 Objects.requireNonNull 및 primitive 변환 사용
         return String.format("%s/%d/%s.%s", prefix, Objects.requireNonNull(entityId).longValue(), uuid, extension);

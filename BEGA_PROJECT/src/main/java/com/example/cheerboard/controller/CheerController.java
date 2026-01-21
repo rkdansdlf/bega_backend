@@ -35,8 +35,13 @@ public class CheerController {
     @PostMapping(value = "/posts/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public java.util.List<String> uploadImages(
             @PathVariable Long id,
-            @RequestPart("images") java.util.List<org.springframework.web.multipart.MultipartFile> images) {
+            @RequestPart("files") java.util.List<org.springframework.web.multipart.MultipartFile> images) {
         return svc.uploadImages(id, images);
+    }
+
+    @GetMapping("/posts/{id}/images")
+    public java.util.List<com.example.cheerboard.storage.dto.PostImageDto> getImages(@PathVariable Long id) {
+        return svc.getPostImages(id);
     }
 
     @GetMapping("/posts/{id}")
