@@ -70,6 +70,10 @@ public class UserEntity {
     @Column(name = "last_bonus_date")
     private java.time.LocalDate lastBonusDate;
 
+    // 마지막 로그인 일시
+    @Column(name = "last_login_date")
+    private LocalDateTime lastLoginDate;
+
     // 가입일자
     @CreatedDate
     @Column(name = "created_at", updatable = false, nullable = false)

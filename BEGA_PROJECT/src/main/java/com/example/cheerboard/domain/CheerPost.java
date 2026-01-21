@@ -17,6 +17,7 @@ import java.util.ArrayList;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@org.hibernate.annotations.Where(clause = "deleted = false")
 public class CheerPost {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -60,6 +61,10 @@ public class CheerPost {
     @Column(name = "updatedat", nullable = false)
     @Builder.Default
     private Instant updatedAt = Instant.now();
+
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean deleted = false;
 
     // 연관관계 매핑 (cascade 삭제를 위해 추가)
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)

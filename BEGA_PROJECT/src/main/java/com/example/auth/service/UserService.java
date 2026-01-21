@@ -218,16 +218,22 @@ public class UserService {
 
     /**
      * 일일 출석 보너스 지급 (5포인트)
+     * 마지막 로그인 날짜(lastLoginDate)를 확인하여 오늘 첫 로그인인 경우 지급
      */
     @Transactional
     public void checkAndApplyDailyLoginBonus(UserEntity user) {
         java.time.LocalDate today = java.time.LocalDate.now();
-        if (user.getLastBonusDate() == null || !user.getLastBonusDate().equals(today)) {
+
+        // lastLoginDate가 없거나(첫 로그인), 마지막 로그인 날짜가 오늘보다 이전인 경우
+        if (user.getLastLoginDate() == null || user.getLastLoginDate().toLocalDate().isBefore(today)) {
             user.addCheerPoints(5);
-            user.setLastBonusDate(today);
-            userRepository.save(user);
-            log.info("Daily Login Bonus (5 points) awarded to user: {}", user.getEmail());
+            log.info("Daily Login Bonus (5 points) awarded to user: {}. Current Points: {}", user.getEmail(),
+                    user.getCheerPoints());
         }
+
+        // 로그인 시간 갱신
+        user.setLastLoginDate(LocalDateTime.now());
+        userRepository.save(user);
     }
 
     /**
