@@ -54,7 +54,10 @@ public class MypageController {
                     .email(userEntity.getEmail())
                     .favoriteTeam(userEntity.getFavoriteTeamId() != null ? userEntity.getFavoriteTeamId() : "없음")
                     .profileImageUrl(userEntity.getProfileImageUrl())
-                    .createdAt(userEntity.getCreatedAt().format(DateTimeFormatter.ISO_DATE_TIME))
+                    .createdAt(userEntity.getCreatedAt() != null
+                            ? userEntity.getCreatedAt().atZone(java.time.ZoneId.of("Asia/Seoul"))
+                                    .format(DateTimeFormatter.ISO_DATE_TIME)
+                            : null)
                     .role(userEntity.getRole())
                     .bio(userEntity.getBio())
                     .cheerPoints(userEntity.getCheerPoints())

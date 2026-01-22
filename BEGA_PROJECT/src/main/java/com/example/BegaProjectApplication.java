@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 @SpringBootApplication(scanBasePackages = "com.example") // 최상단 패키지로 스캔 범위 확대
 @EnableJpaRepositories(basePackages = "com.example") // 모든 리포지토리 스캔 (demo.repo + cheerboard.repo)
 @EntityScan(basePackages = "com.example") // 모든 엔티티 스캔
+@org.springframework.data.web.config.EnableSpringDataWebSupport(pageSerializationMode = org.springframework.data.web.config.EnableSpringDataWebSupport.PageSerializationMode.VIA_DTO)
 public class BegaProjectApplication {
 
 	public static void main(String[] args) {

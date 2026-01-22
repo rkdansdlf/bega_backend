@@ -19,8 +19,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -76,7 +76,7 @@ public class PartyApplicationService {
         // 전액 결제인 경우 자동 승인
         if (request.getPaymentType() == PartyApplication.PaymentType.FULL) {
             application.setIsApproved(true);
-            application.setApprovedAt(LocalDateTime.now());
+            application.setApprovedAt(Instant.now());
             partyService.incrementParticipants(request.getPartyId());
         }
 
@@ -148,7 +148,7 @@ public class PartyApplicationService {
         }
 
         application.setIsApproved(true);
-        application.setApprovedAt(LocalDateTime.now());
+        application.setApprovedAt(Instant.now());
 
         // 파티 참여 인원 증가
         partyService.incrementParticipants(application.getPartyId());
@@ -182,7 +182,7 @@ public class PartyApplicationService {
         }
 
         application.setIsRejected(true);
-        application.setRejectedAt(LocalDateTime.now());
+        application.setRejectedAt(Instant.now());
 
         PartyApplication savedApplication = applicationRepository.save(application);
         // 신청자에게 알림 발송

@@ -17,7 +17,7 @@ import java.util.ArrayList;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@org.hibernate.annotations.Where(clause = "deleted = false")
+@org.hibernate.annotations.SQLRestriction("deleted = false")
 public class CheerPost {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -54,6 +54,10 @@ public class CheerPost {
     @Builder.Default
     private int views = 0;
 
+    @Column(name = "repostcount", nullable = false)
+    @Builder.Default
+    private int repostCount = 0;
+
     @Column(name = "createdat", nullable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();
@@ -82,9 +86,6 @@ public class CheerPost {
     @PrePersist
     void onCreate() {
         createdAt = updatedAt = Instant.now();
-        likeCount = 0;
-        commentCount = 0;
-        views = 0;
     }
 
     @PreUpdate

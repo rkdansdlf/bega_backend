@@ -96,8 +96,9 @@ public class SecurityConfig {
         }
 
         @Bean
-        public JWTFilter jwtFilter() {
-                return new JWTFilter(jwtUtil);
+        public JWTFilter jwtFilter(org.springframework.core.env.Environment env) {
+                boolean isDev = Arrays.asList(env.getActiveProfiles()).contains("dev");
+                return new JWTFilter(jwtUtil, isDev);
         }
 
         @Bean

@@ -22,15 +22,15 @@ public class PostDtoMapper {
 
     private final HotPostChecker hotPostChecker;
     private final ImageService imageService;
+    private final RedisPostService redisPostService;
 
-    public PostDtoMapper(HotPostChecker hotPostChecker, @Lazy ImageService imageService) {
+    public PostDtoMapper(HotPostChecker hotPostChecker, @Lazy ImageService imageService,
+            RedisPostService redisPostService) {
         this.hotPostChecker = hotPostChecker;
         this.imageService = imageService;
+        this.redisPostService = redisPostService;
     }
 
-    /**
-     * CheerPost를 PostSummaryRes로 변환
-     */
     /**
      * CheerPost를 PostSummaryRes로 변환
      */
@@ -51,6 +51,22 @@ public class PostDtoMapper {
     public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
             List<String> imageUrls) {
         List<String> resolvedUrls = imageUrls != null ? imageUrls : Collections.emptyList();
+
+        // Redis와 DB 조회수 합산
+        Integer redisViews = redisPostService.getViewCount(post.getId());
+        int combinedViews = post.getViews() + (redisViews != null ? redisViews : 0);
+
+        // HOT 게시글 상태 캐싱 활용
+        Boolean cachedHot = redisPostService.getCachedHotStatus(post.getId());
+        boolean isHot;
+        if (cachedHot != null) {
+            isHot = cachedHot;
+        } else {
+            // 캐시 없으면 계산 후 캐싱 (계산 시 combinedViews 사용)
+            isHot = hotPostChecker.isHotPost(post, combinedViews);
+            redisPostService.cacheHotStatus(post.getId(), isHot);
+        }
+
         return new PostSummaryRes(
                 post.getId(),
                 post.getTeamId(),
@@ -58,6 +74,7 @@ public class PostDtoMapper {
                 resolveTeamShortName(post.getTeam()),
                 resolveTeamColor(post.getTeam()),
                 post.getTitle(),
+                post.getContent(),
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor().getId(),
                 post.getAuthor().getHandle(),
@@ -67,10 +84,11 @@ public class PostDtoMapper {
                 post.getCommentCount(),
                 post.getLikeCount(),
                 liked,
-                post.getViews(),
-                hotPostChecker.isHotPost(post),
+                combinedViews, // 합산된 조회수
+                isHot,
                 isBookmarked,
                 isOwner,
+                post.getRepostCount(),
                 post.getPostType().name(),
                 resolvedUrls);
     }
@@ -85,6 +103,10 @@ public class PostDtoMapper {
         } catch (Exception e) {
             log.warn("이미지 URL 조회 실패: postId={}, error={}", post.getId(), e.getMessage());
         }
+
+        // Redis와 DB 조회수 합산
+        Integer redisViews = redisPostService.getViewCount(post.getId());
+        int combinedViews = post.getViews() + (redisViews != null ? redisViews : 0);
 
         return new PostDetailRes(
                 post.getId(),
@@ -106,7 +128,8 @@ public class PostDtoMapper {
                 isBookmarked,
                 isOwner,
                 imageUrls,
-                post.getViews(),
+                combinedViews, // 합산된 조회수
+                post.getRepostCount(),
                 post.getPostType().name());
     }
 
@@ -142,6 +165,7 @@ public class PostDtoMapper {
                 true, // 작성자이므로 소유권 있음
                 imageUrls,
                 0, // 새 게시글이므로 조회수 0
+                0, // 새 게시글이므로 리포스트 수 0
                 post.getPostType().name());
     }
 

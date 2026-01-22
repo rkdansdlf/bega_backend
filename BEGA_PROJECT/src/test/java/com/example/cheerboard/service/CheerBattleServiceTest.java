@@ -12,6 +12,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.Objects;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,6 +34,7 @@ class CheerBattleServiceTest {
 
     @Test
     @DisplayName("Normally vote - deduct points and increment count")
+    @SuppressWarnings("null")
     void vote_success() {
         // Given
         String gameId = "game1";
@@ -53,7 +55,7 @@ class CheerBattleServiceTest {
                 .voteCount(5)
                 .build();
 
-        when(cheerVoteRepository.findById(voteId)).thenReturn(Optional.of(voteEntity));
+        when(cheerVoteRepository.findById(Objects.requireNonNull(voteId))).thenReturn(Optional.of(voteEntity));
 
         // When
         int result = cheerBattleService.vote(gameId, teamId, email);
@@ -86,6 +88,7 @@ class CheerBattleServiceTest {
             cheerBattleService.vote(gameId, teamId, email);
         });
 
-        verify(cheerVoteRepository, never()).save(any());
+        @SuppressWarnings({ "null", "unused" })
+        var _unused = verify(cheerVoteRepository, never()).save(any(CheerVoteEntity.class));
     }
 }

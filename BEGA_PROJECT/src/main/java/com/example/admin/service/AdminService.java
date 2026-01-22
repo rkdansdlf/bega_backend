@@ -16,6 +16,7 @@ import com.example.cheerboard.repo.CheerPostLikeRepo;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.mate.entity.Party;
 import com.example.mate.repository.PartyRepository;
+import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.CacheManager;
@@ -23,7 +24,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -146,7 +146,8 @@ public class AdminService {
 
     /**
      * 유저 삭제 (연관된 데이터도 함께 삭제)
-     * @param userId 삭제할 유저 ID
+     * 
+     * @param userId  삭제할 유저 ID
      * @param adminId 삭제를 수행하는 관리자 ID (감사 로그용, nullable)
      */
     @Transactional
@@ -195,14 +196,15 @@ public class AdminService {
                     .newValue(null)
                     .description("사용자 삭제")
                     .build();
-            auditLogRepository.save(auditLog);
+            auditLogRepository.save(Objects.requireNonNull(auditLog));
             log.info("User {} deleted by admin {}. Email: {}", userId, adminId, userEmail);
         }
     }
 
     /**
      * 응원 게시글 삭제
-     * @param postId 삭제할 게시글 ID
+     * 
+     * @param postId  삭제할 게시글 ID
      * @param adminId 삭제를 수행하는 관리자 ID (감사 로그용, nullable)
      */
     @Transactional
@@ -227,14 +229,15 @@ public class AdminService {
                     .newValue(null)
                     .description("게시글 삭제 (ID: " + postId + ")")
                     .build();
-            auditLogRepository.save(auditLog);
+            auditLogRepository.save(Objects.requireNonNull(auditLog));
             log.info("Post {} deleted by admin {}. Title: {}", postId, adminId, postTitle);
         }
     }
 
     /**
      * 메이트 모임 삭제
-     * @param mateId 삭제할 메이트 모임 ID
+     * 
+     * @param mateId  삭제할 메이트 모임 ID
      * @param adminId 삭제를 수행하는 관리자 ID (감사 로그용, nullable)
      */
     @Transactional
@@ -259,7 +262,7 @@ public class AdminService {
                     .newValue(null)
                     .description("메이트 모임 삭제 (ID: " + mateId + ")")
                     .build();
-            auditLogRepository.save(auditLog);
+            auditLogRepository.save(Objects.requireNonNull(auditLog));
             log.info("Mate {} deleted by admin {}. Description: {}", mateId, adminId, partyDesc);
         }
     }
@@ -289,12 +292,14 @@ public class AdminService {
     /**
      * 캐시 통계 조회 (관리자 전용)
      */
-    @SuppressWarnings("null")
     public java.util.Map<String, Object> getCacheStats() {
         java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
 
-        for (String cacheName : cacheManager.getCacheNames()) {
-            org.springframework.cache.Cache cache = cacheManager.getCache(cacheName);
+        var cacheNames = cacheManager.getCacheNames();
+        for (String cacheName : cacheNames) {
+            if (cacheName == null)
+                continue;
+            org.springframework.cache.Cache cache = cacheManager.getCache(Objects.requireNonNull(cacheName));
             if (cache != null) {
                 Object nativeCache = cache.getNativeCache();
                 if (nativeCache instanceof com.github.benmanes.caffeine.cache.Cache<?, ?> caffeineCache) {
@@ -305,7 +310,7 @@ public class AdminService {
                     cacheInfo.put("missCount", stats.missCount());
                     cacheInfo.put("hitRate", String.format("%.2f%%", stats.hitRate() * 100));
                     cacheInfo.put("evictionCount", stats.evictionCount());
-                    result.put(cacheName, cacheInfo);
+                    result.put(Objects.requireNonNull(cacheName), cacheInfo);
                 }
             }
         }

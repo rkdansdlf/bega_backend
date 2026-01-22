@@ -6,7 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 @Entity
 @Table(name = "party_applications")
@@ -56,17 +56,17 @@ public class PartyApplication {
     private PaymentType paymentType; // 결제 방식 (DEPOSIT, FULL)
 
     @Column(nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @Column
-    private LocalDateTime approvedAt; // 승인 시간
+    private Instant approvedAt; // 승인 시간
 
     @Column
-    private LocalDateTime rejectedAt; // 거절 시간
+    private Instant rejectedAt; // 거절 시간
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        createdAt = Instant.now();
         if (isPaid == null) {
             isPaid = false;
         }

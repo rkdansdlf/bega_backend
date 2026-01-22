@@ -2,7 +2,7 @@ package com.example.auth.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 @Entity
 @Table(name = "user_providers", schema = "security", uniqueConstraints = {
@@ -31,10 +31,10 @@ public class UserProvider {
     private String providerId;
 
     @Column(name = "connected_at")
-    private LocalDateTime connectedAt;
+    private Instant connectedAt;
 
     @PrePersist
     protected void onCreate() {
-        connectedAt = LocalDateTime.now();
+        connectedAt = Instant.now();
     }
 }

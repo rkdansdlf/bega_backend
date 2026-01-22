@@ -21,10 +21,12 @@ import jakarta.servlet.http.HttpServletResponse;
 public class JWTFilter extends OncePerRequestFilter {
 
     private final com.example.auth.util.JWTUtil jwtUtil;
+    private final boolean isDev;
 
     // ✅ UserService 제거 (더 이상 필요 없음!)
-    public JWTFilter(com.example.auth.util.JWTUtil jwtUtil) {
+    public JWTFilter(com.example.auth.util.JWTUtil jwtUtil, boolean isDev) {
         this.jwtUtil = jwtUtil;
+        this.isDev = isDev;
     }
 
     @Override
@@ -109,6 +111,14 @@ public class JWTFilter extends OncePerRequestFilter {
             }
 
             // ✅ DB 조회 없이 Authentication 객체 생성
+            // 🐛 Dev Toggle: 개발 환경에서 X-Debug-Role 헤더가 있으면 해당 권한 사용
+            if (isDev) {
+                String debugRole = request.getHeader("X-Debug-Role");
+                if (debugRole != null && !debugRole.isBlank()) {
+                    role = debugRole;
+                }
+            }
+
             Collection<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role));
 
             Authentication authToken = new UsernamePasswordAuthenticationToken(

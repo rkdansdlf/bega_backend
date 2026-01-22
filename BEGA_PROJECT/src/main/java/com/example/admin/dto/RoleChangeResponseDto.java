@@ -5,7 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 /**
  * 권한 변경 응답 DTO
@@ -20,5 +20,5 @@ public class RoleChangeResponseDto {
     private String name;
     private String previousRole;
     private String newRole;
-    private LocalDateTime changedAt;
+    private Instant changedAt;
 }

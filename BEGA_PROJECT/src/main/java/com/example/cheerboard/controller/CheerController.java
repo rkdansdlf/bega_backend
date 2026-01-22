@@ -1,6 +1,7 @@
 package com.example.cheerboard.controller;
 
 import com.example.cheerboard.dto.CreatePostReq;
+import com.example.common.ratelimit.RateLimit;
 import com.example.cheerboard.dto.UpdatePostReq;
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.dto.PostDetailRes;
@@ -32,6 +33,12 @@ public class CheerController {
         return svc.list(teamId, postType, pageable);
     }
 
+    @GetMapping("/posts/hot")
+    public Page<PostSummaryRes> listHot(
+            @PageableDefault(size = 20) Pageable pageable) {
+        return svc.getHotPosts(pageable);
+    }
+
     @PostMapping(value = "/posts/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public java.util.List<String> uploadImages(
             @PathVariable Long id,
@@ -44,11 +51,20 @@ public class CheerController {
         return svc.getPostImages(id);
     }
 
+    @GetMapping("/posts/search")
+    public Page<PostSummaryRes> search(
+            @RequestParam String q,
+            @RequestParam(required = false) String teamId,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return svc.search(q, teamId, pageable);
+    }
+
     @GetMapping("/posts/{id}")
     public PostDetailRes get(@PathVariable Long id) {
         return svc.get(id);
     }
 
+    @RateLimit(limit = 5, window = 60) // 1분에 최대 5개 게시글
     @PostMapping("/posts")
     @ResponseStatus(HttpStatus.CREATED)
     public PostDetailRes create(@RequestBody CreatePostReq req) {
@@ -66,6 +82,7 @@ public class CheerController {
         svc.deletePost(id);
     }
 
+    @RateLimit(limit = 10, window = 60) // 1분에 최대 10번 좋아요 토글
     @PostMapping("/posts/{id}/like")
     public LikeToggleResponse toggleLike(@PathVariable Long id) {
         return svc.toggleLike(id);
@@ -76,6 +93,11 @@ public class CheerController {
         return svc.toggleBookmark(id);
     }
 
+    @PostMapping("/posts/{id}/repost")
+    public int repost(@PathVariable Long id) {
+        return svc.repost(id);
+    }
+
     @GetMapping("/bookmarks")
     @PreAuthorize("isAuthenticated()")
     public Page<PostSummaryRes> getBookmarks(
@@ -83,6 +105,7 @@ public class CheerController {
         return svc.getBookmarkedPosts(pageable);
     }
 
+    @RateLimit(limit = 3, window = 60) // 1분에 최대 3번 신고
     @PostMapping("/posts/{id}/report")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Void> reportPost(
@@ -98,6 +121,7 @@ public class CheerController {
         return svc.listComments(id, pageable);
     }
 
+    @RateLimit(limit = 10, window = 60) // 1분에 최대 10개 댓글
     @PostMapping("/posts/{id}/comments")
     public CommentRes addComment(@PathVariable Long id, @RequestBody CreateCommentReq req) {
         return svc.addComment(id, req);
@@ -109,11 +133,13 @@ public class CheerController {
         svc.deleteComment(commentId);
     }
 
+    @RateLimit(limit = 10, window = 60) // 1분에 최대 10번 댓글 좋아요 토글
     @PostMapping("/comments/{commentId}/like")
     public LikeToggleResponse toggleCommentLike(@PathVariable Long commentId) {
         return svc.toggleCommentLike(commentId);
     }
 
+    @RateLimit(limit = 10, window = 60) // 1분에 최대 10개 답글
     @PostMapping("/posts/{postId}/comments/{parentCommentId}/replies")
     public CommentRes addReply(
             @PathVariable Long postId,

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -20,7 +21,6 @@ public class NotificationService {
 
     // 알림 생성
     @Transactional
-    @SuppressWarnings("null")
     public void createNotification(
             Long userId,
             Notification.NotificationType type,
@@ -36,6 +36,7 @@ public class NotificationService {
                 .isRead(false)
                 .build();
 
+        @SuppressWarnings("null")
         Notification saved = notificationRepository.save(notification);
 
         // DTO 생성
@@ -49,7 +50,7 @@ public class NotificationService {
                         try {
                             messagingTemplate.convertAndSend(
                                     "/topic/notifications/" + userId,
-                                    (Object) dto);
+                                    Objects.requireNonNull((Object) dto));
                             System.out.println("알림 전송 성공 (After Commit): userId=" + userId + ", type=" + type);
                         } catch (Exception e) {
                             System.err.println("알림 전송 실패: " + e.getMessage());
@@ -76,19 +77,17 @@ public class NotificationService {
 
     // 알림 읽음 처리
     @Transactional
-    @SuppressWarnings("null")
     public void markAsRead(Long notificationId) {
-        Notification notification = notificationRepository.findById(notificationId)
+        Notification notification = notificationRepository.findById(Objects.requireNonNull(notificationId))
                 .orElseThrow(() -> new NotificationNotFoundException(notificationId));
 
         notification.setIsRead(true);
-        notificationRepository.save(notification);
+        notificationRepository.save(Objects.requireNonNull(notification));
     }
 
     // 알림 삭제
     @Transactional
-    @SuppressWarnings("null")
     public void deleteNotification(Long notificationId) {
-        notificationRepository.deleteById(notificationId);
+        notificationRepository.deleteById(Objects.requireNonNull(notificationId));
     }
 }

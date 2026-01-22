@@ -5,7 +5,10 @@ import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.service.ImageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.jobrunr.jobs.annotations.Job;
+import org.jobrunr.scheduling.JobScheduler;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,16 +17,23 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 @Slf4j
-public class CheerStorageScheduler {
+public class CheerStorageScheduler implements ApplicationRunner {
 
     private final CheerPostRepo postRepo;
     private final ImageService imageService;
+    private final JobScheduler jobScheduler;
+
+    @Override
+    public void run(ApplicationArguments args) {
+        // 10분마다 실행 (Storage & DB Cleanup)
+        jobScheduler.scheduleRecurrently("cleanup-deleted-posts", "*/10 * * * *", this::cleanupDeletedPosts);
+    }
 
     /**
      * Soft Deleted 상태인 게시글을 찾아 스토리지 이미지 삭제 후 DB에서 영구 삭제
-     * 10분마다 실행
+     * Cron: 10분마다 실행
      */
-    @Scheduled(fixedDelay = 600000)
+    @Job(name = "Cleanup Soft Deleted Posts")
     @Transactional
     public void cleanupDeletedPosts() {
         // Soft Deleted 상태인 게시글 조회 (Native Query)

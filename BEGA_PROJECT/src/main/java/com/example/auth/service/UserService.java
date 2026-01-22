@@ -2,6 +2,8 @@ package com.example.auth.service;
 
 import java.util.Map;
 import java.util.Optional;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.time.LocalDateTime;
 
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -225,14 +227,15 @@ public class UserService {
         java.time.LocalDate today = java.time.LocalDate.now();
 
         // lastLoginDate가 없거나(첫 로그인), 마지막 로그인 날짜가 오늘보다 이전인 경우
-        if (user.getLastLoginDate() == null || user.getLastLoginDate().toLocalDate().isBefore(today)) {
+        if (user.getLastLoginDate() == null
+                || user.getLastLoginDate().atZone(ZoneId.of("Asia/Seoul")).toLocalDate().isBefore(today)) {
             user.addCheerPoints(5);
             log.info("Daily Login Bonus (5 points) awarded to user: {}. Current Points: {}", user.getEmail(),
                     user.getCheerPoints());
         }
 
         // 로그인 시간 갱신
-        user.setLastLoginDate(LocalDateTime.now());
+        user.setLastLoginDate(Instant.now());
         userRepository.save(user);
     }
 
@@ -391,7 +394,7 @@ public class UserService {
                 .map(provider -> com.example.mypage.dto.UserProviderDto.builder()
                         .provider(provider.getProvider())
                         .connectedAt(provider.getConnectedAt() != null
-                                ? provider.getConnectedAt().format(java.time.format.DateTimeFormatter.ISO_DATE_TIME)
+                                ? java.time.format.DateTimeFormatter.ISO_INSTANT.format(provider.getConnectedAt())
                                 : null)
                         .build())
                 .collect(java.util.stream.Collectors.toList());

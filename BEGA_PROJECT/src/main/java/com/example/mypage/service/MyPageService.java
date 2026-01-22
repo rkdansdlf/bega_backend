@@ -36,8 +36,9 @@ public class MyPageService {
                 .email(user.getEmail())
                 .favoriteTeam(teamId)
                 .profileImageUrl(user.getProfileImageUrl())
-                .createdAt(user.getCreatedAt().format(DATE_FORMATTER))
-                .createdAt(user.getCreatedAt().format(DATE_FORMATTER))
+                .createdAt(user.getCreatedAt() != null
+                        ? user.getCreatedAt().atZone(java.time.ZoneId.of("Asia/Seoul")).format(DATE_FORMATTER)
+                        : null)
                 .role(user.getRole())
                 .cheerPoints(user.getCheerPoints())
                 .build();
