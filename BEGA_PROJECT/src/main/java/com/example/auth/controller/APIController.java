@@ -1,6 +1,7 @@
 package com.example.auth.controller;
 
 import com.example.common.dto.ApiResponse;
+import com.example.common.ratelimit.RateLimit;
 import com.example.auth.dto.LoginDto;
 import com.example.auth.dto.SignupDto;
 import com.example.auth.service.UserService;
@@ -31,6 +32,7 @@ public class APIController {
     /**
      * 일반 회원가입
      */
+    @RateLimit(limit = 3, window = 3600) // 1시간에 최대 3회 가입 시도
     @PostMapping("/signup")
     public ResponseEntity<ApiResponse> signUp(@Valid @RequestBody SignupDto signupDto) {
         userService.signUp(signupDto.toUserDto());
@@ -42,6 +44,7 @@ public class APIController {
     /**
      * 로그인
      */
+    @RateLimit(limit = 10, window = 60) // 1분에 최대 10회 로그인 시도
     @PostMapping("/login")
     public ResponseEntity<ApiResponse> login(
             @Valid @RequestBody LoginDto request,
@@ -78,6 +81,7 @@ public class APIController {
     /**
      * 이메일 중복 체크
      */
+    @RateLimit(limit = 20, window = 60) // 1분에 최대 20회 이메일 중복 체크
     @GetMapping("/check-email")
     public ResponseEntity<ApiResponse> checkEmail(@RequestParam String email) {
         boolean exists = userService.isEmailExists(email.trim().toLowerCase());

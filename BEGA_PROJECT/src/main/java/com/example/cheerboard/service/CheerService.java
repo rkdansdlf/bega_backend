@@ -30,6 +30,8 @@ import java.util.HashSet;
 import com.example.auth.entity.UserEntity;
 import com.example.kbo.repository.TeamRepository;
 import com.example.notification.service.NotificationService;
+import com.example.common.exception.UserNotFoundException;
+import com.example.common.service.AIModerationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
@@ -64,6 +66,8 @@ public class CheerService {
     // 리팩토링된 컴포넌트들
     private final PermissionValidator permissionValidator;
     private final PostDtoMapper postDtoMapper;
+    private final RedisPostService redisPostService;
+    private final AIModerationService moderationService;
 
     // ... (list method remains the same as recently updated, skipping to avoid
     // overwriting)
@@ -156,6 +160,91 @@ public class CheerService {
     }
 
     @Transactional(readOnly = true)
+    public Page<PostSummaryRes> search(String q, String teamId, Pageable pageable) {
+        Page<CheerPost> page = postRepo.search(q, teamId, pageable);
+
+        List<Long> postIds = page.hasContent()
+                ? Objects.requireNonNull(page.getContent()).stream().map(CheerPost::getId).toList()
+                : Collections.emptyList();
+
+        Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
+                ? Collections.emptyMap()
+                : imageService.getPostImageUrlsByPostIds(postIds);
+
+        UserEntity me = current.getOrNull();
+        Set<Long> bookmarkedPostIds = new HashSet<>();
+        Set<Long> likedPostIds = new HashSet<>();
+        if (me != null && !postIds.isEmpty()) {
+            List<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            bookmarkedPostIds = bookmarks.stream().map(b -> b.getId().getPostId()).collect(Collectors.toSet());
+
+            List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
+        }
+
+        final Set<Long> finalBookmarks = bookmarkedPostIds;
+        final Set<Long> finalLikes = likedPostIds;
+        final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
+
+        return page.map(post -> {
+            boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
+            List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
+            return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
+                    finalBookmarks.contains(post.getId()), isOwner, imageUrls);
+        });
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PostSummaryRes> getHotPosts(Pageable pageable) {
+        int start = (int) pageable.getOffset();
+        int end = start + pageable.getPageSize() - 1;
+
+        Set<Long> hotPostIds = redisPostService.getHotPostIds(start, end);
+        if (hotPostIds.isEmpty()) {
+            List<PostSummaryRes> emptyList = Collections.emptyList();
+            return new PageImpl<PostSummaryRes>(Objects.requireNonNull(emptyList), Objects.requireNonNull(pageable), 0);
+        }
+
+        List<CheerPost> posts = postRepo.findAllById(hotPostIds);
+        // Redis 순서(점수 높은 순)를 유지하기 위해 정렬
+        Map<Long, CheerPost> postMap = posts.stream()
+                .collect(Collectors.toMap(CheerPost::getId, Function.identity()));
+        List<CheerPost> sortedPosts = hotPostIds.stream()
+                .map(postMap::get)
+                .filter(Objects::nonNull)
+                .toList();
+
+        // DTO 변환 로직
+        UserEntity me = current.getOrNull();
+        List<PostSummaryRes> content = sortedPosts.stream()
+                .map(post -> {
+                    boolean liked = me != null && isPostLikedByUser(post.getId(), me.getId());
+                    boolean isBookmarked = me != null && isPostBookmarkedByUser(post.getId(), me.getId());
+                    boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
+                    return postDtoMapper.toPostSummaryRes(post, liked, isBookmarked, isOwner);
+                })
+                .collect(Collectors.toList());
+
+        return new PageImpl<PostSummaryRes>(Objects.requireNonNull(content), Objects.requireNonNull(pageable),
+                redisPostService.getHotPostIds(0, 99).size());
+    }
+
+    /**
+     * 게시글 HOT 점수 업데이트 (Formula: Likes*3 + Comments*2 + Views)
+     */
+    public void updateHotScore(CheerPost post) {
+        // Redis 실시간 조회수 합산
+        int combinedViews = getCombinedViewCount(post);
+        double score = (post.getLikeCount() * 3.0) + (post.getCommentCount() * 2.0) + combinedViews;
+        redisPostService.updateHotScore(post.getId(), score);
+    }
+
+    private int getCombinedViewCount(CheerPost post) {
+        Integer redisViews = redisPostService.getViewCount(post.getId());
+        return post.getViews() + (redisViews != null ? redisViews : 0);
+    }
+
+    @Transactional(readOnly = true)
     public Page<PostSummaryRes> listByUserHandle(String handle, Pageable pageable) {
         Page<CheerPost> page = postRepo.findByAuthor_HandleOrderByCreatedAtDesc(handle, pageable);
 
@@ -206,12 +295,12 @@ public class CheerService {
     }
 
     /**
-     * 게시글 조회수 증가 (작성자가 아닌 경우에만)
-     * UPDATE 쿼리만 실행하여 성능 최적화
+     * 게시글 조회수 증가 (Redis 활용)
      */
     private void increaseViewCount(Long postId, CheerPost post, UserEntity user) {
+        // 작성자가 아닌 경우에만 증가
         if (user == null || !post.getAuthor().getId().equals(user.getId())) {
-            postRepo.incrementViewCount(Objects.requireNonNull(postId));
+            redisPostService.incrementViewCount(postId, user != null ? user.getId() : null);
         }
     }
 
@@ -237,6 +326,14 @@ public class CheerService {
     @Transactional
     public PostDetailRes createPost(CreatePostReq req) {
         UserEntity me = current.get();
+
+        // AI Moderation 체크
+        AIModerationService.ModerationResult modResult = moderationService
+                .checkContent(req.title() + " " + req.content());
+        if (!modResult.isAllowed()) {
+            throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
+        }
+
         permissionValidator.validateTeamAccess(me, req.teamId(), "게시글 작성");
 
         PostType postType = determinePostType(req, me);
@@ -352,8 +449,8 @@ public class CheerService {
             liked = false;
 
             // 작성자 포인트 차감 (Entity Update)
-            UserEntity author = userRepo.findById(post.getAuthor().getId())
-                    .orElseThrow(() -> new IllegalStateException("Author not found"));
+            UserEntity author = userRepo.findById(Objects.requireNonNull(post.getAuthor().getId()))
+                    .orElseThrow(() -> new UserNotFoundException(post.getAuthor().getId()));
             author.deductCheerPoints(1); // Entity method
             userRepo.save(author);
             log.info("Points deducted for user {}: -1 (Entity Update)", author.getId());
@@ -370,8 +467,8 @@ public class CheerService {
             liked = true;
 
             // 작성자 포인트 증가 (Entity Update)
-            UserEntity author = userRepo.findById(post.getAuthor().getId())
-                    .orElseThrow(() -> new IllegalStateException("Author not found"));
+            UserEntity author = userRepo.findById(Objects.requireNonNull(post.getAuthor().getId()))
+                    .orElseThrow(() -> new UserNotFoundException(post.getAuthor().getId()));
             author.addCheerPoints(1); // Entity method
             userRepo.save(author);
             log.info("Points awarded to user {}: +1 (Entity Update)", author.getId());
@@ -384,7 +481,7 @@ public class CheerService {
                             : me.getEmail();
 
                     notificationService.createNotification(
-                            post.getAuthor().getId(),
+                            Objects.requireNonNull(post.getAuthor().getId()),
                             com.example.notification.entity.Notification.NotificationType.POST_LIKE,
                             "좋아요 알림",
                             authorName + "님이 회원님의 게시글을 좋아합니다.",
@@ -396,6 +493,7 @@ public class CheerService {
         }
 
         postRepo.save(Objects.requireNonNull(post));
+        updateHotScore(post);
         return new LikeToggleResponse(liked, likes);
     }
 
@@ -418,6 +516,19 @@ public class CheerService {
             bookmarked = true;
         }
         return new BookmarkResponse(bookmarked);
+    }
+
+    @Transactional
+    public int repost(Long postId) {
+        // UserEntity me = current.get(); // Could be used to track who reposted
+        CheerPost post = findPostById(postId);
+
+        int newCount = post.getRepostCount() + 1;
+        post.setRepostCount(newCount);
+        postRepo.save(post);
+
+        updateHotScore(post);
+        return newCount;
     }
 
     @Transactional
@@ -465,14 +576,14 @@ public class CheerService {
     }
 
     @Transactional(readOnly = true)
-    @SuppressWarnings("null")
     public Page<CommentRes> listComments(Long postId, Pageable pageable) {
         // 최상위 댓글만 조회 (대댓글은 각 댓글의 replies에 포함됨)
         Page<CheerComment> page = commentRepo
                 .findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(Objects.requireNonNull(postId), pageable);
 
         if (!page.hasContent()) {
-            return new PageImpl<>(List.of(), Objects.requireNonNull(pageable), page.getTotalElements());
+            return new PageImpl<>(Objects.requireNonNull(List.of()), Objects.requireNonNull(pageable),
+                    page.getTotalElements());
         }
 
         List<Long> commentIds = page.getContent().stream()
@@ -506,7 +617,8 @@ public class CheerService {
         List<CommentRes> mapped = comments.stream()
                 .map(comment -> toCommentResWithLikedSet(comment, finalLikedIds))
                 .toList();
-        return new PageImpl<>(mapped, Objects.requireNonNull(pageable), page.getTotalElements());
+        return new PageImpl<>(Objects.requireNonNull(mapped), Objects.requireNonNull(pageable),
+                page.getTotalElements());
     }
 
     /**
@@ -530,11 +642,18 @@ public class CheerService {
         CheerPost post = findPostById(postId);
         permissionValidator.validateTeamAccess(me, post.getTeamId(), "댓글 작성");
 
+        // AI Moderation 체크
+        AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
+        if (!modResult.isAllowed()) {
+            throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
+        }
+
         // 중복 댓글 체크: 직전 3초 이내 동일 작성자·게시글·내용 댓글 확인
         checkDuplicateComment(post.getId(), me.getId(), req.content(), null);
 
         CheerComment comment = saveNewComment(post, me, req);
         incrementCommentCount(post);
+        updateHotScore(post);
 
         // 게시글 작성자에게 알림 (본인이 아닐 때만)
         if (!post.getAuthor().getId().equals(me.getId())) {
@@ -689,8 +808,8 @@ public class CheerService {
             liked = false;
 
             // 댓글 작성자 포인트 차감 (Entity Update)
-            UserEntity author = userRepo.findById(comment.getAuthor().getId())
-                    .orElseThrow(() -> new IllegalStateException("Author not found"));
+            UserEntity author = userRepo.findById(Objects.requireNonNull(comment.getAuthor().getId()))
+                    .orElseThrow(() -> new UserNotFoundException(comment.getAuthor().getId()));
             author.deductCheerPoints(1);
             userRepo.save(author);
             log.info("Points deducted for comment author {}: -1 (Entity Update)", author.getId());
@@ -707,8 +826,8 @@ public class CheerService {
             liked = true;
 
             // 댓글 작성자 포인트 증가 (Entity Update)
-            UserEntity author = userRepo.findById(comment.getAuthor().getId())
-                    .orElseThrow(() -> new IllegalStateException("Author not found"));
+            UserEntity author = userRepo.findById(Objects.requireNonNull(comment.getAuthor().getId()))
+                    .orElseThrow(() -> new UserNotFoundException(comment.getAuthor().getId()));
             author.addCheerPoints(1);
             userRepo.save(author);
             log.info("Points awarded to comment author {}: +1 (Entity Update)", author.getId());
@@ -734,11 +853,18 @@ public class CheerService {
 
         permissionValidator.validateTeamAccess(me, post.getTeamId(), "대댓글 작성");
 
+        // AI Moderation 체크
+        AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
+        if (!modResult.isAllowed()) {
+            throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
+        }
+
         // 중복 대댓글 체크: 직전 3초 이내 동일 작성자·부모댓글·내용 대댓글 확인
         checkDuplicateComment(post.getId(), me.getId(), req.content(), parentCommentId);
 
         CheerComment reply = saveNewReply(post, parentComment, me, req);
         incrementCommentCount(post);
+        updateHotScore(post);
 
         // 원댓글 작성자에게 알림 (본인이 아닐 때만)
         if (!parentComment.getAuthor().getId().equals(me.getId())) {
@@ -748,7 +874,7 @@ public class CheerService {
                         : me.getEmail();
 
                 notificationService.createNotification(
-                        parentComment.getAuthor().getId(),
+                        Objects.requireNonNull(parentComment.getAuthor().getId()),
                         com.example.notification.entity.Notification.NotificationType.COMMENT_REPLY,
                         "새 대댓글",
                         authorName + "님이 회원님의 댓글에 답글을 남겼습니다.",

@@ -9,6 +9,7 @@ public record PostSummaryRes(
         String teamShortName,
         String teamColor,
         String title,
+        String content,
         String author,
         Long authorId,
         String authorHandle,
@@ -22,6 +23,7 @@ public record PostSummaryRes(
         boolean isHot,
         boolean isBookmarked,
         boolean isOwner,
+        int repostCount,
         String postType,
         java.util.List<String> imageUrls) {
 }

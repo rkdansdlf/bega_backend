@@ -22,6 +22,10 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
                         Pageable pageable);
 
         @EntityGraph(attributePaths = { "author", "team" })
+        @Query("SELECT p FROM CheerPost p WHERE (LOWER(p.title) LIKE LOWER(CONCAT('%', :q, '%')) OR LOWER(p.content) LIKE LOWER(CONCAT('%', :q, '%'))) AND (:teamId IS NULL OR p.team.teamId = :teamId)")
+        Page<CheerPost> search(@Param("q") String q, @Param("teamId") String teamId, Pageable pageable);
+
+        @EntityGraph(attributePaths = { "author", "team" })
         @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.teamId = :teamId) AND (:postType IS NULL OR p.postType = :postType)")
         Page<CheerPost> findByTeamIdAndPostType(@Param("teamId") String teamId,
                         @Param("postType") com.example.cheerboard.domain.PostType postType, Pageable pageable);
@@ -33,6 +37,10 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
         @Modifying
         @Query("UPDATE CheerPost p SET p.views = p.views + 1 WHERE p.id = :postId")
         void incrementViewCount(@Param("postId") Long postId);
+
+        @Modifying
+        @Query("UPDATE CheerPost p SET p.views = p.views + :delta WHERE p.id = :postId")
+        void incrementViewCountByDelta(@Param("postId") Long postId, @Param("delta") int delta);
 
         @Query("SELECT COUNT(p) FROM CheerPost p WHERE p.author.id = :userId")
         int countByUserId(@Param("userId") Long userId);

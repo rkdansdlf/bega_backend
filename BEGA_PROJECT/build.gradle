@@ -69,6 +69,9 @@ dependencies {
     implementation 'com.twelvemonkeys.imageio:imageio-webp:3.12.0' // WebP support
     implementation 'com.twelvemonkeys.imageio:imageio-core:3.12.0' // Explicit core dependency
     runtimeOnly 'io.netty:netty-resolver-dns-native-macos:4.1.115.Final:osx-aarch_64' // Fix MacOS Netty DNS warning
+    
+    // JobRunr (DB-backed Queue)
+    implementation 'org.jobrunr:jobrunr-spring-boot-3-starter:8.4.0'
 }
 
 tasks.named('test') {

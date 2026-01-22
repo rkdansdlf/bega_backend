@@ -35,7 +35,7 @@ spring:
     redis:
       repositories:
         enabled: false # Fix Redis repository scanning warning
-      host: ${REDIS_HOST:localhost}
+      host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:6379}
       timeout: 2000ms
       lettuce:
@@ -64,6 +64,19 @@ spring:
           auth: true
           starttls:
             enable: true
+
+  # JobRunr 설정
+  jobrunr:
+    background-job-server:
+      enabled: true
+      worker-count: 4 # DB 부하 방지를 위해 보수적 설정
+    dashboard:
+      enabled: true # /dashboard
+    jobs:
+      default-retries: 2
+    database:
+      skip-create: false
+      table-prefix: jobrunr_ # 테이블 충돌 방지
             
   # OAuth2 및 JWT 설정
   security:
@@ -125,12 +138,16 @@ supabase:
     max-images-per-post: 10
     max-images-per-diary: 6
 
+# --- AI Service 설정 ---
+ai:
+  service-url: ${AI_SERVICE_URL:http://localhost:8001}
+
 # Actuator health check (shared across profiles)
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        include: health,info,prometheus,metrics
       base-path: /actuator
   endpoint:
     health:
@@ -155,7 +172,7 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     hikari:
-      maximum-pool-size: 10
+      maximum-pool-size: 30 # JobRunr + Web 요청 감당을 위해 증설
       minimum-idle: 2
       connection-timeout: 30000
       validation-timeout: 5000
@@ -181,7 +198,7 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     hikari:
-      maximum-pool-size: 10
+      maximum-pool-size: 30 # JobRunr + Web 요청 감당을 위해 증설
       minimum-idle: 2
       connection-timeout: 60000
       validation-timeout: 5000

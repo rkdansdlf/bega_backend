@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -42,7 +43,7 @@ public class CheerBattleService {
                     .gameId(gameId)
                     .teamId(teamId)
                     .build();
-            return cheerVoteRepository.findById(id)
+            return cheerVoteRepository.findById(Objects.requireNonNull(id))
                     .map(entity -> new AtomicInteger(entity.getVoteCount()))
                     .orElse(new AtomicInteger(0));
         });
@@ -55,7 +56,7 @@ public class CheerBattleService {
                 .teamId(teamId)
                 .build();
 
-        CheerVoteEntity entity = cheerVoteRepository.findById(id)
+        CheerVoteEntity entity = cheerVoteRepository.findById(Objects.requireNonNull(id))
                 .orElse(CheerVoteEntity.builder()
                         .gameId(gameId)
                         .teamId(teamId)
