@@ -11,8 +11,6 @@ spring:
     properties:
       hibernate:
         format-sql: true
-        boot:
-          allow_jdbc_metadata_access: false
   thymeleaf:
     cache: false
     check-template-location: false
@@ -27,6 +25,11 @@ spring:
       com.example: INFO
       org.hibernate.SQL: WARN
       org.springframework: INFO
+      
+  # Sentry (Error Tracking)
+  sentry:
+    dsn: ${SENTRY_DSN}
+    exception-resolver-order: -2147483647 # Highest priority
 
   # 데이터 설정 (Web & Redis)
   data:

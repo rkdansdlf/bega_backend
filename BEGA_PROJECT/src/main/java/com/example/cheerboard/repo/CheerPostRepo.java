@@ -58,4 +58,21 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
         @Modifying
         @Query(value = "DELETE FROM cheer_post WHERE id = :id", nativeQuery = true)
         void hardDeleteById(@Param("id") Long id);
+
+        /**
+         * 팔로우한 유저들의 게시글 조회 (팔로우 피드용)
+         */
+        @EntityGraph(attributePaths = { "author", "team" })
+        @Query("SELECT p FROM CheerPost p WHERE p.author.id IN :authorIds ORDER BY p.createdAt DESC")
+        Page<CheerPost> findByAuthorIdIn(@Param("authorIds") List<Long> authorIds, Pageable pageable);
+
+        /**
+         * 팔로우한 유저들의 게시글 조회 (차단 유저 제외)
+         */
+        @EntityGraph(attributePaths = { "author", "team" })
+        @Query("SELECT p FROM CheerPost p WHERE p.author.id IN :authorIds AND p.author.id NOT IN :blockedIds ORDER BY p.createdAt DESC")
+        Page<CheerPost> findByAuthorIdInAndAuthorIdNotIn(
+                @Param("authorIds") List<Long> authorIds,
+                @Param("blockedIds") List<Long> blockedIds,
+                Pageable pageable);
 }

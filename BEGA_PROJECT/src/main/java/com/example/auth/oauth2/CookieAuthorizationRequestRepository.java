@@ -59,15 +59,23 @@ public class CookieAuthorizationRequestRepository
             response.addCookie(redirectCookie);
         }
 
-        // 3. 계정 연동 모드 및 사용자 ID 저장 ('mode', 'userId' 파라미터) -> 세션에 저장 (쿠키 불안정 해결)
+        // 3. 계정 연동 모드 및 사용자 ID 저장 ('mode', 'userId' 파라미터) -> 쿠키에 저장
         String mode = request.getParameter("mode");
         if (mode != null && !mode.isBlank()) {
-            request.getSession().setAttribute("oauth2_link_mode", mode);
+            Cookie modeCookie = new Cookie(LINK_MODE_COOKIE_NAME, mode);
+            modeCookie.setPath("/");
+            modeCookie.setHttpOnly(true);
+            modeCookie.setMaxAge(COOKIE_EXPIRE_SECONDS);
+            response.addCookie(modeCookie);
         }
 
         String userId = request.getParameter("userId");
         if (userId != null && !userId.isBlank()) {
-            request.getSession().setAttribute("oauth2_link_user_id", userId);
+            Cookie userIdCookie = new Cookie(LINK_USER_ID_COOKIE_NAME, userId);
+            userIdCookie.setPath("/");
+            userIdCookie.setHttpOnly(true);
+            userIdCookie.setMaxAge(COOKIE_EXPIRE_SECONDS);
+            response.addCookie(userIdCookie);
         }
     }
 
@@ -85,8 +93,10 @@ public class CookieAuthorizationRequestRepository
     public void removeAuthorizationRequestCookies(HttpServletRequest request, HttpServletResponse response) {
         deleteCookie(request, response, OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME);
         deleteCookie(request, response, REDIRECT_URI_PARAM_COOKIE_NAME);
-        deleteCookie(request, response, LINK_MODE_COOKIE_NAME);
-        deleteCookie(request, response, LINK_USER_ID_COOKIE_NAME);
+        // deleteCookie(request, response, LINK_MODE_COOKIE_NAME); //
+        // CustomSuccessHandler에서 처리
+        // deleteCookie(request, response, LINK_USER_ID_COOKIE_NAME); //
+        // CustomSuccessHandler에서 처리
     }
 
     // --- 유틸리티 메서드 ---

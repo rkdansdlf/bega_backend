@@ -70,10 +70,20 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
         UserEntity userEntity;
 
-        // 세션에서 연동 모드 확인 (쿠키 대신 세션 사용)
-        jakarta.servlet.http.HttpSession session = request.getSession(false);
-        String linkMode = (session != null) ? (String) session.getAttribute("oauth2_link_mode") : null;
-        String linkUserIdStr = (session != null) ? (String) session.getAttribute("oauth2_link_user_id") : null;
+        // 쿠키에서 연동 모드 확인 (CookieAuthorizationRequestRepository에서 저장함)
+        String linkMode = null;
+        String linkUserIdStr = null;
+
+        jakarta.servlet.http.Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (jakarta.servlet.http.Cookie cookie : cookies) {
+                if ("oauth2_link_mode".equals(cookie.getName())) {
+                    linkMode = cookie.getValue();
+                } else if ("oauth2_link_user_id".equals(cookie.getName())) {
+                    linkUserIdStr = cookie.getValue();
+                }
+            }
+        }
 
         System.out.println("=== CustomOAuth2UserService loadUser ===");
         System.out.println("RegistrationId: " + registrationId);
@@ -117,11 +127,8 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
                 System.out.println("Account Linked/Moved Successfully for User: " + userEntity.getEmail());
 
-                // 사용 완료된 세션 속성 제거
-                if (session != null) {
-                    session.removeAttribute("oauth2_link_mode");
-                    session.removeAttribute("oauth2_link_user_id");
-                }
+                // 사용 완료된 쿠키 제거는 CustomSuccessHandler에서 처리함
+                // (여기서는 HttpServletResponse에 접근하기 어려움)
             } else {
                 System.out.println("Target User Not Found for ID: " + userId);
                 throw new OAuth2AuthenticationException("연동할 대상 사용자를 찾을 수 없습니다.");

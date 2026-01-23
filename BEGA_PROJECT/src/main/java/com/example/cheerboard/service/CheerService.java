@@ -5,6 +5,7 @@ import com.example.cheerboard.domain.CheerComment;
 import com.example.cheerboard.domain.CheerCommentLike;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.CheerPostLike;
+import com.example.cheerboard.domain.CheerPostRepost;
 import com.example.cheerboard.domain.CheerPostReport;
 import com.example.cheerboard.domain.PostType;
 import com.example.cheerboard.dto.CreatePostReq;
@@ -14,10 +15,12 @@ import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.CreateCommentReq;
 import com.example.cheerboard.dto.CommentRes;
 import com.example.cheerboard.dto.LikeToggleResponse;
+import com.example.cheerboard.dto.RepostToggleResponse;
 import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.repo.CheerCommentLikeRepo;
 import com.example.cheerboard.repo.CheerCommentRepo;
 import com.example.cheerboard.repo.CheerPostLikeRepo;
+import com.example.cheerboard.repo.CheerPostRepostRepo;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerBookmarkRepo;
 import com.example.cheerboard.repo.CheerReportRepo;
@@ -28,6 +31,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
 import com.example.auth.entity.UserEntity;
+import com.example.auth.service.FollowService;
+import com.example.auth.service.BlockService;
 import com.example.kbo.repository.TeamRepository;
 import com.example.notification.service.NotificationService;
 import com.example.common.exception.UserNotFoundException;
@@ -54,6 +59,7 @@ public class CheerService {
     private final CheerPostRepo postRepo;
     private final CheerCommentRepo commentRepo;
     private final CheerPostLikeRepo likeRepo;
+    private final CheerPostRepostRepo repostRepo;
     private final CheerCommentLikeRepo commentLikeRepo;
     private final CheerBookmarkRepo bookmarkRepo;
     private final CheerReportRepo reportRepo; // [NEW]
@@ -62,6 +68,8 @@ public class CheerService {
     private final CurrentUser current;
     private final NotificationService notificationService;
     private final com.example.cheerboard.storage.service.ImageService imageService;
+    private final FollowService followService;
+    private final BlockService blockService;
 
     // 리팩토링된 컴포넌트들
     private final PermissionValidator permissionValidator;
@@ -138,6 +146,7 @@ public class CheerService {
         UserEntity me = current.getOrNull();
         Set<Long> bookmarkedPostIds = new HashSet<>();
         Set<Long> likedPostIds = new HashSet<>();
+        Set<Long> repostedPostIds = new HashSet<>();
         if (me != null && !postIds.isEmpty()) {
             List<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             bookmarkedPostIds = bookmarks.stream().map(b -> b.getId().getPostId()).collect(Collectors.toSet());
@@ -145,17 +154,22 @@ public class CheerService {
             // 좋아요 여부 조회
             List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
+
+            // 리포스트 여부 조회
+            List<CheerPostRepost> reposts = repostRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            repostedPostIds = reposts.stream().map(r -> r.getId().getPostId()).collect(Collectors.toSet());
         }
 
         final Set<Long> finalBookmarks = bookmarkedPostIds;
         final Set<Long> finalLikes = likedPostIds;
+        final Set<Long> finalReposts = repostedPostIds;
         final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
 
         return page.map(post -> {
             boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
-                    finalBookmarks.contains(post.getId()), isOwner, imageUrls);
+                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls);
         });
     }
 
@@ -174,23 +188,29 @@ public class CheerService {
         UserEntity me = current.getOrNull();
         Set<Long> bookmarkedPostIds = new HashSet<>();
         Set<Long> likedPostIds = new HashSet<>();
+        Set<Long> repostedPostIds = new HashSet<>();
         if (me != null && !postIds.isEmpty()) {
             List<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             bookmarkedPostIds = bookmarks.stream().map(b -> b.getId().getPostId()).collect(Collectors.toSet());
 
             List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
+
+            // 리포스트 여부 조회
+            List<CheerPostRepost> reposts = repostRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            repostedPostIds = reposts.stream().map(r -> r.getId().getPostId()).collect(Collectors.toSet());
         }
 
         final Set<Long> finalBookmarks = bookmarkedPostIds;
         final Set<Long> finalLikes = likedPostIds;
+        final Set<Long> finalReposts = repostedPostIds;
         final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
 
         return page.map(post -> {
             boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
-                    finalBookmarks.contains(post.getId()), isOwner, imageUrls);
+                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls);
         });
     }
 
@@ -221,7 +241,8 @@ public class CheerService {
                     boolean liked = me != null && isPostLikedByUser(post.getId(), me.getId());
                     boolean isBookmarked = me != null && isPostBookmarkedByUser(post.getId(), me.getId());
                     boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
-                    return postDtoMapper.toPostSummaryRes(post, liked, isBookmarked, isOwner);
+                    boolean repostedByMe = me != null && isPostRepostedByUser(post.getId(), me.getId());
+                    return postDtoMapper.toPostSummaryRes(post, liked, isBookmarked, isOwner, repostedByMe);
                 })
                 .collect(Collectors.toList());
 
@@ -259,6 +280,7 @@ public class CheerService {
         UserEntity me = current.getOrNull();
         Set<Long> bookmarkedPostIds = new HashSet<>();
         Set<Long> likedPostIds = new HashSet<>();
+        Set<Long> repostedPostIds = new HashSet<>();
         if (me != null && !postIds.isEmpty()) {
             List<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             bookmarkedPostIds = bookmarks.stream().map(b -> b.getId().getPostId()).collect(Collectors.toSet());
@@ -266,17 +288,81 @@ public class CheerService {
             // 좋아요 여부 조회
             List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
+
+            // 리포스트 여부 조회
+            List<CheerPostRepost> reposts = repostRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            repostedPostIds = reposts.stream().map(r -> r.getId().getPostId()).collect(Collectors.toSet());
         }
 
         final Set<Long> finalBookmarks = bookmarkedPostIds;
         final Set<Long> finalLikes = likedPostIds;
+        final Set<Long> finalReposts = repostedPostIds;
         final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
 
         return page.map(post -> {
             boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
-                    finalBookmarks.contains(post.getId()), isOwner, imageUrls);
+                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls);
+        });
+    }
+
+    /**
+     * 팔로우한 유저들의 게시글 조회 (팔로우 피드)
+     */
+    @Transactional(readOnly = true)
+    public Page<PostSummaryRes> listFollowingPosts(Pageable pageable) {
+        UserEntity me = current.get();
+
+        // 내가 팔로우하는 유저 ID 목록
+        List<Long> followingIds = followService.getFollowingIds(me.getId());
+        if (followingIds.isEmpty()) {
+            return new PageImpl<>(Collections.emptyList(), pageable, 0);
+        }
+
+        // 내가 차단한 유저 ID 목록
+        List<Long> blockedIds = blockService.getBlockedIds(me.getId());
+
+        Page<CheerPost> page;
+        if (blockedIds.isEmpty()) {
+            page = postRepo.findByAuthorIdIn(followingIds, pageable);
+        } else {
+            page = postRepo.findByAuthorIdInAndAuthorIdNotIn(followingIds, blockedIds, pageable);
+        }
+
+        List<Long> postIds = page.hasContent()
+                ? page.getContent().stream().map(CheerPost::getId).toList()
+                : Collections.emptyList();
+
+        Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
+                ? Collections.emptyMap()
+                : imageService.getPostImageUrlsByPostIds(postIds);
+
+        Set<Long> bookmarkedPostIds = new HashSet<>();
+        Set<Long> likedPostIds = new HashSet<>();
+        Set<Long> repostedPostIds = new HashSet<>();
+        if (!postIds.isEmpty()) {
+            List<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            bookmarkedPostIds = bookmarks.stream().map(b -> b.getId().getPostId()).collect(Collectors.toSet());
+
+            List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
+
+            // 리포스트 여부 조회
+            List<CheerPostRepost> reposts = repostRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            repostedPostIds = reposts.stream().map(r -> r.getId().getPostId()).collect(Collectors.toSet());
+        }
+
+        final Set<Long> finalBookmarks = bookmarkedPostIds;
+        final Set<Long> finalLikes = likedPostIds;
+        final Set<Long> finalReposts = repostedPostIds;
+        final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
+
+        return page.map(post -> {
+            boolean isOwner = permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
+            List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
+            return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
+                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls);
         });
     }
 
@@ -290,8 +376,9 @@ public class CheerService {
         boolean liked = me != null && isPostLikedByUser(id, me.getId());
         boolean isBookmarked = me != null && isPostBookmarkedByUser(id, me.getId());
         boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
+        boolean repostedByMe = me != null && isPostRepostedByUser(id, me.getId());
 
-        return postDtoMapper.toPostDetailRes(post, liked, isBookmarked, isOwner);
+        return postDtoMapper.toPostDetailRes(post, liked, isBookmarked, isOwner, repostedByMe);
     }
 
     /**
@@ -323,6 +410,10 @@ public class CheerService {
         return bookmarkRepo.existsById(new CheerPostBookmark.Id(postId, userId));
     }
 
+    private boolean isPostRepostedByUser(Long postId, Long userId) {
+        return repostRepo.existsById(new CheerPostRepost.Id(postId, userId));
+    }
+
     @Transactional
     public PostDetailRes createPost(CreatePostReq req) {
         UserEntity me = current.get();
@@ -340,7 +431,43 @@ public class CheerService {
         CheerPost post = buildNewPost(req, me, postType);
         CheerPost savedPost = postRepo.save(Objects.requireNonNull(post));
 
+        // 팔로워들에게 새 글 알림 (notify_new_posts=true 인 팔로워에게만)
+        sendNewPostNotificationToFollowers(savedPost, me);
+
         return postDtoMapper.toNewPostDetailRes(savedPost, me);
+    }
+
+    /**
+     * 새 게시글 작성 시 notify_new_posts=true 인 팔로워들에게 알림 전송
+     */
+    private void sendNewPostNotificationToFollowers(CheerPost post, UserEntity author) {
+        try {
+            List<Long> notifyUserIds = followService.getFollowersWithNotifyEnabled(author.getId());
+            if (notifyUserIds.isEmpty()) {
+                return;
+            }
+
+            String authorName = author.getName() != null && !author.getName().isBlank()
+                    ? author.getName()
+                    : author.getHandle();
+
+            for (Long userId : notifyUserIds) {
+                try {
+                    notificationService.createNotification(
+                            userId,
+                            com.example.notification.entity.Notification.NotificationType.FOLLOWING_NEW_POST,
+                            "새 게시글",
+                            authorName + "님이 새 게시글을 작성했습니다.",
+                            post.getId());
+                } catch (Exception e) {
+                    log.warn("팔로워 알림 전송 실패: userId={}, postId={}, error={}",
+                            userId, post.getId(), e.getMessage());
+                }
+            }
+            log.info("새 글 알림 전송 완료: postId={}, 알림 대상={}명", post.getId(), notifyUserIds.size());
+        } catch (Exception e) {
+            log.warn("팔로워 알림 전송 중 오류: postId={}, error={}", post.getId(), e.getMessage());
+        }
     }
 
     /**
@@ -397,7 +524,8 @@ public class CheerService {
 
         boolean liked = isPostLikedByUser(id, me.getId());
         boolean isBookmarked = isPostBookmarkedByUser(id, me.getId());
-        return postDtoMapper.toPostDetailRes(post, liked, isBookmarked, true);
+        boolean repostedByMe = isPostRepostedByUser(id, me.getId());
+        return postDtoMapper.toPostDetailRes(post, liked, isBookmarked, true, repostedByMe);
     }
 
     /**
@@ -519,16 +647,54 @@ public class CheerService {
     }
 
     @Transactional
-    public int repost(Long postId) {
-        // UserEntity me = current.get(); // Could be used to track who reposted
+    public RepostToggleResponse toggleRepost(Long postId) {
+        UserEntity me = current.get();
         CheerPost post = findPostById(postId);
 
-        int newCount = post.getRepostCount() + 1;
-        post.setRepostCount(newCount);
-        postRepo.save(post);
+        CheerPostRepost.Id repostId = new CheerPostRepost.Id(postId, me.getId());
+        boolean reposted;
+        int count;
 
+        if (repostRepo.existsById(repostId)) {
+            // 리포스트 취소
+            repostRepo.deleteById(repostId);
+            count = Math.max(0, post.getRepostCount() - 1);
+            post.setRepostCount(count);
+            reposted = false;
+        } else {
+            // 리포스트
+            CheerPostRepost repost = new CheerPostRepost();
+            repost.setId(repostId);
+            repost.setPost(post);
+            repost.setUser(me);
+            repostRepo.save(Objects.requireNonNull(repost));
+            count = post.getRepostCount() + 1;
+            post.setRepostCount(count);
+            reposted = true;
+
+            // 알림 (본인 글 제외)
+            if (!post.getAuthor().getId().equals(me.getId())) {
+                try {
+                    String authorName = me.getName() != null && !me.getName().isBlank()
+                            ? me.getName()
+                            : me.getEmail();
+
+                    notificationService.createNotification(
+                            Objects.requireNonNull(post.getAuthor().getId()),
+                            com.example.notification.entity.Notification.NotificationType.POST_REPOST,
+                            "리포스트 알림",
+                            authorName + "님이 회원님의 게시글을 리포스트했습니다.",
+                            post.getId());
+                } catch (Exception e) {
+                    log.warn("리포스트 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
+                }
+            }
+        }
+
+        postRepo.save(Objects.requireNonNull(post));
         updateHotScore(post);
-        return newCount;
+
+        return new RepostToggleResponse(reposted, count);
     }
 
     @Transactional
@@ -561,17 +727,23 @@ public class CheerService {
         final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
 
         Set<Long> likedPostIds = new HashSet<>();
+        Set<Long> repostedPostIds = new HashSet<>();
         if (!postIds.isEmpty()) {
             List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
+
+            // 리포스트 여부 조회
+            List<CheerPostRepost> reposts = repostRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            repostedPostIds = reposts.stream().map(r -> r.getId().getPostId()).collect(Collectors.toSet());
         }
         final Set<Long> finalLikes = likedPostIds;
+        final Set<Long> finalReposts = repostedPostIds;
 
         return bookmarks.map(b -> {
             boolean isOwner = permissionValidator.isOwnerOrAdmin(me, b.getPost().getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(b.getPost().getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(b.getPost(), finalLikes.contains(b.getPost().getId()), true, isOwner,
-                    imageUrls);
+                    finalReposts.contains(b.getPost().getId()), imageUrls);
         });
     }
 
