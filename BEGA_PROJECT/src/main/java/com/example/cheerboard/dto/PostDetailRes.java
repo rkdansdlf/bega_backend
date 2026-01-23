@@ -25,5 +25,6 @@ public record PostDetailRes(
                 List<String> imageUrls,
                 Integer views,
                 int repostCount,
+                boolean repostedByMe,
                 String postType) {
 }

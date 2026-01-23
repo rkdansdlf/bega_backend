@@ -72,6 +72,9 @@ dependencies {
     
     // JobRunr (DB-backed Queue)
     implementation 'org.jobrunr:jobrunr-spring-boot-3-starter:8.4.0'
+    
+    // Monitoring (Sentry)
+    implementation 'io.sentry:sentry-spring-boot-starter:7.8.0'
 }
 
 tasks.named('test') {

@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class CheerBattleService {
 
     private final CheerVoteRepository cheerVoteRepository;
-
+    private final com.example.cheerboard.repository.CheerBattleLogRepository cheerBattleLogRepository;
     private final com.example.auth.repository.UserRepository userRepository;
 
     // Game ID -> Team ID -> Vote Count (In-memory cache)
@@ -26,6 +26,11 @@ public class CheerBattleService {
 
     @Transactional
     public int vote(String gameId, String teamId, String userEmail) {
+        // Check if already voted
+        if (cheerBattleLogRepository.existsByGameIdAndUserEmail(gameId, userEmail)) {
+            throw new IllegalStateException("이미 투표에 참여하셨습니다.");
+        }
+
         // 1. 사용자 포인트 차감
         com.example.auth.entity.UserEntity user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
@@ -34,7 +39,15 @@ public class CheerBattleService {
         user.deductCheerPoints(1);
         userRepository.save(user);
 
-        // 2. Update memory (DB backup fallback)
+        // 2. Save Vote Log
+        com.example.cheerboard.entity.CheerBattleLog battleLog = com.example.cheerboard.entity.CheerBattleLog.builder()
+                .gameId(gameId)
+                .teamId(teamId)
+                .userEmail(userEmail)
+                .build();
+        cheerBattleLogRepository.save(Objects.requireNonNull(battleLog));
+
+        // 3. Update memory (DB backup fallback)
         Map<String, AtomicInteger> teamVotes = gameVotes.computeIfAbsent(gameId, k -> new ConcurrentHashMap<>());
 
         AtomicInteger counter = teamVotes.computeIfAbsent(teamId, k -> {
@@ -50,7 +63,7 @@ public class CheerBattleService {
 
         int newValue = counter.incrementAndGet();
 
-        // 3. Update DB
+        // 4. Update DB (Vote Count)
         CheerVoteId id = CheerVoteId.builder()
                 .gameId(gameId)
                 .teamId(teamId)
@@ -87,6 +100,12 @@ public class CheerBattleService {
         }
 
         return result;
+    }
+
+    public String getUserVote(String gameId, String userEmail) {
+        return cheerBattleLogRepository.findByGameIdAndUserEmail(gameId, userEmail)
+                .map(com.example.cheerboard.entity.CheerBattleLog::getTeamId)
+                .orElse(null);
     }
 
     public void clearMemoryCache() {

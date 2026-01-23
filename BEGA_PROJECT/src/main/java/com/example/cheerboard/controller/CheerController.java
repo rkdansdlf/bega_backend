@@ -8,6 +8,7 @@ import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.CreateCommentReq;
 import com.example.cheerboard.dto.CommentRes;
 import com.example.cheerboard.dto.LikeToggleResponse;
+import com.example.cheerboard.dto.RepostToggleResponse;
 import com.example.cheerboard.dto.BookmarkResponse;
 import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.service.CheerService;
@@ -24,6 +25,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 public class CheerController {
 
     private final CheerService svc;
+    private final com.example.cheerboard.service.CheerBattleService battleService;
 
     @GetMapping("/posts")
     public Page<PostSummaryRes> list(
@@ -37,6 +39,16 @@ public class CheerController {
     public Page<PostSummaryRes> listHot(
             @PageableDefault(size = 20) Pageable pageable) {
         return svc.getHotPosts(pageable);
+    }
+
+    /**
+     * 팔로우한 유저들의 게시글 조회 (팔로우 피드)
+     */
+    @GetMapping("/posts/following")
+    @PreAuthorize("isAuthenticated()")
+    public Page<PostSummaryRes> listFollowing(
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return svc.listFollowingPosts(pageable);
     }
 
     @PostMapping(value = "/posts/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -93,9 +105,10 @@ public class CheerController {
         return svc.toggleBookmark(id);
     }
 
+    @RateLimit(limit = 10, window = 60) // 1분에 최대 10번 리포스트 토글
     @PostMapping("/posts/{id}/repost")
-    public int repost(@PathVariable Long id) {
-        return svc.repost(id);
+    public RepostToggleResponse toggleRepost(@PathVariable Long id) {
+        return svc.toggleRepost(id);
     }
 
     @GetMapping("/bookmarks")
@@ -152,5 +165,22 @@ public class CheerController {
     public Page<PostSummaryRes> listByUser(@PathVariable String handle,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         return svc.listByUserHandle(handle, pageable);
+    }
+
+    @GetMapping("/battle/{gameId}/status")
+    public com.example.cheerboard.dto.CheerBattleStatusRes getBattleStatus(
+            @PathVariable String gameId,
+            java.security.Principal principal) {
+
+        java.util.Map<String, Integer> stats = battleService.getGameStats(gameId);
+        String myVote = null;
+        if (principal != null) {
+            myVote = battleService.getUserVote(gameId, principal.getName());
+        }
+
+        return com.example.cheerboard.dto.CheerBattleStatusRes.builder()
+                .stats(stats)
+                .myVote(myVote)
+                .build();
     }
 }

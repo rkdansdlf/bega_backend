@@ -34,7 +34,7 @@ public class PostDtoMapper {
     /**
      * CheerPost를 PostSummaryRes로 변환
      */
-    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner) {
+    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner, boolean repostedByMe) {
         List<String> imageUrls = Collections.emptyList();
         try {
             imageUrls = imageService.getPostImageUrls(post.getId());
@@ -42,14 +42,14 @@ public class PostDtoMapper {
             log.warn("이미지 URL 조회 실패: postId={}, error={}", post.getId(), e.getMessage());
         }
 
-        return toPostSummaryRes(post, liked, isBookmarked, isOwner, imageUrls);
+        return toPostSummaryRes(post, liked, isBookmarked, isOwner, repostedByMe, imageUrls);
     }
 
     /**
      * CheerPost를 PostSummaryRes로 변환 (이미지 URL 미리 로딩된 경우)
      */
     public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
-            List<String> imageUrls) {
+            boolean repostedByMe, List<String> imageUrls) {
         List<String> resolvedUrls = imageUrls != null ? imageUrls : Collections.emptyList();
 
         // Redis와 DB 조회수 합산
@@ -89,6 +89,7 @@ public class PostDtoMapper {
                 isBookmarked,
                 isOwner,
                 post.getRepostCount(),
+                repostedByMe,
                 post.getPostType().name(),
                 resolvedUrls);
     }
@@ -96,7 +97,7 @@ public class PostDtoMapper {
     /**
      * CheerPost를 PostDetailRes로 변환
      */
-    public PostDetailRes toPostDetailRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner) {
+    public PostDetailRes toPostDetailRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner, boolean repostedByMe) {
         List<String> imageUrls = Collections.emptyList();
         try {
             imageUrls = imageService.getPostImageUrls(post.getId());
@@ -130,6 +131,7 @@ public class PostDtoMapper {
                 imageUrls,
                 combinedViews, // 합산된 조회수
                 post.getRepostCount(),
+                repostedByMe,
                 post.getPostType().name());
     }
 
@@ -166,6 +168,7 @@ public class PostDtoMapper {
                 imageUrls,
                 0, // 새 게시글이므로 조회수 0
                 0, // 새 게시글이므로 리포스트 수 0
+                false, // 새 게시글이므로 리포스트 안함
                 post.getPostType().name());
     }
 

@@ -47,30 +47,28 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             Authentication authentication) throws IOException, ServletException {
 
         CustomOAuth2User principal = (CustomOAuth2User) authentication.getPrincipal();
-        String userEmail = (String) principal.getAttributes().get("email");
 
-        if (userEmail == null || userEmail.isEmpty()) {
-            userEmail = principal.getUsername();
-        }
+        // Use the UserDto directly from the authenticated principal
+        // This ensures we use the LINKED account's info, not just the provider's email
+        com.example.auth.dto.UserDto userDto = principal.getUserDto();
 
-        if (userEmail == null || userEmail.isEmpty()) {
-            getRedirectStrategy().sendRedirect(request, response,
-                    frontendUrl + "/login?error=email_missing");
-            return;
-        }
+        String userEmail = userDto.getEmail();
+        String role = userDto.getRole();
+        String userName = userDto.getName();
+        Long userId = userDto.getId();
 
-        Optional<UserEntity> userEntityOptional = userRepository.findByEmail(userEmail);
+        // Fetch fresh entity for bonus check / entity operations if needed,
+        // using ID which is stable (email might change but ID is PK)
+        Optional<UserEntity> userEntityOptional = userRepository.findById(userId);
 
         if (userEntityOptional.isEmpty()) {
+            // Should not happen if CustomOAuth2UserService did its job
             getRedirectStrategy().sendRedirect(request, response,
-                    frontendUrl + "/login?error=user_not_found");
+                    frontendUrl + "/login?error=user_not_found_after_auth");
             return;
         }
 
         UserEntity userEntity = userEntityOptional.get();
-        String role = userEntity.getRole();
-        String userName = userEntity.getName();
-        Long userId = userEntity.getId();
         String profileImageUrl = userEntity.getProfileImageUrl();
 
         // ✅ 수정: getFavoriteTeamId() 사용 (String 반환)
@@ -95,21 +93,37 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         // Service에서 처리 후 SuccessHandler로 넘어옴.
 
         // 전략 수정: CustomOAuth2UserService에서는 로직만 수행하고,
-        // SuccessHandler에서 최종 리다이렉트를 결정하기 위해 세션 값을 확인하고 여기서 삭제함.
+        // SuccessHandler에서 최종 리다이렉트를 결정하기 위해 쿠키 값을 확인하고 여기서 삭제함.
 
-        jakarta.servlet.http.HttpSession session = request.getSession(false);
-        String linkMode = (session != null) ? (String) session.getAttribute("oauth2_link_mode") : null;
+        String linkMode = null;
+        jakarta.servlet.http.Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (jakarta.servlet.http.Cookie cookie : cookies) {
+                if (CookieAuthorizationRequestRepository.LINK_MODE_COOKIE_NAME.equals(cookie.getName())) {
+                    linkMode = cookie.getValue();
+                    break;
+                }
+            }
+        }
+
         boolean isLinkMode = "link".equals(linkMode);
 
         if (isLinkMode) {
             // 연동 모드일 경우: 토큰 발급/쿠키 갱신 없이 마이페이지로 리턴 (기존 세션 유지)
             System.out.println("Processing Account Link Success (Skipping Token Generation)");
 
-            // 세션 정리
-            if (session != null) {
-                session.removeAttribute("oauth2_link_mode");
-                session.removeAttribute("oauth2_link_user_id");
-            }
+            // 쿠키 정리 (만료)
+            jakarta.servlet.http.Cookie modeCookie = new jakarta.servlet.http.Cookie(
+                    CookieAuthorizationRequestRepository.LINK_MODE_COOKIE_NAME, "");
+            modeCookie.setPath("/");
+            modeCookie.setMaxAge(0);
+            response.addCookie(modeCookie);
+
+            jakarta.servlet.http.Cookie userCookie = new jakarta.servlet.http.Cookie(
+                    CookieAuthorizationRequestRepository.LINK_USER_ID_COOKIE_NAME, "");
+            userCookie.setPath("/");
+            userCookie.setMaxAge(0);
+            response.addCookie(userCookie);
 
             getRedirectStrategy().sendRedirect(request, response, frontendUrl + "/mypage?status=linked");
             return;

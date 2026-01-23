@@ -59,7 +59,12 @@ public class Notification {
         // 응원게시판 관련
         POST_COMMENT("게시글 댓글"),
         COMMENT_REPLY("댓글 대댓글"),
-        POST_LIKE("게시글 좋아요");
+        POST_LIKE("게시글 좋아요"),
+        POST_REPOST("게시글 리포스트"),
+
+        // 팔로우 관련 알림
+        NEW_FOLLOWER("새 팔로워"),
+        FOLLOWING_NEW_POST("새로운 게시글");
 
         private final String description;
 

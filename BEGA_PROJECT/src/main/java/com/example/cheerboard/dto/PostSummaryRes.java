@@ -24,6 +24,7 @@ public record PostSummaryRes(
         boolean isBookmarked,
         boolean isOwner,
         int repostCount,
+        boolean repostedByMe,
         String postType,
         java.util.List<String> imageUrls) {
 }
