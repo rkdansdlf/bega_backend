@@ -1,7 +1,13 @@
 package com.example.prediction;
 
 import com.example.kbo.entity.GameEntity;
+import com.example.kbo.entity.GameInningScoreEntity;
+import com.example.kbo.entity.GameMetadataEntity;
+import com.example.kbo.entity.GameSummaryEntity;
 import com.example.kbo.repository.GameRepository;
+import com.example.kbo.repository.GameInningScoreRepository;
+import com.example.kbo.repository.GameMetadataRepository;
+import com.example.kbo.repository.GameSummaryRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +23,9 @@ public class PredictionService {
 
     private final PredictionRepository predictionRepository;
     private final GameRepository gameRepository;
+    private final GameMetadataRepository gameMetadataRepository;
+    private final GameInningScoreRepository gameInningScoreRepository;
+    private final GameSummaryRepository gameSummaryRepository;
     private final VoteFinalResultRepository voteFinalResultRepository;
     private final com.example.auth.repository.UserRepository userRepository;
 
@@ -67,6 +76,23 @@ public class PredictionService {
         return matches.stream()
                 .map(MatchDto::fromEntity)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public GameDetailDto getGameDetail(String gameId) {
+        GameEntity game = gameRepository.findByGameId(gameId)
+                .orElseThrow(() -> new IllegalArgumentException("경기 정보를 찾을 수 없습니다."));
+
+        GameMetadataEntity metadata = gameMetadataRepository.findByGameId(gameId)
+                .orElse(null);
+
+        List<GameInningScoreEntity> inningScores = gameInningScoreRepository
+                .findAllByGameIdOrderByInningAscTeamSideAsc(gameId);
+
+        List<GameSummaryEntity> summaries = gameSummaryRepository
+                .findAllByGameIdOrderBySummaryTypeAscIdAsc(gameId);
+
+        return GameDetailDto.from(game, metadata, inningScores, summaries);
     }
 
     @Transactional

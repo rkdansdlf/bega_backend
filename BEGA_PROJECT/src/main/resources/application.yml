@@ -26,11 +26,6 @@ spring:
       org.hibernate.SQL: WARN
       org.springframework: INFO
       
-  # Sentry (Error Tracking)
-  sentry:
-    dsn: ${SENTRY_DSN}
-    exception-resolver-order: -2147483647 # Highest priority
-
   # 데이터 설정 (Web & Redis)
   data:
     web:
@@ -187,7 +182,6 @@ spring:
       ddl-auto: update # 개발 편의를 위해 update 유지 (필요시 none으로 변경)
       naming:
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
-    database-platform: org.hibernate.dialect.PostgreSQLDialect
 
 ---
 # 'prod' 프로필: 배포 환경 (PostgreSQL 사용)

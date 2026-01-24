@@ -51,6 +51,14 @@ public class PredictionController {
         return ResponseEntity.ok(matches);
     }
 
+    // 특정 경기 상세 조회
+    @PreAuthorize("permitAll()")
+    @GetMapping("/matches/{gameId}")
+    public ResponseEntity<GameDetailDto> getMatchDetail(@PathVariable String gameId) {
+        GameDetailDto detail = predictionService.getGameDetail(gameId);
+        return ResponseEntity.ok(detail);
+    }
+
     // 투표하기
     @PostMapping("/predictions/vote")
     public ResponseEntity<?> vote(@RequestBody PredictionRequestDto request, Principal principal) {

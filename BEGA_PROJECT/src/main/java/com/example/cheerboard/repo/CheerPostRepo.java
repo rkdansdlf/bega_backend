@@ -1,9 +1,11 @@
 package com.example.cheerboard.repo;
 
 import com.example.cheerboard.domain.CheerPost;
+import com.example.cheerboard.domain.CheerPost.RepostType;
 import com.example.auth.entity.UserEntity;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -75,4 +77,19 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
                 @Param("authorIds") List<Long> authorIds,
                 @Param("blockedIds") List<Long> blockedIds,
                 Pageable pageable);
+
+        /**
+         * 특정 사용자가 특정 게시글에 대해 특정 타입의 리포스트를 했는지 확인
+         * (단순 리포스트 토글 시 기존 리포스트 찾기용)
+         */
+        @Query("SELECT p FROM CheerPost p WHERE p.author = :author AND p.repostOf = :repostOf AND p.repostType = :repostType")
+        Optional<CheerPost> findByAuthorAndRepostOfAndRepostType(
+                @Param("author") UserEntity author,
+                @Param("repostOf") CheerPost repostOf,
+                @Param("repostType") RepostType repostType);
+
+        /**
+         * 특정 사용자가 특정 게시글에 대해 단순 리포스트를 했는지 확인
+         */
+        boolean existsByAuthorAndRepostOfAndRepostType(UserEntity author, CheerPost repostOf, RepostType repostType);
 }

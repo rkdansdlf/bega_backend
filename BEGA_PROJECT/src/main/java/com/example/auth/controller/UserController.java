@@ -20,6 +20,12 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success("사용자 프로필 조회 성공", profile));
     }
 
+    @GetMapping("/{userId}/profile")
+    public ResponseEntity<ApiResponse> getPublicUserProfileById(@PathVariable Long userId) {
+        PublicUserProfileDto profile = userService.getPublicUserProfile(userId);
+        return ResponseEntity.ok(ApiResponse.success("사용자 프로필 조회 성공", profile));
+    }
+
     @GetMapping("/email-to-id")
     public ResponseEntity<ApiResponse> getUserIdByEmail(@RequestParam String email) {
         Long userId = userService.getUserIdByEmail(email);

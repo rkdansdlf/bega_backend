@@ -16,6 +16,7 @@ import com.example.cheerboard.dto.CreateCommentReq;
 import com.example.cheerboard.dto.CommentRes;
 import com.example.cheerboard.dto.LikeToggleResponse;
 import com.example.cheerboard.dto.RepostToggleResponse;
+import com.example.cheerboard.dto.QuoteRepostReq;
 import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.repo.CheerCommentLikeRepo;
 import com.example.cheerboard.repo.CheerCommentRepo;
@@ -317,7 +318,7 @@ public class CheerService {
         // 내가 팔로우하는 유저 ID 목록
         List<Long> followingIds = followService.getFollowingIds(me.getId());
         if (followingIds.isEmpty()) {
-            return new PageImpl<>(Collections.emptyList(), pageable, 0);
+            return new PageImpl<>(Collections.emptyList(), Objects.requireNonNull(pageable), 0);
         }
 
         // 내가 차단한 유저 ID 목록
@@ -646,55 +647,169 @@ public class CheerService {
         return new BookmarkResponse(bookmarked);
     }
 
+    /**
+     * 단순 리포스트 토글 (Simple Repost)
+     * - 이미 리포스트인 글은 리포스트 불가 (중첩 방지)
+     * - 사용자당 원본 게시글에 대해 1개의 단순 리포스트만 가능 (토글)
+     */
     @Transactional
     public RepostToggleResponse toggleRepost(Long postId) {
         UserEntity me = current.get();
-        CheerPost post = findPostById(postId);
+        CheerPost original = findPostById(postId);
 
-        CheerPostRepost.Id repostId = new CheerPostRepost.Id(postId, me.getId());
+        // 중첩 방지: 이미 리포스트인 글은 리포스트 불가
+        if (original.isRepost()) {
+            throw new IllegalArgumentException("리포스트된 글은 다시 리포스트할 수 없습니다.");
+        }
+
+        // 1. 차단 관계 확인 (양방향)
+        if (blockService.hasBidirectionalBlock(me.getId(), original.getAuthor().getId())) {
+            throw new IllegalStateException("차단된 사용자의 게시글은 리포스트할 수 없습니다.");
+        }
+
+        // 2. 비공개 계정 확인 (본인이 아닌 경우)
+        if (original.getAuthor().isPrivateAccount() && !original.getAuthor().getId().equals(me.getId())) {
+            throw new IllegalStateException("비공개 계정의 게시글은 리포스트할 수 없습니다.");
+        }
+
+        // 기존 단순 리포스트 확인
+        java.util.Optional<CheerPost> existing = postRepo.findByAuthorAndRepostOfAndRepostType(
+                me, original, CheerPost.RepostType.SIMPLE);
+
         boolean reposted;
         int count;
 
-        if (repostRepo.existsById(repostId)) {
-            // 리포스트 취소
-            repostRepo.deleteById(repostId);
-            count = Math.max(0, post.getRepostCount() - 1);
-            post.setRepostCount(count);
+        if (existing.isPresent()) {
+            // 취소: 리포스트 게시글 삭제
+            postRepo.delete(Objects.requireNonNull(existing.get()));
+            count = Math.max(0, original.getRepostCount() - 1);
+            original.setRepostCount(count);
             reposted = false;
+
+            // 기존 CheerPostRepost 테이블에서도 삭제 (호환성 유지)
+            CheerPostRepost.Id repostTrackingId = new CheerPostRepost.Id(postId, me.getId());
+            if (repostRepo.existsById(repostTrackingId)) {
+                repostRepo.deleteById(repostTrackingId);
+            }
         } else {
-            // 리포스트
-            CheerPostRepost repost = new CheerPostRepost();
-            repost.setId(repostId);
-            repost.setPost(post);
-            repost.setUser(me);
-            repostRepo.save(Objects.requireNonNull(repost));
-            count = post.getRepostCount() + 1;
-            post.setRepostCount(count);
+            // 생성: 새 리포스트 게시글
+            CheerPost repost = CheerPost.builder()
+                    .author(me)
+                    .team(original.getTeam())
+                    .repostOf(original)
+                    .repostType(CheerPost.RepostType.SIMPLE)
+                    .title("") // 단순 리포스트는 제목 없음 (NOT NULL 제약조건 준수)
+                    .content("") // 단순 리포스트는 내용 없음 (NOT NULL 제약조건 준수)
+                    .postType(PostType.NORMAL)
+                    .build();
+            postRepo.save(Objects.requireNonNull(repost));
+
+            count = original.getRepostCount() + 1;
+            original.setRepostCount(count);
             reposted = true;
 
+            // 기존 CheerPostRepost 테이블에도 추가 (호환성 유지 - repostedByMe 조회용)
+            CheerPostRepost.Id repostTrackingId = new CheerPostRepost.Id(postId, me.getId());
+            if (!repostRepo.existsById(repostTrackingId)) {
+                CheerPostRepost repostTracking = new CheerPostRepost();
+                repostTracking.setId(repostTrackingId);
+                repostTracking.setPost(original);
+                repostTracking.setUser(me);
+                repostRepo.save(repostTracking);
+            }
+
             // 알림 (본인 글 제외)
-            if (!post.getAuthor().getId().equals(me.getId())) {
+            if (!original.getAuthor().getId().equals(me.getId())) {
                 try {
                     String authorName = me.getName() != null && !me.getName().isBlank()
                             ? me.getName()
                             : me.getEmail();
 
                     notificationService.createNotification(
-                            Objects.requireNonNull(post.getAuthor().getId()),
+                            Objects.requireNonNull(original.getAuthor().getId()),
                             com.example.notification.entity.Notification.NotificationType.POST_REPOST,
                             "리포스트 알림",
                             authorName + "님이 회원님의 게시글을 리포스트했습니다.",
-                            post.getId());
+                            original.getId());
                 } catch (Exception e) {
-                    log.warn("리포스트 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
+                    log.warn("리포스트 알림 생성 실패: postId={}, error={}", original.getId(), e.getMessage());
                 }
             }
         }
 
-        postRepo.save(Objects.requireNonNull(post));
-        updateHotScore(post);
+        postRepo.save(Objects.requireNonNull(original));
+        updateHotScore(original);
 
         return new RepostToggleResponse(reposted, count);
+    }
+
+    /**
+     * 인용 리포스트 생성 (Quote Repost)
+     * - 원글을 첨부하면서 의견(코멘트)을 덧붙여 작성
+     * - 여러 번 가능 (토글 아님)
+     * - 이미 리포스트인 글은 인용 불가 (중첩 방지)
+     */
+    @Transactional
+    public PostDetailRes createQuoteRepost(Long originalPostId, QuoteRepostReq req) {
+        UserEntity me = current.get();
+        CheerPost original = findPostById(originalPostId);
+
+        // 중첩 방지: 이미 리포스트인 글은 인용 불가
+        if (original.isRepost()) {
+            throw new IllegalArgumentException("리포스트된 글은 인용할 수 없습니다.");
+        }
+
+        // 1. 차단 관계 확인 (양방향)
+        if (blockService.hasBidirectionalBlock(me.getId(), original.getAuthor().getId())) {
+            throw new IllegalStateException("차단된 사용자의 게시글은 리포스트할 수 없습니다.");
+        }
+
+        // 2. 비공개 계정 확인 (본인이 아닌 경우)
+        if (original.getAuthor().isPrivateAccount() && !original.getAuthor().getId().equals(me.getId())) {
+            throw new IllegalStateException("비공개 계정의 게시글은 리포스트할 수 없습니다.");
+        }
+
+        // AI Moderation 체크
+        AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
+        if (!modResult.isAllowed()) {
+            throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
+        }
+
+        CheerPost quoteRepost = CheerPost.builder()
+                .author(me)
+                .team(original.getTeam())
+                .repostOf(original)
+                .repostType(CheerPost.RepostType.QUOTE)
+                .title("") // 인용 리포스트는 제목 없음 (NOT NULL 제약조건 준수)
+                .content(req.content()) // 사용자가 작성한 의견
+                .postType(PostType.NORMAL)
+                .build();
+        postRepo.save(Objects.requireNonNull(quoteRepost));
+
+        original.setRepostCount(original.getRepostCount() + 1);
+        postRepo.save(original);
+
+        updateHotScore(original);
+
+        // 알림 (본인 글 제외)
+        if (!original.getAuthor().getId().equals(me.getId())) {
+            try {
+                String authorName = me.getName() != null && !me.getName().isBlank()
+                        ? me.getName()
+                        : me.getEmail();
+
+                notificationService.createNotification(
+                        Objects.requireNonNull(original.getAuthor().getId()),
+                        com.example.notification.entity.Notification.NotificationType.POST_REPOST,
+                        "인용 리포스트",
+                        authorName + "님이 회원님의 게시글을 인용했습니다.",
+                        quoteRepost.getId());
+            } catch (Exception e) {
+                log.warn("인용 리포스트 알림 생성 실패: originalPostId={}, error={}", originalPostId, e.getMessage());
+            }
+        }
+
+        return postDtoMapper.toNewPostDetailRes(quoteRepost, me);
     }
 
     @Transactional

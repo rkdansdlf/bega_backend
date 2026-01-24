@@ -9,7 +9,9 @@ import com.example.cheerboard.dto.CreateCommentReq;
 import com.example.cheerboard.dto.CommentRes;
 import com.example.cheerboard.dto.LikeToggleResponse;
 import com.example.cheerboard.dto.RepostToggleResponse;
+import com.example.cheerboard.dto.QuoteRepostReq;
 import com.example.cheerboard.dto.BookmarkResponse;
+import jakarta.validation.Valid;
 import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.service.CheerService;
 import lombok.RequiredArgsConstructor;
@@ -109,6 +111,20 @@ public class CheerController {
     @PostMapping("/posts/{id}/repost")
     public RepostToggleResponse toggleRepost(@PathVariable Long id) {
         return svc.toggleRepost(id);
+    }
+
+    /**
+     * 인용 리포스트 생성
+     * - 원글을 첨부하면서 의견(코멘트)을 덧붙여 작성
+     * - 여러 번 가능 (토글 아님)
+     */
+    @RateLimit(limit = 5, window = 60) // 1분에 최대 5번 인용 리포스트
+    @PostMapping("/posts/{id}/quote")
+    @PreAuthorize("isAuthenticated()")
+    public PostDetailRes createQuoteRepost(
+            @PathVariable Long id,
+            @Valid @RequestBody QuoteRepostReq req) {
+        return svc.createQuoteRepost(id, req);
     }
 
     @GetMapping("/bookmarks")
