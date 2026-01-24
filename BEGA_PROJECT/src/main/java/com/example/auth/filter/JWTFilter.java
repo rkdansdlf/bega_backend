@@ -75,15 +75,33 @@ public class JWTFilter extends OncePerRequestFilter {
             String referer = request.getHeader("Referer");
             String origin = request.getHeader("Origin");
 
-            // 허용된 도메인 리스트 (프로덕션에서는 환경변수나 설정파일로 관리 권장)
-            String allowedDomain = "http://localhost:3000";
-            String allowedBackend = "http://localhost:8080";
+            // 허용된 도메인 리스트
+            List<String> allowedOrigins = List.of(
+                    "http://localhost:3000",
+                    "http://localhost:8080"
+            // "https://your-production-domain.com"
+            );
 
-            boolean isValidRef = (referer != null
-                    && (referer.startsWith(allowedDomain) || referer.startsWith(allowedBackend)));
-            boolean isValidOrigin = (origin != null && (origin.equals(allowedDomain) || origin.equals(allowedBackend)));
+            boolean isAllowed = false;
+            if (referer != null) {
+                for (String allowed : allowedOrigins) {
+                    if (referer.startsWith(allowed)) {
+                        isAllowed = true;
+                        break;
+                    }
+                }
+            }
 
-            if (!isValidRef && !isValidOrigin) {
+            if (!isAllowed && origin != null) {
+                for (String allowed : allowedOrigins) {
+                    if (origin.equals(allowed)) {
+                        isAllowed = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!isAllowed) {
                 // Referer나 Origin이 없거나 허용되지 않은 도메인이면 차단
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 response.getWriter().write("CSRF Protection: Invalid Referer/Origin");
@@ -130,6 +148,8 @@ public class JWTFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(authToken);
 
         } catch (Exception e) {
+            // 토큰 파싱 실패 또는 만료 등 인증 실패 시 로그 출력
+            System.err.println("Authentication Failed: " + e.getMessage());
         }
 
         filterChain.doFilter(request, response);

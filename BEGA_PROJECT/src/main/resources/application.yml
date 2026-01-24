@@ -11,8 +11,6 @@ spring:
     properties:
       hibernate:
         format-sql: true
-        boot:
-          allow_jdbc_metadata_access: false
   thymeleaf:
     cache: false
     check-template-location: false
@@ -27,7 +25,7 @@ spring:
       com.example: INFO
       org.hibernate.SQL: WARN
       org.springframework: INFO
-
+      
   # 데이터 설정 (Web & Redis)
   data:
     web:
@@ -184,7 +182,6 @@ spring:
       ddl-auto: update # 개발 편의를 위해 update 유지 (필요시 none으로 변경)
       naming:
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
-    database-platform: org.hibernate.dialect.PostgreSQLDialect
 
 ---
 # 'prod' 프로필: 배포 환경 (PostgreSQL 사용)

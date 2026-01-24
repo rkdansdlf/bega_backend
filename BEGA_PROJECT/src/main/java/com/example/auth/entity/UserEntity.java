@@ -56,6 +56,11 @@ public class UserEntity {
     @Column(name = "bio", length = 500)
     private String bio;
 
+    // 비공개 계정 여부
+    @Column(name = "private_account", nullable = false)
+    @Builder.Default
+    private boolean privateAccount = false;
+
     // 회원가입 시 응원팀 선택 정보
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "favorite_team", referencedColumnName = "team_id")

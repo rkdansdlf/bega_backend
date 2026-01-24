@@ -1,6 +1,7 @@
 package com.example.cheerboard.service;
 
 import com.example.cheerboard.domain.CheerPost;
+import com.example.cheerboard.dto.EmbeddedPostDto;
 import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.storage.service.ImageService;
@@ -34,7 +35,8 @@ public class PostDtoMapper {
     /**
      * CheerPost를 PostSummaryRes로 변환
      */
-    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner) {
+    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
+            boolean repostedByMe) {
         List<String> imageUrls = Collections.emptyList();
         try {
             imageUrls = imageService.getPostImageUrls(post.getId());
@@ -42,14 +44,14 @@ public class PostDtoMapper {
             log.warn("이미지 URL 조회 실패: postId={}, error={}", post.getId(), e.getMessage());
         }
 
-        return toPostSummaryRes(post, liked, isBookmarked, isOwner, imageUrls);
+        return toPostSummaryRes(post, liked, isBookmarked, isOwner, repostedByMe, imageUrls);
     }
 
     /**
      * CheerPost를 PostSummaryRes로 변환 (이미지 URL 미리 로딩된 경우)
      */
     public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
-            List<String> imageUrls) {
+            boolean repostedByMe, List<String> imageUrls) {
         List<String> resolvedUrls = imageUrls != null ? imageUrls : Collections.emptyList();
 
         // Redis와 DB 조회수 합산
@@ -65,6 +67,26 @@ public class PostDtoMapper {
             // 캐시 없으면 계산 후 캐싱 (계산 시 combinedViews 사용)
             isHot = hotPostChecker.isHotPost(post, combinedViews);
             redisPostService.cacheHotStatus(post.getId(), isHot);
+        }
+
+        // 리포스트 관련 정보 처리
+        Long repostOfId = null;
+        String repostType = null;
+        EmbeddedPostDto originalPost = null;
+        boolean originalDeleted = false;
+
+        if (post.isRepost()) {
+            repostType = post.getRepostType().name();
+            CheerPost original = post.getRepostOf();
+
+            if (original != null) {
+                repostOfId = original.getId();
+                originalPost = toEmbeddedPostDto(original);
+                originalDeleted = false;
+            } else {
+                // 원본이 삭제된 경우 (repostOf가 null로 설정됨 - ON DELETE SET NULL)
+                originalDeleted = true;
+            }
         }
 
         return new PostSummaryRes(
@@ -89,14 +111,21 @@ public class PostDtoMapper {
                 isBookmarked,
                 isOwner,
                 post.getRepostCount(),
+                repostedByMe,
                 post.getPostType().name(),
-                resolvedUrls);
+                resolvedUrls,
+                // 리포스트 관련 필드
+                repostOfId,
+                repostType,
+                originalPost,
+                originalDeleted);
     }
 
     /**
      * CheerPost를 PostDetailRes로 변환
      */
-    public PostDetailRes toPostDetailRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner) {
+    public PostDetailRes toPostDetailRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
+            boolean repostedByMe) {
         List<String> imageUrls = Collections.emptyList();
         try {
             imageUrls = imageService.getPostImageUrls(post.getId());
@@ -107,6 +136,26 @@ public class PostDtoMapper {
         // Redis와 DB 조회수 합산
         Integer redisViews = redisPostService.getViewCount(post.getId());
         int combinedViews = post.getViews() + (redisViews != null ? redisViews : 0);
+
+        // 리포스트 관련 정보 처리
+        Long repostOfId = null;
+        String repostType = null;
+        EmbeddedPostDto originalPost = null;
+        boolean originalDeleted = false;
+
+        if (post.isRepost()) {
+            repostType = post.getRepostType().name();
+            CheerPost original = post.getRepostOf();
+
+            if (original != null) {
+                repostOfId = original.getId();
+                originalPost = toEmbeddedPostDto(original);
+                originalDeleted = false;
+            } else {
+                // 원본이 삭제된 경우
+                originalDeleted = true;
+            }
+        }
 
         return new PostDetailRes(
                 post.getId(),
@@ -130,7 +179,13 @@ public class PostDtoMapper {
                 imageUrls,
                 combinedViews, // 합산된 조회수
                 post.getRepostCount(),
-                post.getPostType().name());
+                repostedByMe,
+                post.getPostType().name(),
+                // 리포스트 관련 필드
+                repostOfId,
+                repostType,
+                originalPost,
+                originalDeleted);
     }
 
     /**
@@ -142,6 +197,18 @@ public class PostDtoMapper {
             imageUrls = imageService.getPostImageUrls(post.getId());
         } catch (Exception e) {
             log.warn("이미지 URL 조회 실패: postId={}, error={}", post.getId(), e.getMessage());
+        }
+
+        // 리포스트 관련 정보 처리 (새 게시글이 리포스트인 경우)
+        Long repostOfId = null;
+        String repostType = null;
+        EmbeddedPostDto originalPost = null;
+        boolean originalDeleted = false;
+
+        if (post.isRepost() && post.getRepostOf() != null) {
+            repostOfId = post.getRepostOf().getId();
+            repostType = post.getRepostType().name();
+            originalPost = toEmbeddedPostDto(post.getRepostOf());
         }
 
         return new PostDetailRes(
@@ -166,7 +233,44 @@ public class PostDtoMapper {
                 imageUrls,
                 0, // 새 게시글이므로 조회수 0
                 0, // 새 게시글이므로 리포스트 수 0
-                post.getPostType().name());
+                false, // 새 게시글이므로 리포스트 안함
+                post.getPostType().name(),
+                // 리포스트 관련 필드
+                repostOfId,
+                repostType,
+                originalPost,
+                originalDeleted);
+    }
+
+    /**
+     * 원본 게시글을 EmbeddedPostDto로 변환 (리포스트 표시용)
+     */
+    private EmbeddedPostDto toEmbeddedPostDto(CheerPost original) {
+        if (original == null) {
+            return null;
+        }
+
+        List<String> originalImageUrls = Collections.emptyList();
+        try {
+            originalImageUrls = imageService.getPostImageUrls(original.getId());
+        } catch (Exception e) {
+            log.warn("원본 게시글 이미지 URL 조회 실패: postId={}, error={}", original.getId(), e.getMessage());
+        }
+
+        return EmbeddedPostDto.of(
+                original.getId(),
+                original.getTeamId(),
+                resolveTeamColor(original.getTeam()),
+                original.getTitle(),
+                original.getContent(),
+                resolveDisplayName(original.getAuthor()),
+                original.getAuthor().getHandle(),
+                original.getAuthor().getProfileImageUrl(),
+                original.getCreatedAt(),
+                originalImageUrls,
+                original.getLikeCount(),
+                original.getCommentCount(),
+                original.getRepostCount());
     }
 
     private String resolveDisplayName(UserEntity author) {

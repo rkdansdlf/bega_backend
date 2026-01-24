@@ -32,6 +32,9 @@ class CheerBattleServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private com.example.cheerboard.repository.CheerBattleLogRepository cheerBattleLogRepository;
+
     @Test
     @DisplayName("Normally vote - deduct points and increment count")
     @SuppressWarnings("null")

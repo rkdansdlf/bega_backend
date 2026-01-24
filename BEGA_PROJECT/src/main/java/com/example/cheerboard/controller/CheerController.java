@@ -8,7 +8,10 @@ import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.CreateCommentReq;
 import com.example.cheerboard.dto.CommentRes;
 import com.example.cheerboard.dto.LikeToggleResponse;
+import com.example.cheerboard.dto.RepostToggleResponse;
+import com.example.cheerboard.dto.QuoteRepostReq;
 import com.example.cheerboard.dto.BookmarkResponse;
+import jakarta.validation.Valid;
 import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.service.CheerService;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +27,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 public class CheerController {
 
     private final CheerService svc;
+    private final com.example.cheerboard.service.CheerBattleService battleService;
 
     @GetMapping("/posts")
     public Page<PostSummaryRes> list(
@@ -37,6 +41,16 @@ public class CheerController {
     public Page<PostSummaryRes> listHot(
             @PageableDefault(size = 20) Pageable pageable) {
         return svc.getHotPosts(pageable);
+    }
+
+    /**
+     * 팔로우한 유저들의 게시글 조회 (팔로우 피드)
+     */
+    @GetMapping("/posts/following")
+    @PreAuthorize("isAuthenticated()")
+    public Page<PostSummaryRes> listFollowing(
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return svc.listFollowingPosts(pageable);
     }
 
     @PostMapping(value = "/posts/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -93,9 +107,24 @@ public class CheerController {
         return svc.toggleBookmark(id);
     }
 
+    @RateLimit(limit = 10, window = 60) // 1분에 최대 10번 리포스트 토글
     @PostMapping("/posts/{id}/repost")
-    public int repost(@PathVariable Long id) {
-        return svc.repost(id);
+    public RepostToggleResponse toggleRepost(@PathVariable Long id) {
+        return svc.toggleRepost(id);
+    }
+
+    /**
+     * 인용 리포스트 생성
+     * - 원글을 첨부하면서 의견(코멘트)을 덧붙여 작성
+     * - 여러 번 가능 (토글 아님)
+     */
+    @RateLimit(limit = 5, window = 60) // 1분에 최대 5번 인용 리포스트
+    @PostMapping("/posts/{id}/quote")
+    @PreAuthorize("isAuthenticated()")
+    public PostDetailRes createQuoteRepost(
+            @PathVariable Long id,
+            @Valid @RequestBody QuoteRepostReq req) {
+        return svc.createQuoteRepost(id, req);
     }
 
     @GetMapping("/bookmarks")
@@ -152,5 +181,22 @@ public class CheerController {
     public Page<PostSummaryRes> listByUser(@PathVariable String handle,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         return svc.listByUserHandle(handle, pageable);
+    }
+
+    @GetMapping("/battle/{gameId}/status")
+    public com.example.cheerboard.dto.CheerBattleStatusRes getBattleStatus(
+            @PathVariable String gameId,
+            java.security.Principal principal) {
+
+        java.util.Map<String, Integer> stats = battleService.getGameStats(gameId);
+        String myVote = null;
+        if (principal != null) {
+            myVote = battleService.getUserVote(gameId, principal.getName());
+        }
+
+        return com.example.cheerboard.dto.CheerBattleStatusRes.builder()
+                .stats(stats)
+                .myVote(myVote)
+                .build();
     }
 }

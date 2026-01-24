@@ -19,6 +19,14 @@ import java.util.ArrayList;
 @Builder
 @org.hibernate.annotations.SQLRestriction("deleted = false")
 public class CheerPost {
+
+    /**
+     * 리포스트 타입: SIMPLE(단순 리포스트), QUOTE(인용 리포스트)
+     */
+    public enum RepostType {
+        SIMPLE,  // 단순 리포스트 - 코멘트 없이 원글 그대로 공유
+        QUOTE    // 인용 리포스트 - 원글을 첨부하면서 의견 추가
+    }
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -36,10 +44,10 @@ public class CheerPost {
     @JoinColumn(name = "author_id", nullable = false)
     private UserEntity author;
 
-    @Column(nullable = false)
+    @Column(nullable = true)  // 리포스트는 제목 없음
     private String title;
 
-    @Column(nullable = false, columnDefinition = "text")
+    @Column(nullable = true, columnDefinition = "text")  // 단순 리포스트는 내용 없음
     private String content;
 
     @Column(name = "likecount", nullable = false)
@@ -57,6 +65,21 @@ public class CheerPost {
     @Column(name = "repostcount", nullable = false)
     @Builder.Default
     private int repostCount = 0;
+
+    /**
+     * 원본 게시글 (리포스트인 경우에만 설정)
+     * ON DELETE SET NULL: 원본 삭제 시 null로 설정 (인용글은 유지)
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "repost_of_id")
+    private CheerPost repostOf;
+
+    /**
+     * 리포스트 타입 (SIMPLE, QUOTE, null=원본 게시글)
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "repost_type", length = 10)
+    private RepostType repostType;
 
     @Column(name = "createdat", nullable = false)
     @Builder.Default
@@ -95,5 +118,26 @@ public class CheerPost {
 
     public String getTeamId() {
         return team != null ? team.getTeamId() : null;
+    }
+
+    /**
+     * 리포스트인지 확인
+     */
+    public boolean isRepost() {
+        return repostType != null;
+    }
+
+    /**
+     * 단순 리포스트인지 확인
+     */
+    public boolean isSimpleRepost() {
+        return repostType == RepostType.SIMPLE;
+    }
+
+    /**
+     * 인용 리포스트인지 확인
+     */
+    public boolean isQuoteRepost() {
+        return repostType == RepostType.QUOTE;
     }
 }

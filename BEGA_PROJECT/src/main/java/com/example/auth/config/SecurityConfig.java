@@ -144,7 +144,10 @@ public class SecurityConfig {
                                                 .requestMatchers("/api/auth/**", "/oauth2/**", "/login/**", "/error",
                                                                 "/api/diary/public/**")
                                                 .permitAll()
-                                                .requestMatchers("/actuator/**").permitAll() // Actuator 엔드포인트 허용
+                                                .requestMatchers("/actuator/**").hasAnyRole("ADMIN", "SUPER_ADMIN") // Actuator
+                                                                                                                    // 엔드포인트
+                                                                                                                    // 보안
+                                                                                                                    // 강화
                                                 .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN") // 관리자
                                                                                                                      // 권한
                                                                                                                      // 필요
