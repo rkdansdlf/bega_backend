@@ -37,7 +37,6 @@ class CheerBattleServiceTest {
 
     @Test
     @DisplayName("Normally vote - deduct points and increment count")
-    @SuppressWarnings("null")
     void vote_success() {
         // Given
         String gameId = "game1";
@@ -91,7 +90,6 @@ class CheerBattleServiceTest {
             cheerBattleService.vote(gameId, teamId, email);
         });
 
-        @SuppressWarnings({ "null", "unused" })
-        var _unused = verify(cheerVoteRepository, never()).save(any(CheerVoteEntity.class));
+        verify(cheerVoteRepository, never()).save(any(CheerVoteEntity.class));
     }
 }

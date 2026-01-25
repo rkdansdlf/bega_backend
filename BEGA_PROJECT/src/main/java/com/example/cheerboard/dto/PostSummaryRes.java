@@ -8,7 +8,6 @@ public record PostSummaryRes(
         String teamName,
         String teamShortName,
         String teamColor,
-        String title,
         String content,
         String author,
         Long authorId,
@@ -42,7 +41,6 @@ public record PostSummaryRes(
             String teamName,
             String teamShortName,
             String teamColor,
-            String title,
             String content,
             String author,
             Long authorId,
@@ -64,7 +62,7 @@ public record PostSummaryRes(
     ) {
         return new PostSummaryRes(
                 id, teamId, teamName, teamShortName, teamColor,
-                title, content, author, authorId, authorHandle,
+                content, author, authorId, authorHandle,
                 authorProfileImageUrl, authorTeamId, createdAt,
                 comments, likes, liked, views, isHot, isBookmarked,
                 isOwner, repostCount, repostedByMe, postType, imageUrls,

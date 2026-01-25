@@ -45,11 +45,6 @@ public class MatchDto {
     public static MatchDto fromEntity(GameEntity game) {
         LocalDate displayDate = game.getGameDate();
 
-        // 더미 데이터면 항상 내일 날짜로 표시
-        if (Boolean.TRUE.equals(game.getIsDummy())) {
-            displayDate = LocalDate.now().plusDays(1);
-        }
-
         // Construct DTO
         return MatchDto.builder()
                 .gameId(game.getGameId())

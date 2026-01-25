@@ -44,9 +44,6 @@ public class CheerPost {
     @JoinColumn(name = "author_id", nullable = false)
     private UserEntity author;
 
-    @Column(nullable = true)  // 리포스트는 제목 없음
-    private String title;
-
     @Column(nullable = true, columnDefinition = "text")  // 단순 리포스트는 내용 없음
     private String content;
 

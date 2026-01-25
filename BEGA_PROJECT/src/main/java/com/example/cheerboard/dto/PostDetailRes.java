@@ -9,7 +9,6 @@ public record PostDetailRes(
                 String teamName,
                 String teamShortName,
                 String teamColor,
-                String title,
                 String content,
                 String author,
                 Long authorId,
@@ -42,7 +41,6 @@ public record PostDetailRes(
             String teamName,
             String teamShortName,
             String teamColor,
-            String title,
             String content,
             String author,
             Long authorId,
@@ -63,7 +61,7 @@ public record PostDetailRes(
     ) {
         return new PostDetailRes(
                 id, teamId, teamName, teamShortName, teamColor,
-                title, content, author, authorId, authorHandle,
+                content, author, authorId, authorHandle,
                 authorEmail, authorProfileImageUrl, createdAt,
                 comments, likes, likedByMe, isBookmarked, isOwner,
                 imageUrls, views, repostCount, repostedByMe, postType,

@@ -18,7 +18,6 @@ public class ChatMessageService {
 
     // 메시지 전송
     @Transactional
-    @SuppressWarnings("null")
     public ChatMessageDTO.Response sendMessage(ChatMessageDTO.Request request) {
         ChatMessage chatMessage = ChatMessage.builder()
                 .partyId(request.getPartyId())

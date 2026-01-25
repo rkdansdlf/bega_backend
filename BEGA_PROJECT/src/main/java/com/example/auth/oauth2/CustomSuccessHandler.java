@@ -70,6 +70,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         UserEntity userEntity = userEntityOptional.get();
         String profileImageUrl = userEntity.getProfileImageUrl();
+        String userHandle = userEntity.getHandle();
 
         // ✅ 수정: getFavoriteTeamId() 사용 (String 반환)
         String favoriteTeamId = userEntity.getFavoriteTeamId();
@@ -174,10 +175,11 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
                 ? URLEncoder.encode(profileImageUrl, StandardCharsets.UTF_8)
                 : "";
         String encodedFavoriteTeam = URLEncoder.encode(favoriteTeamId, StandardCharsets.UTF_8);
+        String encodedHandle = userHandle != null ? URLEncoder.encode(userHandle, StandardCharsets.UTF_8) : "";
 
         String redirectUrl = String.format(
-                frontendUrl + "/oauth/callback?email=%s&name=%s&role=%s&profileImageUrl=%s&favoriteTeam=%s",
-                encodedEmail, encodedName, encodedRole, encodedProfileUrl, encodedFavoriteTeam);
+                frontendUrl + "/oauth/callback?email=%s&name=%s&role=%s&profileImageUrl=%s&favoriteTeam=%s&handle=%s",
+                encodedEmail, encodedName, encodedRole, encodedProfileUrl, encodedFavoriteTeam, encodedHandle);
 
         getRedirectStrategy().sendRedirect(request, response, redirectUrl);
 

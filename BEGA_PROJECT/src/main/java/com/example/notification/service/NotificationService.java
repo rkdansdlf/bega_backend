@@ -36,7 +36,6 @@ public class NotificationService {
                 .isRead(false)
                 .build();
 
-        @SuppressWarnings("null")
         Notification saved = notificationRepository.save(notification);
 
         // DTO 생성
