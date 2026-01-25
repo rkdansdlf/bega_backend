@@ -421,7 +421,7 @@ public class CheerService {
 
         // AI Moderation 체크
         AIModerationService.ModerationResult modResult = moderationService
-                .checkContent(req.title() + " " + req.content());
+                .checkContent(req.content());
         if (!modResult.isAllowed()) {
             throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
         }
@@ -506,7 +506,6 @@ public class CheerService {
         CheerPost post = CheerPost.builder()
                 .author(author)
                 .team(team)
-                .title(req.title())
                 .content(req.content())
                 .postType(postType)
                 .build();
@@ -533,7 +532,6 @@ public class CheerService {
      * 게시글 내용 업데이트
      */
     private void updatePostContent(CheerPost post, UpdatePostReq req) {
-        post.setTitle(req.title());
         post.setContent(req.content());
     }
 
@@ -698,8 +696,7 @@ public class CheerService {
                     .team(original.getTeam())
                     .repostOf(original)
                     .repostType(CheerPost.RepostType.SIMPLE)
-                    .title("") // 단순 리포스트는 제목 없음 (NOT NULL 제약조건 준수)
-                    .content("") // 단순 리포스트는 내용 없음 (NOT NULL 제약조건 준수)
+                    .content(null)
                     .postType(PostType.NORMAL)
                     .build();
             postRepo.save(Objects.requireNonNull(repost));
@@ -780,7 +777,6 @@ public class CheerService {
                 .team(original.getTeam())
                 .repostOf(original)
                 .repostType(CheerPost.RepostType.QUOTE)
-                .title("") // 인용 리포스트는 제목 없음 (NOT NULL 제약조건 준수)
                 .content(req.content()) // 사용자가 작성한 의견
                 .postType(PostType.NORMAL)
                 .build();
@@ -825,6 +821,44 @@ public class CheerService {
                 .build();
 
         reportRepo.save(Objects.requireNonNull(report));
+    }
+
+    /**
+     * 리포스트 취소 (단순 리포스트 삭제 및 원본 게시글 카운트 업데이트)
+     * - 사용자가 작성한 리포스트 게시글 삭제
+     * - 원본 게시글의 repostCount 감소
+     * - CheerPostRepost 테이블에서도 삭제
+     * - 원본 게시글 ID와 업데이트된 리포스트 수 반환
+     */
+    @Transactional
+    public RepostToggleResponse cancelRepost(Long repostId) {
+        UserEntity me = current.get();
+        CheerPost repost = findPostById(repostId);
+
+        if (!repost.isRepost()) {
+            throw new IllegalArgumentException("리포스트가 아닌 게시글은 취소할 수 없습니다.");
+        }
+
+        if (!repost.getAuthor().getId().equals(me.getId())) {
+            throw new IllegalStateException("자신의 리포스트만 취소할 수 있습니다.");
+        }
+
+        CheerPost original = repost.getRepostOf();
+        if (original == null) {
+            throw new IllegalStateException("원본 게시글을 찾을 수 없습니다.");
+        }
+
+        original.setRepostCount(Math.max(0, original.getRepostCount() - 1));
+        postRepo.save(Objects.requireNonNull(original));
+
+        postRepo.delete(repost);
+
+        CheerPostRepost.Id repostTrackingId = new CheerPostRepost.Id(original.getId(), me.getId());
+        if (repostRepo.existsById(repostTrackingId)) {
+            repostRepo.deleteById(repostTrackingId);
+        }
+
+        return new RepostToggleResponse(false, original.getRepostCount());
     }
 
     @Transactional(readOnly = true)

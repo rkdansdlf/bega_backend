@@ -34,7 +34,6 @@ public class StadiumService {
                 .collect(Collectors.toList());
     }
 
-    @SuppressWarnings("null")
     @Cacheable(value = STADIUMS, key = "#stadiumId")
     public StadiumDetailDto getStadiumDetail(String stadiumId) {
         Stadium stadium = stadiumRepository.findById(stadiumId)

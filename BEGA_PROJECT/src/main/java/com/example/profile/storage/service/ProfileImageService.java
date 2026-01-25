@@ -29,7 +29,6 @@ public class ProfileImageService {
     private final com.example.common.image.ImageUtil imageUtil; // ✅ Added
 
     @Transactional
-    @SuppressWarnings("null")
     public ProfileImageDto uploadProfileImage(Long userId, MultipartFile file) {
         log.info("프로필 이미지 업로드 시작: userId={}, filename={}", userId, file.getOriginalFilename());
 

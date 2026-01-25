@@ -114,6 +114,19 @@ public class CheerController {
     }
 
     /**
+     * 리포스트 취소
+     * - 작성한 리포스트 게시글 삭제
+     * - 원본 게시글의 리포스트 수 감소
+     * - 원본 게시글의 repostedByMe 상태 false로 변경
+     */
+    @RateLimit(limit = 10, window = 60) // 1분에 최대 10번 리포스트 취소
+    @DeleteMapping("/posts/{id}/repost")
+    @PreAuthorize("isAuthenticated()")
+    public RepostToggleResponse cancelRepost(@PathVariable Long id) {
+        return svc.cancelRepost(id);
+    }
+
+    /**
      * 인용 리포스트 생성
      * - 원글을 첨부하면서 의견(코멘트)을 덧붙여 작성
      * - 여러 번 가능 (토글 아님)

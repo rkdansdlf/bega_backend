@@ -51,6 +51,7 @@ public class MypageController {
             // Entity를 DTO로 변환
             UserProfileDto profileDto = UserProfileDto.builder()
                     .name(userEntity.getName())
+                    .handle(userEntity.getHandle())
                     .email(userEntity.getEmail())
                     .favoriteTeam(userEntity.getFavoriteTeamId() != null ? userEntity.getFavoriteTeamId() : "없음")
                     .profileImageUrl(userEntity.getProfileImageUrl())
@@ -117,6 +118,7 @@ public class MypageController {
             // 프론트엔드 MyPage.tsx의 handleSave에서 필요한 필드들
             responseMap.put("profileImageUrl", updatedEntity.getProfileImageUrl());
             responseMap.put("name", updatedEntity.getName());
+            responseMap.put("handle", updatedEntity.getHandle());
             responseMap.put("email", updatedEntity.getEmail());
             responseMap.put("favoriteTeam",
                     updatedEntity.getFavoriteTeamId() != null ? updatedEntity.getFavoriteTeamId() : "없음");

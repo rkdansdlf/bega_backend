@@ -151,8 +151,11 @@ public class SecurityConfig {
                                                 .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN") // 관리자
                                                                                                                      // 권한
                                                                                                                      // 필요
+                                                .requestMatchers(HttpMethod.GET, "/api/cheer/posts/following")
+                                                .authenticated() // 팔로우 피드 (인증 필요)
                                                 .requestMatchers(HttpMethod.GET, "/api/cheer/posts",
-                                                                "/api/cheer/posts/**")
+                                                                "/api/cheer/posts/**",
+                                                                "/api/cheer/user/**")
                                                 .permitAll() // 게시글
                                                 .requestMatchers(HttpMethod.GET, "/api/users/*/profile").permitAll() // 사용자
                                                                                                                      // 프로필
