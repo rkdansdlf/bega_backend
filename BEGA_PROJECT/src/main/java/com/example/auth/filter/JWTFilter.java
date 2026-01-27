@@ -22,11 +22,12 @@ public class JWTFilter extends OncePerRequestFilter {
 
     private final com.example.auth.util.JWTUtil jwtUtil;
     private final boolean isDev;
+    private final List<String> allowedOrigins;
 
-    // ✅ UserService 제거 (더 이상 필요 없음!)
-    public JWTFilter(com.example.auth.util.JWTUtil jwtUtil, boolean isDev) {
+    public JWTFilter(com.example.auth.util.JWTUtil jwtUtil, boolean isDev, List<String> allowedOrigins) {
         this.jwtUtil = jwtUtil;
         this.isDev = isDev;
+        this.allowedOrigins = allowedOrigins;
     }
 
     @Override
@@ -75,16 +76,9 @@ public class JWTFilter extends OncePerRequestFilter {
             String referer = request.getHeader("Referer");
             String origin = request.getHeader("Origin");
 
-            // 허용된 도메인 리스트
-            List<String> allowedOrigins = List.of(
-                    "http://localhost:3000",
-                    "http://localhost:8080"
-            // "https://your-production-domain.com"
-            );
-
             boolean isAllowed = false;
             if (referer != null) {
-                for (String allowed : allowedOrigins) {
+                for (String allowed : this.allowedOrigins) {
                     if (referer.startsWith(allowed)) {
                         isAllowed = true;
                         break;
@@ -93,7 +87,7 @@ public class JWTFilter extends OncePerRequestFilter {
             }
 
             if (!isAllowed && origin != null) {
-                for (String allowed : allowedOrigins) {
+                for (String allowed : this.allowedOrigins) {
                     if (origin.equals(allowed)) {
                         isAllowed = true;
                         break;

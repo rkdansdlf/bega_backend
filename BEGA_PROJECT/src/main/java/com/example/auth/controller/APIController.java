@@ -1,5 +1,7 @@
 package com.example.auth.controller;
 
+import com.example.auth.dto.OAuth2StateData;
+import com.example.auth.service.OAuth2StateService;
 import com.example.common.dto.ApiResponse;
 import com.example.common.ratelimit.RateLimit;
 import com.example.auth.dto.LoginDto;
@@ -28,6 +30,7 @@ import jakarta.validation.Valid;
 public class APIController {
 
     private final UserService userService;
+    private final OAuth2StateService oAuth2StateService;
 
     /**
      * 일반 회원가입
@@ -135,5 +138,18 @@ public class APIController {
                 .header(HttpHeaders.SET_COOKIE, expireAuthCookie.toString())
                 .header(HttpHeaders.SET_COOKIE, expireRefreshCookie.toString())
                 .body(ApiResponse.success("로그아웃 성공"));
+    }
+
+    /**
+     * OAuth2 state 조회 및 소비 (one-time use)
+     */
+    @GetMapping("/oauth2/state/{stateId}")
+    public ResponseEntity<?> consumeOAuth2State(@PathVariable String stateId) {
+        OAuth2StateData data = oAuth2StateService.consumeState(stateId);
+        if (data == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "State not found or already consumed"));
+        }
+        return ResponseEntity.ok(data);
     }
 }

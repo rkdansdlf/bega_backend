@@ -10,19 +10,18 @@ import static com.example.cheerboard.service.CheerServiceConstants.*;
 public class PermissionValidator {
 
     public void validateTeamAccess(UserEntity user, String teamId, String action) {
-        // Admins can bypass favoriteTeam check for any teamId
+        // Admins can bypass checks
         if (isAdmin(user)) {
-            return; // Allow access for admins
+            return;
         }
 
-        // For non-admins, teamId cannot be null and must match their favoriteTeam
+        // Basic validation: teamId must be present
         if (teamId == null) {
-            throw new AccessDeniedException(String.format(TEAM_ACCESS_ERROR, action));
+            throw new AccessDeniedException(String.format("잘못된 팀 정보입니다. (%s)", action));
         }
-        String favoriteTeam = user.getFavoriteTeamId();
-        if (favoriteTeam == null || !favoriteTeam.equals(teamId)) {
-            throw new AccessDeniedException(String.format(TEAM_ACCESS_ERROR, action));
-        }
+
+        // Removed strict favoriteTeam check to allow cross-team interaction
+        // Users can now participate in any team's board
     }
 
     public void validateOwnerOrAdmin(UserEntity user, UserEntity author, String action) {

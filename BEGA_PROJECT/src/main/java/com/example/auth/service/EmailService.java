@@ -16,6 +16,9 @@ public class EmailService {
     private final JavaMailSender mailSender;
     private final JobScheduler jobScheduler;
 
+    @org.springframework.beans.factory.annotation.Value("${app.frontend.url:http://localhost:3000}")
+    private String frontendUrl;
+
     public void sendPasswordResetEmail(String toEmail, String resetToken) {
         // JobRunr를 사용하여 백그라운드 작업으로 등록 (Fire-and-Forget)
         jobScheduler.enqueue(() -> sendPasswordResetEmailJob(toEmail, resetToken));
@@ -29,7 +32,7 @@ public class EmailService {
     @Job(name = "Send Password Reset Email")
     public void sendPasswordResetEmailJob(String toEmail, String resetToken) {
         log.info("Starting email sending to {}", toEmail);
-        String resetLink = "http://localhost:3000/password/reset/confirm?token=" + resetToken;
+        String resetLink = frontendUrl + "/password/reset/confirm?token=" + resetToken;
 
         SimpleMailMessage message = new SimpleMailMessage();
         message.setTo(toEmail);

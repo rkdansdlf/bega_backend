@@ -6,74 +6,164 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.reactive.function.client.WebClient;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.S3Configuration;
 
 /**
- * Supabase Storage 설정 클래스
- * - WebClient Bean 등록
- * - 환경변수 매핑
+ * Storage 설정 클래스
+ * - OCI Object Storage(S3 호환) 설정
+ * - 스토리지 전략 Bean 등록
  */
 @Slf4j
 @Configuration
 @Getter
 public class StorageConfig {
 
-    @Value("${supabase.url}")
+    @Value("${storage.type:oci}")
+    private String storageType;
+
+    // OCI / S3 Config
+    @Value("${oci.s3.access-key:}")
+    private String s3AccessKey;
+    @Value("${oci.s3.secret-key:}")
+    private String s3SecretKey;
+    @Value("${oci.s3.region:ap-seoul-1}")
+    private String s3Region;
+    @Value("${oci.s3.endpoint:}")
+    private String s3Endpoint;
+    @Value("${oci.s3.bucket:}")
+    private String s3BucketName;
+
+    // Supabase Config
+    @Value("${supabase.url:}")
     private String supabaseUrl;
+    @Value("${supabase.key:}")
+    private String supabaseKey;
+    @Value("${supabase.bucket:}")
+    private String supabaseBucket;
 
-    @Value("${supabase.service-role-key}")
-    private String serviceRoleKey;
-
-    @Value("${supabase.storage.buckets.cheer}")
-    private String cheerBucket;
-
-    @Value("${supabase.storage.buckets.diary}")
-    private String diaryBucket;
-
-    @Value("${supabase.storage.signed-url-ttl-seconds}")
-    private Integer signedUrlTtlSeconds;
-
-    @Value("${supabase.storage.max-image-bytes}")
-    private Long maxImageBytes;
-
-    @Value("${supabase.storage.max-images-per-post}")
-    private Integer maxImagesPerPost;
-
-    @Value("${supabase.storage.max-images-per-diary}")
-    private Integer maxImagesPerDiary;
-    
-    @Value("${supabase.storage.buckets.profile}")
-    private String profileBucket;  
-
-    @Value("${supabase.storage.max-images-per-profile:1}")
-    private Integer maxImagesPerProfile;  
-    
     @PostConstruct
     public void logConfig() {
-        log.info("=== Supabase Storage 설정 ===");
-        log.info("URL: {}", supabaseUrl);
-        log.info("Service Role Key: {}", serviceRoleKey != null && !serviceRoleKey.isEmpty()
-            ? "설정됨 (길이: " + serviceRoleKey.length() + ")" : "설정되지 않음");
-        log.info("Bucket: [cheer={}, diary={}, profile={}]", cheerBucket, diaryBucket, profileBucket);
-        log.info("Max Images Per Post: {}", maxImagesPerPost);
-        log.info("Max Images Per Profile: {}", maxImagesPerProfile); 
-        log.info("Max Image Bytes: {} MB", maxImageBytes / 1024 / 1024);
-
-        if (serviceRoleKey == null || serviceRoleKey.isEmpty()) {
-            log.error("경고: SUPABASE_SERVICE_ROLE_KEY가 설정되지 않았습니다! 이미지 업로드가 작동하지 않습니다.");
-        }
+        log.info("=== Storage 설정 ===");
+        log.info("Detected storage.type: '{}'", storageType);
+        log.info("OCI S3 Endpoint: {}", s3Endpoint);
+        log.info("OCI S3 Bucket: {}", s3BucketName);
+        log.info("Supabase URL: {}", supabaseUrl);
+        log.info("Supabase Bucket: {}", supabaseBucket);
     }
 
-    /**
-     * Supabase Storage API용 WebClient
-     */
     @Bean
-    public WebClient supabaseStorageWebClient() {
-        log.info("Supabase Storage WebClient 생성: baseUrl={}", supabaseUrl + "/storage/v1");
-        return WebClient.builder()
-            .baseUrl(supabaseUrl + "/storage/v1")
-            .defaultHeader("Authorization", "Bearer " + serviceRoleKey)
-            .defaultHeader("apikey", serviceRoleKey)
-            .build();
+    public com.example.cheerboard.storage.strategy.StorageStrategy storageStrategy() {
+
+        log.info("=== Storage Strategy Config ===");
+        log.info("Detected storage.type: '{}'", storageType);
+
+        if ("supabase".equalsIgnoreCase(storageType)) {
+            log.info("SupabaseStorageStrategy 사용");
+            return createSupabaseStrategy();
+        }
+
+        // 그 외(기본값 포함)는 무조건 OCI 사용
+        log.info("S3StorageStrategy 사용 (OCI Object Storage) - Default");
+        return createS3Strategy();
+    }
+
+    // --- Getters for Services and Validators ---
+    public String getCheerBucket() {
+        return s3BucketName;
+    }
+
+    public String getDiaryBucket() {
+        return s3BucketName;
+    }
+
+    public String getProfileBucket() {
+        return s3BucketName;
+    }
+
+    public int getSignedUrlTtlSeconds() {
+        return 3600;
+    }
+
+    public long getMaxImageBytes() {
+        return 5242880L;
+    } // 5MB
+
+    public int getMaxImagesPerPost() {
+        return 10;
+    }
+
+    public int getMaxImagesPerDiary() {
+        return 6;
+    }
+
+    public int getMaxImagesPerProfile() {
+        return 1;
+    }
+
+    @Bean
+    public S3Client s3Client() {
+        if (s3AccessKey.isEmpty() || s3SecretKey.isEmpty() || s3Endpoint.isEmpty()) {
+            return null; // or throw exception if mandatory
+        }
+        AwsBasicCredentials credentials = AwsBasicCredentials.create(s3AccessKey, s3SecretKey);
+        StaticCredentialsProvider credentialsProvider = StaticCredentialsProvider.create(credentials);
+        java.net.URI endpointUri = java.net.URI.create(s3Endpoint);
+        Region region = Region.of(s3Region);
+        S3Configuration serviceConfiguration = S3Configuration.builder()
+                .pathStyleAccessEnabled(true)
+                .build();
+
+        return S3Client.builder()
+                .region(region)
+                .endpointOverride(endpointUri)
+                .credentialsProvider(credentialsProvider)
+                .serviceConfiguration(serviceConfiguration)
+                .build();
+    }
+
+    @Bean
+    public S3Presigner s3Presigner() {
+        if (s3AccessKey.isEmpty() || s3SecretKey.isEmpty() || s3Endpoint.isEmpty()) {
+            return null;
+        }
+        AwsBasicCredentials credentials = AwsBasicCredentials.create(s3AccessKey, s3SecretKey);
+        StaticCredentialsProvider credentialsProvider = StaticCredentialsProvider.create(credentials);
+        java.net.URI endpointUri = java.net.URI.create(s3Endpoint);
+        Region region = Region.of(s3Region);
+        S3Configuration serviceConfiguration = S3Configuration.builder()
+                .pathStyleAccessEnabled(true)
+                .build();
+
+        return S3Presigner.builder()
+                .region(region)
+                .endpointOverride(endpointUri)
+                .credentialsProvider(credentialsProvider)
+                .serviceConfiguration(serviceConfiguration)
+                .build();
+    }
+
+    private com.example.cheerboard.storage.strategy.StorageStrategy createS3Strategy() {
+        S3Client s3Client = s3Client();
+        S3Presigner s3Presigner = s3Presigner();
+
+        if (s3Client == null || s3Presigner == null) {
+            throw new IllegalStateException("OCI S3 설정이 누락되었습니다. (access-key, secret-key, endpoint)");
+        }
+
+        return new com.example.cheerboard.storage.strategy.S3StorageStrategy(s3Client, s3Presigner, s3BucketName);
+    }
+
+    private com.example.cheerboard.storage.strategy.StorageStrategy createSupabaseStrategy() {
+        if (supabaseUrl.isEmpty() || supabaseKey.isEmpty() || supabaseBucket.isEmpty()) {
+            throw new IllegalStateException("Supabase 설정이 누락되었습니다. (url, key, bucket)");
+        }
+        com.example.cheerboard.storage.client.SupabaseStorageClient client = new com.example.cheerboard.storage.client.SupabaseStorageClient(
+                supabaseUrl, supabaseKey);
+        return new com.example.cheerboard.storage.strategy.SupabaseStorageStrategy(client, supabaseBucket);
     }
 }

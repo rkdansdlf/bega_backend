@@ -21,7 +21,6 @@ import java.time.LocalDateTime;
 @Entity
 @Table(
     name = "team_history",
-    schema = "public",
     uniqueConstraints = {
         @UniqueConstraint(columnNames = {"season", "team_code"})
     }

@@ -311,13 +311,29 @@ public class UserService {
      */
     private void updateFavoriteTeam(UserEntity user, String teamId) {
         if (teamId != null && !teamId.trim().isEmpty()) {
-            TeamEntity team = teamRepository.findById(teamId)
+            String normalizedTeamId = normalizeFavoriteTeamId(teamId);
+            TeamEntity team = teamRepository.findById(normalizedTeamId)
+                    .or(() -> teamRepository.findById(teamId))
                     .orElseThrow(() -> new TeamNotFoundException(teamId));
             user.setFavoriteTeam(team);
         } else {
             user.setFavoriteTeam(null);
         }
         // 팀 변경 시 role은 변경하지 않음 (ADMIN/USER 유지)
+    }
+
+    private String normalizeFavoriteTeamId(String teamId) {
+        if (teamId == null) {
+            return null;
+        }
+
+        String trimmed = teamId.trim();
+        return switch (trimmed) {
+            case "LOT" -> "LT";
+            case "KIA" -> "HT";
+            case "SSG" -> "SK";
+            default -> trimmed;
+        };
     }
 
     /**

@@ -235,6 +235,12 @@ public class CheerService {
                 .filter(Objects::nonNull)
                 .toList();
 
+        // [Optimized] 이미지 Bulk 조회 (N+1 방지)
+        List<Long> postIds = sortedPosts.stream().map(CheerPost::getId).toList();
+        Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
+                ? Collections.emptyMap()
+                : imageService.getPostImageUrlsByPostIds(postIds);
+
         // DTO 변환 로직
         UserEntity me = current.getOrNull();
         List<PostSummaryRes> content = sortedPosts.stream()
@@ -243,7 +249,9 @@ public class CheerService {
                     boolean isBookmarked = me != null && isPostBookmarkedByUser(post.getId(), me.getId());
                     boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
                     boolean repostedByMe = me != null && isPostRepostedByUser(post.getId(), me.getId());
-                    return postDtoMapper.toPostSummaryRes(post, liked, isBookmarked, isOwner, repostedByMe);
+
+                    List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
+                    return postDtoMapper.toPostSummaryRes(post, liked, isBookmarked, isOwner, repostedByMe, imageUrls);
                 })
                 .collect(Collectors.toList());
 
@@ -318,7 +326,7 @@ public class CheerService {
         // 내가 팔로우하는 유저 ID 목록
         List<Long> followingIds = followService.getFollowingIds(me.getId());
         if (followingIds.isEmpty()) {
-            return new PageImpl<>(Collections.emptyList(), Objects.requireNonNull(pageable), 0);
+            return new PageImpl<>(List.of(), Objects.requireNonNull(pageable), 0);
         }
 
         // 내가 차단한 유저 ID 목록
@@ -506,6 +514,7 @@ public class CheerService {
         CheerPost post = CheerPost.builder()
                 .author(author)
                 .team(team)
+                .title(req.title())
                 .content(req.content())
                 .postType(postType)
                 .build();
@@ -532,6 +541,7 @@ public class CheerService {
      * 게시글 내용 업데이트
      */
     private void updatePostContent(CheerPost post, UpdatePostReq req) {
+        post.setTitle(req.title());
         post.setContent(req.content());
     }
 
@@ -696,6 +706,7 @@ public class CheerService {
                     .team(original.getTeam())
                     .repostOf(original)
                     .repostType(CheerPost.RepostType.SIMPLE)
+                    .title("Repost: " + original.getTitle())
                     .content(null)
                     .postType(PostType.NORMAL)
                     .build();
@@ -777,6 +788,7 @@ public class CheerService {
                 .team(original.getTeam())
                 .repostOf(original)
                 .repostType(CheerPost.RepostType.QUOTE)
+                .title(req.title() != null && !req.title().isBlank() ? req.title() : "Quote: " + original.getTitle())
                 .content(req.content()) // 사용자가 작성한 의견
                 .postType(PostType.NORMAL)
                 .build();
@@ -898,34 +910,24 @@ public class CheerService {
 
     @Transactional(readOnly = true)
     public Page<CommentRes> listComments(Long postId, Pageable pageable) {
-        // 최상위 댓글만 조회 (대댓글은 각 댓글의 replies에 포함됨)
-        Page<CheerComment> page = commentRepo
-                .findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(Objects.requireNonNull(postId), pageable);
+        // Use the optimized query to fetch comments and replies in one go
+        List<CheerComment> allComments = commentRepo.findCommentsWithRepliesByPostId(Objects.requireNonNull(postId));
 
-        if (!page.hasContent()) {
-            return new PageImpl<>(Objects.requireNonNull(List.of()), Objects.requireNonNull(pageable),
-                    page.getTotalElements());
+        int start = (int) pageable.getOffset();
+        int end = Math.min((start + pageable.getPageSize()), allComments.size());
+
+        if (start > allComments.size()) {
+            return new PageImpl<>(List.of(), pageable, allComments.size());
         }
 
-        List<Long> commentIds = page.getContent().stream()
-                .map(CheerComment::getId)
-                .toList();
-
-        List<CheerComment> hydrated = commentRepo.findWithRepliesByIdIn(commentIds);
-        Map<Long, CheerComment> hydratedById = hydrated.stream()
-                .collect(Collectors.toMap(CheerComment::getId, Function.identity(), (a, b) -> a));
-
-        List<CheerComment> comments = commentIds.stream()
-                .map(hydratedById::get)
-                .filter(Objects::nonNull)
-                .toList();
+        List<CheerComment> pagedComments = allComments.subList(start, end);
 
         UserEntity me = current.getOrNull();
         Set<Long> likedCommentIds = new HashSet<>();
 
-        if (me != null && !comments.isEmpty()) {
+        if (me != null && !pagedComments.isEmpty()) {
             // 모든 댓글 ID 수집 (대댓글 포함)
-            List<Long> allCommentIds = collectAllCommentIds(comments);
+            List<Long> allCommentIds = collectAllCommentIds(pagedComments);
 
             // 한 번의 쿼리로 좋아요 여부 확인
             if (!allCommentIds.isEmpty()) {
@@ -935,11 +937,10 @@ public class CheerService {
         }
 
         final Set<Long> finalLikedIds = likedCommentIds;
-        List<CommentRes> mapped = comments.stream()
+        List<CommentRes> mapped = pagedComments.stream()
                 .map(comment -> toCommentResWithLikedSet(comment, finalLikedIds))
                 .toList();
-        return new PageImpl<>(Objects.requireNonNull(mapped), Objects.requireNonNull(pageable),
-                page.getTotalElements());
+        return new PageImpl<>(mapped, pageable, allComments.size());
     }
 
     /**

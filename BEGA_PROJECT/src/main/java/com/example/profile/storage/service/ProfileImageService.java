@@ -1,7 +1,7 @@
 package com.example.profile.storage.service;
 
-import com.example.cheerboard.storage.client.SupabaseStorageClient;
 import com.example.cheerboard.storage.config.StorageConfig;
+import com.example.cheerboard.storage.strategy.StorageStrategy;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.profile.storage.dto.ProfileImageDto;
@@ -22,15 +22,16 @@ import java.util.UUID;
 @Slf4j
 public class ProfileImageService {
 
-    private final SupabaseStorageClient storageClient;
+    private final StorageStrategy storageStrategy;
     private final StorageConfig config;
     private final ProfileImageValidator validator;
     private final UserRepository userRepository;
-    private final com.example.common.image.ImageUtil imageUtil; // ✅ Added
+    private final com.example.common.image.ImageUtil imageUtil;
 
     @Transactional
     public ProfileImageDto uploadProfileImage(Long userId, MultipartFile file) {
         log.info("프로필 이미지 업로드 시작: userId={}, filename={}", userId, file.getOriginalFilename());
+        java.util.Objects.requireNonNull(userId, "userId must not be null");
 
         UserEntity user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
@@ -48,41 +49,42 @@ public class ProfileImageService {
             String filename = UUID.randomUUID() + "." + processed.getExtension();
             String storagePath = "profiles/" + userId + "/" + filename;
 
-            // Supabase에 업로드
-            SupabaseStorageClient.UploadResponse uploadResponse = storageClient
+            // 스토리지에 업로드
+            String uploadedPath = storageStrategy
                     .uploadBytes(processed.getBytes(), processed.getContentType(), config.getProfileBucket(),
                             storagePath)
+                    .map(path -> {
+                        log.info("스토리지 업로드 성공: path={}", path);
+                        return path;
+                    })
                     .block();
 
-            if (uploadResponse == null) {
+            if (uploadedPath == null) {
                 throw new RuntimeException("파일 업로드에 실패했습니다.");
             }
 
-            // 🔥 Signed URL 생성 (1년 유효)
-            SupabaseStorageClient.SignedUrlResponse signedUrlResponse = storageClient
-                    .createSignedUrl(config.getProfileBucket(), storagePath, 31536000) // 1년
+            // URL 생성 (Strategy가 Signed URL 또는 Public URL 반환)
+            String profileUrl = storageStrategy
+                    .getUrl(config.getProfileBucket(), uploadedPath, 31536000) // 1년
                     .block();
 
-            if (signedUrlResponse == null || signedUrlResponse.signedUrl() == null) {
-                throw new RuntimeException("Signed URL 생성에 실패했습니다.");
+            if (profileUrl == null || profileUrl.isEmpty()) {
+                throw new RuntimeException("이미지 URL 생성에 실패했습니다.");
             }
 
-            String signedUrl = signedUrlResponse.signedUrl();
-            log.info("업로드 완료: signedUrl={}", signedUrl);
-
-            // DB 업데이트
-            user.setProfileImageUrl(signedUrl);
+            // DB 업데이트 (URL 저장)
+            user.setProfileImageUrl(profileUrl);
             userRepository.save(user);
 
             return new ProfileImageDto(
                     userId,
-                    storagePath,
-                    signedUrl,
+                    uploadedPath,
+                    profileUrl,
                     processed.getContentType(),
                     processed.getSize());
 
         } catch (Exception e) {
-            log.error("프로필 이미지처리/업로드 실패", e);
+            log.error("프로필 이미지 처리/업로드 실패", e);
             throw new RuntimeException("프로필 이미지 업로드 중 오류가 발생했습니다.", e);
         }
     }
@@ -93,7 +95,7 @@ public class ProfileImageService {
             String storagePath = extractStoragePathFromUrl(oldUrl);
 
             if (storagePath != null) {
-                storageClient.delete(config.getProfileBucket(), storagePath).block();
+                storageStrategy.delete(config.getProfileBucket(), storagePath).block();
                 log.info("기존 프로필 이미지 삭제 완료: path={}", storagePath);
             }
         } catch (Exception e) {
@@ -102,15 +104,16 @@ public class ProfileImageService {
     }
 
     private String extractStoragePathFromUrl(String url) {
+        if (url == null || url.isEmpty())
+            return null;
         try {
-            // Signed URL에서 path 추출
-            // https://...supabase.co/storage/v1/object/sign/profile-images/profiles/1/uuid.jpg?token=...
-            if (url.contains("/object/sign/")) {
-                String[] parts = url.split("/object/sign/" + config.getProfileBucket() + "/");
-                if (parts.length == 2) {
-                    String pathWithQuery = parts[1];
-                    // 쿼리 파라미터 제거
-                    return pathWithQuery.split("\\?")[0];
+            // OCI Path Style: https://{endpoint}/{bucket-name}/{path}
+            String bucketName = config.getProfileBucket();
+            if (url.contains("/" + bucketName + "/")) {
+                String[] parts = url.split("/" + bucketName + "/");
+                if (parts.length >= 2) {
+                    // 쿼리 스트링 제거 (S3 Signed URL 대응)
+                    return parts[parts.length - 1].split("\\?")[0];
                 }
             }
         } catch (Exception e) {
@@ -118,5 +121,4 @@ public class ProfileImageService {
         }
         return null;
     }
-
 }
