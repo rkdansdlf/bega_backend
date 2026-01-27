@@ -2,7 +2,6 @@ package com.example.mate.service;
 
 import java.util.Optional;
 import com.example.auth.service.UserService;
-import org.springframework.beans.factory.annotation.Value;
 import com.example.auth.repository.UserRepository;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
@@ -25,18 +24,13 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@lombok.extern.slf4j.Slf4j
 public class PartyService {
 
     private final PartyRepository partyRepository;
     private final UserRepository userRepository;
     private final PartyApplicationRepository applicationRepository;
     private final UserService userService;
-
-    @Value("${supabase.url}")
-    private String supabaseUrl;
-
-    @Value("${supabase.storage.buckets.profile}")
-    private String profileBucket;
 
     @Transactional
     public PartyDTO.Response createParty(PartyDTO.Request request) {
@@ -56,12 +50,6 @@ public class PartyService {
                     .map(user -> {
                         String imageUrl = user.getProfileImageUrl();
 
-                        // 상대 경로를 완전한 URL로 변환
-                        if (imageUrl != null && imageUrl.startsWith("/images/")) {
-                            String fullUrl = supabaseUrl + "/storage/v1/object/public/" + profileBucket + imageUrl;
-                            imageUrl = fullUrl;
-                        }
-
                         // blob URL은 무시
                         if (imageUrl != null && imageUrl.startsWith("blob:")) {
                             imageUrl = null;
@@ -76,7 +64,7 @@ public class PartyService {
             hostFavoriteTeam = (String) userInfo[1]; // favoriteTeam 저장
 
         } catch (Exception e) {
-            System.out.println("호스트 정보 조회 실패: " + e.getMessage());
+            log.error("호스트 정보 조회 실패: {}", e.getMessage());
         }
         Party party = Party.builder()
                 .hostId(request.getHostId())

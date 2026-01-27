@@ -14,6 +14,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@lombok.extern.slf4j.Slf4j
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
@@ -50,9 +51,9 @@ public class NotificationService {
                             messagingTemplate.convertAndSend(
                                     "/topic/notifications/" + userId,
                                     Objects.requireNonNull((Object) dto));
-                            System.out.println("알림 전송 성공 (After Commit): userId=" + userId + ", type=" + type);
+                            log.info("알림 전송 성공 (After Commit): userId={}, type={}", userId, type);
                         } catch (Exception e) {
-                            System.err.println("알림 전송 실패: " + e.getMessage());
+                            log.error("알림 전송 실패: {}", e.getMessage());
                         }
                     }
                 });

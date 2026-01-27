@@ -61,10 +61,28 @@ jobs:
           echo "### Test Results" >> $GITHUB_STEP_SUMMARY
           echo "Unit tests completed!" >> $GITHUB_STEP_SUMMARY
 
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner in repo mode
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'table'
+          exit-code: '1'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
   build:
     name: Build Application
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, security]
     
     steps:
       - name: Checkout code

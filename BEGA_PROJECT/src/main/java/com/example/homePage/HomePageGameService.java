@@ -1,4 +1,4 @@
-package com.example.homePage;
+package com.example.homepage;
 
 import java.time.LocalDate;
 import java.util.List;

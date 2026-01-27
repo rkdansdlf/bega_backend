@@ -24,7 +24,7 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
                         Pageable pageable);
 
         @EntityGraph(attributePaths = { "author", "team" })
-        @Query("SELECT p FROM CheerPost p WHERE LOWER(p.content) LIKE LOWER(CONCAT('%', :q, '%')) AND (:teamId IS NULL OR p.team.teamId = :teamId) AND (p.repostType IS NULL OR p.repostType != 'SIMPLE')")
+        @Query("SELECT p FROM CheerPost p WHERE LOWER(CAST(p.content AS String)) LIKE LOWER(CONCAT('%', :q, '%')) AND (:teamId IS NULL OR p.team.teamId = :teamId) AND (p.repostType IS NULL OR p.repostType != 'SIMPLE')")
         Page<CheerPost> search(@Param("q") String q, @Param("teamId") String teamId, Pageable pageable);
 
         @EntityGraph(attributePaths = { "author", "team" })

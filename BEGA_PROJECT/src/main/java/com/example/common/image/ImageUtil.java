@@ -19,9 +19,9 @@ import java.io.InputStream;
 @Component
 public class ImageUtil {
 
-    private static final int MAX_WIDTH = 1920;
-    private static final int MAX_HEIGHT = 1920;
-    private static final double COMPRESSION_QUALITY = 0.85;
+    private static final int MAX_WIDTH = 1024;
+    private static final int MAX_HEIGHT = 1024;
+    private static final double COMPRESSION_QUALITY = 0.70;
     private static final long COMPRESSION_THRESHOLD_BYTES = 1024 * 1024; // 1MB
 
     public static class ProcessedImage {

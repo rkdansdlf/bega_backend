@@ -21,7 +21,7 @@ public class AwardEntity {
     @Column(name = "player_name", nullable = false)
     private String playerName;
 
-    @Column(name = "year", nullable = false)
+    @Column(name = "award_year", nullable = false)
     private int year;
 
     @Column(name = "position")

@@ -13,7 +13,7 @@ public class RankingPredictionService {
 
 	private final RankingPredictionRepository rankingPredictionRepository;
 	private final GameRepository gameRepository;
-	private final com.example.homePage.HomePageTeamRepository homePageTeamRepository;
+	private final com.example.homepage.HomePageTeamRepository homePageTeamRepository;
 
 	// 순위 예측을 저장 (수정 불가, 1회만 가능)
 	@Transactional

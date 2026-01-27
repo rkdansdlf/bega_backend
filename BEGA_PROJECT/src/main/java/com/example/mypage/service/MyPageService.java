@@ -31,11 +31,13 @@ public class MyPageService {
         // Entity 데이터를 DTO로 매핑
         String teamId = user.getFavoriteTeam() != null ? user.getFavoriteTeam().getTeamId() : null;
 
+        String profileImageUrl = repairProfileUrl(user.getProfileImageUrl());
+
         return UserProfileDto.builder()
                 .name(user.getName())
                 .email(user.getEmail())
                 .favoriteTeam(teamId)
-                .profileImageUrl(user.getProfileImageUrl())
+                .profileImageUrl(profileImageUrl)
                 .createdAt(user.getCreatedAt() != null
                         ? user.getCreatedAt().atZone(java.time.ZoneId.of("Asia/Seoul")).format(DATE_FORMATTER)
                         : null)
@@ -75,5 +77,30 @@ public class MyPageService {
 
         // 업데이트된 정보를 DTO로 다시 변환하여 반환
         return getProfileByEmail(email);
+    }
+
+    /**
+     * Signed URL (전송량 초과로 402 오류 발생 시)을 Public URL로 변환하여 복구합니다.
+     * 예: .../object/sign/profile-images/path?token=... ->
+     * .../object/public/profile-images/path
+     */
+    private String repairProfileUrl(String url) {
+        if (url == null || url.isEmpty()) {
+            return null;
+        }
+        // 이미 Public URL이거나 외부 URL인 경우 패스
+        if (url.contains("/object/public/")) {
+            return url;
+        }
+
+        // Signed URL 패턴 감지 (/object/sign/)
+        if (url.contains("/object/sign/")) {
+            // 토큰 파라미터 제거 (Query String 제거)
+            String urlWithoutToken = url.split("\\?")[0];
+            // /sign/을 /public/으로 치환
+            return urlWithoutToken.replace("/object/sign/", "/object/public/");
+        }
+
+        return url;
     }
 }
