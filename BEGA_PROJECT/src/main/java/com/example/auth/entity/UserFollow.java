@@ -11,7 +11,7 @@ import java.time.Instant;
  * follower가 following을 팔로우하는 관계를 나타냄
  */
 @Entity
-@Table(name = "user_follow", schema = "security")
+@Table(name = "user_follow")
 @Getter
 @Setter
 @NoArgsConstructor

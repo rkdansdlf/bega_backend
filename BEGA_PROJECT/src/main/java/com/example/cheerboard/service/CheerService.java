@@ -235,6 +235,12 @@ public class CheerService {
                 .filter(Objects::nonNull)
                 .toList();
 
+        // [Optimized] 이미지 Bulk 조회 (N+1 방지)
+        List<Long> postIds = sortedPosts.stream().map(CheerPost::getId).toList();
+        Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
+                ? Collections.emptyMap()
+                : imageService.getPostImageUrlsByPostIds(postIds);
+
         // DTO 변환 로직
         UserEntity me = current.getOrNull();
         List<PostSummaryRes> content = sortedPosts.stream()
@@ -243,7 +249,9 @@ public class CheerService {
                     boolean isBookmarked = me != null && isPostBookmarkedByUser(post.getId(), me.getId());
                     boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
                     boolean repostedByMe = me != null && isPostRepostedByUser(post.getId(), me.getId());
-                    return postDtoMapper.toPostSummaryRes(post, liked, isBookmarked, isOwner, repostedByMe);
+
+                    List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
+                    return postDtoMapper.toPostSummaryRes(post, liked, isBookmarked, isOwner, repostedByMe, imageUrls);
                 })
                 .collect(Collectors.toList());
 
@@ -318,7 +326,7 @@ public class CheerService {
         // 내가 팔로우하는 유저 ID 목록
         List<Long> followingIds = followService.getFollowingIds(me.getId());
         if (followingIds.isEmpty()) {
-            return new PageImpl<>(Collections.emptyList(), Objects.requireNonNull(pageable), 0);
+            return new PageImpl<>(List.of(), Objects.requireNonNull(pageable), 0);
         }
 
         // 내가 차단한 유저 ID 목록
@@ -421,7 +429,7 @@ public class CheerService {
 
         // AI Moderation 체크
         AIModerationService.ModerationResult modResult = moderationService
-                .checkContent(req.title() + " " + req.content());
+                .checkContent(req.content());
         if (!modResult.isAllowed()) {
             throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
         }
@@ -698,8 +706,8 @@ public class CheerService {
                     .team(original.getTeam())
                     .repostOf(original)
                     .repostType(CheerPost.RepostType.SIMPLE)
-                    .title("") // 단순 리포스트는 제목 없음 (NOT NULL 제약조건 준수)
-                    .content("") // 단순 리포스트는 내용 없음 (NOT NULL 제약조건 준수)
+                    .title("Repost: " + original.getTitle())
+                    .content(null)
                     .postType(PostType.NORMAL)
                     .build();
             postRepo.save(Objects.requireNonNull(repost));
@@ -780,7 +788,7 @@ public class CheerService {
                 .team(original.getTeam())
                 .repostOf(original)
                 .repostType(CheerPost.RepostType.QUOTE)
-                .title("") // 인용 리포스트는 제목 없음 (NOT NULL 제약조건 준수)
+                .title(req.title() != null && !req.title().isBlank() ? req.title() : "Quote: " + original.getTitle())
                 .content(req.content()) // 사용자가 작성한 의견
                 .postType(PostType.NORMAL)
                 .build();
@@ -827,6 +835,44 @@ public class CheerService {
         reportRepo.save(Objects.requireNonNull(report));
     }
 
+    /**
+     * 리포스트 취소 (단순 리포스트 삭제 및 원본 게시글 카운트 업데이트)
+     * - 사용자가 작성한 리포스트 게시글 삭제
+     * - 원본 게시글의 repostCount 감소
+     * - CheerPostRepost 테이블에서도 삭제
+     * - 원본 게시글 ID와 업데이트된 리포스트 수 반환
+     */
+    @Transactional
+    public RepostToggleResponse cancelRepost(Long repostId) {
+        UserEntity me = current.get();
+        CheerPost repost = findPostById(repostId);
+
+        if (!repost.isRepost()) {
+            throw new IllegalArgumentException("리포스트가 아닌 게시글은 취소할 수 없습니다.");
+        }
+
+        if (!repost.getAuthor().getId().equals(me.getId())) {
+            throw new IllegalStateException("자신의 리포스트만 취소할 수 있습니다.");
+        }
+
+        CheerPost original = repost.getRepostOf();
+        if (original == null) {
+            throw new IllegalStateException("원본 게시글을 찾을 수 없습니다.");
+        }
+
+        original.setRepostCount(Math.max(0, original.getRepostCount() - 1));
+        postRepo.save(Objects.requireNonNull(original));
+
+        postRepo.delete(repost);
+
+        CheerPostRepost.Id repostTrackingId = new CheerPostRepost.Id(original.getId(), me.getId());
+        if (repostRepo.existsById(repostTrackingId)) {
+            repostRepo.deleteById(repostTrackingId);
+        }
+
+        return new RepostToggleResponse(false, original.getRepostCount());
+    }
+
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> getBookmarkedPosts(Pageable pageable) {
         UserEntity me = current.get();
@@ -864,34 +910,24 @@ public class CheerService {
 
     @Transactional(readOnly = true)
     public Page<CommentRes> listComments(Long postId, Pageable pageable) {
-        // 최상위 댓글만 조회 (대댓글은 각 댓글의 replies에 포함됨)
-        Page<CheerComment> page = commentRepo
-                .findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(Objects.requireNonNull(postId), pageable);
+        // Use the optimized query to fetch comments and replies in one go
+        List<CheerComment> allComments = commentRepo.findCommentsWithRepliesByPostId(Objects.requireNonNull(postId));
 
-        if (!page.hasContent()) {
-            return new PageImpl<>(Objects.requireNonNull(List.of()), Objects.requireNonNull(pageable),
-                    page.getTotalElements());
+        int start = (int) pageable.getOffset();
+        int end = Math.min((start + pageable.getPageSize()), allComments.size());
+
+        if (start > allComments.size()) {
+            return new PageImpl<>(List.of(), pageable, allComments.size());
         }
 
-        List<Long> commentIds = page.getContent().stream()
-                .map(CheerComment::getId)
-                .toList();
-
-        List<CheerComment> hydrated = commentRepo.findWithRepliesByIdIn(commentIds);
-        Map<Long, CheerComment> hydratedById = hydrated.stream()
-                .collect(Collectors.toMap(CheerComment::getId, Function.identity(), (a, b) -> a));
-
-        List<CheerComment> comments = commentIds.stream()
-                .map(hydratedById::get)
-                .filter(Objects::nonNull)
-                .toList();
+        List<CheerComment> pagedComments = allComments.subList(start, end);
 
         UserEntity me = current.getOrNull();
         Set<Long> likedCommentIds = new HashSet<>();
 
-        if (me != null && !comments.isEmpty()) {
+        if (me != null && !pagedComments.isEmpty()) {
             // 모든 댓글 ID 수집 (대댓글 포함)
-            List<Long> allCommentIds = collectAllCommentIds(comments);
+            List<Long> allCommentIds = collectAllCommentIds(pagedComments);
 
             // 한 번의 쿼리로 좋아요 여부 확인
             if (!allCommentIds.isEmpty()) {
@@ -901,11 +937,10 @@ public class CheerService {
         }
 
         final Set<Long> finalLikedIds = likedCommentIds;
-        List<CommentRes> mapped = comments.stream()
+        List<CommentRes> mapped = pagedComments.stream()
                 .map(comment -> toCommentResWithLikedSet(comment, finalLikedIds))
                 .toList();
-        return new PageImpl<>(Objects.requireNonNull(mapped), Objects.requireNonNull(pageable),
-                page.getTotalElements());
+        return new PageImpl<>(mapped, pageable, allComments.size());
     }
 
     /**

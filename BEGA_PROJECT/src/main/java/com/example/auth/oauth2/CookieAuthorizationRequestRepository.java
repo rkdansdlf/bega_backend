@@ -11,10 +11,17 @@ import java.util.Base64;
 
 import java.util.Arrays;
 import java.util.Optional;
+import com.example.auth.util.JWTUtil;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import lombok.RequiredArgsConstructor;
 
 @Component
+@RequiredArgsConstructor
 public class CookieAuthorizationRequestRepository
         implements AuthorizationRequestRepository<OAuth2AuthorizationRequest> {
+
+    private final JWTUtil jwtUtil;
 
     // 쿠키 이름 정의
     public static final String OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME = "oauth2_auth_request";
@@ -69,14 +76,43 @@ public class CookieAuthorizationRequestRepository
             response.addCookie(modeCookie);
         }
 
-        String userId = request.getParameter("userId");
-        if (userId != null && !userId.isBlank()) {
-            Cookie userIdCookie = new Cookie(LINK_USER_ID_COOKIE_NAME, userId);
-            userIdCookie.setPath("/");
-            userIdCookie.setHttpOnly(true);
-            userIdCookie.setMaxAge(COOKIE_EXPIRE_SECONDS);
-            response.addCookie(userIdCookie);
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+
+        // [Security Fix] Trust only authenticated user for linking
+        if (authentication != null && authentication.isAuthenticated() &&
+                !"anonymousUser".equals(authentication.getPrincipal())) {
+
+            // If user is logged in, use their ID for linking
+            // We assume the Principal is CustomUserDetails or similar, but for safety we
+            // sign the ID directly.
+            // Wait, we need the ID. casting principal to CustomUserDetails?
+            // Or just trust that if they are linking, they must be the one logged in.
+            // Let's get the ID from the principal.
+
+            Long authUserId = null;
+            if (authentication.getPrincipal() instanceof com.example.auth.service.CustomUserDetails) {
+                authUserId = ((com.example.auth.service.CustomUserDetails) authentication.getPrincipal()).getId();
+            } else if (authentication.getPrincipal() instanceof com.example.auth.dto.CustomOAuth2User) {
+                authUserId = ((com.example.auth.dto.CustomOAuth2User) authentication.getPrincipal()).getUserDto()
+                        .getId();
+            }
+
+            if (authUserId != null) {
+                // Sign the UserID into a short-lived JWT (5 min)
+                String signedUserIdToken = jwtUtil.createJwt("link-action", "LINK_MODE", authUserId,
+                        COOKIE_EXPIRE_SECONDS * 1000L);
+
+                Cookie userIdCookie = new Cookie(LINK_USER_ID_COOKIE_NAME, signedUserIdToken);
+                userIdCookie.setPath("/");
+                userIdCookie.setHttpOnly(true);
+                userIdCookie.setMaxAge(COOKIE_EXPIRE_SECONDS);
+                response.addCookie(userIdCookie);
+            }
         }
+        // If not authenticated, we IGNORE the userId param completely for linking
+        // purposes.
+        // This prevents the vulnerability where an attacker forces a victim's ID via
+        // param.
     }
 
     @Override

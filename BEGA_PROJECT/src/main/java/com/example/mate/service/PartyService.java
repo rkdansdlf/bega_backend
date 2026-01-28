@@ -2,7 +2,6 @@ package com.example.mate.service;
 
 import java.util.Optional;
 import com.example.auth.service.UserService;
-import org.springframework.beans.factory.annotation.Value;
 import com.example.auth.repository.UserRepository;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
@@ -25,6 +24,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@lombok.extern.slf4j.Slf4j
 public class PartyService {
 
     private final PartyRepository partyRepository;
@@ -32,14 +32,7 @@ public class PartyService {
     private final PartyApplicationRepository applicationRepository;
     private final UserService userService;
 
-    @Value("${supabase.url}")
-    private String supabaseUrl;
-
-    @Value("${supabase.storage.buckets.profile}")
-    private String profileBucket;
-
     @Transactional
-    @SuppressWarnings("null")
     public PartyDTO.Response createParty(PartyDTO.Request request) {
 
         // 본인인증(소셜 연동) 여부 확인
@@ -57,12 +50,6 @@ public class PartyService {
                     .map(user -> {
                         String imageUrl = user.getProfileImageUrl();
 
-                        // 상대 경로를 완전한 URL로 변환
-                        if (imageUrl != null && imageUrl.startsWith("/images/")) {
-                            String fullUrl = supabaseUrl + "/storage/v1/object/public/" + profileBucket + imageUrl;
-                            imageUrl = fullUrl;
-                        }
-
                         // blob URL은 무시
                         if (imageUrl != null && imageUrl.startsWith("blob:")) {
                             imageUrl = null;
@@ -77,7 +64,7 @@ public class PartyService {
             hostFavoriteTeam = (String) userInfo[1]; // favoriteTeam 저장
 
         } catch (Exception e) {
-            System.out.println("호스트 정보 조회 실패: " + e.getMessage());
+            log.error("호스트 정보 조회 실패: {}", e.getMessage());
         }
         Party party = Party.builder()
                 .hostId(request.getHostId())
@@ -137,7 +124,6 @@ public class PartyService {
 
     // 파티 ID로 조회
     @Transactional(readOnly = true)
-    @SuppressWarnings("null")
     public PartyDTO.Response getPartyById(Long id) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
@@ -179,7 +165,6 @@ public class PartyService {
 
     // 파티 업데이트
     @Transactional
-    @SuppressWarnings("null")
     public PartyDTO.Response updateParty(Long id, PartyDTO.UpdateRequest request) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
@@ -200,7 +185,6 @@ public class PartyService {
 
     // 파티 참여 인원 증가
     @Transactional
-    @SuppressWarnings("null")
     public PartyDTO.Response incrementParticipants(Long id) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
@@ -222,7 +206,6 @@ public class PartyService {
 
     // 파티 참여 인원 감소
     @Transactional
-    @SuppressWarnings("null")
     public PartyDTO.Response decrementParticipants(Long id) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
@@ -239,7 +222,6 @@ public class PartyService {
     }
 
     @Transactional
-    @SuppressWarnings("null")
     public void deleteParty(Long id, Long hostId) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
@@ -273,7 +255,6 @@ public class PartyService {
 
     // 사용자가 참여한 모든 파티 조회 (호스트 + 참여자)
     @Transactional(readOnly = true)
-    @SuppressWarnings("null")
     public List<PartyDTO.Response> getMyParties(Long userId) {
         // 1. 호스트로 생성한 파티
         List<Party> hostedParties = partyRepository.findByHostId(userId);

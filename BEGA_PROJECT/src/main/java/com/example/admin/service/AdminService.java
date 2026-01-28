@@ -100,7 +100,7 @@ public class AdminService {
         return AdminPostDto.builder()
                 .id(post.getId())
                 .team(post.getTeamId())
-                .title(post.getTitle())
+                .content(post.getContent())
                 .author(post.getAuthor().getName())
                 .createdAt(post.getCreatedAt())
                 .likeCount(post.getLikeCount())
@@ -214,7 +214,7 @@ public class AdminService {
         CheerPost post = cheerPostRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("게시글을 찾을 수 없습니다."));
 
-        String postTitle = post.getTitle();
+        String postContent = post.getContent();
         Long authorId = post.getAuthor().getId();
 
         cheerPostRepository.deleteById(id);
@@ -225,12 +225,12 @@ public class AdminService {
                     .adminId(adminId)
                     .targetUserId(authorId)
                     .action(AuditLog.AuditAction.DELETE_POST)
-                    .oldValue(postTitle)
+                    .oldValue(postContent)
                     .newValue(null)
                     .description("게시글 삭제 (ID: " + postId + ")")
                     .build();
             auditLogRepository.save(Objects.requireNonNull(auditLog));
-            log.info("Post {} deleted by admin {}. Title: {}", postId, adminId, postTitle);
+            log.info("Post {} deleted by admin {}. Content: {}", postId, adminId, postContent);
         }
     }
 

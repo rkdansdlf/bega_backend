@@ -5,6 +5,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.ExpiredJwtException;
 
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
@@ -16,13 +17,23 @@ import java.util.Date;
 @Component
 public class JWTUtil {
 
+    private final String secret;
     private final SecretKey secretKey;
     private final long refreshExpirationTime;
 
     public JWTUtil(@Value("${spring.jwt.secret}") String secret,
             @Value("${spring.jwt.refresh-expiration}") long refreshExpirationTime) {
+        this.secret = secret;
         this.secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.refreshExpirationTime = refreshExpirationTime;
+    }
+
+    @PostConstruct
+    public void validateSecret() {
+        if (secret == null || secret.isBlank() || secret.length() < 32) {
+            throw new IllegalStateException(
+                    "JWT secret is not configured properly. It must be at least 32 characters long.");
+        }
     }
 
     // Access Token 생성

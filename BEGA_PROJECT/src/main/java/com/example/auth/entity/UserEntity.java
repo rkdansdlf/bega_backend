@@ -17,7 +17,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@Table(name = "users", schema = "security")
+@Table(name = "users")
 @EntityListeners(AuditingEntityListener.class) // 생성/수정일자 자동 관리를 위한 Auditing 리스너
 public class UserEntity {
 

@@ -17,7 +17,7 @@ import java.time.Instant;
 public class AdminPostDto {
     private Long id;
     private String team;
-    private String title;
+    private String content;
     private String author;
     private Instant createdAt;
     private Integer likeCount;

@@ -261,7 +261,6 @@ public class PostDtoMapper {
                 original.getId(),
                 original.getTeamId(),
                 resolveTeamColor(original.getTeam()),
-                original.getTitle(),
                 original.getContent(),
                 resolveDisplayName(original.getAuthor()),
                 original.getAuthor().getHandle(),

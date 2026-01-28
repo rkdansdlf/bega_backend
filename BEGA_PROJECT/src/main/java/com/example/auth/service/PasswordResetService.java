@@ -24,7 +24,6 @@ public class PasswordResetService {
     private final BCryptPasswordEncoder passwordEncoder;
 
     @Transactional
-    @SuppressWarnings("null")
     public void requestPasswordReset(PasswordResetRequestDto request) {
         // 사용자 조회
         UserEntity user = userRepository.findByEmail(request.getEmail())

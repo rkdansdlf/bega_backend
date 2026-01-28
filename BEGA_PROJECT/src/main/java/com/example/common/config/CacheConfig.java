@@ -78,7 +78,7 @@ public class CacheConfig {
                 // 기본 설정: 2분 TTL, 최대 1000개
                 manager.setCaffeine(Objects.requireNonNull(Caffeine.newBuilder()
                                 .maximumSize(1000)
-                                .expireAfterWrite(2, TimeUnit.MINUTES)
+                                .expireAfterWrite(50, TimeUnit.MINUTES)
                                 .recordStats()));
 
                 // 캐시 이름 등록

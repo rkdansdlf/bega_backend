@@ -1,7 +1,9 @@
 package com.example.auth.oauth2;
 
 import com.example.auth.dto.CustomOAuth2User;
+import com.example.auth.dto.OAuth2StateData;
 import com.example.auth.entity.RefreshToken;
+import com.example.auth.service.OAuth2StateService;
 import com.example.auth.util.JWTUtil;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.entity.UserEntity;
@@ -18,28 +20,30 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.Optional;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 
 import org.springframework.beans.factory.annotation.Value;
 
 @Component
+@lombok.extern.slf4j.Slf4j
 public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
 
     private final JWTUtil jwtUtil;
     private final RefreshRepository refreshRepository;
     private final UserRepository userRepository;
     private final com.example.auth.service.UserService userService; // Inject UserService
+    private final OAuth2StateService oAuth2StateService;
 
     @Value("${app.frontend.url:http://localhost:3000}")
     private String frontendUrl;
 
     public CustomSuccessHandler(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository,
-            @org.springframework.context.annotation.Lazy com.example.auth.service.UserService userService) {
+            @org.springframework.context.annotation.Lazy com.example.auth.service.UserService userService,
+            OAuth2StateService oAuth2StateService) {
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
         this.userRepository = userRepository;
         this.userService = userService;
+        this.oAuth2StateService = oAuth2StateService;
     }
 
     @Override
@@ -70,6 +74,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         UserEntity userEntity = userEntityOptional.get();
         String profileImageUrl = userEntity.getProfileImageUrl();
+        String userHandle = userEntity.getHandle();
 
         // ✅ 수정: getFavoriteTeamId() 사용 (String 반환)
         String favoriteTeamId = userEntity.getFavoriteTeamId();
@@ -110,7 +115,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         if (isLinkMode) {
             // 연동 모드일 경우: 토큰 발급/쿠키 갱신 없이 마이페이지로 리턴 (기존 세션 유지)
-            System.out.println("Processing Account Link Success (Skipping Token Generation)");
+            log.info("Processing Account Link Success (Skipping Token Generation)");
 
             // 쿠키 정리 (만료)
             jakarta.servlet.http.Cookie modeCookie = new jakarta.servlet.http.Cookie(
@@ -166,25 +171,17 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             request.getSession(false).invalidate();
         }
 
-        // ✅ 사용자 정보를 쿼리 파라미터로 전달
-        String encodedEmail = URLEncoder.encode(userEmail, StandardCharsets.UTF_8);
-        String encodedName = URLEncoder.encode(userName, StandardCharsets.UTF_8);
-        String encodedRole = URLEncoder.encode(role, StandardCharsets.UTF_8);
-        String encodedProfileUrl = profileImageUrl != null
-                ? URLEncoder.encode(profileImageUrl, StandardCharsets.UTF_8)
-                : "";
-        String encodedFavoriteTeam = URLEncoder.encode(favoriteTeamId, StandardCharsets.UTF_8);
-
-        String redirectUrl = String.format(
-                frontendUrl + "/oauth/callback?email=%s&name=%s&role=%s&profileImageUrl=%s&favoriteTeam=%s",
-                encodedEmail, encodedName, encodedRole, encodedProfileUrl, encodedFavoriteTeam);
-
+        // 사용자 정보를 Redis에 저장하고 state 파라미터로만 리다이렉트
+        OAuth2StateData stateData = new OAuth2StateData(
+                userEmail, userName, role, profileImageUrl, favoriteTeamId, userHandle);
+        String stateId = oAuth2StateService.saveState(stateData);
+        String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId;
         getRedirectStrategy().sendRedirect(request, response, redirectUrl);
 
     }
 
     private void addSameSiteCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
-        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; Secure; SameSite=None",
+        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax",
                 name, value, maxAgeSeconds);
         response.addHeader("Set-Cookie", cookieString);
     }

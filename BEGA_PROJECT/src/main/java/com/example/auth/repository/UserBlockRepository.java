@@ -14,7 +14,7 @@ import java.util.List;
 public interface UserBlockRepository extends JpaRepository<UserBlock, Id> {
 
     // 차단 관계 존재 여부 확인
-    boolean existsById(Id id);
+    boolean existsById(@org.springframework.lang.NonNull Id id);
 
     // 내가 차단한 유저 목록 (페이징)
     @Query("SELECT ub.blocked FROM UserBlock ub WHERE ub.blocker.id = :userId ORDER BY ub.createdAt DESC")

@@ -12,7 +12,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -49,20 +48,13 @@ public class PredictionService {
                 .collect(Collectors.toList());
     }
 
-    // 오늘 이후 날짜 조회 시 더미 데이터 포함
+    // 특정 날짜의 경기 조회 (실제 DB 데이터만 조회, 더미 및 Mock 제외)
     @Transactional(readOnly = true)
     public List<MatchDto> getMatchesByDate(LocalDate date) {
-        List<GameEntity> matches = new ArrayList<>();
-
-        // 1. 해당 날짜의 실제 경기
-        matches.addAll(gameRepository.findByGameDate(date));
-
-        // 2. 오늘 이후 날짜 조회 시 더미 데이터 포함 (미래 경기)
-        LocalDate today = LocalDate.now();
-        if (!date.isBefore(today)) { // date >= today (오늘 포함 이후)
-            List<GameEntity> dummyMatches = gameRepository.findByIsDummy(true);
-            matches.addAll(dummyMatches);
-        }
+        List<GameEntity> matches = gameRepository.findByGameDate(date).stream()
+                .filter(game -> !Boolean.TRUE.equals(game.getIsDummy()))
+                .filter(game -> !game.getGameId().startsWith("MOCK"))
+                .collect(Collectors.toList());
 
         return matches.stream()
                 .map(MatchDto::fromEntity)
@@ -71,7 +63,10 @@ public class PredictionService {
 
     @Transactional(readOnly = true)
     public List<MatchDto> getMatchesByDateRange(LocalDate startDate, LocalDate endDate) {
-        List<GameEntity> matches = gameRepository.findCompletedByDateRange(startDate, endDate);
+        List<GameEntity> matches = gameRepository.findAllByDateRange(startDate, endDate).stream()
+                .filter(game -> !Boolean.TRUE.equals(game.getIsDummy()))
+                .filter(game -> !game.getGameId().startsWith("MOCK"))
+                .collect(Collectors.toList());
 
         return matches.stream()
                 .map(MatchDto::fromEntity)
@@ -96,7 +91,6 @@ public class PredictionService {
     }
 
     @Transactional
-    @SuppressWarnings("null")
     public void vote(Long userId, PredictionRequestDto request) {
         GameEntity game = gameRepository.findByGameId(request.getGameId())
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 경기입니다."));
@@ -135,7 +129,6 @@ public class PredictionService {
     }
 
     @Transactional(readOnly = true)
-    @SuppressWarnings("null")
     public PredictionResponseDto getVoteStatus(String gameId) {
         Optional<VoteFinalResult> finalResult = voteFinalResultRepository.findById(gameId);
 
@@ -171,7 +164,6 @@ public class PredictionService {
     }
 
     @Transactional
-    @SuppressWarnings("null")
     public void cancelVote(Long userId, String gameId) {
         GameEntity game = gameRepository.findByGameId(gameId)
                 .orElseThrow(() -> new IllegalArgumentException("경기 정보를 찾을 수 없습니다."));
@@ -190,7 +182,6 @@ public class PredictionService {
     }
 
     @Transactional
-    @SuppressWarnings("null")
     public void saveFinalVoteResult(String gameId) {
         GameEntity game = gameRepository.findByGameId(gameId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 경기입니다."));

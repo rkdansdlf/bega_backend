@@ -39,7 +39,7 @@ public class Notification {
     @Column(name = "is_read", nullable = false)
     private Boolean isRead; // 읽음 여부
 
-    @Column(name = "createdat", nullable = false, updatable = false, columnDefinition = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    @Column(name = "createdat", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @PrePersist

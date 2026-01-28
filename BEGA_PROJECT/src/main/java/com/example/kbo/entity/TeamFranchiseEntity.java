@@ -1,6 +1,8 @@
 package com.example.kbo.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.NoArgsConstructor;
@@ -17,7 +19,7 @@ import java.time.LocalDateTime;
  * 예: 히어로즈(2008~2014) → 넥센히어로즈(2015~2018) → 키움히어로즈(2019~현재)</p>
  */
 @Entity
-@Table(name = "team_franchises", schema = "public")
+@Table(name = "team_franchises")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -51,7 +53,8 @@ public class TeamFranchiseEntity {
     private LocalDateTime updatedAt;
 
     // 메타데이터 (JSON 형태, 추가 정보 저장용)
-    @Column(name = "metadata_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "metadata_json")
     private String metadataJson;
 
     // 공식 웹사이트 URL

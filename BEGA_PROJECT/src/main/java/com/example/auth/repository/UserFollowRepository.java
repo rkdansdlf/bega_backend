@@ -16,7 +16,7 @@ import java.util.Optional;
 public interface UserFollowRepository extends JpaRepository<UserFollow, Id> {
 
     // 팔로우 관계 존재 여부 확인
-    boolean existsById(Id id);
+    boolean existsById(@org.springframework.lang.NonNull Id id);
 
     // 내가 팔로우하는 유저 목록 (페이징)
     @Query("SELECT uf.following FROM UserFollow uf WHERE uf.follower.id = :userId ORDER BY uf.createdAt DESC")
@@ -42,11 +42,13 @@ public interface UserFollowRepository extends JpaRepository<UserFollow, Id> {
 
     // 특정 팔로우 관계 조회 (알림 설정 변경용)
     @Query("SELECT uf FROM UserFollow uf WHERE uf.follower.id = :followerId AND uf.following.id = :followingId")
-    Optional<UserFollow> findByFollowerIdAndFollowingId(@Param("followerId") Long followerId, @Param("followingId") Long followingId);
+    Optional<UserFollow> findByFollowerIdAndFollowingId(@Param("followerId") Long followerId,
+            @Param("followingId") Long followingId);
 
     // 여러 유저에 대한 팔로우 상태 일괄 확인 (UI 최적화용)
     @Query("SELECT uf.following.id FROM UserFollow uf WHERE uf.follower.id = :followerId AND uf.following.id IN :followingIds")
-    List<Long> findFollowingIdsInList(@Param("followerId") Long followerId, @Param("followingIds") List<Long> followingIds);
+    List<Long> findFollowingIdsInList(@Param("followerId") Long followerId,
+            @Param("followingIds") List<Long> followingIds);
 
     // 특정 유저의 모든 팔로우 관계 삭제 (차단 시 사용)
     @Modifying(clearAutomatically = true)

@@ -21,6 +21,8 @@ public class UserProfileDto {
     @Size(min = 2, max = 20, message = "닉네임은 2자에서 20자 사이여야 합니다.")
     private String name; // 닉네임 (수정 가능)
 
+    private String handle; // 핸들 (조회 전용)
+
     @Email(message = "유효하지 않은 이메일 형식입니다.")
     @NotBlank(message = "이메일은 필수입니다.")
     private String email; // 이메일 (조회 전용, 수정 불가능)

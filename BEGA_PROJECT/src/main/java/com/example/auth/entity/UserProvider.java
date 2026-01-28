@@ -5,7 +5,7 @@ import lombok.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "user_providers", schema = "security", uniqueConstraints = {
+@Table(name = "user_providers", uniqueConstraints = {
         @UniqueConstraint(columnNames = { "provider", "providerid" }),
         @UniqueConstraint(columnNames = { "user_id", "provider" })
 })

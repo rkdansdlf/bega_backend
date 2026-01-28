@@ -51,7 +51,6 @@ public class TeamFranchiseService {
      * @param id 프랜차이즈 ID
      * @return 프랜차이즈 엔티티
      */
-    @SuppressWarnings("null")
     public Optional<TeamFranchiseEntity> getFranchiseById(Integer id) {
         log.debug("Fetching franchise with id: {}", id);
         return franchiseRepository.findById(id);
@@ -107,7 +106,6 @@ public class TeamFranchiseService {
      * @param franchiseId 프랜차이즈 ID
      * @return 메타데이터 Map (owner, ceo, address, homepage 등)
      */
-    @SuppressWarnings("null")
     public Map<String, Object> getFranchiseMetadata(Integer franchiseId) {
         log.debug("Fetching and parsing metadata for franchise id: {}", franchiseId);
 
