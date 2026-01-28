@@ -37,7 +37,7 @@ public class GameSummaryEntity {
     @Column(name = "player_name", length = 50)
     private String playerName;
 
-    @Column(name = "detail_text", columnDefinition = "text")
+    @Column(name = "detail_text")
     private String detailText;
 
     @Column(name = "created_at")

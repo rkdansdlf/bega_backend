@@ -22,10 +22,10 @@
     <!-- Production: INFO level to reduce log volume -->
     <springProfile name="prod">
         <logger name="com.example.cheerboard" level="INFO" additivity="false">
-            <appender-ref ref="ROLLING"/>
+            <appender-ref ref="CONSOLE"/>
         </logger>
-        <root level="WARN">
-            <appender-ref ref="ROLLING"/>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
         </root>
     </springProfile>
 
@@ -33,11 +33,9 @@
     <springProfile name="!prod">
         <logger name="com.example.cheerboard" level="DEBUG" additivity="false">
             <appender-ref ref="CONSOLE"/>
-            <appender-ref ref="ROLLING"/>
         </logger>
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
-            <appender-ref ref="ROLLING"/>
         </root>
     </springProfile>
 </configuration>

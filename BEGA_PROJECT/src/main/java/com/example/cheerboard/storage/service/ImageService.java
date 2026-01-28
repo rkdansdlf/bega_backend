@@ -25,13 +25,13 @@ import com.example.cheerboard.config.CurrentUser;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.service.PermissionValidator;
-import com.example.cheerboard.storage.client.SupabaseStorageClient;
-import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.dto.PostImageDto;
 import com.example.cheerboard.storage.dto.SignedUrlDto;
 import com.example.cheerboard.storage.entity.PostImage;
 import com.example.cheerboard.storage.repository.PostImageRepository;
+import com.example.cheerboard.storage.strategy.StorageStrategy;
 import com.example.cheerboard.storage.validator.ImageValidator;
+import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.auth.entity.UserEntity;
 
 import lombok.RequiredArgsConstructor;
@@ -50,14 +50,14 @@ public class ImageService {
 
     private final PostImageRepository postImageRepo;
     private final CheerPostRepo postRepo;
-    private final SupabaseStorageClient storageClient;
+    private final StorageStrategy storageStrategy; // OCI Object Storage Strategy
     private final ImageValidator validator;
     private final StorageConfig config;
     private final CurrentUser currentUser;
     // 리팩토링된 컴포넌트들
     private final PermissionValidator permissionValidator;
     private final CacheManager cacheManager;
-    private final com.example.common.image.ImageUtil imageUtil; // ✅ Renamed
+    private final com.example.common.image.ImageUtil imageUtil;
 
     /**
      * 게시글 이미지 업로드 (여러 파일)
@@ -97,19 +97,21 @@ public class ImageService {
 
                         // 2. 스토리지 업로드 (Blocking IO in Async Thread)
                         log.debug("Parallel Upload Start: path={}", storagePath);
-                        var uploadResult = storageClient.uploadBytes(
+
+                        // StorageStrategy.uploadBytes returns Mono<String> (path)
+                        String uploadedPath = storageStrategy.uploadBytes(
                                 processed.getBytes(),
                                 processed.getContentType(),
                                 config.getCheerBucket(),
                                 storagePath)
                                 .block();
 
-                        if (uploadResult == null) {
+                        if (uploadedPath == null) {
                             throw new RuntimeException("스토리지 업로드 결과가 null입니다.");
                         }
 
-                        log.debug("Parallel Upload Success: path={}", storagePath);
-                        return new UploadResult(storagePath, processed);
+                        log.debug("Parallel Upload Success: path={}", uploadedPath);
+                        return new UploadResult(uploadedPath, processed);
                     } catch (Exception e) {
                         throw new RuntimeException("Async Upload Failed: " + file.getOriginalFilename(), e);
                     }
@@ -297,7 +299,7 @@ public class ImageService {
 
         // 2. 스토리지 삭제
         try {
-            storageClient.delete(config.getCheerBucket(), image.getStoragePath()).block();
+            storageStrategy.delete(config.getCheerBucket(), image.getStoragePath()).block();
         } catch (Exception e) {
             log.error("스토리지 삭제 실패 (DB는 이미 삭제됨): path={}", image.getStoragePath(), e);
             // DB는 이미 삭제되었으므로 스토리지 삭제 실패는 로그만 남김
@@ -338,7 +340,7 @@ public class ImageService {
         // 스토리지 삭제
         for (PostImage image : images) {
             try {
-                storageClient.delete(config.getCheerBucket(), image.getStoragePath()).block();
+                storageStrategy.delete(config.getCheerBucket(), image.getStoragePath()).block();
                 // 개별 Signed URL 캐시 무효화
                 evictSignedUrlCache(image.getStoragePath());
             } catch (Exception e) {
@@ -436,15 +438,17 @@ public class ImageService {
             log.info("Signed URL cache miss: path={}", storagePath);
         }
         try {
-            var response = storageClient.createSignedUrl(config.getCheerBucket(), storagePath,
-                    Objects.requireNonNull(config.getSignedUrlTtlSeconds()).intValue()).block();
-            String signedUrl = response != null ? response.signedUrl() : null;
-            if (cache != null && signedUrl != null && !signedUrl.isBlank() && storagePath != null) {
-                cache.put(storagePath, signedUrl);
+            // Strategy handles fallback logic internally for Supabase
+            // Local storage returns public URL directly
+            String url = storageStrategy.getUrl(config.getCheerBucket(), storagePath,
+                    config.getSignedUrlTtlSeconds()).block();
+
+            if (cache != null && url != null && !url.isBlank() && storagePath != null) {
+                cache.put(storagePath, url);
             }
-            return signedUrl;
+            return url;
         } catch (Exception e) {
-            log.error("서명 URL 생성 실패: path={}", storagePath, e);
+            log.error("URL generation failed for path: {}", storagePath, e);
             return null;
         }
     }
@@ -455,7 +459,7 @@ public class ImageService {
     private void compensateUploadFailure(List<String> uploadedPaths) {
         for (String path : uploadedPaths) {
             try {
-                storageClient.delete(config.getCheerBucket(), path).block();
+                storageStrategy.delete(config.getCheerBucket(), path).block();
                 log.info("보상 삭제 성공: path={}", path);
             } catch (Exception e) {
                 log.error("보상 삭제 실패: path={}", path, e);
@@ -489,10 +493,10 @@ public class ImageService {
         }
 
         // 파일 개수 검증
-        if (files.size() > Objects.requireNonNull(config.getMaxImagesPerDiary()).intValue()) {
+        if (files.size() > config.getMaxImagesPerDiary()) {
             return Mono.error(new IllegalArgumentException(
                     String.format("이미지는 최대 %d개까지 업로드할 수 있습니다.",
-                            Objects.requireNonNull(config.getMaxImagesPerDiary()).intValue())));
+                            config.getMaxImagesPerDiary())));
         }
 
         List<Mono<String>> uploadMonos = new ArrayList<>();
@@ -512,10 +516,10 @@ public class ImageService {
             String storagePath = String.format("diary/%d/%d/%s", Objects.requireNonNull(userId).longValue(),
                     Objects.requireNonNull(diaryId).longValue(), fileName);
 
-            Mono<String> uploadMono = storageClient.upload(file, config.getDiaryBucket(), storagePath)
-                    .map(response -> {
-                        log.info("다이어리 이미지 업로드 성공: path={}", storagePath);
-                        return storagePath;
+            Mono<String> uploadMono = storageStrategy.upload(file, config.getDiaryBucket(), storagePath)
+                    .map(path -> {
+                        log.info("다이어리 이미지 업로드 성공: path={}", path);
+                        return path;
                     })
                     .doOnError(err -> log.error("다이어리 이미지 업로드 실패: path={}, error={}",
                             storagePath, err.getMessage()));
@@ -555,7 +559,7 @@ public class ImageService {
         }
 
         List<Mono<Void>> deleteMonos = storagePaths.stream()
-                .map(path -> storageClient.delete(config.getDiaryBucket(), path)
+                .map(path -> storageStrategy.delete(config.getDiaryBucket(), path)
                         .doOnSuccess(v -> log.info("다이어리 이미지 삭제 성공: path={}", path))
                         .doOnError(err -> log.error("다이어리 이미지 삭제 실패: path={}, error={}",
                                 path, err.getMessage())))
@@ -580,10 +584,9 @@ public class ImageService {
 
         List<Mono<String>> urlMonos = storagePaths.stream()
                 // config.getDiaryBucket()이 null일 가능성 차단
-                .map(path -> storageClient
-                        .createSignedUrl(Objects.requireNonNull(config.getDiaryBucket()), path,
-                                Objects.requireNonNull(config.getSignedUrlTtlSeconds()).intValue())
-                        .map(response -> response.signedUrl())
+                .map(path -> storageStrategy
+                        .getUrl(Objects.requireNonNull(config.getDiaryBucket()), path,
+                                config.getSignedUrlTtlSeconds())
                         .doOnError(err -> log.error("다이어리 이미지 URL 생성 실패: path={}, error={}",
                                 path, err.getMessage())))
                 .toList();

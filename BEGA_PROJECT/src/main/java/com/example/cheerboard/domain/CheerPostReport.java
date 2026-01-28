@@ -31,7 +31,8 @@ public class CheerPostReport {
     @Column(nullable = false)
     private ReportReason reason;
 
-    @Column(columnDefinition = "TEXT")
+    @Lob
+    @Column
     private String description;
 
     @Column(name = "createdat", nullable = false, updatable = false)

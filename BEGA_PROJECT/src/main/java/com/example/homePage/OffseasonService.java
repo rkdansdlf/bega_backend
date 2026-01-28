@@ -1,4 +1,4 @@
-package com.example.homePage;
+package com.example.homepage;
 
 import com.example.kbo.entity.PlayerMovement;
 import com.example.kbo.repository.PlayerMovementRepository;

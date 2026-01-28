@@ -1,4 +1,4 @@
-package com.example.homePage;
+package com.example.homepage;
 
 import com.example.kbo.entity.AwardEntity;
 import org.springframework.stereotype.Service;

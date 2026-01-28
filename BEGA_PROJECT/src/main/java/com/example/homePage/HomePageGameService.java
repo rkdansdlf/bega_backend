@@ -1,4 +1,4 @@
-package com.example.homePage;
+package com.example.homepage;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -129,7 +129,7 @@ public class HomePageGameService {
             return "KOREAN_SERIES";
         }
         // 비시즌
-        else if (month >= 11 || month <= 2 || (month == 3 && day < 22)) {
+        else if (month >= 11 || month <= 2 || (month == 3 && day < 28)) {
             return "OFFSEASON";
         }
         // 포스트시즌 (한국시리즈 제외): 10월 6일 ~ 10월 25일
@@ -137,7 +137,7 @@ public class HomePageGameService {
             return "POSTSEASON";
         }
         // 정규시즌
-        else if ((month == 3 && day >= 22) || (month >= 4 && month <= 9) || (month == 10 && day <= 5)) {
+        else if ((month == 3 && day >= 28) || (month >= 4 && month <= 9) || (month == 10 && day <= 5)) {
             return "REGULAR";
         }
         // 기타 (OFFSEASON으로 처리)

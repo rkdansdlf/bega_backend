@@ -6,7 +6,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "player_movements", schema = "public")
+@Table(name = "player_movements")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -30,7 +30,8 @@ public class PlayerMovement {
     @Column(name = "player_name", nullable = false, length = 100)
     private String playerName;
 
-    @Column(columnDefinition = "TEXT")
+    @Lob
+    @Column
     private String remarks; // Contract details or notes
 
     @Column(name = "created_at", nullable = false, updatable = false)

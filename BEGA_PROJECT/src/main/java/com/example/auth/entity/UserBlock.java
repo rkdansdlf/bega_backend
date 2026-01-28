@@ -11,7 +11,7 @@ import java.time.Instant;
  * blocker가 blocked를 차단하는 관계를 나타냄
  */
 @Entity
-@Table(name = "user_block", schema = "security")
+@Table(name = "user_block")
 @Getter
 @Setter
 @NoArgsConstructor

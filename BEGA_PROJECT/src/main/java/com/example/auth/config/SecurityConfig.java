@@ -26,6 +26,7 @@ import com.example.auth.util.JWTUtil;
 import jakarta.servlet.http.HttpServletResponse;
 
 import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -36,6 +37,9 @@ public class SecurityConfig {
         private final CustomSuccessHandler customSuccessHandler;
         private final JWTUtil jwtUtil;
         private final CookieAuthorizationRequestRepository cookieauthorizationrequestRepository;
+
+        @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost:3000,http://localhost:8080}")
+        private String allowedOriginsStr;
 
         public SecurityConfig(CustomOAuth2UserService customOAuth2UserService,
                         CustomSuccessHandler customSuccessHandler, JWTUtil jwtUtil,
@@ -76,11 +80,8 @@ public class SecurityConfig {
         public CorsConfigurationSource corsConfigurationSource() {
                 CorsConfiguration configuration = new CorsConfiguration();
 
-                configuration.setAllowedOriginPatterns(Arrays.asList(
-                                "http://localhost:3000",
-                                "http://localhost:8080",
-                                "https://your-production-domain.com" // 나중에 실제 도메인 추가
-                ));
+                configuration.setAllowedOriginPatterns(
+                                Arrays.asList(allowedOriginsStr.split(",")));
                 configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
                 configuration.setAllowedHeaders(Arrays.asList("Authorization", "Cache-Control", "Content-Type"));
                 configuration.setAllowCredentials(true);
@@ -98,7 +99,8 @@ public class SecurityConfig {
         @Bean
         public JWTFilter jwtFilter(org.springframework.core.env.Environment env) {
                 boolean isDev = Arrays.asList(env.getActiveProfiles()).contains("dev");
-                return new JWTFilter(jwtUtil, isDev);
+                List<String> origins = Arrays.asList(allowedOriginsStr.split(","));
+                return new JWTFilter(jwtUtil, isDev, origins);
         }
 
         @Bean
@@ -141,6 +143,7 @@ public class SecurityConfig {
                                 .authorizeHttpRequests((auth) -> auth
                                                 .requestMatchers("/api/auth/login").permitAll()
                                                 .requestMatchers("/api/auth/signup", "/api/auth/reissue").permitAll()
+                                                .requestMatchers("/api/auth/oauth2/state/**").permitAll()
                                                 .requestMatchers("/api/auth/**", "/oauth2/**", "/login/**", "/error",
                                                                 "/api/diary/public/**")
                                                 .permitAll()
@@ -151,8 +154,11 @@ public class SecurityConfig {
                                                 .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN") // 관리자
                                                                                                                      // 권한
                                                                                                                      // 필요
+                                                .requestMatchers(HttpMethod.GET, "/api/cheer/posts/following")
+                                                .authenticated() // 팔로우 피드 (인증 필요)
                                                 .requestMatchers(HttpMethod.GET, "/api/cheer/posts",
-                                                                "/api/cheer/posts/**")
+                                                                "/api/cheer/posts/**",
+                                                                "/api/cheer/user/**")
                                                 .permitAll() // 게시글
                                                 .requestMatchers(HttpMethod.GET, "/api/users/*/profile").permitAll() // 사용자
                                                                                                                      // 프로필

@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * 권한 변경, 사용자 삭제 등 관리자 작업을 기록
  */
 @Entity
-@Table(name = "admin_audit_logs", schema = "security")
+@Table(name = "admin_audit_logs")
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor

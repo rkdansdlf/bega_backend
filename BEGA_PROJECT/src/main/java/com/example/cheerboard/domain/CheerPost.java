@@ -11,7 +11,10 @@ import java.util.List;
 import java.util.ArrayList;
 
 @Entity
-@Table(name = "cheer_post")
+@Table(name = "cheer_post", indexes = {
+        @Index(name = "idx_cheer_post_type_created_at", columnList = "posttype, createdat DESC"),
+        @Index(name = "idx_cheer_team_post_type_created_at", columnList = "team_id, posttype, createdat DESC")
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -24,9 +27,10 @@ public class CheerPost {
      * 리포스트 타입: SIMPLE(단순 리포스트), QUOTE(인용 리포스트)
      */
     public enum RepostType {
-        SIMPLE,  // 단순 리포스트 - 코멘트 없이 원글 그대로 공유
-        QUOTE    // 인용 리포스트 - 원글을 첨부하면서 의견 추가
+        SIMPLE, // 단순 리포스트 - 코멘트 없이 원글 그대로 공유
+        QUOTE // 인용 리포스트 - 원글을 첨부하면서 의견 추가
     }
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -44,10 +48,11 @@ public class CheerPost {
     @JoinColumn(name = "author_id", nullable = false)
     private UserEntity author;
 
-    @Column(nullable = true)  // 리포스트는 제목 없음
+    @Column(nullable = false, length = 100)
     private String title;
 
-    @Column(nullable = true, columnDefinition = "text")  // 단순 리포스트는 내용 없음
+    @Lob
+    @Column(nullable = true) // 단순 리포스트는 내용 없음
     private String content;
 
     @Column(name = "likecount", nullable = false)

@@ -130,7 +130,6 @@ public class UserService {
     /**
      * 신규 사용자 생성
      */
-    @SuppressWarnings("null")
     private void createNewUser(UserDto userDto) {
         String handle = validateAndNormalizeHandle(userDto.getHandle());
         if (userRepository.existsByHandle(handle)) {
@@ -215,6 +214,7 @@ public class UserService {
                 "id", user.getId(),
                 "name", user.getName(),
                 "role", user.getRole(),
+                "handle", user.getHandle(),
                 "cheerPoints", user.getCheerPoints());
     }
 
@@ -274,7 +274,6 @@ public class UserService {
      * 프로필 업데이트
      */
     @Transactional
-    @SuppressWarnings("null")
     public UserEntity updateProfile(Long id, UserProfileDto updateDto) {
         UserEntity user = findUserById(id);
 
@@ -312,13 +311,29 @@ public class UserService {
      */
     private void updateFavoriteTeam(UserEntity user, String teamId) {
         if (teamId != null && !teamId.trim().isEmpty()) {
-            TeamEntity team = teamRepository.findById(teamId)
+            String normalizedTeamId = normalizeFavoriteTeamId(teamId);
+            TeamEntity team = teamRepository.findById(normalizedTeamId)
+                    .or(() -> teamRepository.findById(teamId))
                     .orElseThrow(() -> new TeamNotFoundException(teamId));
             user.setFavoriteTeam(team);
         } else {
             user.setFavoriteTeam(null);
         }
         // 팀 변경 시 role은 변경하지 않음 (ADMIN/USER 유지)
+    }
+
+    private String normalizeFavoriteTeamId(String teamId) {
+        if (teamId == null) {
+            return null;
+        }
+
+        String trimmed = teamId.trim();
+        return switch (trimmed) {
+            case "LOT" -> "LT";
+            case "KIA" -> "HT";
+            case "SSG" -> "SK";
+            default -> trimmed;
+        };
     }
 
     /**
@@ -438,7 +453,6 @@ public class UserService {
      * ID로 사용자 조회
      */
     @Transactional(readOnly = true)
-    @SuppressWarnings("null")
     public UserEntity findUserById(Long id) {
         return userRepository.findById(id)
                 .orElseThrow(() -> new UserNotFoundException(id));

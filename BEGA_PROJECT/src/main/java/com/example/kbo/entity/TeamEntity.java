@@ -6,19 +6,18 @@ import lombok.Setter;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
-
 import java.time.LocalDateTime;
 
 /**
  * KBO 팀 엔티티
  *
- * <p>특정 시점의 팀 정보를 나타냅니다.
- * 팀은 프랜차이즈에 속하며, 시간이 지나면서 이름이나 속성이 변경될 수 있습니다.</p>
+ * <p>
+ * 특정 시점의 팀 정보를 나타냅니다.
+ * 팀은 프랜차이즈에 속하며, 시간이 지나면서 이름이나 속성이 변경될 수 있습니다.
+ * </p>
  */
 @Entity
-@Table(name = "teams", schema = "public")
+@Table(name = "teams")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -73,9 +72,9 @@ public class TeamEntity {
     @Builder.Default
     private Boolean isActive = true;
 
-    // 팀 별칭 배열 (PostgreSQL text[] 타입)
-    @Column(name = "aliases", columnDefinition = "text[]")
-    @JdbcTypeCode(SqlTypes.ARRAY)
+    // 팀 별칭 배열 (JSON String으로 저장, Converter 사용)
+    @Convert(converter = com.example.common.converter.StringArrayJsonConverter.class)
+    @Column(name = "aliases", columnDefinition = "CLOB")
     private String[] aliases;
 
     @PrePersist
@@ -111,4 +110,3 @@ public class TeamEntity {
         return franchise != null ? franchise.getId() : null;
     }
 }
-

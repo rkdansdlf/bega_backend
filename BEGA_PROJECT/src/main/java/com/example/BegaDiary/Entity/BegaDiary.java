@@ -123,10 +123,10 @@ public class BegaDiary {
 	@Column(length = 50)
 	private String block; // 예: "101구역", "A열"
 
-	@Column(length = 50)
+	@Column(name = "seat_row", length = 50)
 	private String seatRow; // "row"는 SQL 예약어일 가능성 있음
 
-	@Column(length = 50)
+	@Column(name = "seat_number", length = 50)
 	private String seatNumber;
 
 	@Builder

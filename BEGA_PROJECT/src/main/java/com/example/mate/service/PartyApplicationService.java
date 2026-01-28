@@ -37,7 +37,6 @@ public class PartyApplicationService {
 
     // 신청 생성
     @Transactional
-    @SuppressWarnings("null")
     public PartyApplicationDTO.Response createApplication(PartyApplicationDTO.Request request) {
         // 본인인증(소셜 연동) 여부 확인
         if (!userService.isSocialVerified(request.getApplicantId())) {
@@ -134,7 +133,6 @@ public class PartyApplicationService {
 
     // 신청 승인
     @Transactional
-    @SuppressWarnings("null")
     public PartyApplicationDTO.Response approveApplication(Long applicationId) {
         PartyApplication application = applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
@@ -168,7 +166,6 @@ public class PartyApplicationService {
 
     // 신청 거절
     @Transactional
-    @SuppressWarnings("null")
     public PartyApplicationDTO.Response rejectApplication(Long applicationId) {
         PartyApplication application = applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
@@ -198,7 +195,6 @@ public class PartyApplicationService {
 
     // 신청 취소 (신청자가 취소)
     @Transactional
-    @SuppressWarnings("null")
     public void cancelApplication(Long applicationId, Long applicantId) {
         PartyApplication application = applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));

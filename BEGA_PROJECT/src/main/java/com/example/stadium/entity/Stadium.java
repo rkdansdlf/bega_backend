@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "stadiums", schema = "public")
+@Table(name = "stadiums")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -21,13 +21,13 @@ import lombok.Setter;
 public class Stadium {
 
     @Id
-    @Column(name = "stadium_id", columnDefinition = "varchar")
+    @Column(name = "stadium_id")
     private String stadiumId;
 
-    @Column(name = "stadium_name", columnDefinition = "varchar")
+    @Column(name = "stadium_name")
     private String stadiumName;
 
-    @Column(name = "city", columnDefinition = "varchar")
+    @Column(name = "city")
     private String city;
 
     @Column(name = "open_year")
@@ -48,16 +48,16 @@ public class Stadium {
     @Column(name = "fence_height_m")
     private Double fenceHeightM;
 
-    @Column(name = "turf_type", columnDefinition = "varchar")
+    @Column(name = "turf_type")
     private String turfType;
 
-    @Column(name = "bullpen_type", columnDefinition = "varchar")
+    @Column(name = "bullpen_type")
     private String bullpenType;
 
     @Column(name = "homerun_park_factor")
     private Double homerunParkFactor;
 
-    @Column(name = "notes", columnDefinition = "text")
+    @Column(name = "notes")
     private String notes;
 
     @Column(name = "created_at")
@@ -72,13 +72,13 @@ public class Stadium {
     @Column(name = "lng")
     private Double lng;
 
-    @Column(name = "address", columnDefinition = "varchar")
+    @Column(name = "address")
     private String address;
 
-    @Column(name = "phone", columnDefinition = "varchar")
+    @Column(name = "phone")
     private String phone;
 
-    @Column(name = "team", columnDefinition = "varchar")
+    @Column(name = "team")
     private String team;
 
     @Builder.Default

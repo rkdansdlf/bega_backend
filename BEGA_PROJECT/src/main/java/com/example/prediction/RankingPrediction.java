@@ -6,13 +6,7 @@ import java.util.List;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -32,8 +26,8 @@ public class RankingPrediction {
 	@Column(name = "season_year")
 	private int seasonYear;
 
-	@Column(name = "prediction_data", columnDefinition = "jsonb")
 	@JdbcTypeCode(SqlTypes.JSON)
+	@Column(name = "prediction_data")
 	private List<String> predictionData;
 
 	@Column(name = "created_at", updatable = false)
