@@ -147,10 +147,9 @@ public class SecurityConfig {
                                                 .requestMatchers("/api/auth/**", "/oauth2/**", "/login/**", "/error",
                                                                 "/api/diary/public/**")
                                                 .permitAll()
-                                                .requestMatchers("/actuator/**").hasAnyRole("ADMIN", "SUPER_ADMIN") // Actuator
-                                                                                                                    // 엔드포인트
-                                                                                                                    // 보안
-                                                                                                                    // 강화
+                                                .requestMatchers("/actuator/health").permitAll() // Health check는 공개
+                                                .requestMatchers("/actuator/**").hasAnyRole("ADMIN", "SUPER_ADMIN") // 나머지는
+                                                                                                                    // 관리자만
                                                 .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN") // 관리자
                                                                                                                      // 권한
                                                                                                                      // 필요

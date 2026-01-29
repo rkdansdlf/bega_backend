@@ -168,7 +168,7 @@ class CheerServiceTest {
                 Long userId = 100L;
                 TeamEntity team = TeamEntity.builder().teamId("LG").teamName("LG").build();
                 UserEntity me = UserEntity.builder().id(userId).name("Me").favoriteTeam(team).build();
-                CreatePostReq req = new CreatePostReq("LG", "My Title", "My Content", null, "CHEER");
+                CreatePostReq req = new CreatePostReq("LG", "My Content", null, "CHEER");
 
                 when(current.get()).thenReturn(me);
                 when(teamRepo.findById("LG")).thenReturn(Optional.of(team));
@@ -179,7 +179,6 @@ class CheerServiceTest {
                 CheerPost savedPost = CheerPost.builder()
                                 .id(1L)
                                 .author(me)
-                                .title("My Title")
                                 .content("My Content")
                                 .team(team)
                                 .build();
@@ -187,19 +186,18 @@ class CheerServiceTest {
                 when(postRepo.save(any(CheerPost.class))).thenReturn(savedPost);
                 when(postDtoMapper.toNewPostDetailRes(any(CheerPost.class), any(UserEntity.class)))
                                 .thenReturn(PostDetailRes.of(
-                                                1L, "LG", "LG", "LG", "#C30452", "My Title", "My Content", "Me", 100L,
-                                                "me", null, null, null,
+                                                1L, "LG", "LG", "LG", "#C30452", "My Content", "Me", 100L,
+                                                "me", "me@example.com", "http://example.com/me.jpg", null,
                                                 0, 0, false, false, false, null, 0, 0, false, "CHEER"));
 
                 // When
                 PostDetailRes res = cheerService.createPost(req);
 
                 // Then
-                assertThat(res.title()).isEqualTo("My Title");
+                assertThat(res.content()).isEqualTo("My Content");
                 org.mockito.ArgumentCaptor<CheerPost> postCaptor = org.mockito.ArgumentCaptor.forClass(CheerPost.class);
                 verify(postRepo).save(postCaptor.capture());
                 CheerPost capturedPost = postCaptor.getValue();
-                assertThat(capturedPost.getTitle()).isEqualTo("My Title");
                 assertThat(capturedPost.getContent()).isEqualTo("My Content");
         }
 
@@ -213,10 +211,9 @@ class CheerServiceTest {
                 CheerPost existing = CheerPost.builder()
                                 .id(postId)
                                 .author(me)
-                                .title("Old Title")
                                 .content("Old Content")
                                 .build();
-                UpdatePostReq req = new UpdatePostReq("New Title", "New Content");
+                UpdatePostReq req = new UpdatePostReq("New Content");
 
                 when(current.get()).thenReturn(me);
                 when(postRepo.findById(postId)).thenReturn(Optional.of(existing));
@@ -226,9 +223,9 @@ class CheerServiceTest {
                                 anyBoolean())).thenAnswer(inv -> {
                                         CheerPost p = inv.getArgument(0);
                                         return PostDetailRes.of(
-                                                        p.getId(), "LG", "LG", "LG", "#000", p.getTitle(),
-                                                        p.getContent(), "Me", userId, "me", null,
-                                                        null,
+                                                        p.getId(), "LG", "LG", "LG", "#000",
+                                                        p.getContent(), "Me", userId, "me", "me@example.com",
+                                                        "http://example.com/me.jpg",
                                                         null,
                                                         0, 0, false, false, false, null, 0, 0, false, "CHEER");
                                 });
@@ -237,7 +234,6 @@ class CheerServiceTest {
                 PostDetailRes res = cheerService.updatePost(postId, req);
 
                 // Then
-                assertThat(res.title()).isEqualTo("New Title");
                 assertThat(res.content()).isEqualTo("New Content");
         }
 

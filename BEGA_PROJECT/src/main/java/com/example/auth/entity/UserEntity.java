@@ -45,7 +45,7 @@ public class UserEntity {
     private String password;
 
     // 프로필 이미지 URL (MyPageService에서 사용됨)
-    @Column(name = "profile_image_url", length = 512)
+    @Column(name = "profile_image_url", length = 2048)
     private String profileImageUrl;
 
     // 사용자 권한

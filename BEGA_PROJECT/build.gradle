@@ -42,6 +42,10 @@ dependencies {
 	implementation 'com.mysql:mysql-connector-j'
 	implementation 'org.postgresql:postgresql:42.6.0'
 	runtimeOnly 'org.postgresql:postgresql'
+    
+    // Flyway for DB Migration
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-oracle'
 
     // Oracle Autonomous Database
     implementation('com.oracle.database.jdbc:ojdbc11-production:23.7.0.25.01') {
@@ -92,5 +96,5 @@ tasks.named('test') {
 
 // Increase memory for bootRun to avoid exit code 137 (OOM)
 tasks.named('bootRun') {
-    jvmArgs = ["-Xmx2048m"]
+    jvmArgs = ["-Xmx4096m"]
 }

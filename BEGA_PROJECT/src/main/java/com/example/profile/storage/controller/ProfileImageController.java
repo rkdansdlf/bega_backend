@@ -29,30 +29,28 @@ public class ProfileImageController {
      */
     @PostMapping("/image")
     public ResponseEntity<ApiResponse> uploadProfileImage(
-        @RequestParam("file") MultipartFile file
-    ) {
+            @RequestParam("file") MultipartFile file) {
         try {
             // 🔥 SecurityContext에서 userId 추출 (JWT 필터가 설정해놓음)
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
             Long userId = (Long) authentication.getPrincipal();
-            
+
             log.info("프로필 이미지 업로드 요청: userId={}, filename={}", userId, file.getOriginalFilename());
-            
+
             ProfileImageDto result = profileImageService.uploadProfileImage(userId, file);
-            
+
             return ResponseEntity.ok(
-                ApiResponse.success("프로필 이미지가 업로드되었습니다.", result)
-            );
+                    ApiResponse.success("프로필 이미지가 업로드되었습니다.", result));
 
         } catch (IllegalArgumentException e) {
             log.warn("프로필 이미지 업로드 검증 실패: error={}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error(e.getMessage()));
+                    .body(ApiResponse.error(e.getMessage()));
 
         } catch (Exception e) {
             log.error("프로필 이미지 업로드 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("프로필 이미지 업로드 중 오류가 발생했습니다."));
+                    .body(ApiResponse.error("프로필 이미지 업로드 실패: " + e.getMessage()));
         }
     }
 }

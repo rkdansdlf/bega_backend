@@ -4,6 +4,7 @@ import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.dto.EmbeddedPostDto;
 import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.PostSummaryRes;
+import com.example.cheerboard.dto.PostLightweightSummaryRes;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.kbo.entity.TeamEntity;
 import com.example.auth.entity.UserEntity;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * CheerPost 엔티티를 DTO로 변환하는 매퍼 클래스
@@ -95,7 +97,6 @@ public class PostDtoMapper {
                 resolveTeamName(post.getTeam()),
                 resolveTeamShortName(post.getTeam()),
                 resolveTeamColor(post.getTeam()),
-                post.getTitle(),
                 post.getContent(),
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor().getId(),
@@ -106,7 +107,7 @@ public class PostDtoMapper {
                 post.getCommentCount(),
                 post.getLikeCount(),
                 liked,
-                combinedViews, // 합산된 조회수
+                combinedViews,
                 isHot,
                 isBookmarked,
                 isOwner,
@@ -114,7 +115,6 @@ public class PostDtoMapper {
                 repostedByMe,
                 post.getPostType().name(),
                 resolvedUrls,
-                // 리포스트 관련 필드
                 repostOfId,
                 repostType,
                 originalPost,
@@ -163,7 +163,7 @@ public class PostDtoMapper {
                 resolveTeamName(post.getTeam()),
                 resolveTeamShortName(post.getTeam()),
                 resolveTeamColor(post.getTeam()),
-                post.getTitle(),
+                // title removed
                 post.getContent(),
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor().getId(),
@@ -217,7 +217,7 @@ public class PostDtoMapper {
                 resolveTeamName(post.getTeam()),
                 resolveTeamShortName(post.getTeam()),
                 resolveTeamColor(post.getTeam()),
-                post.getTitle(),
+                // title removed
                 post.getContent(),
                 resolveDisplayName(author),
                 author.getId(),
@@ -236,6 +236,79 @@ public class PostDtoMapper {
                 false, // 새 게시글이므로 리포스트 안함
                 post.getPostType().name(),
                 // 리포스트 관련 필드
+                repostOfId,
+                repostType,
+                originalPost,
+                originalDeleted);
+    }
+
+    /**
+     * CheerPost를 PostSummaryRes로 변환 (모든 데이터 프리페치 버전)
+     * - Redis 조회수/HOT 상태, 리포스트 원본 이미지 모두 미리 로딩된 경우
+     */
+    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
+            boolean repostedByMe, List<String> imageUrls,
+            Map<Long, Integer> viewCountMap, Map<Long, Boolean> hotStatusMap,
+            Map<Long, List<String>> repostOriginalImageUrls) {
+        List<String> resolvedUrls = imageUrls != null ? imageUrls : Collections.emptyList();
+
+        // 프리페치된 Redis 조회수 사용
+        Integer redisViews = viewCountMap.getOrDefault(post.getId(), null);
+        int combinedViews = post.getViews() + (redisViews != null ? redisViews : 0);
+
+        // 프리페치된 HOT 상태 사용
+        Boolean cachedHot = hotStatusMap.get(post.getId());
+        boolean isHot;
+        if (cachedHot != null) {
+            isHot = cachedHot;
+        } else {
+            isHot = hotPostChecker.isHotPost(post, combinedViews);
+            redisPostService.cacheHotStatus(post.getId(), isHot);
+        }
+
+        // 리포스트 관련 정보 처리
+        Long repostOfId = null;
+        String repostType = null;
+        EmbeddedPostDto originalPost = null;
+        boolean originalDeleted = false;
+
+        if (post.isRepost()) {
+            repostType = post.getRepostType().name();
+            CheerPost original = post.getRepostOf();
+
+            if (original != null) {
+                repostOfId = original.getId();
+                originalPost = toEmbeddedPostDto(original, repostOriginalImageUrls);
+                originalDeleted = false;
+            } else {
+                originalDeleted = true;
+            }
+        }
+
+        return new PostSummaryRes(
+                post.getId(),
+                post.getTeamId(),
+                resolveTeamName(post.getTeam()),
+                resolveTeamShortName(post.getTeam()),
+                resolveTeamColor(post.getTeam()),
+                post.getContent(),
+                resolveDisplayName(post.getAuthor()),
+                post.getAuthor().getId(),
+                post.getAuthor().getHandle(),
+                post.getAuthor().getProfileImageUrl(),
+                post.getAuthor().getFavoriteTeamId(),
+                post.getCreatedAt(),
+                post.getCommentCount(),
+                post.getLikeCount(),
+                liked,
+                combinedViews,
+                isHot,
+                isBookmarked,
+                isOwner,
+                post.getRepostCount(),
+                repostedByMe,
+                post.getPostType().name(),
+                resolvedUrls,
                 repostOfId,
                 repostType,
                 originalPost,
@@ -272,6 +345,33 @@ public class PostDtoMapper {
                 original.getRepostCount());
     }
 
+    /**
+     * 원본 게시글을 EmbeddedPostDto로 변환 (프리페치된 이미지 URL 사용)
+     */
+    private EmbeddedPostDto toEmbeddedPostDto(CheerPost original, Map<Long, List<String>> preloadedImageUrls) {
+        if (original == null) {
+            return null;
+        }
+
+        List<String> originalImageUrls = preloadedImageUrls != null
+                ? preloadedImageUrls.getOrDefault(original.getId(), Collections.emptyList())
+                : Collections.emptyList();
+
+        return EmbeddedPostDto.of(
+                original.getId(),
+                original.getTeamId(),
+                resolveTeamColor(original.getTeam()),
+                original.getContent(),
+                resolveDisplayName(original.getAuthor()),
+                original.getAuthor().getHandle(),
+                original.getAuthor().getProfileImageUrl(),
+                original.getCreatedAt(),
+                originalImageUrls,
+                original.getLikeCount(),
+                original.getCommentCount(),
+                original.getRepostCount());
+    }
+
     private String resolveDisplayName(UserEntity author) {
         if (author.getName() != null && !author.getName().isBlank()) {
             return author.getName();
@@ -289,5 +389,26 @@ public class PostDtoMapper {
 
     private String resolveTeamColor(TeamEntity team) {
         return team != null ? team.getColor() : null;
+    }
+
+    /**
+     * CheerPost를 PostLightweightSummaryRes로 변환 (최소 데이터만 포함)
+     * - 리스트 조회 시 페이로드 최소화
+     * - 폴링 엔드포인트에서 사용
+     */
+    public PostLightweightSummaryRes toPostLightweightSummaryRes(CheerPost post, List<String> imageUrls) {
+        String firstImageUrl = (imageUrls != null && !imageUrls.isEmpty()) ? imageUrls.get(0) : null;
+
+        return PostLightweightSummaryRes.of(
+                post.getId(),
+                post.getContent(),
+                firstImageUrl,
+                post.getLikeCount(),
+                post.getCommentCount(),
+                post.getCreatedAt(),
+                post.getAuthor().getId(),
+                resolveDisplayName(post.getAuthor()),
+                post.getAuthor().getProfileImageUrl()
+        );
     }
 }

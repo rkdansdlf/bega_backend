@@ -26,7 +26,7 @@ public class RankingPrediction {
 	@Column(name = "season_year")
 	private int seasonYear;
 
-	@JdbcTypeCode(SqlTypes.JSON)
+	@JdbcTypeCode(SqlTypes.CLOB)
 	@Column(name = "prediction_data")
 	private List<String> predictionData;
 

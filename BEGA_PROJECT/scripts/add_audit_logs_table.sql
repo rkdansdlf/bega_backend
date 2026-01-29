@@ -1,6 +1,6 @@
 -- ============================================
 -- 어드민 감사 로그 테이블 생성 마이그레이션
--- 실행: psql $SUPABASE_DB_URL -f add_audit_logs_table.sql
+-- 실행(마이그레이션용 Supabase): psql $SUPABASE_DB_URL -f add_audit_logs_table.sql
 -- ============================================
 
 -- admin_audit_logs 테이블 생성

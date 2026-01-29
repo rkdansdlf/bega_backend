@@ -5,6 +5,7 @@ import com.example.auth.dto.FollowToggleResponse;
 import com.example.auth.dto.UserFollowSummaryDto;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.entity.UserFollow;
+import com.example.auth.repository.UserBlockRepository;
 import com.example.auth.repository.UserFollowRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.cheerboard.config.CurrentUser;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -26,6 +28,7 @@ import java.util.Set;
 public class FollowService {
 
     private final UserFollowRepository followRepo;
+    private final UserBlockRepository blockRepo;
     private final UserRepository userRepo;
     private final CurrentUser currentUser;
     private final NotificationService notificationService;
@@ -42,8 +45,13 @@ public class FollowService {
             throw new IllegalArgumentException("자기 자신을 팔로우할 수 없습니다.");
         }
 
+        // [NEW] 차단 관계 확인
+        if (blockRepo.existsBidirectionalBlock(me.getId(), targetUserId)) {
+            throw new IllegalStateException("차단 관계가 있어 팔로우할 수 없습니다.");
+        }
+
         // 대상 유저 존재 확인
-        UserEntity target = userRepo.findById(targetUserId)
+        UserEntity target = userRepo.findById(Objects.requireNonNull(targetUserId))
                 .orElseThrow(() -> new NoSuchElementException("사용자를 찾을 수 없습니다."));
 
         UserFollow.Id followId = new UserFollow.Id(me.getId(), targetUserId);
@@ -71,8 +79,7 @@ public class FollowService {
                     Notification.NotificationType.NEW_FOLLOWER,
                     "새 팔로워",
                     me.getName() + "님이 회원님을 팔로우하기 시작했습니다.",
-                    me.getId()
-            );
+                    me.getId());
         }
 
         long followerCount = followRepo.countByFollowingId(targetUserId);
@@ -121,6 +128,8 @@ public class FollowService {
         long followingCount = followRepo.countByFollowerId(userId);
         boolean isFollowedByMe = false;
         boolean notifyNewPosts = false;
+        boolean blockedByMe = false;
+        boolean blockingMe = false;
 
         if (me != null && !me.getId().equals(userId)) {
             UserFollow.Id followId = new UserFollow.Id(me.getId(), userId);
@@ -131,6 +140,10 @@ public class FollowService {
                         .map(UserFollow::getNotifyNewPosts)
                         .orElse(false);
             }
+
+            // [NEW] 차단 상태 조회
+            blockedByMe = blockRepo.existsById(new com.example.auth.entity.UserBlock.Id(me.getId(), userId));
+            blockingMe = blockRepo.existsById(new com.example.auth.entity.UserBlock.Id(userId, me.getId()));
         }
 
         return FollowCountResponse.builder()
@@ -138,6 +151,8 @@ public class FollowService {
                 .followingCount(followingCount)
                 .isFollowedByMe(isFollowedByMe)
                 .notifyNewPosts(notifyNewPosts)
+                .blockedByMe(blockedByMe)
+                .blockingMe(blockingMe)
                 .build();
     }
 
@@ -179,8 +194,7 @@ public class FollowService {
         Set<Long> myFollowingIds = new HashSet<>();
         if (me != null && !followerIds.isEmpty()) {
             myFollowingIds = new HashSet<>(
-                    followRepo.findFollowingIdsInList(me.getId(), followerIds)
-            );
+                    followRepo.findFollowingIdsInList(me.getId(), followerIds));
         }
 
         final Set<Long> finalMyFollowingIds = myFollowingIds;
@@ -201,8 +215,7 @@ public class FollowService {
         Set<Long> myFollowingIds = new HashSet<>();
         if (me != null && !followingIds.isEmpty()) {
             myFollowingIds = new HashSet<>(
-                    followRepo.findFollowingIdsInList(me.getId(), followingIds)
-            );
+                    followRepo.findFollowingIdsInList(me.getId(), followingIds));
         }
 
         final Set<Long> finalMyFollowingIds = myFollowingIds;

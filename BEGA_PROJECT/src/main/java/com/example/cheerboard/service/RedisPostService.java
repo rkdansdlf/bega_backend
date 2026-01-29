@@ -6,7 +6,13 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -127,10 +133,10 @@ public class RedisPostService {
     public Boolean getCachedHotStatus(Long postId) {
         try {
             Object val = redisTemplate.opsForValue().get(Objects.requireNonNull(String.format(HOT_STATUS_KEY, postId)));
-            return val instanceof Boolean ? (Boolean) val : false;
+            return val instanceof Boolean ? (Boolean) val : null;
         } catch (Exception e) {
             log.warn("Redis error in getCachedHotStatus: {}", e.getMessage());
-            return false;
+            return null;
         }
     }
 
@@ -172,6 +178,74 @@ public class RedisPostService {
                     Objects.requireNonNull(postId.toString()));
         } catch (Exception e) {
             log.warn("Redis error in removeFromHotList: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 여러 게시글의 조회수를 한 번에 조회 (Redis MGET)
+     */
+    public Map<Long, Integer> getViewCounts(Collection<Long> postIds) {
+        if (postIds == null || postIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        try {
+            List<Long> idList = new ArrayList<>(postIds);
+            List<String> keys = idList.stream()
+                    .map(id -> String.format(VIEW_COUNT_KEY, id))
+                    .toList();
+
+            List<Object> values = redisTemplate.opsForValue().multiGet(keys);
+
+            Map<Long, Integer> result = new HashMap<>();
+            if (values != null) {
+                for (int i = 0; i < idList.size(); i++) {
+                    Object val = values.get(i);
+                    Integer viewCount = null;
+                    if (val instanceof Integer) {
+                        viewCount = (Integer) val;
+                    } else if (val instanceof Long) {
+                        viewCount = ((Long) val).intValue();
+                    }
+                    if (viewCount != null) {
+                        result.put(idList.get(i), viewCount);
+                    }
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("Redis error in getViewCounts: {}", e.getMessage());
+            return Collections.emptyMap();
+        }
+    }
+
+    /**
+     * 여러 게시글의 HOT 상태를 한 번에 조회 (Redis MGET)
+     */
+    public Map<Long, Boolean> getCachedHotStatuses(Collection<Long> postIds) {
+        if (postIds == null || postIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        try {
+            List<Long> idList = new ArrayList<>(postIds);
+            List<String> keys = idList.stream()
+                    .map(id -> String.format(HOT_STATUS_KEY, id))
+                    .toList();
+
+            List<Object> values = redisTemplate.opsForValue().multiGet(keys);
+
+            Map<Long, Boolean> result = new HashMap<>();
+            if (values != null) {
+                for (int i = 0; i < idList.size(); i++) {
+                    Object val = values.get(i);
+                    if (val instanceof Boolean) {
+                        result.put(idList.get(i), (Boolean) val);
+                    }
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("Redis error in getCachedHotStatuses: {}", e.getMessage());
+            return Collections.emptyMap();
         }
     }
 

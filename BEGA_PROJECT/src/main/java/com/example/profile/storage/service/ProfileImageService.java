@@ -65,7 +65,7 @@ public class ProfileImageService {
 
             // URL 생성 (Strategy가 Signed URL 또는 Public URL 반환)
             String profileUrl = storageStrategy
-                    .getUrl(config.getProfileBucket(), uploadedPath, 31536000) // 1년
+                    .getUrl(config.getProfileBucket(), uploadedPath, config.getSignedUrlTtlSeconds())
                     .block();
 
             if (profileUrl == null || profileUrl.isEmpty()) {
@@ -83,9 +83,13 @@ public class ProfileImageService {
                     processed.getContentType(),
                     processed.getSize());
 
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            log.error("DB 저장 실패 (Data Integrity): URL length={}. Error: {}",
+                    (user.getProfileImageUrl() != null ? user.getProfileImageUrl().length() : "null"), e.getMessage());
+            throw new RuntimeException("프로필 이미지 URL이 너무 길어 저장할 수 없습니다.", e);
         } catch (Exception e) {
-            log.error("프로필 이미지 처리/업로드 실패", e);
-            throw new RuntimeException("프로필 이미지 업로드 중 오류가 발생했습니다.", e);
+            log.error("프로필 이미지 처리/업로드 실패. Error class: {}", e.getClass().getName(), e);
+            throw new RuntimeException("프로필 이미지 업로드 중 오류가 발생했습니다: " + e.getMessage(), e);
         }
     }
 
