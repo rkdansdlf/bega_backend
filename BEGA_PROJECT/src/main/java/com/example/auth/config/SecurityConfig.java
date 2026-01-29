@@ -143,6 +143,7 @@ public class SecurityConfig {
                                 .authorizeHttpRequests((auth) -> auth
                                                 .requestMatchers("/api/auth/login").permitAll()
                                                 .requestMatchers("/api/auth/signup", "/api/auth/reissue").permitAll()
+                                                .requestMatchers("/api/test/**").permitAll()
                                                 .requestMatchers("/api/auth/oauth2/state/**").permitAll()
                                                 .requestMatchers("/api/auth/**", "/oauth2/**", "/login/**", "/error",
                                                                 "/api/diary/public/**")

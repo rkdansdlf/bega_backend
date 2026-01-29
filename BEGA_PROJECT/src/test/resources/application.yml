@@ -1,0 +1,58 @@
+spring:
+  profiles:
+    active: dev
+  config:
+    import: optional:file:.env[.properties], optional:file:../../.env[.properties]
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jwt:
+    secret: test-jwt-secret-32-characters-long
+    refresh-expiration: 86400000
+  data:
+    redis:
+      repositories:
+        enabled: false
+  flyway:
+    enabled: false
+  mail:
+    host: localhost
+    port: 2525
+    username: test
+    password: test
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: test-client-id
+            client-secret: test-client-secret
+            scope: profile, email
+            client-authentication-method: client_secret_post
+            authorization-grant-type: authorization_code
+            redirect-uri: http://localhost:8080/login/oauth2/code/google
+        provider:
+          google:
+            user-info-uri: https://www.googleapis.com/oauth2/v3/userinfo
+            user-name-attribute: sub
+
+jobrunr:
+  background-job-server:
+    enabled: false
+  dashboard:
+    enabled: false
+
+storage:
+  type: oci
+
+oci:
+  s3:
+    access-key: test
+    secret-key: test
+    endpoint: http://localhost:9000
+    bucket: test-bucket
+
+ai:
+  service-url: http://localhost:8001

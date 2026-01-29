@@ -242,6 +242,12 @@ public class FollowService {
      */
     @Transactional
     public void removeBidirectionalFollow(Long userId1, Long userId2) {
-        followRepo.deleteBidirectionalFollow(userId1, userId2);
+        // userId1 -> userId2 관계 삭제
+        followRepo.findByFollowerIdAndFollowingId(userId1, userId2)
+                .ifPresent(followRepo::delete);
+
+        // userId2 -> userId1 관계 삭제
+        followRepo.findByFollowerIdAndFollowingId(userId2, userId1)
+                .ifPresent(followRepo::delete);
     }
 }

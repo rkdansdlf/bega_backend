@@ -11,12 +11,12 @@ import java.util.List;
 @Repository
 public interface PlayerMovementRepository extends JpaRepository<PlayerMovement, Long> {
 
-    // Recent movements sorted by date desc
-    List<PlayerMovement> findAllByOrderByDateDesc();
+    // Recent movements sorted by movementDate desc
+    List<PlayerMovement> findAllByOrderByMovementDateDesc();
 
     // Find movements within a specific offseason period
-    List<PlayerMovement> findByDateBetweenOrderByDateDesc(LocalDate startDate, LocalDate endDate);
+    List<PlayerMovement> findByMovementDateBetweenOrderByMovementDateDesc(LocalDate startDate, LocalDate endDate);
 
     // Find movements after a specific date
-    List<PlayerMovement> findByDateGreaterThanEqualOrderByDateDesc(LocalDate startDate);
+    List<PlayerMovement> findByMovementDateGreaterThanEqualOrderByMovementDateDesc(LocalDate startDate);
 }

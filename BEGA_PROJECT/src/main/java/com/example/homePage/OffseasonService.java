@@ -23,7 +23,8 @@ public class OffseasonService {
     public List<OffseasonMovementDto> getOffseasonMovements() {
         // Filter for 2025 Stove League (Movements after 2024-11-01)
         java.time.LocalDate stoveLeagueStart = java.time.LocalDate.of(2024, 11, 1);
-        List<PlayerMovement> movements = repository.findByDateGreaterThanEqualOrderByDateDesc(stoveLeagueStart);
+        List<PlayerMovement> movements = repository
+                .findByMovementDateGreaterThanEqualOrderByMovementDateDesc(stoveLeagueStart);
 
         return movements.stream()
                 .map(this::convertToDto)
@@ -38,7 +39,7 @@ public class OffseasonService {
 
         return OffseasonMovementDto.builder()
                 .id(entity.getId())
-                .date(entity.getDate().toString())
+                .date(entity.getMovementDate().toString())
                 .section(entity.getSection())
                 .team(entity.getTeamCode())
                 .player(entity.getPlayerName())

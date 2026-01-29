@@ -18,8 +18,8 @@ public class PlayerMovement {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
-    private LocalDate date;
+    @Column(name = "movement_date", nullable = false)
+    private LocalDate movementDate;
 
     @Column(nullable = false, length = 50)
     private String section; // e.g., FA, 트레이드, 군보류 등
