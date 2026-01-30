@@ -7,7 +7,6 @@ import com.example.common.ratelimit.RateLimit;
 import com.example.auth.dto.LoginDto;
 import com.example.auth.dto.SignupDto;
 import com.example.auth.service.UserService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
@@ -26,11 +25,21 @@ import jakarta.validation.Valid;
 @Slf4j
 @RestController
 @RequestMapping("/api/auth")
-@RequiredArgsConstructor
 public class APIController {
 
     private final UserService userService;
     private final OAuth2StateService oAuth2StateService;
+    private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
+
+    @org.springframework.beans.factory.annotation.Value("${app.cookie.secure:false}")
+    private boolean secureCookie;
+
+    public APIController(UserService userService, OAuth2StateService oAuth2StateService,
+            com.example.auth.service.TokenBlacklistService tokenBlacklistService) {
+        this.userService = userService;
+        this.oAuth2StateService = oAuth2StateService;
+        this.tokenBlacklistService = tokenBlacklistService;
+    }
 
     /**
      * 일반 회원가입
@@ -100,12 +109,14 @@ public class APIController {
     public ResponseEntity<ApiResponse> logout(HttpServletRequest request, HttpServletResponse response) {
         // 1. JWT (Authorization) 및 Refresh 쿠키 추출하여 이메일 확인
         String email = null;
+        String accessToken = null;
         Cookie[] cookies = request.getCookies();
         if (cookies != null) {
             for (Cookie cookie : cookies) {
                 if (cookie.getName().equals("Authorization")) {
+                    accessToken = cookie.getValue();
                     try {
-                        email = userService.getJWTUtil().getEmail(cookie.getValue());
+                        email = userService.getJWTUtil().getEmail(accessToken);
                     } catch (Exception e) {
                         // 토큰 만료 등의 경우 무시
                     }
@@ -118,20 +129,36 @@ public class APIController {
             userService.deleteRefreshTokenByEmail(email);
         }
 
-        // 3. Authorization 쿠키 삭제
+        // 3. [Security Fix] Access Token을 블랙리스트에 추가
+        if (accessToken != null) {
+            try {
+                java.util.Date expiration = userService.getJWTUtil().getExpiration(accessToken);
+                long remainingTime = expiration.getTime() - System.currentTimeMillis();
+                if (remainingTime > 0) {
+                    tokenBlacklistService.blacklist(accessToken, remainingTime);
+                    log.info("Access token blacklisted on logout for email: {}", email);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to blacklist token: {}", e.getMessage());
+            }
+        }
+
+        // 4. Authorization 쿠키 삭제
         ResponseCookie expireAuthCookie = ResponseCookie.from("Authorization", "")
                 .httpOnly(true)
-                .secure(false) // local 개발 환경에서는 false
+                .secure(secureCookie) // [Security Fix] 환경별 Secure 플래그 설정
                 .path("/")
                 .maxAge(0)
+                .sameSite("Lax")
                 .build();
 
-        // 4. Refresh 쿠키 삭제
+        // 5. Refresh 쿠키 삭제
         ResponseCookie expireRefreshCookie = ResponseCookie.from("Refresh", "")
                 .httpOnly(true)
-                .secure(false) // local 개발 환경에서는 false
+                .secure(secureCookie) // [Security Fix] 환경별 Secure 플래그 설정
                 .path("/")
                 .maxAge(0)
+                .sameSite("Lax")
                 .build();
 
         return ResponseEntity.ok()

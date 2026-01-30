@@ -5,7 +5,7 @@ import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
  * 사용자가 획득한 업적 엔티티 (Junction Table)
@@ -16,8 +16,7 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@Table(name = "user_achievements",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "achievement_id"}))
+@Table(name = "user_achievements", uniqueConstraints = @UniqueConstraint(columnNames = { "user_id", "achievement_id" }))
 @EntityListeners(AuditingEntityListener.class)
 public class UserAchievement {
 
@@ -34,7 +33,7 @@ public class UserAchievement {
 
     @CreatedDate
     @Column(name = "earned_at", updatable = false)
-    private Instant earnedAt;
+    private LocalDateTime earnedAt;
 
     /**
      * 정적 팩토리 메서드

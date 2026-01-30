@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
@@ -23,7 +23,7 @@ public interface ScoreEventRepository extends JpaRepository<ScoreEvent, Long> {
     Page<ScoreEvent> findByUserId(Long userId, Pageable pageable);
 
     @Query("SELECT se FROM ScoreEvent se WHERE se.userId = :userId AND se.createdAt >= :since ORDER BY se.createdAt DESC")
-    List<ScoreEvent> findRecentByUserId(@Param("userId") Long userId, @Param("since") Instant since);
+    List<ScoreEvent> findRecentByUserId(@Param("userId") Long userId, @Param("since") LocalDateTime since);
 
     // ============================================
     // RECENT SCORES (GLOBAL FEED)
@@ -70,10 +70,10 @@ public interface ScoreEventRepository extends JpaRepository<ScoreEvent, Long> {
     // ============================================
 
     @Query("SELECT SUM(se.finalScore) FROM ScoreEvent se WHERE se.userId = :userId AND se.createdAt >= :since")
-    Long sumFinalScoreSince(@Param("userId") Long userId, @Param("since") Instant since);
+    Long sumFinalScoreSince(@Param("userId") Long userId, @Param("since") LocalDateTime since);
 
     @Query("SELECT se FROM ScoreEvent se WHERE se.createdAt >= :since ORDER BY se.finalScore DESC")
-    List<ScoreEvent> findTopScoresSince(@Param("since") Instant since, Pageable pageable);
+    List<ScoreEvent> findTopScoresSince(@Param("since") LocalDateTime since, Pageable pageable);
 
     // ============================================
     // STREAK ANALYSIS

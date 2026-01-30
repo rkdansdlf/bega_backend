@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -192,6 +193,46 @@ public class LeaderboardService {
      */
     public Double getAverageScore() {
         return userScoreRepository.findAverageScore();
+    }
+
+    // ============================================
+    // SEED TEST DATA (Development/Testing only)
+    // ============================================
+
+    /**
+     * 테스트용 더미 리더보드 데이터 생성
+     * 기존 점수가 없는 사용자에게만 랜덤 점수 데이터를 생성합니다.
+     * @return 생성된 UserScore 개수
+     */
+    @Transactional
+    public int seedTestData() {
+        List<UserEntity> users = userRepository.findAll();
+        Random random = new Random();
+        int seededCount = 0;
+
+        for (UserEntity user : users) {
+            if (userScoreRepository.findByUserId(user.getId()).isEmpty()) {
+                UserScore score = UserScore.builder()
+                        .userId(user.getId())
+                        .totalScore((long) (random.nextInt(95000) + 5000))     // 5,000 ~ 100,000
+                        .seasonScore((long) (random.nextInt(57000) + 3000))    // 3,000 ~ 60,000
+                        .monthlyScore((long) (random.nextInt(19000) + 1000))   // 1,000 ~ 20,000
+                        .weeklyScore((long) (random.nextInt(4500) + 500))      // 500 ~ 5,000
+                        .currentStreak(random.nextInt(12))                      // 0 ~ 11
+                        .maxStreak(random.nextInt(15) + 5)                      // 5 ~ 19
+                        .userLevel(random.nextInt(49) + 1)                      // 1 ~ 49
+                        .experiencePoints((long) (random.nextInt(24900) + 100)) // 100 ~ 25,000
+                        .correctPredictions(random.nextInt(190) + 10)           // 10 ~ 199
+                        .totalPredictions(random.nextInt(280) + 20)             // 20 ~ 299
+                        .build();
+                userScoreRepository.save(score);
+                seededCount++;
+                log.info("Seeded test data for userId: {}", user.getId());
+            }
+        }
+
+        log.info("Seeded {} user scores for testing", seededCount);
+        return seededCount;
     }
 
     // ============================================

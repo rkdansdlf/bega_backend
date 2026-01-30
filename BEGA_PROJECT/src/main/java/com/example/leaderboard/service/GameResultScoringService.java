@@ -13,7 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * 게임 결과 점수 처리 서비스
@@ -80,8 +79,7 @@ public class GameResultScoringService {
                         prediction.getId(),
                         gameId,
                         isCorrect,
-                        isCorrect && isUpset
-                );
+                        isCorrect && isUpset);
 
                 if (Boolean.TRUE.equals(result.getCorrect())) {
                     log.info("User {} earned {} points for game {} (streak: {})",

@@ -236,6 +236,7 @@ spring:
         oracle.jdbc.implicitCachingEnabled: "true"
         oracle.jdbc.maxStatementsLimit: "100"
         oracle.jdbc.autoCommitSpecCompliant: "false"
+        oracle.jdbc.timezoneAsRegion: "false"
         oracle.net.CONNECT_TIMEOUT: "10000"
         oracle.net.READ_TIMEOUT: "30000"
 
@@ -248,8 +249,6 @@ spring:
     properties:
       hibernate:
         format_sql: false
-        jdbc:
-          time_zone: UTC
   logging:
     level:
       org.hibernate.SQL: INFO

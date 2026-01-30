@@ -8,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,19 +32,31 @@ public class ScoringService {
 
     /**
      * 예측 결과 처리
-     * @param userId 사용자 ID
+     * 
+     * @param userId       사용자 ID
      * @param predictionId 예측 ID
-     * @param gameId 게임 ID
-     * @param isCorrect 예측 적중 여부
-     * @param isUpset 이변 여부 (약팀이 강팀을 이긴 경우)
+     * @param gameId       게임 ID
+     * @param isCorrect    예측 적중 여부
+     * @param isUpset      이변 여부 (약팀이 강팀을 이긴 경우)
      * @return 점수 결과 DTO
      */
     @Transactional
     public ScoreResultDto processPredictionResult(Long userId, Long predictionId, String gameId,
-                                                   boolean isCorrect, boolean isUpset) {
+            boolean isCorrect, boolean isUpset) {
         // 사용자 점수 조회 또는 생성
         UserScore userScore = userScoreRepository.findByUserId(userId)
                 .orElseGet(() -> userScoreRepository.save(UserScore.createForUser(userId)));
+
+        // 중복 처리 방지 (Idempotency)
+        if (scoreEventRepository.existsByPredictionIdAndUserId(predictionId, userId)) {
+            log.info("Prediction {} for user {} already processed. Skipping.", predictionId, userId);
+            return ScoreResultDto.builder()
+                    .userId(userId)
+                    .correct(isCorrect)
+                    .newTotalScore(userScore.getTotalScore())
+                    .currentStreak(userScore.getCurrentStreak())
+                    .build();
+        }
 
         int previousLevel = userScore.getUserLevel();
 
@@ -135,13 +147,13 @@ public class ScoringService {
                     userId, predictionId, gameId,
                     streakScore, // 연승 배율 적용된 점수
                     powerupMultiplier, // 파워업 배율
-                    String.join(", ", appliedPowerups)
-            );
+                    String.join(", ", appliedPowerups));
             scoreEventRepository.save(powerupEvent);
         }
 
         // 업적 확인
-        List<Achievement> unlockedAchievements = achievementService.checkAndAwardAchievements(userId, userScore, newStreak);
+        List<Achievement> unlockedAchievements = achievementService.checkAndAwardAchievements(userId, userScore,
+                newStreak);
 
         // 레벨업 확인
         boolean leveledUp = userScore.getUserLevel() > previousLevel;
@@ -164,7 +176,7 @@ public class ScoringService {
                 .isNewMaxStreak(isNewMaxStreak)
                 .appliedPowerups(appliedPowerups)
                 .unlockedAchievements(unlockedAchievements.stream()
-                        .map(a -> com.example.leaderboard.dto.AchievementDto.from(a, true, Instant.now()))
+                        .map(a -> com.example.leaderboard.dto.AchievementDto.from(a, true, LocalDateTime.now()))
                         .toList())
                 .leveledUp(leveledUp)
                 .previousLevel(previousLevel)
@@ -206,7 +218,7 @@ public class ScoringService {
     @Transactional
     public boolean useGoldenGlove(Long userId, String gameId) {
         List<ActivePowerup> activePowerups = activePowerupRepository
-                .findActiveByUserIdAndType(userId, UserPowerup.PowerupType.GOLDEN_GLOVE, Instant.now());
+                .findActiveByUserIdAndType(userId, UserPowerup.PowerupType.GOLDEN_GLOVE, LocalDateTime.now());
 
         if (activePowerups.isEmpty()) {
             return false;

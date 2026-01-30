@@ -24,6 +24,27 @@ public class ImageUtil {
     private static final double COMPRESSION_QUALITY = 0.70;
     private static final long COMPRESSION_THRESHOLD_BYTES = 1024 * 1024; // 1MB
 
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        // Ensure ImageIO plugins (like TwelveMonkeys WebP) are scanned and registered
+        javax.imageio.ImageIO.scanForPlugins();
+
+        // Optional: Manual registration if scan fails
+        try {
+            Class<?> writerSpi = Class.forName("com.twelvemonkeys.imageio.plugins.webp.WebPImageWriterSpi");
+            javax.imageio.spi.IIORegistry.getDefaultInstance().registerServiceProvider(
+                    writerSpi.getDeclaredConstructor().newInstance());
+            log.info("Manually registered TwelveMonkeys WebP Writer SPI");
+        } catch (Exception e) {
+            log.info(
+                    "TwelveMonkeys WebP SPI registration failed: {}. This might be normal if the dependency is not on the classpath or already loaded.",
+                    e.getMessage());
+        }
+
+        log.info("Available ImageIO Writers: {}",
+                java.util.Arrays.toString(javax.imageio.ImageIO.getWriterFormatNames()));
+    }
+
     public static class ProcessedImage {
         private final byte[] bytes;
         private final String contentType;
@@ -54,42 +75,32 @@ public class ImageUtil {
 
     /**
      * Compress and optionally convert to WebP
-     * If the file is smaller than threshold and not forcing conversion, returns
-     * original.
      */
     public ProcessedImage process(MultipartFile file) throws IOException {
         String originalContentType = file.getContentType();
         byte[] originalBytes = file.getBytes();
         String originalExtension = getExtension(file.getOriginalFilename());
 
-        // Check if we should skip processing
         if (shouldSkip(originalContentType, originalBytes.length)) {
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         }
 
-        // Default: Convert to WebP for optimization if it's an image
         try {
             return compressAndConvertToWebP(originalBytes);
         } catch (Exception e) {
             log.error("Image optimization failed, using original: {}", e.getMessage());
-            // Fallback to original
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         }
     }
 
     private boolean shouldSkip(String contentType, long size) {
         if (contentType == null || !contentType.startsWith("image/")) {
-            log.debug("Non-image file, skipping processing: {}", contentType);
             return true;
         }
         if ("image/gif".equals(contentType)) {
-            log.debug("GIF file, skipping processing (preserve animation)");
             return true;
         }
-        // If it's already WebP and small enough, skip?
-        // But re-compressing might save space. Let's stick to threshold.
         if (size <= COMPRESSION_THRESHOLD_BYTES && "image/webp".equals(contentType)) {
-            log.debug("Small WebP file, skipping: {}KB", size / 1024);
             return true;
         }
         return false;
@@ -101,7 +112,6 @@ public class ImageUtil {
         try (InputStream inputStream = new ByteArrayInputStream(originalBytes);
                 ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
 
-            // Resize if needed, and convert to WebP with 0.85 quality
             Thumbnails.of(inputStream)
                     .size(MAX_WIDTH, MAX_HEIGHT)
                     .keepAspectRatio(true)
@@ -122,7 +132,7 @@ public class ImageUtil {
 
     private String getExtension(String filename) {
         if (filename == null || filename.lastIndexOf('.') == -1)
-            return "jpg"; // default
+            return "jpg";
         return filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
     }
 

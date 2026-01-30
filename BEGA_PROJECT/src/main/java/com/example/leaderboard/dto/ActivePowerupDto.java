@@ -7,7 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
  * 활성화된 파워업 DTO
@@ -23,8 +23,8 @@ public class ActivePowerupDto {
     private String description;
     private String icon;
     private String gameId;
-    private Instant activatedAt;
-    private Instant expiresAt;
+    private LocalDateTime activatedAt;
+    private LocalDateTime expiresAt;
     private Boolean used;
 
     public static ActivePowerupDto from(ActivePowerup activePowerup) {

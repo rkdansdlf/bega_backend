@@ -5,7 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
  * 관리자용 유저 정보 DTO
@@ -19,7 +19,7 @@ public class AdminUserDto {
     private String email;
     private String name;
     private String favoriteTeam;
-    private Instant createdAt;
+    private LocalDateTime createdAt;
     private Long postCount; // 작성한 게시글 수
     private String role; // USER, ADMIN
 }

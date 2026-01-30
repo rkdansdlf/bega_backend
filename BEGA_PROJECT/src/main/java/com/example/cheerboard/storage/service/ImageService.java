@@ -483,65 +483,61 @@ public class ImageService {
      */
     @Transactional
     public Mono<List<String>> uploadDiaryImages(Long userId, Long diaryId, List<MultipartFile> files) {
-        log.info("다이어리 이미지 업로드 시작: userId={}, diaryId={}, 파일 수={}",
+        log.info("다이어리 이미지 업로드 시작 (Optimized): userId={}, diaryId={}, 파일 수={}",
                 userId, diaryId, files != null ? files.size() : 0);
 
-        // 빈 리스트 체크
         if (files == null || files.isEmpty()) {
-            log.debug("업로드할 파일이 없습니다.");
             return Mono.just(List.of());
         }
 
-        // 파일 개수 검증
         if (files.size() > config.getMaxImagesPerDiary()) {
             return Mono.error(new IllegalArgumentException(
                     String.format("이미지는 최대 %d개까지 업로드할 수 있습니다.",
                             config.getMaxImagesPerDiary())));
         }
 
-        List<Mono<String>> uploadMonos = new ArrayList<>();
+        // 1. Process and Upload in Parallel using CompletableFuture (matching
+        // uploadPostImages style for consistency)
+        return Mono.fromCallable(() -> {
+            List<CompletableFuture<String>> futures = files.stream()
+                    .map(file -> CompletableFuture.supplyAsync(() -> {
+                        try {
+                            // 이미지 압축 및 WebP 변환
+                            var processed = imageUtil.process(file);
 
-        for (MultipartFile file : files) {
-            // 각 파일 유효성 검사
-            validator.validateFile(file);
+                            String fileName = UUID.randomUUID() + "." + processed.getExtension();
+                            String storagePath = String.format("diary/%d/%d/%s",
+                                    Objects.requireNonNull(userId).longValue(),
+                                    Objects.requireNonNull(diaryId).longValue(),
+                                    fileName);
 
-            String originalFilename = file.getOriginalFilename();
-            String extension = "";
-            if (originalFilename != null && originalFilename.contains(".")) {
-                extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+                            log.debug("다이어리 이미지 처리 완료: {}, {}bytes", storagePath, processed.getSize());
+
+                            // 스토리지 업로드
+                            String uploadedPath = storageStrategy.uploadBytes(
+                                    processed.getBytes(),
+                                    processed.getContentType(),
+                                    config.getDiaryBucket(),
+                                    storagePath)
+                                    .block();
+
+                            return uploadedPath;
+                        } catch (Exception e) {
+                            throw new RuntimeException("다이어리 이미지 업로드 실패: " + file.getOriginalFilename(), e);
+                        }
+                    }))
+                    .toList();
+
+            try {
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+                return futures.stream()
+                        .map(CompletableFuture::join)
+                        .filter(Objects::nonNull)
+                        .toList();
+            } catch (Exception e) {
+                log.error("다이어리 병렬 업로드 중 오류 발생", e);
+                throw new RuntimeException("이미지 업로드 중 오류가 발생했습니다.", e);
             }
-
-            String fileName = UUID.randomUUID() + extension;
-            // userId와 diaryId 명시적 Null 체크 및 primitive 변환
-            String storagePath = String.format("diary/%d/%d/%s", Objects.requireNonNull(userId).longValue(),
-                    Objects.requireNonNull(diaryId).longValue(), fileName);
-
-            Mono<String> uploadMono = storageStrategy.upload(file, config.getDiaryBucket(), storagePath)
-                    .map(path -> {
-                        log.info("다이어리 이미지 업로드 성공: path={}", path);
-                        return path;
-                    })
-                    .doOnError(err -> log.error("다이어리 이미지 업로드 실패: path={}, error={}",
-                            storagePath, err.getMessage()));
-
-            uploadMonos.add(uploadMono);
-        }
-
-        // 모든 업로드를 병렬로 실행
-        return Mono.zip(uploadMonos, results -> {
-            List<String> paths = new ArrayList<>();
-            for (Object result : results) {
-                if (result != null) {
-                    paths.add((String) result);
-                }
-            }
-            log.info("다이어리 이미지 업로드 완료: userId={}, diaryId={}, 성공 {}개",
-                    userId, diaryId, paths.size());
-            return paths;
-        }).onErrorResume(err -> {
-            log.error("다이어리 이미지 업로드 중 오류 발생: userId={}, diaryId={}, error={}",
-                    userId, diaryId, err.getMessage());
-            return Mono.error(new RuntimeException("이미지 업로드 중 오류가 발생했습니다: " + err.getMessage()));
         });
     }
 

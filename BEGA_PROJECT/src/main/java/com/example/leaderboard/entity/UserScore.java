@@ -1,13 +1,12 @@
 package com.example.leaderboard.entity;
 
-import com.example.auth.entity.UserEntity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
  * 사용자 점수 및 레벨 추적 엔티티
@@ -72,11 +71,11 @@ public class UserScore {
 
     @CreatedDate
     @Column(name = "created_at", updatable = false)
-    private Instant createdAt;
+    private LocalDateTime createdAt;
 
     @LastModifiedDate
     @Column(name = "updated_at")
-    private Instant updatedAt;
+    private LocalDateTime updatedAt;
 
     // ============================================
     // RANK TIER ENUM
@@ -141,7 +140,8 @@ public class UserScore {
 
     /**
      * 점수 추가 및 레벨 업데이트
-     * @param points 획득 점수
+     * 
+     * @param points      획득 점수
      * @param streakCount 현재 연승 수
      */
     public void addScore(int points, int streakCount) {

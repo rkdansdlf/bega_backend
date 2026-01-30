@@ -77,8 +77,12 @@ repositories {
 
     // 이미지 처리 (압축, 리사이징)
     implementation 'net.coobird:thumbnailator:0.4.20'
-    implementation 'com.twelvemonkeys.imageio:imageio-webp:3.12.0' // WebP support
-    implementation 'com.twelvemonkeys.imageio:imageio-core:3.12.0' // Explicit core dependency
+    implementation 'com.twelvemonkeys.imageio:imageio-webp:3.12.0'
+    implementation 'com.twelvemonkeys.imageio:imageio-core:3.12.0'
+    implementation 'com.twelvemonkeys.imageio:imageio-metadata:3.12.0'
+    implementation 'com.twelvemonkeys.common:common-image:3.12.0'
+    implementation 'com.twelvemonkeys.common:common-io:3.12.0'
+    implementation 'com.twelvemonkeys.common:common-lang:3.12.0'
     runtimeOnly 'io.netty:netty-resolver-dns-native-macos:4.1.115.Final:osx-aarch_64' // Fix MacOS Netty DNS warning
     
     // JobRunr (DB-backed Queue)

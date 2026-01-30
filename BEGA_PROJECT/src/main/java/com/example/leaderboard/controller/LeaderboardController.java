@@ -293,6 +293,26 @@ public class LeaderboardController {
     }
 
     // ============================================
+    // DEV/TEST ENDPOINTS
+    // ============================================
+
+    /**
+     * 테스트 데이터 시드 (개발/테스트 전용)
+     * 기존 점수가 없는 사용자에게 랜덤 점수 데이터를 생성합니다.
+     */
+    @PostMapping("/seed-test-data")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, Object>> seedTestData() {
+        log.info("Seeding test data for leaderboard");
+        int seededCount = leaderboardService.seedTestData();
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "테스트 데이터가 생성되었습니다.",
+                "seededCount", seededCount
+        ));
+    }
+
+    // ============================================
     // HELPER METHODS
     // ============================================
 

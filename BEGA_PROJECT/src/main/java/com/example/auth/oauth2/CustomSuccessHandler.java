@@ -36,6 +36,9 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     @Value("${app.frontend.url:http://localhost:3000}")
     private String frontendUrl;
 
+    @Value("${app.cookie.secure:false}")
+    private boolean secureCookie;
+
     public CustomSuccessHandler(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository,
             @org.springframework.context.annotation.Lazy com.example.auth.service.UserService userService,
             OAuth2StateService oAuth2StateService) {
@@ -114,10 +117,11 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         boolean isLinkMode = "link".equals(linkMode);
 
         if (isLinkMode) {
-            // 연동 모드일 경우: 토큰 발급/쿠키 갱신 없이 마이페이지로 리턴 (기존 세션 유지)
-            log.info("Processing Account Link Success (Skipping Token Generation)");
+            // [Security Fix] 연동 모드일 경우에도 새 토큰 발급 (보안 강화)
+            // 기존 토큰이 만료되었을 수 있고, 연동 후 권한이 변경되었을 수 있음
+            log.info("Processing Account Link Success (Refreshing Tokens)");
 
-            // 쿠키 정리 (만료)
+            // 쿠키 정리 (연동 모드 쿠키 만료)
             jakarta.servlet.http.Cookie modeCookie = new jakarta.servlet.http.Cookie(
                     CookieAuthorizationRequestRepository.LINK_MODE_COOKIE_NAME, "");
             modeCookie.setPath("/");
@@ -130,7 +134,37 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             userCookie.setMaxAge(0);
             response.addCookie(userCookie);
 
-            getRedirectStrategy().sendRedirect(request, response, frontendUrl + "/mypage?status=linked");
+            // 새 토큰 발급
+            long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; // 2시간
+            String accessToken = jwtUtil.createJwt(userEmail, role, userId, accessTokenExpiredMs);
+            String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId);
+
+            // Refresh Token DB 저장/갱신
+            RefreshToken existToken = refreshRepository.findByEmail(userEmail);
+            if (existToken == null) {
+                RefreshToken newRefreshToken = new RefreshToken();
+                newRefreshToken.setEmail(userEmail);
+                newRefreshToken.setToken(refreshToken);
+                newRefreshToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
+                refreshRepository.save(newRefreshToken);
+            } else {
+                existToken.setToken(refreshToken);
+                existToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
+                refreshRepository.save(existToken);
+            }
+
+            // 쿠키에 토큰 저장
+            int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);
+            addSameSiteCookie(response, "Authorization", accessToken, accessTokenMaxAge);
+            int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
+            addSameSiteCookie(response, "Refresh", refreshToken, refreshTokenMaxAge);
+
+            // State 데이터 저장 후 리다이렉트
+            OAuth2StateData stateData = new OAuth2StateData(
+                    userEmail, userName, role, profileImageUrl, favoriteTeamId, userHandle);
+            String stateId = oAuth2StateService.saveState(stateData);
+            String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId + "&status=linked";
+            getRedirectStrategy().sendRedirect(request, response, redirectUrl);
             return;
         }
         // -----------------------
@@ -181,8 +215,10 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     }
 
     private void addSameSiteCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
-        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax",
-                name, value, maxAgeSeconds);
+        // [Security Fix] 프로덕션 환경에서는 Secure 플래그 추가
+        String secureFlag = secureCookie ? "; Secure" : "";
+        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax%s",
+                name, value, maxAgeSeconds, secureFlag);
         response.addHeader("Set-Cookie", cookieString);
     }
 }
