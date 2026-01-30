@@ -65,6 +65,9 @@ public class MypageController {
                                         .role(userEntity.getRole())
                                         .bio(userEntity.getBio())
                                         .cheerPoints(userEntity.getCheerPoints())
+                                        .provider(userEntity.getProvider())
+                                        .providerId(userEntity.getProviderId())
+                                        .hasPassword(userEntity.getPassword() != null)
                                         .build();
 
                         // 성공 응답 (HTTP 200 OK)

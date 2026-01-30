@@ -6,7 +6,7 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
  * 사용자 파워업 인벤토리 엔티티
@@ -18,8 +18,7 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@Table(name = "user_powerups",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "powerup_type"}))
+@Table(name = "user_powerups", uniqueConstraints = @UniqueConstraint(columnNames = { "user_id", "powerup_type" }))
 @EntityListeners(AuditingEntityListener.class)
 public class UserPowerup {
 
@@ -40,11 +39,11 @@ public class UserPowerup {
 
     @CreatedDate
     @Column(name = "created_at", updatable = false)
-    private Instant createdAt;
+    private LocalDateTime createdAt;
 
     @LastModifiedDate
     @Column(name = "updated_at")
-    private Instant updatedAt;
+    private LocalDateTime updatedAt;
 
     // ============================================
     // POWERUP TYPE ENUM
@@ -94,6 +93,7 @@ public class UserPowerup {
 
     /**
      * 파워업 사용 (수량 감소)
+     * 
      * @return 사용 가능하면 true, 불가능하면 false
      */
     public boolean use() {
@@ -106,6 +106,7 @@ public class UserPowerup {
 
     /**
      * 파워업 추가
+     * 
      * @param amount 추가 수량
      */
     public void add(int amount) {

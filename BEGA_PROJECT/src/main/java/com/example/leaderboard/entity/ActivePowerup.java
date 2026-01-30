@@ -5,7 +5,7 @@ import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
  * 활성화된 파워업 엔티티
@@ -38,11 +38,11 @@ public class ActivePowerup {
 
     @CreatedDate
     @Column(name = "activated_at", updatable = false)
-    private Instant activatedAt;
+    private LocalDateTime activatedAt;
 
     /** 만료 시간 (null이면 한 번 사용으로 소진) */
     @Column(name = "expires_at")
-    private Instant expiresAt;
+    private LocalDateTime expiresAt;
 
     /** 이미 사용되었는지 여부 */
     @Column(name = "used", nullable = false)
@@ -60,7 +60,7 @@ public class ActivePowerup {
         if (used) {
             return false;
         }
-        if (expiresAt != null && Instant.now().isAfter(expiresAt)) {
+        if (expiresAt != null && LocalDateTime.now().isAfter(expiresAt)) {
             return false;
         }
         return true;
@@ -88,7 +88,7 @@ public class ActivePowerup {
     /**
      * 정적 팩토리 메서드: 시간 제한 파워업 활성화
      */
-    public static ActivePowerup activateWithExpiry(Long userId, UserPowerup.PowerupType type, Instant expiresAt) {
+    public static ActivePowerup activateWithExpiry(Long userId, UserPowerup.PowerupType type, LocalDateTime expiresAt) {
         return ActivePowerup.builder()
                 .userId(userId)
                 .powerupType(type)

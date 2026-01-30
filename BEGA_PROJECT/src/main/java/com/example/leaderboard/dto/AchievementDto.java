@@ -7,7 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
  * 업적 DTO
@@ -27,9 +27,9 @@ public class AchievementDto {
     private String rarityColor;
     private Long pointsRequired;
     private Boolean earned;
-    private Instant earnedAt;
+    private LocalDateTime earnedAt;
 
-    public static AchievementDto from(Achievement achievement, boolean earned, Instant earnedAt) {
+    public static AchievementDto from(Achievement achievement, boolean earned, LocalDateTime earnedAt) {
         return AchievementDto.builder()
                 .id(achievement.getId())
                 .code(achievement.getCode())

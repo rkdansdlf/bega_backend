@@ -6,7 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
  * 최근 점수 획득 이벤트 DTO
@@ -27,7 +27,7 @@ public class RecentScoreDto {
     private Integer score;
     private Integer streak;
     private String description;
-    private Instant timestamp;
+    private LocalDateTime timestamp;
 
     public static RecentScoreDto from(ScoreEvent event, String nickname, String profileImageUrl) {
         return RecentScoreDto.builder()

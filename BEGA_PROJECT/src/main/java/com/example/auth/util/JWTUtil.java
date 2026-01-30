@@ -98,6 +98,11 @@ public class JWTUtil {
         }
     }
 
+    // JWT 만료 시간 추출
+    public Date getExpiration(String token) {
+        return getClaims(token).getExpiration();
+    }
+
     // Refresh Token 만료 시간을 외부에 노출
     public long getRefreshTokenExpirationTime() {
         return refreshExpirationTime;

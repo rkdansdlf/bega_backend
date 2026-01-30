@@ -11,7 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -56,7 +56,7 @@ public class PowerupService {
      */
     @Transactional(readOnly = true)
     public List<ActivePowerupDto> getActivePowerups(Long userId) {
-        return activePowerupRepository.findActiveByUserId(userId, Instant.now()).stream()
+        return activePowerupRepository.findActiveByUserId(userId, LocalDateTime.now()).stream()
                 .map(ActivePowerupDto::from)
                 .toList();
     }
@@ -124,7 +124,7 @@ public class PowerupService {
      */
     @Transactional
     public int cleanupExpiredPowerups() {
-        int count = activePowerupRepository.markExpiredAsUsed(Instant.now());
+        int count = activePowerupRepository.markExpiredAsUsed(LocalDateTime.now());
         if (count > 0) {
             log.info("Marked {} expired powerups as used", count);
         }

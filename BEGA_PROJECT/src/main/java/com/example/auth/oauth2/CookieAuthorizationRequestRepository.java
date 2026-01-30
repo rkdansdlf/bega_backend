@@ -15,7 +15,9 @@ import com.example.auth.util.JWTUtil;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class CookieAuthorizationRequestRepository
@@ -50,30 +52,23 @@ public class CookieAuthorizationRequestRepository
 
         // 1. Authorization Request를 쿠키에 저장합니다.
         String serialized = serialize(authorizationRequest);
-        Cookie cookie = new Cookie(OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME, serialized);
-        cookie.setPath("/");
-        cookie.setHttpOnly(true);
-        cookie.setMaxAge(COOKIE_EXPIRE_SECONDS);
-        response.addCookie(cookie);
+        addCookie(response, OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME, serialized, COOKIE_EXPIRE_SECONDS);
+
+        // DEBUG: Check parameters
+        String modeParam = request.getParameter("mode");
+        String footerParam = request.getParameter("userId");
+        log.debug("saveAuthorizationRequest - mode: {}, userId: {}", modeParam, footerParam);
 
         // 2. 리다이렉트 URI도 쿠키에 저장합니다 (CustomSuccessHandler에서 사용).
         String redirectUriAfterLogin = request.getParameter(REDIRECT_URI_PARAM_COOKIE_NAME);
         if (redirectUriAfterLogin != null && !redirectUriAfterLogin.isBlank()) {
-            Cookie redirectCookie = new Cookie(REDIRECT_URI_PARAM_COOKIE_NAME, redirectUriAfterLogin);
-            redirectCookie.setPath("/");
-            redirectCookie.setHttpOnly(true);
-            redirectCookie.setMaxAge(COOKIE_EXPIRE_SECONDS);
-            response.addCookie(redirectCookie);
+            addCookie(response, REDIRECT_URI_PARAM_COOKIE_NAME, redirectUriAfterLogin, COOKIE_EXPIRE_SECONDS);
         }
 
         // 3. 계정 연동 모드 및 사용자 ID 저장 ('mode', 'userId' 파라미터) -> 쿠키에 저장
         String mode = request.getParameter("mode");
         if (mode != null && !mode.isBlank()) {
-            Cookie modeCookie = new Cookie(LINK_MODE_COOKIE_NAME, mode);
-            modeCookie.setPath("/");
-            modeCookie.setHttpOnly(true);
-            modeCookie.setMaxAge(COOKIE_EXPIRE_SECONDS);
-            response.addCookie(modeCookie);
+            addCookie(response, LINK_MODE_COOKIE_NAME, mode, COOKIE_EXPIRE_SECONDS);
         }
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -81,13 +76,6 @@ public class CookieAuthorizationRequestRepository
         // [Security Fix] Trust only authenticated user for linking
         if (authentication != null && authentication.isAuthenticated() &&
                 !"anonymousUser".equals(authentication.getPrincipal())) {
-
-            // If user is logged in, use their ID for linking
-            // We assume the Principal is CustomUserDetails or similar, but for safety we
-            // sign the ID directly.
-            // Wait, we need the ID. casting principal to CustomUserDetails?
-            // Or just trust that if they are linking, they must be the one logged in.
-            // Let's get the ID from the principal.
 
             Long authUserId = null;
             if (authentication.getPrincipal() instanceof com.example.auth.service.CustomUserDetails) {
@@ -101,18 +89,9 @@ public class CookieAuthorizationRequestRepository
                 // Sign the UserID into a short-lived JWT (5 min)
                 String signedUserIdToken = jwtUtil.createJwt("link-action", "LINK_MODE", authUserId,
                         COOKIE_EXPIRE_SECONDS * 1000L);
-
-                Cookie userIdCookie = new Cookie(LINK_USER_ID_COOKIE_NAME, signedUserIdToken);
-                userIdCookie.setPath("/");
-                userIdCookie.setHttpOnly(true);
-                userIdCookie.setMaxAge(COOKIE_EXPIRE_SECONDS);
-                response.addCookie(userIdCookie);
+                addCookie(response, LINK_USER_ID_COOKIE_NAME, signedUserIdToken, COOKIE_EXPIRE_SECONDS);
             }
         }
-        // If not authenticated, we IGNORE the userId param completely for linking
-        // purposes.
-        // This prevents the vulnerability where an attacker forces a victim's ID via
-        // param.
     }
 
     @Override
@@ -137,6 +116,16 @@ public class CookieAuthorizationRequestRepository
 
     // --- 유틸리티 메서드 ---
 
+    private void addCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
+        org.springframework.http.ResponseCookie cookie = org.springframework.http.ResponseCookie.from(name, value)
+                .path("/")
+                .httpOnly(true)
+                .maxAge(maxAgeSeconds)
+                .sameSite("Lax")
+                .build();
+        response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, cookie.toString());
+    }
+
     private Optional<Cookie> getCookie(HttpServletRequest request, String name) {
         Cookie[] cookies = request.getCookies();
         if (cookies != null) {
@@ -152,10 +141,14 @@ public class CookieAuthorizationRequestRepository
         if (cookies != null) {
             for (Cookie cookie : cookies) {
                 if (cookie.getName().equals(name)) {
-                    cookie.setValue("");
-                    cookie.setPath("/");
-                    cookie.setMaxAge(0); // 즉시 만료
-                    response.addCookie(cookie);
+                    org.springframework.http.ResponseCookie expireCookie = org.springframework.http.ResponseCookie
+                            .from(name, "")
+                            .path("/")
+                            .httpOnly(true)
+                            .maxAge(0)
+                            .sameSite("Lax")
+                            .build();
+                    response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, expireCookie.toString());
                 }
             }
         }

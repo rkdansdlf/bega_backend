@@ -5,7 +5,7 @@ import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
  * 점수 이벤트 기록 엔티티
@@ -57,7 +57,7 @@ public class ScoreEvent {
 
     @CreatedDate
     @Column(name = "created_at", updatable = false)
-    private Instant createdAt;
+    private LocalDateTime createdAt;
 
     // ============================================
     // EVENT TYPE ENUM
@@ -159,7 +159,7 @@ public class ScoreEvent {
      * 파워업 보너스 이벤트 생성
      */
     public static ScoreEvent createPowerUpBonus(Long userId, Long predictionId, String gameId,
-                                                 int originalScore, double multiplier, String powerupName) {
+            int originalScore, double multiplier, String powerupName) {
         int bonusScore = (int) Math.round(originalScore * (multiplier - 1));
 
         return ScoreEvent.builder()

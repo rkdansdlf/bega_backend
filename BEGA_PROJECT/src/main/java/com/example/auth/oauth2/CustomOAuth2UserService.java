@@ -57,7 +57,18 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         }
 
         // 4. 이메일 추출 (필수)
-        String email = oAuth2Response.getEmail();
+        String email;
+        try {
+            email = oAuth2Response.getEmail();
+        } catch (IllegalStateException e) {
+            // Kakao 등 provider별 상세 에러 메시지 전달
+            String errorMsg = e.getMessage();
+            if (errorMsg != null && (errorMsg.startsWith("KAKAO_") || errorMsg.startsWith("NAVER_") || errorMsg.startsWith("GOOGLE_"))) {
+                throw new OAuth2AuthenticationException(errorMsg);
+            }
+            throw new OAuth2AuthenticationException("소셜 로그인 중 이메일 정보를 가져올 수 없습니다: " + e.getMessage());
+        }
+
         if (email == null || email.isEmpty()) {
             throw new OAuth2AuthenticationException("이메일 정보는 필수입니다 (Provider: " + registrationId + ")");
         }
@@ -156,9 +167,21 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             Optional<UserEntity> existingUserOpt = userRepository.findByEmail(email);
 
             if (existingUserOpt.isPresent()) {
-                // A. 기존 사용자가 존재함 -> 계정 자동 연동 (Auto-Link)
-                log.info("Existing Email Found. Auto-linking.");
-                userEntity = existingUserOpt.get();
+                UserEntity existingUser = existingUserOpt.get();
+
+                // [Security Fix] 비밀번호가 있는 계정(일반 회원가입)에 대한 자동 연동 차단
+                // 비밀번호 계정에 소셜 계정을 자동 연동하면 계정 탈취 위험이 있음
+                if (existingUser.getPassword() != null && !existingUser.getPassword().isEmpty()) {
+                    log.warn("Auto-link blocked for password-protected account: {}", email);
+                    throw new OAuth2AuthenticationException(
+                        "ACCOUNT_EXISTS_WITH_PASSWORD:이 이메일은 이미 일반 회원가입으로 등록되어 있습니다. " +
+                        "기존 계정으로 로그인 후 마이페이지에서 소셜 계정을 연동해주세요."
+                    );
+                }
+
+                // OAuth2 계정끼리의 자동 연동은 허용 (기존 동작 유지)
+                log.info("Existing OAuth2 Email Found. Auto-linking.");
+                userEntity = existingUser;
                 linkAccount(userEntity, provider, providerId);
                 // 이름 강제 업데이트 방지
                 updateUser(userEntity, userName);
@@ -193,6 +216,8 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 .provider(provider)
                 .providerId(providerId)
                 .favoriteTeam(null)
+                .uniqueId(java.util.UUID.randomUUID()) // Initialize uniqueId
+                .handle(generateRandomHandle()) // Initialize handle
                 .build();
 
         UserEntity savedUser = userRepository.save(java.util.Objects.requireNonNull(userEntity));
@@ -201,6 +226,13 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         linkAccount(java.util.Objects.requireNonNull(savedUser), provider, providerId);
 
         return savedUser;
+    }
+
+    private String generateRandomHandle() {
+        // Handle max length 15.
+        // Format: u_{random_12_chars}
+        String randomHex = java.util.UUID.randomUUID().toString().replace("-", "");
+        return "u_" + randomHex.substring(0, 12);
     }
 
     private void linkAccount(UserEntity user, String provider, String providerId) {

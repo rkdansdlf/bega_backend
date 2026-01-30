@@ -276,8 +276,16 @@ public class PartyService {
             }
         });
 
-        // 4. 최신순 정렬
-        allParties.sort((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()));
+        // 4. 최신순 정렬 (null 필드 대응)
+        allParties.sort((a, b) -> {
+            if (a.getCreatedAt() == null && b.getCreatedAt() == null)
+                return 0;
+            if (a.getCreatedAt() == null)
+                return 1;
+            if (b.getCreatedAt() == null)
+                return -1;
+            return b.getCreatedAt().compareTo(a.getCreatedAt());
+        });
 
         return allParties.stream()
                 .map(PartyDTO.Response::from)

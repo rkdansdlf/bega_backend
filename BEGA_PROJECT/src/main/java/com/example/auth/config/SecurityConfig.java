@@ -37,18 +37,21 @@ public class SecurityConfig {
         private final CustomSuccessHandler customSuccessHandler;
         private final JWTUtil jwtUtil;
         private final CookieAuthorizationRequestRepository cookieauthorizationrequestRepository;
+        private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
 
         @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost:3000,http://localhost:8080}")
         private String allowedOriginsStr;
 
         public SecurityConfig(CustomOAuth2UserService customOAuth2UserService,
                         CustomSuccessHandler customSuccessHandler, JWTUtil jwtUtil,
-                        CookieAuthorizationRequestRepository cookieauthorizationrequestRepository) {
+                        CookieAuthorizationRequestRepository cookieauthorizationrequestRepository,
+                        com.example.auth.service.TokenBlacklistService tokenBlacklistService) {
 
                 this.customOAuth2UserService = customOAuth2UserService;
                 this.customSuccessHandler = customSuccessHandler;
                 this.jwtUtil = jwtUtil;
                 this.cookieauthorizationrequestRepository = cookieauthorizationrequestRepository;
+                this.tokenBlacklistService = tokenBlacklistService;
         }
 
         @Bean
@@ -100,7 +103,7 @@ public class SecurityConfig {
         public JWTFilter jwtFilter(org.springframework.core.env.Environment env) {
                 boolean isDev = Arrays.asList(env.getActiveProfiles()).contains("dev");
                 List<String> origins = Arrays.asList(allowedOriginsStr.split(","));
-                return new JWTFilter(jwtUtil, isDev, origins);
+                return new JWTFilter(jwtUtil, isDev, origins, tokenBlacklistService);
         }
 
         @Bean
