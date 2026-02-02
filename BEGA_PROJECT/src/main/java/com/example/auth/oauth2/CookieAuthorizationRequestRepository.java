@@ -55,47 +55,73 @@ public class CookieAuthorizationRequestRepository
         String originalState = authorizationRequest.getState();
 
         log.debug("saveAuthorizationRequest - mode: {}, linkToken: {}, state: {}",
-                  mode, linkToken != null ? "present" : "null", originalState);
+                mode, linkToken != null ? "present" : "null", originalState);
 
         // 연동 모드일 경우 원본 state를 key로 사용하여 Redis에 저장
-        if ("link".equals(mode) && linkToken != null) {
+        if ("link".equals(mode)) {
             // [Security Fix] linkToken에서 userId 추출 (프론트엔드에서 사전에 발급받은 토큰)
             Long authUserId = null;
-            try {
-                if (!jwtUtil.isExpired(linkToken)) {
-                    authUserId = jwtUtil.getUserId(linkToken);
-                    // email claim에 저장된 category 확인 (link-action 토큰만 허용)
-                    String category = jwtUtil.getEmail(linkToken);
-                    if (!"link-action".equals(category)) {
-                        log.warn("Invalid link token category: {}", category);
-                        authUserId = null;
+            String failureReason = null;
+
+            if (linkToken != null) {
+                try {
+                    // 1. 토큰 만료 확인
+                    if (jwtUtil.isExpired(linkToken)) {
+                        failureReason = "LINK_TOKEN_EXPIRED";
+                        log.warn("Link token expired");
+                    } else {
+                        // 2. 토큰 타입 확인 (link 타입만 허용)
+                        String tokenType = jwtUtil.getTokenType(linkToken);
+                        if (!"link".equals(tokenType)) {
+                            // 하위 호환성: type claim이 없으면 category 확인 (legacy)
+                            String category = jwtUtil.getEmail(linkToken);
+                            if (!"link-action".equals(category)) {
+                                failureReason = "INVALID_LINK_TOKEN_TYPE";
+                                log.warn("Invalid link token type/category");
+                            }
+                        }
                     }
-                } else {
-                    log.warn("Link token expired");
+
+                    // 3. 사용자 ID 추출 (유효한 경우만)
+                    if (failureReason == null) {
+                        authUserId = jwtUtil.getUserId(linkToken);
+                    }
+
+                } catch (Exception e) {
+                    failureReason = "INVALID_LINK_TOKEN";
+                    log.warn("Failed to validate link token: {}", e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("Failed to validate link token: {}", e.getMessage());
+            } else {
+                failureReason = "MISSING_LINK_TOKEN";
+                log.warn("Link mode requested but missing linkToken");
             }
 
-            if (authUserId != null) {
-                // Redis에 연동 정보 저장 (원본 state를 key로 사용)
-                OAuth2LinkStateData linkData = new OAuth2LinkStateData(
+            // Redis에 연동 정보(또는 실패 정보) 저장
+            OAuth2LinkStateData linkData = new OAuth2LinkStateData(
                     mode,
                     authUserId,
                     redirectUriParam,
-                    System.currentTimeMillis()
-                );
-                // 원본 state를 key로 사용하여 저장
-                oAuth2LinkStateService.saveLinkByState(originalState, linkData);
+                    System.currentTimeMillis(),
+                    failureReason // [Security Fix] 실패 사유 저장
+            );
 
-                log.info("Saved OAuth2 link state to Redis: state={}, userId={}", originalState, authUserId);
-            } else {
-                log.warn("Link mode requested but invalid or missing linkToken");
-            }
+            // 원본 state를 key로 사용하여 저장
+            oAuth2LinkStateService.saveLinkByState(originalState, linkData);
+            log.info("Saved OAuth2 link state to Redis: state={}, userId={}, failure={}",
+                    originalState, authUserId, failureReason);
         }
 
         // 2. Authorization Request를 쿠키에 저장합니다 (state 수정 없이 원본 그대로).
-        String serialized = serialize(authorizationRequest);
+        // [Strict Mode] Link 모드인 경우 Request Attribute에 표기하여 Cookie에 저장
+        // (Redis 데이터가 만료되더라도 요청 의도를 파악하기 위함)
+        OAuth2AuthorizationRequest requestToSave = authorizationRequest;
+        if ("link".equals(mode)) {
+            requestToSave = OAuth2AuthorizationRequest.from(authorizationRequest)
+                    .attributes(attrs -> attrs.put("mode", "link"))
+                    .build();
+        }
+
+        String serialized = serialize(requestToSave);
         addCookie(response, OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME, serialized, COOKIE_EXPIRE_SECONDS);
 
         // 3. 리다이렉트 URI도 쿠키에 저장합니다 (CustomSuccessHandler에서 사용).

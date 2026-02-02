@@ -405,6 +405,8 @@ public class UserService {
         return userProviderRepository.findByUserId(userId).stream()
                 .map(provider -> com.example.mypage.dto.UserProviderDto.builder()
                         .provider(provider.getProvider())
+                        .providerId(provider.getProviderId())
+                        .email(provider.getEmail())
                         .connectedAt(provider.getConnectedAt() != null
                                 ? java.time.format.DateTimeFormatter.ISO_INSTANT.format(provider.getConnectedAt())
                                 : null)

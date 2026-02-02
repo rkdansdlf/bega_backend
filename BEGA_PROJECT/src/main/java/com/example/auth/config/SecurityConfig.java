@@ -148,6 +148,9 @@ public class SecurityConfig {
                                                 .requestMatchers("/api/auth/signup", "/api/auth/reissue").permitAll()
                                                 .requestMatchers("/api/test/**").permitAll()
                                                 .requestMatchers("/api/auth/oauth2/state/**").permitAll()
+                                                // [Security Fix] 링크 토큰 발급은 인증 필수
+                                                .requestMatchers("/api/auth/link-token").authenticated()
+                                                // 나머지 auth 관련 경로는 허용 (주의: 구체적인 경로를 위에 선언해야 함)
                                                 .requestMatchers("/api/auth/**", "/oauth2/**", "/login/**", "/error",
                                                                 "/api/diary/public/**")
                                                 .permitAll()

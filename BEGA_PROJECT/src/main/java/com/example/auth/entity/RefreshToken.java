@@ -23,6 +23,7 @@ public class RefreshToken {
     private String email;
 
     // 리프레시 토큰
+    @jakarta.persistence.Column(length = 1024)
     private String token;
 
     // 만료 시간

@@ -11,5 +11,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class UserProviderDto {
     private String provider;
+    private String providerId;
+    private String email;
     private String connectedAt;
 }

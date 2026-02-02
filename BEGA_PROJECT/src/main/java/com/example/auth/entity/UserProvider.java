@@ -30,6 +30,9 @@ public class UserProvider {
     @Column(name = "providerid", nullable = false)
     private String providerId;
 
+    @Column(name = "email")
+    private String email;
+
     @Column(name = "connected_at")
     private Instant connectedAt;
 
