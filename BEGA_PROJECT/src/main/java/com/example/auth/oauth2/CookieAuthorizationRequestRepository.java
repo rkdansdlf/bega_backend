@@ -11,9 +11,8 @@ import java.util.Base64;
 
 import java.util.Arrays;
 import java.util.Optional;
-import com.example.auth.util.JWTUtil;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
+import com.example.bega.auth.dto.OAuth2LinkStateData;
+import com.example.bega.auth.service.OAuth2LinkStateService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -23,13 +22,12 @@ import lombok.extern.slf4j.Slf4j;
 public class CookieAuthorizationRequestRepository
         implements AuthorizationRequestRepository<OAuth2AuthorizationRequest> {
 
-    private final JWTUtil jwtUtil;
+    private final OAuth2LinkStateService oAuth2LinkStateService;
+    private final com.example.auth.util.JWTUtil jwtUtil;
 
     // 쿠키 이름 정의
     public static final String OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME = "oauth2_auth_request";
     public static final String REDIRECT_URI_PARAM_COOKIE_NAME = "redirect_uri";
-    public static final String LINK_MODE_COOKIE_NAME = "oauth2_link_mode";
-    public static final String LINK_USER_ID_COOKIE_NAME = "oauth2_link_user_id";
     // 쿠키 만료 시간 (초 단위)
     private static final int COOKIE_EXPIRE_SECONDS = 300; // 5분
 
@@ -50,47 +48,59 @@ public class CookieAuthorizationRequestRepository
             return;
         }
 
-        // 1. Authorization Request를 쿠키에 저장합니다.
-        String serialized = serialize(authorizationRequest);
-        addCookie(response, OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME, serialized, COOKIE_EXPIRE_SECONDS);
-
-        // DEBUG: Check parameters
-        String modeParam = request.getParameter("mode");
-        String footerParam = request.getParameter("userId");
-        log.debug("saveAuthorizationRequest - mode: {}, userId: {}", modeParam, footerParam);
-
-        // 2. 리다이렉트 URI도 쿠키에 저장합니다 (CustomSuccessHandler에서 사용).
-        String redirectUriAfterLogin = request.getParameter(REDIRECT_URI_PARAM_COOKIE_NAME);
-        if (redirectUriAfterLogin != null && !redirectUriAfterLogin.isBlank()) {
-            addCookie(response, REDIRECT_URI_PARAM_COOKIE_NAME, redirectUriAfterLogin, COOKIE_EXPIRE_SECONDS);
-        }
-
-        // 3. 계정 연동 모드 및 사용자 ID 저장 ('mode', 'userId' 파라미터) -> 쿠키에 저장
+        // 1. 계정 연동 모드 확인
         String mode = request.getParameter("mode");
-        if (mode != null && !mode.isBlank()) {
-            addCookie(response, LINK_MODE_COOKIE_NAME, mode, COOKIE_EXPIRE_SECONDS);
-        }
+        String linkToken = request.getParameter("linkToken");
+        String redirectUriParam = request.getParameter(REDIRECT_URI_PARAM_COOKIE_NAME);
+        String originalState = authorizationRequest.getState();
 
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        log.debug("saveAuthorizationRequest - mode: {}, linkToken: {}, state: {}",
+                  mode, linkToken != null ? "present" : "null", originalState);
 
-        // [Security Fix] Trust only authenticated user for linking
-        if (authentication != null && authentication.isAuthenticated() &&
-                !"anonymousUser".equals(authentication.getPrincipal())) {
-
+        // 연동 모드일 경우 원본 state를 key로 사용하여 Redis에 저장
+        if ("link".equals(mode) && linkToken != null) {
+            // [Security Fix] linkToken에서 userId 추출 (프론트엔드에서 사전에 발급받은 토큰)
             Long authUserId = null;
-            if (authentication.getPrincipal() instanceof com.example.auth.service.CustomUserDetails) {
-                authUserId = ((com.example.auth.service.CustomUserDetails) authentication.getPrincipal()).getId();
-            } else if (authentication.getPrincipal() instanceof com.example.auth.dto.CustomOAuth2User) {
-                authUserId = ((com.example.auth.dto.CustomOAuth2User) authentication.getPrincipal()).getUserDto()
-                        .getId();
+            try {
+                if (!jwtUtil.isExpired(linkToken)) {
+                    authUserId = jwtUtil.getUserId(linkToken);
+                    // email claim에 저장된 category 확인 (link-action 토큰만 허용)
+                    String category = jwtUtil.getEmail(linkToken);
+                    if (!"link-action".equals(category)) {
+                        log.warn("Invalid link token category: {}", category);
+                        authUserId = null;
+                    }
+                } else {
+                    log.warn("Link token expired");
+                }
+            } catch (Exception e) {
+                log.warn("Failed to validate link token: {}", e.getMessage());
             }
 
             if (authUserId != null) {
-                // Sign the UserID into a short-lived JWT (5 min)
-                String signedUserIdToken = jwtUtil.createJwt("link-action", "LINK_MODE", authUserId,
-                        COOKIE_EXPIRE_SECONDS * 1000L);
-                addCookie(response, LINK_USER_ID_COOKIE_NAME, signedUserIdToken, COOKIE_EXPIRE_SECONDS);
+                // Redis에 연동 정보 저장 (원본 state를 key로 사용)
+                OAuth2LinkStateData linkData = new OAuth2LinkStateData(
+                    mode,
+                    authUserId,
+                    redirectUriParam,
+                    System.currentTimeMillis()
+                );
+                // 원본 state를 key로 사용하여 저장
+                oAuth2LinkStateService.saveLinkByState(originalState, linkData);
+
+                log.info("Saved OAuth2 link state to Redis: state={}, userId={}", originalState, authUserId);
+            } else {
+                log.warn("Link mode requested but invalid or missing linkToken");
             }
+        }
+
+        // 2. Authorization Request를 쿠키에 저장합니다 (state 수정 없이 원본 그대로).
+        String serialized = serialize(authorizationRequest);
+        addCookie(response, OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME, serialized, COOKIE_EXPIRE_SECONDS);
+
+        // 3. 리다이렉트 URI도 쿠키에 저장합니다 (CustomSuccessHandler에서 사용).
+        if (redirectUriParam != null && !redirectUriParam.isBlank()) {
+            addCookie(response, REDIRECT_URI_PARAM_COOKIE_NAME, redirectUriParam, COOKIE_EXPIRE_SECONDS);
         }
     }
 
@@ -108,10 +118,6 @@ public class CookieAuthorizationRequestRepository
     public void removeAuthorizationRequestCookies(HttpServletRequest request, HttpServletResponse response) {
         deleteCookie(request, response, OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME);
         deleteCookie(request, response, REDIRECT_URI_PARAM_COOKIE_NAME);
-        // deleteCookie(request, response, LINK_MODE_COOKIE_NAME); //
-        // CustomSuccessHandler에서 처리
-        // deleteCookie(request, response, LINK_USER_ID_COOKIE_NAME); //
-        // CustomSuccessHandler에서 처리
     }
 
     // --- 유틸리티 메서드 ---

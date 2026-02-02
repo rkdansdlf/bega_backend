@@ -179,4 +179,64 @@ public class APIController {
         }
         return ResponseEntity.ok(data);
     }
+
+    /**
+     * OAuth2 계정 연동을 위한 Link Token 발급
+     * - 인증된 사용자만 호출 가능
+     * - 5분 유효의 단기 토큰 반환
+     * - 이 토큰을 OAuth2 리다이렉트 URL에 포함하여 연동 모드 활성화
+     */
+    @GetMapping("/link-token")
+    public ResponseEntity<?> generateLinkToken(HttpServletRequest request) {
+        // JWT 쿠키에서 사용자 정보 추출
+        String accessToken = null;
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if ("Authorization".equals(cookie.getName())) {
+                    accessToken = cookie.getValue();
+                    break;
+                }
+            }
+        }
+
+        if (accessToken == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("로그인이 필요합니다."));
+        }
+
+        try {
+            // 토큰 검증 및 사용자 ID 추출
+            if (userService.getJWTUtil().isExpired(accessToken)) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error("토큰이 만료되었습니다. 다시 로그인해주세요."));
+            }
+
+            Long userId = userService.getJWTUtil().getUserId(accessToken);
+            if (userId == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error("유효하지 않은 토큰입니다."));
+            }
+
+            // 5분 유효의 Link Token 생성
+            String linkToken = userService.getJWTUtil().createJwt(
+                    "link-action",  // category
+                    "LINK_MODE",    // role
+                    userId,         // userId
+                    5 * 60 * 1000L  // 5분
+            );
+
+            log.info("Link token generated for userId: {}", userId);
+
+            return ResponseEntity.ok(Map.of(
+                    "linkToken", linkToken,
+                    "expiresIn", 300  // 5분 (초)
+            ));
+
+        } catch (Exception e) {
+            log.error("Failed to generate link token: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("토큰 생성에 실패했습니다."));
+        }
+    }
 }
