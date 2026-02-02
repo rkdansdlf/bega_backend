@@ -16,12 +16,12 @@ repositories {
 	mavenCentral()
 }
 
-dependencies {
-	implementation 'org.springframework.boot:spring-boot-starter-web'
-	implementation 'org.springframework.boot:spring-boot-starter-web-services'
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-	developmentOnly 'org.springframework.boot:spring-boot-devtools'
+	dependencies {
+		implementation 'org.springframework.boot:spring-boot-starter-web'
+		implementation 'org.springframework.boot:spring-boot-starter-web-services'
+		testImplementation 'org.springframework.boot:spring-boot-starter-test'
+		testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+		developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
     implementation 'nz.net.ultraq.thymeleaf:thymeleaf-layout-dialect'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa' // 카피바라의 마법도구 JPA
@@ -42,6 +42,10 @@ dependencies {
 	implementation 'com.mysql:mysql-connector-j'
 	implementation 'org.postgresql:postgresql:42.6.0'
 	runtimeOnly 'org.postgresql:postgresql'
+    
+    // Flyway for DB Migration
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-oracle'
 
     // Oracle Autonomous Database
     implementation('com.oracle.database.jdbc:ojdbc11-production:23.7.0.25.01') {
@@ -73,8 +77,12 @@ dependencies {
 
     // 이미지 처리 (압축, 리사이징)
     implementation 'net.coobird:thumbnailator:0.4.20'
-    implementation 'com.twelvemonkeys.imageio:imageio-webp:3.12.0' // WebP support
-    implementation 'com.twelvemonkeys.imageio:imageio-core:3.12.0' // Explicit core dependency
+    implementation 'com.twelvemonkeys.imageio:imageio-webp:3.12.0'
+    implementation 'com.twelvemonkeys.imageio:imageio-core:3.12.0'
+    implementation 'com.twelvemonkeys.imageio:imageio-metadata:3.12.0'
+    implementation 'com.twelvemonkeys.common:common-image:3.12.0'
+    implementation 'com.twelvemonkeys.common:common-io:3.12.0'
+    implementation 'com.twelvemonkeys.common:common-lang:3.12.0'
     runtimeOnly 'io.netty:netty-resolver-dns-native-macos:4.1.115.Final:osx-aarch_64' // Fix MacOS Netty DNS warning
     
     // JobRunr (DB-backed Queue)
@@ -84,6 +92,9 @@ dependencies {
     // AWS S3 (for OCI Object Storage)
     implementation platform('software.amazon.awssdk:bom:2.21.1')
     implementation 'software.amazon.awssdk:s3'
+
+    // H2 Database for Testing
+    testRuntimeOnly 'com.h2database:h2'
 }
 
 tasks.named('test') {
@@ -92,5 +103,5 @@ tasks.named('test') {
 
 // Increase memory for bootRun to avoid exit code 137 (OOM)
 tasks.named('bootRun') {
-    jvmArgs = ["-Xmx2048m"]
+    jvmArgs = ["-Xmx4096m"]
 }

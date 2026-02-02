@@ -9,7 +9,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface CheerBookmarkRepo extends JpaRepository<CheerPostBookmark, CheerPostBookmark.Id> {
-    @EntityGraph(attributePaths = { "post", "post.author", "post.team" })
+    @EntityGraph(attributePaths = { "post", "post.author", "post.team", "post.repostOf", "post.repostOf.author",
+            "post.repostOf.team" })
     Page<CheerPostBookmark> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
     List<CheerPostBookmark> findByUserIdAndPostIdIn(Long userId, List<Long> postIds);

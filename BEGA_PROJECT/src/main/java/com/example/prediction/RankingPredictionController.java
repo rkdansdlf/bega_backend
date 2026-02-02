@@ -80,11 +80,7 @@ public class RankingPredictionController {
 		RankingPredictionResponseDto prediction = rankingPredictionService.getPrediction(principal.getName(),
 				seasonYear);
 
-		if (prediction != null) {
-			return ResponseEntity.ok(prediction);
-		} else {
-			return ResponseEntity.notFound().build();
-		}
+		return ResponseEntity.ok(prediction);
 	}
 
 	// 공유용 예측 조회 (로그인 불필요)

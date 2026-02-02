@@ -14,9 +14,11 @@ import java.time.LocalDateTime;
 /**
  * 프랜차이즈(구단) 엔티티
  *
- * <p>KBO 구단의 역사를 관리하는 엔티티입니다.
+ * <p>
+ * KBO 구단의 역사를 관리하는 엔티티입니다.
  * 팀 명칭이 변경되어도 프랜차이즈는 동일하게 유지됩니다.
- * 예: 히어로즈(2008~2014) → 넥센히어로즈(2015~2018) → 키움히어로즈(2019~현재)</p>
+ * 예: 히어로즈(2008~2014) → 넥센히어로즈(2015~2018) → 키움히어로즈(2019~현재)
+ * </p>
  */
 @Entity
 @Table(name = "team_franchises")
@@ -53,7 +55,7 @@ public class TeamFranchiseEntity {
     private LocalDateTime updatedAt;
 
     // 메타데이터 (JSON 형태, 추가 정보 저장용)
-    @JdbcTypeCode(SqlTypes.JSON)
+    @JdbcTypeCode(SqlTypes.CLOB)
     @Column(name = "metadata_json")
     private String metadataJson;
 

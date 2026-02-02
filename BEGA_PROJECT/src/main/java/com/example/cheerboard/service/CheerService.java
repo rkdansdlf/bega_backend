@@ -12,6 +12,8 @@ import com.example.cheerboard.dto.CreatePostReq;
 import com.example.cheerboard.dto.UpdatePostReq;
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.dto.PostDetailRes;
+import com.example.cheerboard.dto.PostLightweightSummaryRes;
+import com.example.cheerboard.dto.PostChangesResponse;
 import com.example.cheerboard.dto.CreateCommentReq;
 import com.example.cheerboard.dto.CommentRes;
 import com.example.cheerboard.dto.LikeToggleResponse;
@@ -128,12 +130,16 @@ public class CheerService {
         // (findByTeamIdAndPostType)
         // 정렬 조건이 없으면(기본) Notice Pinning 로직 사용 (findAllOrderByPostTypeAndCreatedAt)
         // 단, findAllOrderByPostTypeAndCreatedAt는 postType 필터링 추가됨
+        // [NEW] 차단 유저 ID 목록 (내가 차단한 유저 + 나를 차단한 유저)
+        java.util.Set<Long> excludedIds = getExcludedUserIds();
+        log.debug("List - excludedIds size: {}", excludedIds.size());
+
         if (hasSort && pageable.getSort().stream().anyMatch(order -> !order.getProperty().equals("createdAt"))) {
-            page = postRepo.findByTeamIdAndPostType(teamId, postType, pageable);
+            page = postRepo.findByTeamIdAndPostType(teamId, postType, excludedIds, pageable);
         } else {
             // 공지사항 상단 고정 정책: 최근 3일 이내의 공지사항만 상단에 고정
             java.time.Instant cutoffDate = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS);
-            page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, postType, cutoffDate, pageable);
+            page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, postType, cutoffDate, excludedIds, pageable);
         }
 
         List<Long> postIds = page.hasContent()
@@ -144,6 +150,13 @@ public class CheerService {
                 ? Collections.emptyMap()
                 : imageService.getPostImageUrlsByPostIds(postIds);
 
+        // 리포스트 원본 이미지 벌크 프리페치
+        Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(page.getContent());
+
+        // Redis 배치 조회 (조회수, HOT 상태)
+        Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(postIds);
+        Map<Long, Boolean> hotStatusMap = redisPostService.getCachedHotStatuses(postIds);
+
         UserEntity me = current.getOrNull();
         Set<Long> bookmarkedPostIds = new HashSet<>();
         Set<Long> likedPostIds = new HashSet<>();
@@ -152,11 +165,9 @@ public class CheerService {
             List<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             bookmarkedPostIds = bookmarks.stream().map(b -> b.getId().getPostId()).collect(Collectors.toSet());
 
-            // 좋아요 여부 조회
             List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
 
-            // 리포스트 여부 조회
             List<CheerPostRepost> reposts = repostRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             repostedPostIds = reposts.stream().map(r -> r.getId().getPostId()).collect(Collectors.toSet());
         }
@@ -170,13 +181,16 @@ public class CheerService {
             boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
-                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls);
+                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls,
+                    viewCountMap, hotStatusMap, repostImageUrls);
         });
     }
 
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> search(String q, String teamId, Pageable pageable) {
-        Page<CheerPost> page = postRepo.search(q, teamId, pageable);
+        // [NEW] 차단 유저 ID 목록
+        java.util.Set<Long> excludedIds = getExcludedUserIds();
+        Page<CheerPost> page = postRepo.search(q, teamId, excludedIds, pageable);
 
         List<Long> postIds = page.hasContent()
                 ? Objects.requireNonNull(page.getContent()).stream().map(CheerPost::getId).toList()
@@ -186,6 +200,10 @@ public class CheerService {
                 ? Collections.emptyMap()
                 : imageService.getPostImageUrlsByPostIds(postIds);
 
+        Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(page.getContent());
+        Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(postIds);
+        Map<Long, Boolean> hotStatusMap = redisPostService.getCachedHotStatuses(postIds);
+
         UserEntity me = current.getOrNull();
         Set<Long> bookmarkedPostIds = new HashSet<>();
         Set<Long> likedPostIds = new HashSet<>();
@@ -197,7 +215,6 @@ public class CheerService {
             List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
 
-            // 리포스트 여부 조회
             List<CheerPostRepost> reposts = repostRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             repostedPostIds = reposts.stream().map(r -> r.getId().getPostId()).collect(Collectors.toSet());
         }
@@ -211,7 +228,8 @@ public class CheerService {
             boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
-                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls);
+                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls,
+                    viewCountMap, hotStatusMap, repostImageUrls);
         });
     }
 
@@ -226,13 +244,19 @@ public class CheerService {
             return new PageImpl<PostSummaryRes>(Objects.requireNonNull(emptyList), Objects.requireNonNull(pageable), 0);
         }
 
-        List<CheerPost> posts = postRepo.findAllById(hotPostIds);
-        // Redis 순서(점수 높은 순)를 유지하기 위해 정렬
+        List<CheerPost> posts = postRepo.findAllByIdWithGraph(hotPostIds);
+
+        // [NEW] 차단 유저 필터링 (메모리 내 필터링 - Hot ID 목록은 Redis에서 오므로)
+        UserEntity me = current.getOrNull();
+        java.util.Set<Long> excludedIds = getExcludedUserIds();
+
+        // Redis 순서(점수 높은 순)를 유지하기 위해 정렬 및 차단 필터링
         Map<Long, CheerPost> postMap = posts.stream()
                 .collect(Collectors.toMap(CheerPost::getId, Function.identity()));
         List<CheerPost> sortedPosts = hotPostIds.stream()
                 .map(postMap::get)
                 .filter(Objects::nonNull)
+                .filter(post -> !excludedIds.contains(post.getAuthor().getId())) // 차단 필터
                 .toList();
 
         // [Optimized] 이미지 Bulk 조회 (N+1 방지)
@@ -241,17 +265,39 @@ public class CheerService {
                 ? Collections.emptyMap()
                 : imageService.getPostImageUrlsByPostIds(postIds);
 
-        // DTO 변환 로직
-        UserEntity me = current.getOrNull();
+        // 리포스트 원본 이미지 벌크 프리페치
+        Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(sortedPosts);
+
+        // Redis 배치 조회 (조회수, HOT 상태)
+        Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(postIds);
+        Map<Long, Boolean> hotStatusMap = redisPostService.getCachedHotStatuses(postIds);
+
+        // [Optimized] 벌크 좋아요/북마크/리포스트 조회 (N+1 방지)
+        Set<Long> likedPostIds = new HashSet<>();
+        Set<Long> bookmarkedPostIds = new HashSet<>();
+        Set<Long> repostedPostIds = new HashSet<>();
+        if (me != null && !postIds.isEmpty()) {
+            List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
+
+            List<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            bookmarkedPostIds = bookmarks.stream().map(b -> b.getId().getPostId()).collect(Collectors.toSet());
+
+            List<CheerPostRepost> reposts = repostRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
+            repostedPostIds = reposts.stream().map(r -> r.getId().getPostId()).collect(Collectors.toSet());
+        }
+
+        final Set<Long> finalLikes = likedPostIds;
+        final Set<Long> finalBookmarks = bookmarkedPostIds;
+        final Set<Long> finalReposts = repostedPostIds;
+
         List<PostSummaryRes> content = sortedPosts.stream()
                 .map(post -> {
-                    boolean liked = me != null && isPostLikedByUser(post.getId(), me.getId());
-                    boolean isBookmarked = me != null && isPostBookmarkedByUser(post.getId(), me.getId());
                     boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
-                    boolean repostedByMe = me != null && isPostRepostedByUser(post.getId(), me.getId());
-
                     List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
-                    return postDtoMapper.toPostSummaryRes(post, liked, isBookmarked, isOwner, repostedByMe, imageUrls);
+                    return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
+                            finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()),
+                            imageUrls, viewCountMap, hotStatusMap, repostImageUrls);
                 })
                 .collect(Collectors.toList());
 
@@ -274,6 +320,22 @@ public class CheerService {
         return post.getViews() + (redisViews != null ? redisViews : 0);
     }
 
+    /**
+     * 리포스트 원본 게시글의 이미지 URL을 벌크 프리페치
+     */
+    private Map<Long, List<String>> prefetchRepostOriginalImages(List<CheerPost> posts) {
+        List<Long> repostOriginalIds = posts.stream()
+                .filter(CheerPost::isRepost)
+                .map(CheerPost::getRepostOf)
+                .filter(Objects::nonNull)
+                .map(CheerPost::getId)
+                .distinct()
+                .toList();
+        return repostOriginalIds.isEmpty()
+                ? Collections.emptyMap()
+                : imageService.getPostImageUrlsByPostIds(repostOriginalIds);
+    }
+
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> listByUserHandle(String handle, Pageable pageable) {
         Page<CheerPost> page = postRepo.findByAuthor_HandleOrderByCreatedAtDesc(handle, pageable);
@@ -286,6 +348,10 @@ public class CheerService {
                 ? Collections.emptyMap()
                 : imageService.getPostImageUrlsByPostIds(postIds);
 
+        Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(page.getContent());
+        Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(postIds);
+        Map<Long, Boolean> hotStatusMap = redisPostService.getCachedHotStatuses(postIds);
+
         UserEntity me = current.getOrNull();
         Set<Long> bookmarkedPostIds = new HashSet<>();
         Set<Long> likedPostIds = new HashSet<>();
@@ -294,11 +360,9 @@ public class CheerService {
             List<CheerPostBookmark> bookmarks = bookmarkRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             bookmarkedPostIds = bookmarks.stream().map(b -> b.getId().getPostId()).collect(Collectors.toSet());
 
-            // 좋아요 여부 조회
             List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
 
-            // 리포스트 여부 조회
             List<CheerPostRepost> reposts = repostRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             repostedPostIds = reposts.stream().map(r -> r.getId().getPostId()).collect(Collectors.toSet());
         }
@@ -312,7 +376,8 @@ public class CheerService {
             boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
-                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls);
+                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls,
+                    viewCountMap, hotStatusMap, repostImageUrls);
         });
     }
 
@@ -347,6 +412,10 @@ public class CheerService {
                 ? Collections.emptyMap()
                 : imageService.getPostImageUrlsByPostIds(postIds);
 
+        Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(page.getContent());
+        Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(postIds);
+        Map<Long, Boolean> hotStatusMap = redisPostService.getCachedHotStatuses(postIds);
+
         Set<Long> bookmarkedPostIds = new HashSet<>();
         Set<Long> likedPostIds = new HashSet<>();
         Set<Long> repostedPostIds = new HashSet<>();
@@ -357,7 +426,6 @@ public class CheerService {
             List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
 
-            // 리포스트 여부 조회
             List<CheerPostRepost> reposts = repostRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             repostedPostIds = reposts.stream().map(r -> r.getId().getPostId()).collect(Collectors.toSet());
         }
@@ -371,7 +439,8 @@ public class CheerService {
             boolean isOwner = permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
-                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls);
+                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls,
+                    viewCountMap, hotStatusMap, repostImageUrls);
         });
     }
 
@@ -379,6 +448,11 @@ public class CheerService {
     public PostDetailRes get(Long id) {
         UserEntity me = current.getOrNull();
         CheerPost post = findPostById(id);
+
+        // [NEW] 차단 관계 확인
+        if (me != null && blockService.hasBidirectionalBlock(me.getId(), post.getAuthor().getId())) {
+            throw new IllegalStateException("차단된 사용자의 게시글은 조회할 수 없습니다.");
+        }
 
         increaseViewCount(id, post, me);
 
@@ -514,7 +588,6 @@ public class CheerService {
         CheerPost post = CheerPost.builder()
                 .author(author)
                 .team(team)
-                .title(req.title())
                 .content(req.content())
                 .postType(postType)
                 .build();
@@ -541,7 +614,6 @@ public class CheerService {
      * 게시글 내용 업데이트
      */
     private void updatePostContent(CheerPost post, UpdatePostReq req) {
-        post.setTitle(req.title());
         post.setContent(req.content());
     }
 
@@ -570,6 +642,9 @@ public class CheerService {
     public LikeToggleResponse toggleLike(Long postId) {
         UserEntity me = current.get();
         CheerPost post = findPostById(postId);
+
+        // [NEW] 차단 관계 확인 (양방향)
+        validateNoBlockBetween(me.getId(), post.getAuthor().getId(), "좋아요를 누를 수 없습니다.");
 
         // 좋아요는 모든 팀에서 허용
 
@@ -612,19 +687,22 @@ public class CheerService {
 
             // 게시글 작성자에게 알림 (본인이 아닐 때만)
             if (!author.getId().equals(me.getId())) {
-                try {
-                    String authorName = me.getName() != null && !me.getName().isBlank()
-                            ? me.getName()
-                            : me.getEmail();
+                boolean isBlocked = blockService.hasBidirectionalBlock(me.getId(), author.getId());
+                if (!isBlocked) {
+                    try {
+                        String authorName = me.getName() != null && !me.getName().isBlank()
+                                ? me.getName()
+                                : me.getEmail();
 
-                    notificationService.createNotification(
-                            Objects.requireNonNull(post.getAuthor().getId()),
-                            com.example.notification.entity.Notification.NotificationType.POST_LIKE,
-                            "좋아요 알림",
-                            authorName + "님이 회원님의 게시글을 좋아합니다.",
-                            post.getId());
-                } catch (Exception e) {
-                    log.warn("좋아요 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
+                        notificationService.createNotification(
+                                Objects.requireNonNull(post.getAuthor().getId()),
+                                com.example.notification.entity.Notification.NotificationType.POST_LIKE,
+                                "좋아요 알림",
+                                authorName + "님이 회원님의 게시글을 좋아합니다.",
+                                post.getId());
+                    } catch (Exception e) {
+                        log.warn("좋아요 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
+                    }
                 }
             }
         }
@@ -706,7 +784,7 @@ public class CheerService {
                     .team(original.getTeam())
                     .repostOf(original)
                     .repostType(CheerPost.RepostType.SIMPLE)
-                    .title("Repost: " + original.getTitle())
+                    // title removed
                     .content(null)
                     .postType(PostType.NORMAL)
                     .build();
@@ -788,7 +866,7 @@ public class CheerService {
                 .team(original.getTeam())
                 .repostOf(original)
                 .repostType(CheerPost.RepostType.QUOTE)
-                .title(req.title() != null && !req.title().isBlank() ? req.title() : "Quote: " + original.getTitle())
+                // title removed
                 .content(req.content()) // 사용자가 작성한 의견
                 .postType(PostType.NORMAL)
                 .build();
@@ -885,6 +963,12 @@ public class CheerService {
                 ? Collections.emptyMap()
                 : imageService.getPostImageUrlsByPostIds(postIds);
 
+        List<CheerPost> bookmarkedPosts = bookmarks.getContent().stream()
+                .map(CheerPostBookmark::getPost).toList();
+        Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(bookmarkedPosts);
+        Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(postIds);
+        Map<Long, Boolean> hotStatusMap = redisPostService.getCachedHotStatuses(postIds);
+
         final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
 
         Set<Long> likedPostIds = new HashSet<>();
@@ -893,7 +977,6 @@ public class CheerService {
             List<CheerPostLike> likes = likeRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             likedPostIds = likes.stream().map(l -> l.getId().getPostId()).collect(Collectors.toSet());
 
-            // 리포스트 여부 조회
             List<CheerPostRepost> reposts = repostRepo.findByUserIdAndPostIdIn(me.getId(), postIds);
             repostedPostIds = reposts.stream().map(r -> r.getId().getPostId()).collect(Collectors.toSet());
         }
@@ -904,7 +987,8 @@ public class CheerService {
             boolean isOwner = permissionValidator.isOwnerOrAdmin(me, b.getPost().getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(b.getPost().getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(b.getPost(), finalLikes.contains(b.getPost().getId()), true, isOwner,
-                    finalReposts.contains(b.getPost().getId()), imageUrls);
+                    finalReposts.contains(b.getPost().getId()), imageUrls,
+                    viewCountMap, hotStatusMap, repostImageUrls);
         });
     }
 
@@ -962,6 +1046,10 @@ public class CheerService {
     public CommentRes addComment(Long postId, CreateCommentReq req) {
         UserEntity me = current.get();
         CheerPost post = findPostById(postId);
+
+        // [NEW] 차단 관계 확인
+        validateNoBlockBetween(me.getId(), post.getAuthor().getId(), "차단 관계가 있어 댓글을 작성할 수 없습니다.");
+
         permissionValidator.validateTeamAccess(me, post.getTeamId(), "댓글 작성");
 
         // AI Moderation 체크
@@ -979,19 +1067,22 @@ public class CheerService {
 
         // 게시글 작성자에게 알림 (본인이 아닐 때만)
         if (!post.getAuthor().getId().equals(me.getId())) {
-            try {
-                String authorName = me.getName() != null && !me.getName().isBlank()
-                        ? me.getName()
-                        : me.getEmail();
+            boolean isBlocked = blockService.hasBidirectionalBlock(me.getId(), post.getAuthor().getId());
+            if (!isBlocked) {
+                try {
+                    String authorName = me.getName() != null && !me.getName().isBlank()
+                            ? me.getName()
+                            : me.getEmail();
 
-                notificationService.createNotification(
-                        post.getAuthor().getId(),
-                        com.example.notification.entity.Notification.NotificationType.POST_COMMENT,
-                        "새 댓글",
-                        authorName + "님이 회원님의 게시글에 댓글을 남겼습니다.",
-                        post.getId());
-            } catch (Exception e) {
-                log.warn("댓글 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
+                    notificationService.createNotification(
+                            post.getAuthor().getId(),
+                            com.example.notification.entity.Notification.NotificationType.POST_COMMENT,
+                            "새 댓글",
+                            authorName + "님이 회원님의 게시글에 댓글을 남겼습니다.",
+                            post.getId());
+                } catch (Exception e) {
+                    log.warn("댓글 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
+                }
             }
         }
 
@@ -1168,6 +1259,10 @@ public class CheerService {
         CheerPost post = findPostById(postId);
         CheerComment parentComment = findCommentById(parentCommentId);
 
+        // [NEW] 차단 관계 확인
+        validateNoBlockBetween(me.getId(), post.getAuthor().getId(), "원글 작성자와 차단 관계가 있어 답글을 작성할 수 없습니다.");
+        validateNoBlockBetween(me.getId(), parentComment.getAuthor().getId(), "댓글 작성자와 차단 관계가 있어 답글을 작성할 수 없습니다.");
+
         // 부모 댓글이 해당 게시글에 속하는지 확인
         if (!parentComment.getPost().getId().equals(postId)) {
             throw new IllegalArgumentException("부모 댓글이 해당 게시글에 속하지 않습니다.");
@@ -1243,6 +1338,104 @@ public class CheerService {
 
         if (isDuplicate) {
             throw new IllegalStateException("중복된 댓글입니다. 잠시 후 다시 시도해주세요.");
+        }
+    }
+
+    /**
+     * 경량 게시글 목록 조회 (최소 데이터만 포함)
+     * - 페이로드 최소화를 위한 경량 버전
+     * - summary=true 파라미터 사용 시 호출
+     */
+    @Transactional(readOnly = true)
+    public Page<PostLightweightSummaryRes> listLightweight(String teamId, String postTypeStr, Pageable pageable) {
+        if (teamId != null && !teamId.isBlank()) {
+            UserEntity me = current.getOrNull();
+            if (me == null) {
+                throw new AuthenticationCredentialsNotFoundException("로그인 후 마이팀 게시판을 이용할 수 있습니다.");
+            }
+            permissionValidator.validateTeamAccess(me, teamId, "게시글 조회");
+        }
+
+        // PostType 필터링 적용
+        PostType postType = null;
+        if (postTypeStr != null && !postTypeStr.isBlank()) {
+            try {
+                postType = PostType.valueOf(postTypeStr);
+            } catch (IllegalArgumentException e) {
+                // 무시하고 전체 조회
+            }
+        }
+
+        Page<CheerPost> page;
+        boolean hasSort = pageable.getSort().isSorted();
+
+        // [NEW] 차단 유저 ID 목록
+        java.util.Set<Long> excludedIds = getExcludedUserIds();
+
+        if (hasSort && pageable.getSort().stream().anyMatch(order -> !order.getProperty().equals("createdAt"))) {
+            page = postRepo.findByTeamIdAndPostType(teamId, postType, excludedIds, pageable);
+        } else {
+            java.time.Instant cutoffDate = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS);
+            page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, postType, cutoffDate, excludedIds, pageable);
+        }
+
+        List<Long> postIds = page.hasContent()
+                ? page.getContent().stream().map(CheerPost::getId).toList()
+                : Collections.emptyList();
+
+        Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
+                ? Collections.emptyMap()
+                : imageService.getPostImageUrlsByPostIds(postIds);
+
+        final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
+
+        return page.map(post -> {
+            List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
+            return postDtoMapper.toPostLightweightSummaryRes(post, imageUrls);
+        });
+    }
+
+    /**
+     * 새 게시글 변경사항 체크 (폴링용 경량 엔드포인트)
+     * - 특정 ID 이후의 새 게시글 수와 최신 ID만 반환
+     * - 최소 데이터 전송으로 효율적인 폴링 지원
+     */
+    @Transactional(readOnly = true)
+    public PostChangesResponse checkPostChanges(Long sinceId, String teamId) {
+        if (teamId != null && !teamId.isBlank()) {
+            UserEntity me = current.getOrNull();
+            if (me == null) {
+                throw new AuthenticationCredentialsNotFoundException("로그인 후 마이팀 게시판을 이용할 수 있습니다.");
+            }
+            permissionValidator.validateTeamAccess(me, teamId, "게시글 조회");
+        }
+
+        int newCount = postRepo.countNewPostsSince(sinceId != null ? sinceId : 0L, teamId);
+        Long latestId = postRepo.findLatestPostId(teamId);
+
+        return new PostChangesResponse(newCount, latestId);
+    }
+
+    /**
+     * [NEW] 차단 등으로 제외해야 할 유저 ID 목록 조회
+     */
+    private java.util.Set<Long> getExcludedUserIds() {
+        UserEntity me = current.getOrNull();
+        if (me == null)
+            return java.util.Collections.emptySet();
+
+        java.util.Set<Long> excluded = new java.util.HashSet<>();
+        excluded.addAll(blockService.getBlockedIds(me.getId()));
+        excluded.addAll(blockService.getBlockerIds(me.getId()));
+        return excluded;
+    }
+
+    /**
+     * [NEW] 차단 관계 확인 및 예외 발생
+     */
+    private void validateNoBlockBetween(Long user1, Long user2, String message) {
+        if (blockService.hasBidirectionalBlock(user1, user2)) {
+            throw new IllegalStateException(message);
         }
     }
 }

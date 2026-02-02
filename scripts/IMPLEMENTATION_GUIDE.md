@@ -419,9 +419,16 @@ If you encounter issues:
 4. Review entity mappings: Ensure column names match exactly
 5. Rollback if needed: Use `rollback_fixes.sql` and git checkout
 
-**Database Connection String:**
+**Database Connection String (Oracle):**
 ```bash
 # From .env file
-DB_URL=jdbc:postgresql://aws-1-ap-northeast-2.pooler.supabase.com:6543/postgres
-DB_USERNAME=postgres.zyofzvnkputevakepbdm
+SPRING_DATASOURCE_URL=jdbc:oracle:thin:@your-oracle-host:1521/yourdb
+SPRING_DATASOURCE_USERNAME=your_db_username
+SPRING_DATASOURCE_PASSWORD=your_db_password
+```
+
+**Supabase (migration only):**  
+Supabase 무료 플랜 용량 한계로 인해 OCI로 전환했으며, 아래 설정은 마이그레이션/검증 용도로만 유지합니다.
+```bash
+SUPABASE_DB_URL=postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
 ```

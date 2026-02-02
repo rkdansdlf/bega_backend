@@ -1,2 +1,12 @@
--- Add repost_count column to cheer_post table
-ALTER TABLE cheer_post ADD COLUMN repostcount INTEGER NOT NULL DEFAULT 0;
+-- Add repostcount column to cheer_post table
+-- Oracle compatible version with existence check
+
+BEGIN
+  EXECUTE IMMEDIATE 'ALTER TABLE cheer_post ADD (repostcount NUMBER(10,0) DEFAULT 0 NOT NULL)';
+EXCEPTION
+  WHEN OTHERS THEN
+    IF SQLCODE != -1430 THEN -- ORA-01430: column being added already exists in table
+      RAISE;
+    END IF;
+END;
+/

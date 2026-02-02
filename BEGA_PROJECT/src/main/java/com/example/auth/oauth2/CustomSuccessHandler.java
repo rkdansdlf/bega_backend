@@ -36,6 +36,9 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     @Value("${app.frontend.url:http://localhost:3000}")
     private String frontendUrl;
 
+    @Value("${app.cookie.secure:false}")
+    private boolean secureCookie;
+
     public CustomSuccessHandler(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository,
             @org.springframework.context.annotation.Lazy com.example.auth.service.UserService userService,
             OAuth2StateService oAuth2StateService) {
@@ -85,52 +88,45 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         }
 
         // --- 계정 연동 모드 체크 ---
-        // 세션 확인 (CookieAuthorizationRequestRepository -> CustomOAuth2UserService ->
-        // 여기서도 확인 가능하도록 세션 유지 필요)
-        // 주의: CustomOAuth2UserService에서 이미 한번 확인하고 처리했지만,
-        // 여기서도 리다이렉트 분기를 위해 확인이 필요하다면 세션에서 값을 가져와야 함.
-        // 다만 CustomOAuth2UserService에서 처리가 끝나면 세션 속성을 지우도록 로직을 짰다면 여기서 확인이 안 될 수 있음.
-        // 따라서 CustomOAuth2UserService에서 성공 시 'oauth2_link_success' 같은 플래그를 request 속성에
-        // 담는 것이 더 안전함.
-        // 하지만 간단하게 세션 값을 CustomOAuth2UserService에서 지우지 않도록 하고, 여기서 지우는 방식으로 변경하거나
-        // 혹은 CustomSuccessHandler가 먼저 실행되지 않으므로(UserRequest -> Provider -> Service ->
-        // SuccessHandler 순),
-        // Service에서 처리 후 SuccessHandler로 넘어옴.
-
-        // 전략 수정: CustomOAuth2UserService에서는 로직만 수행하고,
-        // SuccessHandler에서 최종 리다이렉트를 결정하기 위해 쿠키 값을 확인하고 여기서 삭제함.
-
-        String linkMode = null;
-        jakarta.servlet.http.Cookie[] cookies = request.getCookies();
-        if (cookies != null) {
-            for (jakarta.servlet.http.Cookie cookie : cookies) {
-                if (CookieAuthorizationRequestRepository.LINK_MODE_COOKIE_NAME.equals(cookie.getName())) {
-                    linkMode = cookie.getValue();
-                    break;
-                }
-            }
-        }
-
-        boolean isLinkMode = "link".equals(linkMode);
+        // state 파라미터에서 연동 모드 확인 (| 포함 여부)
+        boolean isLinkMode = checkLinkModeFromState(request);
 
         if (isLinkMode) {
-            // 연동 모드일 경우: 토큰 발급/쿠키 갱신 없이 마이페이지로 리턴 (기존 세션 유지)
-            log.info("Processing Account Link Success (Skipping Token Generation)");
+            // [Security Fix] 연동 모드일 경우에도 새 토큰 발급 (보안 강화)
+            // 기존 토큰이 만료되었을 수 있고, 연동 후 권한이 변경되었을 수 있음
+            log.info("Processing Account Link Success (Refreshing Tokens)");
 
-            // 쿠키 정리 (만료)
-            jakarta.servlet.http.Cookie modeCookie = new jakarta.servlet.http.Cookie(
-                    CookieAuthorizationRequestRepository.LINK_MODE_COOKIE_NAME, "");
-            modeCookie.setPath("/");
-            modeCookie.setMaxAge(0);
-            response.addCookie(modeCookie);
+            // 새 토큰 발급
+            long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; // 2시간
+            String accessToken = jwtUtil.createJwt(userEmail, role, userId, accessTokenExpiredMs);
+            String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId);
 
-            jakarta.servlet.http.Cookie userCookie = new jakarta.servlet.http.Cookie(
-                    CookieAuthorizationRequestRepository.LINK_USER_ID_COOKIE_NAME, "");
-            userCookie.setPath("/");
-            userCookie.setMaxAge(0);
-            response.addCookie(userCookie);
+            // Refresh Token DB 저장/갱신
+            RefreshToken existToken = refreshRepository.findByEmail(userEmail);
+            if (existToken == null) {
+                RefreshToken newRefreshToken = new RefreshToken();
+                newRefreshToken.setEmail(userEmail);
+                newRefreshToken.setToken(refreshToken);
+                newRefreshToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
+                refreshRepository.save(newRefreshToken);
+            } else {
+                existToken.setToken(refreshToken);
+                existToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
+                refreshRepository.save(existToken);
+            }
 
-            getRedirectStrategy().sendRedirect(request, response, frontendUrl + "/mypage?status=linked");
+            // 쿠키에 토큰 저장
+            int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);
+            addSameSiteCookie(response, "Authorization", accessToken, accessTokenMaxAge);
+            int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
+            addSameSiteCookie(response, "Refresh", refreshToken, refreshTokenMaxAge);
+
+            // State 데이터 저장 후 리다이렉트
+            OAuth2StateData stateData = new OAuth2StateData(
+                    userEmail, userName, role, profileImageUrl, favoriteTeamId, userHandle);
+            String stateId = oAuth2StateService.saveState(stateData);
+            String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId + "&status=linked";
+            getRedirectStrategy().sendRedirect(request, response, redirectUrl);
             return;
         }
         // -----------------------
@@ -181,8 +177,22 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     }
 
     private void addSameSiteCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
-        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax",
-                name, value, maxAgeSeconds);
+        // [Security Fix] 프로덕션 환경에서는 Secure 플래그 추가
+        String secureFlag = secureCookie ? "; Secure" : "";
+        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax%s",
+                name, value, maxAgeSeconds, secureFlag);
         response.addHeader("Set-Cookie", cookieString);
+    }
+
+    /**
+     * state 파라미터에서 연동 모드 여부 확인
+     * state에 | 가 포함되어 있으면 연동 모드
+     */
+    private boolean checkLinkModeFromState(HttpServletRequest request) {
+        String state = request.getParameter("state");
+        if (state == null) {
+            return false;
+        }
+        return state.contains("|");
     }
 }

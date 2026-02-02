@@ -287,9 +287,17 @@ public class BegaDiaryService {
 
         // --- New Logic Start ---
 
-        // 1. Sort diaries by date for streak analysis
+        // 1. Sort diaries by date for streak analysis (null-safe)
         List<BegaDiary> sortedDiaries = new ArrayList<>(diaries);
-        sortedDiaries.sort((d1, d2) -> d1.getDiaryDate().compareTo(d2.getDiaryDate()));
+        sortedDiaries.sort((d1, d2) -> {
+            if (d1.getDiaryDate() == null && d2.getDiaryDate() == null)
+                return 0;
+            if (d1.getDiaryDate() == null)
+                return 1;
+            if (d2.getDiaryDate() == null)
+                return -1;
+            return d1.getDiaryDate().compareTo(d2.getDiaryDate());
+        });
 
         // 2. Streak Analysis
         int currentWinStreak = 0;
@@ -332,7 +340,7 @@ public class BegaDiaryService {
         // Assuming current user's favorite team is consistent for simplicity
         // In a real scenario, we might want to store "my team" in the diary entity
         UserEntity user = userRepository.findById(userId).orElse(null);
-        String myTeamCode = user != null && user.getFavoriteTeam() != null ? user.getFavoriteTeam().getTeamName() : "";
+        String myTeamCode = (user != null && user.getFavoriteTeam() != null) ? user.getFavoriteTeam().getTeamId() : "";
         if (myTeamCode == null)
             myTeamCode = "";
 

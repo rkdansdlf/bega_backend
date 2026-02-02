@@ -48,8 +48,7 @@ public class CheerPost {
     @JoinColumn(name = "author_id", nullable = false)
     private UserEntity author;
 
-    @Column(nullable = false, length = 100)
-    private String title;
+    // title removed
 
     @Lob
     @Column(nullable = true) // 단순 리포스트는 내용 없음

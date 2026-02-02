@@ -37,18 +37,21 @@ public class SecurityConfig {
         private final CustomSuccessHandler customSuccessHandler;
         private final JWTUtil jwtUtil;
         private final CookieAuthorizationRequestRepository cookieauthorizationrequestRepository;
+        private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
 
         @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost:3000,http://localhost:8080}")
         private String allowedOriginsStr;
 
         public SecurityConfig(CustomOAuth2UserService customOAuth2UserService,
                         CustomSuccessHandler customSuccessHandler, JWTUtil jwtUtil,
-                        CookieAuthorizationRequestRepository cookieauthorizationrequestRepository) {
+                        CookieAuthorizationRequestRepository cookieauthorizationrequestRepository,
+                        com.example.auth.service.TokenBlacklistService tokenBlacklistService) {
 
                 this.customOAuth2UserService = customOAuth2UserService;
                 this.customSuccessHandler = customSuccessHandler;
                 this.jwtUtil = jwtUtil;
                 this.cookieauthorizationrequestRepository = cookieauthorizationrequestRepository;
+                this.tokenBlacklistService = tokenBlacklistService;
         }
 
         @Bean
@@ -100,7 +103,7 @@ public class SecurityConfig {
         public JWTFilter jwtFilter(org.springframework.core.env.Environment env) {
                 boolean isDev = Arrays.asList(env.getActiveProfiles()).contains("dev");
                 List<String> origins = Arrays.asList(allowedOriginsStr.split(","));
-                return new JWTFilter(jwtUtil, isDev, origins);
+                return new JWTFilter(jwtUtil, isDev, origins, tokenBlacklistService);
         }
 
         @Bean
@@ -143,14 +146,17 @@ public class SecurityConfig {
                                 .authorizeHttpRequests((auth) -> auth
                                                 .requestMatchers("/api/auth/login").permitAll()
                                                 .requestMatchers("/api/auth/signup", "/api/auth/reissue").permitAll()
+                                                .requestMatchers("/api/test/**").permitAll()
                                                 .requestMatchers("/api/auth/oauth2/state/**").permitAll()
+                                                // [Security Fix] 링크 토큰 발급은 인증 필수
+                                                .requestMatchers("/api/auth/link-token").authenticated()
+                                                // 나머지 auth 관련 경로는 허용 (주의: 구체적인 경로를 위에 선언해야 함)
                                                 .requestMatchers("/api/auth/**", "/oauth2/**", "/login/**", "/error",
                                                                 "/api/diary/public/**")
                                                 .permitAll()
-                                                .requestMatchers("/actuator/**").hasAnyRole("ADMIN", "SUPER_ADMIN") // Actuator
-                                                                                                                    // 엔드포인트
-                                                                                                                    // 보안
-                                                                                                                    // 강화
+                                                .requestMatchers("/actuator/health").permitAll() // Health check는 공개
+                                                .requestMatchers("/actuator/**").hasAnyRole("ADMIN", "SUPER_ADMIN") // 나머지는
+                                                                                                                    // 관리자만
                                                 .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN") // 관리자
                                                                                                                      // 권한
                                                                                                                      // 필요

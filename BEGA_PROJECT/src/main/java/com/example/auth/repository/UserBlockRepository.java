@@ -29,11 +29,12 @@ public interface UserBlockRepository extends JpaRepository<UserBlock, Id> {
     List<Long> findBlockerIdsByBlockedId(@Param("userId") Long userId);
 
     // 차단 수
-    long countByBlockerId(Long blockerId);
+    @Query("SELECT COUNT(ub) FROM UserBlock ub WHERE ub.id.blockerId = :blockerId")
+    long countByBlockerId(@Param("blockerId") Long blockerId);
 
     // 양방향 차단 관계 확인 (상대방이 나를 차단했는지 또는 내가 상대방을 차단했는지)
     @Query("SELECT CASE WHEN COUNT(ub) > 0 THEN true ELSE false END FROM UserBlock ub " +
-            "WHERE (ub.blocker.id = :userId1 AND ub.blocked.id = :userId2) " +
-            "OR (ub.blocker.id = :userId2 AND ub.blocked.id = :userId1)")
+            "WHERE (ub.id.blockerId = :userId1 AND ub.id.blockedId = :userId2) " +
+            "OR (ub.id.blockerId = :userId2 AND ub.id.blockedId = :userId1)")
     boolean existsBidirectionalBlock(@Param("userId1") Long userId1, @Param("userId2") Long userId2);
 }

@@ -2,7 +2,6 @@ package com.example.auth.service;
 
 import java.util.Map;
 import java.util.Optional;
-import java.time.Instant;
 import java.time.ZoneId;
 import java.time.LocalDateTime;
 
@@ -235,7 +234,7 @@ public class UserService {
         }
 
         // 로그인 시간 갱신
-        user.setLastLoginDate(Instant.now());
+        user.setLastLoginDate(LocalDateTime.now());
         userRepository.save(user);
     }
 
@@ -339,30 +338,28 @@ public class UserService {
     /**
      * 비밀번호 변경 (일반 로그인 사용자만)
      */
+    /**
+     * 비밀번호 변경 (소셜 로그인 사용자도 비밀번호 설정 가능)
+     */
     @Transactional
     public void changePassword(Long userId, String currentPassword, String newPassword) {
         UserEntity user = findUserById(userId);
 
-        // OAuth2 사용자 체크
-        if (user.isOAuth2User()) {
-            throw new IllegalStateException("소셜 로그인 사용자는 비밀번호를 변경할 수 없습니다.");
-        }
-
-        // 현재 비밀번호가 없는 경우 (소셜 로그인 후 로컬 연동 등)
-        if (user.getPassword() == null) {
-            throw new IllegalStateException("비밀번호가 설정되어 있지 않습니다.");
-        }
-
-        // 현재 비밀번호 검증
-        if (!bCryptPasswordEncoder.matches(currentPassword, user.getPassword())) {
-            throw new InvalidCredentialsException("현재 비밀번호가 일치하지 않습니다.");
+        // 현재 비밀번호가 설정되어 있는 경우에만 검증
+        if (user.getPassword() != null) {
+            if (currentPassword == null || currentPassword.isEmpty()) {
+                throw new IllegalArgumentException("현재 비밀번호를 입력해주세요.");
+            }
+            if (!bCryptPasswordEncoder.matches(currentPassword, user.getPassword())) {
+                throw new InvalidCredentialsException("현재 비밀번호가 일치하지 않습니다.");
+            }
         }
 
         // 새 비밀번호 암호화 및 저장
         user.setPassword(bCryptPasswordEncoder.encode(newPassword));
         userRepository.save(user);
 
-        log.info("Password changed for user ID: {}", userId);
+        log.info("Password changed/set for user ID: {}", userId);
     }
 
     /**
@@ -408,6 +405,8 @@ public class UserService {
         return userProviderRepository.findByUserId(userId).stream()
                 .map(provider -> com.example.mypage.dto.UserProviderDto.builder()
                         .provider(provider.getProvider())
+                        .providerId(provider.getProviderId())
+                        .email(provider.getEmail())
                         .connectedAt(provider.getConnectedAt() != null
                                 ? java.time.format.DateTimeFormatter.ISO_INSTANT.format(provider.getConnectedAt())
                                 : null)
@@ -492,8 +491,20 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     public com.example.auth.dto.PublicUserProfileDto getPublicUserProfileByHandle(String handle) {
-        UserEntity user = userRepository.findByHandle(handle)
-                .orElseThrow(() -> new UserNotFoundException("handle", handle));
+        // 1. First, try finding exactly as requested
+        java.util.Optional<UserEntity> userOpt = userRepository.findByHandle(handle);
+
+        // 2. If not found, try alternative format (with/without @)
+        if (userOpt.isEmpty()) {
+            if (handle.startsWith("@")) {
+                userOpt = userRepository.findByHandle(handle.substring(1));
+            } else {
+                userOpt = userRepository.findByHandle("@" + handle);
+            }
+        }
+
+        UserEntity user = userOpt.orElseThrow(() -> new UserNotFoundException("handle", handle));
+
         return com.example.auth.dto.PublicUserProfileDto.builder()
                 .id(user.getId())
                 .name(user.getName())

@@ -6,7 +6,7 @@ import lombok.*;
 import jakarta.persistence.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import java.util.UUID;
@@ -45,7 +45,7 @@ public class UserEntity {
     private String password;
 
     // 프로필 이미지 URL (MyPageService에서 사용됨)
-    @Column(name = "profile_image_url", length = 512)
+    @Column(name = "profile_image_url", length = 2048)
     private String profileImageUrl;
 
     // 사용자 권한
@@ -77,12 +77,12 @@ public class UserEntity {
 
     // 마지막 로그인 일시
     @Column(name = "last_login_date")
-    private Instant lastLoginDate;
+    private LocalDateTime lastLoginDate;
 
     // 가입일자
     @CreatedDate
     @Column(name = "created_at", updatable = false, nullable = false)
-    private Instant createdAt;
+    private LocalDateTime createdAt;
 
     // OAuth2 제공자 (LOCAL, GOOGLE, KAKAO 등) - Deprecated (Use providers list)
     private String provider;

@@ -5,6 +5,8 @@ import com.example.common.ratelimit.RateLimit;
 import com.example.cheerboard.dto.UpdatePostReq;
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.dto.PostDetailRes;
+import com.example.cheerboard.dto.PostLightweightSummaryRes;
+import com.example.cheerboard.dto.PostChangesResponse;
 import com.example.cheerboard.dto.CreateCommentReq;
 import com.example.cheerboard.dto.CommentRes;
 import com.example.cheerboard.dto.LikeToggleResponse;
@@ -30,17 +32,42 @@ public class CheerController {
     private final com.example.cheerboard.service.CheerBattleService battleService;
 
     @GetMapping("/posts")
-    public Page<PostSummaryRes> list(
+    public ResponseEntity<?> list(
             @RequestParam(required = false) String teamId,
             @RequestParam(required = false) String postType,
+            @RequestParam(required = false, defaultValue = "false") boolean summary,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        return svc.list(teamId, postType, pageable);
+        if (summary) {
+            // Return lightweight response with minimal data
+            Page<PostLightweightSummaryRes> lightweightPage = svc.listLightweight(teamId, postType, pageable);
+            return ResponseEntity.ok(lightweightPage);
+        } else {
+            // Return full response (backwards compatible)
+            Page<PostSummaryRes> fullPage = svc.list(teamId, postType, pageable);
+            return ResponseEntity.ok(fullPage);
+        }
     }
 
     @GetMapping("/posts/hot")
     public Page<PostSummaryRes> listHot(
             @PageableDefault(size = 20) Pageable pageable) {
         return svc.getHotPosts(pageable);
+    }
+
+    /**
+     * 게시글 변경사항 체크 (폴링용 경량 엔드포인트)
+     * - 특정 ID 이후의 새 게시글 수와 최신 ID만 반환
+     * - 최소 페이로드로 효율적인 폴링 지원
+     *
+     * @param sinceId 마지막으로 확인한 게시글 ID
+     * @param teamId 팀 필터 (선택사항)
+     * @return 새 게시글 수와 최신 게시글 ID
+     */
+    @GetMapping("/posts/changes")
+    public PostChangesResponse checkChanges(
+            @RequestParam(required = false) Long sinceId,
+            @RequestParam(required = false) String teamId) {
+        return svc.checkPostChanges(sinceId, teamId);
     }
 
     /**

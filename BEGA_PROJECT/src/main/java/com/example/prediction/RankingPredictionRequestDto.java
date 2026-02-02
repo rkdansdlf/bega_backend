@@ -2,15 +2,19 @@ package com.example.prediction;
 
 import java.util.List;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 
 @Getter
-@NoArgsConstructor
-@AllArgsConstructor
 public class RankingPredictionRequestDto {
 
 	private int seasonYear;
 	private List<String> teamIdsInOrder;
+
+	public int getSeasonYear() {
+		return seasonYear;
+	}
+
+	public List<String> getTeamIdsInOrder() {
+		return teamIdsInOrder;
+	}
 }

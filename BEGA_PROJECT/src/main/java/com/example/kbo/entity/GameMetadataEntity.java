@@ -46,7 +46,13 @@ public class GameMetadataEntity {
     @Column(name = "weather", length = 50)
     private String weather;
 
-    @JdbcTypeCode(SqlTypes.JSON)
+    @JdbcTypeCode(SqlTypes.CLOB)
     @Column(name = "source_payload")
     private String sourcePayload;
+
+    @Column(name = "created_at")
+    private java.time.LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
+    private java.time.LocalDateTime updatedAt;
 }

@@ -158,7 +158,7 @@ management:
       base-path: /actuator
   endpoint:
     health:
-      show-details: when-authorized
+      show-details: always
       probes:
         enabled: true
   health:
@@ -166,6 +166,8 @@ management:
       enabled: true
     diskspace:
       enabled: true
+    mail:
+      enabled: false
 
 ---
 # 'dev' 프로필: 개발 환경 (PostgreSQL - Supabase OCI 사용)
@@ -174,10 +176,10 @@ spring:
     activate:
       on-profile: dev
   datasource:
-    driver-class-name: oracle.jdbc.OracleDriver
-    url: ${SPRING_DATASOURCE_URL}
-    username: ${SPRING_DATASOURCE_USERNAME}
-    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     hikari:
       maximum-pool-size: 10
       minimum-idle: 2
@@ -185,7 +187,7 @@ spring:
       validation-timeout: 5000
       idle-timeout: 300000
       max-lifetime: 1200000
-      connection-test-query: SELECT 1 FROM DUAL
+      connection-test-query: SELECT 1
   jpa:
     generate-ddl: false
     hibernate:
@@ -193,7 +195,8 @@ spring:
     defer-datasource-initialization: true # EntityManagerFactory 초기화 전에 스크립트 실행
   sql:
     init:
-      mode: always # schema.sql 실행
+      mode: always # Missing table creation
+      schema-locations: classpath:schema-postgresql.sql
       naming:
         physical-strategy: org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy
     properties:
@@ -206,7 +209,7 @@ spring:
           use_jdbc_metadata_defaults: false
 
 ---
-# 'prod' 프로필: 배포 환경 (PostgreSQL 사용)
+# 'prod' 프로필: 배포 환경 (Oracle Autonomous DB 사용)
 spring:
   config:
     activate:
@@ -217,27 +220,45 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME}}
     password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD}}
     hikari:
-      maximum-pool-size: 30 # JobRunr + Web 요청 감당을 위해 증설
-      minimum-idle: 2
-      connection-timeout: 60000
+      maximum-pool-size: 30
+      minimum-idle: 10
+      connection-timeout: 30000
       validation-timeout: 5000
       initialization-fail-timeout: -1
       idle-timeout: 600000
       max-lifetime: 1800000
+      keepalive-time: 45000
       connection-test-query: SELECT 1 FROM DUAL
-      leak-detection-threshold: 60000
-      pool-name: HikariPool-KBO-Prod
+      leak-detection-threshold: 30000
+      pool-name: KBO-Prod-Pool
+      data-source-properties:
+        oracle.jdbc.defaultRowPrefetch: "100"
+        oracle.jdbc.implicitCachingEnabled: "true"
+        oracle.jdbc.maxStatementsLimit: "100"
+        oracle.jdbc.autoCommitSpecCompliant: "false"
+        oracle.jdbc.timezoneAsRegion: "false"
+        oracle.net.CONNECT_TIMEOUT: "10000"
+        oracle.net.READ_TIMEOUT: "30000"
+
   jpa:
+    show-sql: false # Production should not log SQL by default
     hibernate:
-
-      ddl-auto: none # Disable DDL auto-operations for production (schema already exists)
-
+      ddl-auto: none # Disable DDL auto-operations for production
       naming:
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
     properties:
       hibernate:
-        jdbc:
-          time_zone: UTC
+        format_sql: false
+  logging:
+    level:
+      org.hibernate.SQL: INFO
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    validate-on-migrate: false
+    locations: classpath:db/migration
+    ignore-missing-migrations: true
 
 
 

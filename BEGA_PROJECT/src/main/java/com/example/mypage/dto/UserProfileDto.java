@@ -45,4 +45,8 @@ public class UserProfileDto {
     // 응원 포인트
     @com.fasterxml.jackson.annotation.JsonProperty("cheerPoints")
     private Integer cheerPoints;
+
+    private String provider;
+    private String providerId;
+    private boolean hasPassword;
 }

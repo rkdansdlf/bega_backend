@@ -18,16 +18,23 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+@lombok.extern.slf4j.Slf4j
 public class JWTFilter extends OncePerRequestFilter {
 
     private final com.example.auth.util.JWTUtil jwtUtil;
     private final boolean isDev;
     private final List<String> allowedOrigins;
+    private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
 
-    public JWTFilter(com.example.auth.util.JWTUtil jwtUtil, boolean isDev, List<String> allowedOrigins) {
+    // localhost IP 주소 목록 (Debug 헤더 허용)
+    private static final List<String> LOCALHOST_IPS = List.of("127.0.0.1", "::1", "0:0:0:0:0:0:0:1");
+
+    public JWTFilter(com.example.auth.util.JWTUtil jwtUtil, boolean isDev, List<String> allowedOrigins,
+            com.example.auth.service.TokenBlacklistService tokenBlacklistService) {
         this.jwtUtil = jwtUtil;
         this.isDev = isDev;
         this.allowedOrigins = allowedOrigins;
+        this.tokenBlacklistService = tokenBlacklistService;
     }
 
     @Override
@@ -105,8 +112,23 @@ public class JWTFilter extends OncePerRequestFilter {
 
         String token = authorization;
 
+        // [Security Fix] 블랙리스트 확인 (로그아웃된 토큰)
+        if (tokenBlacklistService != null && tokenBlacklistService.isBlacklisted(token)) {
+            log.debug("Blacklisted token rejected");
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         // 토큰 소멸 시간 검증
         if (jwtUtil.isExpired(token)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        // [Security Fix] 링크 토큰의 인증 사용 방지
+        String tokenType = jwtUtil.getTokenType(token);
+        if ("link".equals(tokenType)) {
+            log.warn("Link token rejected for authentication");
             filterChain.doFilter(request, response);
             return;
         }
@@ -117,17 +139,31 @@ public class JWTFilter extends OncePerRequestFilter {
             String role = jwtUtil.getRole(token);
             Long userId = jwtUtil.getUserId(token);
 
+            // [Security Fix] 레거시 링크 토큰(claim 없음) 방지
+            if ("LINK_MODE".equals(role)) {
+                log.warn("Legacy Link token rejected for authentication");
+                filterChain.doFilter(request, response);
+                return;
+            }
+
             if (userId == null) {
                 filterChain.doFilter(request, response);
                 return;
             }
 
             // ✅ DB 조회 없이 Authentication 객체 생성
-            // 🐛 Dev Toggle: 개발 환경에서 X-Debug-Role 헤더가 있으면 해당 권한 사용
+            // [Security Fix] Dev Toggle: localhost에서만 Debug 헤더 허용
             if (isDev) {
                 String debugRole = request.getHeader("X-Debug-Role");
                 if (debugRole != null && !debugRole.isBlank()) {
-                    role = debugRole;
+                    String remoteAddr = request.getRemoteAddr();
+                    if (LOCALHOST_IPS.contains(remoteAddr)) {
+                        log.warn("Dev Mode: Role Override {} -> {} from localhost", role, debugRole);
+                        role = debugRole;
+                    } else {
+                        log.error("Unauthorized Debug Role Override Attempt from IP: {}", remoteAddr);
+                        // 외부 IP에서의 Debug 헤더 시도는 무시하고 원래 role 유지
+                    }
                 }
             }
 
@@ -143,7 +179,7 @@ public class JWTFilter extends OncePerRequestFilter {
 
         } catch (Exception e) {
             // 토큰 파싱 실패 또는 만료 등 인증 실패 시 로그 출력
-            System.err.println("Authentication Failed: " + e.getMessage());
+            log.error("JWT Authentication Failed: {}", e.getMessage());
         }
 
         filterChain.doFilter(request, response);

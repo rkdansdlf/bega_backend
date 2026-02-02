@@ -86,7 +86,7 @@ public class StorageConfig {
     }
 
     public int getSignedUrlTtlSeconds() {
-        return 3600;
+        return 518400; // 6 days (S3/OCI SigV4 max is 7 days)
     }
 
     public long getMaxImageBytes() {

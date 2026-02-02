@@ -17,6 +17,10 @@ import java.util.Date;
 @Component
 public class JWTUtil {
 
+    private static final String TOKEN_TYPE_CLAIM = "token_type";
+    private static final String TYPE_ACCESS = "access";
+    private static final String TYPE_LINK = "link";
+
     private final String secret;
     private final SecretKey secretKey;
     private final long refreshExpirationTime;
@@ -39,6 +43,7 @@ public class JWTUtil {
     // Access Token 생성
     public String createJwt(String email, String role, Long userId, long expiredMs) {
         return Jwts.builder()
+                .claim(TOKEN_TYPE_CLAIM, TYPE_ACCESS)
                 .claim("email", email)
                 .claim("role", role)
                 .claim("user_id", userId)
@@ -48,9 +53,23 @@ public class JWTUtil {
                 .compact();
     }
 
+    // Link Token 생성 (계정 연동용)
+    public String createLinkToken(Long userId, long expiredMs) {
+        return Jwts.builder()
+                .claim(TOKEN_TYPE_CLAIM, TYPE_LINK)
+                .claim("user_id", userId)
+                .claim("role", "LINK_MODE") // 호환성을 위해 유지하되, Filter에서 type 체크로 차단됨
+                .claim("email", "link-action") // 호환성을 위해 유지
+                .issuedAt(new Date(System.currentTimeMillis()))
+                .expiration(new Date(System.currentTimeMillis() + expiredMs))
+                .signWith(secretKey)
+                .compact();
+    }
+
     // Refresh Token 생성
     public String createRefreshToken(String email, String role, Long userId) {
         return Jwts.builder()
+                .claim(TOKEN_TYPE_CLAIM, "refresh")
                 .claim("email", email)
                 .claim("role", role)
                 .claim("user_id", userId)
@@ -89,6 +108,11 @@ public class JWTUtil {
         return getClaims(token).get("role", String.class);
     }
 
+    // Token Type 추출
+    public String getTokenType(String token) {
+        return getClaims(token).get(TOKEN_TYPE_CLAIM, String.class);
+    }
+
     // JWT 만료 여부 확인
     public Boolean isExpired(String token) {
         try {
@@ -96,6 +120,11 @@ public class JWTUtil {
         } catch (Exception e) {
             return true;
         }
+    }
+
+    // JWT 만료 시간 추출
+    public Date getExpiration(String token) {
+        return getClaims(token).getExpiration();
     }
 
     // Refresh Token 만료 시간을 외부에 노출
