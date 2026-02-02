@@ -1,13 +1,8 @@
 spring:
   profiles:
-    active: dev
+    active: local
   config:
     import: optional:file:.env[.properties], optional:file:../../.env[.properties]
-  datasource:
-    driver-class-name: org.postgresql.Driver
-    url: ${DB_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
   jwt:
     secret: test-jwt-secret-32-characters-long
     refresh-expiration: 86400000

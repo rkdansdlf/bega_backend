@@ -30,7 +30,7 @@ public class JWTFilter extends OncePerRequestFilter {
     private static final List<String> LOCALHOST_IPS = List.of("127.0.0.1", "::1", "0:0:0:0:0:0:0:1");
 
     public JWTFilter(com.example.auth.util.JWTUtil jwtUtil, boolean isDev, List<String> allowedOrigins,
-                     com.example.auth.service.TokenBlacklistService tokenBlacklistService) {
+            com.example.auth.service.TokenBlacklistService tokenBlacklistService) {
         this.jwtUtil = jwtUtil;
         this.isDev = isDev;
         this.allowedOrigins = allowedOrigins;
@@ -125,11 +125,26 @@ public class JWTFilter extends OncePerRequestFilter {
             return;
         }
 
+        // [Security Fix] 링크 토큰의 인증 사용 방지
+        String tokenType = jwtUtil.getTokenType(token);
+        if ("link".equals(tokenType)) {
+            log.warn("Link token rejected for authentication");
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         // ✅ JWT에서 필요한 정보 모두 추출 (캐싱 적용, DB 조회 없음!)
         try {
             // String email = jwtUtil.getEmail(token);
             String role = jwtUtil.getRole(token);
             Long userId = jwtUtil.getUserId(token);
+
+            // [Security Fix] 레거시 링크 토큰(claim 없음) 방지
+            if ("LINK_MODE".equals(role)) {
+                log.warn("Legacy Link token rejected for authentication");
+                filterChain.doFilter(request, response);
+                return;
+            }
 
             if (userId == null) {
                 filterChain.doFilter(request, response);

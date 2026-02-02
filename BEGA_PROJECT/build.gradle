@@ -92,6 +92,9 @@ repositories {
     // AWS S3 (for OCI Object Storage)
     implementation platform('software.amazon.awssdk:bom:2.21.1')
     implementation 'software.amazon.awssdk:s3'
+
+    // H2 Database for Testing
+    testRuntimeOnly 'com.h2database:h2'
 }
 
 tasks.named('test') {
