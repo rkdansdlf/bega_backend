@@ -128,7 +128,9 @@ app:
     url: ${APP_FRONTEND_URL:http://localhost:3000}
   backend:
     url: ${APP_BACKEND_URL:http://localhost:8080}
-  allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://localhost:8080}
+  allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:8080}
+  cookie:
+    secure: false  # 개발 환경 기본값 (HTTP), prod 프로필에서 true로 오버라이드
 
 
 
@@ -260,7 +262,10 @@ spring:
     locations: classpath:db/migration
     ignore-missing-migrations: true
 
-
+# prod 프로필 쿠키 보안 설정
+app:
+  cookie:
+    secure: true  # HTTPS 환경에서 Secure 플래그 활성화
 
 ---
 # 'local' 프로필: 로컬 테스트 환경 (H2 In-Memory)

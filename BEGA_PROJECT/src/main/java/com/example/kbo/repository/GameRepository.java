@@ -165,7 +165,14 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
               THEN ROUND(CAST(wins AS DECIMAL) / (wins + losses), 3)
               ELSE 0.000
           END as win_pct,
-          games_played
+          games_played,
+          ROUND(
+              (
+                  (FIRST_VALUE(wins) OVER (ORDER BY wins DESC, losses ASC) - wins)
+                  + (losses - FIRST_VALUE(losses) OVER (ORDER BY wins DESC, losses ASC))
+              ) / 2.0,
+              1
+          ) as games_behind
       FROM team_stats
       WHERE games_played > 0
       ORDER BY season_rank

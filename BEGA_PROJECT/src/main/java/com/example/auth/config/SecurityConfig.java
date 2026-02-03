@@ -33,6 +33,77 @@ import java.util.List;
 @EnableMethodSecurity
 public class SecurityConfig {
 
+        // ========================================
+        // 공개 엔드포인트 그룹 정의
+        // ========================================
+
+        /** 인증 관련 공개 엔드포인트 */
+        private static final String[] PUBLIC_AUTH_ENDPOINTS = {
+                "/api/auth/login",
+                "/api/auth/signup",
+                "/api/auth/reissue",
+                "/api/auth/oauth2/state/**",
+                "/api/auth/password-reset/request",
+                "/api/auth/password-reset/confirm",
+                "/oauth2/**",
+                "/login/**",
+                "/error"
+        };
+
+        /** 테스트 및 시스템 엔드포인트 */
+        private static final String[] PUBLIC_SYSTEM_ENDPOINTS = {
+                "/api/test/**",
+                "/actuator/health",
+                "/ws/**"
+        };
+
+        /** 공개 API 엔드포인트 (인증 불필요) */
+        private static final String[] PUBLIC_API_ENDPOINTS = {
+                "/api/stadiums/**",
+                "/api/places/**",
+                "/api/teams/**",
+                "/api/games/**",
+                "/api/parties/**",
+                "/api/applications/**",
+                "/api/chat/**",
+                "/api/checkin/**",
+                "/api/users/email-to-id",
+                "/api/kbo/league-start-dates",
+                "/api/kbo/schedule/**",
+                "/api/kbo/rankings/**",
+                "/api/kbo/offseason/**",
+                "/api/matches/**",
+                "/api/diary/public/**"
+        };
+
+        /** 공개 GET 요청 엔드포인트 */
+        private static final String[] PUBLIC_GET_ENDPOINTS = {
+                "/api/cheer/posts",
+                "/api/cheer/posts/**",
+                "/api/cheer/user/**",
+                "/api/users/*/profile",
+                "/api/diary/games",
+                "/api/games/past",
+                "/api/predictions/status/**",
+                "/api/predictions/ranking/current-season",
+                "/api/predictions/ranking/share/**"
+        };
+
+        /** 인증 필수 엔드포인트 */
+        private static final String[] AUTHENTICATED_ENDPOINTS = {
+                "/api/auth/link-token",
+                "/api/diary/**",
+                "/api/predictions/**"
+        };
+
+        /** 관리자 전용 엔드포인트 */
+        private static final String[] ADMIN_ENDPOINTS = {
+                "/api/admin/**",
+                "/admin/**"
+        };
+
+        // ========================================
+
         private final CustomOAuth2UserService customOAuth2UserService;
         private final CustomSuccessHandler customSuccessHandler;
         private final JWTUtil jwtUtil;
@@ -141,78 +212,41 @@ public class SecurityConfig {
                                                                 .authorizationRequestRepository(
                                                                                 cookieauthorizationrequestRepository)));
 
-                // 경로별 인가 작업 - 권한 설정
+                // ========================================
+                // 경로별 인가 설정 (그룹화된 상수 사용)
+                // ========================================
                 http
                                 .authorizeHttpRequests((auth) -> auth
-                                                .requestMatchers("/api/auth/login").permitAll()
-                                                .requestMatchers("/api/auth/signup", "/api/auth/reissue").permitAll()
-                                                .requestMatchers("/api/test/**").permitAll()
-                                                .requestMatchers("/api/auth/oauth2/state/**").permitAll()
-                                                // [Security Fix] 링크 토큰 발급은 인증 필수
-                                                .requestMatchers("/api/auth/link-token").authenticated()
-                                                // 나머지 auth 관련 경로는 허용 (주의: 구체적인 경로를 위에 선언해야 함)
-                                                .requestMatchers("/api/auth/**", "/oauth2/**", "/login/**", "/error",
-                                                                "/api/diary/public/**")
-                                                .permitAll()
-                                                .requestMatchers("/actuator/health").permitAll() // Health check는 공개
-                                                .requestMatchers("/actuator/**").hasAnyRole("ADMIN", "SUPER_ADMIN") // 나머지는
-                                                                                                                    // 관리자만
-                                                .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN") // 관리자
-                                                                                                                     // 권한
-                                                                                                                     // 필요
-                                                .requestMatchers(HttpMethod.GET, "/api/cheer/posts/following")
-                                                .authenticated() // 팔로우 피드 (인증 필요)
-                                                .requestMatchers(HttpMethod.GET, "/api/cheer/posts",
-                                                                "/api/cheer/posts/**",
-                                                                "/api/cheer/user/**")
-                                                .permitAll() // 게시글
-                                                .requestMatchers(HttpMethod.GET, "/api/users/*/profile").permitAll() // 사용자
-                                                                                                                     // 프로필
-                                                                                                                     // 조회
-                                                // 조회만
-                                                // 공개
-                                                .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
-                                                .requestMatchers("/api/auth/password-reset/request").permitAll() // 요청
-                                                .requestMatchers("/api/auth/password-reset/confirm").permitAll() // 확인
-                                                .requestMatchers("/api/stadiums/**").permitAll()
-                                                .requestMatchers("/api/places/**").permitAll()
-                                                .requestMatchers("/api/teams/**").permitAll()
-                                                .requestMatchers("/api/games/**").permitAll()
-                                                .requestMatchers("/api/parties/**").permitAll()
-                                                .requestMatchers("/api/applications/**").permitAll()
-                                                .requestMatchers("/api/chat/**").permitAll()
-                                                .requestMatchers("/api/checkin/**").permitAll()
+                                                // 1. OPTIONS 요청 허용 (CORS Preflight)
+                                                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                                                .requestMatchers("/ws/**").permitAll()
-                                                .requestMatchers("/api/chat/**").permitAll()
-                                                .requestMatchers("/api/users/email-to-id").permitAll()
-                                                // 2순위: OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
+                                                // 2. 인증 관련 공개 엔드포인트
+                                                .requestMatchers(PUBLIC_AUTH_ENDPOINTS).permitAll()
+                                                .requestMatchers("/api/auth/**").permitAll() // 나머지 auth 경로
+                                                .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
+
+                                                // 3. 시스템/테스트 엔드포인트
+                                                .requestMatchers(PUBLIC_SYSTEM_ENDPOINTS).permitAll()
+                                                .requestMatchers("/actuator/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
+
+                                                // 4. 관리자 전용 엔드포인트
+                                                .requestMatchers(ADMIN_ENDPOINTS).hasAnyRole("ADMIN", "SUPER_ADMIN")
+
+                                                // 5. 인증 필수 엔드포인트 (순서 중요: 구체적 경로 먼저)
+                                                .requestMatchers("/api/auth/link-token").authenticated()
+                                                .requestMatchers(HttpMethod.GET, "/api/cheer/posts/following").authenticated()
                                                 .requestMatchers(HttpMethod.GET, "/api/diary/games").permitAll()
                                                 .requestMatchers("/api/diary/**").authenticated()
-                                                .requestMatchers(HttpMethod.GET, "/api/games/past").permitAll()
-                                                .requestMatchers(HttpMethod.GET, "/api/matches/**").permitAll()
-                                                .requestMatchers(HttpMethod.GET, "/api/predictions/status/**")
-                                                .permitAll()
-                                                .requestMatchers(HttpMethod.GET,
-                                                                "/api/predictions/ranking/current-season")
-                                                .permitAll()
-                                                .requestMatchers(HttpMethod.GET, "/api/predictions/ranking/share/**")
-                                                .permitAll()
+                                                .requestMatchers(HttpMethod.POST, "/api/predictions/vote").authenticated()
                                                 .requestMatchers("/api/predictions/**").authenticated()
-                                                // OPTIONS 요청 허용 (Preflight 요청이 통과하도록)
-                                                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                                                .requestMatchers("/api/kbo/league-start-dates").permitAll()
-                                                .requestMatchers("/api/kbo/schedule/**").permitAll()
-                                                .requestMatchers("/api/kbo/rankings/**").permitAll()
-                                                .requestMatchers("/api/kbo/offseason/**").permitAll()
-                                                .requestMatchers("/api/matches/**").permitAll()
-                                                .requestMatchers(HttpMethod.POST, "/api/predictions/vote")
-                                                .authenticated() // 인증된 사용자만 허용
 
-                                                // 기존 권한 설정
-                                                .requestMatchers("/admin/**").hasRole("ADMIN")
+                                                // 6. 공개 GET 요청 엔드포인트
+                                                .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
 
-                                                // 나머지 모든 요청은 인증 필요
+                                                // 7. 공개 API 엔드포인트
+                                                .requestMatchers(PUBLIC_API_ENDPOINTS).permitAll()
+
+                                                // 8. 나머지 모든 요청은 인증 필요
                                                 .anyRequest().authenticated())
 
                                 // 302 리다이렉션 방지: 인증 실패 시 /login으로 리다이렉트 대신 401 응답 반환

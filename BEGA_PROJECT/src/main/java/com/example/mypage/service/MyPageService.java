@@ -60,7 +60,7 @@ public class MyPageService {
 
         TeamEntity newTeam = null;
         if (newTeamId != null && !newTeamId.equals("없음") && !newTeamId.trim().isEmpty()) {
-            newTeam = teamRepository.findByTeamId(newTeamId)
+            newTeam = teamRepository.findByTeamIdAndIsActive(newTeamId, true)
                     .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 팀 약어입니다: " + newTeamId));
         }
         user.setFavoriteTeam(newTeam);

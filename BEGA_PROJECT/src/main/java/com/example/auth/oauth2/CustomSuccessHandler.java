@@ -1,7 +1,6 @@
 package com.example.auth.oauth2;
 
 import com.example.auth.dto.CustomOAuth2User;
-import com.example.auth.dto.OAuth2StateData;
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.service.OAuth2StateService;
 import com.example.auth.util.JWTUtil;
@@ -121,10 +120,8 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
             addSameSiteCookie(response, "Refresh", refreshToken, refreshTokenMaxAge);
 
-            // State 데이터 저장 후 리다이렉트
-            OAuth2StateData stateData = new OAuth2StateData(
-                    userEmail, userName, role, profileImageUrl, favoriteTeamId, userHandle);
-            String stateId = oAuth2StateService.saveState(stateData);
+            // [Security Fix] State 데이터 저장 - userId만 Redis에 저장 (민감 정보 최소화)
+            String stateId = oAuth2StateService.saveState(userId);
             String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId + "&status=linked";
             getRedirectStrategy().sendRedirect(request, response, redirectUrl);
             return;
@@ -167,10 +164,8 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             request.getSession(false).invalidate();
         }
 
-        // 사용자 정보를 Redis에 저장하고 state 파라미터로만 리다이렉트
-        OAuth2StateData stateData = new OAuth2StateData(
-                userEmail, userName, role, profileImageUrl, favoriteTeamId, userHandle);
-        String stateId = oAuth2StateService.saveState(stateData);
+        // [Security Fix] 사용자 정보를 Redis에 저장 - userId만 저장 (민감 정보 최소화)
+        String stateId = oAuth2StateService.saveState(userId);
         String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId;
         getRedirectStrategy().sendRedirect(request, response, redirectUrl);
 

@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -95,9 +97,7 @@ public class PredictionService {
         GameEntity game = gameRepository.findByGameId(request.getGameId())
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 경기입니다."));
 
-        if (game.isFinished()) {
-            throw new IllegalStateException("이미 종료된 경기는 투표할 수 없습니다.");
-        }
+        validateVoteOpen(game);
 
         Optional<Prediction> existing = predictionRepository
                 .findByGameIdAndUserId(request.getGameId(), userId);
@@ -168,9 +168,7 @@ public class PredictionService {
         GameEntity game = gameRepository.findByGameId(gameId)
                 .orElseThrow(() -> new IllegalArgumentException("경기 정보를 찾을 수 없습니다."));
 
-        if (game.isFinished()) {
-            throw new IllegalStateException("이미 종료된 경기는 투표를 취소할 수 없습니다.");
-        }
+        validateVoteOpen(game);
 
         Prediction prediction = predictionRepository
                 .findByGameIdAndUserId(gameId, userId)
@@ -210,6 +208,29 @@ public class PredictionService {
                 .build();
 
         voteFinalResultRepository.save(finalResult);
+    }
+
+    private void validateVoteOpen(GameEntity game) {
+        String status = game.getGameStatus();
+        if (status != null && !"SCHEDULED".equals(status)) {
+            throw new IllegalStateException("이미 진행 중이거나 종료된 경기는 투표할 수 없습니다.");
+        }
+
+        Optional<GameMetadataEntity> metadataOpt = gameMetadataRepository.findByGameId(game.getGameId());
+        if (metadataOpt.isEmpty()) {
+            return;
+        }
+
+        LocalDate gameDate = game.getGameDate();
+        LocalTime startTime = metadataOpt.get().getStartTime();
+        if (gameDate == null || startTime == null) {
+            return;
+        }
+
+        LocalDateTime startDateTime = LocalDateTime.of(gameDate, startTime);
+        if (!LocalDateTime.now().isBefore(startDateTime)) {
+            throw new IllegalStateException("이미 시작된 경기는 투표할 수 없습니다.");
+        }
     }
 
     @Transactional(readOnly = true)

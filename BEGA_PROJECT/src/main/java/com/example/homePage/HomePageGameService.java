@@ -162,6 +162,7 @@ public class HomePageGameService {
                         .draws(((Number) row[5]).intValue()) // draws (bigint)
                         .winRate(row[6].toString()) // win_pct (numeric)
                         .games(((Number) row[7]).intValue()) // games_played (bigint)
+                        .gamesBehind(row[8] == null ? null : ((Number) row[8]).doubleValue()) // games_behind (numeric)
                         .build())
                 .collect(Collectors.toList());
     }

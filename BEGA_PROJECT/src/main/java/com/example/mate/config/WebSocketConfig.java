@@ -11,6 +11,9 @@ import org.springframework.lang.NonNull;
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
+    @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost:3000,http://localhost:8080}")
+    private String allowedOriginsStr;
+
     @Override
     public void configureMessageBroker(@NonNull MessageBrokerRegistry config) {
         // 클라이언트로 메시지를 보낼 때 prefix
@@ -22,9 +25,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(@NonNull StompEndpointRegistry registry) {
         // WebSocket 연결 엔드포인트
+        String[] allowedOrigins = (allowedOriginsStr != null) ? allowedOriginsStr.split(",") : new String[0];
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("http://localhost:3000", "http://localhost:3000/", "http://localhost:8080",
-                        "http://127.0.0.1:3000");
+                .setAllowedOriginPatterns(allowedOrigins);
 
     }
 }

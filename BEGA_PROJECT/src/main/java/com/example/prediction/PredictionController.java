@@ -1,7 +1,5 @@
 package com.example.prediction;
 
-import lombok.RequiredArgsConstructor;
-
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,12 +15,16 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api")
-@RequiredArgsConstructor
 @PreAuthorize("isAuthenticated()")
 public class PredictionController {
 
     private final PredictionService predictionService;
     private final PredictionRepository predictionRepository;
+
+    public PredictionController(PredictionService predictionService, PredictionRepository predictionRepository) {
+        this.predictionService = predictionService;
+        this.predictionRepository = predictionRepository;
+    }
 
     // 과거 경기 조회 (오늘 기준 이전 일주일치 - 최신순)
     @PreAuthorize("permitAll()")
@@ -124,13 +126,19 @@ public class PredictionController {
 
     // 내 예측 통계 조회
     @GetMapping("/prediction/stats/me")
-    public ResponseEntity<UserPredictionStatsDto> getMyStats(Principal principal) {
+    public ResponseEntity<Map<String, Object>> getMyStats(Principal principal) {
         if (principal == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "로그인이 필요합니다.");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
         }
         Long userId = Long.valueOf(principal.getName());
         UserPredictionStatsDto stats = predictionService.getUserStats(userId);
-        return ResponseEntity.ok(stats);
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("data", stats);
+        return ResponseEntity.ok(response);
     }
 
 }
