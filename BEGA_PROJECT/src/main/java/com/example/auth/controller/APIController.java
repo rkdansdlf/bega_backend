@@ -73,7 +73,7 @@ public class APIController {
         // JWT를 쿠키에 설정 (Access Token)
         Cookie jwtCookie = new Cookie("Authorization", accessToken);
         jwtCookie.setHttpOnly(true);
-        jwtCookie.setSecure(false); // 개발: false, 프로덕션: true
+        jwtCookie.setSecure(secureCookie); // Configurable secure flag
         jwtCookie.setPath("/");
         jwtCookie.setMaxAge(60 * 60); // 1시간
         response.addCookie(jwtCookie);
@@ -81,7 +81,7 @@ public class APIController {
         // Refresh Token 쿠키 설정
         Cookie refreshCookie = new Cookie("Refresh", refreshToken);
         refreshCookie.setHttpOnly(true);
-        refreshCookie.setSecure(false); // 개발: false, 프로덕션: true
+        refreshCookie.setSecure(secureCookie); // Configurable secure flag
         refreshCookie.setPath("/");
         refreshCookie.setMaxAge(60 * 60 * 24 * 7); // 7일
         response.addCookie(refreshCookie);
@@ -129,9 +129,12 @@ public class APIController {
             userService.deleteRefreshTokenByEmail(email);
         }
 
-        // 3. [Security Fix] Access Token을 블랙리스트에 추가
+        // 3. [Security Fix] Access Token을 블랙리스트에 추가 및 캐시 무효화
         if (accessToken != null) {
             try {
+                // 캐시 무효화 (로그아웃된 토큰의 Claims 정보 제거)
+                userService.getJWTUtil().evictTokenCache(accessToken);
+
                 java.util.Date expiration = userService.getJWTUtil().getExpiration(accessToken);
                 long remainingTime = expiration.getTime() - System.currentTimeMillis();
                 if (remainingTime > 0) {

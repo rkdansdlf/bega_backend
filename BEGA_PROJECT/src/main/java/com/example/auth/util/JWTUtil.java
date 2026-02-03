@@ -7,13 +7,16 @@ import io.jsonwebtoken.ExpiredJwtException;
 
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
+import lombok.extern.slf4j.Slf4j;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
+@Slf4j
 @Component
 public class JWTUtil {
 
@@ -130,5 +133,17 @@ public class JWTUtil {
     // Refresh Token 만료 시간을 외부에 노출
     public long getRefreshTokenExpirationTime() {
         return refreshExpirationTime;
+    }
+
+    /**
+     * 토큰 캐시 무효화 (로그아웃 시 호출)
+     * [Security Fix] 로그아웃된 토큰의 캐시된 Claims 정보 제거
+     * @param token 무효화할 토큰
+     */
+    @CacheEvict(value = "jwtUserCache", key = "#token")
+    public void evictTokenCache(String token) {
+        if (token != null && token.length() > 20) {
+            log.debug("Evicted token cache for token: {}...", token.substring(0, 20));
+        }
     }
 }

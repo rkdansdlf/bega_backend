@@ -35,6 +35,15 @@ public interface TeamRepository extends JpaRepository<TeamEntity, String> {
     Optional<TeamEntity> findByTeamName(String teamName);
 
     /**
+     * 팀 ID와 활성 여부로 팀 조회
+     *
+     * @param teamId 팀 ID
+     * @param isActive 활성 여부
+     * @return 팀 엔티티
+     */
+    Optional<TeamEntity> findByTeamIdAndIsActive(String teamId, Boolean isActive);
+
+    /**
      * 활성 팀 목록 조회
      *
      * @param isActive 활성 여부

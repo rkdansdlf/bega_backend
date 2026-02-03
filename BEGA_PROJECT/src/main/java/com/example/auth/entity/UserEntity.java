@@ -84,6 +84,26 @@ public class UserEntity {
     @Column(name = "created_at", updatable = false, nullable = false)
     private LocalDateTime createdAt;
 
+    // ========================================
+    // 계정 상태 관리 필드
+    // ========================================
+
+    /** 계정 활성화 여부 (false이면 로그인 불가) */
+    @Column(name = "enabled", nullable = false)
+    @Builder.Default
+    private boolean enabled = true;
+
+    /** 계정 잠금 여부 (비밀번호 오류 횟수 초과 등) */
+    @Column(name = "locked", nullable = false)
+    @Builder.Default
+    private boolean locked = false;
+
+    /** 잠금 해제 예정 시간 (null이면 영구 잠금 또는 잠금 아님) */
+    @Column(name = "lock_expires_at")
+    private LocalDateTime lockExpiresAt;
+
+    // ========================================
+
     // OAuth2 제공자 (LOCAL, GOOGLE, KAKAO 등) - Deprecated (Use providers list)
     private String provider;
 

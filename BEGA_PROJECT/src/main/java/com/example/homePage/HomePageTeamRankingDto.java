@@ -19,4 +19,5 @@ public class HomePageTeamRankingDto {
     private Integer draws;
     private String winRate;
     private Integer games;
+    private Double gamesBehind;
 }

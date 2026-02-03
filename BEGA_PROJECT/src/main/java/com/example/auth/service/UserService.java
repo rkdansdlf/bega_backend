@@ -311,8 +311,8 @@ public class UserService {
     private void updateFavoriteTeam(UserEntity user, String teamId) {
         if (teamId != null && !teamId.trim().isEmpty()) {
             String normalizedTeamId = normalizeFavoriteTeamId(teamId);
-            TeamEntity team = teamRepository.findById(normalizedTeamId)
-                    .or(() -> teamRepository.findById(teamId))
+            TeamEntity team = teamRepository.findByTeamIdAndIsActive(normalizedTeamId, true)
+                    .or(() -> teamRepository.findByTeamIdAndIsActive(teamId, true))
                     .orElseThrow(() -> new TeamNotFoundException(teamId));
             user.setFavoriteTeam(team);
         } else {

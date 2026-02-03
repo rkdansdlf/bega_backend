@@ -125,10 +125,10 @@ public class JWTFilter extends OncePerRequestFilter {
             return;
         }
 
-        // [Security Fix] 링크 토큰의 인증 사용 방지
+        // [Security Fix] 토큰 타입 검증: access 토큰만 허용 (link, refresh, null(legacy) 등 차단)
         String tokenType = jwtUtil.getTokenType(token);
-        if ("link".equals(tokenType)) {
-            log.warn("Link token rejected for authentication");
+        if (!"access".equals(tokenType)) {
+            log.warn("{} token rejected for authentication (strict mode)", tokenType);
             filterChain.doFilter(request, response);
             return;
         }
