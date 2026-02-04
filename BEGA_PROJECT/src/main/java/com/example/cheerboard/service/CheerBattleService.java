@@ -3,6 +3,7 @@ package com.example.cheerboard.service;
 import com.example.cheerboard.entity.CheerVoteEntity;
 import com.example.cheerboard.entity.CheerVoteId;
 import com.example.cheerboard.repository.CheerVoteRepository;
+import com.example.kbo.util.TeamCodeNormalizer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +27,8 @@ public class CheerBattleService {
 
     @Transactional
     public int vote(String gameId, String teamId, String userEmail) {
+        String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
+
         // Check if already voted
         if (cheerBattleLogRepository.existsByGameIdAndUserEmail(gameId, userEmail)) {
             throw new IllegalStateException("이미 투표에 참여하셨습니다.");
@@ -42,7 +45,7 @@ public class CheerBattleService {
         // 2. Save Vote Log
         com.example.cheerboard.entity.CheerBattleLog battleLog = com.example.cheerboard.entity.CheerBattleLog.builder()
                 .gameId(gameId)
-                .teamId(teamId)
+                .teamId(normalizedTeamId)
                 .userEmail(userEmail)
                 .build();
         cheerBattleLogRepository.save(Objects.requireNonNull(battleLog));
@@ -50,11 +53,11 @@ public class CheerBattleService {
         // 3. Update memory (DB backup fallback)
         Map<String, AtomicInteger> teamVotes = gameVotes.computeIfAbsent(gameId, k -> new ConcurrentHashMap<>());
 
-        AtomicInteger counter = teamVotes.computeIfAbsent(teamId, k -> {
+        AtomicInteger counter = teamVotes.computeIfAbsent(normalizedTeamId, k -> {
             // Memory miss -> Load from DB
             CheerVoteId id = CheerVoteId.builder()
                     .gameId(gameId)
-                    .teamId(teamId)
+                    .teamId(normalizedTeamId)
                     .build();
             return cheerVoteRepository.findById(Objects.requireNonNull(id))
                     .map(entity -> new AtomicInteger(entity.getVoteCount()))
@@ -66,13 +69,13 @@ public class CheerBattleService {
         // 4. Update DB (Vote Count)
         CheerVoteId id = CheerVoteId.builder()
                 .gameId(gameId)
-                .teamId(teamId)
+                .teamId(normalizedTeamId)
                 .build();
 
         CheerVoteEntity entity = cheerVoteRepository.findById(Objects.requireNonNull(id))
                 .orElse(CheerVoteEntity.builder()
                         .gameId(gameId)
-                        .teamId(teamId)
+                        .teamId(normalizedTeamId)
                         .voteCount(0)
                         .build());
 

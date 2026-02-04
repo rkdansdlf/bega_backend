@@ -20,6 +20,7 @@ import com.example.auth.entity.Role;
 import com.example.auth.util.JWTUtil;
 import com.example.auth.repository.UserRepository;
 import com.example.kbo.repository.TeamRepository;
+import com.example.kbo.util.TeamCodeNormalizer;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.entity.RefreshToken;
 
@@ -310,29 +311,14 @@ public class UserService {
      */
     private void updateFavoriteTeam(UserEntity user, String teamId) {
         if (teamId != null && !teamId.trim().isEmpty()) {
-            String normalizedTeamId = normalizeFavoriteTeamId(teamId);
+            String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
             TeamEntity team = teamRepository.findByTeamIdAndIsActive(normalizedTeamId, true)
-                    .or(() -> teamRepository.findByTeamIdAndIsActive(teamId, true))
                     .orElseThrow(() -> new TeamNotFoundException(teamId));
             user.setFavoriteTeam(team);
         } else {
             user.setFavoriteTeam(null);
         }
         // 팀 변경 시 role은 변경하지 않음 (ADMIN/USER 유지)
-    }
-
-    private String normalizeFavoriteTeamId(String teamId) {
-        if (teamId == null) {
-            return null;
-        }
-
-        String trimmed = teamId.trim();
-        return switch (trimmed) {
-            case "LOT" -> "LT";
-            case "KIA" -> "HT";
-            case "SSG" -> "SK";
-            default -> trimmed;
-        };
     }
 
     /**
@@ -610,7 +596,7 @@ public class UserService {
             case "두산 베어스" -> "OB";
             case "키움 히어로즈" -> "WO";
             case "한화 이글스" -> "HH";
-            case "SSG 랜더스" -> "SK";
+            case "SSG 랜더스" -> "SSG";
             case "NC 다이노스" -> "NC";
             case "KT 위즈" -> "KT";
             case "기아 타이거즈" -> "HT";
