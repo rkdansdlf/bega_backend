@@ -11,10 +11,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.kbo.dto.TeamSummaryDto;
-import com.example.kbo.dto.TeamDiagnosticsDto;
 import com.example.kbo.entity.TeamEntity;
 import com.example.kbo.repository.TeamRepository;
-import com.example.kbo.service.TeamDiagnosticsService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -31,7 +29,6 @@ public class TeamController {
     private static final Logger log = LoggerFactory.getLogger(TeamController.class);
 
     private final TeamRepository teamRepository;
-    private final TeamDiagnosticsService diagnosticsService;
 
     /**
      * 팀 목록 조회
@@ -67,14 +64,4 @@ public class TeamController {
                 .toList());
     }
 
-    /**
-     * 팀 코드 정규화 진단
-     *
-     * GET /api/teams/diagnostics
-     */
-    @GetMapping("/diagnostics")
-    public ResponseEntity<TeamDiagnosticsDto> getDiagnostics() {
-        log.info("GET /api/teams/diagnostics");
-        return ResponseEntity.ok(diagnosticsService.getDiagnostics());
-    }
 }
