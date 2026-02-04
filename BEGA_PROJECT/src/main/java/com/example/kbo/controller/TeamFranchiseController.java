@@ -87,10 +87,13 @@ public class TeamFranchiseController {
      * GET /api/franchises/{id}/teams
      *
      * @param id 프랜차이즈 ID
+     * @param includeInactive 비활성 팀 포함 여부 (기본값: false)
      * @return 팀 목록
      */
     @GetMapping("/{id}/teams")
-    public ResponseEntity<List<TeamEntity>> getFranchiseTeams(@PathVariable Integer id) {
+    public ResponseEntity<List<TeamEntity>> getFranchiseTeams(
+            @PathVariable Integer id,
+            @RequestParam(defaultValue = "false") boolean includeInactive) {
         log.info("GET /api/franchises/{}/teams - Fetching all teams for franchise", id);
 
         // 프랜차이즈 존재 여부 확인
@@ -98,7 +101,9 @@ public class TeamFranchiseController {
             return ResponseEntity.notFound().build();
         }
 
-        List<TeamEntity> teams = franchiseService.getTeamsByFranchiseId(id);
+        List<TeamEntity> teams = includeInactive
+                ? franchiseService.getTeamsByFranchiseId(id)
+                : franchiseService.getActiveTeamsByFranchiseId(id);
         return ResponseEntity.ok(teams);
     }
 

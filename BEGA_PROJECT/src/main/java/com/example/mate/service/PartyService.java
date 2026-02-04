@@ -12,6 +12,7 @@ import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
+import com.example.kbo.util.TeamCodeNormalizer;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import lombok.RequiredArgsConstructor;
@@ -98,18 +99,19 @@ public class PartyService {
     @Transactional(readOnly = true)
     public Page<PartyDTO.Response> getAllParties(String teamId, String stadium, Pageable pageable) {
         Page<Party> parties;
+        String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
 
         List<Party.PartyStatus> excludedStatuses = List.of(
                 Party.PartyStatus.CHECKED_IN,
                 Party.PartyStatus.COMPLETED);
 
-        if (teamId != null && !teamId.isBlank()) {
+        if (normalizedTeamId != null && !normalizedTeamId.isBlank()) {
             if (stadium != null && !stadium.isBlank()) {
                 parties = partyRepository.findByTeamIdAndStadiumAndStatusNotInOrderByCreatedAtDesc(
-                        teamId, stadium, excludedStatuses, pageable);
+                        normalizedTeamId, stadium, excludedStatuses, pageable);
             } else {
                 parties = partyRepository.findByTeamIdAndStatusNotInOrderByCreatedAtDesc(
-                        teamId, excludedStatuses, pageable);
+                        normalizedTeamId, excludedStatuses, pageable);
             }
         } else if (stadium != null && !stadium.isBlank()) {
             parties = partyRepository.findByStadiumAndStatusNotInOrderByCreatedAtDesc(

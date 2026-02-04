@@ -37,6 +37,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.service.FollowService;
 import com.example.auth.service.BlockService;
 import com.example.kbo.repository.TeamRepository;
+import com.example.kbo.util.TeamCodeNormalizer;
 import com.example.notification.service.NotificationService;
 import com.example.common.exception.UserNotFoundException;
 import com.example.common.service.AIModerationService;
@@ -103,14 +104,19 @@ public class CheerService {
         return imageService.listPostImages(postId);
     }
 
+    private String normalizeTeamId(String teamId) {
+        return TeamCodeNormalizer.normalize(teamId);
+    }
+
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> list(String teamId, String postTypeStr, Pageable pageable) {
-        if (teamId != null && !teamId.isBlank()) {
+        String normalizedTeamId = normalizeTeamId(teamId);
+        if (normalizedTeamId != null && !normalizedTeamId.isBlank()) {
             UserEntity me = current.getOrNull();
             if (me == null) {
                 throw new AuthenticationCredentialsNotFoundException("로그인 후 마이팀 게시판을 이용할 수 있습니다.");
             }
-            permissionValidator.validateTeamAccess(me, teamId, "게시글 조회");
+            permissionValidator.validateTeamAccess(me, normalizedTeamId, "게시글 조회");
         }
 
         // PostType 필터링 적용
@@ -135,11 +141,11 @@ public class CheerService {
         log.debug("List - excludedIds size: {}", excludedIds.size());
 
         if (hasSort && pageable.getSort().stream().anyMatch(order -> !order.getProperty().equals("createdAt"))) {
-            page = postRepo.findByTeamIdAndPostType(teamId, postType, excludedIds, pageable);
+            page = postRepo.findByTeamIdAndPostType(normalizedTeamId, postType, excludedIds, pageable);
         } else {
             // 공지사항 상단 고정 정책: 최근 3일 이내의 공지사항만 상단에 고정
             java.time.Instant cutoffDate = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS);
-            page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, postType, cutoffDate, excludedIds, pageable);
+            page = postRepo.findAllOrderByPostTypeAndCreatedAt(normalizedTeamId, postType, cutoffDate, excludedIds, pageable);
         }
 
         List<Long> postIds = page.hasContent()
@@ -189,8 +195,9 @@ public class CheerService {
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> search(String q, String teamId, Pageable pageable) {
         // [NEW] 차단 유저 ID 목록
+        String normalizedTeamId = normalizeTeamId(teamId);
         java.util.Set<Long> excludedIds = getExcludedUserIds();
-        Page<CheerPost> page = postRepo.search(q, teamId, excludedIds, pageable);
+        Page<CheerPost> page = postRepo.search(q, normalizedTeamId, excludedIds, pageable);
 
         List<Long> postIds = page.hasContent()
                 ? Objects.requireNonNull(page.getContent()).stream().map(CheerPost::getId).toList()
@@ -500,6 +507,7 @@ public class CheerService {
     @Transactional
     public PostDetailRes createPost(CreatePostReq req) {
         UserEntity me = current.get();
+        String normalizedTeamId = normalizeTeamId(req.teamId());
 
         // AI Moderation 체크
         AIModerationService.ModerationResult modResult = moderationService
@@ -508,10 +516,10 @@ public class CheerService {
             throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
         }
 
-        permissionValidator.validateTeamAccess(me, req.teamId(), "게시글 작성");
+        permissionValidator.validateTeamAccess(me, normalizedTeamId, "게시글 작성");
 
         PostType postType = determinePostType(req, me);
-        CheerPost post = buildNewPost(req, me, postType);
+        CheerPost post = buildNewPost(req, me, postType, normalizedTeamId);
         CheerPost savedPost = postRepo.save(Objects.requireNonNull(post));
 
         // 팔로워들에게 새 글 알림 (notify_new_posts=true 인 팔로워에게만)
@@ -568,11 +576,11 @@ public class CheerService {
     /**
      * 새 게시글 엔티티 생성
      */
-    private CheerPost buildNewPost(CreatePostReq req, UserEntity author, PostType postType) {
-        log.debug("buildNewPost - teamId={}, postType={}", req.teamId(), postType);
+    private CheerPost buildNewPost(CreatePostReq req, UserEntity author, PostType postType, String normalizedTeamId) {
+        log.debug("buildNewPost - teamId={}, postType={}", normalizedTeamId, postType);
 
         final String finalTeamId;
-        String requestTeamId = req.teamId();
+        String requestTeamId = normalizedTeamId;
 
         if (postType == PostType.NOTICE && (requestTeamId == null || requestTeamId.isBlank())) {
             finalTeamId = GLOBAL_TEAM_ID;
@@ -1348,12 +1356,13 @@ public class CheerService {
      */
     @Transactional(readOnly = true)
     public Page<PostLightweightSummaryRes> listLightweight(String teamId, String postTypeStr, Pageable pageable) {
-        if (teamId != null && !teamId.isBlank()) {
+        String normalizedTeamId = normalizeTeamId(teamId);
+        if (normalizedTeamId != null && !normalizedTeamId.isBlank()) {
             UserEntity me = current.getOrNull();
             if (me == null) {
                 throw new AuthenticationCredentialsNotFoundException("로그인 후 마이팀 게시판을 이용할 수 있습니다.");
             }
-            permissionValidator.validateTeamAccess(me, teamId, "게시글 조회");
+            permissionValidator.validateTeamAccess(me, normalizedTeamId, "게시글 조회");
         }
 
         // PostType 필터링 적용
@@ -1373,10 +1382,10 @@ public class CheerService {
         java.util.Set<Long> excludedIds = getExcludedUserIds();
 
         if (hasSort && pageable.getSort().stream().anyMatch(order -> !order.getProperty().equals("createdAt"))) {
-            page = postRepo.findByTeamIdAndPostType(teamId, postType, excludedIds, pageable);
+            page = postRepo.findByTeamIdAndPostType(normalizedTeamId, postType, excludedIds, pageable);
         } else {
             java.time.Instant cutoffDate = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS);
-            page = postRepo.findAllOrderByPostTypeAndCreatedAt(teamId, postType, cutoffDate, excludedIds, pageable);
+            page = postRepo.findAllOrderByPostTypeAndCreatedAt(normalizedTeamId, postType, cutoffDate, excludedIds, pageable);
         }
 
         List<Long> postIds = page.hasContent()
@@ -1402,16 +1411,17 @@ public class CheerService {
      */
     @Transactional(readOnly = true)
     public PostChangesResponse checkPostChanges(Long sinceId, String teamId) {
-        if (teamId != null && !teamId.isBlank()) {
+        String normalizedTeamId = normalizeTeamId(teamId);
+        if (normalizedTeamId != null && !normalizedTeamId.isBlank()) {
             UserEntity me = current.getOrNull();
             if (me == null) {
                 throw new AuthenticationCredentialsNotFoundException("로그인 후 마이팀 게시판을 이용할 수 있습니다.");
             }
-            permissionValidator.validateTeamAccess(me, teamId, "게시글 조회");
+            permissionValidator.validateTeamAccess(me, normalizedTeamId, "게시글 조회");
         }
 
-        int newCount = postRepo.countNewPostsSince(sinceId != null ? sinceId : 0L, teamId);
-        Long latestId = postRepo.findLatestPostId(teamId);
+        int newCount = postRepo.countNewPostsSince(sinceId != null ? sinceId : 0L, normalizedTeamId);
+        Long latestId = postRepo.findLatestPostId(normalizedTeamId);
 
         return new PostChangesResponse(newCount, latestId);
     }

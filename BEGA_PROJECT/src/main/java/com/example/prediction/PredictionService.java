@@ -16,6 +16,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -29,6 +30,16 @@ public class PredictionService {
     private final GameSummaryRepository gameSummaryRepository;
     private final VoteFinalResultRepository voteFinalResultRepository;
     private final com.example.auth.repository.UserRepository userRepository;
+    private static final Set<String> BLOCKED_VOTE_STATUSES = Set.of(
+            "COMPLETED",
+            "CANCELLED",
+            "POSTPONED",
+            "SUSPENDED",
+            "DELAYED",
+            "LIVE",
+            "IN_PROGRESS",
+            "INPROGRESS"
+    );
 
     @Transactional(readOnly = true)
     public List<MatchDto> getRecentCompletedGames() {
@@ -116,6 +127,13 @@ public class PredictionService {
             // 포인트 차감 (Entity Update)
             com.example.auth.entity.UserEntity user = userRepository.findById(userId)
                     .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다."));
+
+            // 포인트 잔액 검증
+            if (user.getCheerPoints() == null || user.getCheerPoints() < 1) {
+                throw new IllegalArgumentException(
+                        "응원 포인트가 부족합니다. (현재: " + (user.getCheerPoints() == null ? 0 : user.getCheerPoints()) + ")");
+            }
+
             user.deductCheerPoints(1);
             userRepository.save(user);
 
@@ -134,15 +152,21 @@ public class PredictionService {
 
         if (finalResult.isPresent()) {
             VoteFinalResult result = finalResult.get();
-            int totalVotes = result.getFinalVotesA() + result.getFinalVotesB();
+            int finalVotesA = result.getFinalVotesA();
+            int finalVotesB = result.getFinalVotesB();
+            int totalVotes = finalVotesA + finalVotesB;
+
+            // 저장된 투표수 기반으로 퍼센트 실시간 계산
+            int homePercentage = totalVotes > 0 ? (int) Math.round((finalVotesA * 100.0) / totalVotes) : 0;
+            int awayPercentage = totalVotes > 0 ? (int) Math.round((finalVotesB * 100.0) / totalVotes) : 0;
 
             return PredictionResponseDto.builder()
                     .gameId(gameId)
-                    .homeVotes((long) result.getFinalVotesA())
-                    .awayVotes((long) result.getFinalVotesB())
+                    .homeVotes((long) finalVotesA)
+                    .awayVotes((long) finalVotesB)
                     .totalVotes((long) totalVotes)
-                    .homePercentage(result.getFinalVotesA())
-                    .awayPercentage(result.getFinalVotesB())
+                    .homePercentage(homePercentage)
+                    .awayPercentage(awayPercentage)
                     .build();
         }
 
@@ -190,20 +214,22 @@ public class PredictionService {
 
         PredictionResponseDto currentStatus = getVoteStatus(gameId);
 
-        int homePercentage = currentStatus.getHomePercentage();
-        int awayPercentage = currentStatus.getAwayPercentage();
+        // Raw Vote Counts 저장 (Long -> int 변환 필요)
+        int homeVotes = currentStatus.getHomeVotes().intValue();
+        int awayVotes = currentStatus.getAwayVotes().intValue();
 
+        // 승자 판별은 퍼센트 기준이 아닌 득표수 기준으로 해도 됨 (동일 결과)
         String finalWinner = "DRAW";
-        if (homePercentage > awayPercentage) {
+        if (homeVotes > awayVotes) {
             finalWinner = "HOME";
-        } else if (awayPercentage > homePercentage) {
+        } else if (awayVotes > homeVotes) {
             finalWinner = "AWAY";
         }
 
         VoteFinalResult finalResult = VoteFinalResult.builder()
                 .gameId(gameId)
-                .finalVotesA(homePercentage)
-                .finalVotesB(awayPercentage)
+                .finalVotesA(homeVotes)
+                .finalVotesB(awayVotes)
                 .finalWinner(finalWinner)
                 .build();
 
@@ -211,25 +237,35 @@ public class PredictionService {
     }
 
     private void validateVoteOpen(GameEntity game) {
+        // 1. 경기 상태 체크 (차단 상태면 투표 불가)
         String status = game.getGameStatus();
-        if (status != null && !"SCHEDULED".equals(status)) {
-            throw new IllegalStateException("이미 진행 중이거나 종료된 경기는 투표할 수 없습니다.");
+        if (status != null) {
+            String normalizedStatus = status.trim().toUpperCase();
+            if (BLOCKED_VOTE_STATUSES.contains(normalizedStatus)) {
+                throw new IllegalArgumentException("이미 진행 중이거나 종료된 경기(상태: " + status + ")는 투표할 수 없습니다.");
+            }
         }
 
+        // 2. 시간 기반 체크 (경기 시작 시간 이후 투표 불가)
         Optional<GameMetadataEntity> metadataOpt = gameMetadataRepository.findByGameId(game.getGameId());
-        if (metadataOpt.isEmpty()) {
-            return;
-        }
-
         LocalDate gameDate = game.getGameDate();
-        LocalTime startTime = metadataOpt.get().getStartTime();
-        if (gameDate == null || startTime == null) {
-            return;
+
+        if (gameDate == null) {
+            // 날짜 정보가 없으면 보수적으로 차단 (데이터 이상)
+            throw new IllegalArgumentException("경기 날짜 정보가 없어 투표를 진행할 수 없습니다.");
         }
 
-        LocalDateTime startDateTime = LocalDateTime.of(gameDate, startTime);
-        if (!LocalDateTime.now().isBefore(startDateTime)) {
-            throw new IllegalStateException("이미 시작된 경기는 투표할 수 없습니다.");
+        if (metadataOpt.isPresent()) {
+            LocalTime startTime = metadataOpt.get().getStartTime();
+            if (startTime != null) {
+                LocalDateTime startDateTime = LocalDateTime.of(gameDate, startTime);
+                if (!LocalDateTime.now().isBefore(startDateTime)) {
+                    throw new IllegalArgumentException("이미 시작된 경기는 투표할 수 없습니다.");
+                }
+            }
+        } else {
+            // 메타데이터(시작 시간)가 없는 경우 시간 검증을 생략하고,
+            // 상태값 기반 판단만 적용한다.
         }
     }
 

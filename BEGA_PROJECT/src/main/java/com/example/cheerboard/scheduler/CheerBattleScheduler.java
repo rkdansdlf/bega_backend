@@ -7,6 +7,7 @@ import java.util.Objects;
 import com.example.cheerboard.service.CheerBattleService;
 import com.example.kbo.entity.GameEntity;
 import com.example.kbo.repository.GameRepository;
+import com.example.kbo.util.TeamCodeNormalizer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jobrunr.jobs.annotations.Job;
@@ -71,15 +72,16 @@ public class CheerBattleScheduler implements ApplicationRunner {
     }
 
     private void initializeVoteRecord(String gameId, String teamId) {
+        String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
         CheerVoteId id = CheerVoteId.builder()
                 .gameId(gameId)
-                .teamId(teamId)
+                .teamId(normalizedTeamId)
                 .build();
 
         if (!cheerVoteRepository.existsById(Objects.requireNonNull(id))) {
             cheerVoteRepository.save(Objects.requireNonNull(CheerVoteEntity.builder()
                     .gameId(gameId)
-                    .teamId(teamId)
+                    .teamId(normalizedTeamId)
                     .voteCount(0)
                     .build()));
         }

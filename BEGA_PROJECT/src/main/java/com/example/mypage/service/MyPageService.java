@@ -5,6 +5,7 @@ import com.example.mypage.dto.UserProfileDto;
 import com.example.kbo.entity.TeamEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.kbo.repository.TeamRepository;
+import com.example.kbo.util.TeamCodeNormalizer;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -60,7 +61,8 @@ public class MyPageService {
 
         TeamEntity newTeam = null;
         if (newTeamId != null && !newTeamId.equals("없음") && !newTeamId.trim().isEmpty()) {
-            newTeam = teamRepository.findByTeamIdAndIsActive(newTeamId, true)
+            String normalizedTeamId = TeamCodeNormalizer.normalize(newTeamId);
+            newTeam = teamRepository.findByTeamIdAndIsActive(normalizedTeamId, true)
                     .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 팀 약어입니다: " + newTeamId));
         }
         user.setFavoriteTeam(newTeam);
