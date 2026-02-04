@@ -40,7 +40,8 @@ class CheerBattleServiceTest {
     void vote_success() {
         // Given
         String gameId = "game1";
-        String teamId = "teamA";
+        String rawTeamId = "teamA";
+        String normalizedTeamId = "TEAMA";
         String email = "user@test.com";
 
         UserEntity user = UserEntity.builder()
@@ -50,17 +51,17 @@ class CheerBattleServiceTest {
 
         when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
 
-        CheerVoteId voteId = CheerVoteId.builder().gameId(gameId).teamId(teamId).build();
+        CheerVoteId voteId = CheerVoteId.builder().gameId(gameId).teamId(normalizedTeamId).build();
         CheerVoteEntity voteEntity = CheerVoteEntity.builder()
                 .gameId(gameId)
-                .teamId(teamId)
+                .teamId(normalizedTeamId)
                 .voteCount(5)
                 .build();
 
         when(cheerVoteRepository.findById(Objects.requireNonNull(voteId))).thenReturn(Optional.of(voteEntity));
 
         // When
-        int result = cheerBattleService.vote(gameId, teamId, email);
+        int result = cheerBattleService.vote(gameId, rawTeamId, email);
 
         // Then
         assertThat(result).isEqualTo(6); // 5 + 1
