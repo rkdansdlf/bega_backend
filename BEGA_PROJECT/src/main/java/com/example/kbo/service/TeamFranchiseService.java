@@ -88,6 +88,17 @@ public class TeamFranchiseService {
     }
 
     /**
+     * 프랜차이즈의 현재 활성 팀 목록 조회
+     *
+     * @param franchiseId 프랜차이즈 ID
+     * @return 활성 팀 목록
+     */
+    public List<TeamEntity> getActiveTeamsByFranchiseId(Integer franchiseId) {
+        log.debug("Fetching active teams for franchise id: {}", franchiseId);
+        return teamRepository.findAllByFranchiseIdAndIsActive(franchiseId, true);
+    }
+
+    /**
      * 프랜차이즈의 현재 활성 팀 조회
      *
      * @param franchiseId 프랜차이즈 ID
