@@ -3,8 +3,6 @@ package com.example.stadium.entity;
 import lombok.*;
 
 import jakarta.persistence.*;
-import jakarta.persistence.Lob;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
@@ -30,8 +28,7 @@ public class Place {
     @Column(nullable = false, length = 100)
     private String name;
 
-    @Lob
-    @Column
+    @Column(columnDefinition = "text")
     private String description;
 
     @Column(nullable = false)
