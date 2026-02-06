@@ -55,6 +55,14 @@ public class Notification {
         APPLICATION_RECEIVED("신청 접수"),
         APPLICATION_APPROVED("신청 승인"),
         APPLICATION_REJECTED("신청 거절"),
+        PARTY_EXPIRED("파티 모집 만료"),
+        PARTY_AUTO_COMPLETED("파티 자동 완료"),
+        GAME_TOMORROW_REMINDER("내일 경기 알림"),
+        GAME_DAY_REMINDER("오늘 경기 알림"),
+        HOST_RESPONSE_NUDGE("호스트 응답 촉구"),
+        REVIEW_REQUEST("리뷰 요청"),
+        PARTY_CANCELLED_HOST_DELETED("파티 취소 (호스트 탈퇴)"),
+        PARTY_PARTICIPANT_LEFT("참여자 탈퇴"),
 
         // 응원게시판 관련
         POST_COMMENT("게시글 댓글"),

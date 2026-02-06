@@ -81,6 +81,9 @@ public class Party {
     @Enumerated(EnumType.STRING)
     private PartyStatus status; // 파티 상태
 
+    @Column(name = "reservation_number", length = 50)
+    private String reservationNumber; // 예매번호
+
     @Column
     private Integer price; // 티켓 판매가 (판매 모드일 때)
 
