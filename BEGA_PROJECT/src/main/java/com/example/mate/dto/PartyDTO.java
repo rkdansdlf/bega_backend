@@ -31,8 +31,8 @@ public class PartyDTO {
         private Integer maxParticipants;
         private String description;
         private String ticketImageUrl;
-        private String hostFavoriteTeam;
         private Integer ticketPrice;
+        private String reservationNumber;
     }
 
     @Data
@@ -62,6 +62,7 @@ public class PartyDTO {
         private Party.PartyStatus status;
         private Integer price;
         private Integer ticketPrice;
+        private String reservationNumber;
         private Instant createdAt;
         private Instant updatedAt;
 
@@ -89,6 +90,7 @@ public class PartyDTO {
                     .status(party.getStatus())
                     .price(party.getPrice())
                     .ticketPrice(party.getTicketPrice())
+                    .reservationNumber(party.getReservationNumber())
                     .createdAt(party.getCreatedAt())
                     .updatedAt(party.getUpdatedAt())
                     .build();
@@ -103,6 +105,9 @@ public class PartyDTO {
         private Party.PartyStatus status;
         private Integer price;
         private String description;
+        private String section;
+        private Integer maxParticipants;
+        private Integer ticketPrice;
     }
 
     @Data

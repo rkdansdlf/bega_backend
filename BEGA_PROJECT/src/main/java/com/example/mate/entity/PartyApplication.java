@@ -64,6 +64,9 @@ public class PartyApplication {
     @Column(name = "rejected_at")
     private Instant rejectedAt; // 거절 시간
 
+    @Column(name = "response_deadline")
+    private Instant responseDeadline; // 응답 기한 (48시간)
+
     @PrePersist
     protected void onCreate() {
         createdAt = Instant.now();
