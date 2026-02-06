@@ -50,6 +50,19 @@ public class PartyApplicationService {
                     throw new DuplicateApplicationException(request.getPartyId(), request.getApplicantId());
                 });
 
+        // 재신청 차단: 거절된 신청이 있는지 확인
+        if (applicationRepository.existsByPartyIdAndApplicantIdAndIsRejectedTrue(
+                request.getPartyId(), request.getApplicantId())) {
+            throw new InvalidApplicationStatusException("거절된 파티에 다시 신청할 수 없습니다.");
+        }
+
+        // 최대 대기 신청 수 체크 (10건 제한)
+        long pendingCount = applicationRepository.countByPartyIdAndIsApprovedFalseAndIsRejectedFalse(
+                request.getPartyId());
+        if (pendingCount >= 10) {
+            throw new InvalidApplicationStatusException("이 파티의 대기 중인 신청이 최대(10건)에 도달했습니다.");
+        }
+
         // 파티 존재 여부 확인
         Party party = partyRepository.findById(request.getPartyId())
                 .orElseThrow(() -> new PartyNotFoundException(request.getPartyId()));
@@ -57,6 +70,9 @@ public class PartyApplicationService {
         if (party.getCurrentParticipants() >= party.getMaxParticipants()) {
             throw new PartyFullException(request.getPartyId());
         }
+
+        Instant now = Instant.now();
+        Instant deadline = now.plus(48, ChronoUnit.HOURS);
 
         PartyApplication application = PartyApplication.builder()
                 .partyId(request.getPartyId())
@@ -70,6 +86,7 @@ public class PartyApplicationService {
                 .isPaid(false)
                 .isApproved(false)
                 .isRejected(false)
+                .responseDeadline(deadline)
                 .build();
 
         // 전액 결제인 경우 자동 승인
