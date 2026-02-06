@@ -2,6 +2,7 @@ package com.example.leaderboard.service;
 
 import com.example.kbo.entity.GameEntity;
 import com.example.kbo.repository.GameRepository;
+import com.example.kbo.util.KboTeamCodePolicy;
 import com.example.leaderboard.dto.ScoreResultDto;
 import com.example.leaderboard.repository.ScoreEventRepository;
 import com.example.prediction.Prediction;
@@ -40,6 +41,11 @@ public class GameResultScoringService {
         // 게임 조회
         GameEntity game = gameRepository.findByGameId(gameId)
                 .orElseThrow(() -> new IllegalArgumentException("게임을 찾을 수 없습니다: " + gameId));
+
+        if (!isCanonicalGame(game)) {
+            log.info("Skipping non-canonical game {} for scoring.", gameId);
+            return 0;
+        }
 
         if (!game.isFinished()) {
             log.warn("Game {} is not finished yet. Skipping score processing.", gameId);
@@ -112,6 +118,7 @@ public class GameResultScoringService {
     public int processGamesForDate(LocalDate date) {
         List<GameEntity> finishedGames = gameRepository.findByGameDate(date).stream()
                 .filter(GameEntity::isFinished)
+                .filter(this::isCanonicalGame)
                 .toList();
 
         if (finishedGames.isEmpty()) {
@@ -141,6 +148,7 @@ public class GameResultScoringService {
         List<GameEntity> gamesForDate = gameRepository.findByGameDate(date).stream()
                 .filter(g -> !g.isDummyGame())
                 .filter(GameEntity::isFinished)
+                .filter(this::isCanonicalGame)
                 .toList();
 
         if (gamesForDate.isEmpty()) {
@@ -197,5 +205,13 @@ public class GameResultScoringService {
      */
     private boolean isAlreadyProcessed(Long predictionId, Long userId) {
         return scoreEventRepository.existsByPredictionIdAndUserId(predictionId, userId);
+    }
+
+    private boolean isCanonicalGame(GameEntity game) {
+        if (game == null) {
+            return false;
+        }
+        return KboTeamCodePolicy.isCanonicalTeamCode(game.getHomeTeam())
+                && KboTeamCodePolicy.isCanonicalTeamCode(game.getAwayTeam());
     }
 }

@@ -8,6 +8,7 @@ import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.GameInningScoreRepository;
 import com.example.kbo.repository.GameMetadataRepository;
 import com.example.kbo.repository.GameSummaryRepository;
+import com.example.kbo.util.KboTeamCodePolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,6 +58,7 @@ public class PredictionService {
         List<GameEntity> matches = gameRepository.findAllByGameDatesIn(recentDates);
 
         return matches.stream()
+                .filter(this::isCanonicalGame)
                 .map(MatchDto::fromEntity)
                 .collect(Collectors.toList());
     }
@@ -67,6 +69,7 @@ public class PredictionService {
         List<GameEntity> matches = gameRepository.findByGameDate(date).stream()
                 .filter(game -> !Boolean.TRUE.equals(game.getIsDummy()))
                 .filter(game -> !game.getGameId().startsWith("MOCK"))
+                .filter(this::isCanonicalGame)
                 .collect(Collectors.toList());
 
         return matches.stream()
@@ -79,6 +82,7 @@ public class PredictionService {
         List<GameEntity> matches = gameRepository.findAllByDateRange(startDate, endDate).stream()
                 .filter(game -> !Boolean.TRUE.equals(game.getIsDummy()))
                 .filter(game -> !game.getGameId().startsWith("MOCK"))
+                .filter(this::isCanonicalGame)
                 .collect(Collectors.toList());
 
         return matches.stream()
@@ -107,6 +111,10 @@ public class PredictionService {
     public void vote(Long userId, PredictionRequestDto request) {
         GameEntity game = gameRepository.findByGameId(request.getGameId())
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 경기입니다."));
+
+        if (!isCanonicalGame(game)) {
+            throw new IllegalArgumentException("예측 대상이 아닌 경기입니다.");
+        }
 
         validateVoteOpen(game);
 
@@ -185,6 +193,14 @@ public class PredictionService {
                 .homePercentage(homePercentage)
                 .awayPercentage(awayPercentage)
                 .build();
+    }
+
+    private boolean isCanonicalGame(GameEntity game) {
+        if (game == null) {
+            return false;
+        }
+        return KboTeamCodePolicy.isCanonicalTeamCode(game.getHomeTeam())
+                && KboTeamCodePolicy.isCanonicalTeamCode(game.getAwayTeam());
     }
 
     @Transactional
@@ -282,6 +298,9 @@ public class PredictionService {
             Optional<GameEntity> gameOpt = gameRepository.findByGameId(prediction.getGameId());
             if (gameOpt.isPresent()) {
                 GameEntity game = gameOpt.get();
+                if (!isCanonicalGame(game)) {
+                    continue;
+                }
                 if (game.isFinished()) {
                     totalFinished++;
                     String actualWinner = game.getWinner(); // "home", "away", or "draw"

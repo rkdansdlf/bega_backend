@@ -145,7 +145,8 @@ public class CheerService {
         } else {
             // 공지사항 상단 고정 정책: 최근 3일 이내의 공지사항만 상단에 고정
             java.time.Instant cutoffDate = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS);
-            page = postRepo.findAllOrderByPostTypeAndCreatedAt(normalizedTeamId, postType, cutoffDate, excludedIds, pageable);
+            page = postRepo.findAllOrderByPostTypeAndCreatedAt(normalizedTeamId, postType, cutoffDate, excludedIds,
+                    pageable);
         }
 
         List<Long> postIds = page.hasContent()
@@ -609,6 +610,13 @@ public class CheerService {
         UserEntity me = current.get();
         CheerPost post = findPostById(id);
         permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "게시글 수정");
+
+        // AI Moderation 체크
+        AIModerationService.ModerationResult modResult = moderationService
+                .checkContent(req.content());
+        if (!modResult.isAllowed()) {
+            throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
+        }
 
         updatePostContent(post, req);
 
@@ -1385,7 +1393,8 @@ public class CheerService {
             page = postRepo.findByTeamIdAndPostType(normalizedTeamId, postType, excludedIds, pageable);
         } else {
             java.time.Instant cutoffDate = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS);
-            page = postRepo.findAllOrderByPostTypeAndCreatedAt(normalizedTeamId, postType, cutoffDate, excludedIds, pageable);
+            page = postRepo.findAllOrderByPostTypeAndCreatedAt(normalizedTeamId, postType, cutoffDate, excludedIds,
+                    pageable);
         }
 
         List<Long> postIds = page.hasContent()
