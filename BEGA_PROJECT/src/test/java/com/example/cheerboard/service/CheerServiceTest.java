@@ -218,6 +218,8 @@ class CheerServiceTest {
                 when(current.get()).thenReturn(me);
                 when(postRepo.findById(postId)).thenReturn(Optional.of(existing));
                 doNothing().when(permissionValidator).validateOwnerOrAdmin(any(), any(), any());
+                when(moderationService.checkContent(any()))
+                                .thenReturn(com.example.common.service.AIModerationService.ModerationResult.allow());
 
                 when(postDtoMapper.toPostDetailRes(any(CheerPost.class), anyBoolean(), anyBoolean(), anyBoolean(),
                                 anyBoolean())).thenAnswer(inv -> {

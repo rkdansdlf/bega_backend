@@ -60,7 +60,7 @@ public class CheerController {
      * - 최소 페이로드로 효율적인 폴링 지원
      *
      * @param sinceId 마지막으로 확인한 게시글 ID
-     * @param teamId 팀 필터 (선택사항)
+     * @param teamId  팀 필터 (선택사항)
      * @return 새 게시글 수와 최신 게시글 ID
      */
     @GetMapping("/posts/changes")
@@ -113,7 +113,7 @@ public class CheerController {
     }
 
     @PutMapping("/posts/{id}")
-    public PostDetailRes update(@PathVariable Long id, @RequestBody UpdatePostReq req) {
+    public PostDetailRes update(@PathVariable Long id, @Valid @RequestBody UpdatePostReq req) {
         return svc.updatePost(id, req);
     }
 
