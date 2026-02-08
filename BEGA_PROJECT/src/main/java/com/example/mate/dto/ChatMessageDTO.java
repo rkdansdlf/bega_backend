@@ -6,7 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 public class ChatMessageDTO {
 
@@ -31,7 +31,7 @@ public class ChatMessageDTO {
         private Long senderId;
         private String senderName;
         private String message;
-        private LocalDateTime createdAt;
+        private Instant createdAt;
 
         public static Response from(ChatMessage chatMessage) {
             return Response.builder()

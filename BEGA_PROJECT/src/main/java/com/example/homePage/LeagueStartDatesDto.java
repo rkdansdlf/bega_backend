@@ -1,4 +1,4 @@
-package com.example.homePage;
+package com.example.homepage;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 public class PartyApplicationDTO {
 
@@ -43,9 +43,10 @@ public class PartyApplicationDTO {
         private Boolean isApproved;
         private Boolean isRejected;
         private PartyApplication.PaymentType paymentType;
-        private LocalDateTime createdAt;
-        private LocalDateTime approvedAt;
-        private LocalDateTime rejectedAt;
+        private Instant createdAt;
+        private Instant approvedAt;
+        private Instant rejectedAt;
+        private Instant responseDeadline;
 
         public static Response from(PartyApplication application) {
             return Response.builder()
@@ -64,6 +65,7 @@ public class PartyApplicationDTO {
                     .createdAt(application.getCreatedAt())
                     .approvedAt(application.getApprovedAt())
                     .rejectedAt(application.getRejectedAt())
+                    .responseDeadline(application.getResponseDeadline())
                     .build();
         }
     }

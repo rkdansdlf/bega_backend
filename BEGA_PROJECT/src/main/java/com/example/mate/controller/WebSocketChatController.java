@@ -7,7 +7,7 @@ import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.SendTo;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
+
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.CrossOrigin;
 
@@ -31,13 +31,13 @@ public class WebSocketChatController {
             @DestinationVariable Long partyId,
             ChatMessageDTO.Request request,
             SimpMessageHeaderAccessor headerAccessor) {
-        
+
         // 헤더에서 사용자 정보 가져오기 (선택사항)
         // Principal principal = headerAccessor.getUser();
-        
+
         // DB에 메시지 저장
         ChatMessageDTO.Response savedMessage = chatMessageService.sendMessage(request);
-        
+
         // 저장된 메시지를 구독자들에게 브로드캐스트
         return savedMessage;
     }

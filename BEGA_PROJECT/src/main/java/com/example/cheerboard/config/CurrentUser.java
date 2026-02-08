@@ -1,9 +1,9 @@
 package com.example.cheerboard.config;
 
-import com.example.demo.dto.CustomOAuth2User;
-import com.example.demo.entity.UserEntity;
-import com.example.demo.repo.UserRepository;
-import com.example.demo.service.CustomUserDetails;
+import com.example.auth.dto.CustomOAuth2User;
+import com.example.auth.entity.UserEntity;
+import com.example.auth.repository.UserRepository;
+import com.example.auth.service.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -11,6 +11,8 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.annotation.RequestScope;
+
+import java.util.Objects;
 
 @Component
 @RequestScope
@@ -83,7 +85,7 @@ public class CurrentUser {
         if (identifier.chars().allMatch(Character::isDigit)) {
             try {
                 Long userId = Long.valueOf(identifier);
-                return userRepository.findById(userId).orElse(null);
+                return userRepository.findById(Objects.requireNonNull(userId)).orElse(null);
             } catch (NumberFormatException ignore) {
                 // fall back to email lookup below
             }

@@ -1,5 +1,5 @@
 # Stage 1: Build - 빌드 전용 환경
-FROM eclipse-temurin:17-jdk-jammy AS builder
+FROM eclipse-temurin:21-jdk-jammy AS builder
 
 WORKDIR /build
 
@@ -8,8 +8,8 @@ COPY gradle gradle
 COPY build.gradle settings.gradle ./
 
 # [수정된 부분] gradlew 파일의 줄 끝 문자를 Windows(CRLF)에서 Linux(LF)로 변환합니다.
-RUN apt-get update && apt-get install -y dos2unix && \
-    dos2unix gradlew
+# apt-get을 통한 dos2unix 설치 대신 기본 설치된 sed를 사용하여 빌드 속도를 대폭 개선합니다.
+RUN sed -i 's/\r$//' gradlew
 
 RUN chmod +x gradlew
 
@@ -22,7 +22,7 @@ COPY src src
 RUN ./gradlew clean build -x test
 
 # Stage 2: Runtime - 실행 전용 환경
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:21-jre-jammy
 
 WORKDIR /app
 
