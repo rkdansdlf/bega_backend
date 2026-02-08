@@ -1,5 +1,7 @@
 package com.example.mate.repository;
 
+// Force IDE re-index
+
 import com.example.mate.entity.PartyReview;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;

@@ -20,6 +20,7 @@ public class CheckInRecordService {
 
     private final CheckInRecordRepository checkInRecordRepository;
     private final PartyRepository partyRepository;
+    private final com.example.auth.repository.UserRepository userRepository; // Corrected import
 
     // 체크인
     @Transactional
@@ -41,14 +42,23 @@ public class CheckInRecordService {
         // 모든 참여자가 체크인했는지 확인
         checkAndUpdatePartyStatus(request.getPartyId());
 
-        return CheckInRecordDTO.Response.from(savedRecord);
+        String userName = userRepository.findById(request.getUserId())
+                .map(com.example.auth.entity.UserEntity::getName)
+                .orElse("Unknown");
+
+        return CheckInRecordDTO.Response.from(savedRecord, userName);
     }
 
     // 파티별 체크인 기록 조회
     @Transactional(readOnly = true)
     public List<CheckInRecordDTO.Response> getCheckInsByPartyId(Long partyId) {
         return checkInRecordRepository.findByPartyId(partyId).stream()
-                .map(CheckInRecordDTO.Response::from)
+                .map(record -> {
+                    String userName = userRepository.findById(record.getUserId())
+                            .map(com.example.auth.entity.UserEntity::getName)
+                            .orElse("Unknown");
+                    return CheckInRecordDTO.Response.from(record, userName);
+                })
                 .collect(Collectors.toList());
     }
 
@@ -56,7 +66,12 @@ public class CheckInRecordService {
     @Transactional(readOnly = true)
     public List<CheckInRecordDTO.Response> getCheckInsByUserId(Long userId) {
         return checkInRecordRepository.findByUserId(userId).stream()
-                .map(CheckInRecordDTO.Response::from)
+                .map(record -> {
+                    String userName = userRepository.findById(record.getUserId())
+                            .map(com.example.auth.entity.UserEntity::getName)
+                            .orElse("Unknown");
+                    return CheckInRecordDTO.Response.from(record, userName);
+                })
                 .collect(Collectors.toList());
     }
 

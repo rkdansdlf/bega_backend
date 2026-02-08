@@ -1,5 +1,7 @@
 package com.example.mate.dto;
 
+// Force IDE re-index
+
 import com.example.mate.entity.PartyReview;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
