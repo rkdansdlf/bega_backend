@@ -3,6 +3,7 @@ package com.example.mate.service;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
+import com.example.auth.service.UserService;
 import com.example.mate.exception.DuplicateApplicationException;
 import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.exception.PartyApplicationNotFoundException;
@@ -18,12 +19,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.stream.Collectors;
-
 
 @Service
 @RequiredArgsConstructor
@@ -33,15 +33,35 @@ public class PartyApplicationService {
     private final PartyRepository partyRepository;
     private final PartyService partyService;
     private final NotificationService notificationService;
+    private final UserService userService;
 
     // 신청 생성
     @Transactional
     public PartyApplicationDTO.Response createApplication(PartyApplicationDTO.Request request) {
+        // 본인인증(소셜 연동) 여부 확인
+        if (!userService.isSocialVerified(request.getApplicantId())) {
+            throw new com.example.common.exception.IdentityVerificationRequiredException(
+                    "메이트에 신청하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
+        }
+
         // 중복 신청 체크
         applicationRepository.findByPartyIdAndApplicantId(request.getPartyId(), request.getApplicantId())
                 .ifPresent(app -> {
                     throw new DuplicateApplicationException(request.getPartyId(), request.getApplicantId());
                 });
+
+        // 재신청 차단: 거절된 신청이 있는지 확인
+        if (applicationRepository.existsByPartyIdAndApplicantIdAndIsRejectedTrue(
+                request.getPartyId(), request.getApplicantId())) {
+            throw new InvalidApplicationStatusException("거절된 파티에 다시 신청할 수 없습니다.");
+        }
+
+        // 최대 대기 신청 수 체크 (10건 제한)
+        long pendingCount = applicationRepository.countByPartyIdAndIsApprovedFalseAndIsRejectedFalse(
+                request.getPartyId());
+        if (pendingCount >= 10) {
+            throw new InvalidApplicationStatusException("이 파티의 대기 중인 신청이 최대(10건)에 도달했습니다.");
+        }
 
         // 파티 존재 여부 확인
         Party party = partyRepository.findById(request.getPartyId())
@@ -50,6 +70,9 @@ public class PartyApplicationService {
         if (party.getCurrentParticipants() >= party.getMaxParticipants()) {
             throw new PartyFullException(request.getPartyId());
         }
+
+        Instant now = Instant.now();
+        Instant deadline = now.plus(48, ChronoUnit.HOURS);
 
         PartyApplication application = PartyApplication.builder()
                 .partyId(request.getPartyId())
@@ -63,25 +86,25 @@ public class PartyApplicationService {
                 .isPaid(false)
                 .isApproved(false)
                 .isRejected(false)
+                .responseDeadline(deadline)
                 .build();
 
         // 전액 결제인 경우 자동 승인
         if (request.getPaymentType() == PartyApplication.PaymentType.FULL) {
             application.setIsApproved(true);
-            application.setApprovedAt(LocalDateTime.now());
+            application.setApprovedAt(Instant.now());
             partyService.incrementParticipants(request.getPartyId());
         }
 
         PartyApplication savedApplication = applicationRepository.save(application);
-        
+
         notificationService.createNotification(
                 party.getHostId(),
                 Notification.NotificationType.APPLICATION_RECEIVED,
                 "새로운 참여 신청",
                 request.getApplicantName() + "님이 파티에 참여 신청했습니다.",
-                savedApplication.getPartyId()
-        );
-        
+                savedApplication.getPartyId());
+
         return PartyApplicationDTO.Response.from(savedApplication);
     }
 
@@ -140,22 +163,21 @@ public class PartyApplicationService {
         }
 
         application.setIsApproved(true);
-        application.setApprovedAt(LocalDateTime.now());
+        application.setApprovedAt(Instant.now());
 
         // 파티 참여 인원 증가
         partyService.incrementParticipants(application.getPartyId());
 
         PartyApplication savedApplication = applicationRepository.save(application);
-        
+
         // 신청자에게 알림 발송
         notificationService.createNotification(
                 application.getApplicantId(),
                 Notification.NotificationType.APPLICATION_APPROVED,
                 "참여 승인 완료",
                 "파티 참여 신청이 승인되었습니다!",
-                application.getPartyId()
-        );
-         
+                application.getPartyId());
+
         return PartyApplicationDTO.Response.from(savedApplication);
     }
 
@@ -174,7 +196,7 @@ public class PartyApplicationService {
         }
 
         application.setIsRejected(true);
-        application.setRejectedAt(LocalDateTime.now());
+        application.setRejectedAt(Instant.now());
 
         PartyApplication savedApplication = applicationRepository.save(application);
         // 신청자에게 알림 발송
@@ -183,11 +205,10 @@ public class PartyApplicationService {
                 Notification.NotificationType.APPLICATION_REJECTED,
                 "참여 신청 거절",
                 "파티 참여 신청이 거절되었습니다.",
-                application.getPartyId()
-        );
-        
+                application.getPartyId());
+
         return PartyApplicationDTO.Response.from(savedApplication);
-        }
+    }
 
     // 신청 취소 (신청자가 취소)
     @Transactional
@@ -222,17 +243,17 @@ public class PartyApplicationService {
             throw new InvalidApplicationStatusException("경기 하루 전부터는 취소할 수 없습니다.");
         }
 
-                // 체크인 이후에는 취소 불가
-                if (party.getStatus() == Party.PartyStatus.CHECKED_IN || 
-                    party.getStatus() == Party.PartyStatus.COMPLETED) {
-                    throw new InvalidApplicationStatusException("체크인 이후에는 참여를 취소할 수 없습니다.");
-                }
+        // 체크인 이후에는 취소 불가
+        if (party.getStatus() == Party.PartyStatus.CHECKED_IN ||
+                party.getStatus() == Party.PartyStatus.COMPLETED) {
+            throw new InvalidApplicationStatusException("체크인 이후에는 참여를 취소할 수 없습니다.");
+        }
 
         // 승인된 신청 취소 시 참여 인원 감소
         partyService.decrementParticipants(application.getPartyId());
-        
+
         // 신청 삭제
         applicationRepository.delete(application);
     }
-  
+
 }

@@ -13,14 +13,17 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 
 /**
  * Cheerboard API 전용 예외 핸들러.
  *
- * <p>기존에는 서비스 계층에서 발생한 {@link AccessDeniedException} 이 컨트롤러까지
+ * <p>
+ * 기존에는 서비스 계층에서 발생한 {@link AccessDeniedException} 이 컨트롤러까지
  * 전파되면서 500 응답이 내려가 프론트엔드에서 "서버 연결 실패"로 인식되었습니다.
  * 여기서는 인증/인가 오류를 401/403으로, 잘못된 입력이나 존재하지 않는 리소스는
- * 400/404로 매핑해 일관된 JSON 응답을 제공합니다.</p>
+ * 400/404로 매핑해 일관된 JSON 응답을 제공합니다.
+ * </p>
  */
 @RestControllerAdvice(basePackages = "com.example.cheerboard")
 public class ApiExceptionHandler {
@@ -35,14 +38,14 @@ public class ApiExceptionHandler {
         return build(HttpStatus.FORBIDDEN, "FORBIDDEN", ex.getMessage());
     }
 
-    @ExceptionHandler({IllegalArgumentException.class, MethodArgumentNotValidException.class})
+    @ExceptionHandler({ IllegalArgumentException.class, MethodArgumentNotValidException.class })
     public ResponseEntity<Map<String, Object>> handleBadRequest(Exception ex) {
         String message = ex instanceof MethodArgumentNotValidException manv
-            ? manv.getBindingResult().getAllErrors().stream()
-                .findFirst()
-                .map(objectError -> objectError.getDefaultMessage())
-                .orElse("잘못된 요청입니다.")
-            : ex.getMessage();
+                ? manv.getBindingResult().getAllErrors().stream()
+                        .findFirst()
+                        .map(objectError -> objectError.getDefaultMessage())
+                        .orElse("잘못된 요청입니다.")
+                : ex.getMessage();
         return build(HttpStatus.BAD_REQUEST, "BAD_REQUEST", message);
     }
 
@@ -70,11 +73,22 @@ public class ApiExceptionHandler {
             }
         }
 
-        return ResponseEntity.status(status).body(Map.of(
-            "timestamp", Instant.now().toString(),
-            "status", status.value(),
-            "code", code,
-            "message", defaultMessage
-        ));
+        return ResponseEntity.status(Objects.requireNonNull(status)).body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "status", status.value(),
+                "code", code,
+                "message", defaultMessage));
+    }
+
+    /**
+     * Catch-all handler for unexpected exceptions.
+     * This helps debug 500 errors by returning the actual error message.
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
+        // Log the full stack trace for debugging
+        ex.printStackTrace();
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR",
+                "서버 오류가 발생했습니다: " + ex.getClass().getSimpleName() + " - " + ex.getMessage());
     }
 }

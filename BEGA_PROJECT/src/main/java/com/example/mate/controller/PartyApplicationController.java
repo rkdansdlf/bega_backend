@@ -2,6 +2,7 @@ package com.example.mate.controller;
 
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.service.PartyApplicationService;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,13 +19,15 @@ public class PartyApplicationController {
 
     // 신청 생성
     @PostMapping
-    public ResponseEntity<PartyApplicationDTO.Response> createApplication(
+    public ResponseEntity<?> createApplication(
             @RequestBody PartyApplicationDTO.Request request) {
         try {
             PartyApplicationDTO.Response response = applicationService.createApplication(request);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        } catch (com.example.common.exception.IdentityVerificationRequiredException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
         }
     }
 
@@ -70,38 +73,38 @@ public class PartyApplicationController {
 
     // 신청 승인
     @PostMapping("/{applicationId}/approve")
-    public ResponseEntity<PartyApplicationDTO.Response> approveApplication(
+    public ResponseEntity<?> approveApplication(
             @PathVariable Long applicationId) {
         try {
             PartyApplicationDTO.Response response = applicationService.approveApplication(applicationId);
             return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
         }
     }
 
     // 신청 거절
     @PostMapping("/{applicationId}/reject")
-    public ResponseEntity<PartyApplicationDTO.Response> rejectApplication(
+    public ResponseEntity<?> rejectApplication(
             @PathVariable Long applicationId) {
         try {
             PartyApplicationDTO.Response response = applicationService.rejectApplication(applicationId);
             return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
         }
     }
 
     // 신청 취소
     @DeleteMapping("/{applicationId}")
-    public ResponseEntity<Void> cancelApplication(
+    public ResponseEntity<?> cancelApplication(
             @PathVariable Long applicationId,
             @RequestParam Long applicantId) {
         try {
             applicationService.cancelApplication(applicationId, applicantId);
             return ResponseEntity.noContent().build();
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
         }
     }
 }

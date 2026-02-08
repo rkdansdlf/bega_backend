@@ -5,11 +5,12 @@ import com.example.admin.dto.AdminPostDto;
 import com.example.admin.dto.AdminStatsDto;
 import com.example.admin.dto.AdminUserDto;
 import com.example.admin.service.AdminService;
-import com.example.demo.dto.ApiResponse;
+import com.example.common.dto.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -42,12 +43,11 @@ public class AdminController {
      */
     @GetMapping("/users")
     public ResponseEntity<ApiResponse> getUsers(
-            @RequestParam(required = false) String search
-    ) {
+            @RequestParam(required = false) String search) {
         List<AdminUserDto> users = adminService.getUsers(search);
         return ResponseEntity.ok(ApiResponse.success("유저 목록 조회 성공", users));
     }
-    
+
     /**
      * 게시글 목록 조회
      * GET /api/admin/posts
@@ -57,7 +57,7 @@ public class AdminController {
         List<AdminPostDto> posts = adminService.getPosts();
         return ResponseEntity.ok(ApiResponse.success("게시글 목록 조회 성공", posts));
     }
-    
+
     /**
      * 메이트 목록 조회
      * GET /api/admin/mates
@@ -67,14 +67,16 @@ public class AdminController {
         List<AdminMateDto> mates = adminService.getMates();
         return ResponseEntity.ok(ApiResponse.success("메이트 목록 조회 성공", mates));
     }
-    
+
     /**
      * 유저 삭제
      * DELETE /api/admin/users/{userId}
      */
     @DeleteMapping("/users/{userId}")
-    public ResponseEntity<ApiResponse> deleteUser(@PathVariable Long userId) {
-        adminService.deleteUser(userId);
+    public ResponseEntity<ApiResponse> deleteUser(
+            @AuthenticationPrincipal Long adminId,
+            @PathVariable Long userId) {
+        adminService.deleteUser(userId, adminId);
         return ResponseEntity.ok(ApiResponse.success("유저가 삭제되었습니다."));
     }
 
@@ -83,8 +85,10 @@ public class AdminController {
      * DELETE /api/admin/posts/{postId}
      */
     @DeleteMapping("/posts/{postId}")
-    public ResponseEntity<ApiResponse> deletePost(@PathVariable Long postId) {
-        adminService.deletePost(postId);
+    public ResponseEntity<ApiResponse> deletePost(
+            @AuthenticationPrincipal Long adminId,
+            @PathVariable Long postId) {
+        adminService.deletePost(postId, adminId);
         return ResponseEntity.ok(ApiResponse.success("게시글이 삭제되었습니다."));
     }
 
@@ -93,8 +97,20 @@ public class AdminController {
      * DELETE /api/admin/mates/{mateId}
      */
     @DeleteMapping("/mates/{mateId}")
-    public ResponseEntity<ApiResponse> deleteMate(@PathVariable Long mateId) {
-        adminService.deleteMate(mateId);
+    public ResponseEntity<ApiResponse> deleteMate(
+            @AuthenticationPrincipal Long adminId,
+            @PathVariable Long mateId) {
+        adminService.deleteMate(mateId, adminId);
         return ResponseEntity.ok(ApiResponse.success("메이트 모임이 삭제되었습니다."));
+    }
+
+    /**
+     * 캐시 통계 조회 (관리자 전용)
+     * GET /api/admin/cache-stats
+     */
+    @GetMapping("/cache-stats")
+    public ResponseEntity<ApiResponse> getCacheStats() {
+        var stats = adminService.getCacheStats();
+        return ResponseEntity.ok(ApiResponse.success("캐시 통계 조회 성공", stats));
     }
 }
