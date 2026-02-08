@@ -1,6 +1,6 @@
 package com.example.cheerboard.domain;
 
-import com.example.demo.entity.UserEntity;
+import com.example.auth.entity.UserEntity;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -10,7 +10,11 @@ import java.util.List;
 
 @Entity
 @Table(name = "cheer_comment")
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class CheerComment {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -24,7 +28,8 @@ public class CheerComment {
     @JoinColumn(name = "author_id", nullable = false)
     private UserEntity author;
 
-    @Column(nullable = false, columnDefinition = "text")
+    @Lob
+    @Column(nullable = false)
     private String content;
 
     // 대댓글 기능: 부모 댓글 참조 (null이면 최상위 댓글)
@@ -34,6 +39,7 @@ public class CheerComment {
 
     // 대댓글 목록 (자식 댓글들)
     @OneToMany(mappedBy = "parentComment", cascade = CascadeType.ALL, orphanRemoval = true)
+    @org.hibernate.annotations.BatchSize(size = 20)
     @Builder.Default
     private List<CheerComment> replies = new ArrayList<>();
 

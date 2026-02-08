@@ -21,4 +21,7 @@ public interface PredictionRepository extends JpaRepository<Prediction, Long>{
 	// 특정 경기의 전체 투표 수
 	Long countByGameId(String gameId);
 	
+	// 특정 유저의 모든 투표 조회 (최신순)
+	List<Prediction> findAllByUserIdOrderByCreatedAtDesc(Long userId);
+	
 }

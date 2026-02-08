@@ -44,6 +44,8 @@ out/
 
 ### .env ###
 .env
+.env.*
+!.env.example
 .venv
 env
 venv
@@ -58,7 +60,11 @@ venv
 # Build folder
 /build
 
+# Local data
+box_score.csv
+
 # Log files
 BEGA_PROJECT/logs/
 BEGA_PROJECT/src/test/java/.placeholder
 BEGA_PROJECT/src/main/java/.placeholder
+/BEGA_PROJECT/wallet

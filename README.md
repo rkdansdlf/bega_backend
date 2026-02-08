@@ -173,38 +173,54 @@ Supabase Storage
 
 ### 환경 설정
 
+> Supabase 무료 플랜 용량 한계로 인해 스토리지를 **OCI Object Storage**로 전환했습니다.  
+> Supabase 관련 설정은 **마이그레이션 작업용**으로만 유지합니다.
+
 1.  **application.yml 생성:**
     
     ```yaml
     spring:
       datasource:
-        url: jdbc:postgresql://localhost:5432/bega
-        username: ${DB_USERNAME}
-        password: ${DB_PASSWORD}
+        url: ${SPRING_DATASOURCE_URL}
+        username: ${SPRING_DATASOURCE_USERNAME}
+        password: ${SPRING_DATASOURCE_PASSWORD}
       jpa:
         hibernate:
-          ddl-auto: update
+          ddl-auto: none
         show-sql: true
     
     jwt:
       secret: ${JWT_SECRET}
       expiration: 86400000
-    
-    supabase:
-      url: ${SUPABASE_URL}
-      key: ${SUPABASE_KEY}
-      bucket: ${SUPABASE_BUCKET}
+
+    # OCI Object Storage (S3 compatible)
+    oci:
+      s3:
+        access-key: ${OCI_S3_ACCESS_KEY}
+        secret-key: ${OCI_S3_SECRET_KEY}
+        endpoint: ${OCI_S3_ENDPOINT}
+        region: ${OCI_S3_REGION}
+        bucket: ${OCI_S3_BUCKET}
     
     ```
     
 2.  **환경 변수 설정:**
     
     ```sh
-    export DB_USERNAME=your_db_username
-    export DB_PASSWORD=your_db_password
+    export SPRING_DATASOURCE_URL=jdbc:oracle:thin:@your-oracle-host:1521/yourdb
+    export SPRING_DATASOURCE_USERNAME=your_db_username
+    export SPRING_DATASOURCE_PASSWORD=your_db_password
     export JWT_SECRET=your_jwt_secret
-    export SUPABASE_URL=your_supabase_url
-    export SUPABASE_KEY=your_supabase_key
+    export OCI_S3_ACCESS_KEY=your_access_key
+    export OCI_S3_SECRET_KEY=your_secret_key
+    export OCI_S3_ENDPOINT=https://<namespace>.compat.objectstorage.<region>.oraclecloud.com
+    export OCI_S3_REGION=ap-seoul-1
+    export OCI_S3_BUCKET=your_bucket
+
+    # (Optional) Supabase - migration only
+    export SUPABASE_DB_URL=postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
+    export SUPABASE_URL=https://your-project-id.supabase.co
+    export SUPABASE_KEY=your_service_role_key
     export SUPABASE_BUCKET=your_bucket_name
     
     ```
@@ -253,7 +269,7 @@ GET    /api/diary/statistics  - 마이페이지 통계 조회
 
 GET    /api/auth/mypage        - 프로필 정보 조회
 PUT    /api/auth/mypage        - 프로필 정보 수정
-GET    /api/auth/supabasetoken - 쿠키에서 토큰 추출
+GET    /api/auth/supabasetoken - (Deprecated) Supabase token helper for legacy flows
 POST   /api/profile/image      - 프로필 사진 업로드
 ```
 

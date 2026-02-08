@@ -44,4 +44,8 @@ public class Prediction {
         this.votedTeam = newVotedTeam;
         this.createdAt = LocalDateTime.now();
     }
+
+    public String getVotedTeam() {
+        return votedTeam;
+    }
 }
