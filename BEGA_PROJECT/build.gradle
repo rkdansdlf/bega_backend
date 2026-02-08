@@ -1,6 +1,6 @@
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '3.5.8'
+	id 'org.springframework.boot' version '3.5.10'
 	id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -9,26 +9,20 @@ version = '0.0.1-SNAPSHOT'
 description = 'Demo project for Spring Boot'
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_21
 }
 
 repositories {
 	mavenCentral()
 }
 
-dependencies {
-	implementation 'org.springframework.boot:spring-boot-starter-web'
-	implementation 'org.springframework.boot:spring-boot-starter-web-services'
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-	developmentOnly 'org.springframework.boot:spring-boot-devtools'
+	dependencies {
+		implementation 'org.springframework.boot:spring-boot-starter-web'
+		implementation 'org.springframework.boot:spring-boot-starter-web-services'
+		developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
     implementation 'nz.net.ultraq.thymeleaf:thymeleaf-layout-dialect'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa' // 카피바라의 마법도구 JPA
-    implementation 'org.springframework.boot:spring-boot-starter-web'
-	runtimeOnly 'com.h2database:h2' // 데이터가 저장될 영역.
-	testImplementation 'org.junit.jupiter:junit-jupiter' 
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6'
     compileOnly 'org.projectlombok:lombok' 
@@ -42,21 +36,67 @@ dependencies {
 	implementation 'com.mysql:mysql-connector-j'
 	implementation 'org.postgresql:postgresql:42.6.0'
 	runtimeOnly 'org.postgresql:postgresql'
-	runtimeOnly 'com.h2database:h2' // dev 프로필용 H2 데이터베이스
+    
+    // Flyway for DB Migration
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-oracle'
+
+    // Oracle Autonomous Database
+    implementation('com.oracle.database.jdbc:ojdbc11-production:23.7.0.25.01') {
+        exclude group: 'com.oracle.database.xml', module: 'xmlparserv2'
+    }
+
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
 	implementation 'io.projectreactor:reactor-core'
     implementation 'jakarta.servlet:jakarta.servlet-api:6.0.0'
     implementation 'org.slf4j:slf4j-api'
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	implementation 'org.springframework.boot:spring-boot-starter-websocket'
 	
 	implementation 'org.springframework.boot:spring-boot-starter-mail'	
 	implementation 'me.paulschwarz:spring-dotenv:4.0.0'
     implementation 'org.springframework.boot:spring-boot-starter-cache'
     implementation 'com.github.ben-manes.caffeine:caffeine:3.1.8'
+
+    // Redis 캐시
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    
+    // Monitoring
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+    implementation 'org.apache.commons:commons-pool2:2.12.0'
+    implementation 'io.sentry:sentry-spring-boot-starter:7.3.0'
+    implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
+
+    // 이미지 처리 (압축, 리사이징)
+    implementation 'net.coobird:thumbnailator:0.4.20'
+    implementation 'com.twelvemonkeys.imageio:imageio-webp:3.12.0'
+    implementation 'com.twelvemonkeys.imageio:imageio-core:3.12.0'
+    implementation 'com.twelvemonkeys.imageio:imageio-metadata:3.12.0'
+    implementation 'com.twelvemonkeys.common:common-image:3.12.0'
+    implementation 'com.twelvemonkeys.common:common-io:3.12.0'
+    implementation 'com.twelvemonkeys.common:common-lang:3.12.0'
+    runtimeOnly 'io.netty:netty-resolver-dns-native-macos:4.1.115.Final:osx-aarch_64' // Fix MacOS Netty DNS warning
+    
+    // JobRunr (DB-backed Queue)
+    // JobRunr (DB-backed Queue)
+    implementation 'org.jobrunr:jobrunr-spring-boot-3-starter:8.4.0'
+
+    // AWS S3 (for OCI Object Storage)
+    implementation platform('software.amazon.awssdk:bom:2.21.1')
+    implementation 'software.amazon.awssdk:s3'
+
+    // H2 Database for Testing
+    testRuntimeOnly 'com.h2database:h2'
 }
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+// Increase memory for bootRun to avoid exit code 137 (OOM)
+tasks.named('bootRun') {
+    jvmArgs = ["-Xmx4096m"]
 }

@@ -34,105 +34,100 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 @Slf4j
 public class DiaryController {
-	
-	private final BegaDiaryService diaryService;
-	private final BegaGameService gameService;
-	private final ImageService imageService;
-	
-	@GetMapping("/games")
-	public ResponseEntity<List<GameResponseDto>> getGamesByDate(
-			@RequestParam(value = "date") String date
-			) {
-		LocalDate localDate = LocalDate.parse(date);
-		System.out.println(localDate);
-		List<GameResponseDto> games = gameService.getGamesByDate(localDate);
-		return ResponseEntity.ok(games);
-	}
-	
-	@PreAuthorize("isAuthenticated()")
-	@GetMapping("/entries")
-	public ResponseEntity<List<DiaryResponseDto>> getDiary(Principal principal) {
-		Long userId = Long.valueOf(principal.getName());
-		List<DiaryResponseDto> diaries = this.diaryService.getAllDiaries(userId);
-		return ResponseEntity.ok(diaries);
-	}
-	
-	@PreAuthorize("isAuthenticated()")
-	@PostMapping("/save")
+
+    private final BegaDiaryService diaryService;
+    private final BegaGameService gameService;
+    private final ImageService imageService;
+
+    @GetMapping("/games")
+    public ResponseEntity<List<GameResponseDto>> getGamesByDate(
+            @RequestParam(value = "date") String date) {
+        LocalDate localDate = LocalDate.parse(date);
+        log.debug("Fetching games for date: {}", localDate);
+        List<GameResponseDto> games = gameService.getGamesByDate(localDate);
+        return ResponseEntity.ok(games);
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/entries")
+    public ResponseEntity<List<DiaryResponseDto>> getDiary(Principal principal) {
+        Long userId = Long.valueOf(principal.getName());
+        List<DiaryResponseDto> diaries = this.diaryService.getAllDiaries(userId);
+        return ResponseEntity.ok(diaries);
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping("/save")
     public ResponseEntity<?> saveDiary(
-    		@RequestBody DiaryRequestDto requestDto,
-    		Principal principal
-    		) {
-		
-		if (principal == null) {
-            System.err.println("❌ userDetails가 null입니다!");
+            @RequestBody DiaryRequestDto requestDto,
+            Principal principal) {
+
+        if (principal == null) {
+            log.error("❌ userDetails가 null입니다!");
             return ResponseEntity.status(401).body("인증되지 않은 사용자");
         }
-		
-		Long userId = Long.valueOf(principal.getName());
+
+        Long userId = Long.valueOf(principal.getName());
         BegaDiary savedDiary = this.diaryService.save(userId, requestDto);
         DiaryResponseDto response = DiaryResponseDto.from(savedDiary);
         return ResponseEntity.ok(response);
     }
-    
-	@PreAuthorize("isAuthenticated()")
+
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/{id}/images")
     public ResponseEntity<?> uploadImages(
             @PathVariable("id") Long diaryId,
             @RequestPart("images") List<MultipartFile> images,
             Principal principal) {
-        
+
         Long userId = Long.valueOf(principal.getName());
 
         try {
             List<String> storagePaths = imageService.uploadDiaryImages(userId, diaryId, images)
-                                                    .block();
-            
+                    .block();
+
             if (storagePaths == null || storagePaths.isEmpty()) {
                 return ResponseEntity.ok().body(Map.of(
-                    "message", "업로드할 이미지가 없습니다.",
-                    "diaryId", diaryId,
-                    "photos", List.of()
-                ));
+                        "message", "업로드할 이미지가 없습니다.",
+                        "diaryId", diaryId,
+                        "photos", List.of()));
             }
 
-//            List<String> signedUrls = imageService.getDiaryImageSignedUrls(storagePaths)
-//                                                  .block(); 
+            // List<String> signedUrls = imageService.getDiaryImageSignedUrls(storagePaths)
+            // .block();
 
             return ResponseEntity.ok().body(Map.of(
-                "message", "이미지 업로드가 완료되었습니다.",
-                "diaryId", diaryId,
-                "photos", storagePaths
-            ));
-            
+                    "message", "이미지 업로드가 완료되었습니다.",
+                    "diaryId", diaryId,
+                    "photos", storagePaths));
+
         } catch (Exception ex) {
             log.error("이미지 업로드/URL 생성 실패: diaryId={}", diaryId, ex);
             return ResponseEntity.internalServerError().body(Map.of(
-                "message", "이미지 처리 중 오류가 발생했습니다.",
-                "error", ex.getMessage()
-            ));
+                    "message", "이미지 처리 중 오류가 발생했습니다.",
+                    "error", ex.getMessage()));
         }
     }
-	
+
     // 특정 다이어리 조회
-	@PreAuthorize("isAuthenticated()")
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/{id}")
     public ResponseEntity<DiaryResponseDto> getDiary(@PathVariable("id") Long id) {
         DiaryResponseDto diary = this.diaryService.getDiaryById(id);
         return ResponseEntity.ok(diary);
     }
-    
+
     // 다이어리 수정
     @PreAuthorize("isAuthenticated()")
     @PostMapping("/{id}/modify")
     public ResponseEntity<DiaryResponseDto> updateDiary(
-            @PathVariable("id") Long id, 
+            @PathVariable("id") Long id,
             @RequestBody DiaryRequestDto requestDto) {
         BegaDiary updatedDiary = this.diaryService.update(id, requestDto);
         DiaryResponseDto response = DiaryResponseDto.from(updatedDiary);
         return ResponseEntity.ok(response);
     }
-    
+
     // 다이어리 삭제
     @PreAuthorize("isAuthenticated()")
     @PostMapping("/{id}/delete")
@@ -140,13 +135,13 @@ public class DiaryController {
         this.diaryService.delete(id);
         return ResponseEntity.noContent().build();
     }
-    
+
     // 다이어리 통계
     @PreAuthorize("isAuthenticated()")
-	@GetMapping("/statistics")
-	public ResponseEntity<DiaryStatisticsDto> showStatistics(Principal principal) {
-		Long userId = Long.valueOf(principal.getName());
-		DiaryStatisticsDto statistics = this.diaryService.getStatistics(userId);
-		return ResponseEntity.ok(statistics);
-	}
+    @GetMapping("/statistics")
+    public ResponseEntity<DiaryStatisticsDto> showStatistics(Principal principal) {
+        Long userId = Long.valueOf(principal.getName());
+        DiaryStatisticsDto statistics = this.diaryService.getStatistics(userId);
+        return ResponseEntity.ok(statistics);
+    }
 }

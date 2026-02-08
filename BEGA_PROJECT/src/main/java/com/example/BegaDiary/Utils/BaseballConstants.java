@@ -2,6 +2,8 @@ package com.example.BegaDiary.Utils;
 
 import java.util.Map;
 
+import com.example.kbo.util.TeamCodeNormalizer;
+
 public class BaseballConstants {
     
     public static final Map<String, String> TEAM_KOREAN_NAME_MAP = Map.ofEntries(
@@ -13,6 +15,7 @@ public class BaseballConstants {
         Map.entry("NC", "NC 다이노스"),
         Map.entry("OB", "두산 베어스"),
         Map.entry("SS", "삼성 라이온즈"),
+        Map.entry("SSG", "SSG 랜더스"),
         Map.entry("SK", "SSG 랜더스"),
         Map.entry("WO", "키움 히어로즈")
     );
@@ -37,7 +40,8 @@ public class BaseballConstants {
     }
     
     public static String getTeamKoreanName(String teamCode) {
-        return TEAM_KOREAN_NAME_MAP.getOrDefault(teamCode, teamCode);
+        String normalized = TeamCodeNormalizer.normalize(teamCode);
+        return TEAM_KOREAN_NAME_MAP.getOrDefault(normalized, normalized);
     }
     
     private BaseballConstants() {

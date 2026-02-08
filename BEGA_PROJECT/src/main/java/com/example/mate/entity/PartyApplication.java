@@ -6,7 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 @Entity
 @Table(name = "party_applications")
@@ -20,53 +20,56 @@ public class PartyApplication {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(name = "partyid", nullable = false)
     private Long partyId; // 파티 ID
 
-    @Column(nullable = false)
+    @Column(name = "applicantid", nullable = false)
     private Long applicantId; // 신청자 사용자 ID
 
-    @Column(nullable = false, length = 50)
+    @Column(name = "applicant_name", nullable = false, length = 50)
     private String applicantName; // 신청자 이름
 
-    @Column(nullable = false, length = 20)
+    @Column(name = "applicant_badge", nullable = false, length = 20)
     @Enumerated(EnumType.STRING)
     private Party.BadgeType applicantBadge; // 신청자 뱃지
 
-    @Column(nullable = false)
+    @Column(name = "applicant_rating", nullable = false)
     private Double applicantRating; // 신청자 평점
 
     @Column(nullable = false, length = 500)
     private String message; // 신청 메시지
 
-    @Column(nullable = false)
+    @Column(name = "deposit_amount", nullable = false)
     private Integer depositAmount; // 보증금 금액
 
-    @Column(nullable = false)
+    @Column(name = "is_paid", nullable = false)
     private Boolean isPaid; // 결제 완료 여부
 
-    @Column(nullable = false)
+    @Column(name = "is_approved", nullable = false)
     private Boolean isApproved; // 승인 여부
 
-    @Column(nullable = false)
+    @Column(name = "is_rejected", nullable = false)
     private Boolean isRejected; // 거절 여부
 
-    @Column(nullable = false, length = 20)
+    @Column(name = "payment_type", nullable = false, length = 20)
     @Enumerated(EnumType.STRING)
     private PaymentType paymentType; // 결제 방식 (DEPOSIT, FULL)
 
-    @Column(nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
 
-    @Column
-    private LocalDateTime approvedAt; // 승인 시간
+    @Column(name = "approved_at")
+    private Instant approvedAt; // 승인 시간
 
-    @Column
-    private LocalDateTime rejectedAt; // 거절 시간
+    @Column(name = "rejected_at")
+    private Instant rejectedAt; // 거절 시간
+
+    @Column(name = "response_deadline")
+    private Instant responseDeadline; // 응답 기한 (48시간)
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        createdAt = Instant.now();
         if (isPaid == null) {
             isPaid = false;
         }

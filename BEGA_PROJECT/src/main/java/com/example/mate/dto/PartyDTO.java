@@ -6,8 +6,8 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 
+import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
 
 public class PartyDTO {
@@ -31,8 +31,8 @@ public class PartyDTO {
         private Integer maxParticipants;
         private String description;
         private String ticketImageUrl;
-        private String hostFavoriteTeam;
-        private Integer ticketPrice; 
+        private Integer ticketPrice;
+        private String reservationNumber;
     }
 
     @Data
@@ -62,8 +62,9 @@ public class PartyDTO {
         private Party.PartyStatus status;
         private Integer price;
         private Integer ticketPrice;
-        private LocalDateTime createdAt;
-        private LocalDateTime updatedAt;
+        private String reservationNumber;
+        private Instant createdAt;
+        private Instant updatedAt;
 
         public static Response from(Party party) {
             return Response.builder()
@@ -88,7 +89,8 @@ public class PartyDTO {
                     .ticketImageUrl(party.getTicketImageUrl())
                     .status(party.getStatus())
                     .price(party.getPrice())
-                    .ticketPrice(party.getTicketPrice()) 
+                    .ticketPrice(party.getTicketPrice())
+                    .reservationNumber(party.getReservationNumber())
                     .createdAt(party.getCreatedAt())
                     .updatedAt(party.getUpdatedAt())
                     .build();
@@ -103,6 +105,9 @@ public class PartyDTO {
         private Party.PartyStatus status;
         private Integer price;
         private String description;
+        private String section;
+        private Integer maxParticipants;
+        private Integer ticketPrice;
     }
 
     @Data

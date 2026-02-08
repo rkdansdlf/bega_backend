@@ -1,0 +1,36 @@
+-- Add created_at and updated_at to game_metadata
+BEGIN
+  EXECUTE IMMEDIATE 'ALTER TABLE game_metadata ADD (created_at TIMESTAMP WITH TIME ZONE)';
+EXCEPTION WHEN OTHERS THEN 
+  IF SQLCODE = -904 THEN NULL; -- Column already exists (unlikely here but safe)
+  ELSIF SQLCODE = -1430 THEN NULL; -- Column already exists
+  ELSE RAISE;
+  END IF;
+END;
+/
+BEGIN
+  EXECUTE IMMEDIATE 'ALTER TABLE game_metadata ADD (updated_at TIMESTAMP WITH TIME ZONE)';
+EXCEPTION WHEN OTHERS THEN 
+  IF SQLCODE = -1430 THEN NULL;
+  ELSE RAISE;
+  END IF;
+END;
+/
+
+-- Add created_at and updated_at to game_inning_scores
+BEGIN
+  EXECUTE IMMEDIATE 'ALTER TABLE game_inning_scores ADD (created_at TIMESTAMP WITH TIME ZONE)';
+EXCEPTION WHEN OTHERS THEN 
+  IF SQLCODE = -1430 THEN NULL;
+  ELSE RAISE;
+  END IF;
+END;
+/
+BEGIN
+  EXECUTE IMMEDIATE 'ALTER TABLE game_inning_scores ADD (updated_at TIMESTAMP WITH TIME ZONE)';
+EXCEPTION WHEN OTHERS THEN 
+  IF SQLCODE = -1430 THEN NULL;
+  ELSE RAISE;
+  END IF;
+END;
+/
