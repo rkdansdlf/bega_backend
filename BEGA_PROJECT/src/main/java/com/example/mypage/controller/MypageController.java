@@ -9,6 +9,7 @@ import com.example.auth.util.JWTUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j; // Add Slf4j
+import com.example.profile.storage.service.ProfileImageService;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,6 +33,7 @@ public class MypageController {
         private static final long ACCESS_TOKEN_EXPIRED_MS = 1000 * 60 * 30; // 30분 (ms 단위)
         private final UserService userService;
         private final JWTUtil jwtUtil;
+        private final ProfileImageService profileImageService;
 
         // 프로필 정보 조회 (GET /mypage) - 수정 없음
         @GetMapping("/mypage")
@@ -56,7 +58,8 @@ public class MypageController {
                                         .favoriteTeam(userEntity.getFavoriteTeamId() != null
                                                         ? userEntity.getFavoriteTeamId()
                                                         : "없음")
-                                        .profileImageUrl(userEntity.getProfileImageUrl())
+                                        .profileImageUrl(profileImageService
+                                                        .getProfileImageUrl(userEntity.getProfileImageUrl()))
                                         .createdAt(userEntity.getCreatedAt() != null
                                                         ? userEntity.getCreatedAt()
                                                                         .atZone(java.time.ZoneId.of("Asia/Seoul"))
@@ -123,7 +126,8 @@ public class MypageController {
                         responseMap.put("token", newJwtToken);
 
                         // 프론트엔드 MyPage.tsx의 handleSave에서 필요한 필드들
-                        responseMap.put("profileImageUrl", updatedEntity.getProfileImageUrl());
+                        responseMap.put("profileImageUrl",
+                                        profileImageService.getProfileImageUrl(updatedEntity.getProfileImageUrl()));
                         responseMap.put("name", updatedEntity.getName());
                         responseMap.put("handle", updatedEntity.getHandle());
                         responseMap.put("email", updatedEntity.getEmail());

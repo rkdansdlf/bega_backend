@@ -1,5 +1,7 @@
 package com.example.mate.service;
 
+// Force IDE re-index
+
 import com.example.mate.dto.PartyReviewDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;

@@ -1,7 +1,7 @@
 package com.example.mate.service;
 
 import java.util.Optional;
-import com.example.auth.service.UserService;
+import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
@@ -31,14 +31,17 @@ public class PartyService {
     private final PartyRepository partyRepository;
     private final UserRepository userRepository;
     private final PartyApplicationRepository applicationRepository;
-    private final UserService userService;
+    private final UserProviderRepository userProviderRepository;
     private final com.example.notification.service.NotificationService notificationService;
+    private final com.example.profile.storage.service.ProfileImageService profileImageService;
 
     @Transactional
     public PartyDTO.Response createParty(PartyDTO.Request request) {
 
         // 본인인증(소셜 연동) 여부 확인
-        if (!userService.isSocialVerified(request.getHostId())) {
+        boolean isSocialVerified = userProviderRepository.findByUserId(request.getHostId()).stream()
+                .anyMatch(p -> "kakao".equalsIgnoreCase(p.getProvider()) || "naver".equalsIgnoreCase(p.getProvider()));
+        if (!isSocialVerified) {
             throw new com.example.common.exception.IdentityVerificationRequiredException(
                     "메이트를 생성하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
         }
@@ -94,7 +97,7 @@ public class PartyService {
 
         Party savedParty = partyRepository.save(party);
 
-        return PartyDTO.Response.from(savedParty);
+        return convertToDto(savedParty);
     }
 
     // 모든 파티 조회 (검색 및 필터링 통합)
@@ -123,7 +126,7 @@ public class PartyService {
                 excludedStatuses,
                 pageable);
 
-        return parties.map(PartyDTO.Response::from);
+        return parties.map(this::convertToDto);
     }
 
     // 파티 ID로 조회
@@ -131,14 +134,14 @@ public class PartyService {
     public PartyDTO.Response getPartyById(Long id) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
-        return PartyDTO.Response.from(party);
+        return convertToDto(party);
     }
 
     // 상태별 파티 조회
     @Transactional(readOnly = true)
     public List<PartyDTO.Response> getPartiesByStatus(Party.PartyStatus status) {
         return partyRepository.findByStatusOrderByCreatedAtDesc(status).stream()
-                .map(PartyDTO.Response::from)
+                .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
 
@@ -146,7 +149,7 @@ public class PartyService {
     @Transactional(readOnly = true)
     public List<PartyDTO.Response> getPartiesByHostId(Long hostId) {
         return partyRepository.findByHostId(hostId).stream()
-                .map(PartyDTO.Response::from)
+                .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
 
@@ -154,7 +157,7 @@ public class PartyService {
     @Transactional(readOnly = true)
     public List<PartyDTO.Response> searchParties(String query) {
         return partyRepository.searchParties(query).stream()
-                .map(PartyDTO.Response::from)
+                .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
 
@@ -163,7 +166,7 @@ public class PartyService {
     public List<PartyDTO.Response> getUpcomingParties() {
         LocalDate today = LocalDate.now();
         return partyRepository.findByGameDateAfterOrderByGameDateAsc(today).stream()
-                .map(PartyDTO.Response::from)
+                .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
 
@@ -178,15 +181,16 @@ public class PartyService {
         if (request.getStatus() != null) {
             party.setStatus(request.getStatus());
         }
-        if (request.getPrice() != null) {
-            party.setPrice(request.getPrice());
-        }
         if (request.getDescription() != null) {
             party.setDescription(request.getDescription());
         }
 
-        // section, maxParticipants, ticketPrice는 PENDING 상태이고 승인된 신청이 없을 때만 변경 가능
+        // price, section, maxParticipants, ticketPrice는 PENDING 상태이고 승인된 신청이 없을 때만 변경
+        // 가능
         if (party.getStatus() == Party.PartyStatus.PENDING && !hasApprovedApplications) {
+            if (request.getPrice() != null) {
+                party.setPrice(request.getPrice());
+            }
             if (request.getSection() != null) {
                 party.setSection(request.getSection());
             }
@@ -200,13 +204,14 @@ public class PartyService {
             if (request.getTicketPrice() != null) {
                 party.setTicketPrice(request.getTicketPrice());
             }
-        } else if (request.getSection() != null || request.getMaxParticipants() != null || request.getTicketPrice() != null) {
+        } else if (request.getPrice() != null || request.getSection() != null || request.getMaxParticipants() != null
+                || request.getTicketPrice() != null) {
             throw new InvalidApplicationStatusException(
-                    "승인된 참여자가 있거나 모집 중 상태가 아닌 경우 좌석/인원/가격을 변경할 수 없습니다.");
+                    "승인된 참여자가 있거나 모집 중 상태가 아닌 경우 가격/좌석/인원을 변경할 수 없습니다.");
         }
 
         Party updatedParty = partyRepository.save(party);
-        return PartyDTO.Response.from(updatedParty);
+        return convertToDto(updatedParty);
     }
 
     // 파티 참여 인원 증가
@@ -227,7 +232,7 @@ public class PartyService {
         }
 
         Party updatedParty = partyRepository.save(party);
-        return PartyDTO.Response.from(updatedParty);
+        return convertToDto(updatedParty);
     }
 
     // 파티 참여 인원 감소
@@ -244,7 +249,7 @@ public class PartyService {
         party.setStatus(Party.PartyStatus.PENDING);
 
         Party updatedParty = partyRepository.save(party);
-        return PartyDTO.Response.from(updatedParty);
+        return convertToDto(updatedParty);
     }
 
     @Transactional
@@ -314,7 +319,7 @@ public class PartyService {
         });
 
         return allParties.stream()
-                .map(PartyDTO.Response::from)
+                .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
 
@@ -337,9 +342,8 @@ public class PartyService {
 
         // 1. 호스트로 생성한 PENDING/MATCHED 파티 처리
         List<Party.PartyStatus> activeStatuses = List.of(
-            Party.PartyStatus.PENDING,
-            Party.PartyStatus.MATCHED
-        );
+                Party.PartyStatus.PENDING,
+                Party.PartyStatus.MATCHED);
         List<Party> hostedParties = partyRepository.findByHostIdAndStatusIn(userId, activeStatuses);
 
         for (Party party : hostedParties) {
@@ -350,36 +354,35 @@ public class PartyService {
             partyRepository.save(party);
 
             // 승인된 신청자들에게 알림 발송
-            List<PartyApplication> approvedApplications =
-                applicationRepository.findByPartyIdAndIsApprovedTrue(party.getId());
+            List<PartyApplication> approvedApplications = applicationRepository
+                    .findByPartyIdAndIsApprovedTrue(party.getId());
 
             for (PartyApplication application : approvedApplications) {
                 try {
                     notificationService.createNotification(
-                        application.getApplicantId(),
-                        com.example.notification.entity.Notification.NotificationType.PARTY_CANCELLED_HOST_DELETED,
-                        "파티가 취소되었습니다",
-                        "호스트가 계정을 삭제하여 파티가 자동으로 취소되었습니다. (경기: " +
-                            party.getGameDate() + " " + party.getStadium() + ")",
-                        party.getId()
-                    );
+                            application.getApplicantId(),
+                            com.example.notification.entity.Notification.NotificationType.PARTY_CANCELLED_HOST_DELETED,
+                            "파티가 취소되었습니다",
+                            "호스트가 계정을 삭제하여 파티가 자동으로 취소되었습니다. (경기: " +
+                                    party.getGameDate() + " " + party.getStadium() + ")",
+                            party.getId());
                     log.info("파티 취소 알림 발송: applicantId={}, partyId={}",
-                        application.getApplicantId(), party.getId());
+                            application.getApplicantId(), party.getId());
                 } catch (Exception e) {
                     log.error("파티 취소 알림 발송 실패: applicantId={}, error={}",
-                        application.getApplicantId(), e.getMessage());
+                            application.getApplicantId(), e.getMessage());
                 }
             }
         }
 
         // 2. 참여자로 승인된 신청 처리
-        List<PartyApplication> approvedApplicationsAsParticipant =
-            applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId);
+        List<PartyApplication> approvedApplicationsAsParticipant = applicationRepository
+                .findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId);
 
         for (PartyApplication application : approvedApplicationsAsParticipant) {
             try {
                 Party party = partyRepository.findById(application.getPartyId())
-                    .orElse(null);
+                        .orElse(null);
 
                 if (party == null) {
                     log.warn("파티를 찾을 수 없음: partyId={}", application.getPartyId());
@@ -388,7 +391,7 @@ public class PartyService {
                 }
 
                 log.info("참여자 신청 취소 처리: partyId={}, applicantId={}",
-                    party.getId(), userId);
+                        party.getId(), userId);
 
                 // currentParticipants 감소
                 if (party.getCurrentParticipants() > 1) {
@@ -404,22 +407,21 @@ public class PartyService {
 
                 // 호스트에게 알림 발송
                 try {
-                    String applicantName = application.getApplicantName() != null ?
-                        application.getApplicantName() : "참여자";
+                    String applicantName = application.getApplicantName() != null ? application.getApplicantName()
+                            : "참여자";
 
                     notificationService.createNotification(
-                        party.getHostId(),
-                        com.example.notification.entity.Notification.NotificationType.PARTY_PARTICIPANT_LEFT,
-                        "참여자가 탈퇴했습니다",
-                        applicantName + "님이 계정 삭제로 인해 파티에서 자동 탈퇴되었습니다. (현재 인원: " +
-                            party.getCurrentParticipants() + "/" + party.getMaxParticipants() + ")",
-                        party.getId()
-                    );
+                            party.getHostId(),
+                            com.example.notification.entity.Notification.NotificationType.PARTY_PARTICIPANT_LEFT,
+                            "참여자가 탈퇴했습니다",
+                            applicantName + "님이 계정 삭제로 인해 파티에서 자동 탈퇴되었습니다. (현재 인원: " +
+                                    party.getCurrentParticipants() + "/" + party.getMaxParticipants() + ")",
+                            party.getId());
                     log.info("참여자 탈퇴 알림 발송: hostId={}, partyId={}",
-                        party.getHostId(), party.getId());
+                            party.getHostId(), party.getId());
                 } catch (Exception e) {
                     log.error("참여자 탈퇴 알림 발송 실패: hostId={}, error={}",
-                        party.getHostId(), e.getMessage());
+                            party.getHostId(), e.getMessage());
                 }
 
                 // 신청 삭제
@@ -427,12 +429,20 @@ public class PartyService {
 
             } catch (Exception e) {
                 log.error("참여자 신청 처리 중 오류: applicationId={}, error={}",
-                    application.getId(), e.getMessage());
+                        application.getId(), e.getMessage());
             }
         }
 
         log.info("사용자 삭제로 인한 메이트 cascade cleanup 완료: userId={}, " +
-            "취소된 호스트 파티={}, 취소된 참여 신청={}",
-            userId, hostedParties.size(), approvedApplicationsAsParticipant.size());
+                "취소된 호스트 파티={}, 취소된 참여 신청={}",
+                userId, hostedParties.size(), approvedApplicationsAsParticipant.size());
+    }
+
+    private PartyDTO.Response convertToDto(Party party) {
+        PartyDTO.Response response = PartyDTO.Response.from(party);
+        // hostProfileImageUrl이 path인 경우 URL로 변환
+        String resolvedUrl = profileImageService.getProfileImageUrl(party.getHostProfileImageUrl());
+        response.setHostProfileImageUrl(resolvedUrl);
+        return response;
     }
 }

@@ -88,7 +88,10 @@ public class SecurityConfig {
                 "/api/predictions/ranking/current-season",
                 "/api/predictions/ranking/share/**",
                 "/api/reviews/party/**",
-                "/api/reviews/user/*/average"
+                "/api/reviews/user/*/average",
+                "/api/users/*/follow-counts",
+                "/api/users/*/followers",
+                "/api/users/*/following"
         };
 
         /** 인증 필수 엔드포인트 */

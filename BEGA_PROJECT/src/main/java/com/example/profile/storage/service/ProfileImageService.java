@@ -82,10 +82,11 @@ public class ProfileImageService {
                 throw new RuntimeException("이미지 URL 생성에 실패했습니다.");
             }
 
-            // 3. DB 업데이트 (트랜잭션 진입)
-            updateUserProfileUrl(userId, profileUrl);
+            // 3. DB 업데이트 (트랜잭션 진입) -> URL이 아닌 경로(Key)를 저장
+            updateUserProfileUrl(userId, storagePath);
 
             // 4. 성공 시 기존 이미지 삭제 (Best effort)
+            // 기존 URL인 경우 (UserEntity에 저장된 값이 URL이었던 시절 데이터) -> 처리가 복잡하므로 path 추출 시도
             if (oldProfileUrl != null && !oldProfileUrl.isEmpty()) {
                 deleteImageByUrl(oldProfileUrl);
             }
@@ -102,20 +103,13 @@ public class ProfileImageService {
 
             // DB 업데이트 실패 또는 업로드 중 에러 발생 시: 방금 올린 파일 삭제 (Cleanup)
             if (uploadedPath != null) {
-                // uploadedPath에서 실제 key 추출 필요.
-                // 하지만 스토리지 전략에 따라 path가 다를 수 있음.
-                // 간단히: uploadBytes가 리턴한 path를 그대로 delete에 넘기는 것이 전략상 맞는지 확인 필요.
-                // S3Strategy.uploadBytes returns fullPath (bucket/path).
-                // S3Strategy.delete expects `path` (relative to bucket arg) OR full key?
-                // S3Strategy.delete logic: key = bucket + "/" + path.
-                // If uploadedPath is "bucket/profiles/...", calling delete(bucket,
-                // uploadedPath) yields "bucket/bucket/profiles/..." -> WRONG.
-                // We should use the `storagePath` variable calculated earlier.
-
-                // Oops, storagePath variable is inside try block.
-                // Let's rely on the method variable scope adjustment or simpler cleanup logic.
-                // Actually, logic is complicated by S3Strategy's path handling.
-                // Safe bet: clean up manually if possible, or just log for manual cleanup.
+                // delete logic depends on storageStrategy implementation details
+                // try best effort delete
+                try {
+                    storageStrategy.delete(config.getProfileBucket(), uploadedPath).block();
+                } catch (Exception ex) {
+                    log.warn("롤백 이미지 삭제 실패: {}", uploadedPath);
+                }
             }
             throw new RuntimeException("프로필 이미지 업로드 중 오류가 발생했습니다: " + e.getMessage(), e);
         }
@@ -125,11 +119,40 @@ public class ProfileImageService {
      * DB 업데이트만을 위한 별도 트랜잭션 메서드
      */
     @Transactional
-    protected void updateUserProfileUrl(Long userId, String profileUrl) {
+    protected void updateUserProfileUrl(Long userId, String profilePath) {
         UserEntity user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
-        user.setProfileImageUrl(profileUrl);
+        user.setProfileImageUrl(profilePath);
         userRepository.save(user);
+    }
+
+    /**
+     * 저장된 경로(path) 또는 URL을 기반으로 실제 접근 가능한 URL 반환
+     */
+    public String getProfileImageUrl(String pathOrUrl) {
+        if (pathOrUrl == null || pathOrUrl.isEmpty()) {
+            return null;
+        }
+
+        // 1. 이미 http로 시작하는 URL인 경우 (외부 이미지 또는 Legacy 데이터)
+        if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+            // 만약 우리 버킷의 Signed URL이라면, Path를 추출하여 재서명 시도 (Auto-healing)
+            String extracted = extractStoragePathFromUrl(pathOrUrl);
+            if (extracted != null) {
+                return getProfileImageUrl(extracted);
+            }
+            return pathOrUrl;
+        }
+
+        // 2. 경로(Path)인 경우 -> Signed URL 생성
+        try {
+            String url = storageStrategy.getUrl(config.getProfileBucket(), pathOrUrl, config.getSignedUrlTtlSeconds())
+                    .block();
+            return url;
+        } catch (Exception e) {
+            log.warn("프로필 이미지 URL 생성 실패: path={}, error={}", pathOrUrl, e.getMessage());
+            return null;
+        }
     }
 
     private void deleteImageByUrl(String url) {
@@ -145,15 +168,24 @@ public class ProfileImageService {
     }
 
     private String extractStoragePathFromUrl(String url) {
-        if (url == null || url.isEmpty())
+        if (url == null || url.isEmpty()) {
             return null;
+        }
+
         try {
-            // OCI Path Style: https://{endpoint}/{bucket-name}/{path}
+            // 1. "profiles/" 경로 패턴을 먼저 찾음 (Bucket 이름 무관하게 동작)
+            int profilesIndex = url.indexOf("/profiles/");
+            if (profilesIndex != -1) {
+                // "/profiles/" 의 '/' 다음부터 추출 -> "profiles/userId/..."
+                String pathWithQuery = url.substring(profilesIndex + 1);
+                return pathWithQuery.split("\\?")[0];
+            }
+
+            // 2. Bucket 이름 기반 파싱 (Legacy logic backup)
             String bucketName = config.getProfileBucket();
-            if (url.contains("/" + bucketName + "/")) {
+            if (bucketName != null && !bucketName.isEmpty() && url.contains("/" + bucketName + "/")) {
                 String[] parts = url.split("/" + bucketName + "/");
                 if (parts.length >= 2) {
-                    // 쿼리 스트링 제거 (S3 Signed URL 대응)
                     return parts[parts.length - 1].split("\\?")[0];
                 }
             }

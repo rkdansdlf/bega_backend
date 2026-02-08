@@ -1,5 +1,7 @@
 package com.example.mate.controller;
 
+// Force IDE re-index
+
 import com.example.mate.dto.PartyReviewDTO;
 import com.example.mate.service.PartyReviewService;
 import lombok.RequiredArgsConstructor;
@@ -21,12 +23,9 @@ public class PartyReviewController {
      */
     @PostMapping
     public ResponseEntity<PartyReviewDTO.Response> createReview(@RequestBody PartyReviewDTO.Request request) {
-        try {
-            PartyReviewDTO.Response response = partyReviewService.createReview(request);
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
-        }
+        PartyReviewDTO.Response response = partyReviewService.createReview(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+
     }
 
     /**

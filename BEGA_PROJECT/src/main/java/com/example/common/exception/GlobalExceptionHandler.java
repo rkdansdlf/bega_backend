@@ -341,4 +341,14 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(e.getMessage()));
     }
 
+    /**
+     * 409 Conflict - Duplicate Review
+     */
+    @ExceptionHandler(com.example.mate.exception.DuplicateReviewException.class)
+    public ResponseEntity<ApiResponse> handleDuplicateReviewException(com.example.mate.exception.DuplicateReviewException e) {
+        log.warn("DuplicateReviewException: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(e.getMessage()));
+    }
 }

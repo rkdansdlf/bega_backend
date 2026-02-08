@@ -30,6 +30,8 @@ import com.example.common.exception.DuplicateEmailException;
 import com.example.common.exception.InvalidCredentialsException;
 import com.example.common.exception.SocialLoginRequiredException;
 
+import com.example.mate.service.PartyService;
+
 import lombok.RequiredArgsConstructor;
 
 @Service
@@ -45,6 +47,7 @@ public class UserService {
     private final com.example.auth.repository.UserProviderRepository userProviderRepository; // Inject repository
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final JWTUtil jwtUtil;
+    private final PartyService partyService;
 
     public JWTUtil getJWTUtil() {
         return jwtUtil;
@@ -376,6 +379,9 @@ public class UserService {
         if (refreshToken != null) {
             refreshRepository.delete(refreshToken);
         }
+
+        // 메이트 관련 데이터 정리 (파티 취소, 참여 신청 처리, 알림 발송)
+        partyService.handleUserDeletion(userId);
 
         // 사용자 삭제 (관련 데이터는 DB의 CASCADE 설정에 따라 처리됨)
         userRepository.delete(user);
