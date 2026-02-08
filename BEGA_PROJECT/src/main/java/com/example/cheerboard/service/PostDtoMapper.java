@@ -26,12 +26,15 @@ public class PostDtoMapper {
     private final HotPostChecker hotPostChecker;
     private final ImageService imageService;
     private final RedisPostService redisPostService;
+    private final com.example.profile.storage.service.ProfileImageService profileImageService;
 
     public PostDtoMapper(HotPostChecker hotPostChecker, @Lazy ImageService imageService,
-            RedisPostService redisPostService) {
+            RedisPostService redisPostService,
+            com.example.profile.storage.service.ProfileImageService profileImageService) {
         this.hotPostChecker = hotPostChecker;
         this.imageService = imageService;
         this.redisPostService = redisPostService;
+        this.profileImageService = profileImageService;
     }
 
     /**
@@ -101,7 +104,7 @@ public class PostDtoMapper {
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor().getId(),
                 post.getAuthor().getHandle(),
-                post.getAuthor().getProfileImageUrl(),
+                profileImageService.getProfileImageUrl(post.getAuthor().getProfileImageUrl()),
                 post.getAuthor().getFavoriteTeamId(),
                 post.getCreatedAt(),
                 post.getCommentCount(),
@@ -169,7 +172,7 @@ public class PostDtoMapper {
                 post.getAuthor().getId(),
                 post.getAuthor().getHandle(),
                 post.getAuthor().getEmail(),
-                post.getAuthor().getProfileImageUrl(),
+                profileImageService.getProfileImageUrl(post.getAuthor().getProfileImageUrl()),
                 post.getCreatedAt(),
                 post.getCommentCount(),
                 post.getLikeCount(),
@@ -223,7 +226,7 @@ public class PostDtoMapper {
                 author.getId(),
                 author.getHandle(),
                 author.getEmail(),
-                author.getProfileImageUrl(),
+                profileImageService.getProfileImageUrl(author.getProfileImageUrl()),
                 post.getCreatedAt(),
                 0, // 새 게시글이므로 댓글 수 0
                 0, // 새 게시글이므로 좋아요 수 0
@@ -295,7 +298,7 @@ public class PostDtoMapper {
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor().getId(),
                 post.getAuthor().getHandle(),
-                post.getAuthor().getProfileImageUrl(),
+                profileImageService.getProfileImageUrl(post.getAuthor().getProfileImageUrl()),
                 post.getAuthor().getFavoriteTeamId(),
                 post.getCreatedAt(),
                 post.getCommentCount(),
@@ -337,7 +340,7 @@ public class PostDtoMapper {
                 original.getContent(),
                 resolveDisplayName(original.getAuthor()),
                 original.getAuthor().getHandle(),
-                original.getAuthor().getProfileImageUrl(),
+                profileImageService.getProfileImageUrl(original.getAuthor().getProfileImageUrl()),
                 original.getCreatedAt(),
                 originalImageUrls,
                 original.getLikeCount(),
@@ -364,7 +367,7 @@ public class PostDtoMapper {
                 original.getContent(),
                 resolveDisplayName(original.getAuthor()),
                 original.getAuthor().getHandle(),
-                original.getAuthor().getProfileImageUrl(),
+                profileImageService.getProfileImageUrl(original.getAuthor().getProfileImageUrl()),
                 original.getCreatedAt(),
                 originalImageUrls,
                 original.getLikeCount(),
@@ -408,7 +411,6 @@ public class PostDtoMapper {
                 post.getCreatedAt(),
                 post.getAuthor().getId(),
                 resolveDisplayName(post.getAuthor()),
-                post.getAuthor().getProfileImageUrl()
-        );
+                profileImageService.getProfileImageUrl(post.getAuthor().getProfileImageUrl()));
     }
 }

@@ -46,6 +46,7 @@ public class PartyApplicationDTO {
         private Instant createdAt;
         private Instant approvedAt;
         private Instant rejectedAt;
+        private Instant responseDeadline;
 
         public static Response from(PartyApplication application) {
             return Response.builder()
@@ -64,6 +65,7 @@ public class PartyApplicationDTO {
                     .createdAt(application.getCreatedAt())
                     .approvedAt(application.getApprovedAt())
                     .rejectedAt(application.getRejectedAt())
+                    .responseDeadline(application.getResponseDeadline())
                     .build();
         }
     }

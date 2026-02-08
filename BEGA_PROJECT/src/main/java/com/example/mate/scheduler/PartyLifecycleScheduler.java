@@ -205,6 +205,14 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
         for (PartyApplication application : expiredApplications) {
             application.setIsRejected(true);
             application.setRejectedAt(now);
+
+            // 결제된 신청의 경우 환불 마킹 (추후 PaymentService 연동 시 실제 환불 처리 추가)
+            if (Boolean.TRUE.equals(application.getIsPaid())) {
+                application.setIsPaid(false);
+                log.warn("자동 거절된 신청의 결제 환불 필요: applicationId={}, applicantId={}, amount={}",
+                        application.getId(), application.getApplicantId(), application.getDepositAmount());
+            }
+
             applicationRepository.save(application);
 
             // 신청자에게 알림
@@ -215,6 +223,20 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
                     "48시간 응답 기한이 지나 신청이 자동 거절되었습니다.",
                     application.getPartyId()
             );
+
+            // 호스트에게 자동 거절 알림
+            Party party = partyRepository.findById(application.getPartyId()).orElse(null);
+            if (party != null) {
+                String applicantName = application.getApplicantName() != null
+                        ? application.getApplicantName() : "신청자";
+                notificationService.createNotification(
+                        party.getHostId(),
+                        Notification.NotificationType.APPLICATION_REJECTED,
+                        "신청 자동 거절",
+                        applicantName + "님의 신청이 48시간 무응답으로 자동 거절되었습니다.",
+                        application.getPartyId()
+                );
+            }
 
             autoRejectedCount++;
         }
@@ -243,13 +265,13 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
 
         // MATCHED 파티 알림
         for (Party party : matchedParties) {
-            sendGameReminder(party, "내일 경기 알림", "내일 경기가 있습니다! 준비해주세요.");
+            sendGameReminder(party, "내일 경기 알림", "내일 경기가 있습니다! 준비해주세요.", Notification.NotificationType.GAME_TOMORROW_REMINDER);
             notificationCount++;
         }
 
         // CHECKED_IN 파티 알림
         for (Party party : checkedInParties) {
-            sendGameReminder(party, "내일 경기 알림", "내일 경기가 있습니다! 준비해주세요.");
+            sendGameReminder(party, "내일 경기 알림", "내일 경기가 있습니다! 준비해주세요.", Notification.NotificationType.GAME_TOMORROW_REMINDER);
             notificationCount++;
         }
 
@@ -276,13 +298,13 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
 
         // MATCHED 파티 알림
         for (Party party : matchedParties) {
-            sendGameReminder(party, "오늘 경기 알림", "오늘 경기가 있습니다! 즐거운 관람 되세요!");
+            sendGameReminder(party, "오늘 경기 알림", "오늘 경기가 있습니다! 즐거운 관람 되세요!", Notification.NotificationType.GAME_DAY_REMINDER);
             notificationCount++;
         }
 
         // CHECKED_IN 파티 알림
         for (Party party : checkedInParties) {
-            sendGameReminder(party, "오늘 경기 알림", "오늘 경기가 있습니다! 즐거운 관람 되세요!");
+            sendGameReminder(party, "오늘 경기 알림", "오늘 경기가 있습니다! 즐거운 관람 되세요!", Notification.NotificationType.GAME_DAY_REMINDER);
             notificationCount++;
         }
 
@@ -294,11 +316,11 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
     /**
      * 파티의 호스트와 승인된 참여자들에게 알림 전송
      */
-    private void sendGameReminder(Party party, String title, String message) {
+    private void sendGameReminder(Party party, String title, String message, Notification.NotificationType type) {
         // 호스트에게 알림
         notificationService.createNotification(
                 party.getHostId(),
-                Notification.NotificationType.GAME_DAY_REMINDER,
+                type,
                 title,
                 message,
                 party.getId()
@@ -310,7 +332,7 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
         for (PartyApplication app : approvedApplicants) {
             notificationService.createNotification(
                     app.getApplicantId(),
-                    Notification.NotificationType.GAME_DAY_REMINDER,
+                    type,
                     title,
                     message,
                     party.getId()

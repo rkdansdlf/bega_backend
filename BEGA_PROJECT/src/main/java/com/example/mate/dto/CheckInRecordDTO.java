@@ -28,14 +28,16 @@ public class CheckInRecordDTO {
         private Long id;
         private Long partyId;
         private Long userId;
+        private String userName; // Added userName
         private String location;
         private LocalDateTime checkedInAt;
 
-        public static Response from(CheckInRecord record) {
+        public static Response from(CheckInRecord record, String userName) {
             return Response.builder()
                     .id(record.getId())
                     .partyId(record.getPartyId())
                     .userId(record.getUserId())
+                    .userName(userName)
                     .location(record.getLocation())
                     .checkedInAt(record.getCheckedInAt())
                     .build();

@@ -16,6 +16,7 @@ import com.example.cheerboard.repo.CheerPostLikeRepo;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.mate.entity.Party;
 import com.example.mate.repository.PartyRepository;
+import com.example.mate.service.PartyService;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +42,7 @@ public class AdminService {
     private final CheerPostLikeRepo likeRepository;
     private final CacheManager cacheManager;
     private final AuditLogRepository auditLogRepository;
+    private final PartyService partyService;
 
     /**
      * 대시보드 통계 조회
@@ -177,11 +179,8 @@ public class AdminService {
             cheerPostRepository.deleteAll(userPosts);
         }
 
-        // 메이트 모임 삭제
-        List<Party> userParties = partyRepository.findByHostId(userId);
-        if (!userParties.isEmpty()) {
-            partyRepository.deleteAll(userParties);
-        }
+        // 메이트 관련 데이터 정리 (파티 취소, 참여 신청 처리, 알림 발송)
+        partyService.handleUserDeletion(userId);
 
         // 유저 삭제
         userRepository.delete(Objects.requireNonNull(user));

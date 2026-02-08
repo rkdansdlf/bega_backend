@@ -9,12 +9,8 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 @Entity
-@Table(
-    name = "party_reviews",
-    uniqueConstraints = @UniqueConstraint(
-        columnNames = {"party_id", "reviewer_id", "reviewee_id"}
-    )
-)
+@Table(name = "party_reviews", uniqueConstraints = @UniqueConstraint(columnNames = { "party_id", "reviewer_id",
+        "reviewee_id" }))
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -37,7 +33,7 @@ public class PartyReview {
     @Column(nullable = false)
     private Integer rating; // 평점 (1-5)
 
-    @Column(length = 200)
+    @Column(name = "review_comment", length = 200)
     private String comment; // 코멘트 (최대 200자)
 
     @Column(name = "created_at", nullable = false, updatable = false)
