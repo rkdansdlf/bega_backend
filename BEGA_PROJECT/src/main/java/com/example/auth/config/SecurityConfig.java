@@ -39,72 +39,64 @@ public class SecurityConfig {
 
         /** 인증 관련 공개 엔드포인트 */
         private static final String[] PUBLIC_AUTH_ENDPOINTS = {
-                "/api/auth/login",
-                "/api/auth/signup",
-                "/api/auth/reissue",
-                "/api/auth/oauth2/state/**",
-                "/api/auth/password-reset/request",
-                "/api/auth/password-reset/confirm",
-                "/oauth2/**",
-                "/login/**",
-                "/error"
+                        "/api/auth/login",
+                        "/api/auth/signup",
+                        "/api/auth/reissue",
+                        "/api/auth/oauth2/state/**",
+                        "/api/auth/password-reset/request",
+                        "/api/auth/password-reset/confirm",
+                        "/oauth2/**",
+                        "/login/**",
+                        "/error"
         };
 
         /** 테스트 및 시스템 엔드포인트 */
         private static final String[] PUBLIC_SYSTEM_ENDPOINTS = {
-                "/api/test/**",
-                "/actuator/health",
-                "/ws/**"
+                        "/api/test/**",
+                        "/actuator/health",
+                        "/ws/**"
         };
 
         /** 공개 API 엔드포인트 (인증 불필요) */
         private static final String[] PUBLIC_API_ENDPOINTS = {
-                "/api/stadiums/**",
-                "/api/places/**",
-                "/api/teams/**",
-                "/api/games/**",
-                "/api/parties/**",
-                "/api/applications/**",
-                "/api/chat/**",
-                "/api/checkin/**",
-                "/api/users/email-to-id",
-                "/api/kbo/league-start-dates",
-                "/api/kbo/schedule/**",
-                "/api/kbo/rankings/**",
-                "/api/kbo/offseason/**",
-                "/api/matches/**",
-                "/api/diary/public/**"
+                        "/api/stadiums/**",
+                        "/api/places/**",
+                        "/api/teams/**",
+                        "/api/games/**",
+                        "/api/parties/**",
+                        "/api/chat/**",
+                        "/api/checkin/**",
+                        "/api/users/email-to-id",
+                        "/api/kbo/league-start-dates",
+                        "/api/kbo/schedule/**",
+                        "/api/kbo/rankings/**",
+                        "/api/kbo/offseason/**",
+                        "/api/matches/**",
+                        "/api/diary/public/**"
         };
 
         /** 공개 GET 요청 엔드포인트 */
         private static final String[] PUBLIC_GET_ENDPOINTS = {
-                "/api/cheer/posts",
-                "/api/cheer/posts/**",
-                "/api/cheer/user/**",
-                "/api/users/*/profile",
-                "/api/diary/games",
-                "/api/games/past",
-                "/api/predictions/status/**",
-                "/api/predictions/ranking/current-season",
-                "/api/predictions/ranking/share/**",
-                "/api/reviews/party/**",
-                "/api/reviews/user/*/average",
-                "/api/users/*/follow-counts",
-                "/api/users/*/followers",
-                "/api/users/*/following"
-        };
-
-        /** 인증 필수 엔드포인트 */
-        private static final String[] AUTHENTICATED_ENDPOINTS = {
-                "/api/auth/link-token",
-                "/api/diary/**",
-                "/api/predictions/**"
+                        "/api/cheer/posts",
+                        "/api/cheer/posts/**",
+                        "/api/cheer/user/**",
+                        "/api/users/*/profile",
+                        "/api/diary/games",
+                        "/api/games/past",
+                        "/api/predictions/status/**",
+                        "/api/predictions/ranking/current-season",
+                        "/api/predictions/ranking/share/**",
+                        "/api/reviews/party/**",
+                        "/api/reviews/user/*/average",
+                        "/api/users/*/follow-counts",
+                        "/api/users/*/followers",
+                        "/api/users/*/following"
         };
 
         /** 관리자 전용 엔드포인트 */
         private static final String[] ADMIN_ENDPOINTS = {
-                "/api/admin/**",
-                "/admin/**"
+                        "/api/admin/**",
+                        "/admin/**"
         };
 
         // ========================================
@@ -239,10 +231,12 @@ public class SecurityConfig {
 
                                                 // 5. 인증 필수 엔드포인트 (순서 중요: 구체적 경로 먼저)
                                                 .requestMatchers("/api/auth/link-token").authenticated()
-                                                .requestMatchers(HttpMethod.GET, "/api/cheer/posts/following").authenticated()
+                                                .requestMatchers(HttpMethod.GET, "/api/cheer/posts/following")
+                                                .authenticated()
                                                 .requestMatchers(HttpMethod.GET, "/api/diary/games").permitAll()
                                                 .requestMatchers("/api/diary/**").authenticated()
-                                                .requestMatchers(HttpMethod.POST, "/api/predictions/vote").authenticated()
+                                                .requestMatchers(HttpMethod.POST, "/api/predictions/vote")
+                                                .authenticated()
                                                 .requestMatchers("/api/predictions/**").authenticated()
 
                                                 // 6. 공개 GET 요청 엔드포인트
