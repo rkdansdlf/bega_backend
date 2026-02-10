@@ -149,7 +149,8 @@ public class CookieAuthorizationRequestRepository
     // --- 유틸리티 메서드 ---
 
     private void addCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
-        org.springframework.http.ResponseCookie cookie = org.springframework.http.ResponseCookie.from(name, value)
+        org.springframework.http.ResponseCookie cookie = org.springframework.http.ResponseCookie
+                .from(name, value != null ? value : "")
                 .path("/")
                 .httpOnly(true)
                 .maxAge(maxAgeSeconds)

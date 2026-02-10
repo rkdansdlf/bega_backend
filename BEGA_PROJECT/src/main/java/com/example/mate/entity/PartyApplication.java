@@ -55,6 +55,12 @@ public class PartyApplication {
     @Enumerated(EnumType.STRING)
     private PaymentType paymentType; // 결제 방식 (DEPOSIT, FULL)
 
+    @Column(name = "ticket_verified")
+    private Boolean ticketVerified; // 티켓 인증 여부
+
+    @Column(name = "ticket_image_url", length = 500)
+    private String ticketImageUrl; // 인증 티켓 이미지 URL
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -81,6 +87,9 @@ public class PartyApplication {
         }
         if (applicantRating == null) {
             applicantRating = 5.0;
+        }
+        if (ticketVerified == null) {
+            ticketVerified = false;
         }
     }
 

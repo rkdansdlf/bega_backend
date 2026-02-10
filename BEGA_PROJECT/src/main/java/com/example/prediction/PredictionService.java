@@ -39,8 +39,7 @@ public class PredictionService {
             "DELAYED",
             "LIVE",
             "IN_PROGRESS",
-            "INPROGRESS"
-    );
+            "INPROGRESS");
 
     @Transactional(readOnly = true)
     public List<MatchDto> getRecentCompletedGames() {
@@ -133,7 +132,7 @@ public class PredictionService {
 
         } else {
             // 포인트 차감 (Entity Update)
-            com.example.auth.entity.UserEntity user = userRepository.findById(userId)
+            com.example.auth.entity.UserEntity user = userRepository.findById(java.util.Objects.requireNonNull(userId))
                     .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다."));
 
             // 포인트 잔액 검증
@@ -287,7 +286,8 @@ public class PredictionService {
 
     @Transactional(readOnly = true)
     public UserPredictionStatsDto getUserStats(Long userId) {
-        List<Prediction> predictions = predictionRepository.findAllByUserIdOrderByCreatedAtDesc(userId);
+        List<Prediction> predictions = predictionRepository
+                .findAllByUserIdOrderByCreatedAtDesc(java.util.Objects.requireNonNull(userId));
 
         int totalFinished = 0;
         int correctCount = 0;
@@ -322,11 +322,7 @@ public class PredictionService {
 
         double accuracy = totalFinished > 0 ? Math.round((correctCount * 100.0 / totalFinished) * 10.0) / 10.0 : 0.0;
 
-        return UserPredictionStatsDto.builder()
-                .totalPredictions(totalFinished)
-                .correctPredictions(correctCount)
-                .accuracy(accuracy)
-                .streak(currentStreak)
-                .build();
+        return UserPredictionStatsDto.builder().totalPredictions(totalFinished).correctPredictions(correctCount)
+                .accuracy(accuracy).streak(currentStreak).build();
     }
 }
