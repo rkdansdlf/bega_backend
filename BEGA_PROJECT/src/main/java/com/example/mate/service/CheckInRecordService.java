@@ -90,7 +90,7 @@ public class CheckInRecordService {
     // 모든 참여자가 체크인했는지 확인하고 파티 상태 업데이트
     @Transactional
     public void checkAndUpdatePartyStatus(Long partyId) {
-        Party party = partyRepository.findById(partyId)
+        Party party = partyRepository.findById(java.util.Objects.requireNonNull(partyId))
                 .orElseThrow(() -> new PartyNotFoundException(partyId));
 
         long checkInCount = checkInRecordRepository.countByPartyId(partyId);

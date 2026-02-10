@@ -50,6 +50,17 @@ public class ReissueController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error("Refresh Token이 없습니다."));
         }
 
+        // [Security Fix] refresh 타입 토큰만 재발급에 사용 허용
+        String tokenType;
+        try {
+            tokenType = jwtUtil.getTokenType(refreshToken);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error("유효하지 않은 Refresh Token입니다."));
+        }
+        if (!"refresh".equals(tokenType)) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error("유효하지 않은 Refresh Token 타입입니다."));
+        }
+
         // Refresh Token 만료 확인
         if (jwtUtil.isExpired(refreshToken)) {
             try {

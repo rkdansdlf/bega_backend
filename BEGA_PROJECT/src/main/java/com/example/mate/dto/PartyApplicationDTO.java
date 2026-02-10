@@ -24,6 +24,9 @@ public class PartyApplicationDTO {
         private String message;
         private Integer depositAmount;
         private PartyApplication.PaymentType paymentType;
+        private Boolean ticketVerified; // Client-side flag (ignored for verification, used for UI)
+        private String ticketImageUrl;
+        private String verificationToken; // Server-side proof from TicketVerificationTokenStore
     }
 
     @Data
@@ -43,6 +46,8 @@ public class PartyApplicationDTO {
         private Boolean isApproved;
         private Boolean isRejected;
         private PartyApplication.PaymentType paymentType;
+        private Boolean ticketVerified;
+        private String ticketImageUrl;
         private Instant createdAt;
         private Instant approvedAt;
         private Instant rejectedAt;
@@ -62,6 +67,8 @@ public class PartyApplicationDTO {
                     .isApproved(application.getIsApproved())
                     .isRejected(application.getIsRejected())
                     .paymentType(application.getPaymentType())
+                    .ticketVerified(application.getTicketVerified())
+                    .ticketImageUrl(application.getTicketImageUrl())
                     .createdAt(application.getCreatedAt())
                     .approvedAt(application.getApprovedAt())
                     .rejectedAt(application.getRejectedAt())

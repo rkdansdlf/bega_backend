@@ -60,7 +60,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         String userEmail = userDto.getEmail();
         String role = userDto.getRole();
-        String userName = userDto.getName();
+
         Long userId = userDto.getId();
 
         // Fetch fresh entity for bonus check / entity operations if needed,
@@ -75,8 +75,6 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         }
 
         UserEntity userEntity = userEntityOptional.get();
-        String profileImageUrl = userEntity.getProfileImageUrl();
-        String userHandle = userEntity.getHandle();
 
         // ✅ 수정: getFavoriteTeamId() 사용 (String 반환)
         String favoriteTeamId = userEntity.getFavoriteTeamId();

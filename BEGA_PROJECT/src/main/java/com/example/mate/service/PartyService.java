@@ -1,5 +1,6 @@
 package com.example.mate.service;
 
+import java.util.Objects;
 import java.util.Optional;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
@@ -51,7 +52,7 @@ public class PartyService {
 
         try {
             // 사용자 정보에서 favoriteTeam도 가져오기
-            var userInfo = userRepository.findById(request.getHostId())
+            var userInfo = userRepository.findById(Objects.requireNonNull(request.getHostId()))
                     .map(user -> {
                         String imageUrl = user.getProfileImageUrl();
 
@@ -95,7 +96,7 @@ public class PartyService {
                 .status(Party.PartyStatus.PENDING)
                 .build();
 
-        Party savedParty = partyRepository.save(party);
+        Party savedParty = partyRepository.save(Objects.requireNonNull(party));
 
         return convertToDto(savedParty);
     }
@@ -132,7 +133,7 @@ public class PartyService {
     // 파티 ID로 조회
     @Transactional(readOnly = true)
     public PartyDTO.Response getPartyById(Long id) {
-        Party party = partyRepository.findById(id)
+        Party party = partyRepository.findById(Objects.requireNonNull(id))
                 .orElseThrow(() -> new PartyNotFoundException(id));
         return convertToDto(party);
     }
@@ -173,7 +174,7 @@ public class PartyService {
     // 파티 업데이트
     @Transactional
     public PartyDTO.Response updateParty(Long id, PartyDTO.UpdateRequest request) {
-        Party party = partyRepository.findById(id)
+        Party party = partyRepository.findById(Objects.requireNonNull(id))
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         boolean hasApprovedApplications = applicationRepository.countByPartyIdAndIsApprovedTrue(id) > 0;
@@ -217,7 +218,7 @@ public class PartyService {
     // 파티 참여 인원 증가
     @Transactional
     public PartyDTO.Response incrementParticipants(Long id) {
-        Party party = partyRepository.findById(id)
+        Party party = partyRepository.findById(Objects.requireNonNull(id))
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         if (party.getCurrentParticipants() >= party.getMaxParticipants()) {
@@ -238,7 +239,7 @@ public class PartyService {
     // 파티 참여 인원 감소
     @Transactional
     public PartyDTO.Response decrementParticipants(Long id) {
-        Party party = partyRepository.findById(id)
+        Party party = partyRepository.findById(Objects.requireNonNull(id))
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         if (party.getCurrentParticipants() <= 1) {
@@ -254,7 +255,7 @@ public class PartyService {
 
     @Transactional
     public void deleteParty(Long id, Long hostId) {
-        Party party = partyRepository.findById(id)
+        Party party = partyRepository.findById(Objects.requireNonNull(id))
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         // 호스트 본인 확인
@@ -291,7 +292,8 @@ public class PartyService {
         List<Party> hostedParties = partyRepository.findByHostId(userId);
 
         // 2. 참여자로 승인된 파티
-        List<PartyApplication> approvedApplications = applicationRepository.findByApplicantIdAndIsApprovedTrue(userId);
+        List<PartyApplication> approvedApplications = applicationRepository
+                .findByApplicantIdAndIsApprovedTrue(Objects.requireNonNull(userId));
 
         List<Party> participatedParties = approvedApplications.stream()
                 .map(app -> partyRepository.findById(app.getPartyId()))
@@ -381,7 +383,7 @@ public class PartyService {
 
         for (PartyApplication application : approvedApplicationsAsParticipant) {
             try {
-                Party party = partyRepository.findById(application.getPartyId())
+                Party party = partyRepository.findById(Objects.requireNonNull(application.getPartyId()))
                         .orElse(null);
 
                 if (party == null) {

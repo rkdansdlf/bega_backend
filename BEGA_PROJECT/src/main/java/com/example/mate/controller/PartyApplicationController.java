@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.security.Principal;
 import java.util.List;
 
 @RestController
@@ -17,12 +18,13 @@ public class PartyApplicationController {
 
     private final PartyApplicationService applicationService;
 
-    // 신청 생성
+    // 신청 생성 — applicantId는 인증 principal에서 파생
     @PostMapping
     public ResponseEntity<?> createApplication(
-            @RequestBody PartyApplicationDTO.Request request) {
+            @RequestBody PartyApplicationDTO.Request request,
+            Principal principal) {
         try {
-            PartyApplicationDTO.Response response = applicationService.createApplication(request);
+            PartyApplicationDTO.Response response = applicationService.createApplication(request, principal);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } catch (com.example.common.exception.IdentityVerificationRequiredException e) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
@@ -95,13 +97,13 @@ public class PartyApplicationController {
         }
     }
 
-    // 신청 취소
+    // 신청 취소 — applicantId는 인증 principal에서 파생
     @DeleteMapping("/{applicationId}")
     public ResponseEntity<?> cancelApplication(
             @PathVariable Long applicationId,
-            @RequestParam Long applicantId) {
+            Principal principal) {
         try {
-            applicationService.cancelApplication(applicationId, applicantId);
+            applicationService.cancelApplication(applicationId, principal);
             return ResponseEntity.noContent().build();
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
