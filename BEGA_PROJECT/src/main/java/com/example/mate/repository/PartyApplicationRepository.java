@@ -38,6 +38,9 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
     // 파티별 승인된 신청 수
     long countByPartyIdAndIsApprovedTrue(Long partyId);
 
+    // 신청자별 승인된 신청 수 (TRUSTED 배지 판단용)
+    long countByApplicantIdAndIsApprovedTrue(Long applicantId);
+
     // 파티별 대기 중인 신청 수
     long countByPartyIdAndIsApprovedFalseAndIsRejectedFalse(Long partyId);
 

@@ -10,7 +10,7 @@
 
 ```bash
 # Export teams table before any changes
-cd /Users/mac/project/KBO_platform/backend_bega/scripts
+cd /Users/mac/project/KBO_platform/bega_backend/scripts
 
 # Using psql (requires .env credentials)
 psql $DB_URL -c "\COPY teams TO 'backup_teams_$(date +%Y%m%d_%H%M%S).csv' WITH CSV HEADER"
@@ -63,7 +63,7 @@ total_teams | active_teams | inactive_teams
 #### Option A: Simple Update (No PostgreSQL Array)
 
 ```bash
-cd /Users/mac/project/KBO_platform/backend_bega/BEGA_PROJECT/src/main/java/com/example/demo/entity
+cd /Users/mac/project/KBO_platform/bega_backend/BEGA_PROJECT/src/main/java/com/example/demo/entity
 
 # Backup original file
 cp TeamEntity.java TeamEntity.java.backup
@@ -95,7 +95,7 @@ If you want alias functionality:
 
 3. Rebuild project:
    ```bash
-   cd /Users/mac/project/KBO_platform/backend_bega/BEGA_PROJECT
+   cd /Users/mac/project/KBO_platform/bega_backend/BEGA_PROJECT
    ./gradlew clean build
    ```
 
@@ -121,7 +121,7 @@ List<TeamEntity> findByFranchiseId(Integer franchiseId);
 ### Step 6: Test the Changes
 
 ```bash
-cd /Users/mac/project/KBO_platform/backend_bega/BEGA_PROJECT
+cd /Users/mac/project/KBO_platform/bega_backend/BEGA_PROJECT
 
 # Run tests
 ./gradlew test
@@ -236,7 +236,7 @@ If something goes wrong:
 psql $DB_URL -f rollback_fixes.sql
 
 # Code rollback
-cd /Users/mac/project/KBO_platform/backend_bega/BEGA_PROJECT
+cd /Users/mac/project/KBO_platform/bega_backend/BEGA_PROJECT
 git checkout src/main/java/com/example/demo/entity/TeamEntity.java
 git checkout src/main/java/com/example/demo/repo/TeamRepository.java
 

@@ -399,7 +399,7 @@ public class CheerService {
         // 내가 팔로우하는 유저 ID 목록
         List<Long> followingIds = followService.getFollowingIds(me.getId());
         if (followingIds.isEmpty()) {
-            return new PageImpl<>(List.of(), Objects.requireNonNull(pageable), 0);
+            return new PageImpl<PostSummaryRes>(List.of(), Objects.requireNonNull(pageable), 0);
         }
 
         // 내가 차단한 유저 ID 목록

@@ -123,7 +123,7 @@ FROM teams;
 
 ### Phase 2: Update Spring Boot Entities
 
-**File**: `/Users/mac/project/KBO_platform/backend_bega/BEGA_PROJECT/src/main/java/com/example/demo/entity/TeamEntity.java`
+**File**: `/Users/mac/project/KBO_platform/bega_backend/BEGA_PROJECT/src/main/java/com/example/demo/entity/TeamEntity.java`
 
 **Changes Required**:
 
@@ -185,7 +185,7 @@ public class TeamEntity {
 
 ### Phase 3: Update Repository Methods
 
-**File**: `/Users/mac/project/KBO_platform/backend_bega/BEGA_PROJECT/src/main/java/com/example/demo/repo/TeamRepository.java`
+**File**: `/Users/mac/project/KBO_platform/bega_backend/BEGA_PROJECT/src/main/java/com/example/demo/repo/TeamRepository.java`
 
 **Add Query Methods**:
 
@@ -356,7 +356,7 @@ UPDATE teams SET aliases = NULL;
 
 Then revert Java entity changes via git:
 ```bash
-cd /Users/mac/project/KBO_platform/backend_bega/BEGA_PROJECT
+cd /Users/mac/project/KBO_platform/bega_backend/BEGA_PROJECT
 git checkout src/main/java/com/example/demo/entity/TeamEntity.java
 git checkout src/main/java/com/example/demo/repo/TeamRepository.java
 ```
