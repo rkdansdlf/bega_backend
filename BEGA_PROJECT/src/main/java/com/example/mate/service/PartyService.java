@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.security.Principal;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -37,10 +38,11 @@ public class PartyService {
     private final com.example.profile.storage.service.ProfileImageService profileImageService;
 
     @Transactional
-    public PartyDTO.Response createParty(PartyDTO.Request request) {
+    public PartyDTO.Response createParty(PartyDTO.Request request, Principal principal) {
+        Long hostId = getUserIdFromPrincipal(principal);
 
         // 본인인증(소셜 연동) 여부 확인
-        boolean isSocialVerified = userProviderRepository.findByUserId(request.getHostId()).stream()
+        boolean isSocialVerified = userProviderRepository.findByUserId(hostId).stream()
                 .anyMatch(p -> "kakao".equalsIgnoreCase(p.getProvider()) || "naver".equalsIgnoreCase(p.getProvider()));
         if (!isSocialVerified) {
             throw new com.example.common.exception.IdentityVerificationRequiredException(
@@ -52,7 +54,7 @@ public class PartyService {
 
         try {
             // 사용자 정보에서 favoriteTeam도 가져오기
-            var userInfo = userRepository.findById(Objects.requireNonNull(request.getHostId()))
+            var userInfo = userRepository.findById(Objects.requireNonNull(hostId))
                     .map(user -> {
                         String imageUrl = user.getProfileImageUrl();
 
@@ -73,7 +75,7 @@ public class PartyService {
             log.error("호스트 정보 조회 실패: {}", e.getMessage());
         }
         Party party = Party.builder()
-                .hostId(request.getHostId())
+                .hostId(hostId)
                 .hostName(request.getHostName())
                 .hostProfileImageUrl(hostProfileImageUrl) // 변환된 URL 사용
                 .hostFavoriteTeam(hostFavoriteTeam)
@@ -173,9 +175,15 @@ public class PartyService {
 
     // 파티 업데이트
     @Transactional
-    public PartyDTO.Response updateParty(Long id, PartyDTO.UpdateRequest request) {
+    public PartyDTO.Response updateParty(Long id, PartyDTO.UpdateRequest request, Principal principal) {
+        Long requesterId = getUserIdFromPrincipal(principal);
         Party party = partyRepository.findById(Objects.requireNonNull(id))
                 .orElseThrow(() -> new PartyNotFoundException(id));
+
+        // 호스트 본인 확인
+        if (!party.getHostId().equals(requesterId)) {
+            throw new UnauthorizedAccessException("파티 호스트만 수정할 수 있습니다.");
+        }
 
         boolean hasApprovedApplications = applicationRepository.countByPartyIdAndIsApprovedTrue(id) > 0;
 
@@ -254,12 +262,13 @@ public class PartyService {
     }
 
     @Transactional
-    public void deleteParty(Long id, Long hostId) {
+    public void deleteParty(Long id, Principal principal) {
+        Long requesterId = getUserIdFromPrincipal(principal);
         Party party = partyRepository.findById(Objects.requireNonNull(id))
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         // 호스트 본인 확인
-        if (!party.getHostId().equals(hostId)) {
+        if (!party.getHostId().equals(requesterId)) {
             throw new UnauthorizedAccessException("파티 호스트만 삭제할 수 있습니다.");
         }
 
@@ -287,7 +296,8 @@ public class PartyService {
 
     // 사용자가 참여한 모든 파티 조회 (호스트 + 참여자)
     @Transactional(readOnly = true)
-    public List<PartyDTO.Response> getMyParties(Long userId) {
+    public List<PartyDTO.Response> getMyParties(Principal principal) {
+        Long userId = getUserIdFromPrincipal(principal);
         // 1. 호스트로 생성한 파티
         List<Party> hostedParties = partyRepository.findByHostId(userId);
 
@@ -446,5 +456,14 @@ public class PartyService {
         String resolvedUrl = profileImageService.getProfileImageUrl(party.getHostProfileImageUrl());
         response.setHostProfileImageUrl(resolvedUrl);
         return response;
+    }
+
+    private Long getUserIdFromPrincipal(Principal principal) {
+        if (principal == null) {
+            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
+        }
+        return userRepository.findByEmail(principal.getName())
+                .map(com.example.auth.entity.UserEntity::getId)
+                .orElseThrow(() -> new UnauthorizedAccessException("사용자를 찾을 수 없습니다."));
     }
 }

@@ -177,6 +177,17 @@ public class PartyApplicationService {
                 .collect(Collectors.toList());
     }
 
+    // 내 신청 목록 조회 (Principal 기반)
+    @Transactional(readOnly = true)
+    public List<PartyApplicationDTO.Response> getMyApplications(Principal principal) {
+        if (principal == null) {
+            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
+        }
+        String email = principal.getName();
+        Long userId = userService.getUserIdByEmail(email);
+        return getApplicationsByApplicantId(userId);
+    }
+
     // 대기중인 신청 목록 조회
     @Transactional(readOnly = true)
     public List<PartyApplicationDTO.Response> getPendingApplications(Long partyId) {
@@ -203,9 +214,17 @@ public class PartyApplicationService {
 
     // 신청 승인
     @Transactional
-    public PartyApplicationDTO.Response approveApplication(Long applicationId) {
+    public PartyApplicationDTO.Response approveApplication(Long applicationId, Principal principal) {
+        Long hostId = userService.getUserIdByEmail(principal.getName());
         PartyApplication application = applicationRepository.findById(java.util.Objects.requireNonNull(applicationId))
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+
+        Party party = partyRepository.findById(application.getPartyId())
+                .orElseThrow(() -> new PartyNotFoundException(application.getPartyId()));
+
+        if (!party.getHostId().equals(hostId)) {
+            throw new UnauthorizedAccessException("파티 호스트만 신청을 승인할 수 있습니다.");
+        }
 
         if (application.getIsApproved()) {
             throw new InvalidApplicationStatusException("이미 승인된 신청입니다.");
@@ -236,9 +255,17 @@ public class PartyApplicationService {
 
     // 신청 거절
     @Transactional
-    public PartyApplicationDTO.Response rejectApplication(Long applicationId) {
+    public PartyApplicationDTO.Response rejectApplication(Long applicationId, Principal principal) {
+        Long hostId = userService.getUserIdByEmail(principal.getName());
         PartyApplication application = applicationRepository.findById(java.util.Objects.requireNonNull(applicationId))
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+
+        Party party = partyRepository.findById(application.getPartyId())
+                .orElseThrow(() -> new PartyNotFoundException(application.getPartyId()));
+
+        if (!party.getHostId().equals(hostId)) {
+            throw new UnauthorizedAccessException("파티 호스트만 신청을 거절할 수 있습니다.");
+        }
 
         if (application.getIsApproved()) {
             throw new InvalidApplicationStatusException("승인된 신청은 거절할 수 없습니다.");

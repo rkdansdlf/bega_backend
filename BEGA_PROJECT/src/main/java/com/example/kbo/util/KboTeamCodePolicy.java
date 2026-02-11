@@ -5,7 +5,7 @@ import java.util.Set;
 public final class KboTeamCodePolicy {
 
     public static final Set<String> CANONICAL_CODES = Set.of(
-            "SS", "LT", "LG", "OB", "HT", "WO", "HH", "SSG", "NC", "KT");
+            "SS", "LT", "LG", "DB", "KIA", "KH", "HH", "SSG", "NC", "KT");
 
     private KboTeamCodePolicy() {
     }

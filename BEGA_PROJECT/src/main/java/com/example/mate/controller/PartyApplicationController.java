@@ -41,12 +41,17 @@ public class PartyApplicationController {
         return ResponseEntity.ok(applications);
     }
 
-    // 신청자별 신청 목록 조회
-    @GetMapping("/applicant/{applicantId}")
-    public ResponseEntity<List<PartyApplicationDTO.Response>> getApplicationsByApplicantId(
-            @PathVariable Long applicantId) {
-        List<PartyApplicationDTO.Response> applications = applicationService.getApplicationsByApplicantId(applicantId);
-        return ResponseEntity.ok(applications);
+    // 내 신청 목록 조회 (로그인 사용자 기준)
+    @GetMapping("/my")
+    public ResponseEntity<?> getMyApplications(Principal principal) {
+        try {
+            List<PartyApplicationDTO.Response> applications = applicationService.getMyApplications(principal);
+            return ResponseEntity.ok(applications);
+        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(java.util.Map.of("error", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
+        }
     }
 
     // 대기중인 신청 목록 조회
@@ -76,10 +81,13 @@ public class PartyApplicationController {
     // 신청 승인
     @PostMapping("/{applicationId}/approve")
     public ResponseEntity<?> approveApplication(
-            @PathVariable Long applicationId) {
+            @PathVariable Long applicationId,
+            Principal principal) {
         try {
-            PartyApplicationDTO.Response response = applicationService.approveApplication(applicationId);
+            PartyApplicationDTO.Response response = applicationService.approveApplication(applicationId, principal);
             return ResponseEntity.ok(response);
+        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
         }
@@ -88,10 +96,13 @@ public class PartyApplicationController {
     // 신청 거절
     @PostMapping("/{applicationId}/reject")
     public ResponseEntity<?> rejectApplication(
-            @PathVariable Long applicationId) {
+            @PathVariable Long applicationId,
+            Principal principal) {
         try {
-            PartyApplicationDTO.Response response = applicationService.rejectApplication(applicationId);
+            PartyApplicationDTO.Response response = applicationService.rejectApplication(applicationId, principal);
             return ResponseEntity.ok(response);
+        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
         }

@@ -18,12 +18,16 @@ public class ChatMessageController {
 
     // 메시지 전송
     @PostMapping("/messages")
-    public ResponseEntity<ChatMessageDTO.Response> sendMessage(@RequestBody ChatMessageDTO.Request request) {
+    public ResponseEntity<?> sendMessage(
+            @RequestBody ChatMessageDTO.Request request,
+            java.security.Principal principal) {
         try {
-            ChatMessageDTO.Response response = chatMessageService.sendMessage(request);
+            ChatMessageDTO.Response response = chatMessageService.sendMessage(request, principal);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
         }
     }
 

@@ -22,10 +22,17 @@ public class PartyReviewController {
      * 리뷰 작성
      */
     @PostMapping
-    public ResponseEntity<PartyReviewDTO.Response> createReview(@RequestBody PartyReviewDTO.Request request) {
-        PartyReviewDTO.Response response = partyReviewService.createReview(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-
+    public ResponseEntity<?> createReview(
+            @RequestBody PartyReviewDTO.Request request,
+            java.security.Principal principal) {
+        try {
+            PartyReviewDTO.Response response = partyReviewService.createReview(request, principal);
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
+        }
     }
 
     /**

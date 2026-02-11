@@ -63,9 +63,6 @@ public class SecurityConfig {
                         "/api/places/**",
                         "/api/teams/**",
                         "/api/games/**",
-                        "/api/parties/**",
-                        "/api/chat/**",
-                        "/api/checkin/**",
                         "/api/users/email-to-id",
                         "/api/kbo/league-start-dates",
                         "/api/kbo/schedule/**",
@@ -77,6 +74,8 @@ public class SecurityConfig {
 
         /** 공개 GET 요청 엔드포인트 */
         private static final String[] PUBLIC_GET_ENDPOINTS = {
+                        "/api/parties/**",
+                        "/api/checkin/**",
                         "/api/cheer/posts",
                         "/api/cheer/posts/**",
                         "/api/cheer/user/**",

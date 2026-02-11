@@ -1,6 +1,6 @@
 spring:
   profiles:
-    active: prod
+    active: dev
   # --- 공통 설정 ---
   config:
     import: optional:file:.env[.properties], optional:file:../../.env[.properties] # .env 로드 (현재 디렉토리 및 루트 디렉토리)
