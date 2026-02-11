@@ -8,16 +8,15 @@ public class BaseballConstants {
     
     public static final Map<String, String> TEAM_KOREAN_NAME_MAP = Map.ofEntries(
         Map.entry("HH", "한화 이글스"),
-        Map.entry("HT", "기아 타이거즈"),
+        Map.entry("KIA", "기아 타이거즈"),
         Map.entry("KT", "KT 위즈"),
         Map.entry("LG", "LG 트윈스"),
         Map.entry("LT", "롯데 자이언츠"),
         Map.entry("NC", "NC 다이노스"),
-        Map.entry("OB", "두산 베어스"),
+        Map.entry("DB", "두산 베어스"),
         Map.entry("SS", "삼성 라이온즈"),
         Map.entry("SSG", "SSG 랜더스"),
-        Map.entry("SK", "SSG 랜더스"),
-        Map.entry("WO", "키움 히어로즈")
+        Map.entry("KH", "키움 히어로즈")
     );
     
     public static final Map<String, String> STADIUM_FULL_NAME_MAP = Map.ofEntries(

@@ -599,13 +599,13 @@ public class UserService {
             case "삼성 라이온즈" -> "SS";
             case "롯데 자이언츠" -> "LT";
             case "LG 트윈스" -> "LG";
-            case "두산 베어스" -> "OB";
-            case "키움 히어로즈" -> "WO";
+            case "두산 베어스" -> "DB";
+            case "키움 히어로즈" -> "KH";
             case "한화 이글스" -> "HH";
             case "SSG 랜더스" -> "SSG";
             case "NC 다이노스" -> "NC";
             case "KT 위즈" -> "KT";
-            case "기아 타이거즈" -> "HT";
+            case "기아 타이거즈" -> "KIA";
             default -> null;
         };
     }

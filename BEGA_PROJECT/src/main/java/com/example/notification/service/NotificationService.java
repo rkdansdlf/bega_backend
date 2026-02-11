@@ -9,8 +9,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import java.util.List;
+import java.security.Principal;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import com.example.auth.repository.UserRepository;
+import com.example.auth.entity.UserEntity;
+import com.example.common.exception.UserNotFoundException;
+import com.example.mate.exception.UnauthorizedAccessException;
 
 @Service
 @RequiredArgsConstructor
@@ -19,6 +24,7 @@ public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final UserRepository userRepository;
 
     // 알림 생성
     @Transactional
@@ -60,26 +66,33 @@ public class NotificationService {
 
     }
 
-    // 사용자 알림 목록 조회
+    // 사용자 알림 목록 조회 (Principal 버전)
     @Transactional(readOnly = true)
-    public List<NotificationDTO.Response> getNotifications(Long userId) {
+    public List<NotificationDTO.Response> getMyNotifications(Principal principal) {
+        Long userId = getUserIdByEmail(principal.getName());
         return notificationRepository.findByUserIdOrderByCreatedAtDesc(userId)
                 .stream()
                 .map(NotificationDTO.Response::from)
                 .collect(Collectors.toList());
     }
 
-    // 읽지 않은 알림 개수
+    // 읽지 않은 알림 개수 (Principal 버전)
     @Transactional(readOnly = true)
-    public Long getUnreadCount(Long userId) {
+    public Long getMyUnreadCount(Principal principal) {
+        Long userId = getUserIdByEmail(principal.getName());
         return notificationRepository.countByUserIdAndIsReadFalse(userId);
     }
 
     // 알림 읽음 처리
     @Transactional
-    public void markAsRead(Long notificationId) {
+    public void markAsRead(Long notificationId, Principal principal) {
+        Long userId = getUserIdByEmail(principal.getName());
         Notification notification = notificationRepository.findById(Objects.requireNonNull(notificationId))
                 .orElseThrow(() -> new NotificationNotFoundException(notificationId));
+
+        if (!notification.getUserId().equals(userId)) {
+            throw new UnauthorizedAccessException("자신의 알림만 읽음 처리할 수 있습니다.");
+        }
 
         notification.setIsRead(true);
         notificationRepository.save(Objects.requireNonNull(notification));
@@ -87,7 +100,21 @@ public class NotificationService {
 
     // 알림 삭제
     @Transactional
-    public void deleteNotification(Long notificationId) {
-        notificationRepository.deleteById(Objects.requireNonNull(notificationId));
+    public void deleteNotification(Long notificationId, Principal principal) {
+        Long userId = getUserIdByEmail(principal.getName());
+        Notification notification = notificationRepository.findById(Objects.requireNonNull(notificationId))
+                .orElseThrow(() -> new NotificationNotFoundException(notificationId));
+
+        if (!notification.getUserId().equals(userId)) {
+            throw new UnauthorizedAccessException("자신의 알림만 삭제할 수 있습니다.");
+        }
+
+        notificationRepository.delete(notification);
+    }
+
+    private Long getUserIdByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .map(UserEntity::getId)
+                .orElseThrow(() -> new UserNotFoundException("email", email));
     }
 }

@@ -25,6 +25,12 @@ public class MatchDto {
     private String aiSummary;
     private WinProbabilityDto winProbability;
 
+    // Season Context
+    private Integer seasonId;
+    private String leagueType; // REGULAR, POST, PRE
+    private String postSeasonSeries; // WC, DS, PO, KS
+    private Integer seriesGameNo;
+
     @Getter
     @Builder
     public static class PitcherDto {
@@ -49,8 +55,8 @@ public class MatchDto {
         return MatchDto.builder()
                 .gameId(game.getGameId())
                 .gameDate(displayDate)
-                .homeTeam(game.getHomeTeam())
-                .awayTeam(game.getAwayTeam())
+                .homeTeam(com.example.kbo.util.TeamCodeNormalizer.normalize(game.getHomeTeam()))
+                .awayTeam(com.example.kbo.util.TeamCodeNormalizer.normalize(game.getAwayTeam()))
                 .stadium(game.getStadium())
                 .homeScore(game.getHomeScore())
                 .awayScore(game.getAwayScore())
@@ -73,6 +79,21 @@ public class MatchDto {
                         .build() : null)
                 .aiSummary(null) // DB에 없는 필드
                 .winProbability(null) // DB에 없는 필드
+                .seasonId(game.getSeasonId())
+                .leagueType(determineLeagueType(game.getGameDate())) // 날짜 기반 추론
+                .postSeasonSeries(null) // 추후 구현
+                .seriesGameNo(null) // 추후 구현
                 .build();
+    }
+
+    private static String determineLeagueType(LocalDate date) {
+        if (date == null)
+            return "REGULAR";
+        int month = date.getMonthValue();
+        if (month >= 3 && month <= 9)
+            return "REGULAR";
+        if (month >= 10 && month <= 11)
+            return "POST";
+        return "PRE";
     }
 }

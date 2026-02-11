@@ -50,8 +50,7 @@ public class CheerPost {
 
     // title removed
 
-    @Lob
-    @Column(nullable = true) // 단순 리포스트는 내용 없음
+    @Column(columnDefinition = "TEXT", nullable = true) // 단순 리포스트는 내용 없음
     private String content;
 
     @Column(name = "likecount", nullable = false)
