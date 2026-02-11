@@ -46,8 +46,7 @@ public class GameMetadataEntity {
     @Column(name = "weather", length = 50)
     private String weather;
 
-    @JdbcTypeCode(SqlTypes.CLOB)
-    @Column(name = "source_payload")
+    @Column(name = "source_payload", columnDefinition = "TEXT")
     private String sourcePayload;
 
     @Column(name = "created_at")

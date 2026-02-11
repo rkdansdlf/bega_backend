@@ -18,36 +18,31 @@ public class CheckInRecordController {
 
     // 체크인
     @PostMapping
-    public ResponseEntity<CheckInRecordDTO.Response> checkIn(@RequestBody CheckInRecordDTO.Request request) {
+    public ResponseEntity<?> checkIn(
+            @RequestBody CheckInRecordDTO.Request request,
+            java.security.Principal principal) {
         try {
-            CheckInRecordDTO.Response response = checkInRecordService.checkIn(request);
+            CheckInRecordDTO.Response response = checkInRecordService.checkIn(request, principal);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
         }
     }
 
     // 파티별 체크인 기록 조회
     @GetMapping("/party/{partyId}")
-    public ResponseEntity<List<CheckInRecordDTO.Response>> getCheckInsByPartyId(@PathVariable Long partyId) {
-        List<CheckInRecordDTO.Response> records = checkInRecordService.getCheckInsByPartyId(partyId);
+    public ResponseEntity<java.util.List<CheckInRecordDTO.Response>> getCheckInsByPartyId(@PathVariable Long partyId) {
+        java.util.List<CheckInRecordDTO.Response> records = checkInRecordService.getCheckInsByPartyId(partyId);
         return ResponseEntity.ok(records);
     }
 
     // 사용자별 체크인 기록 조회
     @GetMapping("/user/{userId}")
-    public ResponseEntity<List<CheckInRecordDTO.Response>> getCheckInsByUserId(@PathVariable Long userId) {
-        List<CheckInRecordDTO.Response> records = checkInRecordService.getCheckInsByUserId(userId);
+    public ResponseEntity<java.util.List<CheckInRecordDTO.Response>> getCheckInsByUserId(@PathVariable Long userId) {
+        java.util.List<CheckInRecordDTO.Response> records = checkInRecordService.getCheckInsByUserId(userId);
         return ResponseEntity.ok(records);
-    }
-
-    // 체크인 여부 확인
-    @GetMapping("/check")
-    public ResponseEntity<Boolean> isCheckedIn(
-            @RequestParam Long partyId,
-            @RequestParam Long userId) {
-        boolean isCheckedIn = checkInRecordService.isCheckedIn(partyId, userId);
-        return ResponseEntity.ok(isCheckedIn);
     }
 
     // 파티별 체크인 인원 수 조회
@@ -55,5 +50,14 @@ public class CheckInRecordController {
     public ResponseEntity<Long> getCheckInCount(@PathVariable Long partyId) {
         long count = checkInRecordService.getCheckInCount(partyId);
         return ResponseEntity.ok(count);
+    }
+
+    // 체크인 여부 확인
+    @GetMapping("/check")
+    public ResponseEntity<Boolean> isCheckedIn(
+            @RequestParam Long partyId,
+            java.security.Principal principal) {
+        boolean isCheckedIn = checkInRecordService.isCheckedIn(partyId, principal);
+        return ResponseEntity.ok(isCheckedIn);
     }
 }

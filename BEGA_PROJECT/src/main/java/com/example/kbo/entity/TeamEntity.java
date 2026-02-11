@@ -72,9 +72,8 @@ public class TeamEntity {
     @Builder.Default
     private Boolean isActive = true;
 
-    // 팀 별칭 배열 (JSON String으로 저장, Converter 사용)
-    @Convert(converter = com.example.common.converter.StringArrayJsonConverter.class)
-    @Column(name = "aliases", columnDefinition = "CLOB")
+    // 팀 별칭 배열 (PostgreSQL native array)
+    @Column(name = "aliases", columnDefinition = "text[]")
     private String[] aliases;
 
     @PrePersist

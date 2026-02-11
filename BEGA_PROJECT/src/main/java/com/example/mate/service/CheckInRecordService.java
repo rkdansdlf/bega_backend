@@ -12,7 +12,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.security.Principal;
 import java.util.stream.Collectors;
+import com.example.auth.service.UserService;
+import com.example.mate.repository.PartyApplicationRepository;
+import com.example.mate.exception.UnauthorizedAccessException;
 
 @Service
 @RequiredArgsConstructor
@@ -20,20 +24,37 @@ public class CheckInRecordService {
 
     private final CheckInRecordRepository checkInRecordRepository;
     private final PartyRepository partyRepository;
-    private final com.example.auth.repository.UserRepository userRepository; // Corrected import
+    private final com.example.auth.repository.UserRepository userRepository;
+    private final PartyApplicationRepository applicationRepository;
+    private final UserService userService;
 
     // 체크인
     @Transactional
-    public CheckInRecordDTO.Response checkIn(CheckInRecordDTO.Request request) {
+    public CheckInRecordDTO.Response checkIn(CheckInRecordDTO.Request request, Principal principal) {
+        Long userId = userService.getUserIdByEmail(principal.getName());
+
+        // 파티 존재 확인 및 멤버 여부 확인
+        Party party = partyRepository.findById(request.getPartyId())
+                .orElseThrow(() -> new PartyNotFoundException(request.getPartyId()));
+
+        boolean isMember = party.getHostId().equals(userId) ||
+                applicationRepository.findByPartyIdAndApplicantId(request.getPartyId(), userId)
+                        .map(com.example.mate.entity.PartyApplication::getIsApproved)
+                        .orElse(false);
+
+        if (!isMember) {
+            throw new UnauthorizedAccessException("파티 참여자만 체크인할 수 있습니다.");
+        }
+
         // 중복 체크인 확인
-        checkInRecordRepository.findByPartyIdAndUserId(request.getPartyId(), request.getUserId())
+        checkInRecordRepository.findByPartyIdAndUserId(request.getPartyId(), userId)
                 .ifPresent(record -> {
-                    throw new DuplicateCheckInException(request.getPartyId(), request.getUserId());
+                    throw new DuplicateCheckInException(request.getPartyId(), userId);
                 });
 
         CheckInRecord record = CheckInRecord.builder()
                 .partyId(request.getPartyId())
-                .userId(request.getUserId())
+                .userId(userId)
                 .location(request.getLocation())
                 .build();
 
@@ -42,7 +63,7 @@ public class CheckInRecordService {
         // 모든 참여자가 체크인했는지 확인
         checkAndUpdatePartyStatus(request.getPartyId());
 
-        String userName = userRepository.findById(request.getUserId())
+        String userName = userRepository.findById(userId)
                 .map(com.example.auth.entity.UserEntity::getName)
                 .orElse("Unknown");
 
@@ -77,7 +98,10 @@ public class CheckInRecordService {
 
     // 체크인 여부 확인
     @Transactional(readOnly = true)
-    public boolean isCheckedIn(Long partyId, Long userId) {
+    public boolean isCheckedIn(Long partyId, Principal principal) {
+        if (principal == null)
+            return false;
+        Long userId = userService.getUserIdByEmail(principal.getName());
         return checkInRecordRepository.findByPartyIdAndUserId(partyId, userId).isPresent();
     }
 
