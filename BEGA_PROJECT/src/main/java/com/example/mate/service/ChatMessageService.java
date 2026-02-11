@@ -8,21 +8,51 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.security.Principal;
 import java.util.stream.Collectors;
+import com.example.auth.service.UserService;
+import com.example.auth.repository.UserRepository;
+import com.example.mate.repository.PartyRepository;
+import com.example.mate.repository.PartyApplicationRepository;
+import com.example.mate.exception.UnauthorizedAccessException;
+import com.example.mate.exception.PartyNotFoundException;
 
 @Service
 @RequiredArgsConstructor
 public class ChatMessageService {
 
     private final ChatMessageRepository chatMessageRepository;
+    private final UserService userService;
+    private final UserRepository userRepository;
+    private final PartyRepository partyRepository;
+    private final PartyApplicationRepository applicationRepository;
 
     // 메시지 전송
     @Transactional
-    public ChatMessageDTO.Response sendMessage(ChatMessageDTO.Request request) {
+    public ChatMessageDTO.Response sendMessage(ChatMessageDTO.Request request, Principal principal) {
+        Long userId = userService.getUserIdByEmail(principal.getName());
+
+        // 파티 존재 확인 및 멤버 여부 확인
+        var party = partyRepository.findById(request.getPartyId())
+                .orElseThrow(() -> new PartyNotFoundException(request.getPartyId()));
+
+        boolean isMember = party.getHostId().equals(userId) ||
+                applicationRepository.findByPartyIdAndApplicantId(request.getPartyId(), userId)
+                        .map(com.example.mate.entity.PartyApplication::getIsApproved)
+                        .orElse(false);
+
+        if (!isMember) {
+            throw new UnauthorizedAccessException("파티 참여자만 메시지를 보낼 수 있습니다.");
+        }
+
+        String userName = userRepository.findById(userId)
+                .map(com.example.auth.entity.UserEntity::getName)
+                .orElse("Unknown");
+
         ChatMessage chatMessage = ChatMessage.builder()
                 .partyId(request.getPartyId())
-                .senderId(request.getSenderId())
-                .senderName(request.getSenderName())
+                .senderId(userId)
+                .senderName(userName)
                 .message(request.getMessage())
                 .build();
 

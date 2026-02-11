@@ -17,7 +17,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.security.Principal;
 import java.util.stream.Collectors;
+import com.example.auth.service.UserService;
+import com.example.mate.exception.UnauthorizedAccessException;
 
 @Service
 @RequiredArgsConstructor
@@ -26,12 +29,18 @@ public class PartyReviewService {
     private final PartyReviewRepository partyReviewRepository;
     private final PartyRepository partyRepository;
     private final PartyApplicationRepository partyApplicationRepository;
+    private final UserService userService;
 
     /**
      * 리뷰 작성
      */
     @Transactional
-    public PartyReviewDTO.Response createReview(PartyReviewDTO.Request request) {
+    public PartyReviewDTO.Response createReview(PartyReviewDTO.Request request, Principal principal) {
+        if (principal == null) {
+            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
+        }
+        Long reviewerId = userService.getUserIdByEmail(principal.getName());
+
         // 1. 파티 존재 여부 확인
         Party party = partyRepository.findById(request.getPartyId())
                 .orElseThrow(() -> new PartyNotFoundException(request.getPartyId()));
@@ -42,9 +51,9 @@ public class PartyReviewService {
         }
 
         // 3. 리뷰 작성자가 파티 참여자인지 확인 (호스트 또는 승인된 신청자)
-        boolean isHost = party.getHostId().equals(request.getReviewerId());
+        boolean isHost = party.getHostId().equals(reviewerId);
         boolean isApprovedApplicant = partyApplicationRepository
-                .findByPartyIdAndApplicantId(request.getPartyId(), request.getReviewerId())
+                .findByPartyIdAndApplicantId(request.getPartyId(), reviewerId)
                 .map(PartyApplication::getIsApproved)
                 .orElse(false);
 
@@ -64,14 +73,14 @@ public class PartyReviewService {
         }
 
         // 5. 본인에게 리뷰 작성 방지
-        if (request.getReviewerId().equals(request.getRevieweeId())) {
+        if (reviewerId.equals(request.getRevieweeId())) {
             throw new InvalidReviewException("본인에게는 리뷰를 작성할 수 없습니다.");
         }
 
         // 6. 중복 리뷰 방지
         if (partyReviewRepository.existsByPartyIdAndReviewerIdAndRevieweeId(
-                request.getPartyId(), request.getReviewerId(), request.getRevieweeId())) {
-            throw new DuplicateReviewException(request.getPartyId(), request.getReviewerId(), request.getRevieweeId());
+                request.getPartyId(), reviewerId, request.getRevieweeId())) {
+            throw new DuplicateReviewException(request.getPartyId(), reviewerId, request.getRevieweeId());
         }
 
         // 7. 평점 유효성 검사 (1-5)
@@ -87,7 +96,7 @@ public class PartyReviewService {
         // 9. 리뷰 생성
         PartyReview review = PartyReview.builder()
                 .partyId(request.getPartyId())
-                .reviewerId(request.getReviewerId())
+                .reviewerId(reviewerId)
                 .revieweeId(request.getRevieweeId())
                 .rating(request.getRating())
                 .comment(request.getComment())

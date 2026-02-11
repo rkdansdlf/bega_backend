@@ -27,16 +27,13 @@ public class PartyController {
 
     // 파티 생성
     @PostMapping
-    public ResponseEntity<?> createParty(@RequestBody PartyDTO.Request request) {
+    public ResponseEntity<?> createParty(@RequestBody PartyDTO.Request request, java.security.Principal principal) {
         try {
-            PartyDTO.Response response = partyService.createParty(request);
+            PartyDTO.Response response = partyService.createParty(request, principal);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } catch (com.example.common.exception.IdentityVerificationRequiredException e) {
-            System.err.println("파티 생성 실패 - 본인인증 필요: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
         } catch (Exception e) {
-            System.err.println("파티 생성 중 오류: " + e.getClass().getSimpleName() + " - " + e.getMessage());
-            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
         }
     }
@@ -102,38 +99,41 @@ public class PartyController {
         return ResponseEntity.ok(parties);
     }
 
-    // 내가 참여한 모든 파티 조회 (호스트 + 참여자)
-    @GetMapping("/my/{userId}")
-    public ResponseEntity<List<PartyDTO.Response>> getMyParties(@PathVariable Long userId) {
-        List<PartyDTO.Response> parties = partyService.getMyParties(userId);
+    // 내가 참여한 모든 파티 조회 (호스트 + 참여자) - Principal 기반
+    @GetMapping("/my")
+    public ResponseEntity<List<PartyDTO.Response>> getMyParties(java.security.Principal principal) {
+        List<PartyDTO.Response> parties = partyService.getMyParties(principal);
         return ResponseEntity.ok(parties);
     }
 
     // 파티 업데이트
     @PatchMapping("/{id}")
-    public ResponseEntity<PartyDTO.Response> updateParty(
+    public ResponseEntity<?> updateParty(
             @PathVariable Long id,
-            @RequestBody PartyDTO.UpdateRequest request) {
+            @RequestBody PartyDTO.UpdateRequest request,
+            java.security.Principal principal) {
         try {
-            PartyDTO.Response response = partyService.updateParty(id, request);
+            PartyDTO.Response response = partyService.updateParty(id, request, principal);
             return ResponseEntity.ok(response);
+        } catch (UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(java.util.Map.of("error", e.getMessage()));
         }
     }
 
     // 파티 삭제
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteParty(
+    public ResponseEntity<?> deleteParty(
             @PathVariable Long id,
-            @RequestParam Long hostId) {
+            java.security.Principal principal) {
         try {
-            partyService.deleteParty(id, hostId);
+            partyService.deleteParty(id, principal);
             return ResponseEntity.noContent().build();
         } catch (UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(java.util.Map.of("error", e.getMessage()));
         }
     }
 }
