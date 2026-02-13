@@ -112,7 +112,7 @@ public class UserEntity {
     private String providerId;
 
     @Builder.Default
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "user", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
     private java.util.List<UserProvider> providers = new java.util.ArrayList<>();
 
     // JWT에 넣기 위해 단일 권한 키 문자열을 반환하는 메서드

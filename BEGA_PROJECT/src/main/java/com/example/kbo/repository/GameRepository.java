@@ -39,6 +39,18 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
   List<GameEntity> findByGameDate(LocalDate gameDate);
 
   /**
+   * 특정 날짜 + 홈/원정 팀 variants 매칭 조회
+   */
+  @Query("SELECT g FROM GameEntity g " +
+      "WHERE g.gameDate = :gameDate " +
+      "AND g.homeTeam IN :homeTeamVariants " +
+      "AND g.awayTeam IN :awayTeamVariants")
+  List<GameEntity> findByGameDateAndTeamVariants(
+      @Param("gameDate") LocalDate gameDate,
+      @Param("homeTeamVariants") List<String> homeTeamVariants,
+      @Param("awayTeamVariants") List<String> awayTeamVariants);
+
+  /**
    * 특정 날짜 + 더미 여부로 조회
    * 
    * @param gameDate 경기 날짜
@@ -258,4 +270,15 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    */
   @Query("SELECT MIN(g.gameDate) FROM GameEntity g WHERE g.gameDate > :date")
   Optional<LocalDate> findNextGameDate(@Param("date") LocalDate date);
+
+  /**
+   * season_id로 리그 타입 코드 조회
+   */
+  @Query(value = """
+      SELECT s.league_type_code
+      FROM kbo_seasons s
+      WHERE s.season_id = :seasonId
+      FETCH FIRST 1 ROWS ONLY
+      """, nativeQuery = true)
+  Optional<Integer> findLeagueTypeCodeBySeasonId(@Param("seasonId") Integer seasonId);
 }

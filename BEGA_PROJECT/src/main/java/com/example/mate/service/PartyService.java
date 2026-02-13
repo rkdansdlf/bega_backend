@@ -108,16 +108,18 @@ public class PartyService {
     public Page<PartyDTO.Response> getAllParties(String teamId, String stadium, LocalDate gameDate, String searchQuery,
             Pageable pageable) {
         String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
+        String normalizedSearchQuery = normalizeSearchQuery(searchQuery);
 
         List<Party.PartyStatus> excludedStatuses = List.of(
                 Party.PartyStatus.CHECKED_IN,
                 Party.PartyStatus.COMPLETED);
 
         // 빈 문자열을 null로 변환하여 쿼리에서 무시되도록 함
+        if (stadium != null) {
+            stadium = stadium.trim();
+        }
         if (stadium != null && stadium.isBlank())
             stadium = null;
-        if (searchQuery != null && searchQuery.isBlank())
-            searchQuery = null;
         if (normalizedTeamId != null && normalizedTeamId.isBlank())
             normalizedTeamId = null;
 
@@ -125,7 +127,7 @@ public class PartyService {
                 normalizedTeamId,
                 stadium,
                 gameDate,
-                searchQuery,
+                normalizedSearchQuery,
                 excludedStatuses,
                 pageable);
 
@@ -452,10 +454,42 @@ public class PartyService {
 
     private PartyDTO.Response convertToDto(Party party) {
         PartyDTO.Response response = PartyDTO.Response.from(party);
+        String profilePathOrUrl = party.getHostProfileImageUrl();
+
+        if (isLegacyOrInvalidProfileValue(profilePathOrUrl)) {
+            profilePathOrUrl = userRepository.findProfileImageUrlById(party.getHostId())
+                    .filter(this::isUsableProfileValue)
+                    .orElse(null);
+        }
+
         // hostProfileImageUrl이 path인 경우 URL로 변환
-        String resolvedUrl = profileImageService.getProfileImageUrl(party.getHostProfileImageUrl());
+        String resolvedUrl = profileImageService.getProfileImageUrl(profilePathOrUrl);
         response.setHostProfileImageUrl(resolvedUrl);
         return response;
+    }
+
+    private String normalizeSearchQuery(String searchQuery) {
+        if (searchQuery == null) {
+            return "";
+        }
+        return searchQuery.trim();
+    }
+
+    private boolean isLegacyOrInvalidProfileValue(String profilePathOrUrl) {
+        if (profilePathOrUrl == null || profilePathOrUrl.isBlank()) {
+            return false;
+        }
+        return profilePathOrUrl.startsWith("/assets/")
+                || profilePathOrUrl.startsWith("/src/assets/")
+                || profilePathOrUrl.startsWith("blob:")
+                || profilePathOrUrl.toLowerCase().contains("supabase.co");
+    }
+
+    private boolean isUsableProfileValue(String profilePathOrUrl) {
+        if (profilePathOrUrl == null || profilePathOrUrl.isBlank()) {
+            return false;
+        }
+        return !isLegacyOrInvalidProfileValue(profilePathOrUrl);
     }
 
     private Long getUserIdFromPrincipal(Principal principal) {

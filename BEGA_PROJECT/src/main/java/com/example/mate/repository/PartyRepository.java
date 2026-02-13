@@ -54,7 +54,7 @@ public interface PartyRepository extends JpaRepository<Party, Long> {
                         "(:teamId IS NULL OR p.teamId = :teamId) AND " +
                         "(:stadium IS NULL OR p.stadium = :stadium) AND " +
                         "(:gameDate IS NULL OR p.gameDate = :gameDate) AND " +
-                        "(:query IS NULL OR " +
+                        "(:query = '' OR " +
                         "LOWER(p.stadium) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
                         "LOWER(p.homeTeam) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
                         "LOWER(p.awayTeam) LIKE LOWER(CONCAT('%', :query, '%')) OR " +

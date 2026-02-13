@@ -2,14 +2,12 @@ package com.example.profile.storage.service;
 
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
-import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.profile.storage.dto.ProfileImageDto;
 import com.example.profile.storage.validator.ProfileImageValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.UUID;
@@ -39,14 +37,13 @@ public class ProfileImageService {
         log.info("프로필 이미지 업로드 시작: userId={}, filename={}", userId, file.getOriginalFilename());
         java.util.Objects.requireNonNull(userId, "userId must not be null");
 
-        // 1. 사용자 확인 (트랜잭션 없이 조회만)
-        UserEntity user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+        // 1. 사용자 확인 + 기존 프로필 경로 경량 조회
+        if (!userRepository.existsById(userId)) {
+            throw new IllegalArgumentException("사용자를 찾을 수 없습니다.");
+        }
+        String oldProfileUrl = userRepository.findProfileImageUrlById(userId).orElse(null);
 
         validator.validateProfileImage(file);
-
-        // 기존 URL 저장 (나중에 삭제하기 위해)
-        String oldProfileUrl = user.getProfileImageUrl();
 
         // 2. 이미지 처리 및 업로드 (DB 트랜잭션 외부)
         String uploadedPath = null;
@@ -116,14 +113,13 @@ public class ProfileImageService {
     }
 
     /**
-     * DB 업데이트만을 위한 별도 트랜잭션 메서드
+     * DB 업데이트
      */
-    @Transactional
     protected void updateUserProfileUrl(Long userId, String profilePath) {
-        UserEntity user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
-        user.setProfileImageUrl(profilePath);
-        userRepository.save(user);
+        int updatedRows = userRepository.updateProfileImageUrlById(userId, profilePath);
+        if (updatedRows == 0) {
+            throw new IllegalArgumentException("사용자를 찾을 수 없습니다.");
+        }
     }
 
     /**
@@ -135,24 +131,76 @@ public class ProfileImageService {
         }
 
         // 1. 이미 http로 시작하는 URL인 경우 (외부 이미지 또는 Legacy 데이터)
-        if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+        if (isHttpUrl(pathOrUrl)) {
             // 만약 우리 버킷의 Signed URL이라면, Path를 추출하여 재서명 시도 (Auto-healing)
             String extracted = extractStoragePathFromUrl(pathOrUrl);
             if (extracted != null) {
-                return getProfileImageUrl(extracted);
+                String resolvedUrl = resolveProfilePathToUrl(extracted);
+                if (resolvedUrl != null) {
+                    return resolvedUrl;
+                }
+                // 재서명 실패 시 원본 URL을 그대로 사용 (dev/local 환경 호환)
+                return pathOrUrl;
             }
             return pathOrUrl;
         }
 
         // 2. 경로(Path)인 경우 -> Signed URL 생성
-        try {
-            String url = storageStrategy.getUrl(config.getProfileBucket(), pathOrUrl, config.getSignedUrlTtlSeconds())
-                    .block();
-            return url;
-        } catch (Exception e) {
-            log.warn("프로필 이미지 URL 생성 실패: path={}, error={}", pathOrUrl, e.getMessage());
+        return resolveProfilePathToUrl(pathOrUrl);
+    }
+
+    private String resolveProfilePathToUrl(String rawPath) {
+        if (rawPath == null || rawPath.isBlank()) {
             return null;
         }
+
+        String normalizedPath = normalizeStoragePath(rawPath);
+        String resolved = generateProfileImageUrl(normalizedPath);
+        if (resolved != null) {
+            return resolved;
+        }
+
+        if (!normalizedPath.equals(rawPath)) {
+            return generateProfileImageUrl(rawPath);
+        }
+
+        return null;
+    }
+
+    private String generateProfileImageUrl(String storagePath) {
+        try {
+            String url = storageStrategy.getUrl(config.getProfileBucket(), storagePath, config.getSignedUrlTtlSeconds())
+                    .block();
+            if (url == null || url.isBlank()) {
+                return null;
+            }
+            return url;
+        } catch (Exception e) {
+            log.warn("프로필 이미지 URL 생성 실패: path={}, error={}", storagePath, e.getMessage());
+            return null;
+        }
+    }
+
+    private String normalizeStoragePath(String storagePath) {
+        if (storagePath == null || storagePath.isBlank()) {
+            return storagePath;
+        }
+
+        String bucket = config.getProfileBucket();
+        if (bucket == null || bucket.isBlank()) {
+            return storagePath;
+        }
+
+        String bucketPrefix = bucket + "/";
+        if (storagePath.startsWith(bucketPrefix)) {
+            return storagePath.substring(bucketPrefix.length());
+        }
+
+        return storagePath;
+    }
+
+    private boolean isHttpUrl(String value) {
+        return value.startsWith("http://") || value.startsWith("https://");
     }
 
     private void deleteImageByUrl(String url) {

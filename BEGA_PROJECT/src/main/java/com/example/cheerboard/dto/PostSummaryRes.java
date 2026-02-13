@@ -18,6 +18,7 @@ public record PostSummaryRes(
                 Instant createdAt,
                 int comments,
                 int likes,
+                int bookmarkCount,
                 boolean liked,
                 int views,
                 boolean isHot,
@@ -52,6 +53,7 @@ public record PostSummaryRes(
                         Instant createdAt,
                         int comments,
                         int likes,
+                        int bookmarkCount,
                         boolean liked,
                         int views,
                         boolean isHot,
@@ -65,7 +67,7 @@ public record PostSummaryRes(
                                 id, teamId, teamName, teamShortName, teamColor, // title removed,
                                 content, author, authorId, authorHandle,
                                 authorProfileImageUrl, authorTeamId, createdAt,
-                                comments, likes, liked, views, isHot, isBookmarked,
+                                comments, likes, bookmarkCount, liked, views, isHot, isBookmarked,
                                 isOwner, repostCount, repostedByMe, postType, imageUrls,
                                 null, null, null, false);
         }
