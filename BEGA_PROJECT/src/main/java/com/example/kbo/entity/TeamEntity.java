@@ -72,9 +72,9 @@ public class TeamEntity {
     @Builder.Default
     private Boolean isActive = true;
 
-    // 팀 별칭 배열 (PostgreSQL native array)
-    @Column(name = "aliases", columnDefinition = "text[]")
-    private String[] aliases;
+    // 팀 별칭 JSON 문자열
+    @Column(name = "aliases", columnDefinition = "TEXT")
+    private String aliases;
 
     @PrePersist
     protected void onCreate() {

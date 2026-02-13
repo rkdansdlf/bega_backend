@@ -1,8 +1,6 @@
 package com.example.kbo.entity;
 
 import jakarta.persistence.*;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.NoArgsConstructor;
@@ -55,8 +53,7 @@ public class TeamFranchiseEntity {
     private LocalDateTime updatedAt;
 
     // 메타데이터 (JSON 형태, 추가 정보 저장용)
-    @JdbcTypeCode(SqlTypes.CLOB)
-    @Column(name = "metadata_json")
+    @Column(name = "metadata_json", columnDefinition = "TEXT")
     private String metadataJson;
 
     // 공식 웹사이트 URL

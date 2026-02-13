@@ -11,7 +11,7 @@ public final class KboTeamCodePolicy {
     }
 
     public static boolean isCanonicalTeamCode(String teamCode) {
-        String normalized = TeamCodeNormalizer.normalize(teamCode);
+        String normalized = TeamCodeResolver.resolveCanonical(teamCode);
         return normalized != null && CANONICAL_CODES.contains(normalized);
     }
 }

@@ -50,8 +50,9 @@ public class CheerController {
 
     @GetMapping("/posts/hot")
     public Page<PostSummaryRes> listHot(
+            @RequestParam(required = false, defaultValue = "HYBRID") String algorithm,
             @PageableDefault(size = 20) Pageable pageable) {
-        return svc.getHotPosts(pageable);
+        return svc.getHotPosts(pageable, algorithm);
     }
 
     /**

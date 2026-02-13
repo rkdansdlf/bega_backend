@@ -33,6 +33,7 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.Comparator;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.service.FollowService;
 import com.example.auth.service.BlockService;
@@ -79,7 +80,9 @@ public class CheerService {
     private final PermissionValidator permissionValidator;
     private final PostDtoMapper postDtoMapper;
     private final RedisPostService redisPostService;
+    private final PopularFeedScoringService popularFeedScoringService;
     private final AIModerationService moderationService;
+    private final com.example.profile.storage.service.ProfileImageService profileImageService;
 
     // ... (list method remains the same as recently updated, skipping to avoid
     // overwriting)
@@ -163,6 +166,7 @@ public class CheerService {
         // Redis 배치 조회 (조회수, HOT 상태)
         Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(postIds);
         Map<Long, Boolean> hotStatusMap = redisPostService.getCachedHotStatuses(postIds);
+        Map<Long, Integer> bookmarkCountMap = getBookmarkCountMap(postIds);
 
         UserEntity me = current.getOrNull();
         Set<Long> bookmarkedPostIds = new HashSet<>();
@@ -188,7 +192,8 @@ public class CheerService {
             boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
-                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls,
+                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()),
+                    bookmarkCountMap.getOrDefault(post.getId(), 0), imageUrls,
                     viewCountMap, hotStatusMap, repostImageUrls);
         });
     }
@@ -211,6 +216,7 @@ public class CheerService {
         Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(page.getContent());
         Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(postIds);
         Map<Long, Boolean> hotStatusMap = redisPostService.getCachedHotStatuses(postIds);
+        Map<Long, Integer> bookmarkCountMap = getBookmarkCountMap(postIds);
 
         UserEntity me = current.getOrNull();
         Set<Long> bookmarkedPostIds = new HashSet<>();
@@ -236,26 +242,41 @@ public class CheerService {
             boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
-                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls,
+                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()),
+                    bookmarkCountMap.getOrDefault(post.getId(), 0), imageUrls,
                     viewCountMap, hotStatusMap, repostImageUrls);
         });
     }
 
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> getHotPosts(Pageable pageable) {
+        return getHotPosts(pageable, PopularFeedAlgorithm.HYBRID.name());
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PostSummaryRes> getHotPosts(Pageable pageable, String algorithmRaw) {
+        PopularFeedAlgorithm algorithm = PopularFeedAlgorithm.from(algorithmRaw);
+        if (algorithm == PopularFeedAlgorithm.HYBRID) {
+            return getHybridHotPosts(pageable);
+        }
+        return getGlobalHotPosts(pageable, algorithm);
+    }
+
+    private Page<PostSummaryRes> getGlobalHotPosts(Pageable pageable, PopularFeedAlgorithm algorithm) {
         int start = (int) pageable.getOffset();
         int end = start + pageable.getPageSize() - 1;
 
-        Set<Long> hotPostIds = redisPostService.getHotPostIds(start, end);
+        Set<Long> hotPostIds = redisPostService.getHotPostIds(start, end, algorithm);
         if (hotPostIds.isEmpty()) {
             List<PostSummaryRes> emptyList = Collections.emptyList();
-            return new PageImpl<PostSummaryRes>(Objects.requireNonNull(emptyList), Objects.requireNonNull(pageable), 0);
+            return new PageImpl<>(Objects.requireNonNull(emptyList), Objects.requireNonNull(pageable),
+                    redisPostService.getHotListSize(algorithm));
         }
 
         List<CheerPost> posts = postRepo.findAllByIdWithGraph(hotPostIds);
+        UserEntity me = current.getOrNull();
 
         // [NEW] 차단 유저 필터링 (메모리 내 필터링 - Hot ID 목록은 Redis에서 오므로)
-        UserEntity me = current.getOrNull();
         java.util.Set<Long> excludedIds = getExcludedUserIds();
 
         // Redis 순서(점수 높은 순)를 유지하기 위해 정렬 및 차단 필터링
@@ -267,20 +288,92 @@ public class CheerService {
                 .filter(post -> !excludedIds.contains(post.getAuthor().getId())) // 차단 필터
                 .toList();
 
-        // [Optimized] 이미지 Bulk 조회 (N+1 방지)
-        List<Long> postIds = sortedPosts.stream().map(CheerPost::getId).toList();
+        List<PostSummaryRes> content = toHotPostSummary(sortedPosts, me);
+        return new PageImpl<>(Objects.requireNonNull(content), Objects.requireNonNull(pageable),
+                redisPostService.getHotListSize(algorithm));
+    }
+
+    private Page<PostSummaryRes> getHybridHotPosts(Pageable pageable) {
+        int start = (int) pageable.getOffset();
+        int end = start + pageable.getPageSize() - 1;
+        int candidateEnd = Math.min(999, end + 200);
+
+        Set<Long> candidateIds = redisPostService.getHotPostIds(0, candidateEnd, PopularFeedAlgorithm.TIME_DECAY);
+        long totalElements = redisPostService.getHotListSize(PopularFeedAlgorithm.TIME_DECAY);
+        if (candidateIds.isEmpty()) {
+            List<PostSummaryRes> emptyList = Collections.emptyList();
+            return new PageImpl<>(Objects.requireNonNull(emptyList), Objects.requireNonNull(pageable), totalElements);
+        }
+
+        List<CheerPost> posts = postRepo.findAllByIdWithGraph(candidateIds);
+        UserEntity me = current.getOrNull();
+        Set<Long> excludedIds = getExcludedUserIds();
+
+        Map<Long, CheerPost> postMap = posts.stream()
+                .collect(Collectors.toMap(CheerPost::getId, Function.identity()));
+        List<CheerPost> candidatePosts = candidateIds.stream()
+                .map(postMap::get)
+                .filter(Objects::nonNull)
+                .filter(post -> !excludedIds.contains(post.getAuthor().getId()))
+                .toList();
+
+        if (candidatePosts.isEmpty()) {
+            List<PostSummaryRes> emptyList = Collections.emptyList();
+            return new PageImpl<>(Objects.requireNonNull(emptyList), Objects.requireNonNull(pageable), totalElements);
+        }
+
+        List<Long> candidatePostIds = candidatePosts.stream().map(CheerPost::getId).toList();
+        Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(candidatePostIds);
+        Set<Long> followingIds = me != null
+                ? new HashSet<>(followService.getFollowingIds(me.getId()))
+                : Collections.emptySet();
+        java.time.Instant now = java.time.Instant.now();
+
+        List<ScoredHotPost> scoredPosts = candidatePosts.stream()
+                .map(post -> {
+                    int combinedViews = post.getViews() + viewCountMap.getOrDefault(post.getId(), 0);
+                    double globalScore = popularFeedScoringService.calculateTimeDecayScore(post, combinedViews, now);
+                    double normalizedGlobal = popularFeedScoringService.normalizeGlobalHotScore(globalScore);
+                    double teamAffinity = me != null
+                            ? popularFeedScoringService.calculateTeamAffinity(me.getFavoriteTeamId(), post.getTeamId())
+                            : 0.0;
+                    double followAffinity = me != null
+                            ? popularFeedScoringService.calculateFollowAffinity(followingIds, post.getAuthor().getId())
+                            : 0.0;
+                    double hybridScore = popularFeedScoringService.calculateHybridScore(
+                            normalizedGlobal, teamAffinity, followAffinity);
+                    return new ScoredHotPost(post, hybridScore);
+                })
+                .sorted(Comparator.comparingDouble(ScoredHotPost::score)
+                        .reversed()
+                        .thenComparing(scored -> scored.post().getCreatedAt(), Comparator.reverseOrder()))
+                .toList();
+
+        if (scoredPosts.isEmpty()) {
+            List<PostSummaryRes> emptyList = Collections.emptyList();
+            return new PageImpl<>(Objects.requireNonNull(emptyList), Objects.requireNonNull(pageable), totalElements);
+        }
+
+        int fromIndex = Math.min(start, scoredPosts.size());
+        int toIndex = Math.min(end + 1, scoredPosts.size());
+        List<CheerPost> pagedPosts = scoredPosts.subList(fromIndex, toIndex).stream()
+                .map(ScoredHotPost::post)
+                .toList();
+
+        List<PostSummaryRes> content = toHotPostSummary(pagedPosts, me);
+        return new PageImpl<>(Objects.requireNonNull(content), Objects.requireNonNull(pageable), totalElements);
+    }
+
+    private List<PostSummaryRes> toHotPostSummary(List<CheerPost> posts, UserEntity me) {
+        List<Long> postIds = posts.stream().map(CheerPost::getId).toList();
         Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
                 ? Collections.emptyMap()
                 : imageService.getPostImageUrlsByPostIds(postIds);
-
-        // 리포스트 원본 이미지 벌크 프리페치
-        Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(sortedPosts);
-
-        // Redis 배치 조회 (조회수, HOT 상태)
+        Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(posts);
         Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(postIds);
         Map<Long, Boolean> hotStatusMap = redisPostService.getCachedHotStatuses(postIds);
+        Map<Long, Integer> bookmarkCountMap = getBookmarkCountMap(postIds);
 
-        // [Optimized] 벌크 좋아요/북마크/리포스트 조회 (N+1 방지)
         Set<Long> likedPostIds = new HashSet<>();
         Set<Long> bookmarkedPostIds = new HashSet<>();
         Set<Long> repostedPostIds = new HashSet<>();
@@ -299,33 +392,40 @@ public class CheerService {
         final Set<Long> finalBookmarks = bookmarkedPostIds;
         final Set<Long> finalReposts = repostedPostIds;
 
-        List<PostSummaryRes> content = sortedPosts.stream()
+        return posts.stream()
                 .map(post -> {
                     boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
                     List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
                     return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
                             finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()),
-                            imageUrls, viewCountMap, hotStatusMap, repostImageUrls);
+                            bookmarkCountMap.getOrDefault(post.getId(), 0), imageUrls,
+                            viewCountMap, hotStatusMap, repostImageUrls);
                 })
                 .collect(Collectors.toList());
-
-        return new PageImpl<PostSummaryRes>(Objects.requireNonNull(content), Objects.requireNonNull(pageable),
-                redisPostService.getHotPostIds(0, 99).size());
     }
 
     /**
-     * 게시글 HOT 점수 업데이트 (Formula: Likes*3 + Comments*2 + Views)
+     * 게시글 HOT 점수 업데이트
+     * - TIME_DECAY 점수
+     * - ENGAGEMENT_RATE 점수
      */
     public void updateHotScore(CheerPost post) {
-        // Redis 실시간 조회수 합산
         int combinedViews = getCombinedViewCount(post);
-        double score = (post.getLikeCount() * 3.0) + (post.getCommentCount() * 2.0) + combinedViews;
-        redisPostService.updateHotScore(post.getId(), score);
+        java.time.Instant now = java.time.Instant.now();
+
+        double timeDecayScore = popularFeedScoringService.calculateTimeDecayScore(post, combinedViews, now);
+        double engagementRateScore = popularFeedScoringService.calculateEngagementRateScore(post, combinedViews);
+
+        redisPostService.updateHotScore(post.getId(), timeDecayScore, PopularFeedAlgorithm.TIME_DECAY);
+        redisPostService.updateHotScore(post.getId(), engagementRateScore, PopularFeedAlgorithm.ENGAGEMENT_RATE);
     }
 
     private int getCombinedViewCount(CheerPost post) {
         Integer redisViews = redisPostService.getViewCount(post.getId());
         return post.getViews() + (redisViews != null ? redisViews : 0);
+    }
+
+    private record ScoredHotPost(CheerPost post, double score) {
     }
 
     /**
@@ -344,6 +444,16 @@ public class CheerService {
                 : imageService.getPostImageUrlsByPostIds(repostOriginalIds);
     }
 
+    private Map<Long, Integer> getBookmarkCountMap(List<Long> postIds) {
+        if (postIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return bookmarkRepo.countByPostIds(postIds).stream()
+                .collect(Collectors.toMap(
+                        CheerBookmarkRepo.PostBookmarkCount::getPostId,
+                        item -> item.getBookmarkCount().intValue()));
+    }
+
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> listByUserHandle(String handle, Pageable pageable) {
         Page<CheerPost> page = postRepo.findByAuthor_HandleOrderByCreatedAtDesc(handle, pageable);
@@ -359,6 +469,7 @@ public class CheerService {
         Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(page.getContent());
         Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(postIds);
         Map<Long, Boolean> hotStatusMap = redisPostService.getCachedHotStatuses(postIds);
+        Map<Long, Integer> bookmarkCountMap = getBookmarkCountMap(postIds);
 
         UserEntity me = current.getOrNull();
         Set<Long> bookmarkedPostIds = new HashSet<>();
@@ -384,7 +495,8 @@ public class CheerService {
             boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
-                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls,
+                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()),
+                    bookmarkCountMap.getOrDefault(post.getId(), 0), imageUrls,
                     viewCountMap, hotStatusMap, repostImageUrls);
         });
     }
@@ -423,6 +535,7 @@ public class CheerService {
         Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(page.getContent());
         Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(postIds);
         Map<Long, Boolean> hotStatusMap = redisPostService.getCachedHotStatuses(postIds);
+        Map<Long, Integer> bookmarkCountMap = getBookmarkCountMap(postIds);
 
         Set<Long> bookmarkedPostIds = new HashSet<>();
         Set<Long> likedPostIds = new HashSet<>();
@@ -447,7 +560,8 @@ public class CheerService {
             boolean isOwner = permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(post.getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(post, finalLikes.contains(post.getId()),
-                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()), imageUrls,
+                    finalBookmarks.contains(post.getId()), isOwner, finalReposts.contains(post.getId()),
+                    bookmarkCountMap.getOrDefault(post.getId(), 0), imageUrls,
                     viewCountMap, hotStatusMap, repostImageUrls);
         });
     }
@@ -468,8 +582,9 @@ public class CheerService {
         boolean isBookmarked = me != null && isPostBookmarkedByUser(id, me.getId());
         boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
         boolean repostedByMe = me != null && isPostRepostedByUser(id, me.getId());
+        int bookmarkCount = Math.toIntExact(bookmarkRepo.countById_PostId(id));
 
-        return postDtoMapper.toPostDetailRes(post, liked, isBookmarked, isOwner, repostedByMe);
+        return postDtoMapper.toPostDetailRes(post, liked, isBookmarked, isOwner, repostedByMe, bookmarkCount);
     }
 
     /**
@@ -623,7 +738,8 @@ public class CheerService {
         boolean liked = isPostLikedByUser(id, me.getId());
         boolean isBookmarked = isPostBookmarkedByUser(id, me.getId());
         boolean repostedByMe = isPostRepostedByUser(id, me.getId());
-        return postDtoMapper.toPostDetailRes(post, liked, isBookmarked, true, repostedByMe);
+        int bookmarkCount = Math.toIntExact(bookmarkRepo.countById_PostId(id));
+        return postDtoMapper.toPostDetailRes(post, liked, isBookmarked, true, repostedByMe, bookmarkCount);
     }
 
     /**
@@ -746,7 +862,8 @@ public class CheerService {
             bookmarkRepo.save(Objects.requireNonNull(bookmark));
             bookmarked = true;
         }
-        return new BookmarkResponse(bookmarked);
+        int count = Math.toIntExact(bookmarkRepo.countById_PostId(postId));
+        return new BookmarkResponse(bookmarked, count);
     }
 
     /**
@@ -984,6 +1101,7 @@ public class CheerService {
         Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(bookmarkedPosts);
         Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(postIds);
         Map<Long, Boolean> hotStatusMap = redisPostService.getCachedHotStatuses(postIds);
+        Map<Long, Integer> bookmarkCountMap = getBookmarkCountMap(postIds);
 
         final Map<Long, List<String>> finalImageUrls = imageUrlsByPostId;
 
@@ -1003,7 +1121,8 @@ public class CheerService {
             boolean isOwner = permissionValidator.isOwnerOrAdmin(me, b.getPost().getAuthor());
             List<String> imageUrls = finalImageUrls.getOrDefault(b.getPost().getId(), Collections.emptyList());
             return postDtoMapper.toPostSummaryRes(b.getPost(), finalLikes.contains(b.getPost().getId()), true, isOwner,
-                    finalReposts.contains(b.getPost().getId()), imageUrls,
+                    finalReposts.contains(b.getPost().getId()), bookmarkCountMap.getOrDefault(b.getPost().getId(), 0),
+                    imageUrls,
                     viewCountMap, hotStatusMap, repostImageUrls);
         });
     }
@@ -1164,7 +1283,7 @@ public class CheerService {
                 resolveDisplayName(comment.getAuthor()),
                 comment.getAuthor().getEmail(),
                 comment.getAuthor().getFavoriteTeamId(),
-                comment.getAuthor().getProfileImageUrl(),
+                resolveAuthorProfileImageUrl(comment.getAuthor()),
                 comment.getAuthor().getHandle(),
                 comment.getContent(),
                 comment.getCreatedAt(),
@@ -1190,7 +1309,7 @@ public class CheerService {
                 resolveDisplayName(comment.getAuthor()),
                 comment.getAuthor().getEmail(),
                 comment.getAuthor().getFavoriteTeamId(),
-                comment.getAuthor().getProfileImageUrl(),
+                resolveAuthorProfileImageUrl(comment.getAuthor()),
                 comment.getAuthor().getHandle(),
                 comment.getContent(),
                 comment.getCreatedAt(),
@@ -1211,6 +1330,28 @@ public class CheerService {
             return user.getName();
         }
         return user.getEmail();
+    }
+
+    private String resolveAuthorProfileImageUrl(UserEntity author) {
+        if (author == null) {
+            return null;
+        }
+
+        String rawValue = author.getProfileImageUrl();
+        String resolved = profileImageService.getProfileImageUrl(rawValue);
+        if (resolved != null && !resolved.isBlank()) {
+            return resolved;
+        }
+
+        if (rawValue != null && !rawValue.isBlank()) {
+            if (rawValue.startsWith("http://")
+                    || rawValue.startsWith("https://")
+                    || rawValue.startsWith("/")) {
+                return rawValue;
+            }
+        }
+
+        return null;
     }
 
     /**

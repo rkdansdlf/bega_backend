@@ -1,7 +1,8 @@
 package com.example.auth.repository;
 
-import org.springframework.data.jpa.repository.JpaRepository;
 import com.example.auth.entity.UserEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -26,7 +27,17 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
     List<UserEntity> findAllByOrderByIdAsc();
 
+    @org.springframework.data.jpa.repository.Query("SELECT u.profileImageUrl FROM UserEntity u WHERE u.id = :userId")
+    Optional<String> findProfileImageUrlById(@org.springframework.data.repository.query.Param("userId") Long userId);
+
+    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @org.springframework.data.jpa.repository.Query("UPDATE UserEntity u SET u.profileImageUrl = :profilePath WHERE u.id = :userId")
+    int updateProfileImageUrlById(@org.springframework.data.repository.query.Param("userId") Long userId,
+            @org.springframework.data.repository.query.Param("profilePath") String profilePath);
+
     @org.springframework.data.jpa.repository.Modifying
+    @Transactional
     @org.springframework.data.jpa.repository.Query("UPDATE UserEntity u SET u.cheerPoints = COALESCE(u.cheerPoints, 0) + :points WHERE u.id = :userId")
     void modifyCheerPoints(@org.springframework.data.repository.query.Param("userId") Long userId,
             @org.springframework.data.repository.query.Param("points") int points);

@@ -6,7 +6,68 @@ on:
       - main
 
 jobs:
+  guard:
+    name: Canonical Guard
+    runs-on: ubuntu-latest
+    env:
+      CANONICAL_GUARD_DB_URL_RO: ${{ secrets.CANONICAL_GUARD_DB_URL_RO }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install SQL guard dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install psycopg[binary]
+
+      - name: Run SQL guard unit tests
+        run: |
+          python -m unittest discover -s BEGA_PROJECT/scripts/tests -p "test_*.py"
+
+      - name: Run backend canonical SQL guard
+        run: |
+          if [ -z "${CANONICAL_GUARD_DB_URL_RO}" ]; then
+            echo "CANONICAL_GUARD_DB_URL_RO is required for deploy guard"
+            exit 1
+          fi
+          python BEGA_PROJECT/scripts/verify_canonical_window_sql.py \
+            --strict-legacy-residual \
+            --output backend_canonical_guard.json
+
+      - name: Upload guard report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-canonical-guard-report
+          path: backend_canonical_guard.json
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+          cache: "gradle"
+
+      - name: Grant execute permission
+        working-directory: ./BEGA_PROJECT
+        run: chmod +x gradlew
+
+      - name: Run focused regression tests
+        working-directory: ./BEGA_PROJECT
+        run: |
+          ./gradlew test \
+            --tests "*TeamCodeResolverTest*" \
+            --tests "*BegaGameServiceTest*" \
+            --tests "*HomePageGameServiceTest*"
+
   deploy:
+    needs: guard
     runs-on: ubuntu-latest
     
     steps:
