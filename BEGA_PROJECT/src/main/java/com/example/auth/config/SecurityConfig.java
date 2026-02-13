@@ -230,6 +230,7 @@ public class SecurityConfig {
 
                                                 // 5. 인증 필수 엔드포인트 (순서 중요: 구체적 경로 먼저)
                                                 .requestMatchers("/api/auth/link-token").authenticated()
+                                                .requestMatchers(HttpMethod.GET, "/api/parties/my").authenticated()
                                                 .requestMatchers(HttpMethod.GET, "/api/cheer/posts/following")
                                                 .authenticated()
                                                 .requestMatchers(HttpMethod.GET, "/api/diary/games").permitAll()

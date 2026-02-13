@@ -19,6 +19,7 @@ public record PostDetailRes(
                 Instant createdAt,
                 int comments,
                 int likes,
+                int bookmarkCount,
                 boolean likedByMe,
                 boolean isBookmarked,
                 boolean isOwner,
@@ -52,6 +53,7 @@ public record PostDetailRes(
                         Instant createdAt,
                         int comments,
                         int likes,
+                        int bookmarkCount,
                         boolean likedByMe,
                         boolean isBookmarked,
                         boolean isOwner,
@@ -64,7 +66,7 @@ public record PostDetailRes(
                                 id, teamId, teamName, teamShortName, teamColor, // title removed,
                                 content, author, authorId, authorHandle,
                                 authorEmail, authorProfileImageUrl, createdAt,
-                                comments, likes, likedByMe, isBookmarked, isOwner,
+                                comments, likes, bookmarkCount, likedByMe, isBookmarked, isOwner,
                                 imageUrls, views, repostCount, repostedByMe, postType,
                                 null, null, null, false);
         }

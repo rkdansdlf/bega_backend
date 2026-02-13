@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -29,6 +30,7 @@ public class RedisPostService {
     private static final String DIRTY_POSTS_KEY = "posts:dirty:views";
     private static final String HOT_STATUS_KEY = "post:hot:%d";
     private static final String HOT_POSTS_ZSET_KEY = "posts:hot:list";
+    private static final String HOT_POSTS_ZSET_KEY_TEMPLATE = "posts:hot:list:%s";
 
     /**
      * 조회수 증가 로직 (Redis에서 관리)
@@ -144,8 +146,16 @@ public class RedisPostService {
      * HOT 게시글 점수 업데이트 (Sorted Set)
      */
     public void updateHotScore(Long postId, double score) {
+        updateHotScore(postId, score, PopularFeedAlgorithm.TIME_DECAY);
+    }
+
+    /**
+     * HOT 게시글 점수 업데이트 (알고리즘별 Sorted Set)
+     */
+    public void updateHotScore(Long postId, double score, PopularFeedAlgorithm algorithm) {
         try {
-            redisTemplate.opsForZSet().add(Objects.requireNonNull(HOT_POSTS_ZSET_KEY),
+            String key = resolveHotListKey(algorithm);
+            redisTemplate.opsForZSet().add(Objects.requireNonNull(key),
                     Objects.requireNonNull(postId.toString()), score);
         } catch (Exception e) {
             log.warn("Redis error in updateHotScore: {}", e.getMessage());
@@ -156,8 +166,16 @@ public class RedisPostService {
      * HOT 게시글 ID 목록 조회 (점수 높은 순)
      */
     public Set<Long> getHotPostIds(int start, int end) {
+        return getHotPostIds(start, end, PopularFeedAlgorithm.TIME_DECAY);
+    }
+
+    /**
+     * HOT 게시글 ID 목록 조회 (알고리즘별, 점수 높은 순)
+     */
+    public Set<Long> getHotPostIds(int start, int end, PopularFeedAlgorithm algorithm) {
         try {
-            Set<Object> ids = redisTemplate.opsForZSet().reverseRange(HOT_POSTS_ZSET_KEY, start, end);
+            String key = resolveHotListKey(algorithm);
+            Set<Object> ids = redisTemplate.opsForZSet().reverseRange(key, start, end);
             if (ids == null)
                 return Set.of();
             return ids.stream()
@@ -174,8 +192,9 @@ public class RedisPostService {
      */
     public void removeFromHotList(Long postId) {
         try {
-            redisTemplate.opsForZSet().remove(Objects.requireNonNull(HOT_POSTS_ZSET_KEY),
-                    Objects.requireNonNull(postId.toString()));
+            Object member = Objects.requireNonNull(postId.toString());
+            redisTemplate.opsForZSet().remove(Objects.requireNonNull(HOT_POSTS_ZSET_KEY), member);
+            redisTemplate.opsForZSet().remove(resolveHotListKey(PopularFeedAlgorithm.ENGAGEMENT_RATE), member);
         } catch (Exception e) {
             log.warn("Redis error in removeFromHotList: {}", e.getMessage());
         }
@@ -253,14 +272,39 @@ public class RedisPostService {
      * HOT 목록 상위 N개만 남기고 정리
      */
     public void pruneHotList(int limit) {
+        pruneHotList(limit, PopularFeedAlgorithm.TIME_DECAY);
+        pruneHotList(limit, PopularFeedAlgorithm.ENGAGEMENT_RATE);
+    }
+
+    public void pruneHotList(int limit, PopularFeedAlgorithm algorithm) {
         try {
-            Long size = redisTemplate.opsForZSet().size(HOT_POSTS_ZSET_KEY);
+            String key = resolveHotListKey(algorithm);
+            Long size = redisTemplate.opsForZSet().size(key);
             if (size != null && size > limit) {
                 // 점수가 낮은 순(0부터)으로 (전체크기 - 리밋 - 1) 만큼 제거
-                redisTemplate.opsForZSet().removeRange(HOT_POSTS_ZSET_KEY, 0, size - limit - 1);
+                redisTemplate.opsForZSet().removeRange(key, 0, size - limit - 1);
             }
         } catch (Exception e) {
             log.warn("Redis error in pruneHotList: {}", e.getMessage());
         }
+    }
+
+    public long getHotListSize(PopularFeedAlgorithm algorithm) {
+        try {
+            String key = resolveHotListKey(algorithm);
+            Long size = redisTemplate.opsForZSet().size(key);
+            return size != null ? size : 0L;
+        } catch (Exception e) {
+            log.warn("Redis error in getHotListSize: {}", e.getMessage());
+            return 0L;
+        }
+    }
+
+    private String resolveHotListKey(PopularFeedAlgorithm algorithm) {
+        PopularFeedAlgorithm resolved = algorithm != null ? algorithm : PopularFeedAlgorithm.TIME_DECAY;
+        if (resolved == PopularFeedAlgorithm.TIME_DECAY || resolved == PopularFeedAlgorithm.HYBRID) {
+            return HOT_POSTS_ZSET_KEY;
+        }
+        return String.format(HOT_POSTS_ZSET_KEY_TEMPLATE, resolved.name().toLowerCase(Locale.ROOT));
     }
 }
