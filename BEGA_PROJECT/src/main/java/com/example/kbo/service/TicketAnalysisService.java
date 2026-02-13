@@ -56,7 +56,7 @@ public class TicketAnalysisService {
 
             if (info.getDate() != null && info.getHomeTeam() != null && info.getAwayTeam() != null) {
                 Long gameId = begaGameService.findGameIdByDateAndTeams(info.getDate(), info.getHomeTeam(),
-                        info.getAwayTeam());
+                        info.getAwayTeam(), info.getStadium(), info.getTime());
                 info.setGameId(gameId);
                 log.info("Matched game ID: {}", gameId);
             }

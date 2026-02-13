@@ -23,9 +23,10 @@ import static com.example.common.config.CacheConfig.*;
 public class HomePageGameService {
 
     private final GameRepository gameRepository;
-    private final HomePageTeamRepository homePageTeamRepository;
+	private final HomePageTeamRepository homePageTeamRepository;
 
-    private final Map<String, HomePageTeam> teamMap = new ConcurrentHashMap<>();
+	private final Map<String, HomePageTeam> teamMap = new ConcurrentHashMap<>();
+	private final Map<Integer, Integer> leagueTypeCodeMap = new ConcurrentHashMap<>();
 
     @PostConstruct
     @Transactional(readOnly = true)
@@ -54,22 +55,17 @@ public class HomePageGameService {
     }
 
     private HomePageGameDto convertToDto(GameEntity game) {
-        HomePageTeam homeTeam = getTeam(game.getHomeTeam());
-        HomePageTeam awayTeam = getTeam(game.getAwayTeam());
+		HomePageTeam homeTeam = getTeam(game.getHomeTeam());
+		HomePageTeam awayTeam = getTeam(game.getAwayTeam());
 
-        String leagueType = determineLeagueType(game.getGameDate());
-        String gameInfo = "";
+		String leagueType = determineLeagueType(game.getSeasonId());
+		String gameInfo = "";
 
-        // 한국시리즈 경기 정보
-        if ("KOREAN_SERIES".equals(leagueType)) {
-            gameInfo = "한국시리즈";
-        }
-        // 포스트시즌 특정 경기 정보
-        else if ("POSTSEASON".equals(leagueType) &&
-                game.getAwayTeam().equals("삼성") &&
-                game.getHomeTeam().equals("한화")) {
-            gameInfo = "PO 4차전";
-        }
+		if ("KOREAN_SERIES".equals(leagueType)) {
+			gameInfo = "한국시리즈";
+		} else if ("POSTSEASON".equals(leagueType)) {
+			gameInfo = "포스트시즌";
+		}
 
         String gameStatusKr = convertGameStatus(game.getGameStatus());
 
@@ -120,31 +116,22 @@ public class HomePageGameService {
         }
     }
 
-    private String determineLeagueType(LocalDate date) {
-        int month = date.getMonthValue();
-        int day = date.getDayOfMonth();
+	private String determineLeagueType(Integer seasonId) {
+		if (seasonId == null) {
+			return "OFFSEASON";
+		}
 
-        // 한국시리즈: 10월 26일 ~ 10월 31일
-        if (month == 10 && day >= 26 && day <= 31) {
-            return "KOREAN_SERIES";
-        }
-        // 비시즌
-        else if (month >= 11 || month <= 2 || (month == 3 && day < 28)) {
-            return "OFFSEASON";
-        }
-        // 포스트시즌 (한국시리즈 제외): 10월 6일 ~ 10월 25일
-        else if (month == 10 && day >= 6 && day <= 25) {
-            return "POSTSEASON";
-        }
-        // 정규시즌
-        else if ((month == 3 && day >= 28) || (month >= 4 && month <= 9) || (month == 10 && day <= 5)) {
-            return "REGULAR";
-        }
-        // 기타 (OFFSEASON으로 처리)
-        else {
-            return "OFFSEASON";
-        }
-    }
+		Integer leagueTypeCode = leagueTypeCodeMap.computeIfAbsent(
+				seasonId,
+				id -> gameRepository.findLeagueTypeCodeBySeasonId(id).orElse(-1));
+
+		return switch (leagueTypeCode) {
+			case 0 -> "REGULAR";
+			case 2, 3, 4 -> "POSTSEASON";
+			case 5 -> "KOREAN_SERIES";
+			default -> "OFFSEASON";
+		};
+	}
 
     // v_team_rank_all 뷰에서 순위 데이터를 가져오도록 수정
     @Cacheable(value = TEAM_RANKINGS, key = "#seasonYear")
