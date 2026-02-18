@@ -640,9 +640,29 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     public Long getUserIdByEmail(String email) {
-        return userRepository.findByEmail(email)
-                .map(UserEntity::getId)
-                .orElseThrow(() -> new UserNotFoundException("email", email));
+        String normalizedInput = email == null ? null : email.trim();
+        if (normalizedInput == null || normalizedInput.isBlank()) {
+            throw new UserNotFoundException("email", email);
+        }
+
+        // 기존 동작: 이메일 기반 조회
+        String normalizedEmail = normalizedInput.toLowerCase();
+        java.util.Optional<UserEntity> userByEmail = userRepository.findByEmail(normalizedEmail);
+        if (userByEmail.isPresent()) {
+            return userByEmail.get().getId();
+        }
+
+        // 마이그레이션 호환: principal이 userId로 전달되는 경우를 처리
+        try {
+            Long userId = Long.valueOf(normalizedInput);
+            return userRepository.findById(userId)
+                    .map(UserEntity::getId)
+                    .orElseThrow(() -> new UserNotFoundException("userId", normalizedInput));
+        } catch (NumberFormatException ignored) {
+            // 이메일이면서 숫자 형식이 아닌 경우 그대로 진행
+        }
+
+        throw new UserNotFoundException("email", email);
     }
 
     /**
