@@ -41,4 +41,12 @@ public class GoogleResponse implements OAuth2Response {
                 .map(Object::toString)
                 .orElse(null); // 이름이 없으면 null 반환
     }
+
+    @Override
+    public String getProfileImageUrl() {
+        return Optional.ofNullable(attribute.get("picture"))
+                .map(Object::toString)
+                .filter(url -> !url.isBlank())
+                .orElse(null);
+    }
 }

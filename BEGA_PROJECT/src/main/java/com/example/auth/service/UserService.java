@@ -1,9 +1,12 @@
 package com.example.auth.service;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.time.ZoneId;
 import java.time.LocalDateTime;
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -31,6 +34,7 @@ import com.example.common.exception.InvalidCredentialsException;
 import com.example.common.exception.SocialLoginRequiredException;
 
 import com.example.mate.service.PartyService;
+import com.example.profile.storage.service.ProfileImageService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -48,6 +52,7 @@ public class UserService {
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final JWTUtil jwtUtil;
     private final PartyService partyService;
+    private final ProfileImageService profileImageService;
 
     public JWTUtil getJWTUtil() {
         return jwtUtil;
@@ -157,7 +162,7 @@ public class UserService {
                 .providerId(userDto.getProviderId())
                 .build();
 
-        userRepository.save(user);
+        userRepository.save(Objects.requireNonNull(user));
     }
 
     /**
@@ -191,6 +196,11 @@ public class UserService {
      */
     @Transactional
     public Map<String, Object> authenticateAndGetToken(String email, String password) {
+        return authenticateAndGetToken(email, password, null);
+    }
+
+    @Transactional
+    public Map<String, Object> authenticateAndGetToken(String email, String password, HttpServletRequest request) {
         String normalizedEmail = (email != null) ? email.trim().toLowerCase() : null;
         UserEntity user = findUserByEmailOrThrow(normalizedEmail);
 
@@ -209,7 +219,7 @@ public class UserService {
         String refreshToken = jwtUtil.createRefreshToken(user.getEmail(), user.getRole(), user.getId());
 
         // Refresh Token DB 저장
-        saveOrUpdateRefreshToken(user.getEmail(), refreshToken);
+        saveOrUpdateRefreshToken(user.getEmail(), refreshToken, request);
 
         return Map.of(
                 "accessToken", accessToken,
@@ -247,30 +257,201 @@ public class UserService {
      */
     @Transactional
     public void deleteRefreshTokenByEmail(String email) {
-        RefreshToken token = refreshRepository.findByEmail(email);
-        if (token != null) {
-            refreshRepository.delete(token);
+        if (email == null || email.isBlank()) {
+            return;
         }
+
+        refreshRepository.deleteByEmail(email);
     }
 
     /**
      * 리프레시 토큰 저장 또는 업데이트
      */
     @Transactional
-    private void saveOrUpdateRefreshToken(String email, String token) {
-        RefreshToken existingToken = refreshRepository.findByEmail(email);
-
-        if (existingToken != null) {
-            existingToken.setToken(token);
-            existingToken.setExpiryDate(LocalDateTime.now().plusWeeks(1)); // 1주
-            refreshRepository.save(existingToken);
-        } else {
-            RefreshToken newToken = new RefreshToken();
-            newToken.setEmail(email);
-            newToken.setToken(token);
-            newToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
-            refreshRepository.save(newToken);
+    public void saveOrUpdateRefreshToken(String email, String token, HttpServletRequest request) {
+        List<RefreshToken> tokens = refreshRepository.findAllByEmailOrderByIdDesc(email);
+        String userAgent = request != null ? request.getHeader("User-Agent") : null;
+        String ipAddress = resolveIpAddress(request);
+        String deviceType = resolveDeviceType(userAgent);
+        String deviceLabel = resolveDeviceLabel(userAgent, deviceType);
+        String browser = resolveBrowser(userAgent);
+        String os = resolveOs(userAgent);
+        RefreshToken matchedToken = tokens.stream()
+                .filter(item -> isSameSessionContext(item, deviceType, deviceLabel, browser, os, ipAddress))
+                .findFirst()
+                .orElse(null);
+        LocalDateTime now = LocalDateTime.now();
+        if (matchedToken != null) {
+            matchedToken.setToken(token);
+            matchedToken.setExpiryDate(now.plusWeeks(1));
+            matchedToken.setDeviceType(deviceType);
+            matchedToken.setDeviceLabel(deviceLabel);
+            matchedToken.setBrowser(browser);
+            matchedToken.setOs(os);
+            matchedToken.setIp(ipAddress);
+            matchedToken.setLastSeenAt(now);
+            refreshRepository.save(matchedToken);
+            return;
         }
+
+        RefreshToken newToken = new RefreshToken();
+        newToken.setEmail(email);
+        newToken.setToken(token);
+        newToken.setExpiryDate(now.plusWeeks(1));
+        newToken.setDeviceType(deviceType);
+        newToken.setDeviceLabel(deviceLabel);
+        newToken.setBrowser(browser);
+        newToken.setOs(os);
+        newToken.setIp(ipAddress);
+        newToken.setLastSeenAt(now);
+        refreshRepository.save(newToken);
+    }
+
+    private boolean isSameSessionContext(RefreshToken token, String deviceType, String deviceLabel, String browser, String os,
+            String ipAddress) {
+        if (token == null) {
+            return false;
+        }
+        String tokenDeviceType = normalizeText(token.getDeviceType(), "desktop");
+        String tokenDeviceLabel = normalizeText(token.getDeviceLabel(), "알 수 없는 기기");
+        String tokenBrowser = normalizeText(token.getBrowser(), "Unknown");
+        String tokenOs = normalizeText(token.getOs(), "Unknown");
+        String tokenIp = normalizeText(token.getIp(), "unknown");
+
+        if (!tokenDeviceType.equals(deviceType)) {
+            return false;
+        }
+        if (!tokenDeviceLabel.equals(deviceLabel)) {
+            return false;
+        }
+        if (!tokenBrowser.equals(browser)) {
+            return false;
+        }
+        if (!tokenOs.equals(os)) {
+            return false;
+        }
+        if (ipAddress == null || ipAddress.isBlank()) {
+            return tokenIp == null || "unknown".equals(tokenIp);
+        }
+
+        return tokenIp.equals(ipAddress);
+    }
+
+    private String normalizeText(String value, String fallback) {
+        return value != null && !value.isBlank() ? value : fallback;
+    }
+
+    private String resolveIpAddress(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) {
+            return xff.split(",")[0].trim();
+        }
+
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+
+        String remoteAddr = request.getRemoteAddr();
+        return remoteAddr != null ? remoteAddr : null;
+    }
+
+    private String resolveDeviceType(String userAgent) {
+        if (userAgent == null) {
+            return "desktop";
+        }
+
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("mobile") || ua.contains("iphone") || ua.contains("android")) {
+            return "mobile";
+        }
+        if (ua.contains("ipad") || ua.contains("tablet")) {
+            return "tablet";
+        }
+
+        return "desktop";
+    }
+
+    private String resolveDeviceLabel(String userAgent, String deviceType) {
+        if (userAgent == null || userAgent.isBlank()) {
+            return "알 수 없는 기기";
+        }
+
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("iphone")) {
+            return "iPhone";
+        }
+        if (ua.contains("ipad")) {
+            return "iPad";
+        }
+        if (ua.contains("android")) {
+            return "Android";
+        }
+        if (ua.contains("windows")) {
+            return "Windows PC";
+        }
+        if (ua.contains("macintosh") || ua.contains("mac os")) {
+            return "Mac";
+        }
+        if (ua.contains("linux")) {
+            return "Linux PC";
+        }
+
+        return "desktop".equals(deviceType) ? "데스크톱" : "모바일 기기";
+    }
+
+    private String resolveBrowser(String userAgent) {
+        if (userAgent == null) {
+            return "Unknown";
+        }
+
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("edg/") || ua.contains("edge/")) {
+            return "Microsoft Edge";
+        }
+        if (ua.contains("chrome/")) {
+            return "Chrome";
+        }
+        if (ua.contains("safari/") && !ua.contains("chrome")) {
+            return "Safari";
+        }
+        if (ua.contains("firefox/")) {
+            return "Firefox";
+        }
+
+        return "Unknown";
+    }
+
+    private String resolveOs(String userAgent) {
+        if (userAgent == null) {
+            return "Unknown";
+        }
+
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("iphone")) {
+            return "iOS";
+        }
+        if (ua.contains("ipad")) {
+            return "iPadOS";
+        }
+        if (ua.contains("android")) {
+            return "Android";
+        }
+        if (ua.contains("windows")) {
+            return "Windows";
+        }
+        if (ua.contains("macintosh") || ua.contains("mac os")) {
+            return "macOS";
+        }
+        if (ua.contains("linux")) {
+            return "Linux";
+        }
+
+        return "Unknown";
     }
 
     /**
@@ -375,10 +556,7 @@ public class UserService {
         String userEmail = user.getEmail();
 
         // Refresh Token 삭제
-        RefreshToken refreshToken = refreshRepository.findByEmail(userEmail);
-        if (refreshToken != null) {
-            refreshRepository.delete(refreshToken);
-        }
+        refreshRepository.deleteByEmail(userEmail);
 
         // 메이트 관련 데이터 정리 (파티 취소, 참여 신청 처리, 알림 발송)
         partyService.handleUserDeletion(userId);
@@ -445,7 +623,7 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     public UserEntity findUserById(Long id) {
-        return userRepository.findById(id)
+        return userRepository.findById(Objects.requireNonNull(id))
                 .orElseThrow(() -> new UserNotFoundException(id));
     }
 
@@ -502,6 +680,7 @@ public class UserService {
                 .name(user.getName())
                 .handle(user.getHandle())
                 .favoriteTeam(user.getFavoriteTeamId())
+                .profileImageUrl(resolvePublicProfileImageUrl(user.getProfileImageUrl()))
                 .bio(user.getBio())
                 .cheerPoints(user.getCheerPoints())
                 .build();
@@ -518,9 +697,22 @@ public class UserService {
                 .name(user.getName())
                 .handle(user.getHandle())
                 .favoriteTeam(user.getFavoriteTeamId())
+                .profileImageUrl(resolvePublicProfileImageUrl(user.getProfileImageUrl()))
                 .bio(user.getBio())
                 .cheerPoints(user.getCheerPoints())
                 .build();
+    }
+
+    private String resolvePublicProfileImageUrl(String profileImageUrl) {
+        if (profileImageUrl == null || profileImageUrl.isBlank()) {
+            return null;
+        }
+        try {
+            return profileImageService.getProfileImageUrl(profileImageUrl);
+        } catch (Exception e) {
+            log.warn("Failed to resolve public profile image URL: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -608,5 +800,27 @@ public class UserService {
             case "기아 타이거즈" -> "KIA";
             default -> null;
         };
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isNameAvailable(Long userId, String name) {
+        if (userId == null) {
+            throw new IllegalArgumentException("인증이 필요합니다.");
+        }
+
+        String normalizedName = name == null ? "" : name.trim();
+        if (normalizedName.isBlank()) {
+            throw new IllegalArgumentException("닉네임을 입력해 주세요.");
+        }
+        if (normalizedName.length() < 2) {
+            throw new IllegalArgumentException("닉네임은 최소 2자 이상이어야 합니다.");
+        }
+        if (normalizedName.length() > 20) {
+            throw new IllegalArgumentException("닉네임은 20자 이하여야 합니다.");
+        }
+
+        UserEntity target = userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException(userId));
+        Optional<UserEntity> existing = userRepository.findByNameIgnoreCase(normalizedName);
+        return existing.isEmpty() || existing.get().getId().equals(target.getId());
     }
 }

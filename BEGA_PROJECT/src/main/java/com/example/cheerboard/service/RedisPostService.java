@@ -175,7 +175,7 @@ public class RedisPostService {
     public Set<Long> getHotPostIds(int start, int end, PopularFeedAlgorithm algorithm) {
         try {
             String key = resolveHotListKey(algorithm);
-            Set<Object> ids = redisTemplate.opsForZSet().reverseRange(key, start, end);
+            Set<Object> ids = redisTemplate.opsForZSet().reverseRange(Objects.requireNonNull(key), start, end);
             if (ids == null)
                 return Set.of();
             return ids.stream()
@@ -194,7 +194,8 @@ public class RedisPostService {
         try {
             Object member = Objects.requireNonNull(postId.toString());
             redisTemplate.opsForZSet().remove(Objects.requireNonNull(HOT_POSTS_ZSET_KEY), member);
-            redisTemplate.opsForZSet().remove(resolveHotListKey(PopularFeedAlgorithm.ENGAGEMENT_RATE), member);
+            redisTemplate.opsForZSet()
+                    .remove(Objects.requireNonNull(resolveHotListKey(PopularFeedAlgorithm.ENGAGEMENT_RATE)), member);
         } catch (Exception e) {
             log.warn("Redis error in removeFromHotList: {}", e.getMessage());
         }
@@ -213,7 +214,7 @@ public class RedisPostService {
                     .map(id -> String.format(VIEW_COUNT_KEY, id))
                     .toList();
 
-            List<Object> values = redisTemplate.opsForValue().multiGet(keys);
+            List<Object> values = redisTemplate.opsForValue().multiGet(Objects.requireNonNull(keys));
 
             Map<Long, Integer> result = new HashMap<>();
             if (values != null) {
@@ -250,7 +251,7 @@ public class RedisPostService {
                     .map(id -> String.format(HOT_STATUS_KEY, id))
                     .toList();
 
-            List<Object> values = redisTemplate.opsForValue().multiGet(keys);
+            List<Object> values = redisTemplate.opsForValue().multiGet(Objects.requireNonNull(keys));
 
             Map<Long, Boolean> result = new HashMap<>();
             if (values != null) {
@@ -279,10 +280,10 @@ public class RedisPostService {
     public void pruneHotList(int limit, PopularFeedAlgorithm algorithm) {
         try {
             String key = resolveHotListKey(algorithm);
-            Long size = redisTemplate.opsForZSet().size(key);
+            Long size = redisTemplate.opsForZSet().size(Objects.requireNonNull(key));
             if (size != null && size > limit) {
                 // 점수가 낮은 순(0부터)으로 (전체크기 - 리밋 - 1) 만큼 제거
-                redisTemplate.opsForZSet().removeRange(key, 0, size - limit - 1);
+                redisTemplate.opsForZSet().removeRange(Objects.requireNonNull(key), 0, size - limit - 1);
             }
         } catch (Exception e) {
             log.warn("Redis error in pruneHotList: {}", e.getMessage());
@@ -292,7 +293,7 @@ public class RedisPostService {
     public long getHotListSize(PopularFeedAlgorithm algorithm) {
         try {
             String key = resolveHotListKey(algorithm);
-            Long size = redisTemplate.opsForZSet().size(key);
+            Long size = redisTemplate.opsForZSet().size(Objects.requireNonNull(key));
             return size != null ? size : 0L;
         } catch (Exception e) {
             log.warn("Redis error in getHotListSize: {}", e.getMessage());

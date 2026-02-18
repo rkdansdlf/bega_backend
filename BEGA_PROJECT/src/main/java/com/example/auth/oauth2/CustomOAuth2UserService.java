@@ -83,6 +83,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         String provider = registrationId;
         String providerId = oAuth2Response.getProviderId();
         String userName = oAuth2Response.getName();
+        String profileImageUrl = normalizeProfileImageUrl(oAuth2Response.getProfileImageUrl());
 
         // 5. UserProvider(연동 계정) 조회
         Optional<com.example.auth.entity.UserProvider> userProviderOpt = userProviderRepository
@@ -132,8 +133,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         if (linkData != null && linkData.isLinkMode()) {
             userEntity = processAccountLink(linkData, provider, providerId, email);
         } else {
-            userEntity = processNormalLogin(userProviderOpt, email, userName, provider, providerId);
+            userEntity = processNormalLogin(userProviderOpt, email, userName, provider, providerId, profileImageUrl);
         }
+        applyProfileImageFromOAuth(userEntity, profileImageUrl);
 
         // [일일 출석 보너스 지급]
         java.time.LocalDate today = java.time.LocalDate.now();
@@ -148,12 +150,14 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         return new CustomOAuth2User(userEntity.toDto(), oAuth2User.getAttributes());
     }
 
-    private UserEntity saveNewUser(String email, String name, String provider, String providerId) {
+    private UserEntity saveNewUser(String email, String name, String provider, String providerId,
+            String profileImageUrl) {
         // UserEntity 생성
         UserEntity userEntity = UserEntity.builder()
                 .email(email)
                 .name(name != null && !name.isEmpty() ? name : "소셜 사용자")
                 .password(null) // OAuth2 users don't have passwords
+                .profileImageUrl(profileImageUrl)
                 .role("ROLE_USER")
                 // 기존 provider 필드는 하위 호환성을 위해 유지하거나 비워둠 (여기서는 메인 provider로 설정)
                 .provider(provider)
@@ -222,6 +226,24 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         }
     }
 
+    private void applyProfileImageFromOAuth(UserEntity userEntity, String profileImageUrl) {
+        if (userEntity == null || profileImageUrl == null) {
+            return;
+        }
+        if (userEntity.getProfileImageUrl() == null) {
+            userEntity.setProfileImageUrl(profileImageUrl);
+            userRepository.save(userEntity);
+        }
+    }
+
+    private String normalizeProfileImageUrl(String profileImageUrl) {
+        if (profileImageUrl == null) {
+            return null;
+        }
+        String trimmed = profileImageUrl.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
     /**
      * state 파라미터로 연동 정보 조회
      * (원본 state를 key로 Redis에서 조회)
@@ -287,7 +309,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
      * 일반 로그인 처리
      */
     private UserEntity processNormalLogin(Optional<com.example.auth.entity.UserProvider> userProviderOpt,
-            String email, String userName, String provider, String providerId) {
+            String email, String userName, String provider, String providerId, String profileImageUrl) {
         if (userProviderOpt.isPresent()) {
             // [일반 로그인] 이미 연동된 계정이 있는 경우 -> 해당 사용자 반환
             log.info("Existing Provider Found. Logging in.");
@@ -321,7 +343,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             } else {
                 // 신규 사용자 -> 회원가입 + 연동 정보 생성
                 log.info("New User Required. Creating Account.");
-                return saveNewUser(email, userName, provider, providerId);
+                return saveNewUser(email, userName, provider, providerId, profileImageUrl);
             }
         }
     }

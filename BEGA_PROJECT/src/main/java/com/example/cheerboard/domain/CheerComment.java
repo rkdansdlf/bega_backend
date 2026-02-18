@@ -3,6 +3,8 @@ package com.example.cheerboard.domain;
 import com.example.auth.entity.UserEntity;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -28,7 +30,7 @@ public class CheerComment {
     @JoinColumn(name = "author_id", nullable = false)
     private UserEntity author;
 
-    @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(nullable = false)
     private String content;
 

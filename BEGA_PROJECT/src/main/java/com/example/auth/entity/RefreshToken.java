@@ -2,6 +2,7 @@ package com.example.auth.entity;
 
 import java.time.LocalDateTime;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -29,4 +30,22 @@ public class RefreshToken {
     // 만료 시간
     @jakarta.persistence.Column(name = "expirydate")
     private LocalDateTime expiryDate;
+
+    @Column(name = "device_type", length = 32)
+    private String deviceType;
+
+    @Column(name = "device_label", length = 255)
+    private String deviceLabel;
+
+    @Column(name = "browser", length = 64)
+    private String browser;
+
+    @Column(name = "os", length = 64)
+    private String os;
+
+    @Column(name = "ip", length = 64)
+    private String ip;
+
+    @Column(name = "last_seen_at")
+    private LocalDateTime lastSeenAt;
 }

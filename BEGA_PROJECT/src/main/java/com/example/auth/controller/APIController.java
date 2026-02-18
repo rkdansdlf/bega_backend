@@ -7,6 +7,8 @@ import com.example.common.ratelimit.RateLimit;
 import com.example.auth.dto.LoginDto;
 import com.example.auth.dto.SignupDto;
 import com.example.auth.service.UserService;
+import com.example.auth.repository.RefreshRepository;
+import com.example.auth.entity.RefreshToken;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
@@ -19,6 +21,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
 import jakarta.validation.Valid;
 
@@ -30,15 +33,18 @@ public class APIController {
     private final UserService userService;
     private final OAuth2StateService oAuth2StateService;
     private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
+    private final RefreshRepository refreshRepository;
 
     @org.springframework.beans.factory.annotation.Value("${app.cookie.secure:false}")
     private boolean secureCookie;
 
     public APIController(UserService userService, OAuth2StateService oAuth2StateService,
-            com.example.auth.service.TokenBlacklistService tokenBlacklistService) {
+            com.example.auth.service.TokenBlacklistService tokenBlacklistService,
+            RefreshRepository refreshRepository) {
         this.userService = userService;
         this.oAuth2StateService = oAuth2StateService;
         this.tokenBlacklistService = tokenBlacklistService;
+        this.refreshRepository = refreshRepository;
     }
 
     /**
@@ -59,13 +65,15 @@ public class APIController {
     @RateLimit(limit = 10, window = 60) // 1분에 최대 10회 로그인 시도
     @PostMapping("/login")
     public ResponseEntity<ApiResponse> login(
-            @Valid @RequestBody LoginDto request,
+            @Valid @RequestBody LoginDto loginDto,
+            HttpServletRequest request,
             HttpServletResponse response) {
 
         // UserService의 인증 로직 호출
         Map<String, Object> loginData = userService.authenticateAndGetToken(
-                request.getEmail(),
-                request.getPassword());
+                loginDto.getEmail(),
+                loginDto.getPassword(),
+                request);
 
         String accessToken = (String) loginData.get("accessToken");
         String refreshToken = (String) loginData.get("refreshToken");
@@ -105,6 +113,40 @@ public class APIController {
         return ResponseEntity.ok(ApiResponse.success("사용 가능한 이메일입니다."));
     }
 
+    /**
+     * 닉네임(이름) 사용 가능 여부 체크
+     */
+    @RateLimit(limit = 20, window = 60)
+    @GetMapping("/check-name")
+    public ResponseEntity<ApiResponse> checkName(
+                    @AuthenticationPrincipal Long userId,
+                    @RequestParam("name") String name) {
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("인증이 필요합니다.", Map.of("available", false)));
+        }
+
+        String normalizedName = name == null ? "" : name.trim();
+        if (normalizedName.isBlank()) {
+            return ResponseEntity.ok(ApiResponse.error("닉네임을 입력해 주세요.", Map.of("available", false)));
+        }
+
+        try {
+            boolean available = userService.isNameAvailable(userId, normalizedName);
+            Map<String, Object> response = Map.of("available", available);
+            if (available) {
+                return ResponseEntity.ok(ApiResponse.success("사용 가능한 닉네임입니다.", response));
+            }
+
+            return ResponseEntity.ok(ApiResponse.error("이미 사용 중인 닉네임입니다.", response));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.ok(ApiResponse.error(e.getMessage(), Map.of("available", false)));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error("닉네임 확인 중 오류가 발생했습니다.", Map.of("available", false)));
+        }
+    }
+
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse> logout(HttpServletRequest request, HttpServletResponse response) {
         // 1. JWT (Authorization) 및 Refresh 쿠키 추출하여 이메일 확인
@@ -124,8 +166,24 @@ public class APIController {
             }
         }
 
-        // 2. DB에서 리프레시 토큰 삭제
-        if (email != null) {
+        // 2. DB에서 현재 세션의 리프레시 토큰 삭제
+        String refreshToken = null;
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if ("Refresh".equals(cookie.getName())) {
+                    refreshToken = cookie.getValue();
+                    break;
+                }
+            }
+        }
+
+        if (refreshToken != null) {
+            java.util.List<RefreshToken> matchedTokens = refreshRepository.findAllByToken(refreshToken);
+            if (!matchedTokens.isEmpty()) {
+                refreshRepository.deleteAll(matchedTokens);
+            }
+        } else if (email != null) {
+            // Refresh 쿠키가 없을 경우 현재 계정의 전체 세션 정리로 안전하게 폴백
             userService.deleteRefreshTokenByEmail(email);
         }
 

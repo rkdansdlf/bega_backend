@@ -1,6 +1,7 @@
 package com.example.prediction;
 
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -23,5 +24,8 @@ public interface PredictionRepository extends JpaRepository<Prediction, Long>{
 	
 	// 특정 유저의 모든 투표 조회 (최신순)
 	List<Prediction> findAllByUserIdOrderByCreatedAtDesc(Long userId);
+
+	// 특정 유저의 특정 경기들 투표 조회
+	List<Prediction> findByUserIdAndGameIdIn(Long userId, Collection<String> gameIds);
 	
 }

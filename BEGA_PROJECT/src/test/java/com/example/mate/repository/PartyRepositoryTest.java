@@ -35,6 +35,7 @@ class PartyRepositoryTest {
                 null,
                 "",
                 List.of(Party.PartyStatus.CHECKED_IN, Party.PartyStatus.COMPLETED),
+                null,
                 PageRequest.of(0, 10));
 
         assertThat(result.getContent()).extracting(Party::getId).contains(pendingParty.getId());
@@ -55,6 +56,7 @@ class PartyRepositoryTest {
                 null,
                 "kt",
                 List.of(Party.PartyStatus.CHECKED_IN, Party.PartyStatus.COMPLETED),
+                null,
                 PageRequest.of(0, 10));
 
         assertThat(result.getContent()).hasSize(1);
@@ -89,4 +91,3 @@ class PartyRepositoryTest {
                 .build();
     }
 }
-

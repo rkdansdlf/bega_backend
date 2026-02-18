@@ -2,6 +2,8 @@ package com.example.kbo.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -30,7 +32,7 @@ public class PlayerMovement {
     @Column(name = "player_name", nullable = false, length = 100)
     private String playerName;
 
-    @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column
     private String remarks; // Contract details or notes
 

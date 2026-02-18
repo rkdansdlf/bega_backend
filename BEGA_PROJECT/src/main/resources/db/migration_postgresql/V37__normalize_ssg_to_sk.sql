@@ -75,13 +75,24 @@ SET team_code = CASE team_code
 END
 WHERE team_code IN ('SSG', 'SL');
 
-UPDATE team_season_batting_summary
-SET team_id = CASE team_id
-    WHEN 'SSG' THEN 'SK'
-    WHEN 'SL' THEN 'SK'
-    ELSE team_id
-END
-WHERE team_id IN ('SSG', 'SL');
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class
+        WHERE oid = to_regclass('team_season_batting_summary')
+          AND relkind IN ('r', 'p')
+    ) THEN
+        UPDATE team_season_batting_summary
+        SET team_id = CASE team_id
+            WHEN 'SSG' THEN 'SK'
+            WHEN 'SL' THEN 'SK'
+            ELSE team_id
+        END
+        WHERE team_id IN ('SSG', 'SL');
+    END IF;
+END;
+$$;
 
 UPDATE player_season_batting
 SET team_code = CASE team_code
