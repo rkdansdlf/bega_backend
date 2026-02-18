@@ -22,7 +22,7 @@ except ModuleNotFoundError:  # pragma: no cover - handled by runtime checks
     psycopg = None  # type: ignore[assignment]
 
 
-LEGACY_CODES = ["SK", "OB", "HT", "WO", "DO", "KI", "KW"]
+LEGACY_CODES = ["SK", "OB", "HT", "WO", "DO", "KI", "KW", "NX", "SL", "BE", "MBC", "LOT"]
 
 QUERY_BY_TABLE = {
     "game": """

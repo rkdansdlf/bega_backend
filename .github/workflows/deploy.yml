@@ -83,12 +83,32 @@ jobs:
             --tests "*HomePageGameServiceTest*"
 
   deploy:
+    if: vars.DEPLOY_TO_EC2 == 'true'
     needs: guard
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Validate EC2 deploy secrets
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          if [ -z "${EC2_SSH_KEY}" ]; then
+            echo "::error::Missing EC2_SSH_KEY secret."
+            exit 1
+          fi
+          if [ -z "${EC2_HOST}" ]; then
+            echo "::error::Missing EC2_HOST secret."
+            exit 1
+          fi
+          if [ -z "${EC2_USER}" ]; then
+            echo "::error::Missing EC2_USER secret."
+            exit 1
+          fi
 
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.8.0
