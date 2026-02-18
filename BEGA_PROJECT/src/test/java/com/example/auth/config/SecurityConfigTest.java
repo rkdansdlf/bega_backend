@@ -11,19 +11,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SecurityConfigTest {
 
     @Test
-    @DisplayName("PUBLIC_GET_ENDPOINTS should keep /api/parties/** public")
-    void publicGetEndpoints_containsPartiesWildcard() throws Exception {
-        String[] publicGetEndpoints = getPrivateStaticStringArray("PUBLIC_GET_ENDPOINTS");
+    @DisplayName("PUBLIC_PARTY_GET_ENDPOINTS should expose public party read routes")
+    void publicPartyGetEndpointsContainsPartiesRoutes() throws Exception {
+        String[] publicPartyGetEndpoints = getPrivateStaticStringArray("PUBLIC_PARTY_GET_ENDPOINTS");
 
-        assertThat(publicGetEndpoints).contains("/api/parties/**");
+        assertThat(publicPartyGetEndpoints).contains(
+                "/api/parties",
+                "/api/parties/search",
+                "/api/parties/status/*",
+                "/api/parties/host/*",
+                "/api/parties/upcoming");
     }
 
     @Test
-    @DisplayName("PUBLIC_GET_ENDPOINTS should not expose /api/parties/my")
+    @DisplayName("PUBLIC_* constants should not expose /api/parties/my")
     void publicGetEndpoints_doesNotContainMyParties() throws Exception {
         String[] publicGetEndpoints = getPrivateStaticStringArray("PUBLIC_GET_ENDPOINTS");
+        String[] publicPartyGetEndpoints = getPrivateStaticStringArray("PUBLIC_PARTY_GET_ENDPOINTS");
 
         assertThat(publicGetEndpoints).doesNotContain("/api/parties/my");
+        assertThat(publicPartyGetEndpoints).doesNotContain("/api/parties/my");
     }
 
     private String[] getPrivateStaticStringArray(String fieldName) throws Exception {
@@ -32,4 +39,3 @@ class SecurityConfigTest {
         return (String[]) field.get(null);
     }
 }
-

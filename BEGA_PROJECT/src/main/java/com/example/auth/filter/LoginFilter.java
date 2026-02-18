@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.List;
 
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -108,21 +109,34 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         String refreshToken = jwtUtil.createRefreshToken(email, role, userId);
 
         // Refresh Token DB 저장/업데이트
-        RefreshToken existToken = refreshRepository.findByEmail(email);
+        String userAgent = request.getHeader("User-Agent");
+        String ipAddress = resolveIpAddress(request);
+        String deviceType = resolveDeviceType(userAgent);
+        String deviceLabel = resolveDeviceLabel(userAgent, deviceType);
+        String browser = resolveBrowser(userAgent);
+        String os = resolveOs(userAgent);
+        LocalDateTime now = LocalDateTime.now();
 
-        if (existToken == null) {
-            RefreshToken newRefreshToken = new RefreshToken();
-            newRefreshToken.setEmail(email);
-            newRefreshToken.setToken(refreshToken);
-            newRefreshToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
+        List<RefreshToken> existingTokens = refreshRepository.findAllByEmailOrderByIdDesc(email);
+        RefreshToken matchedToken = existingTokens.stream()
+                .filter(item -> isSameSessionContext(item, deviceType, deviceLabel, browser, os, ipAddress))
+                .findFirst()
+                .orElse(null);
 
-            refreshRepository.save(newRefreshToken);
-
-        } else {
-            existToken.setToken(refreshToken);
-            existToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
-            refreshRepository.save(existToken);
+        if (matchedToken == null) {
+            matchedToken = new RefreshToken();
+            matchedToken.setEmail(email);
+            matchedToken.setDeviceType(deviceType);
+            matchedToken.setDeviceLabel(deviceLabel);
+            matchedToken.setBrowser(browser);
+            matchedToken.setOs(os);
+            matchedToken.setIp(ipAddress);
         }
+
+        matchedToken.setToken(refreshToken);
+        matchedToken.setExpiryDate(now.plusWeeks(1));
+        matchedToken.setLastSeenAt(now);
+        refreshRepository.save(matchedToken);
 
         // 쿠키에 Access/Refresh Token 동시 추가
         int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);
@@ -163,6 +177,152 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax",
                 name, value, maxAgeSeconds);
         response.addHeader("Set-Cookie", cookieString);
+    }
+
+    private boolean isSameSessionContext(RefreshToken token, String deviceType, String deviceLabel, String browser, String os,
+            String ipAddress) {
+        if (token == null) {
+            return false;
+        }
+        String tokenDeviceType = normalizeText(token.getDeviceType(), "desktop");
+        String tokenDeviceLabel = normalizeText(token.getDeviceLabel(), "알 수 없는 기기");
+        String tokenBrowser = normalizeText(token.getBrowser(), "Unknown");
+        String tokenOs = normalizeText(token.getOs(), "Unknown");
+        String tokenIp = normalizeText(token.getIp(), "unknown");
+
+        if (!tokenDeviceType.equals(deviceType)) {
+            return false;
+        }
+        if (!tokenDeviceLabel.equals(deviceLabel)) {
+            return false;
+        }
+        if (!tokenBrowser.equals(browser)) {
+            return false;
+        }
+        if (!tokenOs.equals(os)) {
+            return false;
+        }
+        if (ipAddress == null || ipAddress.isBlank()) {
+            return tokenIp == null || "unknown".equals(tokenIp);
+        }
+        return tokenIp.equals(ipAddress);
+    }
+
+    private String normalizeText(String value, String fallback) {
+        return value != null && !value.isBlank() ? value : fallback;
+    }
+
+    private String resolveIpAddress(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) {
+            return xff.split(",")[0].trim();
+        }
+
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+
+        String remoteAddr = request.getRemoteAddr();
+        return remoteAddr != null ? remoteAddr : null;
+    }
+
+    private String resolveDeviceType(String userAgent) {
+        if (userAgent == null) {
+            return "desktop";
+        }
+
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("mobile") || ua.contains("iphone") || ua.contains("android")) {
+            return "mobile";
+        }
+        if (ua.contains("ipad") || ua.contains("tablet")) {
+            return "tablet";
+        }
+
+        return "desktop";
+    }
+
+    private String resolveDeviceLabel(String userAgent, String deviceType) {
+        if (userAgent == null || userAgent.isBlank()) {
+            return "알 수 없는 기기";
+        }
+
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("iphone")) {
+            return "iPhone";
+        }
+        if (ua.contains("ipad")) {
+            return "iPad";
+        }
+        if (ua.contains("android")) {
+            return "Android";
+        }
+        if (ua.contains("windows")) {
+            return "Windows PC";
+        }
+        if (ua.contains("macintosh") || ua.contains("mac os")) {
+            return "Mac";
+        }
+        if (ua.contains("linux")) {
+            return "Linux PC";
+        }
+
+        return "desktop".equals(deviceType) ? "데스크톱" : "모바일 기기";
+    }
+
+    private String resolveBrowser(String userAgent) {
+        if (userAgent == null) {
+            return "Unknown";
+        }
+
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("edg/") || ua.contains("edge/")) {
+            return "Microsoft Edge";
+        }
+        if (ua.contains("chrome/")) {
+            return "Chrome";
+        }
+        if (ua.contains("firefox/")) {
+            return "Firefox";
+        }
+        if (ua.contains("safari/") && !ua.contains("chrome/")) {
+            return "Safari";
+        }
+        if (ua.contains("opera/") || ua.contains("opr/")) {
+            return "Opera";
+        }
+
+        return "Unknown";
+    }
+
+    private String resolveOs(String userAgent) {
+        if (userAgent == null) {
+            return "Unknown";
+        }
+
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("windows")) {
+            return "Windows";
+        }
+        if (ua.contains("mac os") || ua.contains("macintosh")) {
+            return "macOS";
+        }
+        if (ua.contains("android")) {
+            return "Android";
+        }
+        if (ua.contains("iphone") || ua.contains("ipad") || ua.contains("ipod")) {
+            return "iOS";
+        }
+        if (ua.contains("linux")) {
+            return "Linux";
+        }
+
+        return "Unknown";
     }
 
 }

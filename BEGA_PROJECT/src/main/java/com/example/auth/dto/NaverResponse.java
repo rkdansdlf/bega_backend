@@ -38,4 +38,13 @@ public class NaverResponse implements OAuth2Response {
                 .map(Object::toString)
                 .orElse(null);
     }
+
+    @Override
+    public String getProfileImageUrl() {
+        return Optional.ofNullable(attribute.get("profile_image"))
+                .map(Object::toString)
+                .map(String::trim)
+                .filter(url -> !url.isBlank())
+                .orElse(null);
+    }
 }

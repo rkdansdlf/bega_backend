@@ -40,6 +40,7 @@ repositories {
     // Flyway for DB Migration
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-database-oracle'
+    implementation 'org.flywaydb:flyway-database-postgresql'
 
     // Oracle Autonomous Database
     implementation('com.oracle.database.jdbc:ojdbc11-production:23.7.0.25.01') {

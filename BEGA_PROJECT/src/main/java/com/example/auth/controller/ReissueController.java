@@ -1,12 +1,15 @@
 package com.example.auth.controller;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RequestMapping;
+import lombok.extern.slf4j.Slf4j;
 
 import com.example.common.dto.ApiResponse;
 
@@ -18,6 +21,7 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 public class ReissueController {
@@ -64,14 +68,13 @@ public class ReissueController {
         // Refresh Token 만료 확인
         if (jwtUtil.isExpired(refreshToken)) {
             try {
-                // 토큰에서 email 가져오기
-                String expiredEmail = jwtUtil.getEmail(refreshToken);
-                RefreshToken expiredToken = refreshRepository.findByEmail(expiredEmail);
-                if (expiredToken != null) {
-                    refreshRepository.delete(expiredToken);
+                // 만료된 토큰은 토큰 값 기준으로만 정리 (멀티세션 환경에서 타 세션을 건드리지 않음)
+                List<RefreshToken> expiredTokens = refreshRepository.findAllByToken(refreshToken);
+                if (!expiredTokens.isEmpty()) {
+                    refreshRepository.deleteAll(expiredTokens);
                 }
             } catch (Exception e) {
-
+                log.warn("Expired refresh token cleanup skipped: {}", e.getMessage(), e);
             }
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error("Refresh Token이 만료되었습니다."));
         }
@@ -82,24 +85,27 @@ public class ReissueController {
         String email = jwtUtil.getEmail(refreshToken);
 
         // 가져온 이메일을 통해 DB에서 RefreshToken 엔티티 찾기
-        RefreshToken existToken = refreshRepository.findByEmail(email);
+        List<RefreshToken> existTokens = refreshRepository.findAllByEmailOrderByIdDesc(email);
+        final String finalRefreshToken = refreshToken;
+        Optional<RefreshToken> matchedToken = existTokens.stream()
+                .filter(item -> finalRefreshToken.equals(item.getToken()))
+                .findFirst();
 
-        if (existToken == null) {
+        if (matchedToken.isEmpty()) {
             // 해당 이메일로 등록된 Refresh Token이 DB에 없으면 띄우기
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error("잘못된 Refresh Token입니다."));
         }
 
-        // DB에 저장된 토큰 값과 요청된 토큰 값이 일치하는지 최종 확인
-        if (!existToken.getToken().equals(refreshToken)) {
-            // DB에 저장된 토큰이 요청된 토큰과 다르면, 모든 기존 토큰을 무효화하고 해당 사용자 로그아웃 처리 가능
-            refreshRepository.delete(existToken);
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error("Refresh Token이 일치하지 않습니다."));
-        }
+        RefreshToken existToken = matchedToken.get();
 
         // 새로운 Access Token 및 Refresh Token 생성
         String role = jwtUtil.getRole(refreshToken);
 
-        Long userId = Long.valueOf(jwtUtil.getUserId(refreshToken));
+        Long userId = jwtUtil.getUserId(refreshToken);
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error("유효하지 않은 Refresh Token입니다."));
+        }
 
         // Access Token 만료 시간 (2시간)
         long accessTokenExpiredMs = 1000 * 60 * 60 * 2L;
@@ -113,6 +119,14 @@ public class ReissueController {
         // DB 정보 저장
         existToken.setToken(newRefreshToken);
         existToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
+        existToken.setLastSeenAt(LocalDateTime.now());
+        String userAgent = request.getHeader("User-Agent");
+        String deviceType = resolveDeviceType(userAgent);
+        existToken.setDeviceType(deviceType);
+        existToken.setDeviceLabel(resolveDeviceLabel(userAgent, deviceType));
+        existToken.setBrowser(resolveBrowser(userAgent));
+        existToken.setOs(resolveOs(userAgent));
+        existToken.setIp(resolveIpAddress(request));
         refreshRepository.save(existToken);
 
         // Access Token 쿠키
@@ -123,6 +137,115 @@ public class ReissueController {
         response.addCookie(createCookie("Refresh", newRefreshToken, refreshTokenMaxAge));
 
         return ResponseEntity.ok(ApiResponse.success("토큰이 성공적으로 재발급되었습니다."));
+    }
+
+    private String resolveIpAddress(HttpServletRequest request) {
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) {
+            return xff.split(",")[0].trim();
+        }
+
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+
+        String remoteAddr = request.getRemoteAddr();
+        return remoteAddr != null ? remoteAddr : "unknown";
+    }
+
+    private String resolveDeviceType(String userAgent) {
+        if (userAgent == null) {
+            return "desktop";
+        }
+
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("mobile") || ua.contains("iphone") || ua.contains("android")) {
+            return "mobile";
+        }
+        if (ua.contains("ipad") || ua.contains("tablet")) {
+            return "tablet";
+        }
+
+        return "desktop";
+    }
+
+    private String resolveDeviceLabel(String userAgent, String deviceType) {
+        if (userAgent == null || userAgent.isBlank()) {
+            return "알 수 없는 기기";
+        }
+
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("iphone")) {
+            return "iPhone";
+        }
+        if (ua.contains("ipad")) {
+            return "iPad";
+        }
+        if (ua.contains("android")) {
+            return "Android";
+        }
+        if (ua.contains("windows")) {
+            return "Windows PC";
+        }
+        if (ua.contains("macintosh") || ua.contains("mac os")) {
+            return "Mac";
+        }
+        if (ua.contains("linux")) {
+            return "Linux PC";
+        }
+
+        return "desktop".equals(deviceType) ? "데스크톱" : "모바일 기기";
+    }
+
+    private String resolveBrowser(String userAgent) {
+        if (userAgent == null) {
+            return "Unknown";
+        }
+
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("edg/") || ua.contains("edge/")) {
+            return "Microsoft Edge";
+        }
+        if (ua.contains("chrome/")) {
+            return "Chrome";
+        }
+        if (ua.contains("safari/") && !ua.contains("chrome")) {
+            return "Safari";
+        }
+        if (ua.contains("firefox/")) {
+            return "Firefox";
+        }
+
+        return "Unknown";
+    }
+
+    private String resolveOs(String userAgent) {
+        if (userAgent == null) {
+            return "Unknown";
+        }
+
+        String ua = userAgent.toLowerCase();
+        if (ua.contains("iphone")) {
+            return "iOS";
+        }
+        if (ua.contains("ipad")) {
+            return "iPadOS";
+        }
+        if (ua.contains("android")) {
+            return "Android";
+        }
+        if (ua.contains("windows")) {
+            return "Windows";
+        }
+        if (ua.contains("macintosh") || ua.contains("mac os")) {
+            return "macOS";
+        }
+        if (ua.contains("linux")) {
+            return "Linux";
+        }
+
+        return "Unknown";
     }
 
     // 쿠키 생성 헬퍼 메서드

@@ -38,6 +38,8 @@
         </logger>
         <logger name="org.springframework" level="INFO"/>
         <logger name="org.hibernate.SQL" level="DEBUG"/>
+        <!-- Suppress Oracle JDBC Class-Path manifest warnings -->
+        <logger name="org.springframework.boot.devtools.restart.ChangeableUrls" level="ERROR"/>
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
         </root>

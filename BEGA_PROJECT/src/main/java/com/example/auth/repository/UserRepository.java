@@ -24,6 +24,7 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
     List<UserEntity> findByEmailContainingOrNameContaining(String email, String name);
 
     List<UserEntity> findByEmailContainingOrNameContainingOrderByIdAsc(String email, String name);
+    Optional<UserEntity> findByNameIgnoreCase(String name);
 
     List<UserEntity> findAllByOrderByIdAsc();
 

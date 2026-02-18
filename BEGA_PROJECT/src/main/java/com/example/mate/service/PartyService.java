@@ -106,7 +106,7 @@ public class PartyService {
     // 모든 파티 조회 (검색 및 필터링 통합)
     @Transactional(readOnly = true)
     public Page<PartyDTO.Response> getAllParties(String teamId, String stadium, LocalDate gameDate, String searchQuery,
-            Pageable pageable) {
+            Pageable pageable, Party.PartyStatus status) {
         String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
         String normalizedSearchQuery = normalizeSearchQuery(searchQuery);
 
@@ -129,6 +129,7 @@ public class PartyService {
                 gameDate,
                 normalizedSearchQuery,
                 excludedStatuses,
+                status,
                 pageable);
 
         return parties.map(this::convertToDto);
@@ -291,7 +292,7 @@ public class PartyService {
 
         // 대기 중인 신청들은 함께 삭제
         applicationRepository.deleteAll(
-                applicationRepository.findByPartyId(id));
+                Objects.requireNonNull(applicationRepository.findByPartyId(id)));
 
         partyRepository.delete(party);
     }
@@ -299,7 +300,15 @@ public class PartyService {
     // 사용자가 참여한 모든 파티 조회 (호스트 + 참여자)
     @Transactional(readOnly = true)
     public List<PartyDTO.Response> getMyParties(Principal principal) {
-        Long userId = getUserIdFromPrincipal(principal);
+        return getMyParties(getUserIdFromPrincipal(principal));
+    }
+
+    @Transactional(readOnly = true)
+    public List<PartyDTO.Response> getMyParties(Long userId) {
+        if (userId == null) {
+            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
+        }
+
         // 1. 호스트로 생성한 파티
         List<Party> hostedParties = partyRepository.findByHostId(userId);
 
@@ -308,6 +317,7 @@ public class PartyService {
                 .findByApplicantIdAndIsApprovedTrue(Objects.requireNonNull(userId));
 
         List<Party> participatedParties = approvedApplications.stream()
+                .filter(app -> app.getPartyId() != null)
                 .map(app -> partyRepository.findById(app.getPartyId()))
                 .filter(Optional::isPresent)
                 .map(Optional::get)
@@ -482,7 +492,7 @@ public class PartyService {
         return profilePathOrUrl.startsWith("/assets/")
                 || profilePathOrUrl.startsWith("/src/assets/")
                 || profilePathOrUrl.startsWith("blob:")
-                || profilePathOrUrl.toLowerCase().contains("supabase.co");
+                || profilePathOrUrl.startsWith("data:");
     }
 
     private boolean isUsableProfileValue(String profilePathOrUrl) {
@@ -496,8 +506,23 @@ public class PartyService {
         if (principal == null) {
             throw new UnauthorizedAccessException("인증 정보가 없습니다.");
         }
-        return userRepository.findByEmail(principal.getName())
-                .map(com.example.auth.entity.UserEntity::getId)
-                .orElseThrow(() -> new UnauthorizedAccessException("사용자를 찾을 수 없습니다."));
+        String principalName = principal.getName();
+
+        if (principalName == null || principalName.isBlank()) {
+            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
+        }
+
+        // 1) 신규 인증 구조(일반적으로 userId)를 우선 처리
+        try {
+            Long principalId = Long.valueOf(principalName);
+            return userRepository.findById(principalId)
+                    .map(com.example.auth.entity.UserEntity::getId)
+                    .orElseThrow(() -> new UnauthorizedAccessException("사용자를 찾을 수 없습니다."));
+        } catch (NumberFormatException e) {
+            // 2) 기존 구조(이메일) 호환
+            return userRepository.findByEmail(principalName)
+                    .map(com.example.auth.entity.UserEntity::getId)
+                    .orElseThrow(() -> new UnauthorizedAccessException("사용자를 찾을 수 없습니다."));
+        }
     }
 }

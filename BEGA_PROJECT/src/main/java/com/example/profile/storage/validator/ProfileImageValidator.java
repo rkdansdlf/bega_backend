@@ -1,6 +1,7 @@
 package com.example.profile.storage.validator;
 
 import com.example.cheerboard.storage.config.StorageConfig;
+import com.example.common.image.ImageUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
@@ -15,6 +16,9 @@ import java.util.Set;
 public class ProfileImageValidator {
 
     private final StorageConfig config;
+    private final ImageUtil imageUtil;
+
+    private static final int MIN_SHORT_SIDE_PIXELS = 256;
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
         "jpg", "jpeg", "png", "webp"
@@ -40,6 +44,7 @@ public class ProfileImageValidator {
         validateExtension(originalFilename);
         validateMimeType(file.getContentType());
         validateSize(file.getSize());
+        validateDimensions(file);
     }
 
     private void validateExtension(String filename) {
@@ -68,6 +73,16 @@ public class ProfileImageValidator {
                 String.format("파일 크기가 너무 큽니다. 최대 크기: %d MB",
                     config.getMaxImageBytes() / 1024 / 1024)
             );
+        }
+    }
+
+    private void validateDimensions(MultipartFile file) {
+        ImageUtil.ImageDimension imageDimension = imageUtil.getImageDimension(file);
+        int shortSide = Math.min(imageDimension.width(), imageDimension.height());
+        if (shortSide < MIN_SHORT_SIDE_PIXELS) {
+            throw new IllegalArgumentException(
+                    String.format("해상도가 너무 낮습니다. 최소 %dpx x %dpx 이상이어야 합니다.", MIN_SHORT_SIDE_PIXELS,
+                            MIN_SHORT_SIDE_PIXELS));
         }
     }
 
