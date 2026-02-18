@@ -83,7 +83,11 @@ jobs:
             --tests "*HomePageGameServiceTest*"
 
   deploy:
-    if: vars.DEPLOY_TO_EC2 == 'true'
+    if: >
+      vars.DEPLOY_TO_EC2 == 'true' &&
+      secrets.EC2_SSH_KEY != '' &&
+      secrets.EC2_HOST != '' &&
+      secrets.EC2_USER != ''
     needs: guard
     runs-on: ubuntu-latest
     
