@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
-@Profile("dev")
+@Profile("dev & !local & !test")
 @RequiredArgsConstructor
 public class DevAuthSchemaGuard implements ApplicationRunner {
 
