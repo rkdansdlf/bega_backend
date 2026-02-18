@@ -38,15 +38,18 @@ public class SecurityConfig {
         // ========================================
 
         private static final List<String> DEFAULT_ALLOWED_ORIGINS = List.of(
+                "http://localhost",
                 "http://localhost:3000",
                 "http://localhost:5173",
                 "http://localhost:5176",
                 "http://localhost:*",
                 "http://localhost:8080",
+                "http://127.0.0.1",
                 "http://127.0.0.1:3000",
                 "http://127.0.0.1:5173",
                 "http://127.0.0.1:*",
-                "http://127.0.0.1:5176");
+                "http://127.0.0.1:5176",
+                "http://[::1]");
         // 공개 엔드포인트 그룹 정의
         // ========================================
 
@@ -127,7 +130,7 @@ public class SecurityConfig {
         private final CookieAuthorizationRequestRepository cookieauthorizationrequestRepository;
         private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
 
-        @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:*,http://localhost:8080,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:*,http://127.0.0.1:5176}")
+        @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:*,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:*,http://127.0.0.1:5176}")
         private String allowedOriginsStr;
         private java.util.List<String> parseAllowedOrigins() {
                 List<String> parsed = Arrays.stream(allowedOriginsStr == null ? new String[0] : allowedOriginsStr.split(","))

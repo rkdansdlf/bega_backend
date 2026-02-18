@@ -95,6 +95,15 @@ def _dsn_host(dsn: str) -> str | None:
     return dsn.split("@", 1)[1].split("/", 1)[0]
 
 
+def _normalize_db_url(raw: str) -> str:
+    candidate = raw.strip()
+    if candidate.startswith("jdbc:"):
+        candidate = candidate[len("jdbc:") :]
+    if candidate.startswith("postgres://"):
+        candidate = "postgresql://" + candidate[len("postgres://") :]
+    return candidate
+
+
 def evaluate_legacy_residuals(
     legacy_residuals: Dict[str, object],
     *,
@@ -170,9 +179,14 @@ def _build_step_summary(output: Dict[str, object]) -> list[str]:
 
 
 def _resolve_db_url(env_name: str) -> str:
-    value = os.getenv(env_name)
-    if value and value.strip():
-        return value.strip()
+    for candidate_env in (env_name, "POSTGRES_DB_URL", "DB_URL"):
+        value = os.getenv(candidate_env)
+        if not value:
+            continue
+        normalized = _normalize_db_url(value)
+        if not normalized or normalized.startswith("***"):
+            continue
+        return normalized
     raise RuntimeError(f"{env_name} is required for canonical SQL guard")
 
 
