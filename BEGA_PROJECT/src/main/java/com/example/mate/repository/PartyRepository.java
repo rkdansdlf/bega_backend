@@ -49,7 +49,7 @@ public interface PartyRepository extends JpaRepository<Party, Long> {
         // 경기 날짜 이후 파티 조회
         List<Party> findByGameDateAfterOrderByGameDateAsc(LocalDate date);
 
-        // 통합 검색 및 필터링 (팀, 구장, 날짜, 검색어, 상태 제외)
+        // 통합 검색 및 필터링 (팀, 구장, 날짜, 검색어, 상태 제외) - Updated for IDE sync
         @Query("SELECT p FROM Party p WHERE " +
                         "(:teamId IS NULL OR p.teamId = :teamId) AND " +
                         "(:stadium IS NULL OR p.stadium = :stadium) AND " +
@@ -61,13 +61,15 @@ public interface PartyRepository extends JpaRepository<Party, Long> {
                         "LOWER(p.section) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
                         "LOWER(p.hostName) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
                         "LOWER(p.description) LIKE LOWER(CONCAT('%', :query, '%'))) AND " +
-                        "(p.status NOT IN :excludedStatuses)")
+                        "((:status IS NOT NULL AND p.status = :status) OR " +
+                        "(:status IS NULL AND p.status NOT IN :excludedStatuses))")
         Page<Party> findPartiesWithFilter(
                         @Param("teamId") String teamId,
                         @Param("stadium") String stadium,
                         @Param("gameDate") LocalDate gameDate,
                         @Param("query") String query,
                         @Param("excludedStatuses") List<Party.PartyStatus> excludedStatuses,
+                        @Param("status") PartyStatus status,
                         Pageable pageable);
 
         Page<Party> findByStatusNotInOrderByCreatedAtDesc(List<PartyStatus> statuses, Pageable pageable);

@@ -1,10 +1,8 @@
 package com.example.auth.oauth2;
 
 import com.example.auth.dto.CustomOAuth2User;
-import com.example.auth.entity.RefreshToken;
 import com.example.auth.service.OAuth2StateService;
 import com.example.auth.util.JWTUtil;
-import com.example.auth.repository.RefreshRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 
@@ -17,7 +15,6 @@ import org.springframework.security.web.authentication.SimpleUrlAuthenticationSu
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -27,7 +24,6 @@ import org.springframework.beans.factory.annotation.Value;
 public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
 
     private final JWTUtil jwtUtil;
-    private final RefreshRepository refreshRepository;
     private final UserRepository userRepository;
     private final com.example.auth.service.UserService userService; // Inject UserService
     private final OAuth2StateService oAuth2StateService;
@@ -38,11 +34,10 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     @Value("${app.cookie.secure:false}")
     private boolean secureCookie;
 
-    public CustomSuccessHandler(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository,
+    public CustomSuccessHandler(JWTUtil jwtUtil, UserRepository userRepository,
             @org.springframework.context.annotation.Lazy com.example.auth.service.UserService userService,
             OAuth2StateService oAuth2StateService) {
         this.jwtUtil = jwtUtil;
-        this.refreshRepository = refreshRepository;
         this.userRepository = userRepository;
         this.userService = userService;
         this.oAuth2StateService = oAuth2StateService;
@@ -98,19 +93,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             String accessToken = jwtUtil.createJwt(userEmail, role, userId, accessTokenExpiredMs);
             String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId);
 
-            // Refresh Token DB 저장/갱신
-            RefreshToken existToken = refreshRepository.findByEmail(userEmail);
-            if (existToken == null) {
-                RefreshToken newRefreshToken = new RefreshToken();
-                newRefreshToken.setEmail(userEmail);
-                newRefreshToken.setToken(refreshToken);
-                newRefreshToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
-                refreshRepository.save(newRefreshToken);
-            } else {
-                existToken.setToken(refreshToken);
-                existToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
-                refreshRepository.save(existToken);
-            }
+            userService.saveOrUpdateRefreshToken(userEmail, refreshToken, request);
 
             // 쿠키에 토큰 저장
             int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);
@@ -136,20 +119,8 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         // Refresh Token 생성
         String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId);
 
-        // Refresh Token DB 저장
-        RefreshToken existToken = refreshRepository.findByEmail(userEmail);
-
-        if (existToken == null) {
-            RefreshToken newRefreshToken = new RefreshToken();
-            newRefreshToken.setEmail(userEmail);
-            newRefreshToken.setToken(refreshToken);
-            newRefreshToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
-            refreshRepository.save(newRefreshToken);
-        } else {
-            existToken.setToken(refreshToken);
-            existToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
-            refreshRepository.save(existToken);
-        }
+        // Refresh Token DB 저장/갱신
+        userService.saveOrUpdateRefreshToken(userEmail, refreshToken, request);
 
         // 쿠키에 토큰 저장
         int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);

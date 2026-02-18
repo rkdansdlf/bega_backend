@@ -379,7 +379,16 @@ GET    /api/matches                - 특정 날짜의 경기 조회
 POST   /api/predictions/vote       - 순위 예측 투표 or 투표 변경
 GET    /api/predictions/status/{gameId}  - 특정 경기 실시간 투표 현황
 DELETE /api/predictions/{gameId}   - 사용자 특정 경기 투표 취소
-GET    /api/predictions/my-vote/{gameId} - 사용자 특정 경기 투표 팀 조회
+GET    /api/predictions/my-vote/{gameId} - 사용자 특정 경기 투표 팀 조회 (Legacy; 예측 페이지에서 단건 조회 미사용)
+POST   /api/predictions/my-votes         - 사용자 투표 일괄 조회
+
+> 예측 페이지는 사용자 투표 조회를 단건 API(`/api/predictions/my-vote/{gameId}`) 대신 일괄 API(`POST /api/predictions/my-votes`)로 호출합니다.
+
+### 예측 페이지 회귀 점검
+
+- [x] 예측 페이지 진입 시 `GET /api/predictions/my-vote/{gameId}` 호출 0회
+- [x] 예측 페이지 진입 시 `POST /api/predictions/my-votes` 호출 1회 이상
+- [x] 예측 페이지에서 `my-vote` 단건 API 사용 재출현 시 경보
 
 # 순위 예측
 GET    /api/current-season               - 현재 시즌 연도 조회

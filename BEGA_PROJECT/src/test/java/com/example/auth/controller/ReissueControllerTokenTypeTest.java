@@ -5,6 +5,7 @@ import com.example.auth.repository.RefreshRepository;
 import com.example.auth.util.JWTUtil;
 import com.example.common.dto.ApiResponse;
 import jakarta.servlet.http.Cookie;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -86,7 +87,7 @@ class ReissueControllerTokenTypeTest {
         when(jwtUtil.getTokenType("refresh-token")).thenReturn("refresh");
         when(jwtUtil.isExpired("refresh-token")).thenReturn(false);
         when(jwtUtil.getEmail("refresh-token")).thenReturn("user@test.com");
-        when(refreshRepository.findByEmail("user@test.com")).thenReturn(stored);
+        when(refreshRepository.findAllByEmailOrderByIdDesc("user@test.com")).thenReturn(List.of(stored));
         when(jwtUtil.getRole("refresh-token")).thenReturn("ROLE_USER");
         when(jwtUtil.getUserId("refresh-token")).thenReturn(1L);
         when(jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 1000L * 60 * 60 * 2))

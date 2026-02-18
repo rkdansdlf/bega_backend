@@ -25,7 +25,9 @@ import com.example.auth.util.JWTUtil;
 
 import jakarta.servlet.http.HttpServletResponse;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 @Configuration
@@ -34,6 +36,17 @@ import java.util.List;
 public class SecurityConfig {
 
         // ========================================
+
+        private static final List<String> DEFAULT_ALLOWED_ORIGINS = List.of(
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "http://localhost:5176",
+                "http://localhost:*",
+                "http://localhost:8080",
+                "http://127.0.0.1:3000",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:*",
+                "http://127.0.0.1:5176");
         // 공개 엔드포인트 그룹 정의
         // ========================================
 
@@ -74,7 +87,6 @@ public class SecurityConfig {
 
         /** 공개 GET 요청 엔드포인트 */
         private static final String[] PUBLIC_GET_ENDPOINTS = {
-                        "/api/parties/**",
                         "/api/checkin/**",
                         "/api/cheer/posts",
                         "/api/cheer/posts/**",
@@ -92,6 +104,15 @@ public class SecurityConfig {
                         "/api/users/*/following"
         };
 
+        /** 공개 파티 조회 엔드포인트 (my는 제외) */
+        private static final String[] PUBLIC_PARTY_GET_ENDPOINTS = {
+                        "/api/parties",
+                        "/api/parties/search",
+                        "/api/parties/status/*",
+                        "/api/parties/host/*",
+                        "/api/parties/upcoming"
+        };
+
         /** 관리자 전용 엔드포인트 */
         private static final String[] ADMIN_ENDPOINTS = {
                         "/api/admin/**",
@@ -106,8 +127,21 @@ public class SecurityConfig {
         private final CookieAuthorizationRequestRepository cookieauthorizationrequestRepository;
         private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
 
-        @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost:3000,http://localhost:8080}")
+        @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:*,http://localhost:8080,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:*,http://127.0.0.1:5176}")
         private String allowedOriginsStr;
+        private java.util.List<String> parseAllowedOrigins() {
+                List<String> parsed = Arrays.stream(allowedOriginsStr == null ? new String[0] : allowedOriginsStr.split(","))
+                                .map(String::trim)
+                                .filter(origin -> !origin.isEmpty())
+                                .toList();
+                if (parsed.isEmpty()) {
+                        return DEFAULT_ALLOWED_ORIGINS;
+                }
+
+                LinkedHashSet<String> merged = new LinkedHashSet<>(DEFAULT_ALLOWED_ORIGINS);
+                merged.addAll(parsed);
+                return new ArrayList<>(merged);
+        }
 
         public SecurityConfig(CustomOAuth2UserService customOAuth2UserService,
                         CustomSuccessHandler customSuccessHandler, JWTUtil jwtUtil,
@@ -151,9 +185,9 @@ public class SecurityConfig {
                 CorsConfiguration configuration = new CorsConfiguration();
 
                 configuration.setAllowedOriginPatterns(
-                                Arrays.asList(allowedOriginsStr.split(",")));
+                                parseAllowedOrigins());
                 configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-                configuration.setAllowedHeaders(Arrays.asList("Authorization", "Cache-Control", "Content-Type"));
+                configuration.setAllowedHeaders(List.of("*"));
                 configuration.setAllowCredentials(true);
                 configuration.setMaxAge(3600L);
 
@@ -169,7 +203,7 @@ public class SecurityConfig {
         @Bean
         public JWTFilter jwtFilter(org.springframework.core.env.Environment env) {
                 boolean isDev = Arrays.asList(env.getActiveProfiles()).contains("dev");
-                List<String> origins = Arrays.asList(allowedOriginsStr.split(","));
+                List<String> origins = parseAllowedOrigins();
                 return new JWTFilter(jwtUtil, isDev, origins, tokenBlacklistService);
         }
 
@@ -241,6 +275,7 @@ public class SecurityConfig {
 
                                                 // 6. 공개 GET 요청 엔드포인트
                                                 .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
+                                                .requestMatchers(HttpMethod.GET, PUBLIC_PARTY_GET_ENDPOINTS).permitAll()
 
                                                 // 7. 공개 API 엔드포인트
                                                 .requestMatchers(PUBLIC_API_ENDPOINTS).permitAll()

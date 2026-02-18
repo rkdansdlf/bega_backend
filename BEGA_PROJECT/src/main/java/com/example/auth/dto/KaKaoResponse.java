@@ -1,6 +1,7 @@
 package com.example.auth.dto;
 
 import java.util.Map;
+import java.util.Optional;
 
 public class KaKaoResponse implements OAuth2Response {
 
@@ -79,5 +80,22 @@ public class KaKaoResponse implements OAuth2Response {
         Object name = profile.get("nickname");
 
         return name != null ? name.toString() : "이름 없음";
+    }
+
+    @Override
+    public String getProfileImageUrl() {
+        if (profile == null) {
+            return null;
+        }
+
+        Object profileImage = Optional.ofNullable(profile.get("profile_image_url"))
+                .orElse(profile.get("thumbnail_image_url"));
+
+        if (profileImage == null) {
+            return null;
+        }
+
+        String url = profileImage.toString().trim();
+        return url.isBlank() ? null : url;
     }
 }

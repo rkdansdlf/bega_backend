@@ -10,7 +10,9 @@ import java.security.Principal;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 @RestController
@@ -99,7 +101,6 @@ public class PredictionController {
         }
     }
 
-    // 사용자의 특정 경기 투표 조회
     @GetMapping("/predictions/my-vote/{gameId}")
     public ResponseEntity<?> getMyVote(
             Principal principal,
@@ -122,6 +123,47 @@ public class PredictionController {
             responseMap.put("votedTeam", null);
             return ResponseEntity.ok(responseMap);
         }
+    }
+
+    // 다수 경기 사용자 투표 일괄 조회
+    @PostMapping("/predictions/my-votes")
+    public ResponseEntity<Map<String, Object>> getMyVotesBulk(
+            @RequestBody PredictionMyVotesRequestDto request,
+            Principal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("votes", Map.of()));
+        }
+
+        Long userId = Long.valueOf(principal.getName());
+        List<String> gameIds = request == null ? null : request.getGameIds();
+
+        if (gameIds == null || gameIds.isEmpty()) {
+            return ResponseEntity.ok(Map.of("votes", Map.of()));
+        }
+
+        Map<String, String> votes = new HashMap<>();
+        List<String> distinctGameIds = gameIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (distinctGameIds.isEmpty()) {
+            return ResponseEntity.ok(Map.of("votes", Map.of()));
+        }
+
+        for (String gameId : distinctGameIds) {
+            votes.put(gameId, null);
+        }
+
+        List<Prediction> predictions = predictionRepository.findByUserIdAndGameIdIn(
+                userId,
+                distinctGameIds
+        );
+        for (Prediction prediction : predictions) {
+            votes.put(prediction.getGameId(), prediction.getVotedTeam());
+        }
+
+        return ResponseEntity.ok(Map.of("votes", votes));
     }
 
     // 내 예측 통계 조회

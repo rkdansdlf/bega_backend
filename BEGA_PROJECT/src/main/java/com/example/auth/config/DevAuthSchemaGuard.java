@@ -27,6 +27,101 @@ public class DevAuthSchemaGuard implements ApplicationRunner {
     static final String EXPECTED_DEV_DB_PRODUCT = "postgresql";
     static final String FIND_USER_PROVIDERS_REGCLASS_SQL = "SELECT to_regclass('user_providers')";
     static final String FIND_USERS_REGCLASS_SQL = "SELECT to_regclass('users')";
+    static final String CHECK_PUBLIC_AWARDS_TABLE_SQL = """
+            SELECT COUNT(*)
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = 'awards'
+            """;
+    static final String CHECK_PUBLIC_AWARDS_AWARD_YEAR_COLUMN_SQL = """
+            SELECT COUNT(*)
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'awards'
+              AND column_name = 'award_year'
+            """;
+    static final String CHECK_PUBLIC_AWARDS_POSITION_COLUMN_SQL = """
+            SELECT COUNT(*)
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'awards'
+              AND column_name = 'position'
+            """;
+    static final String FIX_USER_PROVIDERS_EMAIL_SQL = """
+            ALTER TABLE %s
+            ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+
+            UPDATE %s up
+            SET email = u.email
+            FROM %s u
+            WHERE u.id = up.user_id
+              AND (up.email IS NULL OR up.email = '');
+            """;
+    static final String FIX_AWARD_YEAR_SQL = """
+            DO $$
+            BEGIN
+                IF to_regclass('public.awards') IS NOT NULL THEN
+                    IF EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = 'awards'
+                          AND column_name = 'year'
+                          AND NOT EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_schema = 'public'
+                              AND table_name = 'awards'
+                              AND column_name = 'award_year'
+                          )
+                    ) THEN
+                        ALTER TABLE public.awards RENAME COLUMN year TO award_year;
+                    END IF;
+
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = 'awards'
+                          AND column_name = 'award_year'
+                    ) THEN
+                        ALTER TABLE public.awards ADD COLUMN award_year INTEGER;
+                    END IF;
+
+                    UPDATE public.awards
+                    SET award_year = COALESCE(award_year, EXTRACT(YEAR FROM CURRENT_DATE)::int)
+                    WHERE award_year IS NULL;
+
+                    ALTER TABLE public.awards ALTER COLUMN award_year SET NOT NULL;
+                END IF;
+            END $$;
+            """;
+    static final String FIX_AWARDS_POSITION_SQL = """
+            DO $$
+            BEGIN
+                IF to_regclass('public.awards') IS NOT NULL THEN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = 'awards'
+                          AND column_name = 'position'
+                    ) THEN
+                        IF EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_schema = 'public'
+                              AND table_name = 'awards'
+                              AND column_name = 'player_position'
+                        ) THEN
+                            ALTER TABLE public.awards RENAME COLUMN player_position TO position;
+                        ELSE
+                            ALTER TABLE public.awards ADD COLUMN IF NOT EXISTS position VARCHAR(50);
+                        END IF;
+                    END IF;
+                END IF;
+            END $$;
+            """;
     static final String CURRENT_DATABASE_SQL = "SELECT current_database()";
     static final String CURRENT_SCHEMA_SQL = "SELECT current_schema()";
     static final String SEARCH_PATH_SQL = "SHOW search_path";
@@ -46,6 +141,8 @@ public class DevAuthSchemaGuard implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         validateDevDataSource();
         validateUserProvidersEmailColumn();
+        validateAwardYearColumn();
+        validateAwardsPositionColumn();
     }
 
     void validateDevDataSource() {
@@ -94,10 +191,38 @@ public class DevAuthSchemaGuard implements ApplicationRunner {
                     Run this SQL once on dev PostgreSQL:
 
                     %s
-                    """.formatted(userProvidersRegClass, buildRemediationSql(userProvidersRegClass, resolvedUsersTable)));
+                    """.formatted(userProvidersRegClass, FIX_USER_PROVIDERS_EMAIL_SQL.formatted(userProvidersRegClass, userProvidersRegClass, resolvedUsersTable)));
         }
 
         log.info("DevAuthSchemaGuard passed: {}.email", userProvidersRegClass);
+    }
+
+    void validateAwardYearColumn() {
+        Long awardsTable = jdbcTemplate.queryForObject(CHECK_PUBLIC_AWARDS_TABLE_SQL, Long.class);
+        if (awardsTable == null || awardsTable == 0) {
+            throw missingAwardsTableException();
+        }
+
+        Integer awardYearCount = jdbcTemplate.queryForObject(CHECK_PUBLIC_AWARDS_AWARD_YEAR_COLUMN_SQL, Integer.class);
+        if (awardYearCount == null || awardYearCount == 0) {
+            throw missingAwardYearColumnException();
+        }
+
+        log.info("DevAuthSchemaGuard passed: public.awards.award_year");
+    }
+
+    void validateAwardsPositionColumn() {
+        Long awardsTable = jdbcTemplate.queryForObject(CHECK_PUBLIC_AWARDS_TABLE_SQL, Long.class);
+        if (awardsTable == null || awardsTable == 0) {
+            throw missingAwardsTableException();
+        }
+
+        Integer positionColumnCount = jdbcTemplate.queryForObject(CHECK_PUBLIC_AWARDS_POSITION_COLUMN_SQL, Integer.class);
+        if (positionColumnCount == null || positionColumnCount == 0) {
+            throw missingAwardsPositionColumnException();
+        }
+
+        log.info("DevAuthSchemaGuard passed: public.awards.position");
     }
 
     private IllegalStateException missingTableException() {
@@ -119,6 +244,43 @@ public class DevAuthSchemaGuard implements ApplicationRunner {
                 """.formatted(currentDatabase, currentSchema, searchPath));
     }
 
+    private IllegalStateException missingAwardsTableException() {
+        String currentDatabase = safeQueryForString(CURRENT_DATABASE_SQL);
+        String currentSchema = safeQueryForString(CURRENT_SCHEMA_SQL);
+        String searchPath = safeQueryForString(SEARCH_PATH_SQL);
+
+        return new IllegalStateException("""
+                [Schema Guard] Missing table in current search_path: public.awards
+                current_database: %s
+                current_schema: %s
+                search_path: %s
+
+                Confirm the following exist in the same DB as spring.datasource:
+
+                SELECT table_schema, table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = 'awards';
+                """.formatted(currentDatabase, currentSchema, searchPath));
+    }
+
+    private IllegalStateException missingAwardYearColumnException() {
+        return new IllegalStateException("""
+                [Schema Guard] Missing column: public.awards.award_year
+                Run this SQL once on dev PostgreSQL:
+
+                %s
+                """.formatted(FIX_AWARD_YEAR_SQL));
+    }
+
+    private IllegalStateException missingAwardsPositionColumnException() {
+        return new IllegalStateException("""
+                [Schema Guard] Missing column: public.awards.position
+                Run this SQL once on dev PostgreSQL:
+
+                %s
+                """.formatted(FIX_AWARDS_POSITION_SQL));
+    }
+
     private String safeQueryForString(String sql) {
         try {
             String value = jdbcTemplate.queryForObject(sql, String.class);
@@ -128,16 +290,4 @@ public class DevAuthSchemaGuard implements ApplicationRunner {
         }
     }
 
-    static String buildRemediationSql(String userProvidersTable, String usersTable) {
-        return """
-                ALTER TABLE %s
-                ADD COLUMN IF NOT EXISTS email VARCHAR(255);
-
-                UPDATE %s up
-                SET email = u.email
-                FROM %s u
-                WHERE u.id = up.user_id
-                  AND (up.email IS NULL OR up.email = '');
-                """.formatted(userProvidersTable, userProvidersTable, usersTable);
-    }
 }

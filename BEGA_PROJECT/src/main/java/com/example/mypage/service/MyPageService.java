@@ -35,6 +35,7 @@ public class MyPageService {
         String profileImageUrl = repairProfileUrl(user.getProfileImageUrl());
 
         return UserProfileDto.builder()
+                .id(user.getId())
                 .name(user.getName())
                 .email(user.getEmail())
                 .favoriteTeam(teamId)
