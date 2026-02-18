@@ -103,7 +103,32 @@ public class JWTUtil {
 
     // User ID 추출 (캐싱 적용)
     public Long getUserId(String token) {
-        return getClaims(token).get("user_id", Long.class);
+        Object rawUserId = getClaims(token).get("user_id");
+        if (rawUserId == null) {
+            return null;
+        }
+
+        if (rawUserId instanceof Long) {
+            return (Long) rawUserId;
+        }
+
+        if (rawUserId instanceof Integer) {
+            return ((Integer) rawUserId).longValue();
+        }
+
+        if (rawUserId instanceof Number) {
+            return ((Number) rawUserId).longValue();
+        }
+
+        if (rawUserId instanceof String) {
+            try {
+                return Long.parseLong((String) rawUserId);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+
+        return null;
     }
 
     // Role 추출 (캐싱 적용)

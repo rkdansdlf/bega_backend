@@ -4,19 +4,26 @@ import com.example.auth.service.TokenBlacklistService;
 import com.example.auth.util.JWTUtil;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.http.HttpStatus;
 
+import java.io.IOException;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
@@ -45,7 +52,7 @@ class JWTFilterTokenTypeTest {
         jwtFilter = new JWTFilter(jwtUtil, false, List.of("http://localhost:5173"), tokenBlacklistService);
         secretKey = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
 
-        when(tokenBlacklistService.isBlacklisted(anyString())).thenReturn(false);
+        Mockito.lenient().when(tokenBlacklistService.isBlacklisted(anyString())).thenReturn(false);
         SecurityContextHolder.clearContext();
     }
 
@@ -88,8 +95,8 @@ class JWTFilterTokenTypeTest {
     }
 
     @Test
-    @DisplayName("token_type이 없는 레거시 토큰은 인증에 사용되지 않는다")
-    void legacyTokenWithoutType_isRejectedForAuthentication() throws Exception {
+    @DisplayName("token_type이 없는 레거시 토큰도 인증에 사용된다")
+    void legacyTokenWithoutType_isAcceptedForAuthentication() throws Exception {
         String legacyToken = Jwts.builder()
                 .claim("email", "legacy@test.com")
                 .claim("role", "ROLE_USER")
@@ -101,7 +108,10 @@ class JWTFilterTokenTypeTest {
 
         executeFilter(legacyToken);
 
-        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        assertThat(authentication).isNotNull();
+        assertThat(authentication.getPrincipal()).isEqualTo(1L);
+        assertThat(authentication.getAuthorities()).extracting("authority").containsExactly("ROLE_USER");
     }
 
     @Test
@@ -122,6 +132,42 @@ class JWTFilterTokenTypeTest {
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
+    @Test
+    @DisplayName("/api/auth/login 경로는 CSRF 검증 없이 필터 체인을 통과한다")
+    void authLoginPath_isNotBlockedByCsrfCheck() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/auth/login");
+        request.addHeader("Referer", "http://evil.test/login");
+        request.addHeader("Origin", "http://evil.test");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+
+        DummyFilterChain chain = new DummyFilterChain();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isTrue();
+        assertThat(response.getStatus()).isNotEqualTo(HttpStatus.FORBIDDEN.value());
+    }
+
+    @Test
+    @DisplayName("/api/auth/login/ 경로도 동일하게 필터 스킵 대상이다")
+    void authLoginPathWithTrailingSlash_isNotBlockedByCsrfCheck() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/auth/login/");
+        request.addHeader("Referer", "http://evil.test/login");
+        request.addHeader("Origin", "http://evil.test");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+
+        DummyFilterChain chain = new DummyFilterChain();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isTrue();
+        assertThat(response.getStatus()).isNotEqualTo(HttpStatus.FORBIDDEN.value());
+    }
+
     private void executeFilter(String token) throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/protected/resource");
         request.addHeader("Authorization", "Bearer " + token);
@@ -129,5 +175,14 @@ class JWTFilterTokenTypeTest {
         MockFilterChain chain = new MockFilterChain();
 
         jwtFilter.doFilter(request, response, chain);
+    }
+
+    private static class DummyFilterChain implements FilterChain {
+        private boolean invoked;
+
+        @Override
+        public void doFilter(ServletRequest request, ServletResponse response) throws IOException, ServletException {
+            invoked = true;
+        }
     }
 }

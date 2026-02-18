@@ -78,13 +78,22 @@ public class PredictionService {
 
     @Transactional(readOnly = true)
     public List<MatchDto> getMatchesByDateRange(LocalDate startDate, LocalDate endDate) {
-        List<GameEntity> matches = gameRepository.findAllByDateRange(startDate, endDate).stream()
+        List<GameEntity> matches = gameRepository.findAllByDateRange(startDate, endDate);
+
+        List<GameEntity> canonicalMatches = matches.stream()
                 .filter(game -> !Boolean.TRUE.equals(game.getIsDummy()))
                 .filter(game -> !game.getGameId().startsWith("MOCK"))
                 .filter(this::isCanonicalGame)
                 .collect(Collectors.toList());
 
-        return matches.stream()
+        List<GameEntity> resolvedMatches = !canonicalMatches.isEmpty()
+                ? canonicalMatches
+                : matches.stream()
+                    .filter(game -> !Boolean.TRUE.equals(game.getIsDummy()))
+                    .filter(game -> !game.getGameId().startsWith("MOCK"))
+                    .collect(Collectors.toList());
+
+        return resolvedMatches.stream()
                 .map(MatchDto::fromEntity)
                 .collect(Collectors.toList());
     }

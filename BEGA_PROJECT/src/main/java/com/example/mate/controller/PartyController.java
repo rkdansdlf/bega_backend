@@ -13,6 +13,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -45,13 +46,23 @@ public class PartyController {
             @RequestParam(required = false) String stadium,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) String searchQuery,
+            @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "9") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir) {
+        Party.PartyStatus parsedStatus = null;
+        if (status != null && !status.trim().isEmpty()) {
+            try {
+                parsedStatus = Party.PartyStatus.valueOf(status.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+            }
+        }
+
         Sort.Direction direction = sortDir.equalsIgnoreCase("asc") ? Sort.Direction.ASC : Sort.Direction.DESC;
         Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
-        Page<PartyDTO.Response> parties = partyService.getAllParties(teamId, stadium, date, searchQuery, pageable);
+        Page<PartyDTO.Response> parties = partyService.getAllParties(teamId, stadium, date, searchQuery, pageable, parsedStatus);
         return ResponseEntity.ok(parties);
     }
 
@@ -101,8 +112,12 @@ public class PartyController {
 
     // 내가 참여한 모든 파티 조회 (호스트 + 참여자) - Principal 기반
     @GetMapping("/my")
-    public ResponseEntity<List<PartyDTO.Response>> getMyParties(java.security.Principal principal) {
-        List<PartyDTO.Response> parties = partyService.getMyParties(principal);
+    public ResponseEntity<List<PartyDTO.Response>> getMyParties(@AuthenticationPrincipal Long userId) {
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        List<PartyDTO.Response> parties = partyService.getMyParties(userId);
         return ResponseEntity.ok(parties);
     }
 

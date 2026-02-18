@@ -7,12 +7,14 @@ import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.lang.NonNull;
 
+import java.util.Arrays;
+
 @Configuration
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost:3000,http://localhost:8080}")
-    private String allowedOriginsStr;
+        @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:8080,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176}")
+        private String allowedOriginsStr;
 
     @Override
     public void configureMessageBroker(@NonNull MessageBrokerRegistry config) {
@@ -25,7 +27,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(@NonNull StompEndpointRegistry registry) {
         // WebSocket 연결 엔드포인트
-        String[] allowedOrigins = (allowedOriginsStr != null) ? allowedOriginsStr.split(",") : new String[0];
+        String[] allowedOrigins = Arrays.stream(allowedOriginsStr == null ? new String[0] : allowedOriginsStr.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toArray(String[]::new);
         registry.addEndpoint("/ws")
                 .setAllowedOriginPatterns(allowedOrigins);
 

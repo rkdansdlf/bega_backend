@@ -54,6 +54,9 @@ class DevAuthSchemaGuardTest {
                 .thenReturn("public.user_providers");
         when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_USER_PROVIDERS_EMAIL_COLUMN_SQL, Integer.class))
                 .thenReturn(1);
+        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_PUBLIC_AWARDS_TABLE_SQL, Long.class)).thenReturn(1L);
+        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_PUBLIC_AWARDS_AWARD_YEAR_COLUMN_SQL, Integer.class)).thenReturn(1);
+        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_PUBLIC_AWARDS_POSITION_COLUMN_SQL, Integer.class)).thenReturn(1);
 
         assertDoesNotThrow(() -> guard.run(new DefaultApplicationArguments(new String[0])));
         verify(jdbcTemplate).queryForObject(DevAuthSchemaGuard.FIND_USER_PROVIDERS_REGCLASS_SQL, String.class);

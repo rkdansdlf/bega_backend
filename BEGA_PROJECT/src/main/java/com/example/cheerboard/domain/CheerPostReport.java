@@ -3,6 +3,8 @@ package com.example.cheerboard.domain;
 import com.example.auth.entity.UserEntity;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
@@ -31,7 +33,7 @@ public class CheerPostReport {
     @Column(nullable = false)
     private ReportReason reason;
 
-    @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column
     private String description;
 
