@@ -6,6 +6,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+
 import java.util.List;
 
 @RestController
@@ -17,23 +19,31 @@ public class NotificationController {
 
     // 내 알림 목록 조회
     @GetMapping("/my")
-    public ResponseEntity<List<NotificationDTO.Response>> getMyNotifications(java.security.Principal principal) {
-        List<NotificationDTO.Response> notifications = notificationService.getMyNotifications(principal);
+    public ResponseEntity<List<NotificationDTO.Response>> getMyNotifications(@AuthenticationPrincipal Long userId) {
+        List<NotificationDTO.Response> notifications = notificationService.getMyNotifications(userId);
         return ResponseEntity.ok(notifications);
     }
 
     // 내 읽지 않은 알림 개수
     @GetMapping("/my/unread-count")
-    public ResponseEntity<Long> getMyUnreadCount(java.security.Principal principal) {
-        Long count = notificationService.getMyUnreadCount(principal);
+    public ResponseEntity<Long> getMyUnreadCount(@AuthenticationPrincipal Long userId) {
+        Long count = notificationService.getMyUnreadCount(userId);
+        return ResponseEntity.ok(count);
+    }
+
+    @GetMapping("/user/{userId}/unread-count")
+    public ResponseEntity<Long> getUnreadCountByUserId(
+            @PathVariable Long userId,
+            @AuthenticationPrincipal Long principalUserId) {
+        Long count = notificationService.getUnreadCountByUserId(userId, principalUserId);
         return ResponseEntity.ok(count);
     }
 
     // 알림 읽음 처리
     @PostMapping("/{notificationId}/read")
-    public ResponseEntity<?> markAsRead(@PathVariable Long notificationId, java.security.Principal principal) {
+    public ResponseEntity<?> markAsRead(@PathVariable Long notificationId, @AuthenticationPrincipal Long userId) {
         try {
-            notificationService.markAsRead(notificationId, principal);
+            notificationService.markAsRead(notificationId, userId);
             return ResponseEntity.noContent().build();
         } catch (com.example.mate.exception.UnauthorizedAccessException e) {
             return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
@@ -43,9 +53,9 @@ public class NotificationController {
 
     // 알림 삭제
     @DeleteMapping("/{notificationId}")
-    public ResponseEntity<?> deleteNotification(@PathVariable Long notificationId, java.security.Principal principal) {
+    public ResponseEntity<?> deleteNotification(@PathVariable Long notificationId, @AuthenticationPrincipal Long userId) {
         try {
-            notificationService.deleteNotification(notificationId, principal);
+            notificationService.deleteNotification(notificationId, userId);
             return ResponseEntity.noContent().build();
         } catch (com.example.mate.exception.UnauthorizedAccessException e) {
             return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
