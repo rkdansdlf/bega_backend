@@ -12,6 +12,12 @@ jobs:
     env:
       POSTGRES_DB_URL: ${{ secrets.POSTGRES_DB_URL }}
       DB_URL: ${{ secrets.DB_URL }}
+      CANONICAL_GUARD_DB_PASSWORD: ${{ secrets.CANONICAL_GUARD_DB_PASSWORD }}
+      CANONICAL_GUARD_DB_USERNAME: ${{ secrets.CANONICAL_GUARD_DB_USERNAME }}
+      SPRING_DATASOURCE_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      SPRING_DATASOURCE_USERNAME: ${{ secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME }}
       CANONICAL_GUARD_DB_URL_RO: ${{ secrets.CANONICAL_GUARD_DB_URL_RO }}
 
     steps:
