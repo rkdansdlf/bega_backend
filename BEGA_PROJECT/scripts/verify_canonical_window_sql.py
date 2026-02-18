@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 from typing import Dict
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 try:
     import psycopg
@@ -90,9 +91,13 @@ def _safe_int(value: object, default: int = 0) -> int:
 
 
 def _dsn_host(dsn: str) -> str | None:
-    if "@" not in dsn:
+    try:
+        parsed = urlsplit(dsn)
+    except ValueError:
         return None
-    return dsn.split("@", 1)[1].split("/", 1)[0]
+    if not parsed.hostname:
+        return None
+    return parsed.hostname if parsed.port is None else f"{parsed.hostname}:{parsed.port}"
 
 
 def _normalize_db_url(raw: str) -> str:
@@ -102,6 +107,67 @@ def _normalize_db_url(raw: str) -> str:
     if candidate.startswith("postgres://"):
         candidate = "postgresql://" + candidate[len("postgres://") :]
     return candidate
+
+
+def _append_missing_credentials(dsn: str) -> str:
+    try:
+        parsed = urlsplit(dsn)
+    except ValueError:
+        return dsn
+
+    if not parsed.hostname:
+        return dsn
+
+    auth_password = os.getenv("CANONICAL_GUARD_DB_PASSWORD") or os.getenv("SPRING_DATASOURCE_PASSWORD") or os.getenv("DB_PASSWORD")
+    auth_username = os.getenv("CANONICAL_GUARD_DB_USERNAME") or os.getenv("SPRING_DATASOURCE_USERNAME") or os.getenv("DB_USERNAME")
+
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    has_password_in_dsn = bool(parsed.password or query.get("password"))
+    if has_password_in_dsn:
+        return dsn
+
+    if parsed.username:
+        if not auth_password:
+            return dsn
+        username = parsed.username
+        port = f":{parsed.port}" if parsed.port else ""
+        netloc = f"{username}:{auth_password}@{parsed.hostname}{port}"
+        return urlunsplit(
+            (
+                parsed.scheme,
+                netloc,
+                parsed.path,
+                urlencode(query, doseq=True),
+                parsed.fragment,
+            )
+        )
+
+    if query.get("user") and auth_password:
+        query["password"] = auth_password
+        return urlunsplit(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                urlencode(query, doseq=True),
+                parsed.fragment,
+            )
+        )
+
+    if auth_username and auth_password:
+        port = f":{parsed.port}" if parsed.port else ""
+        netloc = f"{auth_username}:{auth_password}@{parsed.hostname}{port}"
+        return urlunsplit(
+            (
+                parsed.scheme,
+                netloc,
+                parsed.path,
+                urlencode(query, doseq=True),
+                parsed.fragment,
+            )
+        )
+
+    return dsn
 
 
 def evaluate_legacy_residuals(
@@ -186,7 +252,9 @@ def _resolve_db_url(env_name: str) -> str:
         normalized = _normalize_db_url(value)
         if not normalized or normalized.startswith("***"):
             continue
-        return normalized
+        resolved = _append_missing_credentials(normalized)
+        if resolved and not resolved.startswith("***"):
+            return resolved
     raise RuntimeError(f"{env_name} is required for canonical SQL guard")
 
 
