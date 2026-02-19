@@ -18,6 +18,7 @@ import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerPostRepostRepo;
 import com.example.kbo.entity.TeamEntity;
 import com.example.notification.service.NotificationService;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -86,6 +87,8 @@ class CheerServiceTest {
         @Mock
         private PopularFeedScoringService popularFeedScoringService;
         @Mock
+        private EntityManager entityManager;
+        @Mock
         private com.example.common.service.AIModerationService moderationService;
         @Mock
         private com.example.profile.storage.service.ProfileImageService profileImageService;
@@ -105,6 +108,7 @@ class CheerServiceTest {
                                 .build();
 
                 when(current.get()).thenReturn(me);
+                mockWriteEnabledAuthor(me);
                 when(postRepo.findById(postId)).thenReturn(Optional.of(original));
                 when(blockService.hasBidirectionalBlock(me.getId(), author.getId())).thenReturn(false);
 
@@ -141,6 +145,7 @@ class CheerServiceTest {
                 CheerPost original = CheerPost.builder().id(postId).author(author).build();
 
                 when(current.get()).thenReturn(me);
+                mockWriteEnabledAuthor(me);
                 when(postRepo.findById(postId)).thenReturn(Optional.of(original));
                 when(blockService.hasBidirectionalBlock(me.getId(), author.getId())).thenReturn(true);
 
@@ -160,6 +165,7 @@ class CheerServiceTest {
                 CheerPost original = CheerPost.builder().id(postId).author(author).build();
 
                 when(current.get()).thenReturn(me);
+                mockWriteEnabledAuthor(me);
                 when(postRepo.findById(postId)).thenReturn(Optional.of(original));
                 // Not blocked
                 when(blockService.hasBidirectionalBlock(me.getId(), author.getId())).thenReturn(false);
@@ -180,6 +186,7 @@ class CheerServiceTest {
                 CreatePostReq req = new CreatePostReq("LG", "My Content", null, "CHEER");
 
                 when(current.get()).thenReturn(me);
+                mockWriteEnabledAuthor(me);
                 when(teamRepo.findById("LG")).thenReturn(Optional.of(team));
                 doNothing().when(permissionValidator).validateTeamAccess(any(), any(), any());
                 when(moderationService.checkContent(any()))
@@ -192,7 +199,7 @@ class CheerServiceTest {
                                 .team(team)
                                 .build();
 
-                when(postRepo.save(any(CheerPost.class))).thenReturn(savedPost);
+                when(postRepo.saveAndFlush(any(CheerPost.class))).thenReturn(savedPost);
                 when(postDtoMapper.toNewPostDetailRes(any(CheerPost.class), any(UserEntity.class)))
                                 .thenReturn(PostDetailRes.of(
                                                 1L, "LG", "LG", "LG", "#C30452", "My Content", "Me", 100L,
@@ -258,8 +265,8 @@ class CheerServiceTest {
                 CheerPost post = CheerPost.builder().id(postId).author(me).build(); // Author is me for simplicity
 
                 when(current.get()).thenReturn(me);
+                mockWriteEnabledAuthor(me);
                 when(postRepo.findById(postId)).thenReturn(Optional.of(post));
-                when(userRepo.findById(userId)).thenReturn(Optional.of(me));
 
                 // Case: Not liked yet -> Like
                 when(likeRepo.existsById(any(CheerPostLike.Id.class))).thenReturn(false);
@@ -391,5 +398,13 @@ class CheerServiceTest {
                                 .content("Post-" + postId)
                                 .postType(PostType.NORMAL)
                                 .build();
+        }
+
+        private void mockWriteEnabledAuthor(UserEntity me) {
+                when(userRepo.findByIdForWrite(me.getId())).thenReturn(Optional.of(me));
+                when(userRepo.lockUsableAuthorForWrite(me.getId())).thenReturn(Optional.of(me.getId()));
+                lenient().when(userRepo.lockUsableAuthorForWriteWithTokenVersion(eq(me.getId()), anyInt()))
+                                .thenReturn(Optional.of(me.getId()));
+                doNothing().when(entityManager).refresh(me);
         }
 }

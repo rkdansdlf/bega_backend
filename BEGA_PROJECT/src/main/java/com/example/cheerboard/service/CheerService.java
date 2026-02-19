@@ -972,7 +972,7 @@ public class CheerService {
         CheerPost post = CheerPost.builder()
                 .author(author)
                 .team(team)
-                .content(req.content())
+                .content(sanitizePostContent(req.content()))
                 .postType(postType)
                 .build();
 
@@ -1006,7 +1006,7 @@ public class CheerService {
      * 게시글 내용 업데이트
      */
     private void updatePostContent(CheerPost post, UpdatePostReq req) {
-        post.setContent(req.content());
+        post.setContent(sanitizePostContent(req.content()));
     }
 
     @Transactional
@@ -1185,8 +1185,7 @@ public class CheerService {
                         .team(original.getTeam())
                         .repostOf(original)
                         .repostType(CheerPost.RepostType.SIMPLE)
-                        // title removed
-                        .content("")
+                        .content(sanitizePostContent(""))
                         .postType(PostType.NORMAL)
                         .build();
                 postRepo.save(Objects.requireNonNull(repost));
@@ -1273,7 +1272,7 @@ public class CheerService {
                     .repostOf(original)
                     .repostType(CheerPost.RepostType.QUOTE)
                     // title removed
-                    .content(req.content()) // 사용자가 작성한 의견
+                    .content(sanitizePostContent(req.content())) // 사용자가 작성한 의견
                     .postType(PostType.NORMAL)
                     .build();
             postRepo.save(Objects.requireNonNull(quoteRepost));
@@ -1308,6 +1307,10 @@ public class CheerService {
             }
             throw ex;
         }
+    }
+
+    private String sanitizePostContent(String content) {
+        return (content == null || content.isBlank()) ? "" : content;
     }
 
     @Transactional
