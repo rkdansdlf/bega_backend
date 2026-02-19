@@ -8,7 +8,7 @@
 
 <em>사용된 기술 스택:</em>
 
-<img src="https://img.shields.io/badge/Java-ED8B00.svg?style=flat&logo=openjdk&logoColor=white" alt="Java"> <img src="https://img.shields.io/badge/Spring%20Boot-6DB33F.svg?style=flat&logo=Spring-Boot&logoColor=white" alt="Spring Boot"> <img src="https://img.shields.io/badge/PostgreSQL-316192.svg?style=flat&logo=postgresql&logoColor=white" alt="PostgreSQL"> <img src="https://img.shields.io/badge/Docker-2496ED.svg?style=flat&logo=Docker&logoColor=white" alt="Docker"> <img src="https://img.shields.io/badge/Gradle-02303A.svg?style=flat&logo=Gradle&logoColor=white" alt="Gradle"> <img src="https://img.shields.io/badge/Supabase-3ECF8E.svg?style=flat&logo=Supabase&logoColor=white" alt="Supabase"> <img src="https://img.shields.io/badge/Nginx-009639.svg?style=flat&logo=NGINX&logoColor=white" alt="Nginx"> <img src="https://img.shields.io/badge/Amazon%20AWS-232F3E.svg?style=flat&logo=Amazon-AWS&logoColor=white" alt="AWS"> </div> <br>
+<img src="https://img.shields.io/badge/Java-ED8B00.svg?style=flat&logo=openjdk&logoColor=white" alt="Java"> <img src="https://img.shields.io/badge/Spring%20Boot-6DB33F.svg?style=flat&logo=Spring-Boot&logoColor=white" alt="Spring Boot"> <img src="https://img.shields.io/badge/PostgreSQL-316192.svg?style=flat&logo=postgresql&logoColor=white" alt="PostgreSQL"> <img src="https://img.shields.io/badge/Oracle-Autonomous%20DB-F80000.svg?style=flat&logo=oracle&logoColor=white" alt="Oracle Autonomous DB"> <img src="https://img.shields.io/badge/OCI-Object%20Storage-1F2A44.svg?style=flat&logo=oracle&logoColor=white" alt="OCI Object Storage"> <img src="https://img.shields.io/badge/Docker-2496ED.svg?style=flat&logo=Docker&logoColor=white" alt="Docker"> <img src="https://img.shields.io/badge/Gradle-02303A.svg?style=flat&logo=Gradle&logoColor=white" alt="Gradle"> <img src="https://img.shields.io/badge/Nginx-009639.svg?style=flat&logo=NGINX&logoColor=white" alt="Nginx"> <img src="https://img.shields.io/badge/Amazon%20AWS-232F3E.svg?style=flat&logo=Amazon-AWS&logoColor=white" alt="AWS"> </div> <br>
 
 ----------
 
@@ -42,7 +42,7 @@ BEGA(Baseball Guide) Backend는 한국 야구 팬 커뮤니티 플랫폼의 핵�
 -   🏟️ **구장 가이드:** KBO 10개 구장 정보 및 좌석 안내
 -   💬 **응원 게시판:** 댓글, 좋아요, 조회수, 필터링 기능
 -   🎯 **예측 & 투표:** 시즌 순위 예측 및 경기 승부 투표
--   📦 **클라우드 스토리지:** Supabase 기반 이미지 관리
+-   📦 **클라우드 스토리지:** OCI Object Storage 기반 이미지 관리
 
 ----------
 
@@ -86,7 +86,7 @@ BEGA(Baseball Guide) Backend는 한국 야구 팬 커뮤니티 플랫폼의 핵�
     -   커넥션 풀링 및 캐싱
 -   **파일 관리**
     
-    -   Supabase Storage 통합
+    -   OCI Object Storage(S3 호환) 통합
     -   안전한 이미지 접근을 위한 Signed URL 생성
     -   이미지 업로드 및 삭제 처리
 -   **API 아키텍처**
@@ -104,10 +104,10 @@ BEGA(Baseball Guide) Backend는 한국 야구 팬 커뮤니티 플랫폼의 핵�
 
 -   **프레임워크:** Spring Boot 3.x
 -   **언어:** Java 17+
--   **데이터베이스:** PostgreSQL (Supabase)
+-   **데이터베이스:** Oracle Autonomous Database + PostgreSQL(Baseball 데이터 소스)
 -   **ORM:** Spring Data JPA
 -   **보안:** Spring Security with JWT
--   **스토리지:** Supabase Storage
+-   **스토리지:** OCI Object Storage (S3 compatible)
 -   **웹 서버:** Nginx (리버스 프록시)
 -   **배포:** AWS EC2
 -   **컨테이너화:** Docker
@@ -121,9 +121,9 @@ Nginx (EC2)
     ↓
 Spring Boot Application
     ↓
-Supabase PostgreSQL Database
+Oracle Autonomous Database
     ↓
-Supabase Storage
+OCI Object Storage
 
 ```
 
@@ -173,8 +173,7 @@ Supabase Storage
 
 ### 환경 설정
 
-> Supabase 무료 플랜 용량 한계로 인해 스토리지를 **OCI Object Storage**로 전환했습니다.  
-> Supabase 관련 설정은 **마이그레이션 작업용**으로만 유지합니다.
+> 운영 경로는 **OCI Autonomous Database + OCI Object Storage** 기준입니다.
 
 1.  **application.yml 생성:**
     
@@ -216,12 +215,6 @@ Supabase Storage
     export OCI_S3_ENDPOINT=https://<namespace>.compat.objectstorage.<region>.oraclecloud.com
     export OCI_S3_REGION=ap-seoul-1
     export OCI_S3_BUCKET=your_bucket
-
-    # (Optional) Supabase - migration only
-    export SUPABASE_DB_URL=postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
-    export SUPABASE_URL=https://your-project-id.supabase.co
-    export SUPABASE_KEY=your_service_role_key
-    export SUPABASE_BUCKET=your_bucket_name
     
     ```
     
@@ -269,7 +262,6 @@ GET    /api/diary/statistics  - 마이페이지 통계 조회
 
 GET    /api/auth/mypage        - 프로필 정보 조회
 PUT    /api/auth/mypage        - 프로필 정보 수정
-GET    /api/auth/supabasetoken - (Deprecated) Supabase token helper for legacy flows
 POST   /api/profile/image      - 프로필 사진 업로드
 ```
 
