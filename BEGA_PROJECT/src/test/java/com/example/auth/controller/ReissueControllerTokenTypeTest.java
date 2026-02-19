@@ -1,6 +1,8 @@
 package com.example.auth.controller;
 
 import com.example.auth.entity.RefreshToken;
+import com.example.auth.entity.UserEntity;
+import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.util.JWTUtil;
 import com.example.common.dto.ApiResponse;
@@ -31,6 +33,9 @@ class ReissueControllerTokenTypeTest {
 
     @Mock
     private RefreshRepository refreshRepository;
+
+    @Mock
+    private UserRepository userRepository;
 
     @InjectMocks
     private ReissueController reissueController;
@@ -83,6 +88,13 @@ class ReissueControllerTokenTypeTest {
         RefreshToken stored = new RefreshToken();
         stored.setEmail("user@test.com");
         stored.setToken("refresh-token");
+        UserEntity user = UserEntity.builder()
+                .id(1L)
+                .enabled(true)
+                .locked(false)
+                .tokenVersion(0)
+                .email("user@test.com")
+                .build();
 
         when(jwtUtil.getTokenType("refresh-token")).thenReturn("refresh");
         when(jwtUtil.isExpired("refresh-token")).thenReturn(false);
@@ -90,9 +102,11 @@ class ReissueControllerTokenTypeTest {
         when(refreshRepository.findAllByEmailOrderByIdDesc("user@test.com")).thenReturn(List.of(stored));
         when(jwtUtil.getRole("refresh-token")).thenReturn("ROLE_USER");
         when(jwtUtil.getUserId("refresh-token")).thenReturn(1L);
-        when(jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 1000L * 60 * 60 * 2))
+        when(jwtUtil.getTokenVersion("refresh-token")).thenReturn(0);
+        when(userRepository.findById(1L)).thenReturn(java.util.Optional.of(user));
+        when(jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 1000L * 60 * 60 * 2, 0))
                 .thenReturn("new-access-token");
-        when(jwtUtil.createRefreshToken("user@test.com", "ROLE_USER", 1L))
+        when(jwtUtil.createRefreshToken("user@test.com", "ROLE_USER", 1L, 0))
                 .thenReturn("new-refresh-token");
         when(jwtUtil.getRefreshTokenExpirationTime()).thenReturn(1000L * 60 * 60 * 24 * 7);
 

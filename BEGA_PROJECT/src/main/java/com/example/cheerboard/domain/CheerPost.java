@@ -111,12 +111,20 @@ public class CheerPost {
 
     @PrePersist
     void onCreate() {
+        normalizeContent();
         createdAt = updatedAt = Instant.now();
     }
 
     @PreUpdate
     void onUpdate() {
+        normalizeContent();
         updatedAt = Instant.now();
+    }
+
+    private void normalizeContent() {
+        if (content == null) {
+            content = "";
+        }
     }
 
     public String getTeamId() {

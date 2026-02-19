@@ -193,7 +193,7 @@ public class CheerController {
 
     @RateLimit(limit = 10, window = 60) // 1분에 최대 10개 댓글
     @PostMapping("/posts/{id}/comments")
-    public CommentRes addComment(@PathVariable Long id, @RequestBody CreateCommentReq req) {
+    public CommentRes addComment(@PathVariable Long id, @Valid @RequestBody CreateCommentReq req) {
         return svc.addComment(id, req);
     }
 
@@ -211,10 +211,8 @@ public class CheerController {
 
     @RateLimit(limit = 10, window = 60) // 1분에 최대 10개 답글
     @PostMapping("/posts/{postId}/comments/{parentCommentId}/replies")
-    public CommentRes addReply(
-            @PathVariable Long postId,
-            @PathVariable Long parentCommentId,
-            @RequestBody CreateCommentReq req) {
+    public CommentRes addReply(@PathVariable Long postId, @PathVariable Long parentCommentId,
+            @Valid @RequestBody CreateCommentReq req) {
         return svc.addReply(postId, parentCommentId, req);
     }
 

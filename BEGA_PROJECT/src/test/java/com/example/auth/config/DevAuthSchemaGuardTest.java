@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import java.sql.Connection;
@@ -40,26 +41,46 @@ class DevAuthSchemaGuardTest {
     private DevAuthSchemaGuard guard;
 
     private void mockPostgresDataSource() throws SQLException {
-        when(dataSource.getConnection()).thenReturn(connection);
-        when(connection.getMetaData()).thenReturn(databaseMetaData);
-        when(databaseMetaData.getDatabaseProductName()).thenReturn("PostgreSQL");
-        when(databaseMetaData.getURL()).thenReturn("jdbc:postgresql://localhost:5432/bega_backend");
+        lenient().when(dataSource.getConnection()).thenReturn(connection);
+        lenient().when(connection.getMetaData()).thenReturn(databaseMetaData);
+        lenient().when(databaseMetaData.getDatabaseProductName()).thenReturn("PostgreSQL");
+        lenient().when(databaseMetaData.getURL()).thenReturn("jdbc:postgresql://localhost:5432/bega_backend");
+    }
+
+    private void mockAuthCoreTablesPresent() {
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.FIND_USERS_REGCLASS_SQL, String.class))
+                .thenReturn("public.users");
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.FIND_USER_PROVIDERS_REGCLASS_SQL, String.class))
+                .thenReturn("public.user_providers");
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.FIND_USER_BLOCK_REGCLASS_SQL, String.class))
+                .thenReturn("public.user_block");
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.FIND_USER_FOLLOW_REGCLASS_SQL, String.class))
+                .thenReturn("public.user_follow");
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.FIND_PASSWORD_RESET_TOKENS_REGCLASS_SQL, String.class))
+                .thenReturn("public.password_reset_tokens");
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.FIND_REFRESH_TOKENS_REGCLASS_SQL, String.class))
+                .thenReturn("public.refresh_tokens");
+    }
+
+    private void mockAwardsMetadataPass() {
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_PUBLIC_AWARDS_TABLE_SQL, Long.class))
+                .thenReturn(1L);
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_PUBLIC_AWARDS_AWARD_YEAR_COLUMN_SQL, Integer.class))
+                .thenReturn(1);
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_PUBLIC_AWARDS_POSITION_COLUMN_SQL, Integer.class))
+                .thenReturn(1);
     }
 
     @Test
     @DisplayName("email 컬럼이 존재하면 가드를 통과한다")
     void run_passesWhenEmailColumnExists() throws SQLException {
         mockPostgresDataSource();
-        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.FIND_USER_PROVIDERS_REGCLASS_SQL, String.class))
-                .thenReturn("public.user_providers");
-        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_USER_PROVIDERS_EMAIL_COLUMN_SQL, Integer.class))
+        mockAuthCoreTablesPresent();
+        mockAwardsMetadataPass();
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_USER_PROVIDERS_EMAIL_COLUMN_SQL, Integer.class))
                 .thenReturn(1);
-        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_PUBLIC_AWARDS_TABLE_SQL, Long.class)).thenReturn(1L);
-        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_PUBLIC_AWARDS_AWARD_YEAR_COLUMN_SQL, Integer.class)).thenReturn(1);
-        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_PUBLIC_AWARDS_POSITION_COLUMN_SQL, Integer.class)).thenReturn(1);
 
         assertDoesNotThrow(() -> guard.run(new DefaultApplicationArguments(new String[0])));
-        verify(jdbcTemplate).queryForObject(DevAuthSchemaGuard.FIND_USER_PROVIDERS_REGCLASS_SQL, String.class);
         verify(jdbcTemplate).queryForObject(DevAuthSchemaGuard.CHECK_USER_PROVIDERS_EMAIL_COLUMN_SQL, Integer.class);
     }
 
@@ -67,12 +88,10 @@ class DevAuthSchemaGuardTest {
     @DisplayName("email 컬럼이 없으면 즉시 실패하고 복구 SQL을 안내한다")
     void run_failsWhenEmailColumnMissing() throws SQLException {
         mockPostgresDataSource();
-        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.FIND_USER_PROVIDERS_REGCLASS_SQL, String.class))
-                .thenReturn("public.user_providers");
-        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_USER_PROVIDERS_EMAIL_COLUMN_SQL, Integer.class))
+        mockAuthCoreTablesPresent();
+        mockAwardsMetadataPass();
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CHECK_USER_PROVIDERS_EMAIL_COLUMN_SQL, Integer.class))
                 .thenReturn(0);
-        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.FIND_USERS_REGCLASS_SQL, String.class))
-                .thenReturn("public.users");
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> guard.run(new DefaultApplicationArguments(new String[0])));
@@ -85,13 +104,14 @@ class DevAuthSchemaGuardTest {
     @DisplayName("user_providers 테이블이 없으면 DB/스키마 정보를 포함해 즉시 실패한다")
     void run_failsWhenUserProvidersTableMissing() throws SQLException {
         mockPostgresDataSource();
-        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.FIND_USER_PROVIDERS_REGCLASS_SQL, String.class))
+        mockAuthCoreTablesPresent();
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.FIND_USER_PROVIDERS_REGCLASS_SQL, String.class))
                 .thenReturn(null);
-        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CURRENT_DATABASE_SQL, String.class))
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CURRENT_DATABASE_SQL, String.class))
                 .thenReturn("bega_backend");
-        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CURRENT_SCHEMA_SQL, String.class))
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.CURRENT_SCHEMA_SQL, String.class))
                 .thenReturn("public");
-        when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.SEARCH_PATH_SQL, String.class))
+        lenient().when(jdbcTemplate.queryForObject(DevAuthSchemaGuard.SEARCH_PATH_SQL, String.class))
                 .thenReturn("\"$user\", public");
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
@@ -105,10 +125,10 @@ class DevAuthSchemaGuardTest {
     @Test
     @DisplayName("dev가 PostgreSQL이 아니면 즉시 실패한다")
     void run_failsWhenDevDatasourceIsNotPostgres() throws SQLException {
-        when(dataSource.getConnection()).thenReturn(connection);
-        when(connection.getMetaData()).thenReturn(databaseMetaData);
-        when(databaseMetaData.getDatabaseProductName()).thenReturn("Oracle");
-        when(databaseMetaData.getURL()).thenReturn("jdbc:oracle:thin:@dev_high");
+        lenient().when(dataSource.getConnection()).thenReturn(connection);
+        lenient().when(connection.getMetaData()).thenReturn(databaseMetaData);
+        lenient().when(databaseMetaData.getDatabaseProductName()).thenReturn("Oracle");
+        lenient().when(databaseMetaData.getURL()).thenReturn("jdbc:oracle:thin:@dev_high");
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> guard.run(new DefaultApplicationArguments(new String[0])));

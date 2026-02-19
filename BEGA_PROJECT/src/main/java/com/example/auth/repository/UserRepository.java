@@ -2,6 +2,10 @@ package com.example.auth.repository;
 
 import com.example.auth.entity.UserEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -30,6 +34,76 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
     @org.springframework.data.jpa.repository.Query("SELECT u.profileImageUrl FROM UserEntity u WHERE u.id = :userId")
     Optional<String> findProfileImageUrlById(@org.springframework.data.repository.query.Param("userId") Long userId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM UserEntity u WHERE u.id = :userId")
+    Optional<UserEntity> findByIdForWrite(@org.springframework.data.repository.query.Param("userId") Long userId);
+
+    @Query(value = """
+            SELECT EXISTS (
+              SELECT 1
+              FROM public.users u
+              WHERE u.id = :userId
+                AND u.enabled = true
+                AND (
+                  u.locked = false
+                  OR (
+                    u.lock_expires_at IS NOT NULL
+                    AND u.lock_expires_at < NOW()
+                  )
+                )
+            )""", nativeQuery = true)
+    boolean existsUsableAuthorById(@Param("userId") Long userId);
+
+    @Query(value = """
+            SELECT EXISTS (
+              SELECT 1
+              FROM public.users u
+              WHERE u.id = :userId
+                AND COALESCE(u.token_version, 0) = :tokenVersion
+                AND u.enabled = true
+                AND (
+                  u.locked = false
+                  OR (
+                    u.lock_expires_at IS NOT NULL
+                    AND u.lock_expires_at < NOW()
+                  )
+                )
+            )""", nativeQuery = true)
+    boolean existsUsableAuthorByIdAndTokenVersion(@Param("userId") Long userId,
+            @Param("tokenVersion") int tokenVersion);
+
+    @Query(value = """
+            SELECT u.id
+            FROM public.users u
+            WHERE u.id = :userId
+              AND u.enabled = true
+              AND (
+                u.locked = false
+                OR (
+                  u.lock_expires_at IS NOT NULL
+                  AND u.lock_expires_at < NOW()
+                )
+              )
+            FOR UPDATE""", nativeQuery = true)
+    java.util.Optional<Long> lockUsableAuthorForWrite(@Param("userId") Long userId);
+
+    @Query(value = """
+            SELECT u.id
+            FROM public.users u
+            WHERE u.id = :userId
+              AND COALESCE(u.token_version, 0) = :tokenVersion
+              AND u.enabled = true
+              AND (
+                u.locked = false
+                OR (
+                  u.lock_expires_at IS NOT NULL
+                  AND u.lock_expires_at < NOW()
+                )
+              )
+            FOR UPDATE""", nativeQuery = true)
+    java.util.Optional<Long> lockUsableAuthorForWriteWithTokenVersion(@Param("userId") Long userId,
+            @Param("tokenVersion") int tokenVersion);
 
     @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional

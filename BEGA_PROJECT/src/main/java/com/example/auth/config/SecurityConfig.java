@@ -21,6 +21,7 @@ import com.example.auth.oauth2.CustomOAuth2UserService;
 import com.example.auth.oauth2.CustomSuccessHandler;
 import com.example.auth.oauth2.CookieAuthorizationRequestRepository;
 import com.example.auth.filter.JWTFilter;
+import com.example.auth.repository.UserRepository;
 import com.example.auth.util.JWTUtil;
 
 import jakarta.servlet.http.HttpServletResponse;
@@ -129,6 +130,7 @@ public class SecurityConfig {
         private final JWTUtil jwtUtil;
         private final CookieAuthorizationRequestRepository cookieauthorizationrequestRepository;
         private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
+        private final UserRepository userRepository;
 
         @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:*,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:*,http://127.0.0.1:5176}")
         private String allowedOriginsStr;
@@ -149,13 +151,15 @@ public class SecurityConfig {
         public SecurityConfig(CustomOAuth2UserService customOAuth2UserService,
                         CustomSuccessHandler customSuccessHandler, JWTUtil jwtUtil,
                         CookieAuthorizationRequestRepository cookieauthorizationrequestRepository,
-                        com.example.auth.service.TokenBlacklistService tokenBlacklistService) {
+                        com.example.auth.service.TokenBlacklistService tokenBlacklistService,
+                        UserRepository userRepository) {
 
                 this.customOAuth2UserService = customOAuth2UserService;
                 this.customSuccessHandler = customSuccessHandler;
                 this.jwtUtil = jwtUtil;
                 this.cookieauthorizationrequestRepository = cookieauthorizationrequestRepository;
                 this.tokenBlacklistService = tokenBlacklistService;
+                this.userRepository = userRepository;
         }
 
         @Bean
@@ -207,7 +211,7 @@ public class SecurityConfig {
         public JWTFilter jwtFilter(org.springframework.core.env.Environment env) {
                 boolean isDev = Arrays.asList(env.getActiveProfiles()).contains("dev");
                 List<String> origins = parseAllowedOrigins();
-                return new JWTFilter(jwtUtil, isDev, origins, tokenBlacklistService);
+                return new JWTFilter(jwtUtil, isDev, origins, tokenBlacklistService, userRepository);
         }
 
         @Bean
@@ -286,13 +290,21 @@ public class SecurityConfig {
                                                 // 8. 나머지 모든 요청은 인증 필요
                                                 .anyRequest().authenticated())
 
-                                // 302 리다이렉션 방지: 인증 실패 시 /login으로 리다이렉트 대신 401 응답 반환
+        // 302 리다이렉션 방지: 인증 실패 시 /login으로 리다이렉트 대신 401 응답 반환
                                 .exceptionHandling((exceptionHandling) -> exceptionHandling
                                                 .authenticationEntryPoint((request, response, authException) -> {
                                                         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                                                         response.setContentType("application/json;charset=UTF-8");
 
-                                                        String jsonResponse = "{\"success\":false,\"message\":\"인증이 필요합니다.\",\"error\":\"Unauthorized\"}";
+                                                        boolean invalidAuthor = Boolean.TRUE.equals(request.getAttribute("INVALID_AUTHOR"));
+                                                        String errorCode = invalidAuthor ? "INVALID_AUTHOR" : "UNAUTHORIZED";
+                                                        String message = invalidAuthor ? "인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요."
+                                                                        : "인증이 필요합니다.";
+
+                                                        String jsonResponse = String.format(
+                                                                        "{\"success\":false,\"code\":\"%s\",\"message\":\"%s\",\"error\":\"Unauthorized\"}",
+                                                                        errorCode,
+                                                                        message.replace("\"", "\\\""));
                                                         response.getWriter().write(jsonResponse);
                                                 }));
 

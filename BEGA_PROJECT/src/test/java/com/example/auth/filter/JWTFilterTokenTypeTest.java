@@ -1,6 +1,8 @@
 package com.example.auth.filter;
 
 import com.example.auth.service.TokenBlacklistService;
+import com.example.auth.repository.UserRepository;
+import com.example.auth.entity.UserEntity;
 import com.example.auth.util.JWTUtil;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -26,6 +28,7 @@ import org.springframework.http.HttpStatus;
 import java.io.IOException;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.Date;
 import java.util.List;
 
@@ -41,6 +44,9 @@ class JWTFilterTokenTypeTest {
     @Mock
     private TokenBlacklistService tokenBlacklistService;
 
+    @Mock
+    private UserRepository userRepository;
+
     private JWTUtil jwtUtil;
     private JWTFilter jwtFilter;
     private SecretKey secretKey;
@@ -49,10 +55,20 @@ class JWTFilterTokenTypeTest {
     void setUp() {
         jwtUtil = new JWTUtil(SECRET, 1000L * 60 * 60 * 24 * 7);
         jwtUtil.validateSecret();
-        jwtFilter = new JWTFilter(jwtUtil, false, List.of("http://localhost:5173"), tokenBlacklistService);
+        jwtFilter = new JWTFilter(jwtUtil, false, List.of("http://localhost:5173"), tokenBlacklistService,
+                userRepository);
         secretKey = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
 
         Mockito.lenient().when(tokenBlacklistService.isBlacklisted(anyString())).thenReturn(false);
+        Mockito.lenient().when(userRepository.findById(Mockito.anyLong())).thenReturn(Optional.of(
+                UserEntity.builder()
+                        .id(1L)
+                        .enabled(true)
+                        .locked(false)
+                        .tokenVersion(0)
+                        .role("ROLE_USER")
+                        .build()
+        ));
         SecurityContextHolder.clearContext();
     }
 
