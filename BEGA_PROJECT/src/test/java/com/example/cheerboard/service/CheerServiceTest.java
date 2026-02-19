@@ -212,7 +212,7 @@ class CheerServiceTest {
                 // Then
                 assertThat(res.content()).isEqualTo("My Content");
                 org.mockito.ArgumentCaptor<CheerPost> postCaptor = org.mockito.ArgumentCaptor.forClass(CheerPost.class);
-                verify(postRepo).save(postCaptor.capture());
+                verify(postRepo).saveAndFlush(postCaptor.capture());
                 CheerPost capturedPost = postCaptor.getValue();
                 assertThat(capturedPost.getContent()).isEqualTo("My Content");
         }
