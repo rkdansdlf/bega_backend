@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <property name="LOG_HOME" value="logs"/>
+    <springProperty scope="context" name="LOG_LEVEL_COM_EXAMPLE" source="logging.level.com.example" defaultValue="INFO"/>
+    <springProperty scope="context" name="LOG_LEVEL_HIBERNATE_SQL" source="logging.level.org.hibernate.SQL" defaultValue="WARN"/>
+    <springProperty scope="context" name="LOG_LEVEL_HIBERNATE_BIND" source="logging.level.org.hibernate.orm.jdbc.bind" defaultValue="WARN"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
@@ -31,13 +34,14 @@
         </root>
     </springProfile>
 
-    <!-- Development: INFO level with console (DEBUG only for our code) -->
+    <!-- Development: reduce noise by default; temporary debug can be overridden via logging.level.* -->
     <springProfile name="!prod">
-        <logger name="com.example" level="DEBUG" additivity="false">
+        <logger name="com.example" level="${LOG_LEVEL_COM_EXAMPLE}" additivity="false">
             <appender-ref ref="CONSOLE"/>
         </logger>
         <logger name="org.springframework" level="INFO"/>
-        <logger name="org.hibernate.SQL" level="DEBUG"/>
+        <logger name="org.hibernate.SQL" level="${LOG_LEVEL_HIBERNATE_SQL}"/>
+        <logger name="org.hibernate.orm.jdbc.bind" level="${LOG_LEVEL_HIBERNATE_BIND}"/>
         <!-- Suppress Oracle JDBC Class-Path manifest warnings -->
         <logger name="org.springframework.boot.devtools.restart.ChangeableUrls" level="ERROR"/>
         <root level="INFO">

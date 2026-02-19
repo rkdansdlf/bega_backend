@@ -213,10 +213,12 @@ public class UserService {
                 user.getEmail(),
                 user.getRole(),
                 user.getId(),
-                ACCESS_EXPIRATION_TIME);
+                ACCESS_EXPIRATION_TIME,
+                user.getTokenVersion() == null ? 0 : user.getTokenVersion());
 
         // Refresh Token 생성
-        String refreshToken = jwtUtil.createRefreshToken(user.getEmail(), user.getRole(), user.getId());
+        String refreshToken = jwtUtil.createRefreshToken(user.getEmail(), user.getRole(), user.getId(),
+                user.getTokenVersion() == null ? 0 : user.getTokenVersion());
 
         // Refresh Token DB 저장
         saveOrUpdateRefreshToken(user.getEmail(), refreshToken, request);
@@ -554,15 +556,16 @@ public class UserService {
         }
 
         String userEmail = user.getEmail();
+        int currentTokenVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
+        user.setEnabled(false);
+        user.setTokenVersion(currentTokenVersion + 1);
+        userRepository.save(user);
 
         // Refresh Token 삭제
         refreshRepository.deleteByEmail(userEmail);
 
         // 메이트 관련 데이터 정리 (파티 취소, 참여 신청 처리, 알림 발송)
         partyService.handleUserDeletion(userId);
-
-        // 사용자 삭제 (관련 데이터는 DB의 CASCADE 설정에 따라 처리됨)
-        userRepository.delete(user);
 
         log.info("Account deleted for user ID: {}, email: {}", userId, userEmail);
     }

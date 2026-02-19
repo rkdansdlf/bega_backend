@@ -3,8 +3,10 @@ package com.example.cheerboard.config;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import com.example.common.exception.InvalidAuthorException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -28,9 +30,24 @@ import java.util.Objects;
 @RestControllerAdvice(basePackages = "com.example.cheerboard")
 public class ApiExceptionHandler {
 
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, Object>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        if (isDeletedAuthorReference(ex)) {
+            return build(HttpStatus.UNAUTHORIZED, "INVALID_AUTHOR", "인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+        }
+
+        return build(HttpStatus.BAD_REQUEST, "DATA_INTEGRITY_VIOLATION", "요청 데이터의 무결성 제약을 위반했습니다.");
+    }
+
+
     @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleUnauthorized(AuthenticationCredentialsNotFoundException ex) {
-        return build(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", ex.getMessage());
+        return build(HttpStatus.UNAUTHORIZED, "INVALID_AUTHOR", ex.getMessage());
+    }
+
+    @ExceptionHandler(InvalidAuthorException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidAuthor(InvalidAuthorException ex) {
+        return build(HttpStatus.UNAUTHORIZED, "INVALID_AUTHOR", ex.getMessage());
     }
 
     @ExceptionHandler(AccessDeniedException.class)
@@ -38,7 +55,7 @@ public class ApiExceptionHandler {
         return build(HttpStatus.FORBIDDEN, "FORBIDDEN", ex.getMessage());
     }
 
-    @ExceptionHandler({ IllegalArgumentException.class, MethodArgumentNotValidException.class })
+    @ExceptionHandler({ IllegalArgumentException.class, MethodArgumentNotValidException.class, IllegalStateException.class })
     public ResponseEntity<Map<String, Object>> handleBadRequest(Exception ex) {
         String message = ex instanceof MethodArgumentNotValidException manv
                 ? manv.getBindingResult().getAllErrors().stream()
@@ -78,6 +95,38 @@ public class ApiExceptionHandler {
                 "status", status.value(),
                 "code", code,
                 "message", defaultMessage));
+    }
+
+    private boolean isDeletedAuthorReference(DataIntegrityViolationException ex) {
+        Throwable cause = ex.getMostSpecificCause();
+        String message = cause != null && cause.getMessage() != null
+                ? cause.getMessage()
+                : ex.getMessage();
+        if (message == null) {
+            return false;
+        }
+
+        String lower = message.toLowerCase();
+        if (!lower.contains("foreign key")) {
+            return false;
+        }
+
+        boolean isUserFkColumn =
+                lower.contains("author_id")
+                        || lower.contains("user_id")
+                        || lower.contains("reporter_id");
+
+        if (!isUserFkColumn) {
+            return false;
+        }
+
+        return lower.contains("cheer_post")
+                || lower.contains("cheer_comment")
+                || lower.contains("cheer_comment_like")
+                || lower.contains("cheer_post_like")
+                || lower.contains("cheer_post_bookmark")
+                || lower.contains("cheer_post_repost")
+                || lower.contains("cheer_post_reports");
     }
 
     /**

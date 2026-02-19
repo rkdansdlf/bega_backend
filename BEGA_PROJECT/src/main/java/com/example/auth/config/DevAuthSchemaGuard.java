@@ -27,6 +27,10 @@ public class DevAuthSchemaGuard implements ApplicationRunner {
     static final String EXPECTED_DEV_DB_PRODUCT = "postgresql";
     static final String FIND_USER_PROVIDERS_REGCLASS_SQL = "SELECT to_regclass('user_providers')";
     static final String FIND_USERS_REGCLASS_SQL = "SELECT to_regclass('users')";
+    static final String FIND_USER_BLOCK_REGCLASS_SQL = "SELECT to_regclass('user_block')";
+    static final String FIND_USER_FOLLOW_REGCLASS_SQL = "SELECT to_regclass('user_follow')";
+    static final String FIND_PASSWORD_RESET_TOKENS_REGCLASS_SQL = "SELECT to_regclass('password_reset_tokens')";
+    static final String FIND_REFRESH_TOKENS_REGCLASS_SQL = "SELECT to_regclass('refresh_tokens')";
     static final String CHECK_PUBLIC_AWARDS_TABLE_SQL = """
             SELECT COUNT(*)
             FROM information_schema.tables
@@ -140,9 +144,26 @@ public class DevAuthSchemaGuard implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         validateDevDataSource();
+        validateAuthCoreTables();
         validateUserProvidersEmailColumn();
         validateAwardYearColumn();
         validateAwardsPositionColumn();
+    }
+
+    private void validateAuthCoreTables() {
+        requireAuthTable("users", FIND_USERS_REGCLASS_SQL);
+        requireAuthTable("user_providers", FIND_USER_PROVIDERS_REGCLASS_SQL);
+        requireAuthTable("user_block", FIND_USER_BLOCK_REGCLASS_SQL);
+        requireAuthTable("user_follow", FIND_USER_FOLLOW_REGCLASS_SQL);
+        requireAuthTable("password_reset_tokens", FIND_PASSWORD_RESET_TOKENS_REGCLASS_SQL);
+        requireAuthTable("refresh_tokens", FIND_REFRESH_TOKENS_REGCLASS_SQL);
+    }
+
+    private void requireAuthTable(String tableName, String regclassQuery) {
+        String regclass = jdbcTemplate.queryForObject(regclassQuery, String.class);
+        if (regclass == null || regclass.isBlank()) {
+            throw missingAuthTableException(tableName);
+        }
     }
 
     void validateDevDataSource() {
@@ -241,7 +262,26 @@ public class DevAuthSchemaGuard implements ApplicationRunner {
                 SELECT table_schema, table_name
                 FROM information_schema.tables
                 WHERE table_name IN ('users', 'user_providers');
-                """.formatted(currentDatabase, currentSchema, searchPath));
+            """.formatted(currentDatabase, currentSchema, searchPath));
+    }
+
+    private IllegalStateException missingAuthTableException(String tableName) {
+        String currentDatabase = safeQueryForString(CURRENT_DATABASE_SQL);
+        String currentSchema = safeQueryForString(CURRENT_SCHEMA_SQL);
+        String searchPath = safeQueryForString(SEARCH_PATH_SQL);
+
+        return new IllegalStateException("""
+                [Schema Guard] Missing table in current search_path: %s
+                current_database: %s
+                current_schema: %s
+                search_path: %s
+
+                Confirm the following tables exist in the same DB as spring.datasource:
+
+                SELECT table_schema, table_name
+                FROM information_schema.tables
+                WHERE table_name IN ('users', 'user_providers', 'user_block', 'user_follow', 'password_reset_tokens', 'refresh_tokens');
+                """.formatted(tableName, currentDatabase, currentSchema, searchPath));
     }
 
     private IllegalStateException missingAwardsTableException() {
