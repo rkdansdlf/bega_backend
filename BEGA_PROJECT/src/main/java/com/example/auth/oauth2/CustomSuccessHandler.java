@@ -90,8 +90,9 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
             // 새 토큰 발급
             long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; // 2시간
-            String accessToken = jwtUtil.createJwt(userEmail, role, userId, accessTokenExpiredMs);
-            String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId);
+            int tokenVersion = userEntity.getTokenVersion() == null ? 0 : userEntity.getTokenVersion();
+            String accessToken = jwtUtil.createJwt(userEmail, role, userId, accessTokenExpiredMs, tokenVersion);
+            String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId, tokenVersion);
 
             userService.saveOrUpdateRefreshToken(userEmail, refreshToken, request);
 
@@ -114,10 +115,11 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         // Access Token 생성
         long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; // 2시간
-        String accessToken = jwtUtil.createJwt(userEmail, role, userId, accessTokenExpiredMs);
+        int tokenVersion = userEntity.getTokenVersion() == null ? 0 : userEntity.getTokenVersion();
+        String accessToken = jwtUtil.createJwt(userEmail, role, userId, accessTokenExpiredMs, tokenVersion);
 
         // Refresh Token 생성
-        String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId);
+        String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId, tokenVersion);
 
         // Refresh Token DB 저장/갱신
         userService.saveOrUpdateRefreshToken(userEmail, refreshToken, request);

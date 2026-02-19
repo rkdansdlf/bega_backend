@@ -41,15 +41,22 @@ import com.example.kbo.repository.TeamRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
 import com.example.notification.service.NotificationService;
 import com.example.common.exception.UserNotFoundException;
+import com.example.common.exception.InvalidAuthorException;
 import com.example.common.service.AIModerationService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityNotFoundException;
+import org.springframework.dao.DataIntegrityViolationException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.List;
+import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -75,6 +82,7 @@ public class CheerService {
     private final com.example.cheerboard.storage.service.ImageService imageService;
     private final FollowService followService;
     private final BlockService blockService;
+    private final EntityManager entityManager;
 
     // 리팩토링된 컴포넌트들
     private final PermissionValidator permissionValidator;
@@ -605,6 +613,31 @@ public class CheerService {
                 .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
     }
 
+    private CheerPost resolveActionTargetPost(Long postId) {
+        CheerPost target = findPostById(postId);
+        return resolveActionTargetPost(target);
+    }
+
+    private CheerPost resolveActionTargetPost(CheerPost post) {
+        CheerPost current = post;
+        int hops = 0;
+        while (current.isRepost()) {
+            CheerPost parent = current.getRepostOf();
+            if (parent == null) {
+                log.warn("resolveActionTargetPost - orphan repost detected; fallback to current row. postId={}, authorId={}, repostType={}",
+                        current.getId(),
+                        current.getAuthor() != null ? current.getAuthor().getId() : null,
+                        current.getRepostType());
+                return current;
+            }
+            current = parent;
+            if (++hops > 32) {
+                throw new IllegalArgumentException("리포스트 대상이 비정상적으로 설정되어 있습니다.");
+            }
+        }
+        return current;
+    }
+
     /**
      * 사용자가 게시글에 좋아요를 눌렀는지 확인
      */
@@ -624,6 +657,10 @@ public class CheerService {
     public PostDetailRes createPost(CreatePostReq req) {
         UserEntity me = current.get();
         String normalizedTeamId = normalizeTeamId(req.teamId());
+        log.debug("createPost - requested authorId={} normalizedTeamId={}", me != null ? me.getId() : null, normalizedTeamId);
+        UserEntity author = resolveWriteAuthor(me);
+        // 저장 직전 재검증(토큰/계정 상태 동기화 갱신)
+        author = ensureAuthorRecordStillExists(author);
 
         // AI Moderation 체크
         AIModerationService.ModerationResult modResult = moderationService
@@ -632,16 +669,239 @@ public class CheerService {
             throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
         }
 
-        permissionValidator.validateTeamAccess(me, normalizedTeamId, "게시글 작성");
+        permissionValidator.validateTeamAccess(author, normalizedTeamId, "게시글 작성");
 
-        PostType postType = determinePostType(req, me);
-        CheerPost post = buildNewPost(req, me, postType, normalizedTeamId);
-        CheerPost savedPost = postRepo.save(Objects.requireNonNull(post));
+        PostType postType = determinePostType(req, author);
+        CheerPost post = buildNewPost(req, author, postType, normalizedTeamId);
+        CheerPost savedPost;
+        try {
+            savedPost = postRepo.saveAndFlush(Objects.requireNonNull(post));
+        } catch (DataIntegrityViolationException ex) {
+            if (isDeletedAuthorReference(ex)) {
+                try {
+                    ensureAuthorRecordStillExists(author);
+                } catch (InvalidAuthorException invalidAuthor) {
+                    throw invalidAuthor;
+                }
+                log.warn("createPost - foreign key violation on cheer_post insert but author still valid. authorId={}, teamId={}, message={}",
+                        author.getId(), normalizedTeamId,
+                        ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage());
+                throw ex;
+            }
+            throw ex;
+        }
 
         // 팔로워들에게 새 글 알림 (notify_new_posts=true 인 팔로워에게만)
-        sendNewPostNotificationToFollowers(savedPost, me);
+        sendNewPostNotificationToFollowers(savedPost, author);
 
-        return postDtoMapper.toNewPostDetailRes(savedPost, me);
+        return postDtoMapper.toNewPostDetailRes(savedPost, author);
+    }
+
+    private UserEntity resolveWriteAuthor(UserEntity me) {
+        if (me == null || me.getId() == null) {
+            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+        }
+
+        Long principalUserId = getAuthenticationUserId();
+        if (principalUserId != null && !principalUserId.equals(me.getId())) {
+            log.warn("resolveWriteAuthor - token principal mismatch. meId={}, principalId={}", me.getId(), principalUserId);
+            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+        }
+
+        log.debug("resolveWriteAuthor - loading user for write with lock. userId={}", me.getId());
+        UserEntity author = userRepo.findByIdForWrite(me.getId())
+                .orElseThrow(() -> new InvalidAuthorException(
+                        "인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요."));
+        log.debug("resolveWriteAuthor - user loaded for write. userId={}, enabled={}, locked={}", author.getId(),
+                author.isEnabled(), author.isLocked());
+        ensureAuthorRecordStillExists(author);
+
+        try {
+            entityManager.refresh(author);
+        } catch (EntityNotFoundException e) {
+            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+        }
+
+        return author;
+    }
+
+    private UserEntity ensureAuthorRecordStillExists(UserEntity author) {
+        if (author == null || author.getId() == null) {
+            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+        }
+
+        Integer tokenVersion = getAuthenticationTokenVersion();
+        log.debug("ensureAuthorRecordStillExists - authorId={}, tokenVersion={}", author.getId(), tokenVersion);
+
+        if (tokenVersion == null) {
+            boolean hasUsableAuthor = userRepo.lockUsableAuthorForWrite(author.getId()).isPresent();
+            if (!hasUsableAuthor) {
+                log.warn("ensureAuthorRecordStillExists - author unusable. authorId={}, tokenVersion={}, reason=lockUsableAuthorForWrite() not found",
+                        author.getId(), tokenVersion);
+                throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+            }
+        } else {
+            boolean hasUsableAuthor = userRepo.lockUsableAuthorForWriteWithTokenVersion(author.getId(), tokenVersion)
+                    .isPresent();
+            if (!hasUsableAuthor) {
+                log.warn("ensureAuthorRecordStillExists - author unusable. authorId={}, tokenVersion={}, reason=lockUsableAuthorForWriteWithTokenVersion() not found",
+                        author.getId(), tokenVersion);
+                throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+            }
+        }
+
+        UserEntity freshAuthor = userRepo.findByIdForWrite(author.getId())
+                .orElseThrow(() -> new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요."));
+
+        if (tokenVersion != null) {
+            int currentTokenVersion = freshAuthor.getTokenVersion() == null ? 0 : freshAuthor.getTokenVersion();
+            if (currentTokenVersion != tokenVersion) {
+                log.warn("ensureAuthorRecordStillExists - tokenVersion mismatch. authorId={}, tokenVersion={}, currentTokenVersion={}",
+                        freshAuthor.getId(), tokenVersion, currentTokenVersion);
+                throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+            }
+        }
+
+        if (!freshAuthor.isEnabled()) {
+            log.warn("ensureAuthorRecordStillExists - author disabled. authorId={}", freshAuthor.getId());
+            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+        }
+
+        if (!freshAuthor.isEnabled() || !isAccountUsableForWrite(freshAuthor)) {
+            log.warn("ensureAuthorRecordStillExists - author disabled/locked. authorId={}, enabled={}, locked={}, lockExpiresAt={}",
+                    freshAuthor.getId(), freshAuthor.isEnabled(), freshAuthor.isLocked(), freshAuthor.getLockExpiresAt());
+            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+        }
+
+        return freshAuthor;
+    }
+
+    private Long getAuthenticationUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
+            return null;
+        }
+
+        Object principal = authentication.getPrincipal();
+        if (principal == null) {
+            return null;
+        }
+
+        if (principal instanceof Long userId) {
+            return userId;
+        }
+        if (principal instanceof String userId) {
+            try {
+                return Long.valueOf(userId);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private Integer getAuthenticationTokenVersion() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
+            return null;
+        }
+
+        Object details = authentication.getDetails();
+        if (details == null) {
+            return null;
+        }
+
+        if (details instanceof Integer version) {
+            return version;
+        }
+        if (details instanceof Long version) {
+            return version.intValue();
+        }
+        if (details instanceof Number number) {
+            return number.intValue();
+        }
+        if (details instanceof String string) {
+            try {
+                return Integer.parseInt(string);
+            } catch (NumberFormatException ignore) {
+                // skip
+            }
+        }
+        if (details instanceof Map<?, ?> map) {
+            Object legacyTokenVersionValue = map.get("token_version");
+            Integer legacyParsed = resolveTokenVersionFromUnknownType(legacyTokenVersionValue);
+            if (legacyParsed != null) {
+                return legacyParsed;
+            }
+
+            Object tokenVersionValue = map.get("tokenVersion");
+            return resolveTokenVersionFromUnknownType(tokenVersionValue);
+        }
+        return null;
+    }
+
+    private Integer resolveTokenVersionFromUnknownType(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Integer version) {
+            return version;
+        }
+        if (value instanceof Long version) {
+            return version.intValue();
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String version) {
+            try {
+                return Integer.parseInt(version);
+            } catch (NumberFormatException ignore) {
+                // skip
+            }
+        }
+        return null;
+    }
+
+    private boolean isAccountUsableForWrite(UserEntity user) {
+        if (!user.isLocked()) {
+            return true;
+        }
+
+        if (user.getLockExpiresAt() == null) {
+            return false;
+        }
+
+        return user.getLockExpiresAt().isBefore(LocalDateTime.now());
+    }
+
+    private boolean isDeletedAuthorReference(DataIntegrityViolationException ex) {
+        String message = ex.getMostSpecificCause() != null
+                ? ex.getMostSpecificCause().getMessage()
+                : ex.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String lower = message.toLowerCase();
+        if (!lower.contains("foreign key") || lower.contains("null value in column")) {
+            return false;
+        }
+
+        boolean hasAuthorColumn = lower.contains("author_id") || lower.contains("user_id") || lower.contains("reporter_id");
+        if (!hasAuthorColumn) {
+            return false;
+        }
+
+        boolean targetsUserTable = lower.contains("public.users") || lower.contains("\"users\"");
+        if (!targetsUserTable) {
+            return false;
+        }
+
+        return lower.contains("cheer_post") || lower.contains("cheer_comment")
+                || lower.contains("cheer_post_like") || lower.contains("cheer_post_bookmark")
+                || lower.contains("cheer_comment_like") || lower.contains("cheer_post_repost")
+                || lower.contains("cheer_post_reports");
     }
 
     /**
@@ -712,7 +972,7 @@ public class CheerService {
         CheerPost post = CheerPost.builder()
                 .author(author)
                 .team(team)
-                .content(req.content())
+                .content(sanitizePostContent(req.content()))
                 .postType(postType)
                 .build();
 
@@ -746,7 +1006,7 @@ public class CheerService {
      * 게시글 내용 업데이트
      */
     private void updatePostContent(CheerPost post, UpdatePostReq req) {
-        post.setContent(req.content());
+        post.setContent(sanitizePostContent(req.content()));
     }
 
     @Transactional
@@ -772,7 +1032,7 @@ public class CheerService {
 
     @Transactional
     public LikeToggleResponse toggleLike(Long postId) {
-        UserEntity me = current.get();
+        UserEntity me = resolveWriteAuthor(current.get());
         CheerPost post = findPostById(postId);
 
         // [NEW] 차단 관계 확인 (양방향)
@@ -785,85 +1045,97 @@ public class CheerService {
         boolean liked;
         int likes;
 
-        if (likeRepo.existsById(likeId)) {
-            // 좋아요 취소
-            likeRepo.deleteById(likeId);
-            likes = Math.max(0, post.getLikeCount() - 1);
-            post.setLikeCount(likes);
-            liked = false;
-
-            // 작성자 포인트 차감 (Entity Update)
-            UserEntity author = userRepo.findById(Objects.requireNonNull(post.getAuthor().getId()))
+        try {
+            UserEntity postAuthor = userRepo.findByIdForWrite(Objects.requireNonNull(post.getAuthor().getId()))
                     .orElseThrow(() -> new UserNotFoundException(post.getAuthor().getId()));
-            author.deductCheerPoints(1); // Entity method
-            userRepo.save(author);
-            log.info("Points deducted for user {}: -1 (Entity Update)", author.getId());
 
-        } else {
-            // 좋아요 추가
-            CheerPostLike like = new CheerPostLike();
-            like.setId(likeId);
-            like.setPost(post);
-            like.setUser(me);
-            likeRepo.save(like);
-            likes = post.getLikeCount() + 1;
-            post.setLikeCount(likes);
-            liked = true;
+            if (likeRepo.existsById(likeId)) {
+                // 좋아요 취소
+                likeRepo.deleteById(likeId);
+                likes = Math.max(0, post.getLikeCount() - 1);
+                post.setLikeCount(likes);
+                liked = false;
 
-            // 작성자 포인트 증가 (Entity Update)
-            UserEntity author = userRepo.findById(Objects.requireNonNull(post.getAuthor().getId()))
-                    .orElseThrow(() -> new UserNotFoundException(post.getAuthor().getId()));
-            author.addCheerPoints(1); // Entity method
-            userRepo.save(author);
-            log.info("Points awarded to user {}: +1 (Entity Update)", author.getId());
+                // 작성자 포인트 차감 (Entity Update)
+                postAuthor.deductCheerPoints(1); // Entity method
+                userRepo.save(postAuthor);
+                log.info("Points deducted for user {}: -1 (Entity Update)", postAuthor.getId());
 
-            // 게시글 작성자에게 알림 (본인이 아닐 때만)
-            if (!author.getId().equals(me.getId())) {
-                boolean isBlocked = blockService.hasBidirectionalBlock(me.getId(), author.getId());
-                if (!isBlocked) {
-                    try {
-                        String authorName = me.getName() != null && !me.getName().isBlank()
-                                ? me.getName()
-                                : me.getEmail();
+            } else {
+                // 좋아요 추가
+                CheerPostLike like = new CheerPostLike();
+                like.setId(likeId);
+                like.setPost(post);
+                like.setUser(me);
+                likeRepo.save(like);
+                likes = post.getLikeCount() + 1;
+                post.setLikeCount(likes);
+                liked = true;
 
-                        notificationService.createNotification(
-                                Objects.requireNonNull(post.getAuthor().getId()),
-                                com.example.notification.entity.Notification.NotificationType.POST_LIKE,
-                                "좋아요 알림",
-                                authorName + "님이 회원님의 게시글을 좋아합니다.",
-                                post.getId());
-                    } catch (Exception e) {
-                        log.warn("좋아요 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
+                // 작성자 포인트 증가 (Entity Update)
+                postAuthor.addCheerPoints(1); // Entity method
+                userRepo.save(postAuthor);
+                log.info("Points awarded to user {}: +1 (Entity Update)", postAuthor.getId());
+
+                // 게시글 작성자에게 알림 (본인이 아닐 때만)
+                if (!postAuthor.getId().equals(me.getId())) {
+                    boolean isBlocked = blockService.hasBidirectionalBlock(me.getId(), postAuthor.getId());
+                    if (!isBlocked) {
+                        try {
+                            String authorName = me.getName() != null && !me.getName().isBlank()
+                                    ? me.getName()
+                                    : me.getEmail();
+
+                            notificationService.createNotification(
+                                    Objects.requireNonNull(post.getAuthor().getId()),
+                                    com.example.notification.entity.Notification.NotificationType.POST_LIKE,
+                                    "좋아요 알림",
+                                    authorName + "님이 회원님의 게시글을 좋아합니다.",
+                                    post.getId());
+                        } catch (Exception e) {
+                            log.warn("좋아요 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
+                        }
                     }
                 }
             }
+            postRepo.save(Objects.requireNonNull(post));
+            updateHotScore(post);
+            return new LikeToggleResponse(liked, likes);
+        } catch (DataIntegrityViolationException ex) {
+            if (isDeletedAuthorReference(ex)) {
+                ensureAuthorRecordStillExists(me);
+            }
+            throw ex;
         }
-
-        postRepo.save(Objects.requireNonNull(post));
-        updateHotScore(post);
-        return new LikeToggleResponse(liked, likes);
     }
 
     @Transactional
     public BookmarkResponse toggleBookmark(Long postId) {
-        UserEntity me = current.get();
-        CheerPost post = findPostById(postId);
-        CheerPostBookmark.Id bookmarkId = new CheerPostBookmark.Id(postId, me.getId());
+        UserEntity me = resolveWriteAuthor(current.get());
+        CheerPost target = resolveActionTargetPost(postId);
+        CheerPostBookmark.Id bookmarkId = new CheerPostBookmark.Id(target.getId(), me.getId());
 
         boolean bookmarked;
-        if (bookmarkRepo.existsById(bookmarkId)) {
-            bookmarkRepo.deleteById(bookmarkId);
-            bookmarked = false;
-        } else {
-            CheerPostBookmark bookmark = new CheerPostBookmark();
-            bookmark.setId(bookmarkId);
-            bookmark.setPost(post);
-            bookmark.setUser(me);
-            bookmarkRepo.save(Objects.requireNonNull(bookmark));
-            bookmarked = true;
+        try {
+            if (bookmarkRepo.existsById(bookmarkId)) {
+                bookmarkRepo.deleteById(bookmarkId);
+                bookmarked = false;
+            } else {
+                CheerPostBookmark bookmark = new CheerPostBookmark();
+                bookmark.setId(bookmarkId);
+                bookmark.setPost(target);
+                bookmark.setUser(me);
+                bookmarkRepo.save(Objects.requireNonNull(bookmark));
+                bookmarked = true;
+            }
+            int count = Math.toIntExact(bookmarkRepo.countById_PostId(target.getId()));
+            return new BookmarkResponse(bookmarked, count);
+        } catch (DataIntegrityViolationException ex) {
+            if (isDeletedAuthorReference(ex)) {
+                ensureAuthorRecordStillExists(me);
+            }
+            throw ex;
         }
-        int count = Math.toIntExact(bookmarkRepo.countById_PostId(postId));
-        return new BookmarkResponse(bookmarked, count);
     }
 
     /**
@@ -873,13 +1145,8 @@ public class CheerService {
      */
     @Transactional
     public RepostToggleResponse toggleRepost(Long postId) {
-        UserEntity me = current.get();
-        CheerPost original = findPostById(postId);
-
-        // 중첩 방지: 이미 리포스트인 글은 리포스트 불가
-        if (original.isRepost()) {
-            throw new IllegalArgumentException("리포스트된 글은 다시 리포스트할 수 없습니다.");
-        }
+        UserEntity me = resolveWriteAuthor(current.get());
+        CheerPost original = resolveActionTargetPost(postId);
 
         // 1. 차단 관계 확인 (양방향)
         if (blockService.hasBidirectionalBlock(me.getId(), original.getAuthor().getId())) {
@@ -898,68 +1165,72 @@ public class CheerService {
         boolean reposted;
         int count;
 
-        if (existing.isPresent()) {
-            // 취소: 리포스트 게시글 삭제
-            postRepo.delete(Objects.requireNonNull(existing.get()));
-            count = Math.max(0, original.getRepostCount() - 1);
-            original.setRepostCount(count);
-            reposted = false;
+        try {
+            if (existing.isPresent()) {
+                // 취소: 리포스트 게시글 삭제
+                postRepo.delete(Objects.requireNonNull(existing.get()));
+                count = Math.max(0, original.getRepostCount() - 1);
+                original.setRepostCount(count);
+                reposted = false;
 
-            // 기존 CheerPostRepost 테이블에서도 삭제 (호환성 유지)
-            CheerPostRepost.Id repostTrackingId = new CheerPostRepost.Id(postId, me.getId());
-            if (repostRepo.existsById(repostTrackingId)) {
-                repostRepo.deleteById(repostTrackingId);
-            }
-        } else {
-            // 생성: 새 리포스트 게시글
-            CheerPost repost = CheerPost.builder()
-                    .author(me)
-                    .team(original.getTeam())
-                    .repostOf(original)
-                    .repostType(CheerPost.RepostType.SIMPLE)
-                    // title removed
-                    .content(null)
-                    .postType(PostType.NORMAL)
-                    .build();
-            postRepo.save(Objects.requireNonNull(repost));
+                // 기존 CheerPostRepost 테이블에서도 삭제 (호환성 유지)
+                CheerPostRepost.Id repostTrackingId = new CheerPostRepost.Id(original.getId(), me.getId());
+                if (repostRepo.existsById(repostTrackingId)) {
+                    repostRepo.deleteById(repostTrackingId);
+                }
+            } else {
+                // 생성: 새 리포스트 게시글
+                CheerPost repost = CheerPost.builder()
+                        .author(me)
+                        .team(original.getTeam())
+                        .repostOf(original)
+                        .repostType(CheerPost.RepostType.SIMPLE)
+                        .content(sanitizePostContent(""))
+                        .postType(PostType.NORMAL)
+                        .build();
+                postRepo.save(Objects.requireNonNull(repost));
 
-            count = original.getRepostCount() + 1;
-            original.setRepostCount(count);
-            reposted = true;
+                count = original.getRepostCount() + 1;
+                original.setRepostCount(count);
+                reposted = true;
 
-            // 기존 CheerPostRepost 테이블에도 추가 (호환성 유지 - repostedByMe 조회용)
-            CheerPostRepost.Id repostTrackingId = new CheerPostRepost.Id(postId, me.getId());
-            if (!repostRepo.existsById(repostTrackingId)) {
-                CheerPostRepost repostTracking = new CheerPostRepost();
-                repostTracking.setId(repostTrackingId);
-                repostTracking.setPost(original);
-                repostTracking.setUser(me);
-                repostRepo.save(repostTracking);
-            }
+                // 기존 CheerPostRepost 테이블에도 추가 (호환성 유지 - repostedByMe 조회용)
+                CheerPostRepost.Id repostTrackingId = new CheerPostRepost.Id(original.getId(), me.getId());
+                if (!repostRepo.existsById(repostTrackingId)) {
+                    CheerPostRepost repostTracking = new CheerPostRepost();
+                    repostTracking.setId(repostTrackingId);
+                    repostTracking.setPost(original);
+                    repostTracking.setUser(me);
+                    repostRepo.save(repostTracking);
+                }
 
-            // 알림 (본인 글 제외)
-            if (!original.getAuthor().getId().equals(me.getId())) {
-                try {
-                    String authorName = me.getName() != null && !me.getName().isBlank()
-                            ? me.getName()
-                            : me.getEmail();
+                // 알림 (본인 글 제외)
+                if (!original.getAuthor().getId().equals(me.getId())) {
+                    try {
+                        String authorName = me.getName() != null && !me.getName().isBlank()
+                                ? me.getName()
+                                : me.getEmail();
 
-                    notificationService.createNotification(
-                            Objects.requireNonNull(original.getAuthor().getId()),
-                            com.example.notification.entity.Notification.NotificationType.POST_REPOST,
-                            "리포스트 알림",
-                            authorName + "님이 회원님의 게시글을 리포스트했습니다.",
-                            original.getId());
-                } catch (Exception e) {
-                    log.warn("리포스트 알림 생성 실패: postId={}, error={}", original.getId(), e.getMessage());
+                        notificationService.createNotification(
+                                Objects.requireNonNull(original.getAuthor().getId()),
+                                com.example.notification.entity.Notification.NotificationType.POST_REPOST,
+                                "리포스트 알림",
+                                authorName + "님이 회원님의 게시글을 리포스트했습니다.",
+                                original.getId());
+                    } catch (Exception e) {
+                        log.warn("리포스트 알림 생성 실패: postId={}, error={}", original.getId(), e.getMessage());
+                    }
                 }
             }
+            postRepo.save(Objects.requireNonNull(original));
+            updateHotScore(original);
+            return new RepostToggleResponse(reposted, count);
+        } catch (DataIntegrityViolationException ex) {
+            if (isDeletedAuthorReference(ex)) {
+                ensureAuthorRecordStillExists(me);
+            }
+            throw ex;
         }
-
-        postRepo.save(Objects.requireNonNull(original));
-        updateHotScore(original);
-
-        return new RepostToggleResponse(reposted, count);
     }
 
     /**
@@ -970,7 +1241,7 @@ public class CheerService {
      */
     @Transactional
     public PostDetailRes createQuoteRepost(Long originalPostId, QuoteRepostReq req) {
-        UserEntity me = current.get();
+        UserEntity me = resolveWriteAuthor(current.get());
         CheerPost original = findPostById(originalPostId);
 
         // 중첩 방지: 이미 리포스트인 글은 인용 불가
@@ -994,46 +1265,57 @@ public class CheerService {
             throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
         }
 
-        CheerPost quoteRepost = CheerPost.builder()
-                .author(me)
-                .team(original.getTeam())
-                .repostOf(original)
-                .repostType(CheerPost.RepostType.QUOTE)
-                // title removed
-                .content(req.content()) // 사용자가 작성한 의견
-                .postType(PostType.NORMAL)
-                .build();
-        postRepo.save(Objects.requireNonNull(quoteRepost));
+        try {
+            CheerPost quoteRepost = CheerPost.builder()
+                    .author(me)
+                    .team(original.getTeam())
+                    .repostOf(original)
+                    .repostType(CheerPost.RepostType.QUOTE)
+                    // title removed
+                    .content(sanitizePostContent(req.content())) // 사용자가 작성한 의견
+                    .postType(PostType.NORMAL)
+                    .build();
+            postRepo.save(Objects.requireNonNull(quoteRepost));
 
-        original.setRepostCount(original.getRepostCount() + 1);
-        postRepo.save(original);
+            original.setRepostCount(original.getRepostCount() + 1);
+            postRepo.save(original);
 
-        updateHotScore(original);
+            updateHotScore(original);
 
-        // 알림 (본인 글 제외)
-        if (!original.getAuthor().getId().equals(me.getId())) {
-            try {
-                String authorName = me.getName() != null && !me.getName().isBlank()
-                        ? me.getName()
-                        : me.getEmail();
+            // 알림 (본인 글 제외)
+            if (!original.getAuthor().getId().equals(me.getId())) {
+                try {
+                    String authorName = me.getName() != null && !me.getName().isBlank()
+                            ? me.getName()
+                            : me.getEmail();
 
-                notificationService.createNotification(
-                        Objects.requireNonNull(original.getAuthor().getId()),
-                        com.example.notification.entity.Notification.NotificationType.POST_REPOST,
-                        "인용 리포스트",
-                        authorName + "님이 회원님의 게시글을 인용했습니다.",
-                        quoteRepost.getId());
-            } catch (Exception e) {
-                log.warn("인용 리포스트 알림 생성 실패: originalPostId={}, error={}", originalPostId, e.getMessage());
+                    notificationService.createNotification(
+                            Objects.requireNonNull(original.getAuthor().getId()),
+                            com.example.notification.entity.Notification.NotificationType.POST_REPOST,
+                            "인용 리포스트",
+                            authorName + "님이 회원님의 게시글을 인용했습니다.",
+                            quoteRepost.getId());
+                } catch (Exception e) {
+                    log.warn("인용 리포스트 알림 생성 실패: originalPostId={}, error={}", originalPostId, e.getMessage());
+                }
             }
-        }
 
-        return postDtoMapper.toNewPostDetailRes(quoteRepost, me);
+            return postDtoMapper.toNewPostDetailRes(quoteRepost, me);
+        } catch (DataIntegrityViolationException ex) {
+            if (isDeletedAuthorReference(ex)) {
+                ensureAuthorRecordStillExists(me);
+            }
+            throw ex;
+        }
+    }
+
+    private String sanitizePostContent(String content) {
+        return (content == null || content.isBlank()) ? "" : content;
     }
 
     @Transactional
     public void reportPost(Long postId, ReportRequest req) {
-        UserEntity reporter = current.get();
+        UserEntity reporter = resolveWriteAuthor(current.get());
         CheerPost post = findPostById(postId);
 
         CheerPostReport report = CheerPostReport.builder()
@@ -1043,7 +1325,14 @@ public class CheerService {
                 .description(req.description())
                 .build();
 
-        reportRepo.save(Objects.requireNonNull(report));
+        try {
+            reportRepo.save(Objects.requireNonNull(report));
+        } catch (DataIntegrityViolationException ex) {
+            if (isDeletedAuthorReference(ex)) {
+                ensureAuthorRecordStillExists(reporter);
+            }
+            throw ex;
+        }
     }
 
     /**
@@ -1055,33 +1344,41 @@ public class CheerService {
      */
     @Transactional
     public RepostToggleResponse cancelRepost(Long repostId) {
-        UserEntity me = current.get();
-        CheerPost repost = findPostById(repostId);
+        UserEntity me = resolveWriteAuthor(current.get());
 
-        if (!repost.isRepost()) {
-            throw new IllegalArgumentException("리포스트가 아닌 게시글은 취소할 수 없습니다.");
+        try {
+            CheerPost repost = findPostById(repostId);
+
+            if (!repost.isRepost()) {
+                throw new IllegalArgumentException("리포스트가 아닌 게시글은 취소할 수 없습니다.");
+            }
+
+            if (!repost.getAuthor().getId().equals(me.getId())) {
+                throw new IllegalStateException("자신의 리포스트만 취소할 수 있습니다.");
+            }
+
+            CheerPost original = repost.getRepostOf();
+            if (original == null) {
+                throw new IllegalStateException("원본 게시글을 찾을 수 없습니다.");
+            }
+
+            original.setRepostCount(Math.max(0, original.getRepostCount() - 1));
+            postRepo.save(Objects.requireNonNull(original));
+
+            postRepo.delete(repost);
+
+            CheerPostRepost.Id repostTrackingId = new CheerPostRepost.Id(original.getId(), me.getId());
+            if (repostRepo.existsById(repostTrackingId)) {
+                repostRepo.deleteById(repostTrackingId);
+            }
+
+            return new RepostToggleResponse(false, original.getRepostCount());
+        } catch (DataIntegrityViolationException ex) {
+            if (isDeletedAuthorReference(ex)) {
+                ensureAuthorRecordStillExists(me);
+            }
+            throw ex;
         }
-
-        if (!repost.getAuthor().getId().equals(me.getId())) {
-            throw new IllegalStateException("자신의 리포스트만 취소할 수 있습니다.");
-        }
-
-        CheerPost original = repost.getRepostOf();
-        if (original == null) {
-            throw new IllegalStateException("원본 게시글을 찾을 수 없습니다.");
-        }
-
-        original.setRepostCount(Math.max(0, original.getRepostCount() - 1));
-        postRepo.save(Objects.requireNonNull(original));
-
-        postRepo.delete(repost);
-
-        CheerPostRepost.Id repostTrackingId = new CheerPostRepost.Id(original.getId(), me.getId());
-        if (repostRepo.existsById(repostTrackingId)) {
-            repostRepo.deleteById(repostTrackingId);
-        }
-
-        return new RepostToggleResponse(false, original.getRepostCount());
     }
 
     @Transactional(readOnly = true)
@@ -1179,8 +1476,8 @@ public class CheerService {
 
     @Transactional
     public CommentRes addComment(Long postId, CreateCommentReq req) {
-        UserEntity me = current.get();
-        CheerPost post = findPostById(postId);
+        UserEntity me = resolveWriteAuthor(current.get());
+        CheerPost post = resolveActionTargetPost(postId);
 
         // [NEW] 차단 관계 확인
         validateNoBlockBetween(me.getId(), post.getAuthor().getId(), "차단 관계가 있어 댓글을 작성할 수 없습니다.");
@@ -1193,50 +1490,64 @@ public class CheerService {
             throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
         }
 
-        // 중복 댓글 체크: 직전 3초 이내 동일 작성자·게시글·내용 댓글 확인
-        checkDuplicateComment(post.getId(), me.getId(), req.content(), null);
+        try {
+            // 중복 댓글 체크: 직전 3초 이내 동일 작성자·게시글·내용 댓글 확인
+            checkDuplicateComment(post.getId(), me.getId(), req.content(), null);
 
-        CheerComment comment = saveNewComment(post, me, req);
-        incrementCommentCount(post);
-        updateHotScore(post);
+            CheerComment comment = saveNewComment(post, me, req);
+            incrementCommentCount(post);
+            updateHotScore(post);
 
-        // 게시글 작성자에게 알림 (본인이 아닐 때만)
-        if (!post.getAuthor().getId().equals(me.getId())) {
-            boolean isBlocked = blockService.hasBidirectionalBlock(me.getId(), post.getAuthor().getId());
-            if (!isBlocked) {
-                try {
-                    String authorName = me.getName() != null && !me.getName().isBlank()
-                            ? me.getName()
-                            : me.getEmail();
+            // 게시글 작성자에게 알림 (본인이 아닐 때만)
+            if (!post.getAuthor().getId().equals(me.getId())) {
+                boolean isBlocked = blockService.hasBidirectionalBlock(me.getId(), post.getAuthor().getId());
+                if (!isBlocked) {
+                    try {
+                        String authorName = me.getName() != null && !me.getName().isBlank()
+                                ? me.getName()
+                                : me.getEmail();
 
-                    notificationService.createNotification(
-                            post.getAuthor().getId(),
-                            com.example.notification.entity.Notification.NotificationType.POST_COMMENT,
-                            "새 댓글",
-                            authorName + "님이 회원님의 게시글에 댓글을 남겼습니다.",
-                            post.getId());
-                } catch (Exception e) {
-                    log.warn("댓글 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
+                        notificationService.createNotification(
+                                post.getAuthor().getId(),
+                                com.example.notification.entity.Notification.NotificationType.POST_COMMENT,
+                                "새 댓글",
+                                authorName + "님이 회원님의 게시글에 댓글을 남겼습니다.",
+                                post.getId());
+                    } catch (Exception e) {
+                        log.warn("댓글 알림 생성 실패: postId={}, error={}", post.getId(), e.getMessage());
+                    }
                 }
             }
-        }
 
-        return toCommentRes(comment);
+            return toCommentRes(comment);
+        } catch (DataIntegrityViolationException ex) {
+            if (isDeletedAuthorReference(ex)) {
+                ensureAuthorRecordStillExists(me);
+            }
+            throw ex;
+        }
     }
 
     @Transactional
     public void deleteComment(Long commentId) {
-        UserEntity me = current.get();
+        UserEntity me = resolveWriteAuthor(current.get());
         CheerComment comment = findCommentById(commentId);
         permissionValidator.validateOwnerOrAdmin(me, comment.getAuthor(), "댓글 삭제");
 
         CheerPost post = comment.getPost();
-        commentRepo.delete(comment);
+        try {
+            commentRepo.delete(comment);
 
-        // 실제 DB에서 댓글 수 재계산 (댓글 + 대댓글 모두 포함)
-        // Null type safety 해결을 위해 primitive type 변환 후 전달
-        Long actualCount = commentRepo.countByPostId(Objects.requireNonNull(post.getId()).longValue());
-        post.setCommentCount(actualCount != null ? actualCount.intValue() : 0);
+            // 실제 DB에서 댓글 수 재계산 (댓글 + 대댓글 모두 포함)
+            // Null type safety 해결을 위해 primitive type 변환 후 전달
+            Long actualCount = commentRepo.countByPostId(Objects.requireNonNull(post.getId()).longValue());
+            post.setCommentCount(actualCount != null ? actualCount.intValue() : 0);
+        } catch (DataIntegrityViolationException ex) {
+            if (isDeletedAuthorReference(ex)) {
+                ensureAuthorRecordStillExists(me);
+            }
+            throw ex;
+        }
     }
 
     /**
@@ -1359,7 +1670,7 @@ public class CheerService {
      */
     @Transactional
     public LikeToggleResponse toggleCommentLike(Long commentId) {
-        UserEntity me = current.get();
+        UserEntity me = resolveWriteAuthor(current.get());
         CheerComment comment = findCommentById(commentId);
 
         // 댓글이 속한 게시글의 팀 권한 확인
@@ -1370,41 +1681,48 @@ public class CheerService {
         boolean liked;
         int likes;
 
-        if (commentLikeRepo.existsById(likeId)) {
-            // 좋아요 취소
-            commentLikeRepo.deleteById(likeId);
-            likes = Math.max(0, comment.getLikeCount() - 1);
-            comment.setLikeCount(likes);
-            liked = false;
+        try {
+            if (commentLikeRepo.existsById(likeId)) {
+                // 좋아요 취소
+                commentLikeRepo.deleteById(likeId);
+                likes = Math.max(0, comment.getLikeCount() - 1);
+                comment.setLikeCount(likes);
+                liked = false;
 
-            // 댓글 작성자 포인트 차감 (Entity Update)
-            UserEntity author = userRepo.findById(Objects.requireNonNull(comment.getAuthor().getId()))
-                    .orElseThrow(() -> new UserNotFoundException(comment.getAuthor().getId()));
-            author.deductCheerPoints(1);
-            userRepo.save(author);
-            log.info("Points deducted for comment author {}: -1 (Entity Update)", author.getId());
+                // 댓글 작성자 포인트 차감 (Entity Update)
+                UserEntity author = userRepo.findById(Objects.requireNonNull(comment.getAuthor().getId()))
+                        .orElseThrow(() -> new UserNotFoundException(comment.getAuthor().getId()));
+                author.deductCheerPoints(1);
+                userRepo.save(author);
+                log.info("Points deducted for comment author {}: -1 (Entity Update)", author.getId());
 
-        } else {
-            // 좋아요 추가
-            CheerCommentLike like = new CheerCommentLike();
-            like.setId(likeId);
-            like.setComment(comment);
-            like.setUser(me);
-            commentLikeRepo.save(like);
-            likes = comment.getLikeCount() + 1;
-            comment.setLikeCount(likes);
-            liked = true;
+            } else {
+                // 좋아요 추가
+                CheerCommentLike like = new CheerCommentLike();
+                like.setId(likeId);
+                like.setComment(comment);
+                like.setUser(me);
+                commentLikeRepo.save(like);
+                likes = comment.getLikeCount() + 1;
+                comment.setLikeCount(likes);
+                liked = true;
 
-            // 댓글 작성자 포인트 증가 (Entity Update)
-            UserEntity author = userRepo.findById(Objects.requireNonNull(comment.getAuthor().getId()))
-                    .orElseThrow(() -> new UserNotFoundException(comment.getAuthor().getId()));
-            author.addCheerPoints(1);
-            userRepo.save(author);
-            log.info("Points awarded to comment author {}: +1 (Entity Update)", author.getId());
+                // 댓글 작성자 포인트 증가 (Entity Update)
+                UserEntity author = userRepo.findById(Objects.requireNonNull(comment.getAuthor().getId()))
+                        .orElseThrow(() -> new UserNotFoundException(comment.getAuthor().getId()));
+                author.addCheerPoints(1);
+                userRepo.save(author);
+                log.info("Points awarded to comment author {}: +1 (Entity Update)", author.getId());
+            }
+
+            commentRepo.save(Objects.requireNonNull(comment));
+            return new LikeToggleResponse(liked, likes);
+        } catch (DataIntegrityViolationException ex) {
+            if (isDeletedAuthorReference(ex)) {
+                ensureAuthorRecordStillExists(me);
+            }
+            throw ex;
         }
-
-        commentRepo.save(Objects.requireNonNull(comment));
-        return new LikeToggleResponse(liked, likes);
     }
 
     /**
@@ -1412,7 +1730,7 @@ public class CheerService {
      */
     @Transactional
     public CommentRes addReply(Long postId, Long parentCommentId, CreateCommentReq req) {
-        UserEntity me = current.get();
+        UserEntity me = resolveWriteAuthor(current.get());
         CheerPost post = findPostById(postId);
         CheerComment parentComment = findCommentById(parentCommentId);
 
@@ -1433,33 +1751,40 @@ public class CheerService {
             throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
         }
 
-        // 중복 대댓글 체크: 직전 3초 이내 동일 작성자·부모댓글·내용 대댓글 확인
-        checkDuplicateComment(post.getId(), me.getId(), req.content(), parentCommentId);
+        try {
+            // 중복 대댓글 체크: 직전 3초 이내 동일 작성자·부모댓글·내용 대댓글 확인
+            checkDuplicateComment(post.getId(), me.getId(), req.content(), parentCommentId);
 
-        CheerComment reply = saveNewReply(post, parentComment, me, req);
-        incrementCommentCount(post);
-        updateHotScore(post);
+            CheerComment reply = saveNewReply(post, parentComment, me, req);
+            incrementCommentCount(post);
+            updateHotScore(post);
 
-        // 원댓글 작성자에게 알림 (본인이 아닐 때만)
-        if (!parentComment.getAuthor().getId().equals(me.getId())) {
-            try {
-                String authorName = me.getName() != null && !me.getName().isBlank()
-                        ? me.getName()
-                        : me.getEmail();
+            // 원댓글 작성자에게 알림 (본인이 아닐 때만)
+            if (!parentComment.getAuthor().getId().equals(me.getId())) {
+                try {
+                    String authorName = me.getName() != null && !me.getName().isBlank()
+                            ? me.getName()
+                            : me.getEmail();
 
-                notificationService.createNotification(
-                        Objects.requireNonNull(parentComment.getAuthor().getId()),
-                        com.example.notification.entity.Notification.NotificationType.COMMENT_REPLY,
-                        "새 대댓글",
-                        authorName + "님이 회원님의 댓글에 답글을 남겼습니다.",
-                        post.getId());
-            } catch (Exception e) {
-                log.warn("대댓글 알림 생성 실패: postId={}, parentCommentId={}, error={}",
-                        post.getId(), parentCommentId, e.getMessage());
+                    notificationService.createNotification(
+                            Objects.requireNonNull(parentComment.getAuthor().getId()),
+                            com.example.notification.entity.Notification.NotificationType.COMMENT_REPLY,
+                            "새 대댓글",
+                            authorName + "님이 회원님의 댓글에 답글을 남겼습니다.",
+                            post.getId());
+                } catch (Exception e) {
+                    log.warn("대댓글 알림 생성 실패: postId={}, parentCommentId={}, error={}",
+                            post.getId(), parentCommentId, e.getMessage());
+                }
             }
-        }
 
-        return toCommentRes(reply);
+            return toCommentRes(reply);
+        } catch (DataIntegrityViolationException ex) {
+            if (isDeletedAuthorReference(ex)) {
+                ensureAuthorRecordStillExists(me);
+            }
+            throw ex;
+        }
     }
 
     /**

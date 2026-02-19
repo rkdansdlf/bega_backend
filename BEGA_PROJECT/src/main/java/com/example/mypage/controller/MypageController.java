@@ -123,9 +123,10 @@ public class MypageController {
                         String newRoleKey = updatedEntity.getRole();
                         String userEmail = updatedEntity.getEmail();
                         Long currentUserId = userId;
+                        int tokenVersion = updatedEntity.getTokenVersion() == null ? 0 : updatedEntity.getTokenVersion();
 
                         String newJwtToken = jwtUtil.createJwt(userEmail, newRoleKey, currentUserId,
-                                        ACCESS_TOKEN_EXPIRED_MS);
+                                        ACCESS_TOKEN_EXPIRED_MS, tokenVersion);
 
                         ResponseCookie cookie = ResponseCookie.from("Authorization", newJwtToken)
                                         .httpOnly(true)
