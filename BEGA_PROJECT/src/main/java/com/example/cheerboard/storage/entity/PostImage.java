@@ -28,7 +28,7 @@ public class PostImage {
     private CheerPost post;
 
     /**
-     * Supabase Storage 경로: posts/{postId}/{uuid}.{ext}
+     * Storage path: posts/{postId}/{uuid}.{ext}
      */
     @Column(name = "storage_path", nullable = false)
     private String storagePath;

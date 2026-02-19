@@ -4,6 +4,8 @@ spring:
   # --- 공통 설정 ---
   config:
     import: optional:file:.env[.properties], optional:file:../../.env[.properties] # .env 로드 (현재 디렉토리 및 루트 디렉토리)
+  autoconfigure:
+    exclude: io.awspring.cloud.autoconfigure.s3.S3AutoConfiguration
 
   jpa:
     open-in-view: false # N+1 방지
@@ -143,7 +145,7 @@ app:
     url: ${APP_FRONTEND_URL:http://localhost:3000}
   backend:
     url: ${APP_BACKEND_URL:http://localhost:8080}
-  allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:*,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:*,http://127.0.0.1:5176}
+  allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176}
   cookie:
     secure: false  # 개발 환경 기본값 (HTTP), prod 프로필에서 true로 오버라이드
 
@@ -187,7 +189,7 @@ management:
       enabled: false
 
 ---
-# 'dev' 프로필: 개발 환경 (PostgreSQL - Supabase OCI 사용)
+# 'dev' 프로필: 개발 환경 (PostgreSQL + OCI 스토리지)
 spring:
   config:
     activate:
@@ -253,17 +255,19 @@ spring:
     properties:
       hibernate:
         default_schema: public
-  sql:
-    init:
-      mode: never
-    properties:
-      hibernate:
         jdbc:
           batch_size: 50
         order_updates: true
         order_inserts: true
-        temp:
-          use_jdbc_metadata_defaults: false
+        boot:
+          allow_jdbc_metadata_access: true
+        connection:
+          driver_class: org.postgresql.Driver
+  sql:
+    init:
+      mode: never
+    properties:
+      hibernate: {}
 
 ---
 # 'prod' 프로필: 배포 환경 (Oracle Autonomous DB 사용)
