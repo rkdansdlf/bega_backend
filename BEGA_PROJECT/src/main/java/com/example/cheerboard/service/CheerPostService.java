@@ -17,7 +17,9 @@ import com.example.auth.repository.UserRepository;
 import com.example.auth.service.BlockService;
 import com.example.auth.service.FollowService;
 import com.example.common.exception.InvalidAuthorException;
-import com.example.common.exception.UserNotFoundException;
+import com.example.common.exception.RepostNotAllowedException;
+import com.example.common.exception.RepostSelfNotAllowedException;
+import com.example.common.exception.RepostTargetNotFoundException;
 import com.example.common.service.AIModerationService;
 import com.example.kbo.repository.TeamRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
@@ -34,11 +36,29 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Objects;
 
 import static com.example.cheerboard.service.CheerServiceConstants.GLOBAL_TEAM_ID;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CANCEL_NOT_ALLOWED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CANCEL_NOT_ALLOWED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_PRIVATE_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_PRIVATE_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_SELF_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_A_REPOST_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_A_REPOST_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_QUOTE_NOT_ALLOWED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_QUOTE_NOT_ALLOWED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET_NOT_FOUND_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET_NOT_FOUND_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_SELF_NOT_ALLOWED_CODE;
 
 @Slf4j
 @Service
@@ -75,6 +95,13 @@ public class CheerPostService {
         if (!modResult.isAllowed()) {
             throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
         }
+
+        validateSharePolicy(
+                req.shareMode(),
+                req.content(),
+                req.sourceUrl(),
+                req.sourceLicense());
+        flagPotentialSourceSpam(author.getId(), req.sourceUrl());
 
         permissionValidator.validateTeamAccess(author, normalizedTeamId, "게시글 작성");
 
@@ -190,6 +217,13 @@ public class CheerPostService {
             throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
         }
 
+        CheerPost.ShareMode shareModeForValidation = req.shareMode() != null ? req.shareMode() : post.getShareMode();
+        validateSharePolicy(
+                shareModeForValidation,
+                req.content(),
+                req.sourceUrl() != null ? req.sourceUrl() : post.getSourceUrl(),
+                req.sourceLicense() != null ? req.sourceLicense() : post.getSourceLicense());
+
         updatePostContent(post, req);
         return post;
     }
@@ -214,89 +248,40 @@ public class CheerPostService {
     @Transactional
     public RepostToggleResponse toggleRepost(Long postId, UserEntity me) {
         UserEntity author = resolveWriteAuthor(me);
-        CheerPost original = findPostById(postId);
-
-        // Resolve target if it's already a repost
-        original = resolveActionTargetPost(original);
-
-        if (blockService.hasBidirectionalBlock(author.getId(), original.getAuthor().getId())) {
-            throw new IllegalStateException("차단된 사용자의 게시글은 리포스트할 수 없습니다.");
-        }
-
-        if (original.getAuthor().isPrivateAccount() && !original.getAuthor().getId().equals(author.getId())) {
-            throw new IllegalStateException("비공개 계정의 게시글은 리포스트할 수 없습니다.");
-        }
-
-        java.util.Optional<CheerPost> existing = postRepo.findByAuthorAndRepostOfAndRepostType(
-                author, original, CheerPost.RepostType.SIMPLE);
-
-        boolean reposted;
-        int count;
-
         try {
+            CheerPost original = resolveRepostActionTarget(author, postId, false);
+
+            Optional<CheerPost> existing = postRepo.findByAuthorAndRepostOfAndRepostType(
+                    author, original, CheerPost.RepostType.SIMPLE);
+
             if (existing.isPresent()) {
-                // 취소
-                postRepo.delete(Objects.requireNonNull(existing.get()));
-                count = Math.max(0, original.getRepostCount() - 1);
-                original.setRepostCount(count);
-                reposted = false;
-
-                CheerPostRepost.Id repostTrackingId = new CheerPostRepost.Id(original.getId(), author.getId());
-                if (repostRepo.existsById(repostTrackingId)) {
-                    repostRepo.deleteById(repostTrackingId);
-                }
-            } else {
-                // 생성
-                CheerPost repost = CheerPost.builder()
-                        .author(author)
-                        .team(original.getTeam())
-                        .repostOf(original)
-                        .repostType(CheerPost.RepostType.SIMPLE)
-                        .content("")
-                        .postType(PostType.NORMAL)
-                        .build();
-                postRepo.save(Objects.requireNonNull(repost));
-
-                count = original.getRepostCount() + 1;
-                original.setRepostCount(count);
-                reposted = true;
-
-                CheerPostRepost.Id repostTrackingId = new CheerPostRepost.Id(original.getId(), author.getId());
-                if (!repostRepo.existsById(repostTrackingId)) {
-                    CheerPostRepost repostTracking = new CheerPostRepost();
-                    repostTracking.setId(repostTrackingId);
-                    repostTracking.setPost(original);
-                    repostTracking.setUser(author);
-                    repostRepo.save(repostTracking);
-                }
-
-                if (!original.getAuthor().getId().equals(author.getId())) {
-                    try {
-                        String authorName = author.getName() != null && !author.getName().isBlank()
-                                ? author.getName()
-                                : author.getEmail();
-
-                        notificationService.createNotification(
-                                Objects.requireNonNull(original.getAuthor().getId()),
-                                com.example.notification.entity.Notification.NotificationType.POST_REPOST,
-                                "리포스트 알림",
-                                authorName + "님이 회원님의 게시글을 리포스트했습니다.",
-                                original.getId());
-                    } catch (Exception e) {
-                        log.warn("리포스트 알림 생성 실패: postId={}, error={}", original.getId(), e.getMessage());
-                    }
-                }
+                postRepo.delete(existing.get());
+                repostRepo.deleteByPostIdAndUserId(original.getId(), author.getId());
+                postRepo.decrementRepostCount(original.getId());
+                updateHotScore(original);
+                return new RepostToggleResponse(false, readRepostCount(original.getId()));
             }
-            postRepo.save(Objects.requireNonNull(original));
 
-            // Note: Hot score update is handled by caller (CheerService via Facade) or we
-            // do it here?
-            // The plan said "Internal logic for...".
-            // Better to do it here to ensure consistency.
+            CheerPost repost = CheerPost.builder()
+                    .author(author)
+                    .team(original.getTeam())
+                    .repostOf(original)
+                    .repostType(CheerPost.RepostType.SIMPLE)
+                    .shareMode(CheerPost.ShareMode.INTERNAL_REPOST)
+                    .content("")
+                    .postType(PostType.NORMAL)
+                    .build();
+            postRepo.save(Objects.requireNonNull(repost));
+            createRepostTracking(original, author);
+            postRepo.incrementRepostCount(original.getId());
+            sendRepostNotification(author, original, "리포스트 알림");
             updateHotScore(original);
-
-            return new RepostToggleResponse(reposted, count);
+            return new RepostToggleResponse(true, readRepostCount(original.getId()));
         } catch (DataIntegrityViolationException ex) {
+            if (isRepostDuplicateViolation(ex)) {
+                CheerPost original = resolveRepostActionTarget(author, postId, false);
+                return getSimpleRepostState(author, original);
+            }
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(author);
             }
@@ -307,19 +292,7 @@ public class CheerPostService {
     @Transactional
     public CheerPost createQuoteRepost(Long originalPostId, QuoteRepostReq req, UserEntity me) {
         UserEntity author = resolveWriteAuthor(me);
-        CheerPost original = findPostById(originalPostId);
-
-        if (original.isRepost()) {
-            throw new IllegalArgumentException("리포스트된 글은 인용할 수 없습니다.");
-        }
-
-        if (blockService.hasBidirectionalBlock(author.getId(), original.getAuthor().getId())) {
-            throw new IllegalStateException("차단된 사용자의 게시글은 리포스트할 수 없습니다.");
-        }
-
-        if (original.getAuthor().isPrivateAccount() && !original.getAuthor().getId().equals(author.getId())) {
-            throw new IllegalStateException("비공개 계정의 게시글은 리포스트할 수 없습니다.");
-        }
+        CheerPost original = resolveRepostActionTarget(author, originalPostId, true);
 
         AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
         if (!modResult.isAllowed()) {
@@ -332,32 +305,17 @@ public class CheerPostService {
                     .team(original.getTeam())
                     .repostOf(original)
                     .repostType(CheerPost.RepostType.QUOTE)
+                    .shareMode(CheerPost.ShareMode.INTERNAL_QUOTE)
                     .content(sanitizePostContent(req.content()))
                     .postType(PostType.NORMAL)
                     .build();
             postRepo.save(Objects.requireNonNull(quoteRepost));
-
-            original.setRepostCount(original.getRepostCount() + 1);
-            postRepo.save(original);
+            postRepo.incrementRepostCount(original.getId());
+            int updatedRepostCount = readRepostCount(original.getId());
+            original.setRepostCount(updatedRepostCount);
 
             updateHotScore(original);
-
-            if (!original.getAuthor().getId().equals(author.getId())) {
-                try {
-                    String authorName = author.getName() != null && !author.getName().isBlank()
-                            ? author.getName()
-                            : author.getEmail();
-
-                    notificationService.createNotification(
-                            Objects.requireNonNull(original.getAuthor().getId()),
-                            com.example.notification.entity.Notification.NotificationType.POST_REPOST,
-                            "인용 리포스트",
-                            authorName + "님이 회원님의 게시글을 인용했습니다.",
-                            quoteRepost.getId());
-                } catch (Exception e) {
-                    log.warn("인용 리포스트 알림 생성 실패: originalPostId={}, error={}", originalPostId, e.getMessage());
-                }
-            }
+            sendRepostNotification(author, original, "인용 리포스트");
 
             return quoteRepost;
         } catch (DataIntegrityViolationException ex) {
@@ -374,31 +332,19 @@ public class CheerPostService {
 
         try {
             CheerPost repost = findPostById(repostId);
+            validateRepostCancelRequest(author, repost);
 
-            if (!repost.isRepost()) {
-                throw new IllegalArgumentException("리포스트가 아닌 게시글은 취소할 수 없습니다.");
-            }
-
-            if (!repost.getAuthor().getId().equals(author.getId())) {
-                throw new IllegalStateException("자신의 리포스트만 취소할 수 있습니다.");
-            }
-
-            CheerPost original = repost.getRepostOf();
-            if (original == null) {
-                throw new IllegalStateException("원본 게시글을 찾을 수 없습니다.");
-            }
-
-            original.setRepostCount(Math.max(0, original.getRepostCount() - 1));
-            postRepo.save(Objects.requireNonNull(original));
-
+            CheerPost original = requireRepostTarget(repost);
             postRepo.delete(repost);
 
-            CheerPostRepost.Id repostTrackingId = new CheerPostRepost.Id(original.getId(), author.getId());
-            if (repostRepo.existsById(repostTrackingId)) {
-                repostRepo.deleteById(repostTrackingId);
+            if (original != null && original.getId() != null) {
+                if (repost.isSimpleRepost()) {
+                    repostRepo.deleteByPostIdAndUserId(original.getId(), author.getId());
+                }
+                postRepo.decrementRepostCount(original.getId());
             }
 
-            return new RepostToggleResponse(false, original.getRepostCount());
+            return new RepostToggleResponse(false, original == null ? 0 : readRepostCount(original.getId()));
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(author);
@@ -424,6 +370,32 @@ public class CheerPostService {
     public CheerPost findPostById(Long postId) {
         return postRepo.findById(Objects.requireNonNull(postId))
                 .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
+    }
+
+    private CheerPost findPostForRepost(Long postId) {
+        try {
+            return findPostById(postId);
+        } catch (java.util.NoSuchElementException ex) {
+            throw new RepostTargetNotFoundException(REPOST_TARGET_NOT_FOUND_CODE, REPOST_TARGET_NOT_FOUND_ERROR);
+        }
+    }
+
+    private CheerPost resolveRepostActionTarget(UserEntity actor, Long postId, boolean isQuote) {
+        CheerPost target = findPostForRepost(postId);
+        CheerPost resolvedTarget = isQuote ? target : resolveRepostRootPost(target);
+        validateRepostPolicy(actor, target, resolvedTarget, isQuote);
+        return resolvedTarget;
+    }
+
+    private void validateRepostPolicy(UserEntity actor, CheerPost originalTarget, CheerPost resolvedTarget, boolean isQuote) {
+        if (actor.getId().equals(originalTarget.getAuthor().getId())) {
+            throw new RepostSelfNotAllowedException(REPOST_SELF_NOT_ALLOWED_CODE, REPOST_NOT_ALLOWED_SELF_ERROR);
+        }
+
+        if (isQuote && originalTarget.isRepost()) {
+            throw new RepostNotAllowedException(REPOST_QUOTE_NOT_ALLOWED_CODE, REPOST_QUOTE_NOT_ALLOWED_ERROR);
+        }
+        validateRepostTargetPolicy(actor, resolvedTarget);
     }
 
     // --- Helpers ---
@@ -551,6 +523,19 @@ public class CheerPostService {
         return hasAuthorColumn && (lower.contains("users") || lower.contains("cheer_post"));
     }
 
+    private RepostToggleResponse getSimpleRepostState(UserEntity author, CheerPost original) {
+        boolean isCurrentlyReposted = repostRepo.existsByPostIdAndUserId(original.getId(), author.getId()) ||
+                postRepo
+                        .findByAuthorAndRepostOfAndRepostType(author, original, CheerPost.RepostType.SIMPLE)
+                .isPresent();
+        return new RepostToggleResponse(isCurrentlyReposted, readRepostCount(original.getId()));
+    }
+
+    private CheerPost requireRepostTarget(CheerPost repost) {
+        CheerPost target = repost.getRepostOf();
+        return target;
+    }
+
     private PostType determinePostType(CreatePostReq req, UserEntity user) {
         if (user != null && "ROLE_ADMIN".equals(user.getRole()) && "NOTICE".equals(req.postType())) {
             return PostType.NOTICE;
@@ -574,6 +559,14 @@ public class CheerPostService {
         return CheerPost.builder()
                 .author(author)
                 .team(team)
+                .shareMode(resolveShareMode(req.shareMode(), null))
+                .sourceUrl(req.sourceUrl())
+                .sourceTitle(req.sourceTitle())
+                .sourceAuthor(req.sourceAuthor())
+                .sourceLicense(req.sourceLicense())
+                .sourceLicenseUrl(req.sourceLicenseUrl())
+                .sourceChangedNote(req.sourceChangedNote())
+                .sourceSnapshotType(req.sourceSnapshotType())
                 .content(sanitizePostContent(req.content()))
                 .postType(postType)
                 .build();
@@ -581,6 +574,19 @@ public class CheerPostService {
 
     private void updatePostContent(CheerPost post, UpdatePostReq req) {
         post.setContent(req.content());
+        if (req.shareMode() != null || hasAnySourceMeta(req)) {
+            CheerPost.ShareMode nextMode = req.shareMode() != null
+                    ? resolveShareMode(req.shareMode(), post.getRepostType())
+                    : post.getShareMode();
+            post.setShareMode(nextMode);
+            post.setSourceUrl(req.sourceUrl());
+            post.setSourceTitle(req.sourceTitle());
+            post.setSourceAuthor(req.sourceAuthor());
+            post.setSourceLicense(req.sourceLicense());
+            post.setSourceLicenseUrl(req.sourceLicenseUrl());
+            post.setSourceChangedNote(req.sourceChangedNote());
+            post.setSourceSnapshotType(req.sourceSnapshotType());
+        }
         // UpdatedAt is handled by Auditing or we set it if manually needed?
         // Usually @LastModifiedDate handles it. CheerService didn't seem to set it
         // manually.
@@ -590,6 +596,74 @@ public class CheerPostService {
 
     private String sanitizePostContent(String content) {
         return (content == null || content.isBlank()) ? "" : content;
+    }
+
+    private CheerPost.ShareMode resolveShareMode(CheerPost.ShareMode requested, CheerPost.RepostType repostType) {
+        if (repostType == CheerPost.RepostType.QUOTE) {
+            return CheerPost.ShareMode.INTERNAL_QUOTE;
+        }
+        if (requested == null) {
+            return CheerPost.ShareMode.INTERNAL_REPOST;
+        }
+        return requested;
+    }
+
+    private boolean hasAnySourceMeta(UpdatePostReq req) {
+        return req.sourceUrl() != null
+                || req.sourceTitle() != null
+                || req.sourceAuthor() != null
+                || req.sourceLicense() != null
+                || req.sourceLicenseUrl() != null
+                || req.sourceChangedNote() != null
+                || req.sourceSnapshotType() != null;
+    }
+
+    private void validateSharePolicy(
+            CheerPost.ShareMode mode,
+            String content,
+            String sourceUrl,
+            String sourceLicense) {
+        CheerPost.ShareMode effectiveMode = mode != null ? mode : CheerPost.ShareMode.INTERNAL_REPOST;
+        EnumSet<CheerPost.ShareMode> externalModes = EnumSet.of(
+                CheerPost.ShareMode.EXTERNAL_LINK,
+                CheerPost.ShareMode.EXTERNAL_COPY,
+                CheerPost.ShareMode.EXTERNAL_EMBED,
+                CheerPost.ShareMode.EXTERNAL_SUMMARY);
+
+        if (!externalModes.contains(effectiveMode)) {
+            return;
+        }
+
+        if (sourceUrl == null || sourceUrl.isBlank()) {
+            throw new IllegalArgumentException("외부 콘텐츠 공유 시 출처 URL은 필수입니다.");
+        }
+
+        if (effectiveMode == CheerPost.ShareMode.EXTERNAL_COPY) {
+            if (sourceLicense == null || sourceLicense.isBlank()) {
+                throw new IllegalArgumentException("EXTERNAL_COPY 모드는 라이선스 정보가 필요합니다.");
+            }
+
+            String normalized = sanitizePostContent(content);
+            if (normalized.length() > 2000) {
+                throw new IllegalArgumentException("EXTERNAL_COPY 모드의 본문은 2000자 이하로 제한됩니다.");
+            }
+        }
+    }
+
+    private void flagPotentialSourceSpam(Long authorId, String sourceUrl) {
+        if (authorId == null || sourceUrl == null || sourceUrl.isBlank()) {
+            return;
+        }
+        long count = postRepo.countByAuthor_IdAndSourceUrlAndCreatedAtAfter(
+                authorId,
+                sourceUrl,
+                java.time.Instant.now().minusSeconds(24 * 60 * 60));
+        if (count >= 3) {
+            log.warn("Potential duplicate external repost spam. authorId={}, sourceUrl={}, count24h={}",
+                    authorId,
+                    sourceUrl,
+                    count);
+        }
     }
 
     private void sendNewPostNotificationToFollowers(CheerPost post, UserEntity author) {
@@ -618,18 +692,88 @@ public class CheerPostService {
         }
     }
 
-    private CheerPost resolveActionTargetPost(CheerPost post) {
+    private CheerPost resolveRepostRootPost(CheerPost post) {
         CheerPost current = post;
         int hops = 0;
         while (current.isRepost()) {
             CheerPost parent = current.getRepostOf();
-            if (parent == null)
-                return current;
+            if (parent == null) {
+                throw new RepostTargetNotFoundException(REPOST_TARGET_NOT_FOUND_CODE, REPOST_TARGET_NOT_FOUND_ERROR);
+            }
             current = parent;
-            if (++hops > 32)
-                throw new IllegalArgumentException("리포스트 대상이 비정상적으로 설정되어 있습니다.");
+            if (++hops > 32) {
+                throw new RepostNotAllowedException(REPOST_CYCLE_DETECTED_CODE, REPOST_CYCLE_DETECTED_ERROR);
+            }
         }
         return current;
+    }
+
+    private void validateRepostTargetPolicy(UserEntity actor, CheerPost target) {
+        if (actor.getId().equals(target.getAuthor().getId())) {
+            throw new RepostSelfNotAllowedException(REPOST_SELF_NOT_ALLOWED_CODE, REPOST_NOT_ALLOWED_SELF_ERROR);
+        }
+
+        if (blockService.hasBidirectionalBlock(actor.getId(), target.getAuthor().getId())) {
+            throw new RepostNotAllowedException(REPOST_NOT_ALLOWED_BLOCKED_CODE, REPOST_NOT_ALLOWED_BLOCKED_ERROR);
+        }
+
+        if (target.getAuthor().isPrivateAccount()) {
+            throw new RepostNotAllowedException(REPOST_NOT_ALLOWED_PRIVATE_CODE, REPOST_NOT_ALLOWED_PRIVATE_ERROR);
+        }
+    }
+
+    private void validateRepostCancelRequest(UserEntity actor, CheerPost repost) {
+        if (!repost.isRepost()) {
+            throw new RepostNotAllowedException(REPOST_NOT_A_REPOST_CODE, REPOST_NOT_A_REPOST_ERROR);
+        }
+
+        if (!repost.getAuthor().getId().equals(actor.getId())) {
+            throw new RepostSelfNotAllowedException(REPOST_CANCEL_NOT_ALLOWED_CODE, REPOST_CANCEL_NOT_ALLOWED_ERROR);
+        }
+    }
+
+    private void createRepostTracking(CheerPost originalPost, UserEntity author) {
+        CheerPostRepost repostTracking = new CheerPostRepost();
+        repostTracking.setId(new CheerPostRepost.Id(originalPost.getId(), author.getId()));
+        repostTracking.setPost(originalPost);
+        repostTracking.setUser(author);
+        repostRepo.save(repostTracking);
+    }
+
+    private void sendRepostNotification(UserEntity actor, CheerPost originalPost, String notificationTitle) {
+        if (actor.getId().equals(originalPost.getAuthor().getId())) {
+            return;
+        }
+
+        try {
+            String actorName = actor.getName() != null && !actor.getName().isBlank() ? actor.getName() : actor.getEmail();
+            notificationService.createNotification(
+                    Objects.requireNonNull(originalPost.getAuthor().getId()),
+                    com.example.notification.entity.Notification.NotificationType.POST_REPOST,
+                    notificationTitle,
+                    actorName + "님이 회원님의 게시글을 리포스트했습니다.",
+                    originalPost.getId());
+        } catch (Exception e) {
+            log.warn("리포스트 알림 생성 실패: postId={}, error={}", originalPost.getId(), e.getMessage());
+        }
+    }
+
+    private boolean isRepostDuplicateViolation(DataIntegrityViolationException ex) {
+        String message = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String lower = message.toLowerCase();
+        return lower.contains("uq_cheer_post_simple_repost")
+                || (lower.contains("duplicate key") && lower.contains("repost_type") && lower.contains("repost_of_id"))
+                || (lower.contains("repost_of_id") && lower.contains("repost_type"))
+                || (lower.contains("cheer_post_repost") && lower.contains("duplicate key"))
+                || (lower.contains("cheer_post_repost_pkey"));
+    }
+
+    private int readRepostCount(Long postId) {
+        Integer count = postRepo.findRepostCountById(postId);
+        return count == null ? 0 : count;
     }
 
     public void updateHotScore(CheerPost post) {

@@ -5,6 +5,7 @@ import com.example.cheerboard.dto.EmbeddedPostDto;
 import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.dto.PostLightweightSummaryRes;
+import com.example.cheerboard.dto.SourceInfoRes;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.kbo.entity.TeamEntity;
 import com.example.auth.entity.UserEntity;
@@ -122,7 +123,9 @@ public class PostDtoMapper {
                 repostOfId,
                 repostType,
                 originalPost,
-                originalDeleted);
+                originalDeleted,
+                resolveShareMode(post),
+                toSourceInfo(post));
     }
 
     /**
@@ -190,7 +193,9 @@ public class PostDtoMapper {
                 repostOfId,
                 repostType,
                 originalPost,
-                originalDeleted);
+                originalDeleted,
+                resolveShareMode(post),
+                toSourceInfo(post));
     }
 
     /**
@@ -245,7 +250,9 @@ public class PostDtoMapper {
                 repostOfId,
                 repostType,
                 originalPost,
-                originalDeleted);
+                originalDeleted,
+                resolveShareMode(post),
+                toSourceInfo(post));
     }
 
     /**
@@ -319,7 +326,9 @@ public class PostDtoMapper {
                 repostOfId,
                 repostType,
                 originalPost,
-                originalDeleted);
+                originalDeleted,
+                resolveShareMode(post),
+                toSourceInfo(post));
     }
 
     /**
@@ -396,6 +405,32 @@ public class PostDtoMapper {
 
     private String resolveTeamColor(TeamEntity team) {
         return team != null ? team.getColor() : null;
+    }
+
+    private String resolveShareMode(CheerPost post) {
+        return post.getShareMode() != null ? post.getShareMode().name() : null;
+    }
+
+    private SourceInfoRes toSourceInfo(CheerPost post) {
+        boolean hasSourceInfo = post.getSourceUrl() != null
+                || post.getSourceTitle() != null
+                || post.getSourceAuthor() != null
+                || post.getSourceLicense() != null
+                || post.getSourceLicenseUrl() != null
+                || post.getSourceChangedNote() != null
+                || post.getSourceSnapshotType() != null;
+        if (!hasSourceInfo) {
+            return null;
+        }
+
+        return new SourceInfoRes(
+                post.getSourceTitle(),
+                post.getSourceAuthor(),
+                post.getSourceUrl(),
+                post.getSourceLicense(),
+                post.getSourceLicenseUrl(),
+                post.getSourceChangedNote(),
+                post.getSourceSnapshotType());
     }
 
     /**

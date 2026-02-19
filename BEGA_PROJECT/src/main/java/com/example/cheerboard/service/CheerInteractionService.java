@@ -9,6 +9,7 @@ import com.example.cheerboard.domain.CheerPostReport;
 import com.example.cheerboard.domain.CheerPostRepost;
 import com.example.cheerboard.dto.BookmarkResponse;
 import com.example.cheerboard.dto.LikeToggleResponse;
+import com.example.cheerboard.dto.ReportCaseRes;
 import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.repo.CheerBookmarkRepo;
 import com.example.cheerboard.repo.CheerCommentLikeRepo;
@@ -166,19 +167,49 @@ public class CheerInteractionService {
     }
 
     @Transactional
-    public void reportPost(Long postId, ReportRequest req, UserEntity me) {
+    public ReportCaseRes reportPost(Long postId, ReportRequest req, UserEntity me) {
         UserEntity reporter = resolveWriteAuthor(me);
         CheerPost post = postService.findPostById(postId);
+
+        if (req.reason() == null) {
+            throw new IllegalArgumentException("신고 사유를 선택해 주세요.");
+        }
+
+        LocalDateTime dedupeSince = LocalDateTime.now().minusDays(7);
+        boolean alreadyReported = reportRepo.existsByPost_IdAndReporter_IdAndCreatedAtAfter(
+                postId,
+                reporter.getId(),
+                dedupeSince);
+        if (alreadyReported) {
+            throw new IllegalStateException("동일 게시물 신고는 7일 내 1회만 접수할 수 있습니다.");
+        }
+
+        long reportCountIn24Hours = reportRepo.countByReporter_IdAndCreatedAtAfter(
+                reporter.getId(),
+                LocalDateTime.now().minusHours(24));
+        if (reportCountIn24Hours >= 20) {
+            log.warn("Potential abusive reporting detected. reporterId={}, count24h={}", reporter.getId(),
+                    reportCountIn24Hours);
+        }
 
         CheerPostReport report = CheerPostReport.builder()
                 .post(post)
                 .reporter(reporter)
                 .reason(req.reason())
-                .description(req.description())
+                .description(buildReportDescription(req))
+                .evidenceUrl(req.evidenceUrl())
+                .requestedAction(req.requestedAction())
+                .appealStatus(CheerPostReport.AppealStatus.NONE)
                 .build();
 
         try {
-            reportRepo.save(Objects.requireNonNull(report));
+            CheerPostReport saved = reportRepo.save(Objects.requireNonNull(report));
+            return new ReportCaseRes(
+                    saved.getId(),
+                    saved.getStatus().name(),
+                    saved.getHandledAt(),
+                    "관리자 검토 대기",
+                    "신고가 정상 접수되었습니다.");
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(reporter);
@@ -445,5 +476,33 @@ public class CheerInteractionService {
         boolean hasAuthorColumn = lower.contains("author_id") || lower.contains("user_id")
                 || lower.contains("reporter_id");
         return hasAuthorColumn;
+    }
+
+    private String buildReportDescription(ReportRequest req) {
+        StringBuilder description = new StringBuilder();
+        if (req.description() != null && !req.description().isBlank()) {
+            description.append(req.description().trim());
+        } else if (req.requestedReason() != null && !req.requestedReason().isBlank()) {
+            description.append(req.requestedReason().trim());
+        }
+
+        appendReportMeta(description, "sourceUrl", req.sourceUrl());
+        appendReportMeta(description, "license", req.license());
+        appendReportMeta(description, "ownerContact", req.ownerContact());
+        appendReportMeta(description, "hasRightEvidence", req.hasRightEvidence() == null ? null : req.hasRightEvidence().toString());
+        appendReportMeta(description, "requestedReason", req.requestedReason());
+
+        String result = description.toString().trim();
+        return result.isBlank() ? null : result;
+    }
+
+    private void appendReportMeta(StringBuilder builder, String key, String value) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        if (builder.length() > 0) {
+            builder.append('\n');
+        }
+        builder.append('[').append(key).append("] ").append(value.trim());
     }
 }

@@ -11,6 +11,7 @@ import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.PostLightweightSummaryRes;
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.dto.QuoteRepostReq;
+import com.example.cheerboard.dto.ReportCaseRes;
 import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.dto.RepostToggleResponse;
 import com.example.cheerboard.dto.UpdatePostReq;
@@ -101,30 +102,8 @@ public class CheerService {
 
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> getBookmarkedPosts(Pageable pageable) {
-        // This logic is currently not in FeedService but InteractionService has
-        // getBookmarkedPostIds.
-        // Wait, CheerService had `getBookmarkedPosts`.
-        // I didn't move it to FeedService?
-        // Let's check CheerFeedService. I see `list`, `search`, `lightweight`,
-        // `following`, `hot`.
-        // I missed `getBookmarkedPosts` in FeedService!
-        // But `CheerService` had it.
-        // I can implement it in `CheerService` facade by using `BookmarkRepo` (via
-        // InteractionService??)
-        // Or better, add it to `CheerFeedService`.
-        // Since I'm editing `CheerService` now, I can't easily edit `CheerFeedService`
-        // in parallel without risking conflicts or confusion.
-        // Or I can keep it in `CheerService` but I need `CheerBookmarkRepo`.
-        // `CheerInteractionService` has `bookmarkRepo`.
-        // I can inject `CheerBookmarkRepo` here? Or delegate.
-        // Actually, listing bookmarked posts IS a feed operation. It should be in
-        // `CheerFeedService`.
-        // I will add it to `CheerFeedService` in a separate step or just include it if
-        // I haven't closed `CheerFeedService` file?
-        // I already wrote `CheerFeedService`.
-        // I will use `replace_file_content` to add `getBookmarkedPosts` to
-        // `CheerFeedService` BEFORE finalizing `CheerService`.
-        return null; // Placeholder to remind me to fix this.
+        UserEntity me = current.get();
+        return feedService.getBookmarkedPosts(pageable, me);
     }
 
     // --- Post CRUD ---
@@ -200,9 +179,9 @@ public class CheerService {
     }
 
     @Transactional
-    public void reportPost(Long postId, ReportRequest req) {
+    public ReportCaseRes reportPost(Long postId, ReportRequest req) {
         UserEntity me = current.get();
-        interactionService.reportPost(postId, req, me);
+        return interactionService.reportPost(postId, req, me);
     }
 
     // --- Comments ---

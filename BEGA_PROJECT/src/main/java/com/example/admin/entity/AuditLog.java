@@ -76,7 +76,11 @@ public class AuditLog {
         DEMOTE_TO_USER("일반 사용자로 강등"),
         DELETE_USER("사용자 삭제"),
         DELETE_POST("게시글 삭제"),
-        DELETE_MATE("메이트 모임 삭제");
+        DELETE_MATE("메이트 모임 삭제"),
+        TAKE_DOWN_REPORT("신고 기반 게시글 비공개"),
+        DISMISS_REPORT("신고 기각"),
+        RESTORE_REPORT("신고 조치 복구"),
+        WARN_REPEATED_INFRACTION("반복 침해 경고");
 
         private final String description;
 

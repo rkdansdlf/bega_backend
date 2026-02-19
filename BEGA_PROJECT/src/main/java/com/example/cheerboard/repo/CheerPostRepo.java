@@ -58,8 +58,21 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
         @Query("UPDATE CheerPost p SET p.views = p.views + :delta WHERE p.id = :postId")
         void incrementViewCountByDelta(@Param("postId") Long postId, @Param("delta") int delta);
 
+        @Query("SELECT p.repostCount FROM CheerPost p WHERE p.id = :postId")
+        Integer findRepostCountById(@Param("postId") Long postId);
+
+        @Modifying(clearAutomatically = true)
+        @Query("UPDATE CheerPost p SET p.repostCount = p.repostCount + 1 WHERE p.id = :postId")
+        void incrementRepostCount(@Param("postId") Long postId);
+
+        @Modifying(clearAutomatically = true)
+        @Query("UPDATE CheerPost p SET p.repostCount = CASE WHEN p.repostCount > 0 THEN p.repostCount - 1 ELSE 0 END WHERE p.id = :postId")
+        void decrementRepostCount(@Param("postId") Long postId);
+
         @Query("SELECT COUNT(p) FROM CheerPost p WHERE p.author.id = :userId")
         int countByUserId(@Param("userId") Long userId);
+
+        long countByAuthor_IdAndSourceUrlAndCreatedAtAfter(Long authorId, String sourceUrl, java.time.Instant after);
 
         @EntityGraph(attributePaths = { "author", "team", "repostOf", "repostOf.author", "repostOf.team" })
         Page<CheerPost> findByAuthor_HandleOrderByCreatedAtDesc(String handle, Pageable pageable);

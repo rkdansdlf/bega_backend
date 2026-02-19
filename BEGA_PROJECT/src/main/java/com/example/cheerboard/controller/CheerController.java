@@ -13,6 +13,7 @@ import com.example.cheerboard.dto.LikeToggleResponse;
 import com.example.cheerboard.dto.RepostToggleResponse;
 import com.example.cheerboard.dto.QuoteRepostReq;
 import com.example.cheerboard.dto.BookmarkResponse;
+import com.example.cheerboard.dto.ReportCaseRes;
 import jakarta.validation.Valid;
 import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.service.CheerService;
@@ -178,11 +179,10 @@ public class CheerController {
     @RateLimit(limit = 3, window = 60) // 1분에 최대 3번 신고
     @PostMapping("/posts/{id}/report")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<Void> reportPost(
+    public ResponseEntity<ReportCaseRes> reportPost(
             @PathVariable Long id,
             @RequestBody ReportRequest req) {
-        svc.reportPost(id, req);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(svc.reportPost(id, req));
     }
 
     @GetMapping("/posts/{id}/comments")
