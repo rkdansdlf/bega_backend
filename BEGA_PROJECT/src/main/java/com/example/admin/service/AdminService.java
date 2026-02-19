@@ -14,6 +14,7 @@ import com.example.cheerboard.domain.CheerPostLike;
 import com.example.cheerboard.repo.CheerCommentRepo;
 import com.example.cheerboard.repo.CheerPostLikeRepo;
 import com.example.cheerboard.repo.CheerPostRepo;
+import com.example.auth.repository.RefreshRepository;
 import com.example.mate.entity.Party;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.service.PartyService;
@@ -43,6 +44,7 @@ public class AdminService {
     private final CacheManager cacheManager;
     private final AuditLogRepository auditLogRepository;
     private final PartyService partyService;
+    private final RefreshRepository refreshRepository;
 
     /**
      * 대시보드 통계 조회
@@ -147,7 +149,7 @@ public class AdminService {
     }
 
     /**
-     * 유저 삭제 (연관된 데이터도 함께 삭제)
+     * 유저 삭제 (연관된 데이터 정리 후 계정 비활성화 처리)
      * 
      * @param userId  삭제할 유저 ID
      * @param adminId 삭제를 수행하는 관리자 ID (감사 로그용, nullable)
@@ -182,8 +184,15 @@ public class AdminService {
         // 메이트 관련 데이터 정리 (파티 취소, 참여 신청 처리, 알림 발송)
         partyService.handleUserDeletion(userId);
 
-        // 유저 삭제
-        userRepository.delete(Objects.requireNonNull(user));
+        // 유저 비활성화 + 토큰 버전 증가로 접근 무효화
+        int currentTokenVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
+        user.setEnabled(false);
+        user.setTokenVersion(currentTokenVersion + 1);
+        user.setLockExpiresAt(null);
+        userRepository.save(Objects.requireNonNull(user));
+
+        // 리프레시 토큰 정리
+        refreshRepository.deleteByEmail(userEmail);
 
         // 감사 로그 기록
         if (adminId != null) {

@@ -23,6 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -80,6 +81,29 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(ApiResponse.error(e.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidAuthorException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidAuthorException(InvalidAuthorException e) {
+        log.warn("InvalidAuthorException: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of(
+                        "success", false,
+                        "code", "INVALID_AUTHOR",
+                        "message", e.getMessage()));
+    }
+
+    @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleAuthenticationCredentialsNotFoundException(
+            AuthenticationCredentialsNotFoundException e) {
+        log.warn("AuthenticationCredentialsNotFoundException: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of(
+                        "success", false,
+                        "code", "INVALID_AUTHOR",
+                        "message", "인증이 필요합니다."));
     }
 
     /**

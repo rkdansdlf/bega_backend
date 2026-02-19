@@ -1,9 +1,12 @@
 package com.example.auth.filter;
 
+import com.example.auth.entity.UserEntity;
+import com.example.auth.repository.UserRepository;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.net.URI;
+import java.time.LocalDateTime;
 import java.util.Objects;
 
 import org.springframework.lang.NonNull;
@@ -27,16 +30,19 @@ public class JWTFilter extends OncePerRequestFilter {
     private final boolean isDev;
     private final List<String> allowedOrigins;
     private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
+    private final UserRepository userRepository;
 
     // localhost IP 주소 목록 (Debug 헤더 허용)
     private static final List<String> LOCALHOST_IPS = List.of("127.0.0.1", "::1", "0:0:0:0:0:0:0:1");
 
     public JWTFilter(com.example.auth.util.JWTUtil jwtUtil, boolean isDev, List<String> allowedOrigins,
-            com.example.auth.service.TokenBlacklistService tokenBlacklistService) {
+            com.example.auth.service.TokenBlacklistService tokenBlacklistService,
+            UserRepository userRepository) {
         this.jwtUtil = jwtUtil;
         this.isDev = isDev;
         this.allowedOrigins = allowedOrigins;
         this.tokenBlacklistService = tokenBlacklistService;
+        this.userRepository = userRepository;
     }
 
     @Override
@@ -112,16 +118,25 @@ public class JWTFilter extends OncePerRequestFilter {
         }
 
         String token = authorization;
+        boolean mutableRequest = isMutableRequest(request);
 
         // [Security Fix] 블랙리스트 확인 (로그아웃된 토큰)
         if (tokenBlacklistService != null && tokenBlacklistService.isBlacklisted(token)) {
             log.debug("Blacklisted token rejected");
+            if (mutableRequest) {
+                sendInvalidAuthorResponse(response, "로그아웃된 토큰입니다. 다시 로그인해 주세요.");
+                return;
+            }
             filterChain.doFilter(request, response);
             return;
         }
 
         // 토큰 소멸 시간 검증
         if (jwtUtil.isExpired(token)) {
+            if (mutableRequest) {
+                sendInvalidAuthorResponse(response, "토큰이 만료되었습니다. 다시 로그인해 주세요.");
+                return;
+            }
             filterChain.doFilter(request, response);
             return;
         }
@@ -131,6 +146,10 @@ public class JWTFilter extends OncePerRequestFilter {
         String tokenType = jwtUtil.getTokenType(token);
         if (tokenType != null && !"access".equalsIgnoreCase(tokenType.trim())) {
             log.warn("{} token rejected for authentication (strict mode)", tokenType);
+            if (mutableRequest) {
+                sendInvalidAuthorResponse(response, "접근 권한이 없는 토큰입니다. 다시 로그인해 주세요.");
+                return;
+            }
             filterChain.doFilter(request, response);
             return;
         }
@@ -140,15 +159,37 @@ public class JWTFilter extends OncePerRequestFilter {
             // String email = jwtUtil.getEmail(token);
             String role = jwtUtil.getRole(token);
             Long userId = jwtUtil.getUserId(token);
+            Integer tokenVersion = jwtUtil.getTokenVersion(token);
 
             // [Security Fix] 레거시 링크 토큰(claim 없음) 방지
             if ("LINK_MODE".equals(role)) {
                 log.warn("Legacy Link token rejected for authentication");
+                if (mutableRequest) {
+                    sendInvalidAuthorResponse(response, "링크 토큰은 API 호출에 사용할 수 없습니다.");
+                    return;
+                }
                 filterChain.doFilter(request, response);
                 return;
             }
 
             if (userId == null) {
+                SecurityContextHolder.clearContext();
+                if (mutableRequest) {
+                    sendInvalidAuthorResponse(response,
+                            "토큰에 사용자 정보가 없어 인증을 완료할 수 없습니다. 다시 로그인해 주세요.");
+                    return;
+                }
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            UserEntity authenticatedUser = userRepository.findById(userId).orElse(null);
+            if (!isAuthoritativeRequestUser(authenticatedUser, tokenVersion)) {
+                markInvalidAuthor(request, "토큰에 저장된 사용자 정보가 유효하지 않습니다. 다시 로그인해주세요.");
+                if (mutableRequest) {
+                    sendInvalidAuthorResponse(response, "토큰에 저장된 사용자 정보가 유효하지 않습니다. 다시 로그인해주세요.");
+                    return;
+                }
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -171,17 +212,25 @@ public class JWTFilter extends OncePerRequestFilter {
 
             Collection<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role));
 
-            Authentication authToken = new UsernamePasswordAuthenticationToken(
+            UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                     userId, // Principal로 설정
                     null,
                     authorities);
+            authToken.setDetails(tokenVersion);
 
             // 사용자 등록
             SecurityContextHolder.getContext().setAuthentication(authToken);
 
         } catch (Exception e) {
             // 토큰 파싱 실패 또는 만료 등 인증 실패 시 로그 출력
+            SecurityContextHolder.clearContext();
             log.error("JWT Authentication Failed: {}", e.getMessage());
+            if (mutableRequest) {
+                sendInvalidAuthorResponse(response, "토큰 인증에 실패했습니다. 다시 로그인해 주세요.");
+                return;
+            }
+            filterChain.doFilter(request, response);
+            return;
         }
 
         filterChain.doFilter(request, response);
@@ -255,5 +304,61 @@ public class JWTFilter extends OncePerRequestFilter {
             }
         }
         return false;
+    }
+
+    private boolean isAccountUsable(UserEntity user) {
+        if (!user.isLocked()) {
+            return true;
+        }
+
+        if (user.getLockExpiresAt() == null) {
+            return false;
+        }
+
+        return user.getLockExpiresAt().isBefore(LocalDateTime.now());
+    }
+
+    private boolean isAuthoritativeRequestUser(UserEntity authenticatedUser, Integer tokenVersionFromToken) {
+        if (authenticatedUser == null) {
+            return false;
+        }
+
+        if (!authenticatedUser.isEnabled() || !isAccountUsable(authenticatedUser)) {
+            return false;
+        }
+
+        int currentTokenVersion = authenticatedUser.getTokenVersion() == null ? 0 : authenticatedUser.getTokenVersion();
+        if (tokenVersionFromToken == null) {
+            return currentTokenVersion == 0;
+        }
+
+        return currentTokenVersion == tokenVersionFromToken;
+    }
+
+    private void markInvalidAuthor(HttpServletRequest request, String reason) {
+        request.setAttribute("INVALID_AUTHOR", true);
+        request.setAttribute("INVALID_AUTHOR_MESSAGE", reason);
+        SecurityContextHolder.clearContext();
+    }
+
+    private boolean isMutableRequest(HttpServletRequest request) {
+        String method = request.getMethod();
+        if (method == null) {
+            return false;
+        }
+        return !(method.equalsIgnoreCase("GET") || method.equalsIgnoreCase("HEAD") || method.equalsIgnoreCase("OPTIONS"));
+    }
+
+    private void sendInvalidAuthorResponse(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json;charset=UTF-8");
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader("Cache-Control", "no-store");
+
+        String safeMessage = (message == null ? "" : message).replace("\\", "\\\\").replace("\"", "\\\"");
+        String json = String.format(
+                "{\"success\":false,\"code\":\"INVALID_AUTHOR\",\"message\":\"%s\",\"error\":\"Unauthorized\"}",
+                safeMessage);
+        response.getWriter().write(json);
     }
 }

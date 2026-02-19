@@ -101,12 +101,15 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         GrantedAuthority auth = iterator.next();
         String role = auth.getAuthority();
         Long userId = customUserDetails.getId();
+        int tokenVersion = customUserDetails.getUserEntity().getTokenVersion() == null
+                ? 0
+                : customUserDetails.getUserEntity().getTokenVersion();
         // Access Token 유효 기간 설정
         long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; // 2시간
 
         // JWT 생성
-        String accessToken = jwtUtil.createJwt(email, role, userId, accessTokenExpiredMs);
-        String refreshToken = jwtUtil.createRefreshToken(email, role, userId);
+        String accessToken = jwtUtil.createJwt(email, role, userId, accessTokenExpiredMs, tokenVersion);
+        String refreshToken = jwtUtil.createRefreshToken(email, role, userId, tokenVersion);
 
         // Refresh Token DB 저장/업데이트
         String userAgent = request.getHeader("User-Agent");

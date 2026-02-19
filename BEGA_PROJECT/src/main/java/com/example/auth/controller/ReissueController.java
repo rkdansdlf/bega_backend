@@ -1,6 +1,7 @@
 package com.example.auth.controller;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 
@@ -14,6 +15,8 @@ import lombok.extern.slf4j.Slf4j;
 import com.example.common.dto.ApiResponse;
 
 import com.example.auth.entity.RefreshToken;
+import com.example.auth.entity.UserEntity;
+import com.example.auth.repository.UserRepository;
 import com.example.auth.util.JWTUtil;
 import com.example.auth.repository.RefreshRepository;
 
@@ -28,10 +31,12 @@ public class ReissueController {
 
     private final JWTUtil jwtUtil;
     private final RefreshRepository refreshRepository;
+    private final UserRepository userRepository;
 
-    public ReissueController(JWTUtil jwtUtil, RefreshRepository refreshRepository) {
+    public ReissueController(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository) {
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
+        this.userRepository = userRepository;
     }
 
     @PostMapping("/reissue")
@@ -107,14 +112,21 @@ public class ReissueController {
                     .body(ApiResponse.error("유효하지 않은 Refresh Token입니다."));
         }
 
+        UserEntity user = userRepository.findById(userId).orElse(null);
+        if (!isAuthoritativeRefreshUser(user, userId, jwtUtil.getTokenVersion(refreshToken))) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(buildInvalidAuthorErrorResponse("계정 정보가 유효하지 않습니다. 다시 로그인해주세요."));
+        }
+
         // Access Token 만료 시간 (2시간)
         long accessTokenExpiredMs = 1000 * 60 * 60 * 2L;
 
         // userId와 role의 순서를 교정함 (email, userId, role, expiredMs)
-        String newAccessToken = jwtUtil.createJwt(email, role, userId, accessTokenExpiredMs);
+        int tokenVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
+        String newAccessToken = jwtUtil.createJwt(email, role, userId, accessTokenExpiredMs, tokenVersion);
 
         // userId와 role의 순서를 교정함 (email, userId, role)
-        String newRefreshToken = jwtUtil.createRefreshToken(email, role, userId);
+        String newRefreshToken = jwtUtil.createRefreshToken(email, role, userId, tokenVersion);
 
         // DB 정보 저장
         existToken.setToken(newRefreshToken);
@@ -137,6 +149,42 @@ public class ReissueController {
         response.addCookie(createCookie("Refresh", newRefreshToken, refreshTokenMaxAge));
 
         return ResponseEntity.ok(ApiResponse.success("토큰이 성공적으로 재발급되었습니다."));
+    }
+
+    private boolean isAuthoritativeRefreshUser(UserEntity user, Long userId, Integer tokenVersionInToken) {
+        if (user == null || user.getId() == null || !user.getId().equals(userId)) {
+            return false;
+        }
+
+        if (!user.isEnabled() || !isAccountUsable(user)) {
+            return false;
+        }
+
+        int currentTokenVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
+        if (tokenVersionInToken == null) {
+            return currentTokenVersion == 0;
+        }
+
+        return currentTokenVersion == tokenVersionInToken;
+    }
+
+    private boolean isAccountUsable(UserEntity user) {
+        if (!user.isLocked()) {
+            return true;
+        }
+
+        if (user.getLockExpiresAt() == null) {
+            return false;
+        }
+
+        return user.getLockExpiresAt().isBefore(LocalDateTime.now());
+    }
+
+    private Map<String, Object> buildInvalidAuthorErrorResponse(String message) {
+        return Map.of(
+                "success", false,
+                "code", "INVALID_AUTHOR",
+                "message", message);
     }
 
     private String resolveIpAddress(HttpServletRequest request) {
