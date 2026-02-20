@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 public class CheckInRecordDTO {
@@ -18,6 +19,26 @@ public class CheckInRecordDTO {
         private Long partyId;
         private Long userId;
         private String location;
+        private String qrSessionId;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class QrSessionRequest {
+        private Long partyId;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class QrSessionResponse {
+        private String sessionId;
+        private Long partyId;
+        private Instant expiresAt;
+        private String checkinUrl;
     }
 
     @Data
