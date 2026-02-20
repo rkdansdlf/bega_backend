@@ -51,11 +51,9 @@ public class PartyApplicationService {
         Long applicantId;
         String applicantName;
         if (principal != null) {
-            String email = principal.getName();
-            applicantId = userService.getUserIdByEmail(email);
-            com.example.auth.dto.UserDto user = userService.findUserByEmail(email);
-            applicantName = user.getName();
-            log.info("[Application] Resolved applicantId={} from principal email={}", applicantId, email);
+            applicantId = resolveUserId(principal);
+            applicantName = resolveUserName(principal, applicantId);
+            log.info("[Application] Resolved applicantId={} from principal={}", applicantId, principal.getName());
         } else {
             // 하위 호환성 fallback (내부 호출 등)
             applicantId = request.getApplicantId();
@@ -163,10 +161,27 @@ public class PartyApplicationService {
 
     // 파티별 신청 목록 조회
     @Transactional(readOnly = true)
-    public List<PartyApplicationDTO.Response> getApplicationsByPartyId(Long partyId) {
+    public List<PartyApplicationDTO.Response> getApplicationsByPartyId(Long partyId, Principal principal) {
+        Long requesterId = resolveUserId(principal);
+        Party party = partyRepository.findById(partyId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+
+        if (!party.getHostId().equals(requesterId)) {
+            throw new UnauthorizedAccessException("파티 호스트만 신청 목록을 조회할 수 있습니다.");
+        }
+
         return applicationRepository.findByPartyId(partyId).stream()
                 .map(PartyApplicationDTO.Response::from)
                 .collect(Collectors.toList());
+    }
+
+    // 특정 파티에 대한 내 신청 단건 조회
+    @Transactional(readOnly = true)
+    public PartyApplicationDTO.Response getMyApplicationByPartyId(Long partyId, Principal principal) {
+        Long applicantId = resolveUserId(principal);
+        return applicationRepository.findByPartyIdAndApplicantId(partyId, applicantId)
+                .map(PartyApplicationDTO.Response::from)
+                .orElse(null);
     }
 
     // 신청자별 신청 목록 조회
@@ -180,11 +195,7 @@ public class PartyApplicationService {
     // 내 신청 목록 조회 (Principal 기반)
     @Transactional(readOnly = true)
     public List<PartyApplicationDTO.Response> getMyApplications(Principal principal) {
-        if (principal == null) {
-            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
-        }
-        String email = principal.getName();
-        Long userId = userService.getUserIdByEmail(email);
+        Long userId = resolveUserId(principal);
         return getApplicationsByApplicantId(userId);
     }
 
@@ -215,7 +226,7 @@ public class PartyApplicationService {
     // 신청 승인
     @Transactional
     public PartyApplicationDTO.Response approveApplication(Long applicationId, Principal principal) {
-        Long hostId = userService.getUserIdByEmail(principal.getName());
+        Long hostId = resolveUserId(principal);
         PartyApplication application = applicationRepository.findById(java.util.Objects.requireNonNull(applicationId))
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
 
@@ -256,7 +267,7 @@ public class PartyApplicationService {
     // 신청 거절
     @Transactional
     public PartyApplicationDTO.Response rejectApplication(Long applicationId, Principal principal) {
-        Long hostId = userService.getUserIdByEmail(principal.getName());
+        Long hostId = resolveUserId(principal);
         PartyApplication application = applicationRepository.findById(java.util.Objects.requireNonNull(applicationId))
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
 
@@ -294,13 +305,7 @@ public class PartyApplicationService {
     @Transactional
     public void cancelApplication(Long applicationId, Principal principal) {
         // Principal에서 applicantId 파생
-        Long applicantId;
-        if (principal != null) {
-            String email = principal.getName();
-            applicantId = userService.getUserIdByEmail(email);
-        } else {
-            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
-        }
+        Long applicantId = resolveUserId(principal);
 
         PartyApplication application = applicationRepository.findById(java.util.Objects.requireNonNull(applicationId))
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
@@ -343,6 +348,24 @@ public class PartyApplicationService {
 
         // 신청 삭제
         applicationRepository.delete(application);
+    }
+
+    private Long resolveUserId(Principal principal) {
+        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
+        }
+        return userService.getUserIdByEmail(principal.getName());
+    }
+
+    private String resolveUserName(Principal principal, Long userId) {
+        if (principal != null && principal.getName() != null && !principal.getName().isBlank()) {
+            try {
+                return userService.findUserByEmail(principal.getName()).getName();
+            } catch (RuntimeException ignored) {
+                // principal name이 email이 아닌 userId일 수 있어 ID 조회로 fallback
+            }
+        }
+        return userService.findUserById(userId).getName();
     }
 
     // Verify that ticket information matches the party's game details
