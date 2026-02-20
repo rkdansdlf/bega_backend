@@ -35,10 +35,32 @@ public class PartyApplicationController {
 
     // 파티별 신청 목록 조회
     @GetMapping("/party/{partyId}")
-    public ResponseEntity<List<PartyApplicationDTO.Response>> getApplicationsByPartyId(
-            @PathVariable Long partyId) {
-        List<PartyApplicationDTO.Response> applications = applicationService.getApplicationsByPartyId(partyId);
-        return ResponseEntity.ok(applications);
+    public ResponseEntity<?> getApplicationsByPartyId(
+            @PathVariable Long partyId,
+            Principal principal) {
+        try {
+            List<PartyApplicationDTO.Response> applications = applicationService.getApplicationsByPartyId(partyId, principal);
+            return ResponseEntity.ok(applications);
+        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+
+    // 특정 파티에 대한 내 신청 단건 조회
+    @GetMapping("/party/{partyId}/mine")
+    public ResponseEntity<?> getMyApplicationByPartyId(
+            @PathVariable Long partyId,
+            Principal principal) {
+        try {
+            PartyApplicationDTO.Response application = applicationService.getMyApplicationByPartyId(partyId, principal);
+            return ResponseEntity.ok(application);
+        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(java.util.Map.of("error", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
+        }
     }
 
     // 내 신청 목록 조회 (로그인 사용자 기준)

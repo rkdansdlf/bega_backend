@@ -71,6 +71,9 @@ public class Party {
     @Column(nullable = false, length = 1000)
     private String description; // 파티 소개
 
+    @Column(name = "search_text", length = 2000)
+    private String searchText; // 검색 최적화를 위한 정규화 텍스트
+
     @Column(name = "ticketverified", nullable = false)
     private Boolean ticketVerified; // 예매내역 인증 여부
 

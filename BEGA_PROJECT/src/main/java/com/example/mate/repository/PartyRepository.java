@@ -54,13 +54,7 @@ public interface PartyRepository extends JpaRepository<Party, Long> {
                         "(:teamId IS NULL OR p.teamId = :teamId) AND " +
                         "(:stadium IS NULL OR p.stadium = :stadium) AND " +
                         "(:gameDate IS NULL OR p.gameDate = :gameDate) AND " +
-                        "(:query = '' OR " +
-                        "LOWER(p.stadium) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
-                        "LOWER(p.homeTeam) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
-                        "LOWER(p.awayTeam) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
-                        "LOWER(p.section) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
-                        "LOWER(p.hostName) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
-                        "LOWER(p.description) LIKE LOWER(CONCAT('%', :query, '%'))) AND " +
+                        "(:query = '' OR LOWER(COALESCE(p.searchText, '')) LIKE LOWER(CONCAT('%', :query, '%'))) AND " +
                         "((:status IS NOT NULL AND p.status = :status) OR " +
                         "(:status IS NULL AND p.status NOT IN :excludedStatuses))")
         Page<Party> findPartiesWithFilter(

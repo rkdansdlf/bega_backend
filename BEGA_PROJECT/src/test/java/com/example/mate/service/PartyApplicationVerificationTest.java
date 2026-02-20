@@ -325,4 +325,75 @@ class PartyApplicationVerificationTest {
                                                         !app.getTicketVerified()));
                 }
         }
+
+        @Nested
+        @DisplayName("신청 조회 권한 및 단건 조회")
+        class ApplicationReadAccess {
+
+                @Test
+                @DisplayName("호스트는 파티 신청 목록을 조회할 수 있다")
+                void hostCanReadApplicationsByParty() {
+                        // given
+                        Principal hostPrincipal = () -> "host@example.com";
+                        PartyApplication application = PartyApplication.builder()
+                                        .id(11L)
+                                        .partyId(1L)
+                                        .applicantId(42L)
+                                        .applicantName("Applicant")
+                                        .build();
+
+                        given(userService.getUserIdByEmail("host@example.com")).willReturn(100L);
+                        given(partyRepository.findById(1L)).willReturn(Optional.of(testParty));
+                        given(applicationRepository.findByPartyId(1L)).willReturn(java.util.List.of(application));
+
+                        // when
+                        var result = service.getApplicationsByPartyId(1L, hostPrincipal);
+
+                        // then
+                        assertThat(result).hasSize(1);
+                        assertThat(result.get(0).getPartyId()).isEqualTo(1L);
+                }
+
+                @Test
+                @DisplayName("비호스트는 파티 신청 목록 조회 시 예외가 발생한다")
+                void nonHostCannotReadApplicationsByParty() {
+                        // given
+                        Principal nonHostPrincipal = () -> "nonhost@example.com";
+                        given(userService.getUserIdByEmail("nonhost@example.com")).willReturn(777L);
+                        given(partyRepository.findById(1L)).willReturn(Optional.of(testParty));
+
+                        // when / then
+                        assertThatThrownBy(() -> service.getApplicationsByPartyId(1L, nonHostPrincipal))
+                                        .isInstanceOf(com.example.mate.exception.UnauthorizedAccessException.class)
+                                        .hasMessageContaining("호스트");
+                }
+
+                @Test
+                @DisplayName("내 신청 단건 조회는 본인 파티 신청을 반환하고 없으면 null을 반환한다")
+                void shouldReturnMyApplicationByPartyOrNull() {
+                        // given
+                        Principal principal = () -> "applicant@example.com";
+                        PartyApplication application = PartyApplication.builder()
+                                        .id(22L)
+                                        .partyId(1L)
+                                        .applicantId(55L)
+                                        .applicantName("Applicant")
+                                        .build();
+
+                        given(userService.getUserIdByEmail("applicant@example.com")).willReturn(55L);
+                        given(applicationRepository.findByPartyIdAndApplicantId(1L, 55L))
+                                        .willReturn(Optional.of(application));
+                        given(applicationRepository.findByPartyIdAndApplicantId(2L, 55L))
+                                        .willReturn(Optional.empty());
+
+                        // when
+                        var found = service.getMyApplicationByPartyId(1L, principal);
+                        var notFound = service.getMyApplicationByPartyId(2L, principal);
+
+                        // then
+                        assertThat(found).isNotNull();
+                        assertThat(found.getPartyId()).isEqualTo(1L);
+                        assertThat(notFound).isNull();
+                }
+        }
 }

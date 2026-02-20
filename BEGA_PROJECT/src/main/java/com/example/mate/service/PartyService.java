@@ -23,7 +23,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.security.Principal;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
+import org.springframework.lang.NonNull;
 
 @Service
 @RequiredArgsConstructor
@@ -38,7 +40,7 @@ public class PartyService {
     private final com.example.profile.storage.service.ProfileImageService profileImageService;
 
     @Transactional
-    public PartyDTO.Response createParty(PartyDTO.Request request, Principal principal) {
+    public PartyDTO.Response createParty(@NonNull PartyDTO.Request request, Principal principal) {
         Long hostId = getUserIdFromPrincipal(principal);
 
         // 본인인증(소셜 연동) 여부 확인
@@ -49,38 +51,28 @@ public class PartyService {
                     "메이트를 생성하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
         }
 
-        String hostProfileImageUrl = null;
-        String hostFavoriteTeam = null;
+        // 사용자 정보에서 profileImageUrl, favoriteTeam 가져오기
+        var userInfo = userRepository.findById(hostId)
+                .map(user -> {
+                    String imageUrl = user.getProfileImageUrl();
+                    // blob URL 또는 data URL 등은 null로 처리하여 나중에 resolver에서 처리되도록 유도
+                    if (imageUrl != null && isLegacyOrInvalidProfileValue(imageUrl)) {
+                        imageUrl = null;
+                    }
+                    return new String[] { imageUrl, user.getFavoriteTeamId() };
+                })
+                .orElse(new String[] { null, null });
 
-        try {
-            // 사용자 정보에서 favoriteTeam도 가져오기
-            var userInfo = userRepository.findById(Objects.requireNonNull(hostId))
-                    .map(user -> {
-                        String imageUrl = user.getProfileImageUrl();
+        String hostProfileImageUrl = userInfo[0];
+        String hostFavoriteTeam = userInfo[1];
 
-                        // blob URL은 무시
-                        if (imageUrl != null && imageUrl.startsWith("blob:")) {
-                            imageUrl = null;
-                        }
-                        String favoriteTeamId = user.getFavoriteTeamId();
-
-                        return new Object[] { imageUrl, favoriteTeamId };
-                    })
-                    .orElse(new Object[] { null, null });
-
-            hostProfileImageUrl = (String) userInfo[0];
-            hostFavoriteTeam = (String) userInfo[1]; // favoriteTeam 저장
-
-        } catch (Exception e) {
-            log.error("호스트 정보 조회 실패: {}", e.getMessage());
-        }
         Party party = Party.builder()
                 .hostId(hostId)
                 .hostName(request.getHostName())
-                .hostProfileImageUrl(hostProfileImageUrl) // 변환된 URL 사용
+                .hostProfileImageUrl(hostProfileImageUrl)
                 .hostFavoriteTeam(hostFavoriteTeam)
-                .hostBadge(request.getHostBadge() != null ? request.getHostBadge() : Party.BadgeType.NEW)
-                .hostRating(request.getHostRating() != null ? request.getHostRating() : 5.0)
+                .hostBadge(Optional.ofNullable(request.getHostBadge()).orElse(Party.BadgeType.NEW))
+                .hostRating(Optional.ofNullable(request.getHostRating()).orElse(5.0))
                 .teamId(request.getTeamId())
                 .gameDate(request.getGameDate())
                 .gameTime(request.getGameTime())
@@ -91,6 +83,13 @@ public class PartyService {
                 .maxParticipants(request.getMaxParticipants())
                 .currentParticipants(1) // 호스트 포함
                 .description(request.getDescription())
+                .searchText(buildSearchText(
+                        request.getStadium(),
+                        request.getHomeTeam(),
+                        request.getAwayTeam(),
+                        request.getSection(),
+                        request.getHostName(),
+                        request.getDescription()))
                 .ticketVerified(request.getTicketImageUrl() != null)
                 .ticketImageUrl(request.getTicketImageUrl())
                 .ticketPrice(request.getTicketPrice())
@@ -98,7 +97,7 @@ public class PartyService {
                 .status(Party.PartyStatus.PENDING)
                 .build();
 
-        Party savedParty = partyRepository.save(Objects.requireNonNull(party));
+        Party savedParty = partyRepository.save(party);
 
         return convertToDto(savedParty);
     }
@@ -137,8 +136,8 @@ public class PartyService {
 
     // 파티 ID로 조회
     @Transactional(readOnly = true)
-    public PartyDTO.Response getPartyById(Long id) {
-        Party party = partyRepository.findById(Objects.requireNonNull(id))
+    public PartyDTO.Response getPartyById(@NonNull Long id) {
+        Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
         return convertToDto(party);
     }
@@ -178,9 +177,10 @@ public class PartyService {
 
     // 파티 업데이트
     @Transactional
-    public PartyDTO.Response updateParty(Long id, PartyDTO.UpdateRequest request, Principal principal) {
+    public PartyDTO.Response updateParty(@NonNull Long id, @NonNull PartyDTO.UpdateRequest request,
+            Principal principal) {
         Long requesterId = getUserIdFromPrincipal(principal);
-        Party party = partyRepository.findById(Objects.requireNonNull(id))
+        Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         // 호스트 본인 확인
@@ -222,14 +222,22 @@ public class PartyService {
                     "승인된 참여자가 있거나 모집 중 상태가 아닌 경우 가격/좌석/인원을 변경할 수 없습니다.");
         }
 
+        party.setSearchText(buildSearchText(
+                party.getStadium(),
+                party.getHomeTeam(),
+                party.getAwayTeam(),
+                party.getSection(),
+                party.getHostName(),
+                party.getDescription()));
+
         Party updatedParty = partyRepository.save(party);
         return convertToDto(updatedParty);
     }
 
     // 파티 참여 인원 증가
     @Transactional
-    public PartyDTO.Response incrementParticipants(Long id) {
-        Party party = partyRepository.findById(Objects.requireNonNull(id))
+    public PartyDTO.Response incrementParticipants(@NonNull Long id) {
+        Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         if (party.getCurrentParticipants() >= party.getMaxParticipants()) {
@@ -249,8 +257,8 @@ public class PartyService {
 
     // 파티 참여 인원 감소
     @Transactional
-    public PartyDTO.Response decrementParticipants(Long id) {
-        Party party = partyRepository.findById(Objects.requireNonNull(id))
+    public PartyDTO.Response decrementParticipants(@NonNull Long id) {
+        Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         if (party.getCurrentParticipants() <= 1) {
@@ -265,9 +273,9 @@ public class PartyService {
     }
 
     @Transactional
-    public void deleteParty(Long id, Principal principal) {
+    public void deleteParty(@NonNull Long id, Principal principal) {
         Long requesterId = getUserIdFromPrincipal(principal);
-        Party party = partyRepository.findById(Objects.requireNonNull(id))
+        Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         // 호스트 본인 확인
@@ -291,8 +299,10 @@ public class PartyService {
         }
 
         // 대기 중인 신청들은 함께 삭제
-        applicationRepository.deleteAll(
-                Objects.requireNonNull(applicationRepository.findByPartyId(id)));
+        List<PartyApplication> applicationsToDelete = applicationRepository.findByPartyId(id);
+        if (applicationsToDelete != null) {
+            applicationRepository.deleteAll(applicationsToDelete);
+        }
 
         partyRepository.delete(party);
     }
@@ -314,14 +324,15 @@ public class PartyService {
 
         // 2. 참여자로 승인된 파티
         List<PartyApplication> approvedApplications = applicationRepository
-                .findByApplicantIdAndIsApprovedTrue(Objects.requireNonNull(userId));
+                .findByApplicantIdAndIsApprovedTrue(userId);
 
-        List<Party> participatedParties = approvedApplications.stream()
-                .filter(app -> app.getPartyId() != null)
-                .map(app -> partyRepository.findById(app.getPartyId()))
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .collect(Collectors.toList());
+        List<Long> partyIds = approvedApplications.stream()
+                .map(PartyApplication::getPartyId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        List<Party> participatedParties = partyRepository.findAllById(partyIds);
 
         // 3. 두 리스트 합치기 (중복 제거)
         List<Party> allParties = new java.util.ArrayList<>(hostedParties);
@@ -344,7 +355,7 @@ public class PartyService {
 
         return allParties.stream()
                 .map(this::convertToDto)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     /**
@@ -405,7 +416,7 @@ public class PartyService {
 
         for (PartyApplication application : approvedApplicationsAsParticipant) {
             try {
-                Party party = partyRepository.findById(Objects.requireNonNull(application.getPartyId()))
+                Party party = partyRepository.findById(application.getPartyId())
                         .orElse(null);
 
                 if (party == null) {
@@ -463,18 +474,23 @@ public class PartyService {
     }
 
     private PartyDTO.Response convertToDto(Party party) {
+        if (party == null)
+            return null;
+
         PartyDTO.Response response = PartyDTO.Response.from(party);
         String profilePathOrUrl = party.getHostProfileImageUrl();
 
+        // 파티엔 있는데 만약 무효한 값이거나 비어있다면 DB에서 다시 조회 (fallback)
         if (isLegacyOrInvalidProfileValue(profilePathOrUrl)) {
             profilePathOrUrl = userRepository.findProfileImageUrlById(party.getHostId())
                     .filter(this::isUsableProfileValue)
                     .orElse(null);
         }
 
-        // hostProfileImageUrl이 path인 경우 URL로 변환
+        // 호스트의 최종 결정된 profilePathOrUrl이 path 형태인 경우 최종적으로 URL로 변환
         String resolvedUrl = profileImageService.getProfileImageUrl(profilePathOrUrl);
         response.setHostProfileImageUrl(resolvedUrl);
+
         return response;
     }
 
@@ -483,6 +499,29 @@ public class PartyService {
             return "";
         }
         return searchQuery.trim();
+    }
+
+    private String buildSearchText(
+            String stadium,
+            String homeTeam,
+            String awayTeam,
+            String section,
+            String hostName,
+            String description) {
+        return String.join(" ",
+                normalizedSearchToken(stadium),
+                normalizedSearchToken(homeTeam),
+                normalizedSearchToken(awayTeam),
+                normalizedSearchToken(section),
+                normalizedSearchToken(hostName),
+                normalizedSearchToken(description)).trim();
+    }
+
+    private String normalizedSearchToken(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
     }
 
     private boolean isLegacyOrInvalidProfileValue(String profilePathOrUrl) {
@@ -517,7 +556,11 @@ public class PartyService {
             Long principalId = Long.valueOf(principalName);
             return userRepository.findById(principalId)
                     .map(com.example.auth.entity.UserEntity::getId)
-                    .orElseThrow(() -> new UnauthorizedAccessException("사용자를 찾을 수 없습니다."));
+                    .orElseGet(() ->
+                    // 2) 기존 구조(이메일) 호환 - 숫자로 보이지만 ID가 아닌 경우
+                    userRepository.findByEmail(principalName)
+                            .map(com.example.auth.entity.UserEntity::getId)
+                            .orElseThrow(() -> new UnauthorizedAccessException("사용자를 찾을 수 없습니다.")));
         } catch (NumberFormatException e) {
             // 2) 기존 구조(이메일) 호환
             return userRepository.findByEmail(principalName)
