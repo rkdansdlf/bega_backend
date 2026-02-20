@@ -93,7 +93,9 @@ public class CheerPostService {
         // AI Moderation 체크
         AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
         if (!modResult.isAllowed()) {
-            throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
+            log.warn("Post moderation blocked on create. source={}, riskLevel={}, category={}, reason={}",
+                    modResult.decisionSource(), modResult.riskLevel(), modResult.category(), modResult.reason());
+            throw new IllegalArgumentException("부적절한 내용이 포함되어 게시글을 작성할 수 없습니다.");
         }
 
         validateSharePolicy(
@@ -141,7 +143,9 @@ public class CheerPostService {
         // AI Moderation 체크
         AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
         if (!modResult.isAllowed()) {
-            throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
+            log.warn("Post moderation blocked on update. source={}, riskLevel={}, category={}, reason={}",
+                    modResult.decisionSource(), modResult.riskLevel(), modResult.category(), modResult.reason());
+            throw new IllegalArgumentException("부적절한 내용이 포함되어 게시글을 수정할 수 없습니다.");
         }
 
         updatePostContent(post, req);
@@ -214,7 +218,9 @@ public class CheerPostService {
 
         AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
         if (!modResult.isAllowed()) {
-            throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
+            log.warn("Post moderation blocked on update entity. source={}, riskLevel={}, category={}, reason={}",
+                    modResult.decisionSource(), modResult.riskLevel(), modResult.category(), modResult.reason());
+            throw new IllegalArgumentException("부적절한 내용이 포함되어 게시글을 수정할 수 없습니다.");
         }
 
         CheerPost.ShareMode shareModeForValidation = req.shareMode() != null ? req.shareMode() : post.getShareMode();
@@ -296,7 +302,9 @@ public class CheerPostService {
 
         AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
         if (!modResult.isAllowed()) {
-            throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
+            log.warn("Post moderation blocked on quote repost. source={}, riskLevel={}, category={}, reason={}",
+                    modResult.decisionSource(), modResult.riskLevel(), modResult.category(), modResult.reason());
+            throw new IllegalArgumentException("부적절한 내용이 포함되어 리포스트를 작성할 수 없습니다.");
         }
 
         try {

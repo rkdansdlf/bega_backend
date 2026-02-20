@@ -12,9 +12,15 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class VerifyImageUtil {
 
+    private static boolean isWebpStrictMode() {
+        return Boolean.parseBoolean(System.getProperty("webp.strict", "false"));
+    }
+
     @Test
     void verifyImageProcessing() throws Exception {
+        boolean strictMode = isWebpStrictMode();
         System.out.println("Starting ImageUtil Processing Verification...");
+        System.out.println("webp.strict=" + strictMode);
         System.out.println("Available Image Writers: " + java.util.Arrays.toString(ImageIO.getWriterFormatNames()));
 
         // 1. Create a dummy high-res image (1000x1000, valid PNG)
@@ -46,29 +52,36 @@ class VerifyImageUtil {
         System.out.println("Processed Size: " + processed.getSize() + " bytes");
         System.out.println("Verified: ImageUtil processed the image.");
 
-        // Check format
+        if (strictMode) {
+            assertEquals("webp", processed.getExtension(),
+                    "webp.strict=true 환경에서는 WebP 변환이 반드시 성공해야 합니다.");
+            assertEquals("image/webp", processed.getContentType());
+            return;
+        }
+
+        // Non-strict: runtime fail-open 허용 (원본 또는 WebP)
         if ("webp".equalsIgnoreCase(processed.getExtension())) {
             System.out.println("Success: WebP conversion active.");
             assertEquals("image/webp", processed.getContentType());
         } else {
-            System.out
-                    .println("Warning: WebP conversion failed (fallback used). Extension: " + processed.getExtension());
-            // Assert fallback correctness
+            System.out.println("Warning: WebP conversion unavailable. Fallback extension=" + processed.getExtension());
             assertEquals("png", processed.getExtension());
         }
     }
 
     @Test
     void verifyDirectImageIOWrite() throws Exception {
+        boolean strictMode = isWebpStrictMode();
         System.out.println("Testing Direct ImageIO Write for WebP...");
         BufferedImage image = new BufferedImage(100, 100, BufferedImage.TYPE_INT_RGB);
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         boolean writerFound = ImageIO.write(image, "webp", baos);
 
         System.out.println("ImageIO.write('webp') returned: " + writerFound);
-        // Assert writer found, but don't fail excessively if environment is limited
-        if (!writerFound) {
-            System.out.println("Warning: No WebP ImageWriter found in classpath!");
+        if (strictMode) {
+            assertTrue(writerFound, "webp.strict=true 환경에서는 WebP ImageWriter가 필요합니다.");
+        } else if (!writerFound) {
+            System.out.println("Warning: No WebP ImageWriter found in classpath. Non-strict mode allows fallback.");
         }
     }
 }

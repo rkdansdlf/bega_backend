@@ -58,7 +58,7 @@ public class CheerCommentService {
     @Transactional(readOnly = true)
     public Page<CommentRes> listComments(Long postId, Pageable pageable, UserEntity me) {
         // me can be null
-        CheerPost post = postService.findPostById(postId);
+        postService.findPostById(postId);
 
         // [NEW] 차단 유저 등 필터링 필요시 추가 - CheerService logic didn't explicitly filter
         // listComments by block,
@@ -129,7 +129,9 @@ public class CheerCommentService {
 
         AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
         if (!modResult.isAllowed()) {
-            throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
+            log.warn("Comment moderation blocked. source={}, riskLevel={}, category={}, reason={}",
+                    modResult.decisionSource(), modResult.riskLevel(), modResult.category(), modResult.reason());
+            throw new IllegalArgumentException("부적절한 내용이 포함되어 댓글을 작성할 수 없습니다.");
         }
 
         try {
@@ -192,7 +194,9 @@ public class CheerCommentService {
 
         AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
         if (!modResult.isAllowed()) {
-            throw new IllegalArgumentException("부적절한 내용이 포함되어 있습니다: " + modResult.reason());
+            log.warn("Reply moderation blocked. source={}, riskLevel={}, category={}, reason={}",
+                    modResult.decisionSource(), modResult.riskLevel(), modResult.category(), modResult.reason());
+            throw new IllegalArgumentException("부적절한 내용이 포함되어 답글을 작성할 수 없습니다.");
         }
 
         try {
