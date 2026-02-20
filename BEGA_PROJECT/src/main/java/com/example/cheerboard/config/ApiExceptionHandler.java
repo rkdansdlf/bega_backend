@@ -7,15 +7,40 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import com.example.common.exception.InvalidAuthorException;
+import com.example.common.exception.RepostNotAllowedException;
+import com.example.common.exception.RepostSelfNotAllowedException;
+import com.example.common.exception.RepostTargetNotFoundException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_PRIVATE_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_PRIVATE_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_SELF_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_SELF_NOT_ALLOWED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CANCEL_NOT_ALLOWED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CANCEL_NOT_ALLOWED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_QUOTE_NOT_ALLOWED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_QUOTE_NOT_ALLOWED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_A_REPOST_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_A_REPOST_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET_NOT_FOUND_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET_NOT_FOUND_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CONFLICT_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CONFLICT_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_ERROR;
 
 import java.time.Instant;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Cheerboard API 전용 예외 핸들러.
@@ -28,6 +53,7 @@ import java.util.Objects;
  * </p>
  */
 @RestControllerAdvice(basePackages = "com.example.cheerboard")
+@Slf4j
 public class ApiExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
@@ -35,8 +61,29 @@ public class ApiExceptionHandler {
         if (isDeletedAuthorReference(ex)) {
             return build(HttpStatus.UNAUTHORIZED, "INVALID_AUTHOR", "인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
         }
+        if (isRepostDuplicateViolation(ex)) {
+            return build(HttpStatus.CONFLICT, REPOST_CONFLICT_CODE, REPOST_CONFLICT_ERROR);
+        }
 
         return build(HttpStatus.BAD_REQUEST, "DATA_INTEGRITY_VIOLATION", "요청 데이터의 무결성 제약을 위반했습니다.");
+    }
+
+    @ExceptionHandler({ RepostSelfNotAllowedException.class, RepostNotAllowedException.class })
+    public ResponseEntity<Map<String, Object>> handleRepostNotAllowed(Exception ex) {
+        String code = ex instanceof RepostNotAllowedException repostEx && repostEx.getErrorCode() != null
+                ? repostEx.getErrorCode()
+                : REPOST_NOT_ALLOWED_CODE;
+
+        String message = resolveErrorMessage(code, ex.getMessage());
+
+        return build(HttpStatus.FORBIDDEN, code, message);
+    }
+
+    @ExceptionHandler(RepostTargetNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleRepostTargetNotFound(RepostTargetNotFoundException ex) {
+        String code = ex.getErrorCode() != null ? ex.getErrorCode() : REPOST_TARGET_NOT_FOUND_CODE;
+        String message = resolveRepostMessage(code, ex.getMessage());
+        return build(HttpStatus.NOT_FOUND, code, message);
     }
 
 
@@ -97,6 +144,60 @@ public class ApiExceptionHandler {
                 "message", defaultMessage));
     }
 
+    private boolean isRepostDuplicateViolation(DataIntegrityViolationException ex) {
+        String message = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String lower = message.toLowerCase();
+        return lower.contains("uq_cheer_post_simple_repost")
+                || (lower.contains("duplicate key") && lower.contains("repost_type") && lower.contains("repost_of_id"))
+                || (lower.contains("repost_of_id") && lower.contains("repost_type"))
+                || (lower.contains("cheer_post_repost") && lower.contains("duplicate key"))
+                || (lower.contains("cheer_post_repost_pkey"));
+    }
+
+    private String resolveRepostMessage(String code, String message) {
+        if (message != null && !message.isBlank()) {
+            return message;
+        }
+
+        if (REPOST_CYCLE_DETECTED_CODE.equals(code)) {
+            return REPOST_CYCLE_DETECTED_ERROR;
+        }
+        if (REPOST_SELF_NOT_ALLOWED_CODE.equals(code)) {
+            return REPOST_NOT_ALLOWED_SELF_ERROR;
+        }
+        if (REPOST_NOT_ALLOWED_CODE.equals(code)) {
+            return REPOST_NOT_ALLOWED_ERROR;
+        }
+        if (REPOST_NOT_ALLOWED_BLOCKED_CODE.equals(code)) {
+            return REPOST_NOT_ALLOWED_BLOCKED_ERROR;
+        }
+        if (REPOST_NOT_ALLOWED_PRIVATE_CODE.equals(code)) {
+            return REPOST_NOT_ALLOWED_PRIVATE_ERROR;
+        }
+        if (REPOST_CANCEL_NOT_ALLOWED_CODE.equals(code)) {
+            return REPOST_CANCEL_NOT_ALLOWED_ERROR;
+        }
+        if (REPOST_QUOTE_NOT_ALLOWED_CODE.equals(code)) {
+            return REPOST_QUOTE_NOT_ALLOWED_ERROR;
+        }
+        if (REPOST_NOT_A_REPOST_CODE.equals(code)) {
+            return REPOST_NOT_A_REPOST_ERROR;
+        }
+        if (REPOST_TARGET_NOT_FOUND_CODE.equals(code)) {
+            return REPOST_TARGET_NOT_FOUND_ERROR;
+        }
+
+        return null;
+    }
+
+    private String resolveErrorMessage(String code, String message) {
+        String resolved = resolveRepostMessage(code, message);
+        return resolved != null ? resolved : message;
+    }
+
     private boolean isDeletedAuthorReference(DataIntegrityViolationException ex) {
         Throwable cause = ex.getMostSpecificCause();
         String message = cause != null && cause.getMessage() != null
@@ -131,13 +232,13 @@ public class ApiExceptionHandler {
 
     /**
      * Catch-all handler for unexpected exceptions.
-     * This helps debug 500 errors by returning the actual error message.
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
-        // Log the full stack trace for debugging
-        ex.printStackTrace();
-        return build(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR",
-                "서버 오류가 발생했습니다: " + ex.getClass().getSimpleName() + " - " + ex.getMessage());
+        log.error("Unhandled cheerboard exception", ex);
+        return build(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
     }
 }

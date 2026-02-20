@@ -92,7 +92,7 @@ public class ImageUtil {
         try {
             return compressAndConvertToWebP(originalBytes);
         } catch (Exception e) {
-            log.error("Image optimization failed, using original: {}", e.getMessage());
+            log.warn("Image optimization failed. Falling back to original image.", e);
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         }
     }

@@ -141,9 +141,6 @@ public class APIController {
             return ResponseEntity.ok(ApiResponse.error("이미 사용 중인 닉네임입니다.", response));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.ok(ApiResponse.error(e.getMessage(), Map.of("available", false)));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiResponse.error("닉네임 확인 중 오류가 발생했습니다.", Map.of("available", false)));
         }
     }
 
@@ -282,10 +279,14 @@ public class APIController {
                     "expiresIn", 300 // 5분 (초)
             ));
 
-        } catch (Exception e) {
-            log.warn("Failed to generate link token: {}", e.getMessage()); // Error -> Warn to avoid noise
+        } catch (IllegalArgumentException e) {
+            log.warn("Link token request rejected: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiResponse.error("토큰 생성에 실패했습니다. 유효하지 않은 요청입니다."));
+                    .body(ApiResponse.error("토큰 생성 요청이 올바르지 않습니다."));
+        } catch (Exception e) {
+            log.error("Failed to generate link token", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
         }
     }
 }
