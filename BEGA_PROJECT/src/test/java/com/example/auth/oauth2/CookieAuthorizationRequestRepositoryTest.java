@@ -2,13 +2,14 @@ package com.example.auth.oauth2;
 
 import com.example.auth.util.JWTUtil;
 import com.example.bega.auth.dto.OAuth2LinkStateData;
+import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.bega.auth.service.OAuth2LinkStateService;
 import jakarta.servlet.http.Cookie;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
@@ -20,7 +21,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -37,8 +37,20 @@ class CookieAuthorizationRequestRepositoryTest {
     @Mock
     private JWTUtil jwtUtil;
 
-    @InjectMocks
+    @Mock
+    private AuthSecurityMonitoringService securityMonitoringService;
+
     private CookieAuthorizationRequestRepository repository;
+
+    @BeforeEach
+    void setUp() {
+        repository = new CookieAuthorizationRequestRepository(
+                oAuth2LinkStateService,
+                jwtUtil,
+                "test-cookie-secret",
+                false,
+                securityMonitoringService);
+    }
 
     @Test
     @DisplayName("link 모드 + 유효한 linkToken이면 원본 state 키로 연동 데이터 저장")
@@ -209,8 +221,10 @@ class CookieAuthorizationRequestRepositoryTest {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie(CookieAuthorizationRequestRepository.OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME, "not-base64"));
 
-        assertThatThrownBy(() -> repository.loadAuthorizationRequest(request))
-                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(repository.loadAuthorizationRequest(request)).isNull();
+        assertThat(request.getAttribute(CookieAuthorizationRequestRepository.OAUTH2_COOKIE_ERROR_ATTRIBUTE))
+                .isEqualTo("invalid_oauth2_request_cookie");
+        verify(securityMonitoringService).recordUnsignedOauth2Cookie();
     }
 
     private OAuth2AuthorizationRequest createAuthorizationRequest(String state) {
