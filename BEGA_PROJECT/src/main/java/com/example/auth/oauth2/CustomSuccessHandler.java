@@ -1,0 +1,164 @@
+package com.example.auth.oauth2;
+
+import com.example.auth.dto.CustomOAuth2User;
+import com.example.auth.service.OAuth2StateService;
+import com.example.auth.util.AuthCookieUtil;
+import com.example.auth.util.JWTUtil;
+import com.example.auth.entity.UserEntity;
+import com.example.auth.repository.UserRepository;
+import java.util.Objects;
+
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+import org.springframework.security.core.Authentication;
+import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.util.Optional;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
+
+@Component
+@lombok.extern.slf4j.Slf4j
+public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
+
+    private final JWTUtil jwtUtil;
+    private final UserRepository userRepository;
+    private final com.example.auth.service.UserService userService; // Inject UserService
+    private final OAuth2StateService oAuth2StateService;
+    private final AuthCookieUtil authCookieUtil;
+
+    @Value("${app.frontend.url:http://localhost:3000}")
+    private String frontendUrl;
+
+    public CustomSuccessHandler(JWTUtil jwtUtil, UserRepository userRepository,
+            @org.springframework.context.annotation.Lazy com.example.auth.service.UserService userService,
+            OAuth2StateService oAuth2StateService,
+            AuthCookieUtil authCookieUtil) {
+        this.jwtUtil = jwtUtil;
+        this.userRepository = userRepository;
+        this.userService = userService;
+        this.oAuth2StateService = oAuth2StateService;
+        this.authCookieUtil = authCookieUtil;
+    }
+
+    @Override
+    public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
+            Authentication authentication) throws IOException, ServletException {
+
+        CustomOAuth2User principal = (CustomOAuth2User) authentication.getPrincipal();
+
+        // Use the UserDto directly from the authenticated principal
+        // This ensures we use the LINKED account's info, not just the provider's email
+        com.example.auth.dto.UserDto userDto = principal.getUserDto();
+
+        String userEmail = Objects.requireNonNull(userDto.getEmail());
+        String role = Objects.requireNonNull(userDto.getRole());
+
+        Long userId = userDto.getId();
+
+        // Fetch fresh entity for bonus check / entity operations if needed,
+        // using ID which is stable (email might change but ID is PK)
+        Optional<UserEntity> userEntityOptional = userRepository.findById(userId);
+
+        if (userEntityOptional.isEmpty()) {
+            // Should not happen if CustomOAuth2UserService did its job
+            getRedirectStrategy().sendRedirect(request, response,
+                    frontendUrl + "/login?error=user_not_found_after_auth");
+            return;
+        }
+
+        UserEntity userEntity = userEntityOptional.get();
+
+        // ✅ 수정: getFavoriteTeamId() 사용 (String 반환)
+        String favoriteTeamId = userEntity.getFavoriteTeamId();
+
+        // ✅ null이면 "없음"으로 설정
+        if (favoriteTeamId == null || favoriteTeamId.isEmpty()) {
+            favoriteTeamId = "없음";
+        }
+
+        // --- 계정 연동 모드 체크 ---
+        // state 파라미터에서 연동 모드 확인 (| 포함 여부)
+        boolean isLinkMode = checkLinkModeFromState(request);
+
+        if (isLinkMode) {
+            // [Security Fix] 연동 모드일 경우에도 새 토큰 발급 (보안 강화)
+            // 기존 토큰이 만료되었을 수 있고, 연동 후 권한이 변경되었을 수 있음
+            log.info("Processing Account Link Success (Refreshing Tokens)");
+
+            // 새 토큰 발급
+            long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; // 2시간
+            int tokenVersion = userEntity.getTokenVersion() == null ? 0 : userEntity.getTokenVersion();
+            String accessToken = jwtUtil.createJwt(userEmail, role, userId, accessTokenExpiredMs, tokenVersion);
+            String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId, tokenVersion);
+
+            userService.saveOrUpdateRefreshToken(userEmail, refreshToken, request);
+
+            // 쿠키에 토큰 저장
+            int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);
+            ResponseCookie authCookie = authCookieUtil.buildAuthCookie(accessToken, accessTokenMaxAge);
+            response.addHeader(HttpHeaders.SET_COOKIE, authCookie.toString());
+            int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
+            ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
+            response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+
+            // [Security Fix] State 데이터 저장 - userId만 Redis에 저장 (민감 정보 최소화)
+            String stateId = oAuth2StateService.saveState(userId);
+            String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId + "&status=linked";
+            getRedirectStrategy().sendRedirect(request, response, redirectUrl);
+            return;
+        }
+        // -----------------------
+
+        // 일일 출석 보너스 체크 (OAuth2 로그인 시)
+        userService.checkAndApplyDailyLoginBonus(userEntity);
+
+        // Access Token 생성
+        long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; // 2시간
+        int tokenVersion = userEntity.getTokenVersion() == null ? 0 : userEntity.getTokenVersion();
+        String accessToken = jwtUtil.createJwt(userEmail, role, userId, accessTokenExpiredMs, tokenVersion);
+
+        // Refresh Token 생성
+        String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId, tokenVersion);
+
+        // Refresh Token DB 저장/갱신
+        userService.saveOrUpdateRefreshToken(userEmail, refreshToken, request);
+
+        // 쿠키에 토큰 저장
+        int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);
+        ResponseCookie authCookie = authCookieUtil.buildAuthCookie(accessToken, accessTokenMaxAge);
+        response.addHeader(HttpHeaders.SET_COOKIE, authCookie.toString());
+
+        int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
+        ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
+        response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+
+        if (request.getSession(false) != null) {
+            request.getSession(false).invalidate();
+        }
+
+        // [Security Fix] 사용자 정보를 Redis에 저장 - userId만 저장 (민감 정보 최소화)
+        String stateId = oAuth2StateService.saveState(userId);
+        String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId;
+        getRedirectStrategy().sendRedirect(request, response, redirectUrl);
+
+    }
+
+    /**
+     * state 파라미터에서 연동 모드 여부 확인
+     * state에 | 가 포함되어 있으면 연동 모드
+     */
+    private boolean checkLinkModeFromState(HttpServletRequest request) {
+        String state = request.getParameter("state");
+        if (state == null) {
+            return false;
+        }
+        return state.contains("|");
+    }
+}

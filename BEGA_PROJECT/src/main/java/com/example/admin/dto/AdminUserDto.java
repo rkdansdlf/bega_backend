@@ -20,6 +20,6 @@ public class AdminUserDto {
     private String name;
     private String favoriteTeam;
     private LocalDateTime createdAt;
-    private Long postCount;      // 작성한 게시글 수
-    private String role;         // USER, ADMIN
+    private Long postCount; // 작성한 게시글 수
+    private String role; // USER, ADMIN
 }

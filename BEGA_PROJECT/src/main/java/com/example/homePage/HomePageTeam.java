@@ -1,4 +1,4 @@
-package com.example.homePage;
+package com.example.homepage;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

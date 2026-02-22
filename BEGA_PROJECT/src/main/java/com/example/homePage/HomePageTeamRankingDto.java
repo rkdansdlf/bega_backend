@@ -1,4 +1,4 @@
-package com.example.homePage;
+package com.example.homepage;
 
 
 import lombok.AllArgsConstructor;
@@ -19,4 +19,5 @@ public class HomePageTeamRankingDto {
     private Integer draws;
     private String winRate;
     private Integer games;
+    private Double gamesBehind;
 }

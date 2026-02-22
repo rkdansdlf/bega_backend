@@ -10,10 +10,13 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -25,32 +28,43 @@ public class PartyController {
 
     // 파티 생성
     @PostMapping
-    public ResponseEntity<PartyDTO.Response> createParty(@RequestBody PartyDTO.Request request) {
+    public ResponseEntity<?> createParty(@RequestBody PartyDTO.Request request, java.security.Principal principal) {
         try {
-            PartyDTO.Response response = partyService.createParty(request);
+            PartyDTO.Response response = partyService.createParty(request, principal);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        } catch (com.example.common.exception.IdentityVerificationRequiredException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
         }
     }
 
     // 모든 파티 조회
-   @GetMapping
+    @GetMapping
     public ResponseEntity<Page<PartyDTO.Response>> getAllParties(
             @RequestParam(required = false) String teamId,
             @RequestParam(required = false) String stadium,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) String searchQuery,
+            @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "9") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
-            @RequestParam(defaultValue = "desc") String sortDir 
-    ) {
+            @RequestParam(defaultValue = "desc") String sortDir) {
+        Party.PartyStatus parsedStatus = null;
+        if (status != null && !status.trim().isEmpty()) {
+            try {
+                parsedStatus = Party.PartyStatus.valueOf(status.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
+            }
+        }
+
         Sort.Direction direction = sortDir.equalsIgnoreCase("asc") ? Sort.Direction.ASC : Sort.Direction.DESC;
         Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
-        Page<PartyDTO.Response> parties = partyService.getAllParties(teamId, stadium, pageable);
+        Page<PartyDTO.Response> parties = partyService.getAllParties(teamId, stadium, date, searchQuery, pageable, parsedStatus);
         return ResponseEntity.ok(parties);
     }
-
-   
 
     // 파티 ID로 조회
     @GetMapping("/{id}")
@@ -96,38 +110,45 @@ public class PartyController {
         return ResponseEntity.ok(parties);
     }
 
-    // 내가 참여한 모든 파티 조회 (호스트 + 참여자)
-    @GetMapping("/my/{userId}")
-    public ResponseEntity<List<PartyDTO.Response>> getMyParties(@PathVariable Long userId) {
+    // 내가 참여한 모든 파티 조회 (호스트 + 참여자) - Principal 기반
+    @GetMapping("/my")
+    public ResponseEntity<List<PartyDTO.Response>> getMyParties(@AuthenticationPrincipal Long userId) {
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
         List<PartyDTO.Response> parties = partyService.getMyParties(userId);
         return ResponseEntity.ok(parties);
     }
 
     // 파티 업데이트
     @PatchMapping("/{id}")
-    public ResponseEntity<PartyDTO.Response> updateParty(
+    public ResponseEntity<?> updateParty(
             @PathVariable Long id,
-            @RequestBody PartyDTO.UpdateRequest request) {
+            @RequestBody PartyDTO.UpdateRequest request,
+            java.security.Principal principal) {
         try {
-            PartyDTO.Response response = partyService.updateParty(id, request);
+            PartyDTO.Response response = partyService.updateParty(id, request, principal);
             return ResponseEntity.ok(response);
+        } catch (UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(java.util.Map.of("error", e.getMessage()));
         }
     }
 
     // 파티 삭제
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteParty(
+    public ResponseEntity<?> deleteParty(
             @PathVariable Long id,
-            @RequestParam Long hostId) {
+            java.security.Principal principal) {
         try {
-            partyService.deleteParty(id, hostId);  
+            partyService.deleteParty(id, principal);
             return ResponseEntity.noContent().build();
         } catch (UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(java.util.Map.of("error", e.getMessage()));
         }
     }
 }
