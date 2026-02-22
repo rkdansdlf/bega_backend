@@ -2,6 +2,8 @@ package com.example.kbo.repository;
 
 import com.example.kbo.entity.GameEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -37,6 +39,18 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    * @return 해당 날짜의 모든 경기
    */
   List<GameEntity> findByGameDate(LocalDate gameDate);
+
+  /**
+   * 특정 날짜 + 홈/원정 팀 variants 매칭 조회
+   */
+  @Query("SELECT g FROM GameEntity g " +
+      "WHERE g.gameDate = :gameDate " +
+      "AND g.homeTeam IN :homeTeamVariants " +
+      "AND g.awayTeam IN :awayTeamVariants")
+  List<GameEntity> findByGameDateAndTeamVariants(
+      @Param("gameDate") LocalDate gameDate,
+      @Param("homeTeamVariants") List<String> homeTeamVariants,
+      @Param("awayTeamVariants") List<String> awayTeamVariants);
 
   /**
    * 특정 날짜 + 더미 여부로 조회
@@ -98,6 +112,35 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
   List<GameEntity> findAllByDateRange(
       @Param("startDate") LocalDate startDate,
       @Param("endDate") LocalDate endDate);
+
+  @Query("SELECT g FROM GameEntity g " +
+      "WHERE g.gameDate BETWEEN :startDate AND :endDate " +
+      "AND g.isDummy IS NOT TRUE " +
+      "AND g.gameId NOT LIKE 'MOCK%' " +
+      "AND g.homeTeam IN :canonicalTeams " +
+      "AND g.awayTeam IN :canonicalTeams " +
+      "ORDER BY g.gameDate ASC, g.gameId ASC")
+  Page<GameEntity> findCanonicalByDateRange(
+      @Param("startDate") LocalDate startDate,
+      @Param("endDate") LocalDate endDate,
+      @Param("canonicalTeams") List<String> canonicalTeams,
+      Pageable pageable);
+
+  @Query("SELECT MIN(g.gameDate) FROM GameEntity g " +
+      "WHERE g.isDummy IS NOT TRUE " +
+      "AND g.gameId NOT LIKE 'MOCK%' " +
+      "AND g.homeTeam IN :canonicalTeams " +
+      "AND g.awayTeam IN :canonicalTeams")
+  Optional<LocalDate> findCanonicalMinGameDate(
+      @Param("canonicalTeams") List<String> canonicalTeams);
+
+  @Query("SELECT MAX(g.gameDate) FROM GameEntity g " +
+      "WHERE g.isDummy IS NOT TRUE " +
+      "AND g.gameId NOT LIKE 'MOCK%' " +
+      "AND g.homeTeam IN :canonicalTeams " +
+      "AND g.awayTeam IN :canonicalTeams")
+  Optional<LocalDate> findCanonicalMaxGameDate(
+      @Param("canonicalTeams") List<String> canonicalTeams);
 
   /**
    * 기간 내 완료된 경기 조회
@@ -258,4 +301,15 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    */
   @Query("SELECT MIN(g.gameDate) FROM GameEntity g WHERE g.gameDate > :date")
   Optional<LocalDate> findNextGameDate(@Param("date") LocalDate date);
+
+  /**
+   * season_id로 리그 타입 코드 조회
+   */
+  @Query(value = """
+      SELECT s.league_type_code
+      FROM kbo_seasons s
+      WHERE s.season_id = :seasonId
+      FETCH FIRST 1 ROWS ONLY
+      """, nativeQuery = true)
+  Optional<Integer> findLeagueTypeCodeBySeasonId(@Param("seasonId") Integer seasonId);
 }

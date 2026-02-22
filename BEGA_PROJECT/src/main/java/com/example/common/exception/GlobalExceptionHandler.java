@@ -15,20 +15,27 @@ import com.example.mate.exception.InvalidPartyStatusException;
 import com.example.mate.exception.PartyApplicationNotFoundException;
 import com.example.mate.exception.PartyFullException;
 import com.example.mate.exception.PartyNotFoundException;
+import com.example.mate.exception.TossPaymentException;
 import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.notification.exception.NotificationNotFoundException;
 import com.example.stadium.exception.StadiumNotFoundException;
+import com.example.cheerboard.service.CheerServiceConstants;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 
 /**
  * 전역 예외 처리 핸들러
@@ -80,6 +87,29 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(ApiResponse.error(e.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidAuthorException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidAuthorException(InvalidAuthorException e) {
+        log.warn("InvalidAuthorException: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of(
+                        "success", false,
+                        "code", "INVALID_AUTHOR",
+                        "message", e.getMessage()));
+    }
+
+    @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleAuthenticationCredentialsNotFoundException(
+            AuthenticationCredentialsNotFoundException e) {
+        log.warn("AuthenticationCredentialsNotFoundException: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of(
+                        "success", false,
+                        "code", "INVALID_AUTHOR",
+                        "message", "인증이 필요합니다."));
     }
 
     /**
@@ -134,6 +164,15 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(e.getMessage()));
     }
 
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiResponse> handleHttpMediaTypeNotSupportedException(
+            HttpMediaTypeNotSupportedException e) {
+        log.warn("HttpMediaTypeNotSupportedException: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                .body(ApiResponse.error("요청 Content-Type이 올바르지 않습니다. multipart/form-data로 전송해주세요."));
+    }
+
     @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
     public ResponseEntity<ApiResponse> handleMaxUploadSizeExceededException(
             org.springframework.web.multipart.MaxUploadSizeExceededException e) {
@@ -141,6 +180,53 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error("파일 크기가 제한을 초과했습니다. (최대 10MB)"));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, Object>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        String message = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        if (isRepostDuplicateViolation(message)) {
+            return ResponseEntity
+                    .status(HttpStatus.CONFLICT)
+                    .body(buildErrorBodyWithCode(CheerServiceConstants.REPOST_CONFLICT_CODE, null));
+        }
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(buildErrorBodyWithCode("DATA_INTEGRITY_VIOLATION", "요청 데이터의 무결성 제약을 위반했습니다."));
+    }
+
+    @ExceptionHandler({ IllegalStateException.class })
+    public ResponseEntity<ApiResponse> handleIllegalStateException(IllegalStateException ex) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    @ExceptionHandler(NoSuchElementException.class)
+    public ResponseEntity<ApiResponse> handleNoSuchElementException(NoSuchElementException ex) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    @ExceptionHandler({ RepostNotAllowedException.class, RepostSelfNotAllowedException.class })
+    public ResponseEntity<Map<String, Object>> handleRepostNotAllowed(Exception ex) {
+        String code = ex instanceof RepostNotAllowedException repostEx && repostEx.getErrorCode() != null
+                ? repostEx.getErrorCode()
+                : CheerServiceConstants.REPOST_NOT_ALLOWED_CODE;
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(buildErrorBodyWithCode(code, ex.getMessage()));
+    }
+
+    @ExceptionHandler(RepostTargetNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleRepostTargetNotFoundException(RepostTargetNotFoundException ex) {
+        String code = ex.getErrorCode() != null
+                ? ex.getErrorCode()
+                : CheerServiceConstants.REPOST_TARGET_NOT_FOUND_CODE;
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(buildErrorBodyWithCode(code, ex.getMessage()));
     }
 
     /**
@@ -151,7 +237,63 @@ public class GlobalExceptionHandler {
         log.error("Unexpected error occurred", e);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("서버 오류가 발생했습니다: " + e.getMessage()));
+                .body(ApiResponse.error("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
+    }
+
+    private String buildErrorMessageWithCode(String code, String message) {
+        if (message == null || message.isBlank()) {
+            if (CheerServiceConstants.REPOST_NOT_ALLOWED_CODE.equals(code)) {
+                return CheerServiceConstants.REPOST_NOT_ALLOWED_ERROR;
+            }
+            if (CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_CODE.equals(code)) {
+                return CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_ERROR;
+            }
+            if (CheerServiceConstants.REPOST_NOT_ALLOWED_PRIVATE_CODE.equals(code)) {
+                return CheerServiceConstants.REPOST_NOT_ALLOWED_PRIVATE_ERROR;
+            }
+            if (CheerServiceConstants.REPOST_TARGET_NOT_FOUND_CODE.equals(code)) {
+                return CheerServiceConstants.REPOST_TARGET_NOT_FOUND_ERROR;
+            }
+            if (CheerServiceConstants.REPOST_CONFLICT_CODE.equals(code)) {
+                return CheerServiceConstants.REPOST_CONFLICT_ERROR;
+            }
+            if (CheerServiceConstants.REPOST_QUOTE_NOT_ALLOWED_CODE.equals(code)) {
+                return CheerServiceConstants.REPOST_QUOTE_NOT_ALLOWED_ERROR;
+            }
+            if (CheerServiceConstants.REPOST_NOT_A_REPOST_CODE.equals(code)) {
+                return CheerServiceConstants.REPOST_NOT_A_REPOST_ERROR;
+            }
+            if (CheerServiceConstants.REPOST_CANCEL_NOT_ALLOWED_CODE.equals(code)) {
+                return CheerServiceConstants.REPOST_CANCEL_NOT_ALLOWED_ERROR;
+            }
+            if (CheerServiceConstants.REPOST_SELF_NOT_ALLOWED_CODE.equals(code)) {
+                return CheerServiceConstants.REPOST_NOT_ALLOWED_SELF_ERROR;
+            }
+            if (CheerServiceConstants.REPOST_CYCLE_DETECTED_CODE.equals(code)) {
+                return CheerServiceConstants.REPOST_CYCLE_DETECTED_ERROR;
+            }
+            return "요청을 처리할 수 없습니다.";
+        }
+        return message;
+    }
+
+    private boolean isRepostDuplicateViolation(String message) {
+        if (message == null) {
+            return false;
+        }
+        String lower = message.toLowerCase();
+        return lower.contains("uq_cheer_post_simple_repost")
+                || (lower.contains("duplicate key") && lower.contains("repost_type") && lower.contains("repost_of_id"))
+                || (lower.contains("repost_of_id") && lower.contains("repost_type"))
+                || (lower.contains("cheer_post_repost") && lower.contains("duplicate key"))
+                || (lower.contains("cheer_post_repost_pkey"));
+    }
+
+    private Map<String, Object> buildErrorBodyWithCode(String code, String message) {
+        return Map.of(
+                "success", false,
+                "code", code,
+                "message", buildErrorMessageWithCode(code, message));
     }
 
     // ------ stadiumguide 관련 예외 ----------
@@ -342,10 +484,27 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 400 Bad Request - Toss 결제 승인 실패
+     */
+    @ExceptionHandler(TossPaymentException.class)
+    public ResponseEntity<ApiResponse> handleTossPaymentException(TossPaymentException e) {
+        log.warn("TossPaymentException: {}", e.getMessage());
+        if (e.getStatusCode() == null) {
+            return ResponseEntity
+                    .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(e.getMessage()));
+        }
+        return ResponseEntity
+                .status(e.getStatusCode())
+                .body(ApiResponse.error(e.getMessage()));
+    }
+
+    /**
      * 409 Conflict - Duplicate Review
      */
     @ExceptionHandler(com.example.mate.exception.DuplicateReviewException.class)
-    public ResponseEntity<ApiResponse> handleDuplicateReviewException(com.example.mate.exception.DuplicateReviewException e) {
+    public ResponseEntity<ApiResponse> handleDuplicateReviewException(
+            com.example.mate.exception.DuplicateReviewException e) {
         log.warn("DuplicateReviewException: {}", e.getMessage());
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)

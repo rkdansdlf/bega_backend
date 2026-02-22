@@ -68,7 +68,38 @@ public interface CheerCommentRepo extends JpaRepository<CheerComment, Long> {
     
     List<CheerComment> findByAuthor(UserEntity author);
 
-    boolean existsByPostIdAndAuthorIdAndContentAndParentCommentIsNullAndCreatedAtAfter(Long postId, Long authorId, String content, Instant since);
+    @Query(value = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM cheer_comment c
+                WHERE c.post_id = ?1
+                  AND c.author_id = ?2
+                  AND c.content = CAST(?3 AS text)
+                  AND c.parent_comment_id IS NULL
+                  AND c.created_at > ?4
+            )
+            """, nativeQuery = true)
+    boolean existsByPostIdAndAuthorIdAndContentAndParentCommentIsNullAndCreatedAtAfter(
+            Long postId,
+            Long authorId,
+            String content,
+            Instant since);
 
-    boolean existsByPostIdAndAuthorIdAndContentAndParentCommentIdAndCreatedAtAfter(Long postId, Long authorId, String content, Long parentCommentId, Instant since);
+    @Query(value = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM cheer_comment c
+                WHERE c.post_id = ?1
+                  AND c.author_id = ?2
+                  AND c.content = CAST(?3 AS text)
+                  AND c.parent_comment_id = ?4
+                  AND c.created_at > ?5
+            )
+            """, nativeQuery = true)
+    boolean existsByPostIdAndAuthorIdAndContentAndParentCommentIdAndCreatedAtAfter(
+            Long postId,
+            Long authorId,
+            String content,
+            Long parentCommentId,
+            Instant since);
 }

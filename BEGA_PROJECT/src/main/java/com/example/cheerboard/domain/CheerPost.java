@@ -31,6 +31,20 @@ public class CheerPost {
         QUOTE // 인용 리포스트 - 원글을 첨부하면서 의견 추가
     }
 
+    /**
+     * 공유 정책 타입
+     * INTERNAL_*: 동일 서비스 내부 동작
+     * EXTERNAL_*: 외부 콘텐츠 참조/재가공
+     */
+    public enum ShareMode {
+        INTERNAL_REPOST,
+        INTERNAL_QUOTE,
+        EXTERNAL_LINK,
+        EXTERNAL_COPY,
+        EXTERNAL_EMBED,
+        EXTERNAL_SUMMARY
+    }
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -50,8 +64,7 @@ public class CheerPost {
 
     // title removed
 
-    @Lob
-    @Column(nullable = true) // 단순 리포스트는 내용 없음
+    @Column(columnDefinition = "TEXT", nullable = true) // 단순 리포스트는 내용 없음
     private String content;
 
     @Column(name = "likecount", nullable = false)
@@ -85,6 +98,32 @@ public class CheerPost {
     @Column(name = "repost_type", length = 10)
     private RepostType repostType;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "share_mode", length = 24)
+    @Builder.Default
+    private ShareMode shareMode = ShareMode.INTERNAL_REPOST;
+
+    @Column(name = "source_url", length = 1024)
+    private String sourceUrl;
+
+    @Column(name = "source_title", length = 300)
+    private String sourceTitle;
+
+    @Column(name = "source_author", length = 200)
+    private String sourceAuthor;
+
+    @Column(name = "source_license", length = 120)
+    private String sourceLicense;
+
+    @Column(name = "source_license_url", length = 1024)
+    private String sourceLicenseUrl;
+
+    @Column(name = "source_changed_note", length = 1200)
+    private String sourceChangedNote;
+
+    @Column(name = "source_snapshot_type", length = 80)
+    private String sourceSnapshotType;
+
     @Column(name = "createdat", nullable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();
@@ -112,12 +151,20 @@ public class CheerPost {
 
     @PrePersist
     void onCreate() {
+        normalizeContent();
         createdAt = updatedAt = Instant.now();
     }
 
     @PreUpdate
     void onUpdate() {
+        normalizeContent();
         updatedAt = Instant.now();
+    }
+
+    private void normalizeContent() {
+        if (content == null) {
+            content = "";
+        }
     }
 
     public String getTeamId() {

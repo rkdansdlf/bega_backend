@@ -23,6 +23,26 @@ public class S3StorageStrategy implements StorageStrategy {
     private final S3Presigner s3Presigner;
     private final String bucketName;
 
+    /**
+     * path가 이미 "bucket/..." 형태인 경우 중복 prefix를 방지한다.
+     */
+    private String buildObjectKey(String bucket, String path) {
+        String normalizedPath = path == null ? "" : path.strip();
+        if (normalizedPath.startsWith("/")) {
+            normalizedPath = normalizedPath.substring(1);
+        }
+
+        if (bucket == null || bucket.isBlank()) {
+            return normalizedPath;
+        }
+
+        String prefix = bucket + "/";
+        if (normalizedPath.startsWith(prefix)) {
+            return normalizedPath;
+        }
+        return prefix + normalizedPath;
+    }
+
     @Override
     public Mono<String> upload(org.springframework.web.multipart.MultipartFile file, String bucket, String path) {
         return Mono.fromCallable(() -> {
@@ -33,16 +53,16 @@ public class S3StorageStrategy implements StorageStrategy {
                 // *중요*: OCI 버킷은 보통 하나로 관리하므로, bucket param은 무시하고 config의 bucketName을 사용하되
                 // path 앞에 prefix로 붙이는 것이 안전함.
 
-                String fullPath = bucket + "/" + path; // e.g., cheer-assets/posts/1/image.jpg
+                String objectKey = buildObjectKey(bucket, path);
 
                 PutObjectRequest putOb = PutObjectRequest.builder()
                         .bucket(bucketName)
-                        .key(fullPath)
+                        .key(objectKey)
                         .contentType(file.getContentType())
                         .build();
 
                 s3Client.putObject(putOb, RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
-                return fullPath;
+                return objectKey;
             } catch (Exception e) {
                 throw new RuntimeException("S3 업로드 실패", e);
             }
@@ -53,16 +73,16 @@ public class S3StorageStrategy implements StorageStrategy {
     public Mono<String> uploadBytes(byte[] bytes, String contentType, String bucket, String path) {
         return Mono.fromCallable(() -> {
             try {
-                String fullPath = bucket + "/" + path;
+                String objectKey = buildObjectKey(bucket, path);
 
                 PutObjectRequest putOb = PutObjectRequest.builder()
                         .bucket(bucketName)
-                        .key(fullPath)
+                        .key(objectKey)
                         .contentType(contentType)
                         .build();
 
                 s3Client.putObject(putOb, RequestBody.fromBytes(bytes));
-                return fullPath;
+                return objectKey;
             } catch (Exception e) {
                 throw new RuntimeException("S3 업로드 실패", e);
             }
@@ -73,10 +93,10 @@ public class S3StorageStrategy implements StorageStrategy {
     public Mono<Void> delete(String bucket, String path) {
         return Mono.fromRunnable(() -> {
             try {
-                String fullPath = bucket + "/" + path;
+                String objectKey = buildObjectKey(bucket, path);
                 DeleteObjectRequest deleteOb = DeleteObjectRequest.builder()
                         .bucket(bucketName)
-                        .key(fullPath)
+                        .key(objectKey)
                         .build();
 
                 s3Client.deleteObject(deleteOb);
@@ -90,12 +110,12 @@ public class S3StorageStrategy implements StorageStrategy {
     public Mono<String> getUrl(String bucket, String path, int expiresInSeconds) {
         return Mono.fromCallable(() -> {
             try {
-                String fullPath = bucket + "/" + path;
+                String objectKey = buildObjectKey(bucket, path);
 
                 // Signed URL 생성
                 GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
                         .signatureDuration(Duration.ofSeconds(expiresInSeconds))
-                        .getObjectRequest(b -> b.bucket(bucketName).key(fullPath))
+                        .getObjectRequest(b -> b.bucket(bucketName).key(objectKey))
                         .build();
 
                 return s3Presigner.presignGetObject(presignRequest).url().toString();

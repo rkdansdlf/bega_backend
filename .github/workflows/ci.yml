@@ -46,7 +46,7 @@ jobs:
       
       - name: Run tests
         working-directory: ./BEGA_PROJECT
-        run: ./gradlew test
+        run: ./gradlew test -Dwebp.strict=false
       
       - name: Upload test results
         if: always()

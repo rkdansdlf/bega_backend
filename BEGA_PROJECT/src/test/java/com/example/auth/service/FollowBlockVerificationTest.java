@@ -12,7 +12,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
@@ -22,6 +24,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
+@ActiveProfiles("local")
+@TestPropertySource(properties = {
+        "spring.autoconfigure.exclude=io.awspring.cloud.autoconfigure.s3.S3AutoConfiguration"
+})
 @Transactional
 class FollowBlockVerificationTest {
 
@@ -40,7 +46,7 @@ class FollowBlockVerificationTest {
     @Autowired
     private UserBlockRepository blockRepository;
 
-    @MockBean
+    @MockitoBean
     private CurrentUser currentUser;
 
     private UserEntity userA;

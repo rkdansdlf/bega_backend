@@ -5,6 +5,7 @@ import com.example.cheerboard.dto.EmbeddedPostDto;
 import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.dto.PostLightweightSummaryRes;
+import com.example.cheerboard.dto.SourceInfoRes;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.kbo.entity.TeamEntity;
 import com.example.auth.entity.UserEntity;
@@ -41,7 +42,7 @@ public class PostDtoMapper {
      * CheerPost를 PostSummaryRes로 변환
      */
     public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
-            boolean repostedByMe) {
+            boolean repostedByMe, int bookmarkCount) {
         List<String> imageUrls = Collections.emptyList();
         try {
             imageUrls = imageService.getPostImageUrls(post.getId());
@@ -49,14 +50,14 @@ public class PostDtoMapper {
             log.warn("이미지 URL 조회 실패: postId={}, error={}", post.getId(), e.getMessage());
         }
 
-        return toPostSummaryRes(post, liked, isBookmarked, isOwner, repostedByMe, imageUrls);
+        return toPostSummaryRes(post, liked, isBookmarked, isOwner, repostedByMe, bookmarkCount, imageUrls);
     }
 
     /**
      * CheerPost를 PostSummaryRes로 변환 (이미지 URL 미리 로딩된 경우)
      */
     public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
-            boolean repostedByMe, List<String> imageUrls) {
+            boolean repostedByMe, int bookmarkCount, List<String> imageUrls) {
         List<String> resolvedUrls = imageUrls != null ? imageUrls : Collections.emptyList();
 
         // Redis와 DB 조회수 합산
@@ -104,11 +105,12 @@ public class PostDtoMapper {
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor().getId(),
                 post.getAuthor().getHandle(),
-                profileImageService.getProfileImageUrl(post.getAuthor().getProfileImageUrl()),
+                resolveAuthorProfileImageUrl(post.getAuthor()),
                 post.getAuthor().getFavoriteTeamId(),
                 post.getCreatedAt(),
                 post.getCommentCount(),
                 post.getLikeCount(),
+                bookmarkCount,
                 liked,
                 combinedViews,
                 isHot,
@@ -121,14 +123,16 @@ public class PostDtoMapper {
                 repostOfId,
                 repostType,
                 originalPost,
-                originalDeleted);
+                originalDeleted,
+                resolveShareMode(post),
+                toSourceInfo(post));
     }
 
     /**
      * CheerPost를 PostDetailRes로 변환
      */
     public PostDetailRes toPostDetailRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
-            boolean repostedByMe) {
+            boolean repostedByMe, int bookmarkCount) {
         List<String> imageUrls = Collections.emptyList();
         try {
             imageUrls = imageService.getPostImageUrls(post.getId());
@@ -172,10 +176,11 @@ public class PostDtoMapper {
                 post.getAuthor().getId(),
                 post.getAuthor().getHandle(),
                 post.getAuthor().getEmail(),
-                profileImageService.getProfileImageUrl(post.getAuthor().getProfileImageUrl()),
+                resolveAuthorProfileImageUrl(post.getAuthor()),
                 post.getCreatedAt(),
                 post.getCommentCount(),
                 post.getLikeCount(),
+                bookmarkCount,
                 liked,
                 isBookmarked,
                 isOwner,
@@ -188,7 +193,9 @@ public class PostDtoMapper {
                 repostOfId,
                 repostType,
                 originalPost,
-                originalDeleted);
+                originalDeleted,
+                resolveShareMode(post),
+                toSourceInfo(post));
     }
 
     /**
@@ -226,10 +233,11 @@ public class PostDtoMapper {
                 author.getId(),
                 author.getHandle(),
                 author.getEmail(),
-                profileImageService.getProfileImageUrl(author.getProfileImageUrl()),
+                resolveAuthorProfileImageUrl(author),
                 post.getCreatedAt(),
                 0, // 새 게시글이므로 댓글 수 0
                 0, // 새 게시글이므로 좋아요 수 0
+                0, // 새 게시글이므로 북마크 수 0
                 false, // 새 게시글이므로 좋아요 안함
                 false, // 새 게시글이므로 북마크 안함
                 true, // 작성자이므로 소유권 있음
@@ -242,7 +250,9 @@ public class PostDtoMapper {
                 repostOfId,
                 repostType,
                 originalPost,
-                originalDeleted);
+                originalDeleted,
+                resolveShareMode(post),
+                toSourceInfo(post));
     }
 
     /**
@@ -250,7 +260,7 @@ public class PostDtoMapper {
      * - Redis 조회수/HOT 상태, 리포스트 원본 이미지 모두 미리 로딩된 경우
      */
     public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
-            boolean repostedByMe, List<String> imageUrls,
+            boolean repostedByMe, int bookmarkCount, List<String> imageUrls,
             Map<Long, Integer> viewCountMap, Map<Long, Boolean> hotStatusMap,
             Map<Long, List<String>> repostOriginalImageUrls) {
         List<String> resolvedUrls = imageUrls != null ? imageUrls : Collections.emptyList();
@@ -298,11 +308,12 @@ public class PostDtoMapper {
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor().getId(),
                 post.getAuthor().getHandle(),
-                profileImageService.getProfileImageUrl(post.getAuthor().getProfileImageUrl()),
+                resolveAuthorProfileImageUrl(post.getAuthor()),
                 post.getAuthor().getFavoriteTeamId(),
                 post.getCreatedAt(),
                 post.getCommentCount(),
                 post.getLikeCount(),
+                bookmarkCount,
                 liked,
                 combinedViews,
                 isHot,
@@ -315,7 +326,9 @@ public class PostDtoMapper {
                 repostOfId,
                 repostType,
                 originalPost,
-                originalDeleted);
+                originalDeleted,
+                resolveShareMode(post),
+                toSourceInfo(post));
     }
 
     /**
@@ -340,7 +353,7 @@ public class PostDtoMapper {
                 original.getContent(),
                 resolveDisplayName(original.getAuthor()),
                 original.getAuthor().getHandle(),
-                profileImageService.getProfileImageUrl(original.getAuthor().getProfileImageUrl()),
+                resolveAuthorProfileImageUrl(original.getAuthor()),
                 original.getCreatedAt(),
                 originalImageUrls,
                 original.getLikeCount(),
@@ -367,7 +380,7 @@ public class PostDtoMapper {
                 original.getContent(),
                 resolveDisplayName(original.getAuthor()),
                 original.getAuthor().getHandle(),
-                profileImageService.getProfileImageUrl(original.getAuthor().getProfileImageUrl()),
+                resolveAuthorProfileImageUrl(original.getAuthor()),
                 original.getCreatedAt(),
                 originalImageUrls,
                 original.getLikeCount(),
@@ -394,6 +407,32 @@ public class PostDtoMapper {
         return team != null ? team.getColor() : null;
     }
 
+    private String resolveShareMode(CheerPost post) {
+        return post.getShareMode() != null ? post.getShareMode().name() : null;
+    }
+
+    private SourceInfoRes toSourceInfo(CheerPost post) {
+        boolean hasSourceInfo = post.getSourceUrl() != null
+                || post.getSourceTitle() != null
+                || post.getSourceAuthor() != null
+                || post.getSourceLicense() != null
+                || post.getSourceLicenseUrl() != null
+                || post.getSourceChangedNote() != null
+                || post.getSourceSnapshotType() != null;
+        if (!hasSourceInfo) {
+            return null;
+        }
+
+        return new SourceInfoRes(
+                post.getSourceTitle(),
+                post.getSourceAuthor(),
+                post.getSourceUrl(),
+                post.getSourceLicense(),
+                post.getSourceLicenseUrl(),
+                post.getSourceChangedNote(),
+                post.getSourceSnapshotType());
+    }
+
     /**
      * CheerPost를 PostLightweightSummaryRes로 변환 (최소 데이터만 포함)
      * - 리스트 조회 시 페이로드 최소화
@@ -411,6 +450,28 @@ public class PostDtoMapper {
                 post.getCreatedAt(),
                 post.getAuthor().getId(),
                 resolveDisplayName(post.getAuthor()),
-                profileImageService.getProfileImageUrl(post.getAuthor().getProfileImageUrl()));
+                resolveAuthorProfileImageUrl(post.getAuthor()));
+    }
+
+    private String resolveAuthorProfileImageUrl(UserEntity author) {
+        if (author == null) {
+            return null;
+        }
+
+        String rawValue = author.getProfileImageUrl();
+        String resolved = profileImageService.getProfileImageUrl(rawValue);
+        if (resolved != null && !resolved.isBlank()) {
+            return resolved;
+        }
+
+        if (rawValue != null && !rawValue.isBlank()) {
+            if (rawValue.startsWith("http://")
+                    || rawValue.startsWith("https://")
+                    || rawValue.startsWith("/")) {
+                return rawValue;
+            }
+        }
+
+        return null;
     }
 }

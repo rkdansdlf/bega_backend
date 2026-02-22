@@ -10,7 +10,13 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "predictions")
+@Table(
+        name = "predictions",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_predictions_user_game",
+                columnNames = {"user_id", "game_id"}
+        )
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Prediction {

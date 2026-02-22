@@ -21,11 +21,16 @@ import com.example.auth.oauth2.CustomOAuth2UserService;
 import com.example.auth.oauth2.CustomSuccessHandler;
 import com.example.auth.oauth2.CookieAuthorizationRequestRepository;
 import com.example.auth.filter.JWTFilter;
+import com.example.auth.repository.UserRepository;
 import com.example.auth.util.JWTUtil;
 
 import jakarta.servlet.http.HttpServletResponse;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 @Configuration
@@ -34,77 +39,108 @@ import java.util.List;
 public class SecurityConfig {
 
         // ========================================
+
+        private static final List<String> DEFAULT_ALLOWED_ORIGINS = List.of(
+                "http://localhost",
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "http://localhost:5176",
+                "http://localhost:8080",
+                "http://127.0.0.1",
+                "http://127.0.0.1:3000",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:5176",
+                "https://www.begabaseball.xyz",
+                "https://begabaseball.xyz",
+                "https://*.frontend-dfl.pages.dev",
+                "http://[::1]");
         // 공개 엔드포인트 그룹 정의
         // ========================================
 
         /** 인증 관련 공개 엔드포인트 */
         private static final String[] PUBLIC_AUTH_ENDPOINTS = {
-                "/api/auth/login",
-                "/api/auth/signup",
-                "/api/auth/reissue",
-                "/api/auth/oauth2/state/**",
-                "/api/auth/password-reset/request",
-                "/api/auth/password-reset/confirm",
-                "/oauth2/**",
-                "/login/**",
-                "/error"
+                        "/api/auth/login",
+                        "/api/auth/signup",
+                        "/api/auth/reissue",
+                        "/api/auth/check-email",
+                        "/api/auth/check-name",
+                        "/api/auth/password/reset/request",
+                        "/api/auth/password/reset/confirm",
+                        "/api/auth/password-reset/request",
+                        "/api/auth/password-reset/confirm",
+                        "/api/auth/oauth2/state/**",
+                        "/oauth2/authorization/**",
+                        "/login/oauth2/code/**",
+                        "/login",
+                        "/error"
+        };
+
+        /** 인증 필요 엔드포인트 (auth 하위 경로 일부) */
+        private static final String[] PRIVATE_AUTH_ENDPOINTS = {
+                        "/api/auth/mypage",
+                        "/api/auth/password",
+                        "/api/auth/account",
+                        "/api/auth/link-token",
+                        "/api/auth/sessions",
+                        "/api/auth/sessions/**",
+                        "/api/auth/providers",
+                        "/api/auth/providers/*"
         };
 
         /** 테스트 및 시스템 엔드포인트 */
         private static final String[] PUBLIC_SYSTEM_ENDPOINTS = {
-                "/api/test/**",
-                "/actuator/health",
-                "/ws/**"
+                        "/api/test/**",
+                        "/actuator/health",
+                        "/ws/**"
         };
 
         /** 공개 API 엔드포인트 (인증 불필요) */
         private static final String[] PUBLIC_API_ENDPOINTS = {
-                "/api/stadiums/**",
-                "/api/places/**",
-                "/api/teams/**",
-                "/api/games/**",
-                "/api/parties/**",
-                "/api/applications/**",
-                "/api/chat/**",
-                "/api/checkin/**",
-                "/api/users/email-to-id",
-                "/api/kbo/league-start-dates",
-                "/api/kbo/schedule/**",
-                "/api/kbo/rankings/**",
-                "/api/kbo/offseason/**",
-                "/api/matches/**",
-                "/api/diary/public/**"
+                        "/api/stadiums/**",
+                        "/api/places/**",
+                        "/api/teams/**",
+                        "/api/games/**",
+                        "/api/users/email-to-id",
+                        "/api/kbo/league-start-dates",
+                        "/api/kbo/schedule/**",
+                        "/api/kbo/rankings/**",
+                        "/api/kbo/offseason/**",
+                        "/api/matches/**",
+                        "/api/diary/public/**"
         };
 
         /** 공개 GET 요청 엔드포인트 */
         private static final String[] PUBLIC_GET_ENDPOINTS = {
-                "/api/cheer/posts",
-                "/api/cheer/posts/**",
-                "/api/cheer/user/**",
-                "/api/users/*/profile",
-                "/api/diary/games",
-                "/api/games/past",
-                "/api/predictions/status/**",
-                "/api/predictions/ranking/current-season",
-                "/api/predictions/ranking/share/**",
-                "/api/reviews/party/**",
-                "/api/reviews/user/*/average",
-                "/api/users/*/follow-counts",
-                "/api/users/*/followers",
-                "/api/users/*/following"
+                        "/api/checkin/**",
+                        "/api/cheer/posts",
+                        "/api/cheer/posts/**",
+                        "/api/cheer/user/**",
+                        "/api/users/*/profile",
+                        "/api/diary/games",
+                        "/api/games/past",
+                        "/api/predictions/status/**",
+                        "/api/predictions/ranking/current-season",
+                        "/api/predictions/ranking/share/**",
+                        "/api/reviews/party/**",
+                        "/api/reviews/user/*/average",
+                        "/api/users/*/follow-counts",
+                        "/api/users/*/followers",
+                        "/api/users/*/following"
         };
 
-        /** 인증 필수 엔드포인트 */
-        private static final String[] AUTHENTICATED_ENDPOINTS = {
-                "/api/auth/link-token",
-                "/api/diary/**",
-                "/api/predictions/**"
+        /** 공개 파티 조회 엔드포인트 (my는 제외) */
+        private static final String[] PUBLIC_PARTY_GET_ENDPOINTS = {
+                        "/api/parties",
+                        "/api/parties/search",
+                        "/api/parties/status/*",
+                        "/api/parties/host/*",
+                        "/api/parties/upcoming"
         };
 
         /** 관리자 전용 엔드포인트 */
         private static final String[] ADMIN_ENDPOINTS = {
-                "/api/admin/**",
-                "/admin/**"
+                        "/api/admin/**",
+                        "/admin/**"
         };
 
         // ========================================
@@ -114,20 +150,40 @@ public class SecurityConfig {
         private final JWTUtil jwtUtil;
         private final CookieAuthorizationRequestRepository cookieauthorizationrequestRepository;
         private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
+        private final UserRepository userRepository;
+        private final com.example.auth.service.AuthSecurityMonitoringService authSecurityMonitoringService;
 
-        @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost:3000,http://localhost:8080}")
-        private String allowedOriginsStr;
+    @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176,https://www.begabaseball.xyz,https://begabaseball.xyz,https://*.frontend-dfl.pages.dev}")
+    private String allowedOriginsStr;
+        private java.util.List<String> parseAllowedOrigins() {
+                List<String> parsed = Arrays.stream(allowedOriginsStr == null ? new String[0] : allowedOriginsStr.split(","))
+                                .map(String::trim)
+                                .filter(origin -> !origin.isEmpty())
+                                .filter(origin -> !origin.equals("*"))
+                                .toList();
+                if (parsed.isEmpty()) {
+                        return DEFAULT_ALLOWED_ORIGINS;
+                }
+
+                LinkedHashSet<String> merged = new LinkedHashSet<>(DEFAULT_ALLOWED_ORIGINS);
+                merged.addAll(parsed);
+                return new ArrayList<>(merged);
+        }
 
         public SecurityConfig(CustomOAuth2UserService customOAuth2UserService,
                         CustomSuccessHandler customSuccessHandler, JWTUtil jwtUtil,
                         CookieAuthorizationRequestRepository cookieauthorizationrequestRepository,
-                        com.example.auth.service.TokenBlacklistService tokenBlacklistService) {
+                        com.example.auth.service.TokenBlacklistService tokenBlacklistService,
+                        UserRepository userRepository,
+                        com.example.auth.service.AuthSecurityMonitoringService authSecurityMonitoringService) {
 
                 this.customOAuth2UserService = customOAuth2UserService;
                 this.customSuccessHandler = customSuccessHandler;
                 this.jwtUtil = jwtUtil;
                 this.cookieauthorizationrequestRepository = cookieauthorizationrequestRepository;
                 this.tokenBlacklistService = tokenBlacklistService;
+                this.userRepository = userRepository;
+                this.authSecurityMonitoringService = authSecurityMonitoringService;
         }
 
         @Bean
@@ -160,9 +216,9 @@ public class SecurityConfig {
                 CorsConfiguration configuration = new CorsConfiguration();
 
                 configuration.setAllowedOriginPatterns(
-                                Arrays.asList(allowedOriginsStr.split(",")));
+                                parseAllowedOrigins());
                 configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-                configuration.setAllowedHeaders(Arrays.asList("Authorization", "Cache-Control", "Content-Type"));
+                configuration.setAllowedHeaders(List.of("*"));
                 configuration.setAllowCredentials(true);
                 configuration.setMaxAge(3600L);
 
@@ -176,10 +232,16 @@ public class SecurityConfig {
         }
 
         @Bean
-        public JWTFilter jwtFilter(org.springframework.core.env.Environment env) {
+    public JWTFilter jwtFilter(org.springframework.core.env.Environment env) {
                 boolean isDev = Arrays.asList(env.getActiveProfiles()).contains("dev");
-                List<String> origins = Arrays.asList(allowedOriginsStr.split(","));
-                return new JWTFilter(jwtUtil, isDev, origins, tokenBlacklistService);
+                List<String> origins = parseAllowedOrigins();
+                return new JWTFilter(
+                        jwtUtil,
+                        isDev,
+                        origins,
+                        tokenBlacklistService,
+                        userRepository,
+                        authSecurityMonitoringService);
         }
 
         @Bean
@@ -211,7 +273,25 @@ public class SecurityConfig {
                                                                 .userService(customOAuth2UserService))
                                                 .successHandler(customSuccessHandler)
                                                 .failureHandler((request, response, exception) -> {
-                                                        response.sendRedirect("/login?error=" + exception.getMessage());
+                                                        Object oauth2CookieError = request.getAttribute(
+                                                                        CookieAuthorizationRequestRepository.OAUTH2_COOKIE_ERROR_ATTRIBUTE);
+                                                        if (oauth2CookieError instanceof String) {
+                                                                cookieauthorizationrequestRepository.removeAuthorizationRequestCookies(
+                                                                                request, response);
+                                                                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                                                                response.setContentType("application/json;charset=UTF-8");
+                                                                response.getWriter().write(
+                                                                                "{\"error\":\"invalid_oauth2_request\",\"message\":\"OAuth2 인증 요청이 유효하지 않습니다.\"}");
+                                                                return;
+                                                        }
+
+                                                        String errorMessage = exception != null
+                                                                        && exception.getMessage() != null
+                                                                                ? exception.getMessage()
+                                                                                : "oauth2_auth_failed";
+                                                        response.sendRedirect("/login?error="
+                                                                        + URLEncoder.encode(errorMessage,
+                                                                                        StandardCharsets.UTF_8));
                                                 })
                                                 .authorizationEndpoint(authorization -> authorization
                                                                 .authorizationRequestRepository(
@@ -221,14 +301,12 @@ public class SecurityConfig {
                 // 경로별 인가 설정 (그룹화된 상수 사용)
                 // ========================================
                 http
-                                .authorizeHttpRequests((auth) -> auth
+                                        .authorizeHttpRequests((auth) -> auth
                                                 // 1. OPTIONS 요청 허용 (CORS Preflight)
                                                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                                                 // 2. 인증 관련 공개 엔드포인트
                                                 .requestMatchers(PUBLIC_AUTH_ENDPOINTS).permitAll()
-                                                .requestMatchers("/api/auth/**").permitAll() // 나머지 auth 경로
-                                                .requestMatchers(HttpMethod.POST, "/api/auth/logout").permitAll()
 
                                                 // 3. 시스템/테스트 엔드포인트
                                                 .requestMatchers(PUBLIC_SYSTEM_ENDPOINTS).permitAll()
@@ -238,15 +316,19 @@ public class SecurityConfig {
                                                 .requestMatchers(ADMIN_ENDPOINTS).hasAnyRole("ADMIN", "SUPER_ADMIN")
 
                                                 // 5. 인증 필수 엔드포인트 (순서 중요: 구체적 경로 먼저)
-                                                .requestMatchers("/api/auth/link-token").authenticated()
-                                                .requestMatchers(HttpMethod.GET, "/api/cheer/posts/following").authenticated()
+                                                .requestMatchers(PRIVATE_AUTH_ENDPOINTS).authenticated()
+                                                .requestMatchers(HttpMethod.GET, "/api/parties/my").authenticated()
+                                                .requestMatchers(HttpMethod.GET, "/api/cheer/posts/following")
+                                                .authenticated()
                                                 .requestMatchers(HttpMethod.GET, "/api/diary/games").permitAll()
                                                 .requestMatchers("/api/diary/**").authenticated()
-                                                .requestMatchers(HttpMethod.POST, "/api/predictions/vote").authenticated()
+                                                .requestMatchers(HttpMethod.POST, "/api/predictions/vote")
+                                                .authenticated()
                                                 .requestMatchers("/api/predictions/**").authenticated()
 
                                                 // 6. 공개 GET 요청 엔드포인트
                                                 .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
+                                                .requestMatchers(HttpMethod.GET, PUBLIC_PARTY_GET_ENDPOINTS).permitAll()
 
                                                 // 7. 공개 API 엔드포인트
                                                 .requestMatchers(PUBLIC_API_ENDPOINTS).permitAll()
@@ -254,13 +336,21 @@ public class SecurityConfig {
                                                 // 8. 나머지 모든 요청은 인증 필요
                                                 .anyRequest().authenticated())
 
-                                // 302 리다이렉션 방지: 인증 실패 시 /login으로 리다이렉트 대신 401 응답 반환
+        // 302 리다이렉션 방지: 인증 실패 시 /login으로 리다이렉트 대신 401 응답 반환
                                 .exceptionHandling((exceptionHandling) -> exceptionHandling
                                                 .authenticationEntryPoint((request, response, authException) -> {
                                                         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                                                         response.setContentType("application/json;charset=UTF-8");
 
-                                                        String jsonResponse = "{\"success\":false,\"message\":\"인증이 필요합니다.\",\"error\":\"Unauthorized\"}";
+                                                        boolean invalidAuthor = Boolean.TRUE.equals(request.getAttribute("INVALID_AUTHOR"));
+                                                        String errorCode = invalidAuthor ? "INVALID_AUTHOR" : "UNAUTHORIZED";
+                                                        String message = invalidAuthor ? "인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요."
+                                                                        : "인증이 필요합니다.";
+
+                                                        String jsonResponse = String.format(
+                                                                        "{\"success\":false,\"code\":\"%s\",\"message\":\"%s\",\"error\":\"Unauthorized\"}",
+                                                                        errorCode,
+                                                                        message.replace("\"", "\\\""));
                                                         response.getWriter().write(jsonResponse);
                                                 }));
 

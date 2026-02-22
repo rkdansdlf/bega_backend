@@ -15,11 +15,23 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 @Service
 @Transactional
 @lombok.extern.slf4j.Slf4j
 public class CustomOAuth2UserService extends DefaultOAuth2UserService {
+
+    private static final Pattern KAKAO_PROFILE_SIZE_PATTERN =
+            Pattern.compile("_(?:\\d{2,4})x(?:\\d{2,4})(?=\\.[a-zA-Z0-9]+(?:\\?|#|$))");
+    private static final String KAKAO_HIGH_RES_SUFFIX = "_640x640";
+    private static final Pattern GOOGLE_PROFILE_SIZE_PATTERN =
+            Pattern.compile("=s\\d+(?:-c)?(?=\\?|$|&|#|$)");
+    private static final Pattern GOOGLE_PROFILE_QUERY_SIZE_PATTERN = Pattern.compile("([?&])sz=\\d+");
+    private static final Pattern NAVER_PROFILE_SIZE_PATTERN =
+            Pattern.compile("_(?:\\d{2,4})x(?:\\d{2,4})(?=\\.[a-zA-Z0-9]+(?:\\?|#|$))");
+    private static final String GOOGLE_HIGH_RES_SIZE = "640";
+    private static final String PROFILE_SIZE_SUFFIX = "640x640";
 
     private final UserRepository userRepository;
     private final com.example.auth.repository.UserProviderRepository userProviderRepository;
@@ -83,6 +95,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         String provider = registrationId;
         String providerId = oAuth2Response.getProviderId();
         String userName = oAuth2Response.getName();
+        String profileImageUrl = normalizeProfileImageUrl(oAuth2Response.getProfileImageUrl(), provider);
 
         // 5. UserProvider(연동 계정) 조회
         Optional<com.example.auth.entity.UserProvider> userProviderOpt = userProviderRepository
@@ -132,8 +145,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         if (linkData != null && linkData.isLinkMode()) {
             userEntity = processAccountLink(linkData, provider, providerId, email);
         } else {
-            userEntity = processNormalLogin(userProviderOpt, email, userName, provider, providerId);
+            userEntity = processNormalLogin(userProviderOpt, email, userName, provider, providerId, profileImageUrl);
         }
+        applyProfileImageFromOAuth(userEntity, profileImageUrl, provider);
 
         // [일일 출석 보너스 지급]
         java.time.LocalDate today = java.time.LocalDate.now();
@@ -148,12 +162,14 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         return new CustomOAuth2User(userEntity.toDto(), oAuth2User.getAttributes());
     }
 
-    private UserEntity saveNewUser(String email, String name, String provider, String providerId) {
+    private UserEntity saveNewUser(String email, String name, String provider, String providerId,
+            String profileImageUrl) {
         // UserEntity 생성
         UserEntity userEntity = UserEntity.builder()
                 .email(email)
                 .name(name != null && !name.isEmpty() ? name : "소셜 사용자")
                 .password(null) // OAuth2 users don't have passwords
+                .profileImageUrl(profileImageUrl)
                 .role("ROLE_USER")
                 // 기존 provider 필드는 하위 호환성을 위해 유지하거나 비워둠 (여기서는 메인 provider로 설정)
                 .provider(provider)
@@ -222,6 +238,70 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         }
     }
 
+    private void applyProfileImageFromOAuth(UserEntity userEntity, String profileImageUrl, String provider) {
+        if (userEntity == null || profileImageUrl == null) {
+            return;
+        }
+        String currentProfileImageUrl = userEntity.getProfileImageUrl();
+        if (currentProfileImageUrl == null || shouldReplaceProfileImageFromOAuth(userEntity, currentProfileImageUrl, profileImageUrl, provider)) {
+            userEntity.setProfileImageUrl(profileImageUrl);
+            userRepository.save(userEntity);
+        }
+    }
+
+    private boolean shouldReplaceProfileImageFromOAuth(UserEntity userEntity, String currentProfileImageUrl,
+            String newProfileImageUrl, String provider) {
+        if (newProfileImageUrl.equals(currentProfileImageUrl)) {
+            return false;
+        }
+
+        if (!provider.equalsIgnoreCase(userEntity.getProvider())) {
+            return false;
+        }
+
+        return isProviderProfileImageUrl(currentProfileImageUrl, provider);
+    }
+
+    private boolean isProviderProfileImageUrl(String url, String provider) {
+        if (url == null) {
+            return false;
+        }
+        return switch (provider.toLowerCase()) {
+            case "kakao" -> url.contains("kakaocdn.net");
+            case "naver" -> url.contains("naver");
+            case "google" -> url.contains("googleusercontent.com");
+            default -> false;
+        };
+    }
+
+    private String normalizeProfileImageUrl(String profileImageUrl, String provider) {
+        if (profileImageUrl == null) {
+            return null;
+        }
+        String trimmed = profileImageUrl.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        if ("kakao".equalsIgnoreCase(provider)) {
+            return KAKAO_PROFILE_SIZE_PATTERN.matcher(trimmed).replaceAll(KAKAO_HIGH_RES_SUFFIX);
+        }
+        if ("google".equalsIgnoreCase(provider)) {
+            String withFixedPathSize = GOOGLE_PROFILE_SIZE_PATTERN.matcher(trimmed).replaceAll("=" + GOOGLE_HIGH_RES_SIZE + "-c");
+            String withQuerySize = GOOGLE_PROFILE_QUERY_SIZE_PATTERN.matcher(withFixedPathSize).replaceAll("$1sz=" + GOOGLE_HIGH_RES_SIZE);
+            if (withQuerySize.contains("googleusercontent.com") && !GOOGLE_PROFILE_QUERY_SIZE_PATTERN.matcher(withQuerySize).find()) {
+                String separator = withQuerySize.contains("?") ? "&" : "?";
+                return withQuerySize + separator + "sz=" + GOOGLE_HIGH_RES_SIZE;
+            }
+            return withQuerySize;
+        }
+        if ("naver".equalsIgnoreCase(provider)) {
+            return NAVER_PROFILE_SIZE_PATTERN.matcher(trimmed).replaceAll("_" + PROFILE_SIZE_SUFFIX);
+        }
+
+        return trimmed;
+    }
+
     /**
      * state 파라미터로 연동 정보 조회
      * (원본 state를 key로 Redis에서 조회)
@@ -287,7 +367,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
      * 일반 로그인 처리
      */
     private UserEntity processNormalLogin(Optional<com.example.auth.entity.UserProvider> userProviderOpt,
-            String email, String userName, String provider, String providerId) {
+            String email, String userName, String provider, String providerId, String profileImageUrl) {
         if (userProviderOpt.isPresent()) {
             // [일반 로그인] 이미 연동된 계정이 있는 경우 -> 해당 사용자 반환
             log.info("Existing Provider Found. Logging in.");
@@ -321,7 +401,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             } else {
                 // 신규 사용자 -> 회원가입 + 연동 정보 생성
                 log.info("New User Required. Creating Account.");
-                return saveNewUser(email, userName, provider, providerId);
+                return saveNewUser(email, userName, provider, providerId, profileImageUrl);
             }
         }
     }

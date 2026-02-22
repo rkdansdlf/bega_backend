@@ -3,6 +3,7 @@ package com.example.kbo.service;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -40,7 +41,7 @@ public class TeamHistoryService {
      */
     public List<TeamHistoryEntity> getHistoryBySeason(Integer season) {
         log.debug("Fetching team history for season: {}", season);
-        return historyRepository.findBySeason(season);
+        return Objects.requireNonNull(historyRepository.findBySeason(season));
     }
 
     /**
@@ -51,7 +52,7 @@ public class TeamHistoryService {
      */
     public List<TeamHistoryEntity> getStandingsBySeason(Integer season) {
         log.debug("Fetching standings for season: {}", season);
-        return historyRepository.findBySeasonOrderByRanking(season);
+        return Objects.requireNonNull(historyRepository.findBySeasonOrderByRanking(season));
     }
 
     /**
@@ -62,30 +63,29 @@ public class TeamHistoryService {
      */
     public List<TeamHistoryEntity> getFranchiseHistory(Integer franchiseId) {
         log.debug("Fetching complete history for franchise id: {}", franchiseId);
-        return historyRepository.findByFranchiseIdOrderBySeasonDesc(franchiseId);
+        return Objects.requireNonNull(historyRepository.findByFranchiseIdOrderBySeasonDesc(franchiseId));
     }
 
     /**
      * 프랜차이즈의 최근 N년 역사 조회
      *
      * @param franchiseId 프랜차이즈 ID
-     * @param years 조회할 연도 수
+     * @param years       조회할 연도 수
      * @return 최근 N년의 역사 레코드
      */
     public List<TeamHistoryEntity> getRecentHistory(Integer franchiseId, int years) {
         log.debug("Fetching recent {} years history for franchise id: {}", years, franchiseId);
 
         int startSeason = CURRENT_YEAR - years + 1;
-        return historyRepository.findByFranchiseIdAndSeasonGreaterThanEqualOrderBySeasonDesc(
-            franchiseId, startSeason
-        );
+        return Objects.requireNonNull(historyRepository.findByFranchiseIdAndSeasonGreaterThanEqualOrderBySeasonDesc(
+                franchiseId, startSeason));
     }
 
     /**
      * 특정 팀의 특정 시즌 정보 조회
      *
      * @param teamCode 팀 코드
-     * @param season 시즌 연도
+     * @param season   시즌 연도
      * @return 팀-시즌 정보
      */
     public Optional<TeamHistoryEntity> getTeamInSeason(String teamCode, Integer season) {
@@ -101,11 +101,11 @@ public class TeamHistoryService {
     public List<Integer> getAvailableSeasons() {
         log.debug("Fetching all available seasons");
         return historyRepository.findAll()
-            .stream()
-            .map(TeamHistoryEntity::getSeason)
-            .distinct()
-            .sorted((a, b) -> b.compareTo(a))
-            .collect(Collectors.toList());
+                .stream()
+                .map(TeamHistoryEntity::getSeason)
+                .distinct()
+                .sorted((a, b) -> b.compareTo(a))
+                .collect(Collectors.collectingAndThen(Collectors.toList(), Objects::requireNonNull));
     }
 
     /**
@@ -125,15 +125,15 @@ public class TeamHistoryService {
 
         // 순위 통계 계산
         long teamsWithRanking = teams.stream()
-            .filter(t -> t.getRanking() != null)
-            .count();
+                .filter(t -> t.getRanking() != null)
+                .count();
 
         if (teamsWithRanking > 0) {
             double avgRanking = teams.stream()
-                .filter(t -> t.getRanking() != null)
-                .mapToInt(TeamHistoryEntity::getRanking)
-                .average()
-                .orElse(0.0);
+                    .filter(t -> t.getRanking() != null)
+                    .mapToInt(TeamHistoryEntity::getRanking)
+                    .average()
+                    .orElse(0.0);
 
             stats.put("teamsWithRanking", teamsWithRanking);
             stats.put("averageRanking", avgRanking);
@@ -141,10 +141,10 @@ public class TeamHistoryService {
 
         // 사용된 구장 목록
         List<String> stadiums = teams.stream()
-            .map(TeamHistoryEntity::getStadium)
-            .filter(s -> s != null && !s.isEmpty())
-            .distinct()
-            .collect(Collectors.toList());
+                .map(TeamHistoryEntity::getStadium)
+                .filter(s -> s != null && !s.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
 
         stats.put("stadiums", stadiums);
         stats.put("stadiumCount", stadiums.size());
@@ -160,19 +160,19 @@ public class TeamHistoryService {
      */
     public List<TeamHistoryEntity> getTeamCodeHistory(String teamCode) {
         log.debug("Fetching history for team code: {}", teamCode);
-        return historyRepository.findByTeamCodeOrderBySeasonDesc(teamCode);
+        return Objects.requireNonNull(historyRepository.findByTeamCodeOrderBySeasonDesc(teamCode));
     }
 
     /**
      * 연도 범위로 역사 조회
      *
      * @param startYear 시작 연도
-     * @param endYear 종료 연도
+     * @param endYear   종료 연도
      * @return 해당 기간의 모든 팀 역사
      */
     public List<TeamHistoryEntity> getHistoryByYearRange(Integer startYear, Integer endYear) {
         log.debug("Fetching history between {} and {}", startYear, endYear);
-        return historyRepository.findBySeasonBetween(startYear, endYear);
+        return Objects.requireNonNull(historyRepository.findBySeasonBetween(startYear, endYear));
     }
 
     /**
@@ -183,7 +183,7 @@ public class TeamHistoryService {
      */
     public List<TeamHistoryEntity> getRecentSeasons(int limit) {
         log.debug("Fetching recent {} seasons data", limit);
-        return historyRepository.findRecentSeasons(limit);
+        return Objects.requireNonNull(historyRepository.findRecentSeasons(limit));
     }
 
     /**
@@ -194,14 +194,14 @@ public class TeamHistoryService {
      */
     public List<TeamHistoryEntity> getHistoryByStadium(String stadium) {
         log.debug("Fetching history for stadium: {}", stadium);
-        return historyRepository.findByStadium(stadium);
+        return Objects.requireNonNull(historyRepository.findByStadium(stadium));
     }
 
     /**
      * 프랜차이즈의 특정 시즌 정보 조회
      *
      * @param franchiseId 프랜차이즈 ID
-     * @param season 시즌 연도
+     * @param season      시즌 연도
      * @return 프랜차이즈의 해당 시즌 정보
      */
     public Optional<TeamHistoryEntity> getFranchiseSeasonInfo(Integer franchiseId, Integer season) {

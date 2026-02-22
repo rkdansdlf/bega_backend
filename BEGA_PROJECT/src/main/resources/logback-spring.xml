@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <property name="LOG_HOME" value="logs"/>
+    <springProperty scope="context" name="LOG_LEVEL_COM_EXAMPLE" source="logging.level.com.example" defaultValue="INFO"/>
+    <springProperty scope="context" name="LOG_LEVEL_HIBERNATE_SQL" source="logging.level.org.hibernate.SQL" defaultValue="WARN"/>
+    <springProperty scope="context" name="LOG_LEVEL_HIBERNATE_BIND" source="logging.level.org.hibernate.orm.jdbc.bind" defaultValue="WARN"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
@@ -8,36 +11,41 @@
         </encoder>
     </appender>
 
-    <appender name="ROLLING" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_HOME}/app.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_HOME}/app.%d{yyyy-MM-dd}.gz</fileNamePattern>
-            <maxHistory>14</maxHistory>
-        </rollingPolicy>
-        <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
-        </encoder>
-    </appender>
-
-    <!-- Production: INFO level to reduce log volume -->
+    <!-- Production: INFO level and File logging -->
     <springProfile name="prod">
+        <appender name="ROLLING" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>${LOG_HOME}/app.log</file>
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <fileNamePattern>${LOG_HOME}/app.%d{yyyy-MM-dd}.gz</fileNamePattern>
+                <maxHistory>14</maxHistory>
+            </rollingPolicy>
+            <encoder>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+
         <logger name="com.example" level="INFO" additivity="false">
             <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="ROLLING"/>
         </logger>
         <logger name="org.springframework" level="INFO"/>
         <logger name="org.hibernate" level="WARN"/>
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="ROLLING"/>
         </root>
     </springProfile>
 
-    <!-- Development: INFO level with console (DEBUG only for our code) -->
+    <!-- Development: reduce noise by default; temporary debug can be overridden via logging.level.* -->
     <springProfile name="!prod">
-        <logger name="com.example" level="DEBUG" additivity="false">
+        <logger name="com.example" level="${LOG_LEVEL_COM_EXAMPLE}" additivity="false">
             <appender-ref ref="CONSOLE"/>
         </logger>
         <logger name="org.springframework" level="INFO"/>
-        <logger name="org.hibernate.SQL" level="DEBUG"/>
+        <logger name="org.hibernate.SQL" level="${LOG_LEVEL_HIBERNATE_SQL}"/>
+        <logger name="org.hibernate.orm.jdbc.bind" level="${LOG_LEVEL_HIBERNATE_BIND}"/>
+        <!-- Suppress Oracle JDBC Class-Path manifest warnings -->
+        <logger name="org.springframework.boot.devtools.restart.ChangeableUrls" level="ERROR"/>
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
         </root>

@@ -1,6 +1,6 @@
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '3.5.10'
+	id 'org.springframework.boot' version '3.5.11'
 	id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -16,87 +16,139 @@ repositories {
 	mavenCentral()
 }
 
-	dependencies {
-		implementation 'org.springframework.boot:spring-boot-starter-web'
-		implementation 'org.springframework.boot:spring-boot-starter-web-services'
-		developmentOnly 'org.springframework.boot:spring-boot-devtools'
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-web-services'
+	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
     implementation 'nz.net.ultraq.thymeleaf:thymeleaf-layout-dialect'
-	implementation 'org.springframework.boot:spring-boot-starter-data-jpa' // 카피바라의 마법도구 JPA
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6'
-    compileOnly 'org.projectlombok:lombok' 
-	annotationProcessor 'org.projectlombok:lombok'
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
+
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
     implementation 'io.jsonwebtoken:jjwt-api:0.12.3'
-	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.3'
-	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.3'
-	implementation 'io.github.cdimascio:dotenv-java:3.2.0'
-	implementation 'com.mysql:mysql-connector-j'
-	implementation 'org.postgresql:postgresql:42.6.0'
-	runtimeOnly 'org.postgresql:postgresql'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.3'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.3'
     
-    // Flyway for DB Migration
-    implementation 'org.flywaydb:flyway-core'
-    implementation 'org.flywaydb:flyway-database-oracle'
+    // Standard Lombok (managed by Spring Boot)
+    compileOnly 'org.projectlombok:lombok:1.18.36'
+    annotationProcessor 'org.projectlombok:lombok:1.18.36'
+    testCompileOnly 'org.projectlombok:lombok:1.18.36'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.36'
 
-    // Oracle Autonomous Database
-    implementation('com.oracle.database.jdbc:ojdbc11-production:23.7.0.25.01') {
-        exclude group: 'com.oracle.database.xml', module: 'xmlparserv2'
-    }
+    runtimeOnly 'com.h2database:h2'
+    runtimeOnly 'com.mysql:mysql-connector-j'
+    runtimeOnly 'org.postgresql:postgresql'
+    runtimeOnly 'com.oracle.database.jdbc:ojdbc11'
+    implementation 'com.oracle.database.nls:orai18n:21.9.0.0'
+    // OCI Wallet Support
+    implementation 'com.oracle.database.security:oraclepki:21.9.0.0'
+    implementation 'com.oracle.database.security:osdt_cert:21.9.0.0'
+    implementation 'com.oracle.database.security:osdt_core:21.9.0.0'
 
-    implementation 'org.springframework.boot:spring-boot-starter-webflux'
-	implementation 'io.projectreactor:reactor-core'
-    implementation 'jakarta.servlet:jakarta.servlet-api:6.0.0'
-    implementation 'org.slf4j:slf4j-api'
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation 'org.junit.jupiter:junit-jupiter'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-	implementation 'org.springframework.boot:spring-boot-starter-websocket'
-	
-	implementation 'org.springframework.boot:spring-boot-starter-mail'	
-	implementation 'me.paulschwarz:spring-dotenv:4.0.0'
-    implementation 'org.springframework.boot:spring-boot-starter-cache'
-    implementation 'com.github.ben-manes.caffeine:caffeine:3.1.8'
-
-    // Redis 캐시
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     
-    // Monitoring
-    implementation 'org.springframework.boot:spring-boot-starter-actuator'
-    implementation 'io.micrometer:micrometer-registry-prometheus'
-    implementation 'org.apache.commons:commons-pool2:2.12.0'
-    implementation 'io.sentry:sentry-spring-boot-starter:7.3.0'
-    implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
-
-    // 이미지 처리 (압축, 리사이징)
-    implementation 'net.coobird:thumbnailator:0.4.20'
-    implementation 'com.twelvemonkeys.imageio:imageio-webp:3.12.0'
-    implementation 'com.twelvemonkeys.imageio:imageio-core:3.12.0'
-    implementation 'com.twelvemonkeys.imageio:imageio-metadata:3.12.0'
-    implementation 'com.twelvemonkeys.common:common-image:3.12.0'
-    implementation 'com.twelvemonkeys.common:common-io:3.12.0'
-    implementation 'com.twelvemonkeys.common:common-lang:3.12.0'
-    runtimeOnly 'io.netty:netty-resolver-dns-native-macos:4.1.115.Final:osx-aarch_64' // Fix MacOS Netty DNS warning
+    // AWS S3
+    implementation 'io.awspring.cloud:spring-cloud-aws-starter-s3:3.1.1'
     
-    // JobRunr (DB-backed Queue)
-    // JobRunr (DB-backed Queue)
-    implementation 'org.jobrunr:jobrunr-spring-boot-3-starter:8.4.0'
+    // Image resizing
+    implementation 'net.coobird:thumbnailator:0.4.20'
+    implementation 'com.github.jai-imageio:jai-imageio-core:1.4.0'
+    // WebP support
+    implementation 'com.twelvemonkeys.imageio:imageio-webp:3.10.1'
+    implementation 'com.twelvemonkeys.imageio:imageio-core:3.10.1'
+    implementation 'com.github.gotson:webp-imageio:0.2.2'
 
-    // AWS S3 (for OCI Object Storage)
-    implementation platform('software.amazon.awssdk:bom:2.21.1')
-    implementation 'software.amazon.awssdk:s3'
+    // Netty macOS DNS fix
+    runtimeOnly 'io.netty:netty-resolver-dns-native-macos:4.1.118.Final:osx-aarch_64'
 
-    // H2 Database for Testing
-    testRuntimeOnly 'com.h2database:h2'
+    // WebSocket
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+    
+    // WebFlux (WebClient)
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+    // Caffeine Cache
+    implementation 'com.github.ben-manes.caffeine:caffeine'
+    
+    // JobRunr (Spring Boot 3)
+    implementation 'org.jobrunr:jobrunr-spring-boot-3-starter:7.2.0'
+    
+    // Flyway
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-mysql'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    implementation 'org.flywaydb:flyway-database-oracle'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.security:spring-security-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
-tasks.named('test') {
+sourceSets {
+	mateTest {
+		java {
+			srcDirs = ['src/test/java']
+			include 'com/example/mate/**'
+		}
+		resources {
+			srcDirs = ['src/test/resources']
+		}
+		compileClasspath += sourceSets.main.output + configurations.testCompileClasspath
+		runtimeClasspath += output + sourceSets.main.output + configurations.testRuntimeClasspath
+	}
+}
+
+configurations {
+	mateTestImplementation.extendsFrom testImplementation
+	mateTestRuntimeOnly.extendsFrom testRuntimeOnly
+	mateTestCompileOnly.extendsFrom testCompileOnly
+	mateTestAnnotationProcessor.extendsFrom testAnnotationProcessor
+}
+
+springBoot {
+    mainClass = 'com.example.BegaProjectApplication'
+}
+
+tasks.register('mateTest', Test) {
+	group = 'verification'
+	description = 'Runs only mate-domain tests from src/test/java/com/example/mate/**'
+	testClassesDirs = sourceSets.mateTest.output.classesDirs
+	classpath = sourceSets.mateTest.runtimeClasspath
+}
+
+tasks.named('compileMateTestJava') {
+	dependsOn tasks.named('classes')
+}
+
+tasks.withType(Test).configureEach {
 	useJUnitPlatform()
+
+	// Stabilize local/CI runs for heavy integration suites.
+	maxParallelForks = 1
+	failFast = false
+	jvmArgs '-Dfile.encoding=UTF-8'
+	systemProperty 'file.encoding', 'UTF-8'
+
+	reports {
+		junitXml.required = true
+		junitXml.outputPerTestCase = true
+		junitXml.mergeReruns = true
+		junitXml.includeSystemOutLog = false
+		junitXml.includeSystemErrLog = false
+	}
+
+	testLogging {
+		events "failed", "skipped"
+		exceptionFormat "short"
+		showStandardStreams = false
+	}
 }
 
-// Increase memory for bootRun to avoid exit code 137 (OOM)
-tasks.named('bootRun') {
-    jvmArgs = ["-Xmx4096m"]
+tasks.withType(JavaCompile) {
+    options.compilerArgs += ["-parameters"]
 }

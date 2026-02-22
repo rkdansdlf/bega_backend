@@ -38,34 +38,18 @@ public class StorageConfig {
     @Value("${oci.s3.bucket:}")
     private String s3BucketName;
 
-    // Supabase Config
-    @Value("${supabase.url:}")
-    private String supabaseUrl;
-    @Value("${supabase.key:}")
-    private String supabaseKey;
-    @Value("${supabase.bucket:}")
-    private String supabaseBucket;
-
     @PostConstruct
     public void logConfig() {
         log.info("=== Storage 설정 ===");
         log.info("Detected storage.type: '{}'", storageType);
         log.info("OCI S3 Endpoint: {}", s3Endpoint);
         log.info("OCI S3 Bucket: {}", s3BucketName);
-        log.info("Supabase URL: {}", supabaseUrl);
-        log.info("Supabase Bucket: {}", supabaseBucket);
     }
 
     @Bean
     public com.example.cheerboard.storage.strategy.StorageStrategy storageStrategy() {
-
         log.info("=== Storage Strategy Config ===");
         log.info("Detected storage.type: '{}'", storageType);
-
-        if ("supabase".equalsIgnoreCase(storageType)) {
-            log.info("SupabaseStorageStrategy 사용");
-            return createSupabaseStrategy();
-        }
 
         // 그 외(기본값 포함)는 무조건 OCI 사용
         log.info("S3StorageStrategy 사용 (OCI Object Storage) - Default");
@@ -156,14 +140,5 @@ public class StorageConfig {
         }
 
         return new com.example.cheerboard.storage.strategy.S3StorageStrategy(s3Client, s3Presigner, s3BucketName);
-    }
-
-    private com.example.cheerboard.storage.strategy.StorageStrategy createSupabaseStrategy() {
-        if (supabaseUrl.isEmpty() || supabaseKey.isEmpty() || supabaseBucket.isEmpty()) {
-            throw new IllegalStateException("Supabase 설정이 누락되었습니다. (url, key, bucket)");
-        }
-        com.example.cheerboard.storage.client.SupabaseStorageClient client = new com.example.cheerboard.storage.client.SupabaseStorageClient(
-                supabaseUrl, supabaseKey);
-        return new com.example.cheerboard.storage.strategy.SupabaseStorageStrategy(client, supabaseBucket);
     }
 }

@@ -24,7 +24,6 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/franchises")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class TeamFranchiseController {
 
     private static final Logger log = LoggerFactory.getLogger(TeamFranchiseController.class);

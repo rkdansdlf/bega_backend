@@ -2,6 +2,9 @@ package com.example.admin.service;
 
 import com.example.admin.dto.AdminMateDto;
 import com.example.admin.dto.AdminPostDto;
+import com.example.admin.dto.AdminReportActionReq;
+import com.example.admin.dto.AdminReportAppealReq;
+import com.example.admin.dto.AdminReportDto;
 import com.example.admin.dto.AdminStatsDto;
 import com.example.admin.dto.AdminUserDto;
 import com.example.admin.entity.AuditLog;
@@ -10,10 +13,14 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.cheerboard.domain.CheerComment;
 import com.example.cheerboard.domain.CheerPost;
+import com.example.cheerboard.domain.CheerPostReport;
 import com.example.cheerboard.domain.CheerPostLike;
+import com.example.cheerboard.domain.ReportReason;
 import com.example.cheerboard.repo.CheerCommentRepo;
 import com.example.cheerboard.repo.CheerPostLikeRepo;
 import com.example.cheerboard.repo.CheerPostRepo;
+import com.example.cheerboard.repo.CheerReportRepo;
+import com.example.auth.repository.RefreshRepository;
 import com.example.mate.entity.Party;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.service.PartyService;
@@ -21,9 +28,14 @@ import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.CacheManager;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -37,12 +49,14 @@ public class AdminService {
 
     private final UserRepository userRepository;
     private final CheerPostRepo cheerPostRepository;
+    private final CheerReportRepo cheerReportRepo;
     private final PartyRepository partyRepository;
     private final CheerCommentRepo commentRepository;
     private final CheerPostLikeRepo likeRepository;
     private final CacheManager cacheManager;
     private final AuditLogRepository auditLogRepository;
     private final PartyService partyService;
+    private final RefreshRepository refreshRepository;
 
     /**
      * 대시보드 통계 조회
@@ -52,11 +66,11 @@ public class AdminService {
         long totalPosts = cheerPostRepository.count();
         long totalMates = partyRepository.count();
 
-        return AdminStatsDto.builder()
+        return Objects.requireNonNull(AdminStatsDto.builder()
                 .totalUsers(totalUsers)
                 .totalPosts(totalPosts)
                 .totalMates(totalMates)
-                .build();
+                .build());
     }
 
     /**
@@ -75,9 +89,9 @@ public class AdminService {
             users = userRepository.findAllByOrderByIdAsc();
         }
 
-        return users.stream()
+        return Objects.requireNonNull(users.stream()
                 .map(this::convertToAdminUserDto)
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     /**
@@ -87,9 +101,9 @@ public class AdminService {
         // 🔥 createdAt 기준 내림차순 정렬
         List<CheerPost> posts = cheerPostRepository.findAllByOrderByCreatedAtDesc();
 
-        return posts.stream()
+        return Objects.requireNonNull(posts.stream()
                 .map(this::convertToAdminPostDto)
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     /**
@@ -99,7 +113,7 @@ public class AdminService {
         // 🔥 HOT 판단 로직: 좋아요 10개 이상 또는 조회수 100 이상
         boolean isHot = post.getLikeCount() >= 10 || post.getViews() >= 100;
 
-        return AdminPostDto.builder()
+        return Objects.requireNonNull(AdminPostDto.builder()
                 .id(post.getId())
                 .team(post.getTeamId())
                 .content(post.getContent())
@@ -109,7 +123,7 @@ public class AdminService {
                 .commentCount(post.getCommentCount())
                 .views(post.getViews())
                 .isHot(isHot)
-                .build();
+                .build());
     }
 
     /**
@@ -118,16 +132,16 @@ public class AdminService {
     public List<AdminMateDto> getMates() {
         List<Party> parties = partyRepository.findAllByOrderByCreatedAtDesc();
 
-        return parties.stream()
+        return Objects.requireNonNull(parties.stream()
                 .map(this::convertToAdminMateDto)
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     /**
      * Party → AdminMateDto 변환
      */
     private AdminMateDto convertToAdminMateDto(Party party) {
-        return AdminMateDto.builder()
+        return Objects.requireNonNull(AdminMateDto.builder()
                 .id(party.getId())
                 .teamId(party.getTeamId())
                 .title(party.getDescription().length() > 30
@@ -143,11 +157,11 @@ public class AdminService {
                 .homeTeam(party.getHomeTeam())
                 .awayTeam(party.getAwayTeam())
                 .section(party.getSection())
-                .build();
+                .build());
     }
 
     /**
-     * 유저 삭제 (연관된 데이터도 함께 삭제)
+     * 유저 삭제 (연관된 데이터 정리 후 계정 비활성화 처리)
      * 
      * @param userId  삭제할 유저 ID
      * @param adminId 삭제를 수행하는 관리자 ID (감사 로그용, nullable)
@@ -182,8 +196,15 @@ public class AdminService {
         // 메이트 관련 데이터 정리 (파티 취소, 참여 신청 처리, 알림 발송)
         partyService.handleUserDeletion(userId);
 
-        // 유저 삭제
-        userRepository.delete(Objects.requireNonNull(user));
+        // 유저 비활성화 + 토큰 버전 증가로 접근 무효화
+        int currentTokenVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
+        user.setEnabled(false);
+        user.setTokenVersion(currentTokenVersion + 1);
+        user.setLockExpiresAt(null);
+        userRepository.save(Objects.requireNonNull(user));
+
+        // 리프레시 토큰 정리
+        refreshRepository.deleteByEmail(userEmail);
 
         // 감사 로그 기록
         if (adminId != null) {
@@ -266,6 +287,100 @@ public class AdminService {
         }
     }
 
+    @Transactional(readOnly = true)
+    public Page<AdminReportDto> getReports(
+            String status,
+            String reason,
+            LocalDate fromDate,
+            LocalDate toDate,
+            int page,
+            int size) {
+        CheerPostReport.ReportStatus statusFilter = parseReportStatus(status);
+        ReportReason reasonFilter = parseReportReason(reason);
+        LocalDateTime fromAt = fromDate != null ? fromDate.atStartOfDay() : null;
+        LocalDateTime toAt = toDate != null ? toDate.plusDays(1).atStartOfDay().minusNanos(1) : null;
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1));
+
+        return cheerReportRepo.findForAdmin(statusFilter, reasonFilter, fromAt, toAt, pageable)
+                .map(this::convertToAdminReportDto);
+    }
+
+    @Transactional(readOnly = true)
+    public AdminReportDto getReport(Long reportId) {
+        CheerPostReport report = cheerReportRepo.findById(reportId)
+                .orElseThrow(() -> new IllegalArgumentException("신고 케이스를 찾을 수 없습니다."));
+        return Objects.requireNonNull(convertToAdminReportDto(report));
+    }
+
+    @Transactional
+    public AdminReportDto handleReport(Long reportId, AdminReportActionReq req, Long adminId) {
+        if (req == null || req.action() == null) {
+            throw new IllegalArgumentException("조치(action)는 필수입니다.");
+        }
+
+        CheerPostReport report = cheerReportRepo.findById(reportId)
+                .orElseThrow(() -> new IllegalArgumentException("신고 케이스를 찾을 수 없습니다."));
+
+        report.setStatus(CheerPostReport.ReportStatus.RESOLVED);
+        report.setAdminAction(req.action());
+        report.setAdminMemo(req.adminMemo());
+        report.setHandledBy(adminId);
+        report.setHandledAt(LocalDateTime.now());
+
+        if (req.action() == CheerPostReport.AdminAction.TAKE_DOWN) {
+            report.getPost().setDeleted(true);
+            cheerPostRepository.save(Objects.requireNonNull(report.getPost()));
+        } else if (req.action() == CheerPostReport.AdminAction.RESTORE) {
+            report.getPost().setDeleted(false);
+            cheerPostRepository.save(Objects.requireNonNull(report.getPost()));
+        }
+
+        CheerPostReport saved = cheerReportRepo.save(Objects.requireNonNull(report));
+
+        if (adminId != null) {
+            AuditLog.AuditAction auditAction = toAuditAction(req.action());
+            if (auditAction != null) {
+                AuditLog auditLog = AuditLog.builder()
+                        .adminId(adminId)
+                        .targetUserId(saved.getPost().getAuthor().getId())
+                        .action(auditAction)
+                        .oldValue(saved.getReason().name())
+                        .newValue(saved.getStatus().name())
+                        .description("신고 케이스 처리 (ID: " + saved.getId() + ", action: " + req.action().name() + ")")
+                        .build();
+                auditLogRepository.save(Objects.requireNonNull(auditLog));
+            }
+        }
+
+        return Objects.requireNonNull(convertToAdminReportDto(saved));
+    }
+
+    @Transactional
+    public AdminReportDto requestAppeal(Long reportId, AdminReportAppealReq req, Long userId) {
+        CheerPostReport report = cheerReportRepo.findById(reportId)
+                .orElseThrow(() -> new IllegalArgumentException("신고 케이스를 찾을 수 없습니다."));
+
+        report.setAppealStatus(CheerPostReport.AppealStatus.REQUESTED);
+        report.setAppealReason(req != null ? req.appealReason() : null);
+        report.setAppealCount((report.getAppealCount() == null ? 0 : report.getAppealCount()) + 1);
+
+        CheerPostReport saved = cheerReportRepo.save(Objects.requireNonNull(report));
+
+        if (userId != null) {
+            AuditLog auditLog = AuditLog.builder()
+                    .adminId(userId)
+                    .targetUserId(saved.getPost().getAuthor().getId())
+                    .action(AuditLog.AuditAction.WARN_REPEATED_INFRACTION)
+                    .oldValue(saved.getStatus().name())
+                    .newValue(saved.getAppealStatus().name())
+                    .description("신고 케이스 이의제기 등록 (ID: " + saved.getId() + ")")
+                    .build();
+            auditLogRepository.save(Objects.requireNonNull(auditLog));
+        }
+
+        return Objects.requireNonNull(convertToAdminReportDto(saved));
+    }
+
     /**
      * UserEntity → AdminUserDto 변환
      */
@@ -277,7 +392,7 @@ public class AdminService {
         // 해당 유저의 게시글 수 조회
         long postCount = cheerPostRepository.countByUserId(userId);
 
-        return AdminUserDto.builder()
+        return Objects.requireNonNull(AdminUserDto.builder()
                 .id(userId)
                 .email(email)
                 .name(name)
@@ -285,7 +400,68 @@ public class AdminService {
                 .createdAt(user.getCreatedAt())
                 .postCount(postCount)
                 .role(user.getRole())
-                .build();
+                .build());
+    }
+
+    private AdminReportDto convertToAdminReportDto(CheerPostReport report) {
+        String postContent = report.getPost() != null ? report.getPost().getContent() : null;
+        String postPreview = postContent == null ? null
+                : (postContent.length() > 120 ? postContent.substring(0, 120) + "..." : postContent);
+
+        return Objects.requireNonNull(AdminReportDto.builder()
+                .id(report.getId())
+                .postId(report.getPost() != null ? report.getPost().getId() : null)
+                .postPreview(postPreview)
+                .reporterId(report.getReporter() != null ? report.getReporter().getId() : null)
+                .reporterHandle(report.getReporter() != null ? report.getReporter().getHandle() : null)
+                .reason(report.getReason() != null ? report.getReason().name() : null)
+                .description(report.getDescription())
+                .status(report.getStatus() != null ? report.getStatus().name() : null)
+                .adminAction(report.getAdminAction() != null ? report.getAdminAction().name() : null)
+                .adminMemo(report.getAdminMemo())
+                .handledBy(report.getHandledBy())
+                .handledAt(report.getHandledAt())
+                .evidenceUrl(report.getEvidenceUrl())
+                .requestedAction(report.getRequestedAction())
+                .appealStatus(report.getAppealStatus() != null ? report.getAppealStatus().name() : null)
+                .appealReason(report.getAppealReason())
+                .appealCount(report.getAppealCount())
+                .createdAt(report.getCreatedAt())
+                .build());
+    }
+
+    private CheerPostReport.ReportStatus parseReportStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        try {
+            return CheerPostReport.ReportStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("지원하지 않는 신고 상태입니다: " + status);
+        }
+    }
+
+    private ReportReason parseReportReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return null;
+        }
+        try {
+            return ReportReason.valueOf(reason.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("지원하지 않는 신고 사유입니다: " + reason);
+        }
+    }
+
+    private AuditLog.AuditAction toAuditAction(CheerPostReport.AdminAction action) {
+        if (action == null) {
+            return null;
+        }
+        return switch (action) {
+            case TAKE_DOWN -> AuditLog.AuditAction.TAKE_DOWN_REPORT;
+            case DISMISS -> AuditLog.AuditAction.DISMISS_REPORT;
+            case RESTORE -> AuditLog.AuditAction.RESTORE_REPORT;
+            case WARNING, REQUIRE_MODIFICATION -> AuditLog.AuditAction.WARN_REPEATED_INFRACTION;
+        };
     }
 
     /**
