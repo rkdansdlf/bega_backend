@@ -74,6 +74,13 @@ jobs:
         working-directory: ./BEGA_PROJECT
         run: chmod +x gradlew
 
+      - name: Verify WebP native support (strict gate)
+        working-directory: ./BEGA_PROJECT
+        run: |
+          ./gradlew test \
+            --tests "*VerifyImageUtil*" \
+            -Dwebp.strict=true
+
       - name: Run focused regression tests
         working-directory: ./BEGA_PROJECT
         run: |

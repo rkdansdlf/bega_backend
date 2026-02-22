@@ -18,7 +18,7 @@ public class ProfileImageValidator {
     private final StorageConfig config;
     private final ImageUtil imageUtil;
 
-    private static final int MIN_SHORT_SIDE_PIXELS = 256;
+    private static final int MIN_SHORT_SIDE_PIXELS = 320;
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
         "jpg", "jpeg", "png", "webp"

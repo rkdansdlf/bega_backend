@@ -2,19 +2,21 @@ package com.example.auth.controller;
 
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.entity.UserEntity;
+import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.util.JWTUtil;
 import com.example.common.dto.ApiResponse;
 import jakarta.servlet.http.Cookie;
+import org.junit.jupiter.api.BeforeEach;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -37,8 +39,14 @@ class ReissueControllerTokenTypeTest {
     @Mock
     private UserRepository userRepository;
 
-    @InjectMocks
     private ReissueController reissueController;
+
+    private final AuthCookieUtil authCookieUtil = new AuthCookieUtil(false);
+
+    @BeforeEach
+    void setUp() {
+        reissueController = new ReissueController(jwtUtil, refreshRepository, userRepository, authCookieUtil);
+    }
 
     @Test
     @DisplayName("refresh 타입이 아닌 토큰은 재발급이 거부된다")
@@ -118,8 +126,8 @@ class ReissueControllerTokenTypeTest {
         assertThat(body.isSuccess()).isTrue();
 
         verify(refreshRepository).save(stored);
-        assertThat(response.getCookies()).extracting(Cookie::getName)
-                .contains("Authorization", "Refresh");
+        assertThat(response.getHeaders(HttpHeaders.SET_COOKIE)).anyMatch(header -> header.startsWith("Authorization="));
+        assertThat(response.getHeaders(HttpHeaders.SET_COOKIE)).anyMatch(header -> header.startsWith("Refresh="));
     }
 
     private MockHttpServletRequest requestWithRefreshCookie(String token) {

@@ -1,6 +1,7 @@
 package com.example.auth.filter;
 
 import com.example.auth.service.TokenBlacklistService;
+import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.util.JWTUtil;
@@ -47,6 +48,9 @@ class JWTFilterTokenTypeTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private AuthSecurityMonitoringService securityMonitoringService;
+
     private JWTUtil jwtUtil;
     private JWTFilter jwtFilter;
     private SecretKey secretKey;
@@ -56,7 +60,7 @@ class JWTFilterTokenTypeTest {
         jwtUtil = new JWTUtil(SECRET, 1000L * 60 * 60 * 24 * 7);
         jwtUtil.validateSecret();
         jwtFilter = new JWTFilter(jwtUtil, false, List.of("http://localhost:5173"), tokenBlacklistService,
-                userRepository);
+                userRepository, securityMonitoringService);
         secretKey = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
 
         Mockito.lenient().when(tokenBlacklistService.isBlacklisted(anyString())).thenReturn(false);

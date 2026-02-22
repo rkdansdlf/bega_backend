@@ -11,26 +11,28 @@
         </encoder>
     </appender>
 
-    <appender name="ROLLING" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_HOME}/app.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_HOME}/app.%d{yyyy-MM-dd}.gz</fileNamePattern>
-            <maxHistory>14</maxHistory>
-        </rollingPolicy>
-        <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
-        </encoder>
-    </appender>
-
-    <!-- Production: INFO level to reduce log volume -->
+    <!-- Production: INFO level and File logging -->
     <springProfile name="prod">
+        <appender name="ROLLING" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>${LOG_HOME}/app.log</file>
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <fileNamePattern>${LOG_HOME}/app.%d{yyyy-MM-dd}.gz</fileNamePattern>
+                <maxHistory>14</maxHistory>
+            </rollingPolicy>
+            <encoder>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+
         <logger name="com.example" level="INFO" additivity="false">
             <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="ROLLING"/>
         </logger>
         <logger name="org.springframework" level="INFO"/>
         <logger name="org.hibernate" level="WARN"/>
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="ROLLING"/>
         </root>
     </springProfile>
 

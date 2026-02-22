@@ -83,6 +83,13 @@ class PartyRepositoryTest {
                 .homeTeam(homeTeam)
                 .awayTeam(awayTeam)
                 .section(section)
+                .searchText(String.join(" ",
+                        stadium,
+                        homeTeam,
+                        awayTeam,
+                        section,
+                        hostName,
+                        description))
                 .maxParticipants(4)
                 .currentParticipants(1)
                 .description(description)

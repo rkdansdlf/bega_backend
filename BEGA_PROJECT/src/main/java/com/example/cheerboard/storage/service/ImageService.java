@@ -443,8 +443,7 @@ public class ImageService {
             log.info("Signed URL cache miss: path={}", storagePath);
         }
         try {
-            // Strategy handles fallback logic internally for Supabase
-            // Local storage returns public URL directly
+            // Storage strategy handles provider-specific URL generation.
             String url = storageStrategy.getUrl(config.getCheerBucket(), storagePath,
                     config.getSignedUrlTtlSeconds()).block();
 

@@ -22,7 +22,6 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/team-history")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class TeamHistoryController {
 
     private static final Logger log = LoggerFactory.getLogger(TeamHistoryController.class);

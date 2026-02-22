@@ -2,17 +2,22 @@ package com.example.admin.controller;
 
 import com.example.admin.dto.AdminMateDto;
 import com.example.admin.dto.AdminPostDto;
+import com.example.admin.dto.AdminReportActionReq;
+import com.example.admin.dto.AdminReportAppealReq;
+import com.example.admin.dto.AdminReportDto;
 import com.example.admin.dto.AdminStatsDto;
 import com.example.admin.dto.AdminUserDto;
 import com.example.admin.service.AdminService;
 import com.example.common.dto.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -56,6 +61,42 @@ public class AdminController {
     public ResponseEntity<ApiResponse> getPosts() {
         List<AdminPostDto> posts = adminService.getPosts();
         return ResponseEntity.ok(ApiResponse.success("게시글 목록 조회 성공", posts));
+    }
+
+    @GetMapping("/reports")
+    public ResponseEntity<ApiResponse> getReports(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String reason,
+            @RequestParam(required = false) LocalDate fromDate,
+            @RequestParam(required = false) LocalDate toDate,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        Page<AdminReportDto> reports = adminService.getReports(status, reason, fromDate, toDate, page, size);
+        return ResponseEntity.ok(ApiResponse.success("신고 케이스 조회 성공", reports));
+    }
+
+    @GetMapping("/reports/{reportId}")
+    public ResponseEntity<ApiResponse> getReport(@PathVariable Long reportId) {
+        AdminReportDto report = adminService.getReport(reportId);
+        return ResponseEntity.ok(ApiResponse.success("신고 케이스 상세 조회 성공", report));
+    }
+
+    @PatchMapping("/reports/{reportId}")
+    public ResponseEntity<ApiResponse> handleReport(
+            @AuthenticationPrincipal Long adminId,
+            @PathVariable Long reportId,
+            @RequestBody AdminReportActionReq req) {
+        AdminReportDto result = adminService.handleReport(reportId, req, adminId);
+        return ResponseEntity.ok(ApiResponse.success("신고 케이스 조치 완료", result));
+    }
+
+    @PostMapping("/reports/{reportId}/appeal")
+    public ResponseEntity<ApiResponse> requestAppeal(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long reportId,
+            @RequestBody(required = false) AdminReportAppealReq req) {
+        AdminReportDto result = adminService.requestAppeal(reportId, req, userId);
+        return ResponseEntity.ok(ApiResponse.success("이의제기 등록 완료", result));
     }
 
     /**

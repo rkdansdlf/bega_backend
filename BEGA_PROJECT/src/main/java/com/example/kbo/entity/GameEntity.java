@@ -20,7 +20,8 @@ import java.time.LocalDate;
 @Table(name = "game", indexes = {
         @Index(name = "idx_game_date", columnList = "game_date"),
         @Index(name = "idx_season_id", columnList = "season_id"),
-        @Index(name = "idx_game_teams", columnList = "home_team, away_team")
+        @Index(name = "idx_game_teams", columnList = "home_team, away_team"),
+        @Index(name = "idx_game_range_lookup", columnList = "game_date, is_dummy, home_team, away_team, game_id")
 })
 @Getter
 @Setter
