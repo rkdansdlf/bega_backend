@@ -10,13 +10,13 @@ import com.example.kbo.repository.GameMetadataRepository;
 import com.example.kbo.repository.GameSummaryRepository;
 import com.example.kbo.util.KboTeamCodePolicy;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -28,6 +28,7 @@ import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PredictionService {
 
     private final PredictionRepository predictionRepository;
@@ -50,7 +51,7 @@ public class PredictionService {
     private static final List<String> CANONICAL_TEAMS = List.of("SS", "LT", "LG", "DB", "KIA", "KH", "HH", "SSG", "NC", "KT");
     private static final int MAX_VOTE_RETRY_ATTEMPTS = 2;
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<MatchDto> getRecentCompletedGames() {
         LocalDate today = LocalDate.now();
 
@@ -72,7 +73,7 @@ public class PredictionService {
     }
 
     // 특정 날짜의 경기 조회 (실제 DB 데이터만 조회, 더미 및 Mock 제외)
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<MatchDto> getMatchesByDate(LocalDate date) {
         List<GameEntity> matches = gameRepository.findByGameDate(date).stream()
                 .filter(game -> !Boolean.TRUE.equals(game.getIsDummy()))
@@ -85,12 +86,12 @@ public class PredictionService {
                 .collect(Collectors.toList()));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<MatchDto> getMatchesByDateRange(LocalDate startDate, LocalDate endDate) {
         return getMatchesByDateRange(startDate, endDate, true, 0, 1000);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<MatchDto> getMatchesByDateRange(
             LocalDate startDate,
             LocalDate endDate,
@@ -107,7 +108,7 @@ public class PredictionService {
                 .collect(Collectors.toList()));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public MatchRangePageResponseDto getMatchesByDateRangeWithMetadata(
             LocalDate startDate,
             LocalDate endDate,
@@ -130,7 +131,7 @@ public class PredictionService {
         );
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public MatchBoundsResponseDto getMatchBounds() {
         Optional<LocalDate> earliestGameDate = gameRepository.findCanonicalMinGameDate(CANONICAL_TEAMS);
         Optional<LocalDate> latestGameDate = gameRepository.findCanonicalMaxGameDate(CANONICAL_TEAMS);
@@ -151,37 +152,87 @@ public class PredictionService {
             int pageSize
     ) {
         if (startDate == null || endDate == null) {
+            log.warn(
+                    "prediction.range.error reason=invalid-window-null startDate={} endDate={} includePast={} page={} size={}",
+                    startDate,
+                    endDate,
+                    includePast,
+                    page,
+                    pageSize
+            );
             throw new IllegalArgumentException("조회 기간이 올바르지 않습니다.");
         }
 
         if (startDate.isAfter(endDate)) {
+            log.warn(
+                    "prediction.range.error reason=invalid-window-order startDate={} endDate={} includePast={} page={} size={}",
+                    startDate,
+                    endDate,
+                    includePast,
+                    page,
+                    pageSize
+            );
             throw new IllegalArgumentException("시작일은 종료일보다 이전이어야 합니다.");
         }
 
         LocalDate today = LocalDate.now();
         Pageable pageable = PageRequest.of(
                 Math.max(0, page),
-                Math.max(1, Math.min(500, pageSize)),
-                Sort.by("gameDate", "gameId")
+                Math.max(1, Math.min(500, pageSize))
         );
 
         LocalDate effectiveEndDate = endDate;
         LocalDate effectiveStartDate = includePast ? startDate : (startDate.isBefore(today) ? today : startDate);
 
         if (effectiveStartDate.isAfter(effectiveEndDate)) {
+            log.info(
+                    "prediction.range.end_reached includePast={} requestedWindow={}~{} effectiveWindow={}~{} page={} size={} reason=effective-window-empty",
+                    includePast,
+                    startDate,
+                    endDate,
+                    effectiveStartDate,
+                    effectiveEndDate,
+                    pageable.getPageNumber(),
+                    pageable.getPageSize()
+            );
             return Page.empty(pageable);
         }
 
-        return gameRepository.findCanonicalByDateRange(
+        Page<GameEntity> rangePage = gameRepository.findCanonicalByDateRange(
                 effectiveStartDate,
                 effectiveEndDate,
-                today,
-                includePast,
                 CANONICAL_TEAMS,
                 pageable);
+
+        if (rangePage.isEmpty()) {
+            log.info(
+                    "prediction.range.end_reached includePast={} requestedWindow={}~{} effectiveWindow={}~{} page={} size={} reason=no-content",
+                    includePast,
+                    startDate,
+                    endDate,
+                    effectiveStartDate,
+                    effectiveEndDate,
+                    rangePage.getNumber(),
+                    rangePage.getSize()
+            );
+        } else {
+            log.info(
+                    "prediction.range.load includePast={} result=success window={}~{} page={} size={} content={} hasNext={} hasPrevious={}",
+                    includePast,
+                    effectiveStartDate,
+                    effectiveEndDate,
+                    rangePage.getNumber(),
+                    rangePage.getSize(),
+                    rangePage.getNumberOfElements(),
+                    rangePage.hasNext(),
+                    rangePage.hasPrevious()
+            );
+        }
+
+        return rangePage;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public GameDetailDto getGameDetail(String gameId) {
         GameEntity game = gameRepository.findByGameId(gameId)
                 .orElseThrow(() -> new IllegalArgumentException("경기 정보를 찾을 수 없습니다."));
@@ -198,7 +249,7 @@ public class PredictionService {
         return Objects.requireNonNull(GameDetailDto.from(game, metadata, inningScores, summaries));
     }
 
-    @Transactional
+    @Transactional(transactionManager = "transactionManager")
     public void vote(Long userId, PredictionRequestDto request) {
         String gameId = normalizeGameId(request == null ? null : request.getGameId());
         String votedTeam = normalizeVotedTeam(request == null ? null : request.getVotedTeam());
@@ -257,14 +308,28 @@ public class PredictionService {
                     throw ex;
                 }
 
+                log.warn(
+                        "prediction.vote.conflict.retry userId={} gameId={} attempt={} maxAttempts={}",
+                        userId,
+                        gameId,
+                        attempt,
+                        MAX_VOTE_RETRY_ATTEMPTS
+                );
+
                 if (attempt > MAX_VOTE_RETRY_ATTEMPTS) {
+                    log.error(
+                            "prediction.vote.conflict.retry userId={} gameId={} result=failed-after-retries attempts={}",
+                            userId,
+                            gameId,
+                            attempt
+                    );
                     throw new IllegalStateException("예측 처리 중 중복 요청이 충돌했습니다. 잠시 후 다시 시도해주세요.");
                 }
             }
         }
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, transactionManager = "transactionManager")
     public PredictionResponseDto getVoteStatus(String gameId) {
         Optional<VoteFinalResult> finalResult = voteFinalResultRepository.findById(gameId);
 
@@ -313,7 +378,7 @@ public class PredictionService {
                 && KboTeamCodePolicy.isCanonicalTeamCode(game.getAwayTeam());
     }
 
-    @Transactional
+    @Transactional(transactionManager = "transactionManager")
     public void cancelVote(Long userId, String gameId) {
         String normalizedGameId = normalizeGameId(gameId);
 
@@ -331,7 +396,7 @@ public class PredictionService {
         predictionRepository.delete(prediction);
     }
 
-    @Transactional
+    @Transactional(transactionManager = "transactionManager")
     public void saveFinalVoteResult(String gameId) {
         GameEntity game = gameRepository.findByGameId(gameId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 경기입니다."));
@@ -422,7 +487,7 @@ public class PredictionService {
                 || normalizedMessage.contains("duplicate key");
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, transactionManager = "transactionManager")
     public UserPredictionStatsDto getUserStats(Long userId) {
         List<Prediction> predictions = predictionRepository
                 .findAllByUserIdOrderByCreatedAtDesc(java.util.Objects.requireNonNull(userId));

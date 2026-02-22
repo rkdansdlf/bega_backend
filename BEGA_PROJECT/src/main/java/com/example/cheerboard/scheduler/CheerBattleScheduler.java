@@ -44,7 +44,7 @@ public class CheerBattleScheduler implements ApplicationRunner {
      * 매일 자정(00:00)에 당일 경기 투표 데이터 초기화
      */
     @Job(name = "Initialize Daily Cheer Battles")
-    @Transactional
+    @Transactional(transactionManager = "transactionManager")
     public void createDailyBattles() {
         LocalDate today = LocalDate.now();
         List<GameEntity> todaysGames = gameRepository.findByGameDate(today);

@@ -15,6 +15,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.example.BegaDiary.Entity.GameResponseDto;
 import com.example.BegaDiary.Utils.BaseballConstants;
@@ -35,6 +36,7 @@ public class BegaGameService {
 	private final GameRepository gameRepository;
 	private final GameMetadataRepository gameMetadataRepository;
 
+	@Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
 	public List<GameResponseDto> getGamesByDate(LocalDate date) {
 		List<GameEntity> games = gameRepository.findByGameDate(date);
 		return Objects.requireNonNull(games.stream()
@@ -46,6 +48,7 @@ public class BegaGameService {
 		return findGameIdByDateAndTeams(dateStr, homeTeam, awayTeam, null, null);
 	}
 
+	@Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
 	public Long findGameIdByDateAndTeams(
 			String dateStr,
 			String homeTeam,
@@ -156,6 +159,7 @@ public class BegaGameService {
 		}
 	}
 
+	@Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
 	public GameEntity getGameById(Long id) {
 		if (id == null) {
 			return null;

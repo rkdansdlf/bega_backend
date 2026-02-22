@@ -5,8 +5,10 @@ import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 
+import com.example.auth.util.AuthCookieUtil;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.ResponseCookie;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,11 +34,14 @@ public class ReissueController {
     private final JWTUtil jwtUtil;
     private final RefreshRepository refreshRepository;
     private final UserRepository userRepository;
+    private final AuthCookieUtil authCookieUtil;
 
-    public ReissueController(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository) {
+    public ReissueController(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository,
+            AuthCookieUtil authCookieUtil) {
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
         this.userRepository = userRepository;
+        this.authCookieUtil = authCookieUtil;
     }
 
     @PostMapping("/reissue")
@@ -142,11 +147,13 @@ public class ReissueController {
         refreshRepository.save(existToken);
 
         // Access Token 쿠키
-        response.addCookie(createCookie("Authorization", newAccessToken, (int) (accessTokenExpiredMs / 1000)));
+        ResponseCookie accessCookie = authCookieUtil.buildAuthCookie(newAccessToken, accessTokenExpiredMs / 1000);
+        authCookieUtil.addCookieHeader(response, accessCookie);
 
         // Refresh Token 쿠키
         int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
-        response.addCookie(createCookie("Refresh", newRefreshToken, refreshTokenMaxAge));
+        ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(newRefreshToken, refreshTokenMaxAge);
+        authCookieUtil.addCookieHeader(response, refreshCookie);
 
         return ResponseEntity.ok(ApiResponse.success("토큰이 성공적으로 재발급되었습니다."));
     }
@@ -296,14 +303,4 @@ public class ReissueController {
         return "Unknown";
     }
 
-    // 쿠키 생성 헬퍼 메서드
-    private Cookie createCookie(String key, String value, int maxAgeSeconds) {
-        Cookie cookie = new Cookie(key, value);
-        cookie.setMaxAge(maxAgeSeconds);
-        cookie.setPath("/");
-        cookie.setHttpOnly(true);
-        cookie.setSecure(false); // 로컬 개발 환경(HTTP)에서는 false로 설정
-
-        return cookie;
-    }
 }

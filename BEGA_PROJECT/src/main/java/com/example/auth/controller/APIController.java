@@ -9,9 +9,11 @@ import com.example.auth.dto.SignupDto;
 import com.example.auth.service.UserService;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.entity.RefreshToken;
+import com.example.auth.util.AuthCookieUtil;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Objects;
+import java.util.HashMap;
 
 import java.util.Map;
 import jakarta.servlet.http.Cookie;
@@ -36,17 +38,17 @@ public class APIController {
     private final OAuth2StateService oAuth2StateService;
     private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
     private final RefreshRepository refreshRepository;
-
-    @org.springframework.beans.factory.annotation.Value("${app.cookie.secure:false}")
-    private boolean secureCookie;
+    private final AuthCookieUtil authCookieUtil;
 
     public APIController(UserService userService, OAuth2StateService oAuth2StateService,
             com.example.auth.service.TokenBlacklistService tokenBlacklistService,
-            RefreshRepository refreshRepository) {
+            RefreshRepository refreshRepository,
+            AuthCookieUtil authCookieUtil) {
         this.userService = userService;
         this.oAuth2StateService = oAuth2StateService;
         this.tokenBlacklistService = tokenBlacklistService;
         this.refreshRepository = refreshRepository;
+        this.authCookieUtil = authCookieUtil;
     }
 
     /**
@@ -72,32 +74,26 @@ public class APIController {
             HttpServletResponse response) {
 
         // UserService의 인증 로직 호출
-        Map<String, Object> loginData = userService.authenticateAndGetToken(
+        UserService.LoginResult loginResult = userService.authenticateAndGetToken(
                 loginDto.getEmail(),
                 loginDto.getPassword(),
                 request);
 
-        String accessToken = (String) loginData.get("accessToken");
-        String refreshToken = (String) loginData.get("refreshToken");
+        String accessToken = loginResult.accessToken();
+        String refreshToken = loginResult.refreshToken();
 
         // JWT를 쿠키에 설정 (Access Token)
-        Cookie jwtCookie = new Cookie("Authorization", accessToken);
-        jwtCookie.setHttpOnly(true);
-        jwtCookie.setSecure(secureCookie); // Configurable secure flag
-        jwtCookie.setPath("/");
-        jwtCookie.setMaxAge(60 * 60); // 1시간
-        response.addCookie(jwtCookie);
+        ResponseCookie authCookie = authCookieUtil.buildAuthCookie(accessToken, 60 * 60);
+        authCookieUtil.addCookieHeader(response, authCookie);
 
-        // Refresh Token 쿠키 설정
-        Cookie refreshCookie = new Cookie("Refresh", refreshToken);
-        refreshCookie.setHttpOnly(true);
-        refreshCookie.setSecure(secureCookie); // Configurable secure flag
-        refreshCookie.setPath("/");
-        refreshCookie.setMaxAge(60 * 60 * 24 * 7); // 7일
-        response.addCookie(refreshCookie);
+        ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, 60 * 60 * 24 * 7);
+        authCookieUtil.addCookieHeader(response, refreshCookie);
+
+        // body 응답은 프로필/상태 데이터 중심으로 구성
+        Map<String, Object> responseData = new HashMap<>(loginResult.profileData());
 
         // 성공 응답
-        return ResponseEntity.ok(ApiResponse.success("로그인 성공", loginData));
+        return ResponseEntity.ok(ApiResponse.success("로그인 성공", responseData));
     }
 
     /**
@@ -204,22 +200,10 @@ public class APIController {
         }
 
         // 4. Authorization 쿠키 삭제
-        ResponseCookie expireAuthCookie = ResponseCookie.from("Authorization", "")
-                .httpOnly(true)
-                .secure(secureCookie) // [Security Fix] 환경별 Secure 플래그 설정
-                .path("/")
-                .maxAge(0)
-                .sameSite("Lax")
-                .build();
+        ResponseCookie expireAuthCookie = authCookieUtil.buildExpiredAuthCookie();
 
         // 5. Refresh 쿠키 삭제
-        ResponseCookie expireRefreshCookie = ResponseCookie.from("Refresh", "")
-                .httpOnly(true)
-                .secure(secureCookie) // [Security Fix] 환경별 Secure 플래그 설정
-                .path("/")
-                .maxAge(0)
-                .sameSite("Lax")
-                .build();
+        ResponseCookie expireRefreshCookie = authCookieUtil.buildExpiredRefreshCookie();
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, expireAuthCookie.toString())
