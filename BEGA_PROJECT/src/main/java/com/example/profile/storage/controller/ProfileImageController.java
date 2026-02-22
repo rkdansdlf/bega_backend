@@ -5,6 +5,7 @@ import com.example.profile.storage.dto.ProfileImageDto;
 import com.example.profile.storage.service.ProfileImageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -27,13 +28,39 @@ public class ProfileImageController {
      * 프로필 이미지 업로드
      * POST /api/profile/image
      */
-    @PostMapping("/image")
+    @PostMapping(value = "/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse> uploadProfileImage(
-            @RequestParam("file") MultipartFile file) {
+            @RequestPart("file") MultipartFile file) {
         try {
             // 🔥 SecurityContext에서 userId 추출 (JWT 필터가 설정해놓음)
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-            Long userId = (Long) authentication.getPrincipal();
+
+            if (authentication == null || authentication.getPrincipal() == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error("인증되지 않은 사용자입니다."));
+            }
+
+            Object principal = authentication.getPrincipal();
+            Long userId;
+
+            if (principal instanceof Long principalId) {
+                userId = principalId;
+            } else if (principal instanceof String principalText) {
+                try {
+                    userId = Long.parseLong(principalText);
+                } catch (NumberFormatException e) {
+                    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                            .body(ApiResponse.error("유효하지 않은 사용자 정보입니다."));
+                }
+            } else {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error("유효하지 않은 사용자 정보입니다."));
+            }
+
+            if (file == null || file.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.error("업로드할 파일이 없습니다."));
+            }
 
             log.info("프로필 이미지 업로드 요청: userId={}, filename={}", userId, file.getOriginalFilename());
 

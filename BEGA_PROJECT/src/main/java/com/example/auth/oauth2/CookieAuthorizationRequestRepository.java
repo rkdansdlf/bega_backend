@@ -1,29 +1,42 @@
 package com.example.auth.oauth2;
 
+import com.example.bega.auth.dto.OAuth2LinkStateData;
+import com.example.bega.auth.service.OAuth2LinkStateService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.security.oauth2.client.web.AuthorizationRequestRepository;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.util.SerializationUtils;
-import java.util.Base64;
-
-import java.util.Arrays;
-import java.util.Optional;
-import com.example.bega.auth.dto.OAuth2LinkStateData;
-import com.example.bega.auth.service.OAuth2LinkStateService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.Objects;
+import java.util.Optional;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class CookieAuthorizationRequestRepository
         implements AuthorizationRequestRepository<OAuth2AuthorizationRequest> {
 
+    private static final String SIGNATURE_SEPARATOR = ".";
+    private static final String HMAC_ALGORITHM = "HmacSHA256";
+    public static final String OAUTH2_COOKIE_ERROR_ATTRIBUTE = "oauth2_auth_request_cookie_error";
+
     private final OAuth2LinkStateService oAuth2LinkStateService;
     private final com.example.auth.util.JWTUtil jwtUtil;
+    private final String oauth2CookieSecret;
+    private final boolean secureCookie;
+    private final com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService;
 
     // 쿠키 이름 정의
     public static final String OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME = "oauth2_auth_request";
@@ -31,12 +44,34 @@ public class CookieAuthorizationRequestRepository
     // 쿠키 만료 시간 (초 단위)
     private static final int COOKIE_EXPIRE_SECONDS = 300; // 5분
 
+    public CookieAuthorizationRequestRepository(
+            OAuth2LinkStateService oAuth2LinkStateService,
+            com.example.auth.util.JWTUtil jwtUtil,
+            @Value("${app.oauth2.cookie-secret:}") String oauth2CookieSecret,
+            @Value("${app.cookie.secure:false}") boolean secureCookie,
+            com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService) {
+        this.oAuth2LinkStateService = oAuth2LinkStateService;
+        this.jwtUtil = jwtUtil;
+        this.oauth2CookieSecret = oauth2CookieSecret;
+        this.secureCookie = secureCookie;
+        this.securityMonitoringService = securityMonitoringService;
+    }
+
     @Override
     public OAuth2AuthorizationRequest loadAuthorizationRequest(HttpServletRequest request) {
-        // 쿠키에서 Authorization Request 정보를 로드합니다.
-        return getCookie(request, OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME)
-                .map(this::deserialize)
-                .orElse(null);
+        Optional<Cookie> cookie = getCookie(request, OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME);
+        if (cookie.isEmpty()) {
+            return null;
+        }
+
+        try {
+            return deserialize(cookie.get());
+        } catch (IllegalArgumentException e) {
+            securityMonitoringService.recordUnsignedOauth2Cookie();
+            log.warn("Invalid OAuth2 request cookie received: {}", e.getMessage());
+            request.setAttribute(OAUTH2_COOKIE_ERROR_ATTRIBUTE, "invalid_oauth2_request_cookie");
+            return null;
+        }
     }
 
     @Override
@@ -149,14 +184,18 @@ public class CookieAuthorizationRequestRepository
     // --- 유틸리티 메서드 ---
 
     private void addCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
-        org.springframework.http.ResponseCookie cookie = org.springframework.http.ResponseCookie
-                .from(name, value != null ? value : "")
+        if (value == null) {
+            value = "";
+        }
+
+        ResponseCookie cookie = ResponseCookie.from(Objects.requireNonNull(name), value)
                 .path("/")
                 .httpOnly(true)
+                .secure(secureCookie)
                 .maxAge(maxAgeSeconds)
                 .sameSite("Lax")
                 .build();
-        response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, cookie.toString());
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
     }
 
     private Optional<Cookie> getCookie(HttpServletRequest request, String name) {
@@ -171,30 +210,93 @@ public class CookieAuthorizationRequestRepository
 
     private void deleteCookie(HttpServletRequest request, HttpServletResponse response, String name) {
         Cookie[] cookies = request.getCookies();
-        if (cookies != null) {
-            for (Cookie cookie : cookies) {
-                if (cookie.getName().equals(name)) {
-                    org.springframework.http.ResponseCookie expireCookie = org.springframework.http.ResponseCookie
-                            .from(name, "")
-                            .path("/")
-                            .httpOnly(true)
-                            .maxAge(0)
-                            .sameSite("Lax")
-                            .build();
-                    response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, expireCookie.toString());
-                }
+        if (cookies == null) {
+            return;
+        }
+
+        for (Cookie cookie : cookies) {
+            if (cookie.getName().equals(name)) {
+                ResponseCookie expireCookie = ResponseCookie.from(Objects.requireNonNull(name), "")
+                        .path("/")
+                        .httpOnly(true)
+                        .secure(secureCookie)
+                        .maxAge(0)
+                        .sameSite("Lax")
+                        .build();
+                response.addHeader(HttpHeaders.SET_COOKIE, expireCookie.toString());
             }
         }
     }
 
     private String serialize(OAuth2AuthorizationRequest authorizationRequest) {
-        byte[] bytes = SerializationUtils.serialize(authorizationRequest);
-        return Base64.getUrlEncoder().encodeToString(bytes);
+        byte[] payload = SerializationUtils.serialize(authorizationRequest);
+        String encodedPayload = Base64.getUrlEncoder().withoutPadding().encodeToString(payload);
+        return encodedPayload + SIGNATURE_SEPARATOR + sign(encodedPayload);
     }
 
     @SuppressWarnings("deprecation")
     private OAuth2AuthorizationRequest deserialize(Cookie cookie) {
-        byte[] bytes = Base64.getUrlDecoder().decode(cookie.getValue());
-        return (OAuth2AuthorizationRequest) SerializationUtils.deserialize(bytes);
+        String rawValue = cookie.getValue();
+        String[] parts = rawValue.split("\\.", 2);
+        if (parts.length != 2) {
+            throw new IllegalArgumentException("Malformed OAuth2 request cookie");
+        }
+
+        String encodedPayload = parts[0];
+        String signature = parts[1];
+
+        if (!isValidSignature(encodedPayload, signature)) {
+            throw new IllegalArgumentException("Invalid OAuth2 request cookie signature");
+        }
+
+        try {
+            byte[] bytes = Base64.getUrlDecoder().decode(encodedPayload);
+            OAuth2AuthorizationRequest request = (OAuth2AuthorizationRequest) SerializationUtils
+                    .deserialize(bytes);
+
+            if (request == null) {
+                throw new IllegalArgumentException("Deserialized OAuth2 request is null");
+            }
+
+            return request;
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to deserialize OAuth2 request cookie", e);
+        }
+    }
+
+    private boolean isValidSignature(String encodedPayload, String signature) {
+        if (oauth2CookieSecret == null || oauth2CookieSecret.isBlank()) {
+            log.error("OAuth2 cookie secret is not configured");
+            return false;
+        }
+
+        String expectedSignature = sign(encodedPayload);
+        if (signature == null || signature.isBlank() || signature.length() != expectedSignature.length()) {
+            return false;
+        }
+
+        byte[] expected = Base64.getUrlDecoder().decode(expectedSignature);
+        byte[] actual = Base64.getUrlDecoder().decode(signature);
+        return MessageDigest.isEqual(expected, actual);
+    }
+
+    private String sign(String encodedPayload) {
+        if (oauth2CookieSecret == null || oauth2CookieSecret.isBlank()) {
+            return "";
+        }
+
+        try {
+            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
+            SecretKeySpec secretKey = new SecretKeySpec(
+                    oauth2CookieSecret.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM);
+            mac.init(secretKey);
+            byte[] digest = mac.doFinal(encodedPayload.getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        } catch (Exception e) {
+            log.error("Failed to sign OAuth2 request cookie", e);
+            return "";
+        }
     }
 }

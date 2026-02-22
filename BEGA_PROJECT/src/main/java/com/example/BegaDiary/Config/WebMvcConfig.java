@@ -18,15 +18,13 @@ public class WebMvcConfig implements WebMvcConfigurer {
             "http://localhost:3000",
             "http://localhost:5173",
             "http://localhost:5176",
-            "http://localhost:*",
             "http://localhost:8080",
             "http://127.0.0.1",
             "http://127.0.0.1:3000",
             "http://127.0.0.1:5173",
-            "http://127.0.0.1:*",
             "http://127.0.0.1:5176");
 
-    @Value("${app.allowed-origins:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:*,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:*,http://127.0.0.1:5176}")
+    @Value("${app.allowed-origins:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176}")
     private String allowedOriginsStr;
 
     @Override
@@ -34,6 +32,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
         List<String> origins = Arrays.stream(allowedOriginsStr == null ? new String[0] : allowedOriginsStr.split(","))
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
+                .filter(origin -> !origin.equals("*"))
                 .toList();
 
         if (origins.isEmpty()) {
@@ -44,6 +43,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
         merged.addAll(origins);
 
         registry.addMapping("/api/**")
+                .allowedOrigins()
                 .allowedOriginPatterns(merged.toArray(new String[0]))
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
                 .allowedHeaders("*")

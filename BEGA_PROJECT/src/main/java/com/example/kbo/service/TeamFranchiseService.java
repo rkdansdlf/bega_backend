@@ -2,6 +2,7 @@ package com.example.kbo.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 import org.slf4j.Logger;
@@ -42,7 +43,7 @@ public class TeamFranchiseService {
      */
     public List<TeamFranchiseEntity> getAllFranchises() {
         log.debug("Fetching all KBO franchises");
-        return franchiseRepository.findAll();
+        return Objects.requireNonNull(franchiseRepository.findAll());
     }
 
     /**
@@ -84,7 +85,7 @@ public class TeamFranchiseService {
      */
     public List<TeamEntity> getTeamsByFranchiseId(Integer franchiseId) {
         log.debug("Fetching all teams for franchise id: {}", franchiseId);
-        return teamRepository.findByFranchiseId(franchiseId);
+        return Objects.requireNonNull(teamRepository.findByFranchiseId(franchiseId));
     }
 
     /**
@@ -95,7 +96,7 @@ public class TeamFranchiseService {
      */
     public List<TeamEntity> getActiveTeamsByFranchiseId(Integer franchiseId) {
         log.debug("Fetching active teams for franchise id: {}", franchiseId);
-        return teamRepository.findAllByFranchiseIdAndIsActive(franchiseId, true);
+        return Objects.requireNonNull(teamRepository.findAllByFranchiseIdAndIsActive(franchiseId, true));
     }
 
     /**
@@ -138,7 +139,7 @@ public class TeamFranchiseService {
                         return Map.<String, Object>of();
                     }
                 })
-                .orElse(Map.of());
+                .orElse(Objects.requireNonNull(Map.of()));
     }
 
     /**
@@ -149,6 +150,6 @@ public class TeamFranchiseService {
      */
     public List<TeamFranchiseEntity> searchFranchisesByName(String keyword) {
         log.debug("Searching franchises with keyword: {}", keyword);
-        return franchiseRepository.findByNameContaining(keyword);
+        return Objects.requireNonNull(franchiseRepository.findByNameContaining(keyword));
     }
 }

@@ -29,7 +29,7 @@ public class HomePageGameService {
 	private final Map<Integer, Integer> leagueTypeCodeMap = new ConcurrentHashMap<>();
 
     @PostConstruct
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, transactionManager = "transactionManager")
     public void init() {
         try {
             homePageTeamRepository.findAll().forEach(team -> teamMap.put(team.getTeamId(), team));
@@ -46,6 +46,7 @@ public class HomePageGameService {
     }
 
     @Cacheable(value = GAME_SCHEDULE, key = "#date.toString()")
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<HomePageGameDto> getGamesByDate(LocalDate date) {
         List<GameEntity> games = gameRepository.findByGameDate(date);
 
@@ -135,7 +136,7 @@ public class HomePageGameService {
 
     // v_team_rank_all 뷰에서 순위 데이터를 가져오도록 수정
     @Cacheable(value = TEAM_RANKINGS, key = "#seasonYear")
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<HomePageTeamRankingDto> getTeamRankings(int seasonYear) {
         List<Object[]> results = gameRepository.findTeamRankingsBySeason(seasonYear);
 
@@ -156,7 +157,7 @@ public class HomePageGameService {
 
     // 리그 시작 날짜 조회
     @Cacheable(value = LEAGUE_DATES, key = "T(java.time.LocalDate).now().getYear()")
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public LeagueStartDatesDto getLeagueStartDates() {
         LocalDate now = LocalDate.now();
         // int currentYear = now.getYear();
@@ -183,6 +184,7 @@ public class HomePageGameService {
     }
 
     // 날짜 네비게이션 정보 조회
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public ScheduleNavigationDto getScheduleNavigation(LocalDate date) {
         LocalDate prev = gameRepository.findPrevGameDate(date).orElse(null);
         LocalDate next = gameRepository.findNextGameDate(date).orElse(null);

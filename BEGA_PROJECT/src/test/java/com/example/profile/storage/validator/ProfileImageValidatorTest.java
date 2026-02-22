@@ -35,7 +35,7 @@ class ProfileImageValidatorTest {
         when(file.getContentType()).thenReturn("image/webp");
         when(file.getSize()).thenReturn(1024L);
         when(config.getMaxImageBytes()).thenReturn(1024L * 1024L);
-        when(imageUtil.getImageDimension(file)).thenReturn(new ImageUtil.ImageDimension(256, 256));
+        when(imageUtil.getImageDimension(file)).thenReturn(new ImageUtil.ImageDimension(320, 320));
 
         assertDoesNotThrow(() -> validator.validateProfileImage(file));
     }
@@ -47,7 +47,7 @@ class ProfileImageValidatorTest {
         when(file.getContentType()).thenReturn("image/png");
         when(file.getSize()).thenReturn(1024L);
         when(config.getMaxImageBytes()).thenReturn(1024L * 1024L);
-        when(imageUtil.getImageDimension(file)).thenReturn(new ImageUtil.ImageDimension(128, 512));
+        when(imageUtil.getImageDimension(file)).thenReturn(new ImageUtil.ImageDimension(319, 512));
 
         assertThrows(IllegalArgumentException.class, () -> validator.validateProfileImage(file));
     }

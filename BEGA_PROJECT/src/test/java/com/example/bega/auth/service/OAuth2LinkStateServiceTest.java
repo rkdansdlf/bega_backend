@@ -14,11 +14,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -38,13 +41,29 @@ class OAuth2LinkStateServiceTest {
 
     private ObjectMapper objectMapper;
     private OAuth2LinkStateService service;
+    private Map<String, String> redisStorage;
 
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         service = new OAuth2LinkStateService(redisTemplate, objectMapper);
+        redisStorage = new ConcurrentHashMap<>();
+
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+
+        // 연동 state는 메모리 기반 Redis 동작으로 시뮬레이션한다.
+        lenient().doAnswer(inv -> {
+            String key = inv.getArgument(0);
+            String value = inv.getArgument(1);
+            redisStorage.put(key, value);
+            return null;
+        }).when(valueOperations).set(anyString(), anyString(), anyLong(), any(TimeUnit.class));
+
+        lenient().when(valueOperations.getAndDelete(anyString())).thenAnswer(inv -> {
+            String key = inv.getArgument(0);
+            return redisStorage.remove(key);
+        });
     }
 
     @Test
@@ -56,8 +75,7 @@ class OAuth2LinkStateServiceTest {
                 101L,
                 "http://localhost:5173/mypage",
                 System.currentTimeMillis(),
-                null
-        );
+                null);
 
         service.saveLinkByState(state, data);
 
@@ -116,8 +134,7 @@ class OAuth2LinkStateServiceTest {
                 7L,
                 null,
                 System.currentTimeMillis() - (6 * 60 * 1000L),
-                null
-        );
+                null);
         when(valueOperations.getAndDelete("oauth2:link:" + state))
                 .thenReturn(objectMapper.writeValueAsString(expired));
 
@@ -135,8 +152,7 @@ class OAuth2LinkStateServiceTest {
                 33L,
                 "http://localhost:5173/mypage",
                 System.currentTimeMillis(),
-                null
-        );
+                null);
         when(valueOperations.getAndDelete("oauth2:link:" + state))
                 .thenReturn(objectMapper.writeValueAsString(stored));
 
@@ -153,5 +169,42 @@ class OAuth2LinkStateServiceTest {
         OAuth2LinkStateData result = service.consumeLinkByState("broken");
 
         assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("round-trip: 저장한 state는 동일한 링크 데이터로 소비된다")
+    void saveAndConsumeLinkByState_roundTrip() {
+        String state = "round-trip-state";
+        OAuth2LinkStateData original = new OAuth2LinkStateData(
+                "link",
+                300L,
+                "http://localhost:5173/mypage",
+                System.currentTimeMillis(),
+                null);
+
+        service.saveLinkByState(state, original);
+        OAuth2LinkStateData consumed = service.consumeLinkByState(state);
+
+        assertThat(consumed).isEqualTo(original);
+        assertThat(redisStorage).doesNotContainKey("oauth2:link:" + state);
+    }
+
+    @Test
+    @DisplayName("동일 state는 소비 후 두 번째 조회시 null")
+    void consumeLinkByState_isOneTimeUse() {
+        String state = "one-time-state";
+        OAuth2LinkStateData original = new OAuth2LinkStateData(
+                "link",
+                301L,
+                null,
+                System.currentTimeMillis(),
+                null);
+
+        service.saveLinkByState(state, original);
+        OAuth2LinkStateData first = service.consumeLinkByState(state);
+        OAuth2LinkStateData second = service.consumeLinkByState(state);
+
+        assertThat(first).isEqualTo(original);
+        assertThat(second).isNull();
     }
 }

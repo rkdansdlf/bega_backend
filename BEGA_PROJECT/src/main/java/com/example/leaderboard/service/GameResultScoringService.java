@@ -18,6 +18,10 @@ import java.util.*;
 /**
  * 게임 결과 점수 처리 서비스
  * 종료된 게임의 예측 결과를 처리하고 점수를 부여합니다.
+ *
+ * 트랜잭션 정책:
+ * - 점수/예측 결과 반영은 primary(transactionManager) 기준으로 처리
+ * - 경기 조회(GameRepository)는 kboGameTransactionManager 경로의 read 전용 호출
  */
 @Service
 @RequiredArgsConstructor
@@ -36,7 +40,7 @@ public class GameResultScoringService {
      * @param gameId 게임 ID
      * @return 처리된 예측 수
      */
-    @Transactional
+    @Transactional(transactionManager = "transactionManager")
     public int processGameResult(String gameId) {
         // 게임 조회
         GameEntity game = gameRepository.findByGameId(gameId)
@@ -114,7 +118,7 @@ public class GameResultScoringService {
      * @param date 처리할 날짜
      * @return 처리된 게임 수
      */
-    @Transactional
+    @Transactional(transactionManager = "transactionManager")
     public int processGamesForDate(LocalDate date) {
         List<GameEntity> finishedGames = gameRepository.findByGameDate(date).stream()
                 .filter(GameEntity::isFinished)

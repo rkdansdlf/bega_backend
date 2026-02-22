@@ -32,6 +32,10 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
     // 특정 신청자의 특정 파티 신청 확인
     Optional<PartyApplication> findByPartyIdAndApplicantId(Long partyId, Long applicantId);
 
+    Optional<PartyApplication> findByOrderId(String orderId);
+
+    Optional<PartyApplication> findByPaymentKey(String paymentKey);
+
     // 신청자의 승인된 신청 목록
     List<PartyApplication> findByApplicantIdAndIsApprovedTrue(Long applicantId);
 

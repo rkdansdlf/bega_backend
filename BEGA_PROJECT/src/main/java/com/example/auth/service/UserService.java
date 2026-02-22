@@ -1,6 +1,7 @@
 package com.example.auth.service;
 
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -11,6 +12,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.lang.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,10 +38,9 @@ import com.example.common.exception.SocialLoginRequiredException;
 import com.example.mate.service.PartyService;
 import com.example.profile.storage.service.ProfileImageService;
 
-import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
 
 @Service
-@RequiredArgsConstructor
 public class UserService {
 
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
@@ -48,11 +49,29 @@ public class UserService {
     private final UserRepository userRepository;
     private final TeamRepository teamRepository;
     private final RefreshRepository refreshRepository;
-    private final com.example.auth.repository.UserProviderRepository userProviderRepository; // Inject repository
+    private final com.example.auth.repository.UserProviderRepository userProviderRepository;
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final JWTUtil jwtUtil;
     private final PartyService partyService;
     private final ProfileImageService profileImageService;
+
+    public UserService(UserRepository userRepository,
+            TeamRepository teamRepository,
+            RefreshRepository refreshRepository,
+            com.example.auth.repository.UserProviderRepository userProviderRepository,
+            BCryptPasswordEncoder bCryptPasswordEncoder,
+            JWTUtil jwtUtil,
+            @Lazy PartyService partyService,
+            ProfileImageService profileImageService) {
+        this.userRepository = userRepository;
+        this.teamRepository = teamRepository;
+        this.refreshRepository = refreshRepository;
+        this.userProviderRepository = userProviderRepository;
+        this.bCryptPasswordEncoder = bCryptPasswordEncoder;
+        this.jwtUtil = jwtUtil;
+        this.partyService = partyService;
+        this.profileImageService = profileImageService;
+    }
 
     public JWTUtil getJWTUtil() {
         return jwtUtil;
@@ -62,24 +81,26 @@ public class UserService {
      * 회원가입
      */
     @Transactional
-    public UserEntity saveUser(SignupDto signupDto) {
-        UserDto userDto = signupDto.toUserDto();
-        if (userDto.getEmail() != null) {
-            userDto.setEmail(userDto.getEmail().trim().toLowerCase());
-        }
+    public UserEntity saveUser(@NonNull SignupDto signupDto) {
+        UserDto userDto = Objects.requireNonNull(signupDto.toUserDto());
+        normalizeUserEmail(userDto);
         this.signUp(userDto);
 
         return findUserByEmailOrThrow(userDto.getEmail());
+    }
+
+    private void normalizeUserEmail(UserDto userDto) {
+        if (userDto != null && userDto.getEmail() != null) {
+            userDto.setEmail(userDto.getEmail().trim().toLowerCase());
+        }
     }
 
     /**
      * 회원가입 메인 로직
      */
     @Transactional
-    public void signUp(UserDto userDto) {
-        if (userDto.getEmail() != null) {
-            userDto.setEmail(userDto.getEmail().trim().toLowerCase());
-        }
+    public void signUp(@NonNull UserDto userDto) {
+        normalizeUserEmail(userDto);
         log.info("--- [SignUp] Attempt - Email: {} ---", userDto.getEmail());
 
         Optional<UserEntity> existingUser = userRepository.findByEmail(userDto.getEmail());
@@ -138,7 +159,7 @@ public class UserService {
     /**
      * 신규 사용자 생성
      */
-    private void createNewUser(UserDto userDto) {
+    private void createNewUser(@NonNull UserDto userDto) {
         String handle = validateAndNormalizeHandle(userDto.getHandle());
         if (userRepository.existsByHandle(handle)) {
             throw new IllegalArgumentException("이미 사용 중인 아이디(@handle)입니다: " + handle);
@@ -158,7 +179,7 @@ public class UserService {
                 .password(encodedPassword)
                 .favoriteTeam(team)
                 .role(roleKey)
-                .provider(userDto.getProvider() != null ? userDto.getProvider() : "LOCAL")
+                .provider(Optional.ofNullable(userDto.getProvider()).orElse("LOCAL"))
                 .providerId(userDto.getProviderId())
                 .build();
 
@@ -194,43 +215,53 @@ public class UserService {
     /**
      * 로그인 인증 및 JWT 토큰 생성
      */
+    public record LoginResult(
+            String accessToken,
+            String refreshToken,
+            Map<String, Object> profileData) {
+    }
+
     @Transactional
-    public Map<String, Object> authenticateAndGetToken(String email, String password) {
+    public LoginResult authenticateAndGetToken(String email, String password) {
         return authenticateAndGetToken(email, password, null);
     }
 
     @Transactional
-    public Map<String, Object> authenticateAndGetToken(String email, String password, HttpServletRequest request) {
-        String normalizedEmail = (email != null) ? email.trim().toLowerCase() : null;
+    public LoginResult authenticateAndGetToken(String email, String password, HttpServletRequest request) {
+        String normalizedEmail = Optional.ofNullable(email).map(e -> e.trim().toLowerCase()).orElse(null);
         UserEntity user = findUserByEmailOrThrow(normalizedEmail);
 
         validatePassword(user, password);
 
         // 일일 출석 보너스 체크
-        checkAndApplyDailyLoginBonus(user);
+        checkAndApplyDailyLoginBonus(Objects.requireNonNull(user));
 
+        int tokenVersion = Optional.ofNullable(user.getTokenVersion()).orElse(0);
         String accessToken = jwtUtil.createJwt(
                 user.getEmail(),
                 user.getRole(),
                 user.getId(),
                 ACCESS_EXPIRATION_TIME,
-                user.getTokenVersion() == null ? 0 : user.getTokenVersion());
+                tokenVersion);
 
         // Refresh Token 생성
         String refreshToken = jwtUtil.createRefreshToken(user.getEmail(), user.getRole(), user.getId(),
-                user.getTokenVersion() == null ? 0 : user.getTokenVersion());
+                tokenVersion);
 
         // Refresh Token DB 저장
         saveOrUpdateRefreshToken(user.getEmail(), refreshToken, request);
 
-        return Map.of(
-                "accessToken", accessToken,
-                "refreshToken", refreshToken,
-                "id", user.getId(),
-                "name", user.getName(),
-                "role", user.getRole(),
-                "handle", user.getHandle(),
-                "cheerPoints", user.getCheerPoints());
+        Map<String, Object> profileData = new HashMap<>();
+        profileData.put("id", user.getId());
+        profileData.put("name", user.getName());
+        profileData.put("role", user.getRole());
+        profileData.put("handle", user.getHandle());
+        profileData.put("cheerPoints", user.getCheerPoints());
+
+        return new LoginResult(
+                accessToken,
+                refreshToken,
+                profileData);
     }
 
     /**
@@ -238,12 +269,15 @@ public class UserService {
      * 마지막 로그인 날짜(lastLoginDate)를 확인하여 오늘 첫 로그인인 경우 지급
      */
     @Transactional
-    public void checkAndApplyDailyLoginBonus(UserEntity user) {
+    public void checkAndApplyDailyLoginBonus(@NonNull UserEntity user) {
         java.time.LocalDate today = java.time.LocalDate.now();
 
         // lastLoginDate가 없거나(첫 로그인), 마지막 로그인 날짜가 오늘보다 이전인 경우
-        if (user.getLastLoginDate() == null
-                || user.getLastLoginDate().atZone(ZoneId.of("Asia/Seoul")).toLocalDate().isBefore(today)) {
+        boolean shouldAward = Optional.ofNullable(user.getLastLoginDate())
+                .map(last -> last.atZone(ZoneId.of("Asia/Seoul")).toLocalDate().isBefore(today))
+                .orElse(true);
+
+        if (shouldAward) {
             user.addCheerPoints(5);
             log.info("Daily Login Bonus (5 points) awarded to user: {}. Current Points: {}", user.getEmail(),
                     user.getCheerPoints());
@@ -278,38 +312,30 @@ public class UserService {
         String deviceLabel = resolveDeviceLabel(userAgent, deviceType);
         String browser = resolveBrowser(userAgent);
         String os = resolveOs(userAgent);
+
         RefreshToken matchedToken = tokens.stream()
                 .filter(item -> isSameSessionContext(item, deviceType, deviceLabel, browser, os, ipAddress))
                 .findFirst()
-                .orElse(null);
-        LocalDateTime now = LocalDateTime.now();
-        if (matchedToken != null) {
-            matchedToken.setToken(token);
-            matchedToken.setExpiryDate(now.plusWeeks(1));
-            matchedToken.setDeviceType(deviceType);
-            matchedToken.setDeviceLabel(deviceLabel);
-            matchedToken.setBrowser(browser);
-            matchedToken.setOs(os);
-            matchedToken.setIp(ipAddress);
-            matchedToken.setLastSeenAt(now);
-            refreshRepository.save(matchedToken);
-            return;
-        }
+                .orElseGet(() -> {
+                    RefreshToken nt = new RefreshToken();
+                    nt.setEmail(email);
+                    return nt;
+                });
 
-        RefreshToken newToken = new RefreshToken();
-        newToken.setEmail(email);
-        newToken.setToken(token);
-        newToken.setExpiryDate(now.plusWeeks(1));
-        newToken.setDeviceType(deviceType);
-        newToken.setDeviceLabel(deviceLabel);
-        newToken.setBrowser(browser);
-        newToken.setOs(os);
-        newToken.setIp(ipAddress);
-        newToken.setLastSeenAt(now);
-        refreshRepository.save(newToken);
+        LocalDateTime now = LocalDateTime.now();
+        matchedToken.setToken(token);
+        matchedToken.setExpiryDate(now.plusWeeks(1));
+        matchedToken.setDeviceType(deviceType);
+        matchedToken.setDeviceLabel(deviceLabel);
+        matchedToken.setBrowser(browser);
+        matchedToken.setOs(os);
+        matchedToken.setIp(ipAddress);
+        matchedToken.setLastSeenAt(now);
+        refreshRepository.save(matchedToken);
     }
 
-    private boolean isSameSessionContext(RefreshToken token, String deviceType, String deviceLabel, String browser, String os,
+    private boolean isSameSessionContext(RefreshToken token, String deviceType, String deviceLabel, String browser,
+            String os,
             String ipAddress) {
         if (token == null) {
             return false;
@@ -460,7 +486,7 @@ public class UserService {
      * 프로필 업데이트
      */
     @Transactional
-    public UserEntity updateProfile(Long id, UserProfileDto updateDto) {
+    public UserEntity updateProfile(@NonNull Long id, @NonNull UserProfileDto updateDto) {
         UserEntity user = findUserById(id);
 
         updateUserName(user, updateDto.getName());
@@ -468,7 +494,7 @@ public class UserService {
         updateFavoriteTeam(user, updateDto.getFavoriteTeam());
         updateBio(user, updateDto.getBio());
 
-        return userRepository.save(user);
+        return userRepository.save(Objects.requireNonNull(user));
     }
 
     private void updateUserName(UserEntity user, String name) {
@@ -515,7 +541,7 @@ public class UserService {
      */
     @Transactional
     public void changePassword(Long userId, String currentPassword, String newPassword) {
-        UserEntity user = findUserById(userId);
+        UserEntity user = findUserById(Objects.requireNonNull(userId));
 
         // 현재 비밀번호가 설정되어 있는 경우에만 검증
         if (user.getPassword() != null) {
@@ -539,7 +565,7 @@ public class UserService {
      */
     @Transactional
     public void deleteAccount(Long userId, String password) {
-        UserEntity user = findUserById(userId);
+        UserEntity user = findUserById(Objects.requireNonNull(userId));
 
         // LOCAL 사용자는 비밀번호 확인 필요
         if (!user.isOAuth2User()) {
@@ -556,10 +582,9 @@ public class UserService {
         }
 
         String userEmail = user.getEmail();
-        int currentTokenVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
         user.setEnabled(false);
-        user.setTokenVersion(currentTokenVersion + 1);
-        userRepository.save(user);
+        user.setTokenVersion(Optional.ofNullable(user.getTokenVersion()).orElse(0) + 1);
+        userRepository.save(Objects.requireNonNull(user));
 
         // Refresh Token 삭제
         refreshRepository.deleteByEmail(userEmail);
@@ -593,7 +618,7 @@ public class UserService {
     @Transactional
     public void unlinkProvider(Long userId, String provider) {
         // 최소 1개의 로그인 방식은 남겨둬야 함 (비밀번호가 있거나, 다른 연동 계정이 있어야 함)
-        UserEntity user = findUserById(userId);
+        UserEntity user = findUserById(Objects.requireNonNull(userId));
         boolean hasPassword = user.getPassword() != null && !user.getPassword().startsWith("oauth2_user"); // "oauth2_user"
                                                                                                            // is
                                                                                                            // deprecated
@@ -625,8 +650,8 @@ public class UserService {
      * ID로 사용자 조회
      */
     @Transactional(readOnly = true)
-    public UserEntity findUserById(Long id) {
-        return userRepository.findById(Objects.requireNonNull(id))
+    public UserEntity findUserById(@NonNull Long id) {
+        return userRepository.findById(id)
                 .orElseThrow(() -> new UserNotFoundException(id));
     }
 
@@ -643,29 +668,30 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     public Long getUserIdByEmail(String email) {
-        String normalizedInput = email == null ? null : email.trim();
-        if (normalizedInput == null || normalizedInput.isBlank()) {
+        String input = Optional.ofNullable(email).map(String::trim).orElse("");
+        if (input.isBlank()) {
             throw new UserNotFoundException("email", email);
         }
 
-        // 기존 동작: 이메일 기반 조회
-        String normalizedEmail = normalizedInput.toLowerCase();
-        java.util.Optional<UserEntity> userByEmail = userRepository.findByEmail(normalizedEmail);
+        // 1. Try finding by email
+        Optional<UserEntity> userByEmail = userRepository.findByEmail(input.toLowerCase());
         if (userByEmail.isPresent()) {
             return userByEmail.get().getId();
         }
 
-        // 마이그레이션 호환: principal이 userId로 전달되는 경우를 처리
-        try {
-            Long userId = Long.valueOf(normalizedInput);
-            return userRepository.findById(userId)
-                    .map(UserEntity::getId)
-                    .orElseThrow(() -> new UserNotFoundException("userId", normalizedInput));
-        } catch (NumberFormatException ignored) {
-            // 이메일이면서 숫자 형식이 아닌 경우 그대로 진행
-        }
+        // 2. Try parsing as Long (userId) for migration compatibility
+        return tryParseLong(input)
+                .flatMap(userRepository::findById)
+                .map(UserEntity::getId)
+                .orElseThrow(() -> new UserNotFoundException("email/id", email));
+    }
 
-        throw new UserNotFoundException("email", email);
+    private Optional<Long> tryParseLong(String value) {
+        try {
+            return Optional.of(Long.valueOf(value));
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
     }
 
     /**
@@ -714,7 +740,7 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     public com.example.auth.dto.PublicUserProfileDto getPublicUserProfile(Long userId) {
-        UserEntity user = findUserById(userId);
+        UserEntity user = findUserById(Objects.requireNonNull(userId));
         return com.example.auth.dto.PublicUserProfileDto.builder()
                 .id(user.getId())
                 .name(user.getName())

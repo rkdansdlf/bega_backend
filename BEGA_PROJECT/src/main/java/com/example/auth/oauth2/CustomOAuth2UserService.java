@@ -15,11 +15,23 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 @Service
 @Transactional
 @lombok.extern.slf4j.Slf4j
 public class CustomOAuth2UserService extends DefaultOAuth2UserService {
+
+    private static final Pattern KAKAO_PROFILE_SIZE_PATTERN =
+            Pattern.compile("_(?:\\d{2,4})x(?:\\d{2,4})(?=\\.[a-zA-Z0-9]+(?:\\?|#|$))");
+    private static final String KAKAO_HIGH_RES_SUFFIX = "_640x640";
+    private static final Pattern GOOGLE_PROFILE_SIZE_PATTERN =
+            Pattern.compile("=s\\d+(?:-c)?(?=\\?|$|&|#|$)");
+    private static final Pattern GOOGLE_PROFILE_QUERY_SIZE_PATTERN = Pattern.compile("([?&])sz=\\d+");
+    private static final Pattern NAVER_PROFILE_SIZE_PATTERN =
+            Pattern.compile("_(?:\\d{2,4})x(?:\\d{2,4})(?=\\.[a-zA-Z0-9]+(?:\\?|#|$))");
+    private static final String GOOGLE_HIGH_RES_SIZE = "640";
+    private static final String PROFILE_SIZE_SUFFIX = "640x640";
 
     private final UserRepository userRepository;
     private final com.example.auth.repository.UserProviderRepository userProviderRepository;
@@ -83,7 +95,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         String provider = registrationId;
         String providerId = oAuth2Response.getProviderId();
         String userName = oAuth2Response.getName();
-        String profileImageUrl = normalizeProfileImageUrl(oAuth2Response.getProfileImageUrl());
+        String profileImageUrl = normalizeProfileImageUrl(oAuth2Response.getProfileImageUrl(), provider);
 
         // 5. UserProvider(연동 계정) 조회
         Optional<com.example.auth.entity.UserProvider> userProviderOpt = userProviderRepository
@@ -135,7 +147,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         } else {
             userEntity = processNormalLogin(userProviderOpt, email, userName, provider, providerId, profileImageUrl);
         }
-        applyProfileImageFromOAuth(userEntity, profileImageUrl);
+        applyProfileImageFromOAuth(userEntity, profileImageUrl, provider);
 
         // [일일 출석 보너스 지급]
         java.time.LocalDate today = java.time.LocalDate.now();
@@ -226,22 +238,68 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         }
     }
 
-    private void applyProfileImageFromOAuth(UserEntity userEntity, String profileImageUrl) {
+    private void applyProfileImageFromOAuth(UserEntity userEntity, String profileImageUrl, String provider) {
         if (userEntity == null || profileImageUrl == null) {
             return;
         }
-        if (userEntity.getProfileImageUrl() == null) {
+        String currentProfileImageUrl = userEntity.getProfileImageUrl();
+        if (currentProfileImageUrl == null || shouldReplaceProfileImageFromOAuth(userEntity, currentProfileImageUrl, profileImageUrl, provider)) {
             userEntity.setProfileImageUrl(profileImageUrl);
             userRepository.save(userEntity);
         }
     }
 
-    private String normalizeProfileImageUrl(String profileImageUrl) {
+    private boolean shouldReplaceProfileImageFromOAuth(UserEntity userEntity, String currentProfileImageUrl,
+            String newProfileImageUrl, String provider) {
+        if (newProfileImageUrl.equals(currentProfileImageUrl)) {
+            return false;
+        }
+
+        if (!provider.equalsIgnoreCase(userEntity.getProvider())) {
+            return false;
+        }
+
+        return isProviderProfileImageUrl(currentProfileImageUrl, provider);
+    }
+
+    private boolean isProviderProfileImageUrl(String url, String provider) {
+        if (url == null) {
+            return false;
+        }
+        return switch (provider.toLowerCase()) {
+            case "kakao" -> url.contains("kakaocdn.net");
+            case "naver" -> url.contains("naver");
+            case "google" -> url.contains("googleusercontent.com");
+            default -> false;
+        };
+    }
+
+    private String normalizeProfileImageUrl(String profileImageUrl, String provider) {
         if (profileImageUrl == null) {
             return null;
         }
         String trimmed = profileImageUrl.trim();
-        return trimmed.isEmpty() ? null : trimmed;
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        if ("kakao".equalsIgnoreCase(provider)) {
+            return KAKAO_PROFILE_SIZE_PATTERN.matcher(trimmed).replaceAll(KAKAO_HIGH_RES_SUFFIX);
+        }
+        if ("google".equalsIgnoreCase(provider)) {
+            String withFixedPathSize = GOOGLE_PROFILE_SIZE_PATTERN.matcher(trimmed).replaceAll("=" + GOOGLE_HIGH_RES_SIZE + "-c");
+            String withQuerySize = GOOGLE_PROFILE_QUERY_SIZE_PATTERN.matcher(withFixedPathSize).replaceAll("$1sz=" + GOOGLE_HIGH_RES_SIZE);
+            if (withQuerySize.contains("googleusercontent.com") && !GOOGLE_PROFILE_QUERY_SIZE_PATTERN.matcher(withQuerySize).find()) {
+                String separator = withQuerySize.contains("?") ? "&" : "?";
+                return withQuerySize + separator + "sz=" + GOOGLE_HIGH_RES_SIZE;
+            }
+            return withQuerySize;
+        }
+        if ("naver".equalsIgnoreCase(provider)) {
+            return NAVER_PROFILE_SIZE_PATTERN.matcher(trimmed).replaceAll("_" + PROFILE_SIZE_SUFFIX);
+        }
+
+        return trimmed;
     }
 
     /**

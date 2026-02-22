@@ -6,6 +6,7 @@ import com.example.mypage.dto.UserProfileDto;
 import com.example.mypage.dto.DeviceSessionDto;
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.repository.RefreshRepository;
+import com.example.auth.util.AuthCookieUtil;
 
 import com.example.auth.service.UserService;
 import com.example.auth.util.JWTUtil;
@@ -46,6 +47,7 @@ public class MypageController {
         private final JWTUtil jwtUtil;
         private final ProfileImageService profileImageService;
         private final RefreshRepository refreshRepository;
+        private final AuthCookieUtil authCookieUtil;
 
         // 프로필 정보 조회 (GET /mypage) - 수정 없음
         @GetMapping("/mypage")
@@ -128,16 +130,10 @@ public class MypageController {
                         String newJwtToken = jwtUtil.createJwt(userEmail, newRoleKey, currentUserId,
                                         ACCESS_TOKEN_EXPIRED_MS, tokenVersion);
 
-                        ResponseCookie cookie = ResponseCookie.from("Authorization", newJwtToken)
-                                        .httpOnly(true)
-                                        .secure(false) // local 개발 환경에서는 false
-                                        .path("/")
-                                        .maxAge(ACCESS_TOKEN_EXPIRED_MS / 1000)
-                                        .build();
+                        ResponseCookie cookie = authCookieUtil.buildAuthCookie(newJwtToken, ACCESS_TOKEN_EXPIRED_MS / 1000);
 
-                        // 토큰을 응답 데이터에 포함하여 프론트엔드가 상태 관리에 사용하도록 합니다.
+                        // 프로필 정보만 응답 데이터로 전달합니다.
                         Map<String, Object> responseMap = new HashMap<>();
-                        responseMap.put("token", newJwtToken);
 
                         // 프론트엔드 MyPage.tsx의 handleSave에서 필요한 필드들
                         responseMap.put("profileImageUrl",
@@ -207,19 +203,9 @@ public class MypageController {
                         userService.deleteAccount(userId, password);
 
                         // 쿠키 삭제를 위한 빈 쿠키 생성
-                        ResponseCookie authCookie = ResponseCookie.from("Authorization", "")
-                                        .httpOnly(true)
-                                        .secure(false)
-                                        .path("/")
-                                        .maxAge(0)
-                                        .build();
+                        ResponseCookie authCookie = authCookieUtil.buildExpiredAuthCookie();
 
-                        ResponseCookie refreshCookie = ResponseCookie.from("Refresh", "")
-                                        .httpOnly(true)
-                                        .secure(false)
-                                        .path("/")
-                                        .maxAge(0)
-                                        .build();
+                        ResponseCookie refreshCookie = authCookieUtil.buildExpiredRefreshCookie();
 
                         return ResponseEntity.ok()
                                         .header(HttpHeaders.SET_COOKIE, authCookie.toString())

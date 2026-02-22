@@ -13,6 +13,13 @@ import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
+/**
+ * Secondary PostgreSQL JPA configuration.
+ *
+ * baseball.datasource 계열을 사용하며, 현재 범위는 stadium 도메인 전용이다.
+ * KBO/Prediction까지 PostgreSQL로 확장하려면 repository 스캔 범위 변경만으로
+ * 끝나지 않고 서비스 계층의 transactionManager 경계 재설계가 함께 필요하다.
+ */
 @Configuration
 @EnableTransactionManagement
 @EnableJpaRepositories(

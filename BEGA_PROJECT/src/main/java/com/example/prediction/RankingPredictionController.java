@@ -16,11 +16,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping("/api/predictions/ranking")
 @RequiredArgsConstructor
 @PreAuthorize("isAuthenticated()")
+@Slf4j
 public class RankingPredictionController {
 
 	private final RankingPredictionService rankingPredictionService;
@@ -58,12 +60,15 @@ public class RankingPredictionController {
 
 			return ResponseEntity.ok(savedDto);
 
+		} catch (IllegalArgumentException e) {
+			return ResponseEntity
+					.status(HttpStatus.BAD_REQUEST)
+					.body(Map.of("error", e.getMessage()));
 		} catch (Exception e) {
-			// 모든 예외 로깅
-			e.printStackTrace();
+			log.error("Ranking prediction save failed", e);
 			return ResponseEntity
 					.status(HttpStatus.INTERNAL_SERVER_ERROR)
-					.body(Map.of("error", "서버 오류가 발생했습니다: " + e.getMessage()));
+					.body(Map.of("error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
 		}
 	}
 
@@ -99,11 +104,15 @@ public class RankingPredictionController {
 			} else {
 				return ResponseEntity.notFound().build();
 			}
+		} catch (IllegalArgumentException e) {
+			return ResponseEntity
+					.status(HttpStatus.BAD_REQUEST)
+					.body(Map.of("error", e.getMessage()));
 		} catch (Exception e) {
-			e.printStackTrace();
+			log.error("Shared ranking prediction lookup failed: userId={}, seasonYear={}", userId, seasonYear, e);
 			return ResponseEntity
 					.status(HttpStatus.INTERNAL_SERVER_ERROR)
-					.body(Map.of("error", "공유 예측 조회 중 오류 발생: " + e.getMessage()));
+					.body(Map.of("error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
 		}
 	}
 

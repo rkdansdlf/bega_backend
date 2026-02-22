@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -35,7 +36,7 @@ public class PasswordResetService {
         }
 
         // 기존 토큰 삭제
-        tokenRepository.deleteByUserId(user.getId());
+        tokenRepository.deleteByUserId(Objects.requireNonNull(user.getId()));
 
         // 새 토큰 생성 (30분 유효)
         String token = UUID.randomUUID().toString();
@@ -46,10 +47,10 @@ public class PasswordResetService {
                 .used(false)
                 .build();
 
-        tokenRepository.save(resetToken);
+        tokenRepository.save(Objects.requireNonNull(resetToken));
 
         // 이메일 발송
-        emailService.sendPasswordResetEmail(user.getEmail(), token);
+        emailService.sendPasswordResetEmail(Objects.requireNonNull(user.getEmail()), token);
     }
 
     @Transactional
@@ -83,10 +84,10 @@ public class PasswordResetService {
         // 비밀번호 변경
         UserEntity user = resetToken.getUser();
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
-        userRepository.save(user);
+        userRepository.save(Objects.requireNonNull(user));
 
         // 토큰 사용 처리
         resetToken.setUsed(true);
-        tokenRepository.save(resetToken);
+        tokenRepository.save(Objects.requireNonNull(resetToken));
     }
 }

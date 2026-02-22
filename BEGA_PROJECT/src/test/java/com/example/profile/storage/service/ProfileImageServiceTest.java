@@ -68,7 +68,7 @@ class ProfileImageServiceTest {
         when(userRepository.findProfileImageUrlById(userId))
                 .thenReturn(java.util.Optional.of("https://cdn.example.com/profiles/7/old.webp?token=abc"));
         when(multipartFile.getOriginalFilename()).thenReturn("avatar.png");
-        when(imageUtil.process(multipartFile)).thenReturn(processedImage);
+        when(imageUtil.processProfileImage(multipartFile)).thenReturn(processedImage);
         when(storageStrategy.uploadBytes(eq(processedBytes), eq("image/webp"), eq(profileBucket), any(String.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(3, String.class)));
         when(storageStrategy.getUrl(eq(profileBucket), any(String.class), eq(518400)))

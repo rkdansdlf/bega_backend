@@ -3,6 +3,7 @@ package com.example.prediction;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Objects;
 import com.example.kbo.repository.GameRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -16,7 +17,7 @@ public class RankingPredictionService {
 	private final com.example.homepage.HomePageTeamRepository homePageTeamRepository;
 
 	// 순위 예측을 저장 (수정 불가, 1회만 가능)
-	@Transactional
+	@Transactional(transactionManager = "transactionManager")
 	public RankingPredictionResponseDto savePrediction(
 			RankingPredictionRequestDto requestDto,
 			String userIdString) {
@@ -44,17 +45,17 @@ public class RankingPredictionService {
 				requestDto.getTeamIdsInOrder());
 
 		RankingPrediction saved = rankingPredictionRepository.save(newPrediction);
-		return convertToResponseDto(saved);
+		return Objects.requireNonNull(convertToResponseDto(saved));
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, transactionManager = "transactionManager")
 	public RankingPredictionResponseDto getPrediction(String userIdString, int seasonYear) {
 		return rankingPredictionRepository.findByUserIdAndSeasonYear(userIdString, seasonYear)
 				.map(this::convertToResponseDto)
 				.orElse(null);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, transactionManager = "transactionManager")
 	public RankingPredictionResponseDto getPredictionByUserIdAndSeason(String userId, int seasonYear) {
 		return rankingPredictionRepository.findByUserIdAndSeasonYear(userId, seasonYear)
 				.map(this::convertToResponseDto)
@@ -93,13 +94,13 @@ public class RankingPredictionService {
 					lastRankMap.get(teamId)));
 		}
 
-		return new RankingPredictionResponseDto(
+		return Objects.requireNonNull(new RankingPredictionResponseDto(
 				prediction.getId(),
 				prediction.getUserId(),
 				prediction.getSeasonYear(),
 				prediction.getPredictionData(),
 				details,
-				prediction.getCreatedAt());
+				prediction.getCreatedAt()));
 	}
 
 	public int getCurrentSeason() {

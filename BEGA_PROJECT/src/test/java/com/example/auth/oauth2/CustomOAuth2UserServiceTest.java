@@ -84,8 +84,8 @@ class CustomOAuth2UserServiceTest {
 
     private void invokeApplyProfileImage(UserEntity user, String profileImageUrl) throws Exception {
         Method method = CustomOAuth2UserService.class
-                .getDeclaredMethod("applyProfileImageFromOAuth", UserEntity.class, String.class);
+                .getDeclaredMethod("applyProfileImageFromOAuth", UserEntity.class, String.class, String.class);
         method.setAccessible(true);
-        method.invoke(customOAuth2UserService, user, profileImageUrl);
+        method.invoke(customOAuth2UserService, user, profileImageUrl, "kakao");
     }
 }

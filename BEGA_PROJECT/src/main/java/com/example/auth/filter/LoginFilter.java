@@ -16,9 +16,12 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import com.example.auth.entity.RefreshToken;
+import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.util.JWTUtil;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.service.CustomUserDetails;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -33,13 +36,15 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
     private final AuthenticationManager authenticationManager;
     private final JWTUtil jwtUtil;
     private final RefreshRepository refreshRepository;
+    private final AuthCookieUtil authCookieUtil;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public LoginFilter(AuthenticationManager authenticationManager, JWTUtil jwtUtil,
-            RefreshRepository refreshRepository) {
+            RefreshRepository refreshRepository, AuthCookieUtil authCookieUtil) {
         this.authenticationManager = authenticationManager;
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
+        this.authCookieUtil = authCookieUtil;
 
         // 필터가 처리할 URL을 명시
         setFilterProcessesUrl("/api/auth/login");
@@ -143,10 +148,12 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
 
         // 쿠키에 Access/Refresh Token 동시 추가
         int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);
-        addSameSiteCookie(response, "Authorization", accessToken, accessTokenMaxAge);
+        ResponseCookie authCookie = authCookieUtil.buildAuthCookie(accessToken, accessTokenMaxAge);
+        response.addHeader(HttpHeaders.SET_COOKIE, authCookie.toString());
 
         int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
-        addSameSiteCookie(response, "Refresh", refreshToken, refreshTokenMaxAge);
+        ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
+        response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
 
         // 200 OK 응답으로 REST API 호출을 종료합니다.
         response.setStatus(HttpServletResponse.SC_OK);
@@ -155,8 +162,7 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
 
         // JSON 응답 생성 (role 포함)
         String jsonResponse = String.format(
-                "{\"success\": true, \"message\": null, \"data\": {\"accessToken\": \"%s\", \"name\": \"%s\", \"role\": \"%s\"}}",
-                accessToken,
+                "{\"success\": true, \"message\": null, \"data\": {\"name\": \"%s\", \"role\": \"%s\"}}",
                 email,
                 role);
 
@@ -173,13 +179,6 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         response.setContentType("application/json;charset=UTF-8");
         response.getWriter().write("{\"error\": \"Login Failed\", \"message\": \"" + failed.getMessage() + "\"}");
         response.getWriter().flush();
-    }
-
-    private void addSameSiteCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
-        // HttpOnly: true, Path: / (모든 경로), SameSite: Lax (로컬 개발 환경 호환)
-        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax",
-                name, value, maxAgeSeconds);
-        response.addHeader("Set-Cookie", cookieString);
     }
 
     private boolean isSameSessionContext(RefreshToken token, String deviceType, String deviceLabel, String browser, String os,

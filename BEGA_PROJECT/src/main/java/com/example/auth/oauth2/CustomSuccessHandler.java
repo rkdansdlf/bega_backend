@@ -2,9 +2,11 @@ package com.example.auth.oauth2;
 
 import com.example.auth.dto.CustomOAuth2User;
 import com.example.auth.service.OAuth2StateService;
+import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.util.JWTUtil;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
+import java.util.Objects;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,6 +20,8 @@ import java.io.IOException;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 
 @Component
 @lombok.extern.slf4j.Slf4j
@@ -27,20 +31,20 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     private final UserRepository userRepository;
     private final com.example.auth.service.UserService userService; // Inject UserService
     private final OAuth2StateService oAuth2StateService;
+    private final AuthCookieUtil authCookieUtil;
 
     @Value("${app.frontend.url:http://localhost:3000}")
     private String frontendUrl;
 
-    @Value("${app.cookie.secure:false}")
-    private boolean secureCookie;
-
     public CustomSuccessHandler(JWTUtil jwtUtil, UserRepository userRepository,
             @org.springframework.context.annotation.Lazy com.example.auth.service.UserService userService,
-            OAuth2StateService oAuth2StateService) {
+            OAuth2StateService oAuth2StateService,
+            AuthCookieUtil authCookieUtil) {
         this.jwtUtil = jwtUtil;
         this.userRepository = userRepository;
         this.userService = userService;
         this.oAuth2StateService = oAuth2StateService;
+        this.authCookieUtil = authCookieUtil;
     }
 
     @Override
@@ -53,8 +57,8 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         // This ensures we use the LINKED account's info, not just the provider's email
         com.example.auth.dto.UserDto userDto = principal.getUserDto();
 
-        String userEmail = userDto.getEmail();
-        String role = userDto.getRole();
+        String userEmail = Objects.requireNonNull(userDto.getEmail());
+        String role = Objects.requireNonNull(userDto.getRole());
 
         Long userId = userDto.getId();
 
@@ -98,9 +102,11 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
             // 쿠키에 토큰 저장
             int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);
-            addSameSiteCookie(response, "Authorization", accessToken, accessTokenMaxAge);
+            ResponseCookie authCookie = authCookieUtil.buildAuthCookie(accessToken, accessTokenMaxAge);
+            response.addHeader(HttpHeaders.SET_COOKIE, authCookie.toString());
             int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
-            addSameSiteCookie(response, "Refresh", refreshToken, refreshTokenMaxAge);
+            ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
+            response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
 
             // [Security Fix] State 데이터 저장 - userId만 Redis에 저장 (민감 정보 최소화)
             String stateId = oAuth2StateService.saveState(userId);
@@ -126,10 +132,12 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         // 쿠키에 토큰 저장
         int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);
-        addSameSiteCookie(response, "Authorization", accessToken, accessTokenMaxAge);
+        ResponseCookie authCookie = authCookieUtil.buildAuthCookie(accessToken, accessTokenMaxAge);
+        response.addHeader(HttpHeaders.SET_COOKIE, authCookie.toString());
 
         int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
-        addSameSiteCookie(response, "Refresh", refreshToken, refreshTokenMaxAge);
+        ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
+        response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
 
         if (request.getSession(false) != null) {
             request.getSession(false).invalidate();
@@ -140,14 +148,6 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId;
         getRedirectStrategy().sendRedirect(request, response, redirectUrl);
 
-    }
-
-    private void addSameSiteCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
-        // [Security Fix] 프로덕션 환경에서는 Secure 플래그 추가
-        String secureFlag = secureCookie ? "; Secure" : "";
-        String cookieString = String.format("%s=%s; Max-Age=%d; Path=/; HttpOnly; SameSite=Lax%s",
-                name, value, maxAgeSeconds, secureFlag);
-        response.addHeader("Set-Cookie", cookieString);
     }
 
     /**

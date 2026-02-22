@@ -44,6 +44,9 @@ class OAuth2StateServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private AuthSecurityMonitoringService securityMonitoringService;
+
     private ObjectMapper objectMapper;
     private OAuth2StateService service;
 
@@ -51,7 +54,7 @@ class OAuth2StateServiceTest {
     void setUp() {
         objectMapper = new ObjectMapper()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        service = new OAuth2StateService(redisTemplate, objectMapper, userRepository);
+        service = new OAuth2StateService(redisTemplate, objectMapper, userRepository, securityMonitoringService);
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
     }
 
@@ -76,7 +79,8 @@ class OAuth2StateServiceTest {
     @DisplayName("saveState: 직렬화 실패 시 RuntimeException")
     void saveState_throwsWhenSerializationFails() throws Exception {
         ObjectMapper failingMapper = mock(ObjectMapper.class);
-        OAuth2StateService failingService = new OAuth2StateService(redisTemplate, failingMapper, userRepository);
+        OAuth2StateService failingService = new OAuth2StateService(redisTemplate, failingMapper, userRepository,
+                securityMonitoringService);
         when(failingMapper.writeValueAsString(any()))
                 .thenThrow(new JsonProcessingException("serialization failure") {
                 });
