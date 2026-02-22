@@ -6,6 +6,7 @@ import org.jobrunr.jobs.annotations.Job;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.util.StringUtils;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -21,6 +22,9 @@ public class AiIntegrationService {
     @Value("${ai.service-url}")
     private String aiServiceUrl;
 
+    @Value("${ai.internal-token:}")
+    private String aiInternalToken;
+
     private final RestTemplate restTemplate = new RestTemplate();
 
     /**
@@ -35,6 +39,11 @@ public class AiIntegrationService {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
+            if (StringUtils.hasText(aiInternalToken)) {
+                headers.set("X-Internal-Api-Key", aiInternalToken);
+            } else {
+                log.warn("ai.internal-token is not configured; AI ingestion request may be rejected.");
+            }
 
             // 기본 설정으로 전체 인덱싱 수행 (필요 시 파라미터화 가능)
             Map<String, Object> payload = new HashMap<>();

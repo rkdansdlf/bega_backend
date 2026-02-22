@@ -30,18 +30,21 @@ public class JWTFilter extends OncePerRequestFilter {
     private final List<String> allowedOrigins;
     private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
     private final UserRepository userRepository;
+    private final com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService;
 
     // localhost IP 주소 목록 (Debug 헤더 허용)
     private static final List<String> LOCALHOST_IPS = List.of("127.0.0.1", "::1", "0:0:0:0:0:0:0:1");
 
     public JWTFilter(com.example.auth.util.JWTUtil jwtUtil, boolean isDev, List<String> allowedOrigins,
             com.example.auth.service.TokenBlacklistService tokenBlacklistService,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService) {
         this.jwtUtil = jwtUtil;
         this.isDev = isDev;
         this.allowedOrigins = allowedOrigins;
         this.tokenBlacklistService = tokenBlacklistService;
         this.userRepository = userRepository;
+        this.securityMonitoringService = securityMonitoringService;
     }
 
     @Override
@@ -110,6 +113,7 @@ public class JWTFilter extends OncePerRequestFilter {
             boolean isAllowed = isAllowedOrigin(refererOrigin) || isAllowedOrigin(originValue);
 
             if (!isAllowed) {
+                securityMonitoringService.recordInvalidOrigin();
                 // Referer나 Origin이 없거나 허용되지 않은 도메인이면 차단
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 response.getWriter().write("CSRF Protection: Invalid Referer/Origin");
@@ -123,6 +127,7 @@ public class JWTFilter extends OncePerRequestFilter {
         // [Security Fix] 블랙리스트 확인 (로그아웃된 토큰)
         if (tokenBlacklistService != null && tokenBlacklistService.isBlacklisted(token)) {
             log.debug("Blacklisted token rejected");
+            securityMonitoringService.recordTokenReject();
             if (mutableRequest) {
                 sendInvalidAuthorResponse(response, "로그아웃된 토큰입니다. 다시 로그인해 주세요.");
                 return;
@@ -133,6 +138,7 @@ public class JWTFilter extends OncePerRequestFilter {
 
         // 토큰 소멸 시간 검증
         if (jwtUtil.isExpired(token)) {
+            securityMonitoringService.recordTokenReject();
             if (mutableRequest) {
                 sendInvalidAuthorResponse(response, "토큰이 만료되었습니다. 다시 로그인해 주세요.");
                 return;
@@ -146,6 +152,7 @@ public class JWTFilter extends OncePerRequestFilter {
         String tokenType = jwtUtil.getTokenType(token);
         if (tokenType != null && !"access".equalsIgnoreCase(tokenType.trim())) {
             log.warn("{} token rejected for authentication (strict mode)", tokenType);
+            securityMonitoringService.recordTokenReject();
             if (mutableRequest) {
                 sendInvalidAuthorResponse(response, "접근 권한이 없는 토큰입니다. 다시 로그인해 주세요.");
                 return;
@@ -164,6 +171,7 @@ public class JWTFilter extends OncePerRequestFilter {
             // [Security Fix] 레거시 링크 토큰(claim 없음) 방지
             if ("LINK_MODE".equals(role)) {
                 log.warn("Legacy Link token rejected for authentication");
+                securityMonitoringService.recordTokenReject();
                 if (mutableRequest) {
                     sendInvalidAuthorResponse(response, "링크 토큰은 API 호출에 사용할 수 없습니다.");
                     return;
@@ -174,6 +182,7 @@ public class JWTFilter extends OncePerRequestFilter {
 
             if (userId == null) {
                 SecurityContextHolder.clearContext();
+                securityMonitoringService.recordTokenReject();
                 if (mutableRequest) {
                     sendInvalidAuthorResponse(response,
                             "토큰에 사용자 정보가 없어 인증을 완료할 수 없습니다. 다시 로그인해 주세요.");
@@ -185,6 +194,7 @@ public class JWTFilter extends OncePerRequestFilter {
 
             UserEntity authenticatedUser = userRepository.findById(userId).orElse(null);
             if (!isAuthoritativeRequestUser(authenticatedUser, tokenVersion)) {
+                securityMonitoringService.recordTokenReject();
                 markInvalidAuthor(request, "토큰에 저장된 사용자 정보가 유효하지 않습니다. 다시 로그인해주세요.");
                 if (mutableRequest) {
                     sendInvalidAuthorResponse(response, "토큰에 저장된 사용자 정보가 유효하지 않습니다. 다시 로그인해주세요.");
@@ -223,6 +233,7 @@ public class JWTFilter extends OncePerRequestFilter {
 
         } catch (Exception e) {
             // 토큰 파싱 실패 또는 만료 등 인증 실패 시 로그 출력
+            securityMonitoringService.recordTokenReject();
             SecurityContextHolder.clearContext();
             log.error("JWT Authentication Failed: {}", e.getMessage());
             if (mutableRequest) {

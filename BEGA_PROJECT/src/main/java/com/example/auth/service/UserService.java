@@ -1,6 +1,7 @@
 package com.example.auth.service;
 
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -214,13 +215,19 @@ public class UserService {
     /**
      * 로그인 인증 및 JWT 토큰 생성
      */
+    public record LoginResult(
+            String accessToken,
+            String refreshToken,
+            Map<String, Object> profileData) {
+    }
+
     @Transactional
-    public Map<String, Object> authenticateAndGetToken(String email, String password) {
+    public LoginResult authenticateAndGetToken(String email, String password) {
         return authenticateAndGetToken(email, password, null);
     }
 
     @Transactional
-    public Map<String, Object> authenticateAndGetToken(String email, String password, HttpServletRequest request) {
+    public LoginResult authenticateAndGetToken(String email, String password, HttpServletRequest request) {
         String normalizedEmail = Optional.ofNullable(email).map(e -> e.trim().toLowerCase()).orElse(null);
         UserEntity user = findUserByEmailOrThrow(normalizedEmail);
 
@@ -244,14 +251,17 @@ public class UserService {
         // Refresh Token DB 저장
         saveOrUpdateRefreshToken(user.getEmail(), refreshToken, request);
 
-        return Map.of(
-                "accessToken", accessToken,
-                "refreshToken", refreshToken,
-                "id", user.getId(),
-                "name", user.getName(),
-                "role", user.getRole(),
-                "handle", user.getHandle(),
-                "cheerPoints", user.getCheerPoints());
+        Map<String, Object> profileData = new HashMap<>();
+        profileData.put("id", user.getId());
+        profileData.put("name", user.getName());
+        profileData.put("role", user.getRole());
+        profileData.put("handle", user.getHandle());
+        profileData.put("cheerPoints", user.getCheerPoints());
+
+        return new LoginResult(
+                accessToken,
+                refreshToken,
+                profileData);
     }
 
     /**

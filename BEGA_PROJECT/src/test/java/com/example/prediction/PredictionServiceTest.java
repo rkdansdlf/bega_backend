@@ -2,7 +2,6 @@ package com.example.prediction;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.when;
 
@@ -72,8 +71,6 @@ class PredictionServiceTest {
         when(gameRepository.findCanonicalByDateRange(
                 any(LocalDate.class),
                 any(LocalDate.class),
-                any(LocalDate.class),
-                anyBoolean(),
                 anyList(),
                 any(Pageable.class)
         )).thenReturn(new PageImpl<>(List.of(), pageRequest, 0));
@@ -93,8 +90,6 @@ class PredictionServiceTest {
         when(gameRepository.findCanonicalByDateRange(
                 any(LocalDate.class),
                 any(LocalDate.class),
-                any(LocalDate.class),
-                anyBoolean(),
                 anyList(),
                 any(Pageable.class)
         )).thenReturn(new PageImpl<>(List.of(canonical), pageRequest, 1));

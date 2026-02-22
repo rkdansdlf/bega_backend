@@ -28,6 +28,7 @@ public class OAuth2StateService {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final UserRepository userRepository;
+    private final com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService;
 
     private static final String PREFIX = "oauth2:state:";
     private static final Duration TTL = Duration.ofMinutes(5);
@@ -72,6 +73,7 @@ public class OAuth2StateService {
         String json = redisTemplate.opsForValue().getAndDelete(key);
         if (json == null) {
             log.warn("OAuth2 state not found or already consumed: stateId={}", stateId);
+            securityMonitoringService.recordOAuth2StateReject();
             return null;
         }
 
@@ -81,6 +83,7 @@ public class OAuth2StateService {
             // 만료 확인
             if (storageData.isExpired()) {
                 log.warn("OAuth2 state expired: stateId={}, createdAt={}", stateId, storageData.createdAt());
+                securityMonitoringService.recordOAuth2StateReject();
                 return null;
             }
 
@@ -88,6 +91,7 @@ public class OAuth2StateService {
             Long userId = storageData.userId();
             if (userId == null) {
                 log.warn("OAuth2 state has null userId: stateId={}", stateId);
+                securityMonitoringService.recordOAuth2StateReject();
                 return null;
             }
 
@@ -95,6 +99,7 @@ public class OAuth2StateService {
             Optional<UserEntity> userOpt = userRepository.findById(userId);
             if (userOpt.isEmpty()) {
                 log.warn("User not found for OAuth2 state: stateId={}, userId={}", stateId, storageData.userId());
+                securityMonitoringService.recordOAuth2StateReject();
                 return null;
             }
 
@@ -116,6 +121,7 @@ public class OAuth2StateService {
                     user.getHandle());
         } catch (JsonProcessingException e) {
             log.error("Failed to deserialize OAuth2 state data: stateId={}", stateId, e);
+            securityMonitoringService.recordOAuth2StateReject();
             return null;
         }
     }

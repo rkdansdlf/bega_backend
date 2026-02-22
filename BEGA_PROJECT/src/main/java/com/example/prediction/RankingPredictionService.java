@@ -17,7 +17,7 @@ public class RankingPredictionService {
 	private final com.example.homepage.HomePageTeamRepository homePageTeamRepository;
 
 	// 순위 예측을 저장 (수정 불가, 1회만 가능)
-	@Transactional
+	@Transactional(transactionManager = "transactionManager")
 	public RankingPredictionResponseDto savePrediction(
 			RankingPredictionRequestDto requestDto,
 			String userIdString) {
@@ -48,14 +48,14 @@ public class RankingPredictionService {
 		return Objects.requireNonNull(convertToResponseDto(saved));
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, transactionManager = "transactionManager")
 	public RankingPredictionResponseDto getPrediction(String userIdString, int seasonYear) {
 		return rankingPredictionRepository.findByUserIdAndSeasonYear(userIdString, seasonYear)
 				.map(this::convertToResponseDto)
 				.orElse(null);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, transactionManager = "transactionManager")
 	public RankingPredictionResponseDto getPredictionByUserIdAndSeason(String userId, int seasonYear) {
 		return rankingPredictionRepository.findByUserIdAndSeasonYear(userId, seasonYear)
 				.map(this::convertToResponseDto)

@@ -148,6 +148,8 @@ app:
   allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176}
   cookie:
     secure: false  # 개발 환경 기본값 (HTTP), prod 프로필에서 true로 오버라이드
+  oauth2:
+    cookie-secret: ${OAUTH2_COOKIE_SECRET:}
 
 
 
@@ -167,6 +169,7 @@ oci:
 # --- AI Service 설정 ---
 ai:
   service-url: ${AI_SERVICE_URL:http://localhost:8001}
+  internal-token: ${AI_INTERNAL_TOKEN:}
 
 # --- Toss Payments 설정 ---
 toss:
@@ -336,6 +339,15 @@ spring:
     validate-on-migrate: false
     locations: classpath:db/migration
     ignore-missing-migrations: true
+
+baseball:
+  datasource:
+    # prod에서는 baseball(PostgreSQL) 연결 정보를 fallback 없이 강제한다.
+    # 누락 시 앱을 fail-fast로 중단해 DB 토폴로지 오구성을 방지한다.
+    driver-class-name: org.postgresql.Driver
+    url: ${BASEBALL_DB_URL}
+    username: ${BASEBALL_DB_USERNAME}
+    password: ${BASEBALL_DB_PASSWORD}
 
 # prod 프로필 쿠키 보안 설정
 app:

@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.MultipartBodyBuilder;
+import org.springframework.util.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.BodyInserters;
@@ -15,6 +16,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Objects;
 
 @Slf4j
 @Service
@@ -24,6 +26,9 @@ public class TicketAnalysisService {
 
     @Value("${ai.service-url}")
     private String aiServiceUrl;
+
+    @Value("${ai.internal-token:}")
+    private String aiInternalToken;
 
     private final WebClient.Builder webClientBuilder;
     private final BegaGameService begaGameService;
@@ -40,12 +45,21 @@ public class TicketAnalysisService {
                 }
             });
 
-            TicketInfo info = webClientBuilder.baseUrl(java.util.Objects.requireNonNull(aiServiceUrl))
-                    .build()
-                    .post()
+            WebClient client = webClientBuilder.baseUrl(Objects.requireNonNull(aiServiceUrl))
+                    .build();
+
+            var request = client.post()
                     .uri("/vision/ticket")
-                    .contentType(java.util.Objects.requireNonNull(MediaType.MULTIPART_FORM_DATA))
-                    .body(BodyInserters.fromMultipartData(builder.build()))
+                    .contentType(Objects.requireNonNull(MediaType.MULTIPART_FORM_DATA))
+                    .body(BodyInserters.fromMultipartData(builder.build()));
+
+            if (StringUtils.hasText(aiInternalToken)) {
+                request = request.header("X-Internal-Api-Key", aiInternalToken);
+            } else {
+                log.warn("ai.internal-token is not configured; ticket analysis request may be rejected.");
+            }
+
+            TicketInfo info = request
                     .retrieve()
                     .bodyToMono(TicketInfo.class)
                     .block(AI_REQUEST_TIMEOUT); // Blocking for now to keep it simple in Spring MVC
@@ -61,7 +75,7 @@ public class TicketAnalysisService {
                 log.info("Matched game ID: {}", gameId);
             }
 
-            return java.util.Objects.requireNonNull(info);
+            return Objects.requireNonNull(info);
 
         } catch (IOException e) {
             log.error("Failed to read ticket image", e);
