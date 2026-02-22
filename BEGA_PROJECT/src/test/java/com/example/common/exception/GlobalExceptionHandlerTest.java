@@ -1,6 +1,7 @@
 package com.example.common.exception;
 
 import com.example.common.dto.ApiResponse;
+import com.example.mate.exception.TossPaymentException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -193,5 +194,15 @@ class GlobalExceptionHandlerTest {
         assertThat(body.isSuccess()).isFalse();
         assertThat(body.getMessage()).isEqualTo("요청 상태가 올바르지 않습니다.");
         assertThat(body.getData()).isNull();
+    }
+
+    @Test
+    void tossPaymentException_preservesHttpStatus() {
+        var ex = new TossPaymentException("결제 승인 실패", HttpStatus.UNAUTHORIZED);
+        var response = handler.handleTossPaymentException(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getMessage()).isEqualTo("결제 승인 실패");
     }
 }

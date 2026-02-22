@@ -15,13 +15,11 @@ import com.example.mate.exception.InvalidPartyStatusException;
 import com.example.mate.exception.PartyApplicationNotFoundException;
 import com.example.mate.exception.PartyFullException;
 import com.example.mate.exception.PartyNotFoundException;
+import com.example.mate.exception.TossPaymentException;
 import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.notification.exception.NotificationNotFoundException;
 import com.example.stadium.exception.StadiumNotFoundException;
 import com.example.cheerboard.service.CheerServiceConstants;
-import com.example.common.exception.RepostNotAllowedException;
-import com.example.common.exception.RepostSelfNotAllowedException;
-import com.example.common.exception.RepostTargetNotFoundException;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -29,6 +27,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -36,6 +35,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 
 /**
  * 전역 예외 처리 핸들러
@@ -164,6 +164,15 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(e.getMessage()));
     }
 
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiResponse> handleHttpMediaTypeNotSupportedException(
+            HttpMediaTypeNotSupportedException e) {
+        log.warn("HttpMediaTypeNotSupportedException: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                .body(ApiResponse.error("요청 Content-Type이 올바르지 않습니다. multipart/form-data로 전송해주세요."));
+    }
+
     @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
     public ResponseEntity<ApiResponse> handleMaxUploadSizeExceededException(
             org.springframework.web.multipart.MaxUploadSizeExceededException e) {
@@ -284,8 +293,7 @@ public class GlobalExceptionHandler {
         return Map.of(
                 "success", false,
                 "code", code,
-                "message", buildErrorMessageWithCode(code, message)
-        );
+                "message", buildErrorMessageWithCode(code, message));
     }
 
     // ------ stadiumguide 관련 예외 ----------
@@ -476,10 +484,27 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 400 Bad Request - Toss 결제 승인 실패
+     */
+    @ExceptionHandler(TossPaymentException.class)
+    public ResponseEntity<ApiResponse> handleTossPaymentException(TossPaymentException e) {
+        log.warn("TossPaymentException: {}", e.getMessage());
+        if (e.getStatusCode() == null) {
+            return ResponseEntity
+                    .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(e.getMessage()));
+        }
+        return ResponseEntity
+                .status(e.getStatusCode())
+                .body(ApiResponse.error(e.getMessage()));
+    }
+
+    /**
      * 409 Conflict - Duplicate Review
      */
     @ExceptionHandler(com.example.mate.exception.DuplicateReviewException.class)
-    public ResponseEntity<ApiResponse> handleDuplicateReviewException(com.example.mate.exception.DuplicateReviewException e) {
+    public ResponseEntity<ApiResponse> handleDuplicateReviewException(
+            com.example.mate.exception.DuplicateReviewException e) {
         log.warn("DuplicateReviewException: {}", e.getMessage());
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)

@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -49,7 +50,7 @@ public class ProfileImageService {
         String uploadedPath = null;
         try {
             // 이미지 압축 및 WebP 변환
-            var processed = imageUtil.process(file);
+            var processed = imageUtil.processProfileImage(file);
 
             String filename = UUID.randomUUID() + "." + processed.getExtension();
             String storagePath = "profiles/" + userId + "/" + filename;
@@ -88,12 +89,12 @@ public class ProfileImageService {
                 deleteImageByUrl(oldProfileUrl);
             }
 
-            return new ProfileImageDto(
+            return Objects.requireNonNull(new ProfileImageDto(
                     userId,
-                    uploadedPath,
+                    storagePath,
                     profileUrl,
                     processed.getContentType(),
-                    processed.getSize());
+                    processed.getSize()));
 
         } catch (Exception e) {
             log.error("프로필 이미지 업로드 실패. 롤백 처리 진행. Error: {}", e.getMessage(), e);

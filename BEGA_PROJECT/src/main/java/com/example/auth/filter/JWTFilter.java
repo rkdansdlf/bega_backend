@@ -12,7 +12,6 @@ import java.util.Objects;
 import org.springframework.lang.NonNull;
 
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -74,20 +73,21 @@ public class JWTFilter extends OncePerRequestFilter {
         String normalizedRequestUri = requestUri != null ? requestUri.replaceAll("/+$", "") : requestUri;
 
         // 인증 API 공개 경로는 필터 처리 스킵
-        if (normalizedRequestUri.equals("/api/auth/login") ||
+        if (normalizedRequestUri != null && (normalizedRequestUri.equals("/api/auth/login") ||
                 normalizedRequestUri.equals("/api/auth/signup") ||
                 normalizedRequestUri.equals("/api/auth/reissue") ||
                 normalizedRequestUri.equals("/api/auth/logout") ||
                 normalizedRequestUri.equals("/api/auth/password/reset/request") ||
                 normalizedRequestUri.equals("/api/auth/password/reset/confirm") ||
                 normalizedRequestUri.equals("/api/auth/password-reset/request") ||
-                normalizedRequestUri.equals("/api/auth/password-reset/confirm")) {
+                normalizedRequestUri.equals("/api/auth/password-reset/confirm"))) {
             filterChain.doFilter(request, response);
             return;
         }
 
         // 로그인 및 OAuth2 경로는 필터 스킵
-        if (requestUri.matches("^\\/login(?:\\/.*)?$") || requestUri.matches("^\\/oauth2(?:\\/.*)?$")) {
+        if (requestUri != null
+                && (requestUri.matches("^\\/login(?:\\/.*)?$") || requestUri.matches("^\\/oauth2(?:\\/.*)?$"))) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -346,7 +346,8 @@ public class JWTFilter extends OncePerRequestFilter {
         if (method == null) {
             return false;
         }
-        return !(method.equalsIgnoreCase("GET") || method.equalsIgnoreCase("HEAD") || method.equalsIgnoreCase("OPTIONS"));
+        return !(method.equalsIgnoreCase("GET") || method.equalsIgnoreCase("HEAD")
+                || method.equalsIgnoreCase("OPTIONS"));
     }
 
     private void sendInvalidAuthorResponse(HttpServletResponse response, String message) throws IOException {

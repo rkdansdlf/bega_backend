@@ -75,7 +75,7 @@ public class BegaDiaryService {
 
                     return DiaryResponseDto.from(diary, signedUrls);
                 })
-                .collect(Collectors.toList());
+                .collect(Collectors.collectingAndThen(Collectors.toList(), Objects::requireNonNull));
     }
 
     // 특정 다이어리 조회
@@ -97,7 +97,7 @@ public class BegaDiaryService {
             }
         }
 
-        return DiaryResponseDto.from(diary, signedUrls);
+        return Objects.requireNonNull(DiaryResponseDto.from(diary, signedUrls));
     }
 
     // 다이어리 저장
@@ -157,7 +157,7 @@ public class BegaDiaryService {
                 .build();
 
         // 5. DB 저장
-        return diaryRepository.save(Objects.requireNonNull(diary));
+        return Objects.requireNonNull(diaryRepository.save(Objects.requireNonNull(diary)));
     }
 
     @Async
@@ -193,7 +193,7 @@ public class BegaDiaryService {
 
             diaryRepository.save(diary);
             log.info("✅ [Async] 다이어리 이미지 업로드 및 DB 업데이트 성공: diaryId={}, 총 경로 수={}", diaryId, allPaths.size());
-            return CompletableFuture.completedFuture(uploadedPaths);
+            return CompletableFuture.completedFuture(Objects.requireNonNull(uploadedPaths));
 
         } catch (Exception e) {
             log.error("❌ [Async] 다이어리 이미지 추가 중 치명적 오류 발생: diaryId={}, error={}", diaryId, e.getMessage(), e);
@@ -217,7 +217,7 @@ public class BegaDiaryService {
                 mood,
                 requestDto.getPhotos());
 
-        return diary;
+        return Objects.requireNonNull(diary);
     }
 
     // 다이어리 삭제
@@ -438,7 +438,7 @@ public class BegaDiaryService {
                         diary -> diary.getMood().getKoreanName(),
                         Collectors.counting()));
 
-        return DiaryStatisticsDto.builder()
+        return Objects.requireNonNull(DiaryStatisticsDto.builder()
                 .totalCount(totalCount)
                 .totalWins(totalWins)
                 .totalLosses(totalLosses)
@@ -465,7 +465,7 @@ public class BegaDiaryService {
                 .dayOfWeekStats(dayStatsMap)
                 .luckyDay(luckyDay)
                 .earnedBadges(earnedBadges)
-                .build();
+                .build());
     }
 
     private String getDayOfWeekKorean(java.time.DayOfWeek dayOfWeek) {

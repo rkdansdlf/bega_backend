@@ -44,8 +44,22 @@ public class CheerFeedService {
     private final BlockService blockService;
     private final PermissionValidator permissionValidator;
     private final PostDtoMapper postDtoMapper;
+    private final com.example.cheerboard.repo.CheerBookmarkRepo bookmarkRepo;
 
     // We need to resolve Normalized Team ID, so call utility directly or via helper
+
+    @Transactional(readOnly = true)
+    public Page<PostSummaryRes> getBookmarkedPosts(Pageable pageable, UserEntity me) {
+        if (me == null) {
+            throw new AuthenticationCredentialsNotFoundException("로그인이 필요합니다.");
+        }
+
+        Page<com.example.cheerboard.domain.CheerPostBookmark> bookmarkPage = bookmarkRepo
+                .findByUserIdOrderByCreatedAtDesc(me.getId(), pageable);
+
+        Page<CheerPost> postPage = bookmarkPage.map(com.example.cheerboard.domain.CheerPostBookmark::getPost);
+        return buildPostSummaryPage(postPage, me);
+    }
 
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> list(String teamId, String postTypeStr, Pageable pageable, UserEntity me) {
@@ -163,7 +177,7 @@ public class CheerFeedService {
 
         List<Long> followingIds = followService.getFollowingIds(me.getId());
         if (followingIds.isEmpty()) {
-            return new PageImpl<>(List.of(), pageable, 0);
+            return new PageImpl<>(Collections.emptyList(), pageable, 0);
         }
 
         List<Long> blockedIds = blockService.getBlockedIds(me.getId());
@@ -219,7 +233,7 @@ public class CheerFeedService {
                 .toList();
 
         List<PostSummaryRes> content = toHotPostSummary(sortedPosts, me);
-        return new PageImpl<>(content, pageable, redisPostService.getHotListSize(algorithm));
+        return new PageImpl<>(Objects.requireNonNull(content), pageable, redisPostService.getHotListSize(algorithm));
     }
 
     private Page<PostSummaryRes> getHybridHotPosts(Pageable pageable, UserEntity me) {
@@ -290,7 +304,7 @@ public class CheerFeedService {
                 .toList();
 
         List<PostSummaryRes> content = toHotPostSummary(pagedPosts, me);
-        return new PageImpl<>(content, pageable, totalElements);
+        return new PageImpl<>(Objects.requireNonNull(content), pageable, totalElements);
     }
 
     private List<PostSummaryRes> toHotPostSummary(List<CheerPost> posts, UserEntity me) {
@@ -313,7 +327,7 @@ public class CheerFeedService {
             return new PageImpl<>(Collections.emptyList(), page.getPageable(), page.getTotalElements());
         }
         List<PostSummaryRes> content = buildPostSummaries(page.getContent(), me);
-        return new PageImpl<>(content, page.getPageable(), page.getTotalElements());
+        return new PageImpl<>(Objects.requireNonNull(content), page.getPageable(), page.getTotalElements());
     }
 
     private List<PostSummaryRes> buildPostSummaries(List<CheerPost> posts, UserEntity me) {

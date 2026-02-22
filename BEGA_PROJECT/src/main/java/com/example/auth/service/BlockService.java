@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -33,15 +34,15 @@ public class BlockService {
         UserEntity me = currentUser.get();
 
         // 자기 자신 차단 방지
-        if (me.getId().equals(targetUserId)) {
+        if (Objects.requireNonNull(me.getId()).equals(targetUserId)) {
             throw new IllegalArgumentException("자기 자신을 차단할 수 없습니다.");
         }
 
         // 대상 유저 존재 확인
-        UserEntity target = userRepo.findById(targetUserId)
+        UserEntity target = userRepo.findById(Objects.requireNonNull(targetUserId))
                 .orElseThrow(() -> new NoSuchElementException("사용자를 찾을 수 없습니다."));
 
-        UserBlock.Id blockId = new UserBlock.Id(me.getId(), targetUserId);
+        UserBlock.Id blockId = new UserBlock.Id(Objects.requireNonNull(me.getId()), targetUserId);
 
         boolean blocked;
 
@@ -59,10 +60,10 @@ public class BlockService {
             blocked = true;
 
             // 양방향 팔로우 관계 삭제
-            followService.removeBidirectionalFollow(me.getId(), targetUserId);
+            followService.removeBidirectionalFollow(Objects.requireNonNull(me.getId()), targetUserId);
         }
 
-        long blockedCount = blockRepo.countByBlockerId(me.getId());
+        long blockedCount = blockRepo.countByBlockerId(Objects.requireNonNull(me.getId()));
 
         return BlockToggleResponse.builder()
                 .blocked(blocked)
@@ -108,7 +109,7 @@ public class BlockService {
     @Transactional(readOnly = true)
     public Page<UserFollowSummaryDto> getBlockedUsers(Pageable pageable) {
         UserEntity me = currentUser.get();
-        Page<UserEntity> blockedUsers = blockRepo.findBlockedByBlockerId(me.getId(), pageable);
+        Page<UserEntity> blockedUsers = blockRepo.findBlockedByBlockerId(Objects.requireNonNull(me.getId()), pageable);
 
         return blockedUsers.map(user -> UserFollowSummaryDto.from(user, false));
     }

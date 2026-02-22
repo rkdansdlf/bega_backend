@@ -99,7 +99,7 @@ public class PartyService {
 
         Party savedParty = partyRepository.save(party);
 
-        return convertToDto(savedParty);
+        return Objects.requireNonNull(convertToDto(savedParty));
     }
 
     // 모든 파티 조회 (검색 및 필터링 통합)
@@ -131,7 +131,7 @@ public class PartyService {
                 status,
                 pageable);
 
-        return parties.map(this::convertToDto);
+        return Objects.requireNonNull(parties.map(this::convertToDto));
     }
 
     // 파티 ID로 조회
@@ -139,7 +139,7 @@ public class PartyService {
     public PartyDTO.Response getPartyById(@NonNull Long id) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
-        return convertToDto(party);
+        return Objects.requireNonNull(convertToDto(party));
     }
 
     // 상태별 파티 조회
@@ -231,7 +231,7 @@ public class PartyService {
                 party.getDescription()));
 
         Party updatedParty = partyRepository.save(party);
-        return convertToDto(updatedParty);
+        return Objects.requireNonNull(convertToDto(updatedParty));
     }
 
     // 파티 참여 인원 증가
@@ -252,7 +252,7 @@ public class PartyService {
         }
 
         Party updatedParty = partyRepository.save(party);
-        return convertToDto(updatedParty);
+        return Objects.requireNonNull(convertToDto(updatedParty));
     }
 
     // 파티 참여 인원 감소
@@ -269,7 +269,7 @@ public class PartyService {
         party.setStatus(Party.PartyStatus.PENDING);
 
         Party updatedParty = partyRepository.save(party);
-        return convertToDto(updatedParty);
+        return Objects.requireNonNull(convertToDto(updatedParty));
     }
 
     @Transactional
@@ -491,7 +491,7 @@ public class PartyService {
         String resolvedUrl = profileImageService.getProfileImageUrl(profilePathOrUrl);
         response.setHostProfileImageUrl(resolvedUrl);
 
-        return response;
+        return Objects.requireNonNull(response);
     }
 
     private String normalizeSearchQuery(String searchQuery) {

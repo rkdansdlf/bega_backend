@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import com.example.mate.exception.UnauthorizedAccessException;
+import org.springframework.lang.NonNull;
 
 @Service
 @RequiredArgsConstructor
@@ -24,10 +25,10 @@ public class NotificationService {
     // 알림 생성
     @Transactional
     public void createNotification(
-            Long userId,
-            Notification.NotificationType type,
-            String title,
-            String message,
+            @NonNull Long userId,
+            @NonNull Notification.NotificationType type,
+            @NonNull String title,
+            @NonNull String message,
             Long relatedId) {
         Notification notification = Notification.builder()
                 .userId(userId)
@@ -51,7 +52,7 @@ public class NotificationService {
                         try {
                             messagingTemplate.convertAndSend(
                                     "/topic/notifications/" + userId,
-                                    Objects.requireNonNull((Object) dto));
+                                    dto);
                             log.info("알림 전송 성공 (After Commit): userId={}, type={}", userId, type);
                         } catch (Exception e) {
                             log.error("알림 전송 실패: {}", e.getMessage());
@@ -63,36 +64,38 @@ public class NotificationService {
 
     // 사용자 알림 목록 조회 (Principal 버전)
     @Transactional(readOnly = true)
-    public List<NotificationDTO.Response> getMyNotifications(Long userId) {
+    public List<NotificationDTO.Response> getMyNotifications(@NonNull Long userId) {
         ensureAuthenticatedUser(userId);
-        return notificationRepository.findByUserIdOrderByCreatedAtDesc(userId)
+        return Objects.requireNonNull(notificationRepository.findByUserIdOrderByCreatedAtDesc(userId)
                 .stream()
                 .map(NotificationDTO.Response::from)
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     // 읽지 않은 알림 개수 (Principal 버전)
     @Transactional(readOnly = true)
-    public Long getMyUnreadCount(Long userId) {
+    public Long getMyUnreadCount(@NonNull Long userId) {
         ensureAuthenticatedUser(userId);
-        return notificationRepository.countByUserIdAndIsReadFalse(userId);
+        return Objects.requireNonNull(notificationRepository.countByUserIdAndIsReadFalse(userId));
     }
 
     // 읽지 않은 알림 개수 (userId 경로 호환용)
     @Transactional(readOnly = true)
-    public Long getUnreadCountByUserId(Long userId, Long currentUserId) {
+    public Long getUnreadCountByUserId(@NonNull Long userId, @NonNull Long currentUserId) {
         ensureAuthenticatedUser(currentUserId);
         if (!currentUserId.equals(userId)) {
             throw new UnauthorizedAccessException("본인 알림만 조회할 수 있습니다.");
         }
-        return notificationRepository.countByUserIdAndIsReadFalse(userId);
+        return Objects.requireNonNull(notificationRepository.countByUserIdAndIsReadFalse(userId));
     }
 
     // 알림 읽음 처리
     @Transactional
-    public void markAsRead(Long notificationId, Long userId) {
+    public void markAsRead(@NonNull Long notificationId, @NonNull Long userId) {
+        if (notificationId == null)
+            return;
         ensureAuthenticatedUser(userId);
-        Notification notification = notificationRepository.findById(Objects.requireNonNull(notificationId))
+        Notification notification = notificationRepository.findById(notificationId)
                 .orElseThrow(() -> new NotificationNotFoundException(notificationId));
 
         if (!notification.getUserId().equals(userId)) {
@@ -100,14 +103,16 @@ public class NotificationService {
         }
 
         notification.setIsRead(true);
-        notificationRepository.save(Objects.requireNonNull(notification));
+        notificationRepository.save(notification);
     }
 
     // 알림 삭제
     @Transactional
-    public void deleteNotification(Long notificationId, Long userId) {
+    public void deleteNotification(@NonNull Long notificationId, @NonNull Long userId) {
+        if (notificationId == null)
+            return;
         ensureAuthenticatedUser(userId);
-        Notification notification = notificationRepository.findById(Objects.requireNonNull(notificationId))
+        Notification notification = notificationRepository.findById(notificationId)
                 .orElseThrow(() -> new NotificationNotFoundException(notificationId));
 
         if (!notification.getUserId().equals(userId)) {

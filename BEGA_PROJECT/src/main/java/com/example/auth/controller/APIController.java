@@ -11,6 +11,8 @@ import com.example.auth.repository.RefreshRepository;
 import com.example.auth.entity.RefreshToken;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.Objects;
+
 import java.util.Map;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -53,7 +55,7 @@ public class APIController {
     @RateLimit(limit = 3, window = 3600) // 1시간에 최대 3회 가입 시도
     @PostMapping("/signup")
     public ResponseEntity<ApiResponse> signUp(@Valid @RequestBody SignupDto signupDto) {
-        userService.signUp(signupDto.toUserDto());
+        userService.signUp(Objects.requireNonNull(signupDto.toUserDto()));
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("회원가입이 완료되었습니다."));
@@ -119,8 +121,8 @@ public class APIController {
     @RateLimit(limit = 20, window = 60)
     @GetMapping("/check-name")
     public ResponseEntity<ApiResponse> checkName(
-                    @AuthenticationPrincipal Long userId,
-                    @RequestParam("name") String name) {
+            @AuthenticationPrincipal Long userId,
+            @RequestParam("name") String name) {
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("인증이 필요합니다.", Map.of("available", false)));

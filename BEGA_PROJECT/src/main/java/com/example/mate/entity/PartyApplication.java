@@ -61,6 +61,12 @@ public class PartyApplication {
     @Column(name = "ticket_image_url", length = 500)
     private String ticketImageUrl; // 인증 티켓 이미지 URL
 
+    @Column(name = "payment_key", length = 200)
+    private String paymentKey; // Toss Payments paymentKey
+
+    @Column(name = "order_id", length = 100)
+    private String orderId; // 결제 주문 ID (orderId)
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
