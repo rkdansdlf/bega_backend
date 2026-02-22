@@ -72,10 +72,9 @@ public class TeamEntity {
     @Builder.Default
     private Boolean isActive = true;
 
-    // 팀 별칭 배열 (JSON String으로 저장, Converter 사용)
-    @Convert(converter = com.example.common.converter.StringArrayJsonConverter.class)
-    @Column(name = "aliases", columnDefinition = "CLOB")
-    private String[] aliases;
+    // 팀 별칭 JSON 문자열
+    @Column(name = "aliases", columnDefinition = "TEXT")
+    private String aliases;
 
     @PrePersist
     protected void onCreate() {

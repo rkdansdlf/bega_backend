@@ -21,13 +21,17 @@ COPY src src
 
 RUN ./gradlew clean build -x test
 
+# Copy only a single bootable jar produced by Spring Boot and ensure deterministic output.
+RUN jar_file="$(ls /build/build/libs | grep -v 'plain\.jar' | grep '\.jar$' | head -n 1)" && \
+    cp "/build/build/libs/${jar_file}" /build/app.jar
+
 # Stage 2: Runtime - 실행 전용 환경
 FROM eclipse-temurin:21-jre-jammy
 
 WORKDIR /app
 
 # 빌더 스테이지에서 빌드된 JAR 파일만 복사합니다.
-COPY --from=builder /build/build/libs/*.jar app.jar
+COPY --from=builder /build/app.jar app.jar
 
 # 보안 강화를 위해 non-root 사용자를 생성하고 해당 사용자로 애플리케이션을 실행합니다.
 RUN useradd -m -u 1000 appuser && \

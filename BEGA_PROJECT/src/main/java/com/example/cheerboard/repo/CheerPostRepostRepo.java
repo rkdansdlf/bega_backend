@@ -21,6 +21,13 @@ public interface CheerPostRepostRepo extends JpaRepository<CheerPostRepost, Id> 
     @Query("DELETE FROM CheerPostRepost r WHERE r.id.postId = :postId")
     void deleteByIdPostId(Long postId);
 
+    @Modifying(clearAutomatically = true)
+    @Query("DELETE FROM CheerPostRepost r WHERE r.id.postId = :postId AND r.id.userId = :userId")
+    int deleteByPostIdAndUserId(Long postId, Long userId);
+
+    @Query("SELECT CASE WHEN COUNT(r) > 0 THEN true ELSE false END FROM CheerPostRepost r WHERE r.id.postId = :postId AND r.id.userId = :userId")
+    boolean existsByPostIdAndUserId(Long postId, Long userId);
+
     List<CheerPostRepost> findByUser(UserEntity user);
 
     List<CheerPostRepost> findByUserIdAndPostIdIn(Long userId, Collection<Long> postIds);

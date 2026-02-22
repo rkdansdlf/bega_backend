@@ -102,6 +102,11 @@ public class UserEntity {
     @Column(name = "lock_expires_at")
     private LocalDateTime lockExpiresAt;
 
+    /** 토큰 버전 (사용자 계정 무결성 검증용) */
+    @Column(name = "token_version", nullable = false)
+    @Builder.Default
+    private Integer tokenVersion = 0;
+
     // ========================================
 
     // OAuth2 제공자 (LOCAL, GOOGLE, KAKAO 등) - Deprecated (Use providers list)
@@ -112,7 +117,7 @@ public class UserEntity {
     private String providerId;
 
     @Builder.Default
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "user", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
     private java.util.List<UserProvider> providers = new java.util.ArrayList<>();
 
     // JWT에 넣기 위해 단일 권한 키 문자열을 반환하는 메서드

@@ -21,6 +21,7 @@ import java.util.Date;
 public class JWTUtil {
 
     private static final String TOKEN_TYPE_CLAIM = "token_type";
+    private static final String TOKEN_VERSION_CLAIM = "token_version";
     private static final String TYPE_ACCESS = "access";
     private static final String TYPE_LINK = "link";
 
@@ -45,11 +46,17 @@ public class JWTUtil {
 
     // Access Token 생성
     public String createJwt(String email, String role, Long userId, long expiredMs) {
+        return createJwt(email, role, userId, expiredMs, 0);
+    }
+
+    // Access Token 생성 (토큰 버전 포함)
+    public String createJwt(String email, String role, Long userId, long expiredMs, Integer tokenVersion) {
         return Jwts.builder()
                 .claim(TOKEN_TYPE_CLAIM, TYPE_ACCESS)
                 .claim("email", email)
                 .claim("role", role)
                 .claim("user_id", userId)
+                .claim(TOKEN_VERSION_CLAIM, tokenVersion == null ? 0 : tokenVersion)
                 .issuedAt(new Date(System.currentTimeMillis()))
                 .expiration(new Date(System.currentTimeMillis() + expiredMs))
                 .signWith(secretKey)
@@ -71,11 +78,16 @@ public class JWTUtil {
 
     // Refresh Token 생성
     public String createRefreshToken(String email, String role, Long userId) {
+        return createRefreshToken(email, role, userId, 0);
+    }
+
+    public String createRefreshToken(String email, String role, Long userId, Integer tokenVersion) {
         return Jwts.builder()
                 .claim(TOKEN_TYPE_CLAIM, "refresh")
                 .claim("email", email)
                 .claim("role", role)
                 .claim("user_id", userId)
+                .claim(TOKEN_VERSION_CLAIM, tokenVersion == null ? 0 : tokenVersion)
                 .issuedAt(new Date(System.currentTimeMillis()))
                 .expiration(new Date(System.currentTimeMillis() + refreshExpirationTime))
                 .signWith(secretKey)
@@ -103,7 +115,62 @@ public class JWTUtil {
 
     // User ID 추출 (캐싱 적용)
     public Long getUserId(String token) {
-        return getClaims(token).get("user_id", Long.class);
+        Object rawUserId = getClaims(token).get("user_id");
+        if (rawUserId == null) {
+            return null;
+        }
+
+        if (rawUserId instanceof Long) {
+            return (Long) rawUserId;
+        }
+
+        if (rawUserId instanceof Integer) {
+            return ((Integer) rawUserId).longValue();
+        }
+
+        if (rawUserId instanceof Number) {
+            return ((Number) rawUserId).longValue();
+        }
+
+        if (rawUserId instanceof String) {
+            try {
+                return Long.parseLong((String) rawUserId);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    // Token Version 추출
+    public Integer getTokenVersion(String token) {
+        Object rawTokenVersion = getClaims(token).get(TOKEN_VERSION_CLAIM);
+        if (rawTokenVersion == null) {
+            return null;
+        }
+
+        if (rawTokenVersion instanceof Integer) {
+            return (Integer) rawTokenVersion;
+        }
+
+        if (rawTokenVersion instanceof Long) {
+            return ((Long) rawTokenVersion).intValue();
+        }
+
+        if (rawTokenVersion instanceof Number) {
+            return ((Number) rawTokenVersion).intValue();
+        }
+
+        if (rawTokenVersion instanceof String) {
+            try {
+                return Integer.parseInt((String) rawTokenVersion);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+
+        return null;
     }
 
     // Role 추출 (캐싱 적용)

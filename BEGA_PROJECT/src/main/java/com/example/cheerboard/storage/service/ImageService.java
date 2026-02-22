@@ -432,14 +432,18 @@ public class ImageService {
         if (cache != null && storagePath != null) {
             String cached = cache.get(storagePath, String.class);
             if (cached != null && !cached.isBlank()) {
-                log.info("Signed URL cache hit: path={}", storagePath);
-                return cached;
+                if (isDuplicatedBucketPrefixUrl(cached)) {
+                    cache.evict(storagePath);
+                    log.warn("중복 bucket prefix로 생성된 기존 Signed URL 캐시 무효화: path={}", storagePath);
+                } else {
+                    log.info("Signed URL cache hit: path={}", storagePath);
+                    return cached;
+                }
             }
             log.info("Signed URL cache miss: path={}", storagePath);
         }
         try {
-            // Strategy handles fallback logic internally for Supabase
-            // Local storage returns public URL directly
+            // Storage strategy handles provider-specific URL generation.
             String url = storageStrategy.getUrl(config.getCheerBucket(), storagePath,
                     config.getSignedUrlTtlSeconds()).block();
 
@@ -451,6 +455,20 @@ public class ImageService {
             log.error("URL generation failed for path: {}", storagePath, e);
             return null;
         }
+    }
+
+    private boolean isDuplicatedBucketPrefixUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return false;
+        }
+
+        String bucket = config.getCheerBucket();
+        if (bucket == null || bucket.isBlank()) {
+            return false;
+        }
+
+        String duplicatedSegment = "/" + bucket + "/" + bucket + "/";
+        return url.contains(duplicatedSegment);
     }
 
     /**

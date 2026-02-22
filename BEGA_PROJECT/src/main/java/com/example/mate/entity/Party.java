@@ -25,26 +25,26 @@ public class Party {
     @Column(name = "hostid", nullable = false)
     private Long hostId; // 호스트 사용자 ID
 
-    @Column(name = "host_name", nullable = false, length = 50)
+    @Column(name = "hostname", nullable = false, length = 50)
     private String hostName; // 호스트 이름
 
-    @Column(name = "host_badge", nullable = false, length = 20)
+    @Column(name = "hostbadge", nullable = false, length = 20)
     @Enumerated(EnumType.STRING)
     private BadgeType hostBadge; // 호스트 뱃지 (NEW, VERIFIED, TRUSTED)
 
     @Column(name = "host_profile_image_url", length = 2048)
     private String hostProfileImageUrl;
 
-    @Column(name = "host_rating", nullable = false)
+    @Column(name = "hostrating", nullable = false)
     private Double hostRating; // 호스트 평점
 
-    @Column(name = "team_id", nullable = false, length = 20)
+    @Column(name = "teamid", nullable = false, length = 20)
     private String teamId; // 응원 팀 ID
 
-    @Column(name = "game_date", nullable = false)
+    @Column(name = "gamedate", nullable = false)
     private LocalDate gameDate; // 경기 날짜
 
-    @Column(name = "game_time", nullable = false)
+    @Column(name = "gametime", nullable = false)
     private LocalTime gameTime; // 경기 시간
 
     @Column(nullable = false, length = 100)
@@ -53,28 +53,31 @@ public class Party {
     @Column(name = "host_favorite_team", length = 20)
     private String hostFavoriteTeam; // 호스트가 응원하는 팀 ID
 
-    @Column(name = "home_team", nullable = false, length = 20)
+    @Column(name = "hometeam", nullable = false, length = 20)
     private String homeTeam; // 홈 팀 ID
 
-    @Column(name = "away_team", nullable = false, length = 20)
+    @Column(name = "awayteam", nullable = false, length = 20)
     private String awayTeam; // 원정 팀 ID
 
     @Column(nullable = false, length = 50)
     private String section; // 섹션 정보
 
-    @Column(name = "max_participants", nullable = false)
+    @Column(name = "maxparticipants", nullable = false)
     private Integer maxParticipants; // 최대 참여 인원
 
-    @Column(name = "current_participants", nullable = false)
+    @Column(name = "currentparticipants", nullable = false)
     private Integer currentParticipants; // 현재 참여 인원
 
     @Column(nullable = false, length = 1000)
     private String description; // 파티 소개
 
-    @Column(name = "ticket_verified", nullable = false)
+    @Column(name = "search_text", length = 2000)
+    private String searchText; // 검색 최적화를 위한 정규화 텍스트
+
+    @Column(name = "ticketverified", nullable = false)
     private Boolean ticketVerified; // 예매내역 인증 여부
 
-    @Column(name = "ticket_image_url", length = 500)
+    @Column(name = "ticketimageurl", length = 500)
     private String ticketImageUrl; // 예매내역 이미지 URL
 
     @Column(nullable = false, length = 20)
@@ -90,10 +93,10 @@ public class Party {
     @Column(name = "ticketprice")
     private Integer ticketPrice; // 티켓 가격(1인당)
 
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column(name = "createdat", nullable = false, updatable = false)
     private Instant createdAt;
 
-    @Column(name = "updated_at", nullable = false)
+    @Column(name = "updatedat", nullable = false)
     private Instant updatedAt;
 
     @PrePersist

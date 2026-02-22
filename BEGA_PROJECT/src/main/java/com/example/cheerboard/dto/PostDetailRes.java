@@ -19,6 +19,7 @@ public record PostDetailRes(
                 Instant createdAt,
                 int comments,
                 int likes,
+                int bookmarkCount,
                 boolean likedByMe,
                 boolean isBookmarked,
                 boolean isOwner,
@@ -31,7 +32,9 @@ public record PostDetailRes(
                 Long repostOfId, // 원본 게시글 ID (리포스트인 경우)
                 String repostType, // "SIMPLE", "QUOTE", null(원본)
                 EmbeddedPostDto originalPost, // 원본 게시글 임베드 정보
-                boolean originalDeleted // 원본 삭제 여부
+                boolean originalDeleted, // 원본 삭제 여부
+                String shareMode,
+                SourceInfoRes sourceInfo
 ) {
         /**
          * 기존 생성자와 호환성을 위한 팩토리 메서드 (리포스트가 아닌 경우)
@@ -52,6 +55,7 @@ public record PostDetailRes(
                         Instant createdAt,
                         int comments,
                         int likes,
+                        int bookmarkCount,
                         boolean likedByMe,
                         boolean isBookmarked,
                         boolean isOwner,
@@ -64,8 +68,8 @@ public record PostDetailRes(
                                 id, teamId, teamName, teamShortName, teamColor, // title removed,
                                 content, author, authorId, authorHandle,
                                 authorEmail, authorProfileImageUrl, createdAt,
-                                comments, likes, likedByMe, isBookmarked, isOwner,
+                                comments, likes, bookmarkCount, likedByMe, isBookmarked, isOwner,
                                 imageUrls, views, repostCount, repostedByMe, postType,
-                                null, null, null, false);
+                                null, null, null, false, null, null);
         }
 }

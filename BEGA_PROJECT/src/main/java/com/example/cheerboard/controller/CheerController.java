@@ -13,6 +13,7 @@ import com.example.cheerboard.dto.LikeToggleResponse;
 import com.example.cheerboard.dto.RepostToggleResponse;
 import com.example.cheerboard.dto.QuoteRepostReq;
 import com.example.cheerboard.dto.BookmarkResponse;
+import com.example.cheerboard.dto.ReportCaseRes;
 import jakarta.validation.Valid;
 import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.service.CheerService;
@@ -50,8 +51,9 @@ public class CheerController {
 
     @GetMapping("/posts/hot")
     public Page<PostSummaryRes> listHot(
+            @RequestParam(required = false, defaultValue = "HYBRID") String algorithm,
             @PageableDefault(size = 20) Pageable pageable) {
-        return svc.getHotPosts(pageable);
+        return svc.getHotPosts(pageable, algorithm);
     }
 
     /**
@@ -177,11 +179,10 @@ public class CheerController {
     @RateLimit(limit = 3, window = 60) // 1분에 최대 3번 신고
     @PostMapping("/posts/{id}/report")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<Void> reportPost(
+    public ResponseEntity<ReportCaseRes> reportPost(
             @PathVariable Long id,
             @RequestBody ReportRequest req) {
-        svc.reportPost(id, req);
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(svc.reportPost(id, req));
     }
 
     @GetMapping("/posts/{id}/comments")
@@ -192,7 +193,7 @@ public class CheerController {
 
     @RateLimit(limit = 10, window = 60) // 1분에 최대 10개 댓글
     @PostMapping("/posts/{id}/comments")
-    public CommentRes addComment(@PathVariable Long id, @RequestBody CreateCommentReq req) {
+    public CommentRes addComment(@PathVariable Long id, @Valid @RequestBody CreateCommentReq req) {
         return svc.addComment(id, req);
     }
 
@@ -210,10 +211,8 @@ public class CheerController {
 
     @RateLimit(limit = 10, window = 60) // 1분에 최대 10개 답글
     @PostMapping("/posts/{postId}/comments/{parentCommentId}/replies")
-    public CommentRes addReply(
-            @PathVariable Long postId,
-            @PathVariable Long parentCommentId,
-            @RequestBody CreateCommentReq req) {
+    public CommentRes addReply(@PathVariable Long postId, @PathVariable Long parentCommentId,
+            @Valid @RequestBody CreateCommentReq req) {
         return svc.addReply(postId, parentCommentId, req);
     }
 

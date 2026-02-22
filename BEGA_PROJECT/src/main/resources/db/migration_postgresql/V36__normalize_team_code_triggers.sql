@@ -96,19 +96,30 @@ SET team_code = CASE team_code
     ELSE team_code
 END;
 
-UPDATE /*+ NO_PARALLEL */ team_season_batting_summary
-SET team_id = CASE team_id
-    WHEN 'KIA' THEN 'HT'
-    WHEN 'KI' THEN 'WO'
-    WHEN 'NX' THEN 'WO'
-    WHEN 'DO' THEN 'OB'
-    WHEN 'BE' THEN 'HH'
-    WHEN 'SK' THEN 'SSG'
-    WHEN 'SL' THEN 'SSG'
-    WHEN 'MBC' THEN 'LG'
-    WHEN 'LOT' THEN 'LT'
-    ELSE team_id
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class
+        WHERE oid = to_regclass('team_season_batting_summary')
+          AND relkind IN ('r', 'p')
+    ) THEN
+        UPDATE /*+ NO_PARALLEL */ team_season_batting_summary
+        SET team_id = CASE team_id
+            WHEN 'KIA' THEN 'HT'
+            WHEN 'KI' THEN 'WO'
+            WHEN 'NX' THEN 'WO'
+            WHEN 'DO' THEN 'OB'
+            WHEN 'BE' THEN 'HH'
+            WHEN 'SK' THEN 'SSG'
+            WHEN 'SL' THEN 'SSG'
+            WHEN 'MBC' THEN 'LG'
+            WHEN 'LOT' THEN 'LT'
+            ELSE team_id
+        END;
+    END IF;
 END;
+$$;
 
 UPDATE /*+ NO_PARALLEL */ cheer_battle_votes
 SET team_id = CASE team_id
@@ -237,11 +248,22 @@ BEFORE INSERT OR UPDATE ON player_season_pitching
 FOR EACH ROW
 EXECUTE FUNCTION normalize_team_code_column();
 
-DROP TRIGGER IF EXISTS trg_normalize_team_season_batting_summary_team_id ON team_season_batting_summary;
-CREATE TRIGGER trg_normalize_team_season_batting_summary_team_id
-BEFORE INSERT OR UPDATE ON team_season_batting_summary
-FOR EACH ROW
-EXECUTE FUNCTION normalize_team_id_column();
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class
+        WHERE oid = to_regclass('team_season_batting_summary')
+          AND relkind IN ('r', 'p')
+    ) THEN
+        DROP TRIGGER IF EXISTS trg_normalize_team_season_batting_summary_team_id ON team_season_batting_summary;
+        CREATE TRIGGER trg_normalize_team_season_batting_summary_team_id
+        BEFORE INSERT OR UPDATE ON team_season_batting_summary
+        FOR EACH ROW
+        EXECUTE FUNCTION normalize_team_id_column();
+    END IF;
+END;
+$$;
 
 DROP TRIGGER IF EXISTS trg_normalize_team_profiles_team_id ON team_profiles;
 CREATE TRIGGER trg_normalize_team_profiles_team_id
