@@ -5,6 +5,7 @@ import com.example.auth.service.OAuth2StateService;
 import com.example.auth.util.JWTUtil;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
+import java.util.Objects;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -53,8 +54,8 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         // This ensures we use the LINKED account's info, not just the provider's email
         com.example.auth.dto.UserDto userDto = principal.getUserDto();
 
-        String userEmail = userDto.getEmail();
-        String role = userDto.getRole();
+        String userEmail = Objects.requireNonNull(userDto.getEmail());
+        String role = Objects.requireNonNull(userDto.getRole());
 
         Long userId = userDto.getId();
 

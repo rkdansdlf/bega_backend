@@ -128,7 +128,7 @@ public class CheerInteractionService {
             }
             postRepo.save(Objects.requireNonNull(post));
             postService.updateHotScore(post);
-            return new LikeToggleResponse(liked, likes);
+            return Objects.requireNonNull(new LikeToggleResponse(liked, likes));
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(author);
@@ -157,7 +157,7 @@ public class CheerInteractionService {
                 bookmarked = true;
             }
             int count = Math.toIntExact(bookmarkRepo.countById_PostId(target.getId()));
-            return new BookmarkResponse(bookmarked, count);
+            return Objects.requireNonNull(new BookmarkResponse(bookmarked, count));
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(author);
@@ -204,12 +204,12 @@ public class CheerInteractionService {
 
         try {
             CheerPostReport saved = reportRepo.save(Objects.requireNonNull(report));
-            return new ReportCaseRes(
+            return Objects.requireNonNull(new ReportCaseRes(
                     saved.getId(),
                     saved.getStatus().name(),
                     saved.getHandledAt(),
                     "관리자 검토 대기",
-                    "신고가 정상 접수되었습니다.");
+                    "신고가 정상 접수되었습니다."));
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(reporter);
@@ -261,7 +261,7 @@ public class CheerInteractionService {
             }
 
             commentRepo.save(Objects.requireNonNull(comment));
-            return new LikeToggleResponse(liked, likes);
+            return Objects.requireNonNull(new LikeToggleResponse(liked, likes));
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(author);
@@ -384,7 +384,7 @@ public class CheerInteractionService {
         } catch (EntityNotFoundException e) {
             throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
         }
-        return author;
+        return Objects.requireNonNull(author);
     }
 
     private UserEntity ensureAuthorRecordStillExists(UserEntity author) {
@@ -417,7 +417,7 @@ public class CheerInteractionService {
         if (!freshAuthor.isEnabled() || !isAccountUsableForWrite(freshAuthor)) {
             throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
         }
-        return freshAuthor;
+        return Objects.requireNonNull(freshAuthor);
     }
 
     private boolean isAccountUsableForWrite(UserEntity user) {
@@ -489,11 +489,12 @@ public class CheerInteractionService {
         appendReportMeta(description, "sourceUrl", req.sourceUrl());
         appendReportMeta(description, "license", req.license());
         appendReportMeta(description, "ownerContact", req.ownerContact());
-        appendReportMeta(description, "hasRightEvidence", req.hasRightEvidence() == null ? null : req.hasRightEvidence().toString());
+        appendReportMeta(description, "hasRightEvidence",
+                req.hasRightEvidence() == null ? null : req.hasRightEvidence().toString());
         appendReportMeta(description, "requestedReason", req.requestedReason());
 
         String result = description.toString().trim();
-        return result.isBlank() ? null : result;
+        return Objects.requireNonNull(result.isBlank() ? "상세 사유 없음" : result);
     }
 
     private void appendReportMeta(StringBuilder builder, String key, String value) {

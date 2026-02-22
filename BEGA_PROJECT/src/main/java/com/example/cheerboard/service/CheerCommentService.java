@@ -71,7 +71,7 @@ public class CheerCommentService {
         int end = Math.min((start + pageable.getPageSize()), allComments.size());
 
         if (start > allComments.size()) {
-            return new PageImpl<>(List.of(), pageable, allComments.size());
+            return new PageImpl<>(Objects.requireNonNull(List.of()), pageable, allComments.size());
         }
 
         List<CheerComment> pagedComments = allComments.subList(start, end);
@@ -93,7 +93,7 @@ public class CheerCommentService {
                 .map(comment -> commentDtoMapper.toCommentRes(comment, finalLikedIds))
                 .toList();
 
-        return new PageImpl<>(mapped, pageable, allComments.size());
+        return new PageImpl<>(Objects.requireNonNull(mapped), pageable, allComments.size());
     }
 
     private List<Long> collectAllCommentIds(List<CheerComment> comments) {
@@ -155,7 +155,7 @@ public class CheerCommentService {
                                 : author.getEmail();
 
                         notificationService.createNotification(
-                                targetPost.getAuthor().getId(),
+                                Objects.requireNonNull(targetPost.getAuthor().getId()),
                                 com.example.notification.entity.Notification.NotificationType.POST_COMMENT,
                                 "새 댓글",
                                 authorName + "님이 회원님의 게시글에 댓글을 남겼습니다.",
@@ -167,7 +167,7 @@ public class CheerCommentService {
             }
 
             // For return, we need to know if I liked it (obv no for new comment)
-            return commentDtoMapper.toCommentRes(comment, Collections.emptySet());
+            return Objects.requireNonNull(commentDtoMapper.toCommentRes(comment, Collections.emptySet()));
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(author);
@@ -227,7 +227,7 @@ public class CheerCommentService {
                 }
             }
 
-            return commentDtoMapper.toCommentRes(reply, Collections.emptySet());
+            return Objects.requireNonNull(commentDtoMapper.toCommentRes(reply, Collections.emptySet()));
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(author);
@@ -335,7 +335,7 @@ public class CheerCommentService {
         } catch (EntityNotFoundException e) {
             throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
         }
-        return author;
+        return Objects.requireNonNull(author);
     }
 
     private UserEntity ensureAuthorRecordStillExists(UserEntity author) {
@@ -363,7 +363,7 @@ public class CheerCommentService {
         if (!freshAuthor.isEnabled() || !isAccountUsableForWrite(freshAuthor)) {
             throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
         }
-        return freshAuthor;
+        return Objects.requireNonNull(freshAuthor);
     }
 
     private boolean isAccountUsableForWrite(UserEntity user) {

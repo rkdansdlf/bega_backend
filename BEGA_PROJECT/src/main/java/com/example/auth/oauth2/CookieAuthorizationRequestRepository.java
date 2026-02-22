@@ -8,6 +8,7 @@ import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequ
 import org.springframework.stereotype.Component;
 import org.springframework.util.SerializationUtils;
 import java.util.Base64;
+import java.util.Objects;
 
 import java.util.Arrays;
 import java.util.Optional;
@@ -150,7 +151,7 @@ public class CookieAuthorizationRequestRepository
 
     private void addCookie(HttpServletResponse response, String name, String value, int maxAgeSeconds) {
         org.springframework.http.ResponseCookie cookie = org.springframework.http.ResponseCookie
-                .from(name, value != null ? value : "")
+                .from(Objects.requireNonNull(name), value != null ? value : "")
                 .path("/")
                 .httpOnly(true)
                 .maxAge(maxAgeSeconds)
@@ -175,7 +176,7 @@ public class CookieAuthorizationRequestRepository
             for (Cookie cookie : cookies) {
                 if (cookie.getName().equals(name)) {
                     org.springframework.http.ResponseCookie expireCookie = org.springframework.http.ResponseCookie
-                            .from(name, "")
+                            .from(Objects.requireNonNull(name), "")
                             .path("/")
                             .httpOnly(true)
                             .maxAge(0)

@@ -2,8 +2,11 @@ package com.example.mate.scheduler;
 
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
+import com.example.mate.dto.PartyApplicationDTO;
+import com.example.mate.entity.CancelReasonType;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
+import com.example.mate.service.PaymentTransactionService;
 import com.example.notification.entity.Notification;
 import com.example.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +34,7 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
     private final PartyApplicationRepository applicationRepository;
     private final NotificationService notificationService;
     private final JobScheduler jobScheduler;
+    private final PaymentTransactionService paymentTransactionService;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -206,11 +210,20 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
             application.setIsRejected(true);
             application.setRejectedAt(now);
 
-            // 결제된 신청의 경우 환불 마킹 (추후 PaymentService 연동 시 실제 환불 처리 추가)
+            // 결제된 신청의 경우 실제 환불 처리
             if (Boolean.TRUE.equals(application.getIsPaid())) {
-                application.setIsPaid(false);
-                log.warn("자동 거절된 신청의 결제 환불 필요: applicationId={}, applicantId={}, amount={}",
-                        application.getId(), application.getApplicantId(), application.getDepositAmount());
+                try {
+                    paymentTransactionService.processCancellation(
+                            application,
+                            PartyApplicationDTO.CancelRequest.builder()
+                                    .cancelReasonType(CancelReasonType.SYSTEM)
+                                    .cancelMemo("48시간 응답 기한 만료 자동 거절")
+                                    .build());
+                    application.setIsPaid(false);
+                } catch (RuntimeException e) {
+                    log.error("자동 거절 신청 환불 처리 실패: applicationId={}, applicantId={}",
+                            application.getId(), application.getApplicantId(), e);
+                }
             }
 
             applicationRepository.save(application);

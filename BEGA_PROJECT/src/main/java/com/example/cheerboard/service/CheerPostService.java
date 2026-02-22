@@ -131,7 +131,7 @@ public class CheerPostService {
         // 팔로워들에게 새 글 알림 (notify_new_posts=true 인 팔로워에게만)
         sendNewPostNotificationToFollowers(savedPost, author);
 
-        return postDtoMapper.toNewPostDetailRes(savedPost, author);
+        return Objects.requireNonNull(postDtoMapper.toNewPostDetailRes(savedPost, author));
     }
 
     @Transactional
@@ -150,16 +150,7 @@ public class CheerPostService {
 
         updatePostContent(post, req);
 
-        // When updating, we need to return the full detail response
-        // Note: In the original service, it re-checked likes/bookmarks.
-        // For efficiency, we can assume the caller (controller/facade) might handle
-        // full re-fetching if needed,
-        // OR we can return a basic detail response here.
-        // The original code returned a PostDetailRes with current user states.
-
-        // Since this service is "Post CRUD", it might be better to return the updated
-        // entity
-        // and let the facade handle response construction with user interaction states.
+        // and let the Facade handle response construction with user interaction states.
         // However, to keep it simple and match the signature return type:
 
         // Use default false for interactions, Facade can override or we fetch here.
@@ -205,7 +196,8 @@ public class CheerPostService {
         // DTO conversion.
         // This is cleaner.
 
-        return postDtoMapper.toNewPostDetailRes(post, me); // Fallback for now, Facade will reconstruct if needed.
+        return Objects.requireNonNull(postDtoMapper.toNewPostDetailRes(post, me)); // Fallback for now, Facade will
+                                                                                   // reconstruct if needed.
     }
 
     // Changing return type to CheerPost to allow Facade to enrich with interaction
@@ -231,7 +223,7 @@ public class CheerPostService {
                 req.sourceLicense() != null ? req.sourceLicense() : post.getSourceLicense());
 
         updatePostContent(post, req);
-        return post;
+        return Objects.requireNonNull(post);
     }
 
     @Transactional
@@ -325,7 +317,7 @@ public class CheerPostService {
             updateHotScore(original);
             sendRepostNotification(author, original, "인용 리포스트");
 
-            return quoteRepost;
+            return Objects.requireNonNull(quoteRepost);
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(author);
@@ -367,6 +359,7 @@ public class CheerPostService {
         return imageDtos.stream()
                 .map(PostImageDto::url)
                 .filter(Objects::nonNull)
+                .map(Objects::requireNonNull)
                 .toList();
     }
 
@@ -395,7 +388,8 @@ public class CheerPostService {
         return resolvedTarget;
     }
 
-    private void validateRepostPolicy(UserEntity actor, CheerPost originalTarget, CheerPost resolvedTarget, boolean isQuote) {
+    private void validateRepostPolicy(UserEntity actor, CheerPost originalTarget, CheerPost resolvedTarget,
+            boolean isQuote) {
         if (actor.getId().equals(originalTarget.getAuthor().getId())) {
             throw new RepostSelfNotAllowedException(REPOST_SELF_NOT_ALLOWED_CODE, REPOST_NOT_ALLOWED_SELF_ERROR);
         }
@@ -469,7 +463,7 @@ public class CheerPostService {
             throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
         }
 
-        return freshAuthor;
+        return Objects.requireNonNull(freshAuthor);
     }
 
     private boolean isAccountUsableForWrite(UserEntity user) {
@@ -535,7 +529,7 @@ public class CheerPostService {
         boolean isCurrentlyReposted = repostRepo.existsByPostIdAndUserId(original.getId(), author.getId()) ||
                 postRepo
                         .findByAuthorAndRepostOfAndRepostType(author, original, CheerPost.RepostType.SIMPLE)
-                .isPresent();
+                        .isPresent();
         return new RepostToggleResponse(isCurrentlyReposted, readRepostCount(original.getId()));
     }
 
@@ -754,7 +748,8 @@ public class CheerPostService {
         }
 
         try {
-            String actorName = actor.getName() != null && !actor.getName().isBlank() ? actor.getName() : actor.getEmail();
+            String actorName = actor.getName() != null && !actor.getName().isBlank() ? actor.getName()
+                    : actor.getEmail();
             notificationService.createNotification(
                     Objects.requireNonNull(originalPost.getAuthor().getId()),
                     com.example.notification.entity.Notification.NotificationType.POST_REPOST,

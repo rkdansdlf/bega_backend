@@ -46,6 +46,8 @@ class PartyApplicationVerificationTest {
         private UserService userService;
         @Mock
         private TicketVerificationTokenStore ticketVerificationTokenStore;
+        @Mock
+        private PaymentTransactionService paymentTransactionService;
 
         @InjectMocks
         private PartyApplicationService service;

@@ -23,6 +23,9 @@ public class ImageUtil {
     private static final int MAX_WIDTH = 1024;
     private static final int MAX_HEIGHT = 1024;
     private static final double COMPRESSION_QUALITY = 0.70;
+    private static final int PROFILE_MAX_WIDTH = 1536;
+    private static final int PROFILE_MAX_HEIGHT = 1536;
+    private static final double PROFILE_COMPRESSION_QUALITY = 0.88;
     private static final long COMPRESSION_THRESHOLD_BYTES = 1024 * 1024; // 1MB
 
     private boolean webpAvailable = false;
@@ -32,16 +35,42 @@ public class ImageUtil {
         // Ensure ImageIO plugins are scanned
         javax.imageio.ImageIO.scanForPlugins();
 
-        // Check availability
         java.util.Iterator<javax.imageio.ImageWriter> writers = javax.imageio.ImageIO
                 .getImageWritersByMIMEType("image/webp");
-        if (writers.hasNext()) {
-            this.webpAvailable = true;
-            log.info("WebP ImageWriter found. Image optimization enabled.");
-        } else {
-            this.webpAvailable = false;
+        this.webpAvailable = writers.hasNext();
+        if (!this.webpAvailable) {
             log.warn(
                     "WebP ImageWriter NOT found. WebP conversion will be skipped. (TwelveMonkeys imageio-webp is likely read-only)");
+            return;
+        }
+
+        log.info("WebP ImageWriter found. WebP conversion enabled. Runtime native issues will fall back to original image.");
+    }
+
+    private boolean isWebpEncoderWorking() {
+        try {
+            BufferedImage probeImage = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
+            ByteArrayOutputStream jpegBuffer = new ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(probeImage, "png", jpegBuffer);
+
+            try (InputStream probeInput = new ByteArrayInputStream(jpegBuffer.toByteArray());
+                    ByteArrayOutputStream probeOutput = new ByteArrayOutputStream()) {
+                Thumbnails.of(probeInput)
+                        .size(1, 1)
+                        .outputQuality(COMPRESSION_QUALITY)
+                        .outputFormat("webp")
+                        .toOutputStream(probeOutput);
+                return probeOutput.size() > 0;
+            }
+        } catch (UnsatisfiedLinkError e) {
+            log.warn("WebP encoder probe failed (native library issue). reason={}", e.getMessage());
+            return false;
+        } catch (LinkageError e) {
+            log.warn("WebP encoder probe failed (linkage issue). reason={}", e.getMessage());
+            return false;
+        } catch (IOException e) {
+            log.warn("WebP encoder probe failed. reason={}", e.getMessage());
+            return false;
         }
     }
 
@@ -90,7 +119,44 @@ public class ImageUtil {
         }
 
         try {
-            return compressAndConvertToWebP(originalBytes);
+            return convertToWebP(originalBytes, MAX_WIDTH, MAX_HEIGHT, COMPRESSION_QUALITY);
+        } catch (UnsatisfiedLinkError e) {
+            webpAvailable = false;
+            log.warn("WebP native codec not available. Falling back to original image. reason={}", e.getMessage());
+            return new ProcessedImage(originalBytes, originalContentType, originalExtension);
+        } catch (LinkageError e) {
+            webpAvailable = false;
+            log.warn("WebP link error. Falling back to original image. reason={}", e.getMessage());
+            return new ProcessedImage(originalBytes, originalContentType, originalExtension);
+        } catch (Exception e) {
+            log.warn("Image optimization failed. Falling back to original image.", e);
+            return new ProcessedImage(originalBytes, originalContentType, originalExtension);
+        }
+    }
+
+    public ProcessedImage processProfileImage(MultipartFile file) throws IOException {
+        String originalContentType = file.getContentType();
+        byte[] originalBytes = file.getBytes();
+        String originalExtension = getExtension(file.getOriginalFilename());
+
+        if (shouldSkip(originalContentType, originalBytes.length)) {
+            return new ProcessedImage(originalBytes, originalContentType, originalExtension);
+        }
+
+        if (!webpAvailable) {
+            return new ProcessedImage(originalBytes, originalContentType, originalExtension);
+        }
+
+        try {
+            return convertToWebP(originalBytes, PROFILE_MAX_WIDTH, PROFILE_MAX_HEIGHT, PROFILE_COMPRESSION_QUALITY);
+        } catch (UnsatisfiedLinkError e) {
+            webpAvailable = false;
+            log.warn("WebP native codec not available. Falling back to original image. reason={}", e.getMessage());
+            return new ProcessedImage(originalBytes, originalContentType, originalExtension);
+        } catch (LinkageError e) {
+            webpAvailable = false;
+            log.warn("WebP link error. Falling back to original image. reason={}", e.getMessage());
+            return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         } catch (Exception e) {
             log.warn("Image optimization failed. Falling back to original image.", e);
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
@@ -144,16 +210,16 @@ public class ImageUtil {
         return false;
     }
 
-    private ProcessedImage compressAndConvertToWebP(byte[] originalBytes) throws IOException {
+    private ProcessedImage convertToWebP(byte[] originalBytes, int maxWidth, int maxHeight, double quality) throws IOException {
         long originalSize = originalBytes.length;
 
         try (InputStream inputStream = new ByteArrayInputStream(originalBytes);
                 ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
 
             Thumbnails.of(inputStream)
-                    .size(MAX_WIDTH, MAX_HEIGHT)
+                    .size(maxWidth, maxHeight)
                     .keepAspectRatio(true)
-                    .outputQuality(COMPRESSION_QUALITY)
+                    .outputQuality(quality)
                     .outputFormat("webp")
                     .toOutputStream(outputStream);
 

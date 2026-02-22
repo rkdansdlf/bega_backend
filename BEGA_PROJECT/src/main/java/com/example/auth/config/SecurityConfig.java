@@ -43,13 +43,14 @@ public class SecurityConfig {
                 "http://localhost:3000",
                 "http://localhost:5173",
                 "http://localhost:5176",
-                "http://localhost:*",
                 "http://localhost:8080",
                 "http://127.0.0.1",
                 "http://127.0.0.1:3000",
                 "http://127.0.0.1:5173",
-                "http://127.0.0.1:*",
                 "http://127.0.0.1:5176",
+                "https://www.begabaseball.xyz",
+                "https://begabaseball.xyz",
+                "https://*.frontend-dfl.pages.dev",
                 "http://[::1]");
         // 공개 엔드포인트 그룹 정의
         // ========================================
@@ -132,12 +133,13 @@ public class SecurityConfig {
         private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
         private final UserRepository userRepository;
 
-        @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:*,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:*,http://127.0.0.1:5176}")
-        private String allowedOriginsStr;
+    @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176,https://www.begabaseball.xyz,https://begabaseball.xyz,https://*.frontend-dfl.pages.dev}")
+    private String allowedOriginsStr;
         private java.util.List<String> parseAllowedOrigins() {
                 List<String> parsed = Arrays.stream(allowedOriginsStr == null ? new String[0] : allowedOriginsStr.split(","))
                                 .map(String::trim)
                                 .filter(origin -> !origin.isEmpty())
+                                .filter(origin -> !origin.equals("*"))
                                 .toList();
                 if (parsed.isEmpty()) {
                         return DEFAULT_ALLOWED_ORIGINS;

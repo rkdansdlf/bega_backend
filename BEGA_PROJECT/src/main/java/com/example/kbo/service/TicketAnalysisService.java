@@ -61,7 +61,7 @@ public class TicketAnalysisService {
                 log.info("Matched game ID: {}", gameId);
             }
 
-            return info;
+            return java.util.Objects.requireNonNull(info);
 
         } catch (IOException e) {
             log.error("Failed to read ticket image", e);

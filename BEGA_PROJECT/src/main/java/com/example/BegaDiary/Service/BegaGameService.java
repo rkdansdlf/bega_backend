@@ -37,9 +37,9 @@ public class BegaGameService {
 
 	public List<GameResponseDto> getGamesByDate(LocalDate date) {
 		List<GameEntity> games = gameRepository.findByGameDate(date);
-		return games.stream()
+		return Objects.requireNonNull(games.stream()
 				.map(this::convertToDto)
-				.collect(Collectors.toList());
+				.collect(Collectors.toList()));
 	}
 
 	public Long findGameIdByDateAndTeams(String dateStr, String homeTeam, String awayTeam) {
@@ -147,7 +147,7 @@ public class BegaGameService {
 			log.info(
 					"[BegaGameService] ticket_match success=true date={} game_id={} score={} rows={}",
 					dateStr, best.game().getGameId(), best.score(), uniqueByGameId.size());
-			return best.game().getId();
+			return Objects.requireNonNull(best.game().getId());
 		} catch (Exception e) {
 			log.error(
 					"[BegaGameService] ticket_match failed date={} input_home={} input_away={} reason={}",
@@ -169,14 +169,14 @@ public class BegaGameService {
 		String awayTeamName = BaseballConstants.getTeamKoreanName(game.getAwayTeam());
 		String stadiumName = BaseballConstants.getFullStadiumName(game.getStadium());
 
-		return GameResponseDto.builder()
+		return Objects.requireNonNull(GameResponseDto.builder()
 				.id(game.getId())
 				.homeTeam(homeTeamName)
 				.awayTeam(awayTeamName)
 				.stadium(stadiumName)
 				.score(game.getScoreString())
 				.date(game.getGameDate() != null ? game.getGameDate().toString() : null)
-				.build();
+				.build());
 	}
 
 	private int scoreCandidate(

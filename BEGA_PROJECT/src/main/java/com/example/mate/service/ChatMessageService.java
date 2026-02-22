@@ -62,7 +62,8 @@ public class ChatMessageService {
 
     // 파티별 채팅 메시지 조회
     @Transactional(readOnly = true)
-    public List<ChatMessageDTO.Response> getMessagesByPartyId(Long partyId) {
+    public List<ChatMessageDTO.Response> getMessagesByPartyId(Long partyId, Principal principal) {
+        assertPartyMember(partyId, principal);
         return chatMessageRepository.findByPartyIdOrderByCreatedAtAsc(partyId).stream()
                 .map(ChatMessageDTO.Response::from)
                 .collect(Collectors.toList());
@@ -70,8 +71,25 @@ public class ChatMessageService {
 
     // 파티별 최근 메시지 조회
     @Transactional(readOnly = true)
-    public ChatMessageDTO.Response getLatestMessage(Long partyId) {
+    public ChatMessageDTO.Response getLatestMessage(Long partyId, Principal principal) {
+        assertPartyMember(partyId, principal);
         ChatMessage message = chatMessageRepository.findTopByPartyIdOrderByCreatedAtDesc(partyId);
         return message != null ? ChatMessageDTO.Response.from(message) : null;
+    }
+
+    private void assertPartyMember(Long partyId, Principal principal) {
+        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+            throw new UnauthorizedAccessException("로그인이 필요합니다.");
+        }
+        Long userId = userService.getUserIdByEmail(principal.getName());
+        var party = partyRepository.findById(partyId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+        boolean isMember = party.getHostId().equals(userId)
+                || applicationRepository.findByPartyIdAndApplicantId(partyId, userId)
+                .map(com.example.mate.entity.PartyApplication::getIsApproved)
+                .orElse(false);
+        if (!isMember) {
+            throw new UnauthorizedAccessException("파티 참여자만 채팅을 조회할 수 있습니다.");
+        }
     }
 }

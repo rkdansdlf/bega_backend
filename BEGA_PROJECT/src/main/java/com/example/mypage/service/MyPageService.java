@@ -7,6 +7,7 @@ import com.example.auth.repository.UserRepository;
 import com.example.kbo.repository.TeamRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
 
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,7 +35,7 @@ public class MyPageService {
 
         String profileImageUrl = repairProfileUrl(user.getProfileImageUrl());
 
-        return UserProfileDto.builder()
+        return Objects.requireNonNull(UserProfileDto.builder()
                 .id(user.getId())
                 .name(user.getName())
                 .email(user.getEmail())
@@ -45,7 +46,7 @@ public class MyPageService {
                         : null)
                 .role(user.getRole())
                 .cheerPoints(user.getCheerPoints())
-                .build();
+                .build());
     }
 
     // 사용자 프로필 정보를 업데이트
@@ -79,7 +80,7 @@ public class MyPageService {
         userRepository.save(user);
 
         // 업데이트된 정보를 DTO로 다시 변환하여 반환
-        return getProfileByEmail(email);
+        return Objects.requireNonNull(getProfileByEmail(email));
     }
 
     /**

@@ -8,7 +8,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -84,23 +83,5 @@ public class OAuth2LinkStateService {
             log.error("Failed to deserialize OAuth2LinkStateData", e);
             return null;
         }
-    }
-
-    /**
-     * @deprecated Use saveLinkByState instead
-     */
-    @Deprecated
-    public String saveLink(OAuth2LinkStateData data) {
-        String linkStateId = UUID.randomUUID().toString();
-        saveLinkByState(linkStateId, data);
-        return linkStateId;
-    }
-
-    /**
-     * @deprecated Use consumeLinkByState instead
-     */
-    @Deprecated
-    public OAuth2LinkStateData consumeLink(String linkStateId) {
-        return consumeLinkByState(linkStateId);
     }
 }

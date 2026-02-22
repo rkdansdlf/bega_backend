@@ -66,11 +66,11 @@ public class AdminService {
         long totalPosts = cheerPostRepository.count();
         long totalMates = partyRepository.count();
 
-        return AdminStatsDto.builder()
+        return Objects.requireNonNull(AdminStatsDto.builder()
                 .totalUsers(totalUsers)
                 .totalPosts(totalPosts)
                 .totalMates(totalMates)
-                .build();
+                .build());
     }
 
     /**
@@ -89,9 +89,9 @@ public class AdminService {
             users = userRepository.findAllByOrderByIdAsc();
         }
 
-        return users.stream()
+        return Objects.requireNonNull(users.stream()
                 .map(this::convertToAdminUserDto)
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     /**
@@ -101,9 +101,9 @@ public class AdminService {
         // 🔥 createdAt 기준 내림차순 정렬
         List<CheerPost> posts = cheerPostRepository.findAllByOrderByCreatedAtDesc();
 
-        return posts.stream()
+        return Objects.requireNonNull(posts.stream()
                 .map(this::convertToAdminPostDto)
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     /**
@@ -113,7 +113,7 @@ public class AdminService {
         // 🔥 HOT 판단 로직: 좋아요 10개 이상 또는 조회수 100 이상
         boolean isHot = post.getLikeCount() >= 10 || post.getViews() >= 100;
 
-        return AdminPostDto.builder()
+        return Objects.requireNonNull(AdminPostDto.builder()
                 .id(post.getId())
                 .team(post.getTeamId())
                 .content(post.getContent())
@@ -123,7 +123,7 @@ public class AdminService {
                 .commentCount(post.getCommentCount())
                 .views(post.getViews())
                 .isHot(isHot)
-                .build();
+                .build());
     }
 
     /**
@@ -132,16 +132,16 @@ public class AdminService {
     public List<AdminMateDto> getMates() {
         List<Party> parties = partyRepository.findAllByOrderByCreatedAtDesc();
 
-        return parties.stream()
+        return Objects.requireNonNull(parties.stream()
                 .map(this::convertToAdminMateDto)
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     /**
      * Party → AdminMateDto 변환
      */
     private AdminMateDto convertToAdminMateDto(Party party) {
-        return AdminMateDto.builder()
+        return Objects.requireNonNull(AdminMateDto.builder()
                 .id(party.getId())
                 .teamId(party.getTeamId())
                 .title(party.getDescription().length() > 30
@@ -157,7 +157,7 @@ public class AdminService {
                 .homeTeam(party.getHomeTeam())
                 .awayTeam(party.getAwayTeam())
                 .section(party.getSection())
-                .build();
+                .build());
     }
 
     /**
@@ -309,7 +309,7 @@ public class AdminService {
     public AdminReportDto getReport(Long reportId) {
         CheerPostReport report = cheerReportRepo.findById(reportId)
                 .orElseThrow(() -> new IllegalArgumentException("신고 케이스를 찾을 수 없습니다."));
-        return convertToAdminReportDto(report);
+        return Objects.requireNonNull(convertToAdminReportDto(report));
     }
 
     @Transactional
@@ -352,7 +352,7 @@ public class AdminService {
             }
         }
 
-        return convertToAdminReportDto(saved);
+        return Objects.requireNonNull(convertToAdminReportDto(saved));
     }
 
     @Transactional
@@ -378,7 +378,7 @@ public class AdminService {
             auditLogRepository.save(Objects.requireNonNull(auditLog));
         }
 
-        return convertToAdminReportDto(saved);
+        return Objects.requireNonNull(convertToAdminReportDto(saved));
     }
 
     /**
@@ -392,7 +392,7 @@ public class AdminService {
         // 해당 유저의 게시글 수 조회
         long postCount = cheerPostRepository.countByUserId(userId);
 
-        return AdminUserDto.builder()
+        return Objects.requireNonNull(AdminUserDto.builder()
                 .id(userId)
                 .email(email)
                 .name(name)
@@ -400,14 +400,15 @@ public class AdminService {
                 .createdAt(user.getCreatedAt())
                 .postCount(postCount)
                 .role(user.getRole())
-                .build();
+                .build());
     }
 
     private AdminReportDto convertToAdminReportDto(CheerPostReport report) {
         String postContent = report.getPost() != null ? report.getPost().getContent() : null;
-        String postPreview = postContent == null ? null : (postContent.length() > 120 ? postContent.substring(0, 120) + "..." : postContent);
+        String postPreview = postContent == null ? null
+                : (postContent.length() > 120 ? postContent.substring(0, 120) + "..." : postContent);
 
-        return AdminReportDto.builder()
+        return Objects.requireNonNull(AdminReportDto.builder()
                 .id(report.getId())
                 .postId(report.getPost() != null ? report.getPost().getId() : null)
                 .postPreview(postPreview)
@@ -426,7 +427,7 @@ public class AdminService {
                 .appealReason(report.getAppealReason())
                 .appealCount(report.getAppealCount())
                 .createdAt(report.getCreatedAt())
-                .build();
+                .build());
     }
 
     private CheerPostReport.ReportStatus parseReportStatus(String status) {

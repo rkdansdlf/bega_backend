@@ -131,6 +131,25 @@ public class PartyApplicationController {
     }
 
     // 신청 취소 — applicantId는 인증 principal에서 파생
+    @PostMapping("/{applicationId}/cancel")
+    public ResponseEntity<?> cancelApplicationWithReason(
+            @PathVariable Long applicationId,
+            @RequestBody(required = false) PartyApplicationDTO.CancelRequest request,
+            Principal principal) {
+        try {
+            PartyApplicationDTO.CancelRequest cancelRequest = request != null
+                    ? request
+                    : PartyApplicationDTO.CancelRequest.builder().build();
+            PartyApplicationDTO.CancelResponse response = applicationService.cancelApplication(
+                    applicationId,
+                    principal,
+                    cancelRequest);
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+
     @DeleteMapping("/{applicationId}")
     public ResponseEntity<?> cancelApplication(
             @PathVariable Long applicationId,

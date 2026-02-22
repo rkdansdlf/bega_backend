@@ -75,7 +75,17 @@ class VerifyImageUtil {
         System.out.println("Testing Direct ImageIO Write for WebP...");
         BufferedImage image = new BufferedImage(100, 100, BufferedImage.TYPE_INT_RGB);
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        boolean writerFound = ImageIO.write(image, "webp", baos);
+        boolean writerFound;
+
+        try {
+            writerFound = ImageIO.write(image, "webp", baos);
+        } catch (LinkageError e) {
+            writerFound = false;
+            System.out.println("Warning: ImageIO webp encoder failed due to native/library issue: " + e.getMessage());
+            if (strictMode) {
+                throw e;
+            }
+        }
 
         System.out.println("ImageIO.write('webp') returned: " + writerFound);
         if (strictMode) {

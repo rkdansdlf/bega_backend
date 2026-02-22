@@ -2,6 +2,8 @@ package com.example.kbo.repository;
 
 import com.example.kbo.entity.GameEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -110,6 +112,51 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
   List<GameEntity> findAllByDateRange(
       @Param("startDate") LocalDate startDate,
       @Param("endDate") LocalDate endDate);
+
+  @Query("SELECT g FROM GameEntity g " +
+      "WHERE g.gameDate BETWEEN :startDate AND :endDate " +
+      "AND g.isDummy IS NOT TRUE " +
+      "AND g.gameId NOT LIKE 'MOCK%' " +
+      "AND ( :includePast = true OR g.gameDate >= :today ) " +
+      "AND g.homeTeam IN :canonicalTeams " +
+      "AND g.awayTeam IN :canonicalTeams " +
+      "ORDER BY g.gameDate ASC, g.gameId ASC")
+  Page<GameEntity> findCanonicalByDateRange(
+      @Param("startDate") LocalDate startDate,
+      @Param("endDate") LocalDate endDate,
+      @Param("today") LocalDate today,
+      @Param("includePast") boolean includePast,
+      @Param("canonicalTeams") List<String> canonicalTeams,
+      Pageable pageable);
+
+  @Query("SELECT MIN(g.gameDate) FROM GameEntity g " +
+      "WHERE g.isDummy IS NOT TRUE " +
+      "AND g.gameId NOT LIKE 'MOCK%' " +
+      "AND g.homeTeam IN :canonicalTeams " +
+      "AND g.awayTeam IN :canonicalTeams")
+  Optional<LocalDate> findCanonicalMinGameDate(
+      @Param("canonicalTeams") List<String> canonicalTeams);
+
+  @Query("SELECT MAX(g.gameDate) FROM GameEntity g " +
+      "WHERE g.isDummy IS NOT TRUE " +
+      "AND g.gameId NOT LIKE 'MOCK%' " +
+      "AND g.homeTeam IN :canonicalTeams " +
+      "AND g.awayTeam IN :canonicalTeams")
+  Optional<LocalDate> findCanonicalMaxGameDate(
+      @Param("canonicalTeams") List<String> canonicalTeams);
+
+  @Query("SELECT g FROM GameEntity g " +
+      "WHERE g.gameDate BETWEEN :startDate AND :endDate " +
+      "AND g.isDummy IS NOT TRUE " +
+      "AND g.gameId NOT LIKE 'MOCK%' " +
+      "AND ( :includePast = true OR g.gameDate >= :today ) " +
+      "ORDER BY g.gameDate ASC, g.gameId ASC")
+  Page<GameEntity> findAllByDateRange(
+      @Param("startDate") LocalDate startDate,
+      @Param("endDate") LocalDate endDate,
+      @Param("today") LocalDate today,
+      @Param("includePast") boolean includePast,
+      Pageable pageable);
 
   /**
    * 기간 내 완료된 경기 조회

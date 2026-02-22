@@ -168,6 +168,25 @@ oci:
 ai:
   service-url: ${AI_SERVICE_URL:http://localhost:8001}
 
+# --- Toss Payments 설정 ---
+toss:
+  payment:
+    secret-key: ${TOSS_PAYMENT_SECRET_KEY:test_sk_placeholder}
+    confirm-url: https://api.tosspayments.com/v1/payments/confirm
+    cancel-url: https://api.tosspayments.com/v1/payments/{paymentKey}/cancel
+
+mate:
+  payment:
+    deposit-amount: ${MATE_PAYMENT_DEPOSIT_AMOUNT:10000}
+    intent-ttl-minutes: ${MATE_PAYMENT_INTENT_TTL_MINUTES:30}
+    fee-rate: ${MATE_FEE_RATE:0.10}
+
+payment:
+  selling:
+    enforced: ${PAYMENT_SELLING_ENFORCED:true}
+  payout:
+    enabled: ${PAYMENT_PAYOUT_ENABLED:false}
+
 # Actuator health check (shared across profiles)
 management:
   endpoints:
