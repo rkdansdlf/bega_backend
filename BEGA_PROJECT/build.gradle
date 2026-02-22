@@ -89,8 +89,40 @@ dependencies {
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+sourceSets {
+	mateTest {
+		java {
+			srcDirs = ['src/test/java']
+			include 'com/example/mate/**'
+		}
+		resources {
+			srcDirs = ['src/test/resources']
+		}
+		compileClasspath += sourceSets.main.output + configurations.testCompileClasspath
+		runtimeClasspath += output + sourceSets.main.output + configurations.testRuntimeClasspath
+	}
+}
+
+configurations {
+	mateTestImplementation.extendsFrom testImplementation
+	mateTestRuntimeOnly.extendsFrom testRuntimeOnly
+	mateTestCompileOnly.extendsFrom testCompileOnly
+	mateTestAnnotationProcessor.extendsFrom testAnnotationProcessor
+}
+
 springBoot {
     mainClass = 'com.example.BegaProjectApplication'
+}
+
+tasks.register('mateTest', Test) {
+	group = 'verification'
+	description = 'Runs only mate-domain tests from src/test/java/com/example/mate/**'
+	testClassesDirs = sourceSets.mateTest.output.classesDirs
+	classpath = sourceSets.mateTest.runtimeClasspath
+}
+
+tasks.named('compileMateTestJava') {
+	dependsOn tasks.named('classes')
 }
 
 tasks.withType(Test).configureEach {
