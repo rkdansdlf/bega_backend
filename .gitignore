@@ -2,6 +2,9 @@
 /.DS_Store/
 .DS_Store
 BEGA_PROJECT/gradle.properties
+ 
+# Gradle cache and distribution artifacts
+.gradle_home/
 
 
 HELP.md
@@ -44,6 +47,8 @@ out/
 
 ### .env ###
 .env
+.env.*
+!.env.example
 .venv
 env
 venv
@@ -55,10 +60,18 @@ venv
 # Java compiled files
 *.class
 
+# Python cache
+__pycache__/
+*.py[cod]
+
 # Build folder
 /build
+
+# Local data
+box_score.csv
 
 # Log files
 BEGA_PROJECT/logs/
 BEGA_PROJECT/src/test/java/.placeholder
 BEGA_PROJECT/src/main/java/.placeholder
+/BEGA_PROJECT/wallet

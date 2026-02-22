@@ -1,7 +1,7 @@
 package com.example.cheerboard.repo;
 
 import com.example.cheerboard.domain.CheerComment;
-import com.example.demo.entity.UserEntity;
+import com.example.auth.entity.UserEntity;
 
 import java.time.Instant;
 import java.util.List;
@@ -52,10 +52,54 @@ public interface CheerCommentRepo extends JpaRepository<CheerComment, Long> {
            "WHERE c.post.id = :postId AND c.parentComment IS NULL " +
            "ORDER BY c.createdAt DESC")
     List<CheerComment> findCommentsWithRepliesByPostId(@Param("postId") Long postId);
+
+    /**
+     * 댓글 ID 리스트로 댓글 트리를 일괄 로딩 (페이지네이션 후 상세 로딩용)
+     */
+    @EntityGraph(attributePaths = {
+        "author",
+        "replies",
+        "replies.author",
+        "replies.replies",
+        "replies.replies.author"
+    })
+    @Query("SELECT DISTINCT c FROM CheerComment c WHERE c.id IN :commentIds ORDER BY c.createdAt DESC")
+    List<CheerComment> findWithRepliesByIdIn(@Param("commentIds") List<Long> commentIds);
     
     List<CheerComment> findByAuthor(UserEntity author);
 
-    boolean existsByPostIdAndAuthorIdAndContentAndParentCommentIsNullAndCreatedAtAfter(Long postId, Long authorId, String content, Instant since);
+    @Query(value = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM cheer_comment c
+                WHERE c.post_id = ?1
+                  AND c.author_id = ?2
+                  AND c.content = CAST(?3 AS text)
+                  AND c.parent_comment_id IS NULL
+                  AND c.created_at > ?4
+            )
+            """, nativeQuery = true)
+    boolean existsByPostIdAndAuthorIdAndContentAndParentCommentIsNullAndCreatedAtAfter(
+            Long postId,
+            Long authorId,
+            String content,
+            Instant since);
 
-    boolean existsByPostIdAndAuthorIdAndContentAndParentCommentIdAndCreatedAtAfter(Long postId, Long authorId, String content, Long parentCommentId, Instant since);
+    @Query(value = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM cheer_comment c
+                WHERE c.post_id = ?1
+                  AND c.author_id = ?2
+                  AND c.content = CAST(?3 AS text)
+                  AND c.parent_comment_id = ?4
+                  AND c.created_at > ?5
+            )
+            """, nativeQuery = true)
+    boolean existsByPostIdAndAuthorIdAndContentAndParentCommentIdAndCreatedAtAfter(
+            Long postId,
+            Long authorId,
+            String content,
+            Long parentCommentId,
+            Instant since);
 }
