@@ -17,7 +17,6 @@ import org.springframework.boot.orm.jpa.EntityManagerFactoryBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.DependsOn;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.JpaTransactionManager;
@@ -46,7 +45,6 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 )
 public class KboGamePostgresJpaConfig {
 
-	private static final String BASEBALL_FLYWAY_MIGRATION_INITIALIZER = "baseballFlywayMigrationInitializer";
 	private static final String CURRENT_SCHEMA_SQL = "SELECT current_schema()";
 	private static final String GAME_TABLE = "game";
 	private static final String GAME_METADATA_TABLE = "game_metadata";
@@ -84,7 +82,6 @@ public class KboGamePostgresJpaConfig {
 	private boolean strictSchemaGuard;
 
 	@Bean
-	@DependsOn(BASEBALL_FLYWAY_MIGRATION_INITIALIZER)
 	public LocalContainerEntityManagerFactoryBean kboGameEntityManagerFactory(
 			EntityManagerFactoryBuilder builder,
 			@Qualifier("stadiumDataSource") DataSource stadiumDataSource) {
