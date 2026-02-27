@@ -32,6 +32,8 @@ class TossPaymentServiceTest {
 
     @Mock
     private TossPaymentConfig tossPaymentConfig;
+    @Mock
+    private MatePaymentModeService matePaymentModeService;
 
     private TossPaymentService tossPaymentService;
     private MockRestServiceServer mockServer;
@@ -44,16 +46,14 @@ class TossPaymentServiceTest {
         RestClient restClient = RestClient.create(restTemplate);
         ObjectMapper objectMapper = new ObjectMapper();
 
-        tossPaymentService = new TossPaymentService(tossPaymentConfig, restClient, objectMapper);
-
-        when(tossPaymentConfig.getSecretKey()).thenReturn(TEST_SECRET_KEY);
-        when(tossPaymentConfig.getConfirmUrl()).thenReturn(CONFIRM_URL);
+        tossPaymentService = new TossPaymentService(tossPaymentConfig, restClient, objectMapper, matePaymentModeService);
     }
 
     @Test
     @DisplayName("결제 승인 성공 - DONE 상태 반환")
     void confirmPayment_success() {
         // given
+        stubTossEnabled();
         String paymentKey = "test_pk_abc123";
         String orderId = "MATE-1-2-1708500000000";
         int amount = 10000;
@@ -92,6 +92,7 @@ class TossPaymentServiceTest {
     @DisplayName("결제 승인 실패 - Toss API 4xx 응답 시 TossPaymentException 발생")
     void confirmPayment_tossApiReturns4xx_throwsTossPaymentException() {
         // given
+        stubTossEnabled();
         String errorBody = """
                 {
                     "code": "NOT_FOUND_PAYMENT",
@@ -117,6 +118,7 @@ class TossPaymentServiceTest {
     @DisplayName("결제 승인 실패 - Toss API 401 응답 (잘못된 시크릿 키)")
     void confirmPayment_unauthorized_throwsTossPaymentException() {
         // given
+        stubTossEnabled();
         String errorBody = """
                 {
                     "code": "UNAUTHORIZED_KEY",
@@ -141,6 +143,7 @@ class TossPaymentServiceTest {
     @DisplayName("결제 승인 실패 - Toss API 5xx 응답")
     void confirmPayment_serverError_throwsTossPaymentException() {
         // given
+        stubTossEnabled();
         mockServer.expect(requestTo(CONFIRM_URL))
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withServerError());
@@ -155,6 +158,7 @@ class TossPaymentServiceTest {
     @Test
     @DisplayName("Basic Auth 인코딩 - secretKey 뒤에 콜론 포함 확인")
     void confirmPayment_basicAuthContainsColon() {
+        stubTossEnabled();
         // secretKey = "test_sk_abc123"
         // Base64("test_sk_abc123:") = "dGVzdF9za19hYmMxMjM6"
         String expectedAuth = "Basic dGVzdF9za19hYmMxMjM6";
@@ -169,5 +173,21 @@ class TossPaymentServiceTest {
 
         tossPaymentService.confirmPayment("pk", "order", 10000);
         mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("직거래 모드에서는 Toss 결제 승인을 차단한다")
+    void confirmPayment_directTradeMode_throwsServiceUnavailable() {
+        when(matePaymentModeService.isDirectTrade()).thenReturn(true);
+
+        assertThatThrownBy(() -> tossPaymentService.confirmPayment("pk", "order", 10000))
+                .isInstanceOf(TossPaymentException.class)
+                .hasMessageContaining("직거래 모드");
+    }
+
+    private void stubTossEnabled() {
+        when(matePaymentModeService.isDirectTrade()).thenReturn(false);
+        when(tossPaymentConfig.getSecretKey()).thenReturn(TEST_SECRET_KEY);
+        when(tossPaymentConfig.getConfirmUrl()).thenReturn(CONFIRM_URL);
     }
 }

@@ -53,16 +53,6 @@ public class OAuth2StateService {
     }
 
     /**
-     * @deprecated Use saveState(Long userId) instead
-     */
-    @Deprecated
-    public String saveState(OAuth2StateData data) {
-        // 하위 호환성: OAuth2StateData에서 userId를 추출하지 못하므로 레거시 지원 불가
-        throw new UnsupportedOperationException(
-                "saveState(OAuth2StateData) is deprecated. Use saveState(Long userId) instead.");
-    }
-
-    /**
      * OAuth2 인증 상태 소비 (일회성, DB에서 사용자 정보 조회)
      * 
      * @param stateId state ID

@@ -97,4 +97,10 @@ public class Achievement {
     public static final String HALL_OF_FAME = "HALL_OF_FAME";
     public static final String SCORE_100K = "SCORE_100K";
     public static final String SCORE_1M = "SCORE_1M";
+
+    // 좌석 시야 UGC 업적
+    public static final String FIRST_SEAT_VIEW = "FIRST_SEAT_VIEW";
+    public static final String SEAT_VIEW_5 = "SEAT_VIEW_5";
+    public static final String SEAT_VIEW_10 = "SEAT_VIEW_10";
+    public static final String SEAT_VIEW_EXPLORER = "SEAT_VIEW_EXPLORER";
 }

@@ -15,6 +15,7 @@ import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
+import com.example.mate.repository.PaymentIntentRepository;
 import com.example.notification.service.NotificationService;
 import com.example.notification.entity.Notification;
 
@@ -37,16 +38,23 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PartyApplicationService {
 
+    public record PaymentCreationResult(PartyApplicationDTO.Response response, boolean created) {}
+
     private final PartyApplicationRepository applicationRepository;
     private final PartyRepository partyRepository;
+    private final PaymentIntentRepository paymentIntentRepository;
     private final PartyService partyService;
     private final NotificationService notificationService;
     private final UserService userService;
     private final TicketVerificationTokenStore ticketVerificationTokenStore;
     private final PaymentTransactionService paymentTransactionService;
+    private final MatePaymentModeService matePaymentModeService;
 
     @Value("${payment.selling.enforced:true}")
     private boolean sellingPaymentEnforced;
+
+    @Value("${mate.auth.require-social-verification:true}")
+    private boolean requireSocialVerification;
 
     /**
      * 신청 생성 (Principal 기반 — 컨트롤러에서 호출)
@@ -54,31 +62,38 @@ public class PartyApplicationService {
      */
     @Transactional
     public PartyApplicationDTO.Response createApplication(PartyApplicationDTO.Request request, Principal principal) {
-        if (request.getPaymentType() == PartyApplication.PaymentType.FULL && sellingPaymentEnforced) {
-            throw new InvalidApplicationStatusException("전액 결제 신청은 결제 승인 API를 통해서만 생성할 수 있습니다.");
+        try {
+            ApplicationCreationContext context = prepareCreationContext(request, principal);
+            validateFullPaymentPolicy(request, context.party());
+
+            PartyApplication application = PartyApplication.builder()
+                    .partyId(request.getPartyId())
+                    .applicantId(context.applicantId())
+                    .applicantName(context.applicantName())
+                    .applicantBadge(context.applicantBadge())
+                    .applicantRating(request.getApplicantRating() != null ? request.getApplicantRating() : 5.0)
+                    .message(request.getMessage())
+                    .depositAmount(request.getDepositAmount() != null ? request.getDepositAmount() : 0)
+                    .paymentType(request.getPaymentType())
+                    .ticketVerified(context.ticketVerified())
+                    .ticketImageUrl(request.getTicketImageUrl())
+                    .isPaid(false)
+                    .isApproved(false)
+                    .isRejected(false)
+                    .responseDeadline(context.deadline())
+                    .build();
+
+            PartyApplication savedApplication = Objects.requireNonNull(applicationRepository.saveAndFlush(application));
+            notifyHostOnApplicationSafely(context.party(), context.applicantName(), savedApplication.getPartyId());
+            return Objects.requireNonNull(PartyApplicationDTO.Response.from(savedApplication));
+        } catch (RuntimeException e) {
+            log.error("[Application] createApplication failed: partyId={}, principal={}, paymentType={}",
+                    request.getPartyId(),
+                    principal != null ? principal.getName() : null,
+                    request.getPaymentType(),
+                    e);
+            throw e;
         }
-        ApplicationCreationContext context = prepareCreationContext(request, principal);
-
-        PartyApplication application = PartyApplication.builder()
-                .partyId(request.getPartyId())
-                .applicantId(context.applicantId())
-                .applicantName(context.applicantName())
-                .applicantBadge(context.applicantBadge())
-                .applicantRating(request.getApplicantRating() != null ? request.getApplicantRating() : 5.0)
-                .message(request.getMessage())
-                .depositAmount(request.getDepositAmount())
-                .paymentType(request.getPaymentType())
-                .ticketVerified(context.ticketVerified())
-                .ticketImageUrl(request.getTicketImageUrl())
-                .isPaid(false)
-                .isApproved(false)
-                .isRejected(false)
-                .responseDeadline(context.deadline())
-                .build();
-
-        PartyApplication savedApplication = Objects.requireNonNull(applicationRepository.save(application));
-        notifyHostOnApplication(context.party(), context.applicantName(), savedApplication.getPartyId());
-        return Objects.requireNonNull(PartyApplicationDTO.Response.from(savedApplication));
     }
 
     /**
@@ -101,6 +116,23 @@ public class PartyApplicationService {
             String orderId,
             Integer confirmedAmount,
             PartyApplication.PaymentType forcedPaymentType) {
+        return createOrGetApplicationWithPayment(
+                request,
+                principal,
+                paymentKey,
+                orderId,
+                confirmedAmount,
+                forcedPaymentType).response();
+    }
+
+    @Transactional
+    public PaymentCreationResult createOrGetApplicationWithPayment(
+            PartyApplicationDTO.Request request,
+            Principal principal,
+            String paymentKey,
+            String orderId,
+            Integer confirmedAmount,
+            PartyApplication.PaymentType forcedPaymentType) {
         if (orderId == null || orderId.isBlank()) {
             throw new InvalidApplicationStatusException("orderId는 필수입니다.");
         }
@@ -111,17 +143,23 @@ public class PartyApplicationService {
             throw new InvalidApplicationStatusException("결제 금액이 올바르지 않습니다.");
         }
 
+        paymentIntentRepository.findByOrderIdForUpdate(orderId);
+
         Long applicantId = resolveUserId(principal);
         PartyApplication applicantIdExisting = resolveExistingPaymentApplication(orderId, paymentKey, applicantId);
         if (applicantIdExisting != null) {
-            return Objects.requireNonNull(PartyApplicationDTO.Response.from(applicantIdExisting));
+            return new PaymentCreationResult(
+                    Objects.requireNonNull(PartyApplicationDTO.Response.from(applicantIdExisting)),
+                    false);
         }
 
         ApplicationCreationContext context = prepareCreationContext(request, principal);
         PartyApplication contextExisting = resolveExistingPaymentApplication(orderId, paymentKey,
                 context.applicantId());
         if (contextExisting != null) {
-            return Objects.requireNonNull(PartyApplicationDTO.Response.from(contextExisting));
+            return new PaymentCreationResult(
+                    Objects.requireNonNull(PartyApplicationDTO.Response.from(contextExisting)),
+                    false);
         }
 
         PartyApplication application = PartyApplication.builder()
@@ -153,8 +191,10 @@ public class PartyApplicationService {
         }
 
         PartyApplication savedApplication = Objects.requireNonNull(applicationRepository.save(application));
-        notifyHostOnApplication(context.party(), context.applicantName(), savedApplication.getPartyId());
-        return Objects.requireNonNull(PartyApplicationDTO.Response.from(savedApplication));
+        notifyHostOnApplicationSafely(context.party(), context.applicantName(), savedApplication.getPartyId());
+        return new PaymentCreationResult(
+                Objects.requireNonNull(PartyApplicationDTO.Response.from(savedApplication)),
+                true);
     }
 
     // 파티별 신청 목록 조회
@@ -408,7 +448,7 @@ public class PartyApplicationService {
             applicantName = request.getApplicantName();
         }
 
-        if (!userService.isSocialVerified(applicantId)) {
+        if (requireSocialVerification && !userService.isSocialVerified(applicantId)) {
             throw new com.example.common.exception.IdentityVerificationRequiredException(
                     "메이트에 신청하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
         }
@@ -473,6 +513,32 @@ public class PartyApplicationService {
                 partyId);
     }
 
+    private void notifyHostOnApplicationSafely(Party party, String applicantName, Long partyId) {
+        try {
+            notifyHostOnApplication(party, applicantName, partyId);
+        } catch (Exception e) {
+            log.warn("[Application] Host notification failed but application is kept: partyId={}, hostId={}",
+                    partyId, party.getHostId(), e);
+        }
+    }
+
+    private void validateFullPaymentPolicy(PartyApplicationDTO.Request request, Party party) {
+        if (request.getPaymentType() != PartyApplication.PaymentType.FULL) {
+            return;
+        }
+
+        if (matePaymentModeService.isTossTest()) {
+            if (sellingPaymentEnforced) {
+                throw new InvalidApplicationStatusException("전액 결제 신청은 결제 승인 API를 통해서만 생성할 수 있습니다.");
+            }
+            return;
+        }
+
+        if (party.getStatus() != Party.PartyStatus.SELLING) {
+            throw new InvalidApplicationStatusException("직거래 모드에서는 SELLING 상태에서만 전액 신청이 가능합니다.");
+        }
+    }
+
     private PartyApplication resolveExistingPaymentApplication(String orderId, String paymentKey, Long applicantId) {
         PartyApplication byOrderId = resolveExistingByOrderId(orderId, applicantId);
         if (byOrderId != null) {
@@ -485,7 +551,7 @@ public class PartyApplicationService {
         if (orderId == null || orderId.isBlank()) {
             return null;
         }
-        PartyApplication existing = applicationRepository.findByOrderId(orderId).orElse(null);
+        PartyApplication existing = applicationRepository.findByOrderIdForUpdate(orderId).orElse(null);
         if (existing == null) {
             return null;
         }
@@ -499,7 +565,7 @@ public class PartyApplicationService {
         if (paymentKey == null || paymentKey.isBlank()) {
             return null;
         }
-        PartyApplication existing = applicationRepository.findByPaymentKey(paymentKey).orElse(null);
+        PartyApplication existing = applicationRepository.findByPaymentKeyForUpdate(paymentKey).orElse(null);
         if (existing == null) {
             return null;
         }
@@ -517,7 +583,10 @@ public class PartyApplicationService {
     }
 
     private String resolveUserName(Principal principal, Long userId) {
-        if (principal != null && principal.getName() != null && !principal.getName().isBlank()) {
+        if (principal != null
+                && principal.getName() != null
+                && !principal.getName().isBlank()
+                && principal.getName().contains("@")) {
             try {
                 return userService.findUserByEmail(principal.getName()).getName();
             } catch (RuntimeException ignored) {

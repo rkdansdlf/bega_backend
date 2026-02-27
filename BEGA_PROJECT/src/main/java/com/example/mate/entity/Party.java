@@ -93,6 +93,9 @@ public class Party {
     @Column(name = "ticketprice")
     private Integer ticketPrice; // 티켓 가격(1인당)
 
+    @Column(name = "host_last_read_chat_at")
+    private Instant hostLastReadChatAt; // 호스트 마지막 채팅 확인 시간
+
     @Column(name = "createdat", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -103,6 +106,7 @@ public class Party {
     protected void onCreate() {
         createdAt = Instant.now();
         updatedAt = Instant.now();
+        hostLastReadChatAt = Instant.now();
         if (currentParticipants == null) {
             currentParticipants = 1; // 호스트 포함
         }
@@ -155,4 +159,5 @@ public class Party {
             return description;
         }
     }
+
 }

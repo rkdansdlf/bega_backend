@@ -20,16 +20,16 @@ public class CheckInRecord {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(name = "party_id", nullable = false)
     private Long partyId; // 파티 ID
 
-    @Column(nullable = false)
+    @Column(name = "user_id", nullable = false)
     private Long userId; // 사용자 ID
 
     @Column(nullable = false, length = 100)
     private String location; // 체크인 위치
 
-    @Column(nullable = false)
+    @Column(name = "checked_in_at", nullable = false)
     private LocalDateTime checkedInAt; // 체크인 시간
 
     @PrePersist

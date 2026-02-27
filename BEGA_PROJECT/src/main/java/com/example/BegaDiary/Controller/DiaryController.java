@@ -22,9 +22,12 @@ import com.example.BegaDiary.Entity.DiaryRequestDto;
 import com.example.BegaDiary.Entity.DiaryResponseDto;
 import com.example.BegaDiary.Entity.DiaryStatisticsDto;
 import com.example.BegaDiary.Entity.GameResponseDto;
+import com.example.BegaDiary.Entity.SeatViewPhotoDto;
 import com.example.BegaDiary.Service.BegaDiaryService;
 import com.example.BegaDiary.Service.BegaGameService;
 import com.example.cheerboard.storage.service.ImageService;
+import com.example.leaderboard.dto.SeatViewRewardDto;
+import com.example.leaderboard.service.ScoringService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +41,7 @@ public class DiaryController {
     private final BegaDiaryService diaryService;
     private final BegaGameService gameService;
     private final ImageService imageService;
+    private final ScoringService scoringService;
 
     @GetMapping("/games")
     public ResponseEntity<List<GameResponseDto>> getGamesByDate(
@@ -70,6 +74,21 @@ public class DiaryController {
         Long userId = Long.valueOf(principal.getName());
         BegaDiary savedDiary = this.diaryService.save(userId, requestDto);
         DiaryResponseDto response = DiaryResponseDto.from(savedDiary);
+
+        // 좌석 시야 사진 리워드 조건 체크: ATTENDED + 사진 있음 + 좌석 정보 있음
+        boolean hasSeatInfo = savedDiary.getSection() != null || savedDiary.getBlock() != null;
+        boolean hasPhotos = savedDiary.getPhotoUrls() != null && !savedDiary.getPhotoUrls().isEmpty();
+        if (BegaDiary.DiaryType.ATTENDED.equals(savedDiary.getType()) && hasSeatInfo && hasPhotos) {
+            try {
+                SeatViewRewardDto reward = scoringService.processSeatViewReward(
+                        userId, savedDiary.getId(), savedDiary.getStadium());
+                response.setSeatViewReward(reward);
+            } catch (Exception e) {
+                log.warn("시야 사진 리워드 처리 실패 (다이어리 저장은 성공): diaryId={}, error={}",
+                        savedDiary.getId(), e.getMessage());
+            }
+        }
+
         return ResponseEntity.ok(response);
     }
 
@@ -93,13 +112,26 @@ public class DiaryController {
                         "photos", List.of()));
             }
 
-            // List<String> signedUrls = imageService.getDiaryImageSignedUrls(storagePaths)
-            // .block();
+            // 이미지 업로드 후 좌석 시야 리워드 조건 체크
+            SeatViewRewardDto seatViewReward = null;
+            try {
+                BegaDiary diary = this.diaryService.getDiaryEntityById(diaryId);
+                boolean hasSeatInfo = diary.getSection() != null || diary.getBlock() != null;
+                if (BegaDiary.DiaryType.ATTENDED.equals(diary.getType()) && hasSeatInfo) {
+                    seatViewReward = scoringService.processSeatViewReward(userId, diaryId, diary.getStadium());
+                }
+            } catch (Exception e) {
+                log.warn("이미지 업로드 후 시야 리워드 처리 실패: diaryId={}, error={}", diaryId, e.getMessage());
+            }
 
-            return ResponseEntity.ok().body(Map.of(
-                    "message", "이미지 업로드가 완료되었습니다.",
-                    "diaryId", diaryId,
-                    "photos", storagePaths));
+            Map<String, Object> responseBody = new java.util.HashMap<>();
+            responseBody.put("message", "이미지 업로드가 완료되었습니다.");
+            responseBody.put("diaryId", diaryId);
+            responseBody.put("photos", storagePaths);
+            if (seatViewReward != null) {
+                responseBody.put("seatViewReward", seatViewReward);
+            }
+            return ResponseEntity.ok().body(responseBody);
 
         } catch (Exception ex) {
             log.error("이미지 업로드/URL 생성 실패: diaryId={}", diaryId, ex);
@@ -134,6 +166,16 @@ public class DiaryController {
     public ResponseEntity<Void> deleteDiary(@PathVariable("id") Long id) {
         this.diaryService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    // 좌석 시야 사진 목록 조회 (공개 API, 비로그인 허용)
+    @GetMapping("/seat-views")
+    public ResponseEntity<List<SeatViewPhotoDto>> getSeatViewPhotos(
+            @RequestParam String stadium,
+            @RequestParam(required = false) String section,
+            @RequestParam(defaultValue = "9") int limit) {
+        List<SeatViewPhotoDto> photos = diaryService.getSeatViewPhotos(stadium, section, limit);
+        return ResponseEntity.ok(photos);
     }
 
     // 다이어리 통계

@@ -3,13 +3,17 @@ package com.example.mate.controller;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.PartyApplication;
+import com.example.mate.entity.PaymentFlowType;
 import com.example.mate.entity.PaymentIntent;
 import com.example.mate.entity.PaymentTransaction;
+import com.example.mate.exception.TossPaymentException;
 import com.example.mate.service.PartyApplicationService;
 import com.example.mate.service.PaymentIntentService;
 import com.example.mate.service.PaymentMetricsService;
+import com.example.mate.service.MatePaymentModeService;
 import com.example.mate.service.PaymentTransactionService;
 import com.example.mate.service.TossPaymentService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -42,9 +46,16 @@ class PaymentControllerTest {
     private PaymentTransactionService paymentTransactionService;
     @Mock
     private PaymentMetricsService paymentMetricsService;
+    @Mock
+    private MatePaymentModeService matePaymentModeService;
 
     @InjectMocks
     private PaymentController paymentController;
+
+    @BeforeEach
+    void setUp() {
+        given(matePaymentModeService.isDirectTrade()).willReturn(false);
+    }
 
     @Test
     void confirmTossPayment_usesServerAmountAndForcesDepositType() {
@@ -85,14 +96,14 @@ class PaymentControllerTest {
                 .willReturn(Optional.empty());
         given(paymentIntentService.resolveIntentForConfirm(request, principal)).willReturn(intent);
         given(tossPaymentService.confirmPayment("pk_test", "MATE-1-10-1708500000000", 35000)).willReturn(tossResponse);
-        given(applicationService.createApplicationWithPayment(
+        given(applicationService.createOrGetApplicationWithPayment(
                 any(PartyApplicationDTO.Request.class),
                 eq(principal),
                 eq("payment_key"),
                 eq("MATE-1-10-1708500000000"),
                 eq(35000),
                 eq(PartyApplication.PaymentType.DEPOSIT)))
-                .willReturn(created);
+                .willReturn(new PartyApplicationService.PaymentCreationResult(created, true));
         given(applicationService.getApplicationEntity(99L))
                 .willReturn(PartyApplication.builder().id(99L).orderId("MATE-1-10-1708500000000").build());
         given(paymentTransactionService.createOrGetOnConfirm(any(PartyApplication.class), eq(intent), eq("payment_key")))
@@ -104,7 +115,7 @@ class PaymentControllerTest {
         assertThat(response.getBody()).isEqualTo(created);
 
         ArgumentCaptor<PartyApplicationDTO.Request> appReqCaptor = ArgumentCaptor.forClass(PartyApplicationDTO.Request.class);
-        verify(applicationService).createApplicationWithPayment(
+        verify(applicationService).createOrGetApplicationWithPayment(
                 appReqCaptor.capture(),
                 eq(principal),
                 eq("payment_key"),
@@ -139,6 +150,8 @@ class PaymentControllerTest {
         given(paymentIntentService.resolveUserId(principal)).willReturn(10L);
         given(paymentIntentService.findExistingApplicationResponse("MATE-1-10-1708500000000", 10L))
                 .willReturn(Optional.of(existing));
+        given(paymentTransactionService.findByOrderId("MATE-1-10-1708500000000"))
+                .willReturn(Optional.empty());
 
         var response = paymentController.confirmTossPayment(request, principal);
 
@@ -147,6 +160,38 @@ class PaymentControllerTest {
 
         verify(paymentIntentService, never()).resolveIntentForConfirm(any(), any());
         verify(tossPaymentService, never()).confirmPayment(any(), any(), any());
+    }
+
+    @Test
+    void confirmTossPayment_rejectsRetryWhenExistingTransactionFlowMismatched() {
+        Principal principal = () -> "test@example.com";
+
+        TossPaymentDTO.ClientConfirmRequest request = TossPaymentDTO.ClientConfirmRequest.builder()
+                .paymentKey("pk_test")
+                .orderId("MATE-1-10-1708500000000")
+                .partyId(1L)
+                .flowType(PaymentFlowType.DEPOSIT)
+                .build();
+
+        PartyApplicationDTO.Response existing = PartyApplicationDTO.Response.builder()
+                .id(100L)
+                .partyId(1L)
+                .paymentType(PartyApplication.PaymentType.DEPOSIT)
+                .build();
+
+        given(paymentIntentService.resolveUserId(principal)).willReturn(10L);
+        given(paymentIntentService.findExistingApplicationResponse("MATE-1-10-1708500000000", 10L))
+                .willReturn(Optional.of(existing));
+        given(paymentTransactionService.findByOrderId("MATE-1-10-1708500000000"))
+                .willReturn(Optional.of(PaymentTransaction.builder()
+                        .id(10L)
+                        .orderId("MATE-1-10-1708500000000")
+                        .flowType(PaymentFlowType.SELLING_FULL)
+                        .build()));
+
+        assertThatThrownBy(() -> paymentController.confirmTossPayment(request, principal))
+                .isInstanceOf(TossPaymentException.class)
+                .hasMessageContaining("기존 결제 트랜잭션");
     }
 
     @Test
@@ -180,7 +225,7 @@ class PaymentControllerTest {
                 .willReturn(Optional.empty());
         given(paymentIntentService.resolveIntentForConfirm(request, principal)).willReturn(intent);
         given(tossPaymentService.confirmPayment("pk_test", "MATE-1-10-1708500000000", 35000)).willReturn(tossResponse);
-        given(applicationService.createApplicationWithPayment(
+        given(applicationService.createOrGetApplicationWithPayment(
                 any(PartyApplicationDTO.Request.class),
                 eq(principal),
                 eq("payment_key"),
@@ -193,6 +238,19 @@ class PaymentControllerTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("save failed");
 
-        verify(paymentIntentService).compensateAfterApplicationFailure(eq(intent), any(IllegalStateException.class));
+        verify(paymentIntentService).compensateAfterApplicationFailure(eq(intent.getId()), any(IllegalStateException.class));
+    }
+
+    @Test
+    void prepareTossPayment_directTradeMode_throws503() {
+        given(matePaymentModeService.isDirectTrade()).willReturn(true);
+
+        TossPaymentDTO.PrepareClientRequest request = TossPaymentDTO.PrepareClientRequest.builder()
+                .partyId(1L)
+                .build();
+
+        assertThatThrownBy(() -> paymentController.prepareTossPayment(request, () -> "test@example.com"))
+                .isInstanceOf(TossPaymentException.class)
+                .hasMessageContaining("직거래 모드");
     }
 }

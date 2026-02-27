@@ -3,8 +3,6 @@ package com.example.cheerboard.domain;
 import com.example.auth.entity.UserEntity;
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -30,8 +28,8 @@ public class CheerComment {
     @JoinColumn(name = "author_id", nullable = false)
     private UserEntity author;
 
-    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
-    @Column(nullable = false)
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.LONG32VARCHAR)
+    @Column(name = "content", nullable = false)
     private String content;
 
     // 대댓글 기능: 부모 댓글 참조 (null이면 최상위 댓글)

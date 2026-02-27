@@ -63,6 +63,9 @@ public class PayoutTransaction {
     @Column(name = "fail_reason", length = 1000)
     private String failReason;
 
+    @Column(name = "failure_code", length = 100)
+    private String failureCode;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

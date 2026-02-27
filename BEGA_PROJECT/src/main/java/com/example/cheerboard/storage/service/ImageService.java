@@ -88,7 +88,7 @@ public class ImageService {
                 .map(file -> CompletableFuture.supplyAsync(() -> {
                     try {
                         // 1. 서버 사이드 이미지 압축 및 WebP 변환
-                        var processed = imageUtil.process(file);
+                        var processed = imageUtil.process(file, "cheer_post");
                         log.debug("이미지 처리 완료: 원본={}bytes -> 처리후={}bytes ({})",
                                 file.getSize(), processed.getSize(), processed.getExtension());
 
@@ -260,6 +260,10 @@ public class ImageService {
         Map<Long, List<String>> groupedUrls = new HashMap<>();
 
         for (PostImage image : images) {
+            if (image == null || image.getPost() == null || image.getPost().getId() == null) {
+                continue;
+            }
+
             Long postId = image.getPost().getId();
             String url = generateSignedUrl(image.getStoragePath());
             if (url == null || url.isEmpty()) {
@@ -521,7 +525,7 @@ public class ImageService {
                     .map(file -> CompletableFuture.supplyAsync(() -> {
                         try {
                             // 이미지 압축 및 WebP 변환
-                            var processed = imageUtil.process(file);
+                            var processed = imageUtil.process(file, "cheer_diary");
 
                             String fileName = UUID.randomUUID() + "." + processed.getExtension();
                             String storagePath = String.format("diary/%d/%d/%s",

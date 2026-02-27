@@ -20,7 +20,7 @@ import java.util.ArrayList;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@org.hibernate.annotations.SQLRestriction("deleted = false")
+@org.hibernate.annotations.SQLRestriction("LOWER(TRIM(CAST(deleted AS CHAR(5)))) IN ('0','f','false')")
 public class CheerPost {
 
     /**
@@ -64,7 +64,8 @@ public class CheerPost {
 
     // title removed
 
-    @Column(columnDefinition = "TEXT", nullable = true) // 단순 리포스트는 내용 없음
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.LONG32VARCHAR)
+    @Column(nullable = true, name = "content") // 단순 리포스트는 내용 없음
     private String content;
 
     @Column(name = "likecount", nullable = false)
@@ -134,7 +135,7 @@ public class CheerPost {
 
     @Column(nullable = false)
     @Builder.Default
-    private boolean deleted = false;
+    private Boolean deleted = false;
 
     // 연관관계 매핑 (cascade 삭제를 위해 추가)
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)

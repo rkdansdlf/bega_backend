@@ -19,6 +19,7 @@ import org.springframework.data.domain.Pageable;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.time.LocalDate;
 import java.security.Principal;
@@ -38,17 +39,21 @@ public class PartyService {
     private final UserProviderRepository userProviderRepository;
     private final com.example.notification.service.NotificationService notificationService;
     private final com.example.profile.storage.service.ProfileImageService profileImageService;
+    @Value("${mate.auth.require-social-verification:true}")
+    private boolean requireSocialVerification;
 
     @Transactional
     public PartyDTO.Response createParty(@NonNull PartyDTO.Request request, Principal principal) {
         Long hostId = getUserIdFromPrincipal(principal);
 
         // 본인인증(소셜 연동) 여부 확인
-        boolean isSocialVerified = userProviderRepository.findByUserId(hostId).stream()
-                .anyMatch(p -> "kakao".equalsIgnoreCase(p.getProvider()) || "naver".equalsIgnoreCase(p.getProvider()));
-        if (!isSocialVerified) {
-            throw new com.example.common.exception.IdentityVerificationRequiredException(
-                    "메이트를 생성하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
+        if (requireSocialVerification) {
+            boolean isSocialVerified = userProviderRepository.findByUserId(hostId).stream()
+                    .anyMatch(p -> "kakao".equalsIgnoreCase(p.getProvider()) || "naver".equalsIgnoreCase(p.getProvider()));
+            if (!isSocialVerified) {
+                throw new com.example.common.exception.IdentityVerificationRequiredException(
+                        "메이트를 생성하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
+            }
         }
 
         // 사용자 정보에서 profileImageUrl, favoriteTeam 가져오기
@@ -189,37 +194,48 @@ public class PartyService {
         }
 
         boolean hasApprovedApplications = applicationRepository.countByPartyIdAndIsApprovedTrue(id) > 0;
+        Party.PartyStatus originalStatus = party.getStatus();
+        boolean sellingConversionRequested = request.getStatus() == Party.PartyStatus.SELLING;
 
-        if (request.getStatus() != null) {
-            party.setStatus(request.getStatus());
-        }
         if (request.getDescription() != null) {
             party.setDescription(request.getDescription());
         }
 
-        // price, section, maxParticipants, ticketPrice는 PENDING 상태이고 승인된 신청이 없을 때만 변경
-        // 가능
-        if (party.getStatus() == Party.PartyStatus.PENDING && !hasApprovedApplications) {
-            if (request.getPrice() != null) {
-                party.setPrice(request.getPrice());
-            }
-            if (request.getSection() != null) {
-                party.setSection(request.getSection());
-            }
-            if (request.getMaxParticipants() != null) {
-                if (request.getMaxParticipants() < party.getCurrentParticipants()) {
-                    throw new InvalidApplicationStatusException(
-                            "최대 참여 인원은 현재 참여 인원(" + party.getCurrentParticipants() + "명) 이상이어야 합니다.");
-                }
-                party.setMaxParticipants(request.getMaxParticipants());
-            }
+        if (sellingConversionRequested) {
+            validateSellingConversionRequest(party, request, hasApprovedApplications, originalStatus);
+            party.setStatus(Party.PartyStatus.SELLING);
+            party.setPrice(request.getPrice());
             if (request.getTicketPrice() != null) {
                 party.setTicketPrice(request.getTicketPrice());
             }
-        } else if (request.getPrice() != null || request.getSection() != null || request.getMaxParticipants() != null
-                || request.getTicketPrice() != null) {
-            throw new InvalidApplicationStatusException(
-                    "승인된 참여자가 있거나 모집 중 상태가 아닌 경우 가격/좌석/인원을 변경할 수 없습니다.");
+        } else {
+            if (request.getStatus() != null) {
+                party.setStatus(request.getStatus());
+            }
+
+            // price, section, maxParticipants, ticketPrice는 PENDING 상태이고 승인된 신청이 없을 때만 변경 가능
+            if (party.getStatus() == Party.PartyStatus.PENDING && !hasApprovedApplications) {
+                if (request.getPrice() != null) {
+                    party.setPrice(request.getPrice());
+                }
+                if (request.getSection() != null) {
+                    party.setSection(request.getSection());
+                }
+                if (request.getMaxParticipants() != null) {
+                    if (request.getMaxParticipants() < party.getCurrentParticipants()) {
+                        throw new InvalidApplicationStatusException(
+                                "최대 참여 인원은 현재 참여 인원(" + party.getCurrentParticipants() + "명) 이상이어야 합니다.");
+                    }
+                    party.setMaxParticipants(request.getMaxParticipants());
+                }
+                if (request.getTicketPrice() != null) {
+                    party.setTicketPrice(request.getTicketPrice());
+                }
+            } else if (request.getPrice() != null || request.getSection() != null || request.getMaxParticipants() != null
+                    || request.getTicketPrice() != null) {
+                throw new InvalidApplicationStatusException(
+                        "승인된 참여자가 있거나 모집 중 상태가 아닌 경우 가격/좌석/인원을 변경할 수 없습니다.");
+            }
         }
 
         party.setSearchText(buildSearchText(
@@ -232,6 +248,29 @@ public class PartyService {
 
         Party updatedParty = partyRepository.save(party);
         return Objects.requireNonNull(convertToDto(updatedParty));
+    }
+
+    private void validateSellingConversionRequest(
+            Party party,
+            PartyDTO.UpdateRequest request,
+            boolean hasApprovedApplications,
+            Party.PartyStatus originalStatus) {
+        if (originalStatus != Party.PartyStatus.PENDING && originalStatus != Party.PartyStatus.FAILED) {
+            throw new InvalidApplicationStatusException(
+                    "판매 전환은 모집 중(PENDING) 또는 실패(FAILED) 상태에서만 가능합니다.");
+        }
+        if (hasApprovedApplications) {
+            throw new InvalidApplicationStatusException("승인된 참여자가 있는 파티는 판매 전환할 수 없습니다.");
+        }
+        if (request.getPrice() == null) {
+            throw new InvalidApplicationStatusException("판매 전환 시 price는 필수입니다.");
+        }
+        if (request.getPrice() < 100) {
+            throw new InvalidApplicationStatusException("판매 가격은 최소 100원 이상이어야 합니다.");
+        }
+        if (request.getSection() != null || request.getMaxParticipants() != null) {
+            throw new InvalidApplicationStatusException("판매 전환 요청에서는 좌석/인원 변경을 함께 요청할 수 없습니다.");
+        }
     }
 
     // 파티 참여 인원 증가

@@ -8,6 +8,7 @@ import lombok.Setter;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.util.List;
 
 @Getter
 @Setter
@@ -51,4 +52,10 @@ public class UserProfileDto {
     private String provider;
     private String providerId;
     private boolean hasPassword;
+
+    private boolean policyConsentRequired;
+    private boolean policyConsentNoticeRequired;
+    private List<String> missingPolicyTypes;
+    private String policyConsentEffectiveDate;
+    private String policyConsentHardGateDate;
 }

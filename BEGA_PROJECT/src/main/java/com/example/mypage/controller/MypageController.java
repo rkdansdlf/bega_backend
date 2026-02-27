@@ -6,6 +6,7 @@ import com.example.mypage.dto.UserProfileDto;
 import com.example.mypage.dto.DeviceSessionDto;
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.repository.RefreshRepository;
+import com.example.auth.service.PolicyConsentService;
 import com.example.auth.util.AuthCookieUtil;
 
 import com.example.auth.service.UserService;
@@ -48,6 +49,7 @@ public class MypageController {
         private final ProfileImageService profileImageService;
         private final RefreshRepository refreshRepository;
         private final AuthCookieUtil authCookieUtil;
+        private final PolicyConsentService policyConsentService;
 
         // 프로필 정보 조회 (GET /mypage) - 수정 없음
         @GetMapping("/mypage")
@@ -63,6 +65,8 @@ public class MypageController {
                         // JWT 토큰에서 ID (userId) 사용
                         // UserService를 통해 실제 DB에서 사용자 정보 조회
                         UserEntity userEntity = userService.findUserById(userId);
+                        PolicyConsentService.PolicyConsentStatus policyConsentStatus = policyConsentService
+                                        .evaluatePolicyConsentStatus(userId);
 
                         // Entity를 DTO로 변환
                         UserProfileDto profileDto = UserProfileDto.builder()
@@ -86,6 +90,11 @@ public class MypageController {
                                         .provider(userEntity.getProvider())
                                         .providerId(userEntity.getProviderId())
                                         .hasPassword(userEntity.getPassword() != null)
+                                        .policyConsentRequired(policyConsentStatus.policyConsentRequired())
+                                        .policyConsentNoticeRequired(policyConsentStatus.policyConsentNoticeRequired())
+                                        .missingPolicyTypes(policyConsentStatus.missingPolicyTypes())
+                                        .policyConsentEffectiveDate(policyConsentStatus.effectiveDate())
+                                        .policyConsentHardGateDate(policyConsentStatus.hardGateDate())
                                         .build();
 
                         // 성공 응답 (HTTP 200 OK)

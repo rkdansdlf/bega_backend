@@ -20,6 +20,7 @@ public class CheckInRecordDTO {
         private Long userId;
         private String location;
         private String qrSessionId;
+        private String manualCode;
     }
 
     @Data
@@ -39,6 +40,7 @@ public class CheckInRecordDTO {
         private Long partyId;
         private Instant expiresAt;
         private String checkinUrl;
+        private String manualCode;
     }
 
     @Data

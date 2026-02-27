@@ -24,8 +24,25 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
-@ActiveProfiles("local")
+@ActiveProfiles("test")
 @TestPropertySource(properties = {
+        "spring.profiles.active=test",
+        "spring.datasource.url=jdbc:h2:mem:bega_follow_block;DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
+        "spring.datasource.driver-class-name=org.h2.Driver",
+        "spring.datasource.username=sa",
+        "spring.datasource.password=",
+        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.flyway.enabled=false",
+        "spring.jpa.open-in-view=false",
+        "spring.data.redis.host=127.0.0.1",
+        "spring.data.redis.port=6379",
+        "spring.data.redis.repositories.enabled=false",
+        "storage.type=oci",
+        "oci.s3.endpoint=http://localhost:4566",
+        "oci.s3.access-key=test-access-key",
+        "oci.s3.secret-key=test-secret-key",
+        "oci.s3.bucket=test-bucket",
+        "oci.s3.region=ap-seoul-1",
         "spring.autoconfigure.exclude=io.awspring.cloud.autoconfigure.s3.S3AutoConfiguration"
 })
 @Transactional

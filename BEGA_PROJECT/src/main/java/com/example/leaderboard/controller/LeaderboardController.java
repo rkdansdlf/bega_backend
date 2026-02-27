@@ -4,6 +4,7 @@ import com.example.leaderboard.dto.*;
 import com.example.leaderboard.service.AchievementService;
 import com.example.leaderboard.service.LeaderboardService;
 import com.example.leaderboard.service.PowerupService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -20,6 +21,7 @@ import java.util.stream.Collectors;
  * 리더보드 API 컨트롤러
  * 레트로 게이미피케이션 리더보드 시스템의 REST API 엔드포인트
  */
+@Tag(name = "리더보드", description = "리더보드 조회, 파워업, 업적, 핫스트릭, 사용자 순위")
 @RestController
 @RequestMapping("/api/leaderboard")
 @RequiredArgsConstructor
@@ -300,6 +302,7 @@ public class LeaderboardController {
      * 테스트 데이터 시드 (개발/테스트 전용)
      * 기존 점수가 없는 사용자에게 랜덤 점수 데이터를 생성합니다.
      */
+    @org.springframework.context.annotation.Profile("!prod")
     @PostMapping("/seed-test-data")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> seedTestData() {

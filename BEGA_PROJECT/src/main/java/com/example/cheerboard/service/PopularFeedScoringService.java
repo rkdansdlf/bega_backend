@@ -23,10 +23,10 @@ public class PopularFeedScoringService {
     private static final double ENGAGEMENT_REPOST_WEIGHT = 3.0;
     private static final double ENGAGEMENT_VIEW_SMOOTHING = 20.0;
 
-    private static final double HYBRID_GLOBAL_WEIGHT = 0.6;
-    private static final double HYBRID_TEAM_WEIGHT = 0.25;
-    private static final double HYBRID_FOLLOW_WEIGHT = 0.15;
-    private static final double HYBRID_GLOBAL_NORMALIZER = 20.0;
+    private static final double HYBRID_GLOBAL_WEIGHT = 0.7;
+    private static final double HYBRID_TEAM_WEIGHT = 0.2;
+    private static final double HYBRID_FOLLOW_WEIGHT = 0.1;
+    private static final double HYBRID_GLOBAL_NORMALIZER = 200.0;
 
     public double calculateTimeDecayScore(CheerPost post, int combinedViews, Instant now) {
         double baseScore = (post.getLikeCount() * TIME_DECAY_LIKE_WEIGHT)
@@ -39,7 +39,7 @@ public class PopularFeedScoringService {
             ageSeconds = 0;
         }
         double ageHours = ageSeconds / 3600.0;
-        double decay = Math.exp(-(ageHours / TIME_DECAY_HALF_LIFE_HOURS));
+        double decay = Math.pow(0.5, ageHours / TIME_DECAY_HALF_LIFE_HOURS);
         return baseScore * decay;
     }
 

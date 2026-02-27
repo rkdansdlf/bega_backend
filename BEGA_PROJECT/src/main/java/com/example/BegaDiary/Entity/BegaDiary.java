@@ -8,6 +8,7 @@ import java.util.List;
 import com.example.kbo.entity.GameEntity;
 import com.example.auth.entity.UserEntity;
 
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
@@ -108,6 +109,8 @@ public class BegaDiary {
 	private DiaryWinning winning;
 
 	@ElementCollection
+	@CollectionTable(name = "bega_diary_photo_urls", joinColumns = @JoinColumn(name = "bega_diary_id"))
+	@Column(name = "photo_urls", nullable = false, length = 2048)
 	private List<String> photoUrls = new ArrayList<>(); // 사진 URL 목록
 
 	@Column(name = "createdat", nullable = false, updatable = false)
@@ -123,10 +126,10 @@ public class BegaDiary {
 	@Column(length = 50)
 	private String block; // 예: "101구역", "A열"
 
-	@Column(name = "seatrow", length = 50)
+	@Column(name = "seat_row", length = 50)
 	private String seatRow; // "row"는 SQL 예약어일 가능성 있음
 
-	@Column(name = "seatnumber", length = 50)
+	@Column(name = "seat_number", length = 50)
 	private String seatNumber;
 
 	@Builder

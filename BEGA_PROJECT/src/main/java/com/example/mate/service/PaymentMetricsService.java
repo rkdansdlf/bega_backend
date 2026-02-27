@@ -13,6 +13,7 @@ public class PaymentMetricsService {
 
     private final Counter compensationSuccess;
     private final Counter compensationFail;
+    private final Counter compensationRequested;
 
     private final Counter refundPartial;
     private final Counter refundFull;
@@ -46,6 +47,10 @@ public class PaymentMetricsService {
         this.compensationFail = Counter.builder("mate_payment_compensation_total")
                 .description("결제 취소 보상 처리 실패 건수")
                 .tag("result", "fail")
+                .register(meterRegistry);
+
+        this.compensationRequested = Counter.builder("mate_payment_compensation_requested_total")
+                .description("결제 취소 보상 처리 시도 건수")
                 .register(meterRegistry);
 
         this.refundPartial = Counter.builder("mate_refund_total")
@@ -92,7 +97,13 @@ public class PaymentMetricsService {
             compensationSuccess.increment();
             return;
         }
-        compensationFail.increment();
+        if ("fail".equals(result)) {
+            compensationFail.increment();
+        }
+    }
+
+    public void recordCompensationRequested() {
+        compensationRequested.increment();
     }
 
     public void recordRefund(String policy) {

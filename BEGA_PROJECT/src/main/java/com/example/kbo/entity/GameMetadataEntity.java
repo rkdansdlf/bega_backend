@@ -44,7 +44,7 @@ public class GameMetadataEntity {
     @Column(name = "weather", length = 50)
     private String weather;
 
-    @Column(name = "source_payload", columnDefinition = "TEXT")
+    @Column(name = "source_payload")
     private String sourcePayload;
 
     @Column(name = "created_at")

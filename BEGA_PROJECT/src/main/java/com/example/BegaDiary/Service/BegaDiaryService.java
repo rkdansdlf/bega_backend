@@ -8,6 +8,8 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +22,7 @@ import com.example.BegaDiary.Entity.BegaDiary.DiaryWinning;
 import com.example.BegaDiary.Entity.DiaryRequestDto;
 import com.example.BegaDiary.Entity.DiaryResponseDto;
 import com.example.BegaDiary.Entity.DiaryStatisticsDto;
+import com.example.BegaDiary.Entity.SeatViewPhotoDto;
 import com.example.BegaDiary.Exception.DiaryAlreadyExistsException;
 import com.example.BegaDiary.Exception.DiaryNotFoundException;
 import com.example.BegaDiary.Exception.GameNotFoundException;
@@ -76,6 +79,15 @@ public class BegaDiaryService {
                     return DiaryResponseDto.from(diary, signedUrls);
                 })
                 .collect(Collectors.collectingAndThen(Collectors.toList(), Objects::requireNonNull));
+    }
+
+    // 특정 다이어리 엔티티 조회 (컨트롤러에서 리워드 처리 시 사용)
+    public BegaDiary getDiaryEntityById(Long id) {
+        if (id == null) {
+            throw new IllegalArgumentException("Diary ID cannot be null");
+        }
+        return this.diaryRepository.findById(id)
+                .orElseThrow(() -> new DiaryNotFoundException(id));
     }
 
     // 특정 다이어리 조회
@@ -466,6 +478,58 @@ public class BegaDiaryService {
                 .luckyDay(luckyDay)
                 .earnedBadges(earnedBadges)
                 .build());
+    }
+
+    // 좌석 시야 사진 목록 조회 (공개 API용)
+    public List<SeatViewPhotoDto> getSeatViewPhotos(String stadium, String section, int limit) {
+        Pageable pageable = PageRequest.of(0, Math.max(1, limit));
+        List<BegaDiary> diaries;
+
+        if (section != null && !section.isBlank()) {
+            diaries = diaryRepository.findSeatViewPhotos(stadium, section, DiaryType.ATTENDED, pageable);
+        } else {
+            diaries = diaryRepository.findSeatViewPhotosByStadium(stadium, DiaryType.ATTENDED, pageable);
+        }
+
+        // 각 다이어리의 photoUrls 플래팅
+        List<String> allUrls = diaries.stream()
+                .filter(d -> d.getPhotoUrls() != null)
+                .flatMap(d -> d.getPhotoUrls().stream())
+                .limit(limit)
+                .collect(Collectors.toList());
+
+        if (allUrls.isEmpty()) {
+            return List.of();
+        }
+
+        // Signed URL 변환
+        List<String> signedUrls;
+        try {
+            signedUrls = imageService.getDiaryImageSignedUrls(allUrls).block();
+            if (signedUrls == null) signedUrls = allUrls;
+        } catch (Exception e) {
+            log.warn("시야 사진 Signed URL 변환 실패, 원본 URL 사용: {}", e.getMessage());
+            signedUrls = allUrls;
+        }
+
+        // URL → DTO 매핑 (diary 메타데이터 포함)
+        List<SeatViewPhotoDto> result = new ArrayList<>();
+        int urlIndex = 0;
+        outer:
+        for (BegaDiary d : diaries) {
+            if (d.getPhotoUrls() == null) continue;
+            for (int i = 0; i < d.getPhotoUrls().size(); i++, urlIndex++) {
+                if (urlIndex >= signedUrls.size() || result.size() >= limit) break outer;
+                result.add(SeatViewPhotoDto.builder()
+                        .photoUrl(signedUrls.get(urlIndex))
+                        .stadium(d.getStadium())
+                        .section(d.getSection())
+                        .block(d.getBlock())
+                        .diaryDate(d.getDiaryDate() != null ? d.getDiaryDate().toString() : null)
+                        .build());
+            }
+        }
+        return result;
     }
 
     private String getDayOfWeekKorean(java.time.DayOfWeek dayOfWeek) {

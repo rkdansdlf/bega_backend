@@ -291,30 +291,23 @@ public class JWTFilter extends OncePerRequestFilter {
         if (origin.equals(pattern)) {
             return true;
         }
-        if (pattern.endsWith(":*")) {
-            try {
-                URI originUri = URI.create(origin);
-                int wildcardIndex = pattern.lastIndexOf(":*");
-                String patternBase = pattern.substring(0, wildcardIndex);
-                int protocolIndex = patternBase.indexOf("://");
 
-                if (protocolIndex == -1) {
-                    return false;
-                }
+        // Exact matching logic for hosts without wildcard
+        try {
+            URI originUri = URI.create(origin);
+            URI patternUri = URI.create(pattern.replace(":*", ""));
 
-                String scheme = patternBase.substring(0, protocolIndex);
-                String host = patternBase.substring(protocolIndex + 3);
-                if (host.endsWith(":")) {
-                    host = host.substring(0, host.length() - 1);
-                }
-
-                return Objects.equals(originUri.getScheme(), scheme)
-                        && Objects.equals(originUri.getHost(), host);
-            } catch (IllegalArgumentException e) {
-                return false;
+            if (pattern.endsWith(":*")) {
+                return Objects.equals(originUri.getScheme(), patternUri.getScheme())
+                        && Objects.equals(originUri.getHost(), patternUri.getHost());
+            } else {
+                return Objects.equals(originUri.getScheme(), patternUri.getScheme())
+                        && Objects.equals(originUri.getHost(), patternUri.getHost())
+                        && originUri.getPort() == patternUri.getPort();
             }
+        } catch (IllegalArgumentException e) {
+            return false;
         }
-        return false;
     }
 
     private boolean isAccountUsable(UserEntity user) {

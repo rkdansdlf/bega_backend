@@ -3,6 +3,7 @@ package com.example.common.image;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import javax.imageio.ImageIO;
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -41,7 +42,9 @@ class VerifyImageUtil {
                 imageBytes);
 
         // 2. Process with ImageUtil
-        ImageUtil imageUtil = new ImageUtil();
+        ImageOptimizationMetricsService metricsService = new ImageOptimizationMetricsService(new SimpleMeterRegistry());
+        ImageUtil imageUtil = new ImageUtil(metricsService);
+        imageUtil.init();
         ImageUtil.ProcessedImage processed = imageUtil.process(originalFile);
 
         // 3. Verify results

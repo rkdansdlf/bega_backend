@@ -1,9 +1,13 @@
 package com.example.stadium.config;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import javax.sql.DataSource;
 
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.orm.jpa.EntityManagerFactoryBuilder;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -29,6 +33,15 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 )
 public class StadiumPostgresJpaConfig {
 
+	private static final String HIBERNATE_DEFAULT_SCHEMA = "hibernate.default_schema";
+	private static final String HIBERNATE_HBM2DDL_AUTO = "hibernate.hbm2ddl.auto";
+
+	@Value("${baseball.datasource.data-source-properties.currentSchema:public}")
+	private String stadiumDefaultSchema;
+
+	@Value("${baseball.jpa.hibernate.ddl-auto:none}")
+	private String stadiumDdlAuto;
+
 	@Bean
 	@ConfigurationProperties("baseball.datasource")
 	public DataSourceProperties stadiumDataSourceProperties() {
@@ -46,10 +59,15 @@ public class StadiumPostgresJpaConfig {
 	@Bean
 	public LocalContainerEntityManagerFactoryBean stadiumEntityManagerFactory(
 			EntityManagerFactoryBuilder builder) {
+		Map<String, Object> jpaProperties = new LinkedHashMap<>();
+		jpaProperties.put(HIBERNATE_DEFAULT_SCHEMA, stadiumDefaultSchema);
+		jpaProperties.put(HIBERNATE_HBM2DDL_AUTO, stadiumDdlAuto);
+
 		return builder
 				.dataSource(stadiumDataSource())
 				.packages("com.example.stadium.entity")
 				.persistenceUnit("stadium")
+				.properties(jpaProperties)
 				.build();
 	}
 

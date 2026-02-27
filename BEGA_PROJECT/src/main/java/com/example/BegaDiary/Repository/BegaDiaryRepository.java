@@ -4,12 +4,14 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import com.example.BegaDiary.Entity.BegaDiary;
+import com.example.BegaDiary.Entity.BegaDiary.DiaryType;
 import com.example.BegaDiary.Entity.BegaDiary.DiaryWinning;
 import com.example.auth.entity.UserEntity;
 
@@ -57,5 +59,20 @@ public interface BegaDiaryRepository extends JpaRepository<BegaDiary, Long> {
        @Query("SELECT COUNT(d) FROM BegaDiary d WHERE d.user.id = :userId AND YEAR(d.diaryDate) = :year AND MONTH(d.diaryDate) = :month")
        int countByUserIdAndYearAndMonth(@Param("userId") Long userId, @Param("year") int year,
                      @Param("month") int month);
+
+       // 좌석 시야 사진 조회 (stadium + section 필터)
+       @Query("SELECT d FROM BegaDiary d WHERE d.stadium = :stadium AND d.section = :section AND d.type = :type AND d.photoUrls IS NOT EMPTY ORDER BY d.diaryDate DESC")
+       List<BegaDiary> findSeatViewPhotos(
+                     @Param("stadium") String stadium,
+                     @Param("section") String section,
+                     @Param("type") DiaryType type,
+                     Pageable pageable);
+
+       // 좌석 시야 사진 조회 (stadium만 필터, section 없는 경우 fallback)
+       @Query("SELECT d FROM BegaDiary d WHERE d.stadium = :stadium AND d.type = :type AND d.photoUrls IS NOT EMPTY ORDER BY d.diaryDate DESC")
+       List<BegaDiary> findSeatViewPhotosByStadium(
+                     @Param("stadium") String stadium,
+                     @Param("type") DiaryType type,
+                     Pageable pageable);
 
 }

@@ -21,6 +21,7 @@ public class CheerBattleService {
     private final CheerVoteRepository cheerVoteRepository;
     private final com.example.cheerboard.repository.CheerBattleLogRepository cheerBattleLogRepository;
     private final com.example.auth.repository.UserRepository userRepository;
+    private final CheerMonitoringMetricsService metricsService;
 
     // Game ID -> Team ID -> Vote Count (In-memory cache)
     private final Map<String, Map<String, AtomicInteger>> gameVotes = new ConcurrentHashMap<>();
@@ -31,15 +32,24 @@ public class CheerBattleService {
 
         // Check if already voted
         if (cheerBattleLogRepository.existsByGameIdAndUserEmail(gameId, userEmail)) {
+            metricsService.recordBattleVote("already_voted");
             throw new IllegalStateException("이미 투표에 참여하셨습니다.");
         }
 
         // 1. 사용자 포인트 차감
         com.example.auth.entity.UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> {
+                    metricsService.recordBattleVote("user_not_found");
+                    return new IllegalArgumentException("사용자를 찾을 수 없습니다.");
+                });
 
         // 포인트 차감 (부족하면 예외 발생)
-        user.deductCheerPoints(1);
+        try {
+            user.deductCheerPoints(1);
+        } catch (IllegalStateException e) {
+            metricsService.recordBattleVote("insufficient_points");
+            throw e;
+        }
         userRepository.save(user);
 
         // 2. Save Vote Log
@@ -81,6 +91,7 @@ public class CheerBattleService {
 
         entity.setVoteCount(newValue);
         cheerVoteRepository.save(entity);
+        metricsService.recordBattleVote("success");
 
         return newValue;
     }
