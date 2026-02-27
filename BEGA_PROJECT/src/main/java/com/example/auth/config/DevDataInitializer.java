@@ -108,11 +108,11 @@ public class DevDataInitializer implements CommandLineRunner {
                     u.setPassword(passwordEncoder.encode(password));
                     updated = true;
                 }
-                if (u.getEnabled() == null || !u.getEnabled()) {
+                if (!u.isEnabled()) {
                     u.setEnabled(true);
                     updated = true;
                 }
-                if (u.getLocked() == null || u.getLocked()) {
+                if (u.isLocked()) {
                     u.setLocked(false);
                     updated = true;
                 }
