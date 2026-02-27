@@ -35,6 +35,9 @@ class CheerBattleServiceTest {
     @Mock
     private com.example.cheerboard.repository.CheerBattleLogRepository cheerBattleLogRepository;
 
+    @Mock
+    private CheerMonitoringMetricsService metricsService;
+
     @Test
     @DisplayName("Normally vote - deduct points and increment count")
     void vote_success() {

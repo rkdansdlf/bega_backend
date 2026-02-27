@@ -38,7 +38,7 @@ public class RecentScoreDto {
                 .eventType(event.getEventType().name())
                 .eventTypeKo(event.getEventType().getKoreanName())
                 .baseScore(event.getBaseScore())
-                .multiplier(event.getMultiplier())
+                .multiplier(event.getMultiplier() == null ? null : event.getMultiplier().doubleValue())
                 .score(event.getFinalScore())
                 .streak(event.getStreakCount())
                 .description(event.getDescription())

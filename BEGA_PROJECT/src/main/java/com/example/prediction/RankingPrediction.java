@@ -3,12 +3,10 @@ package com.example.prediction;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
-
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import com.example.common.converter.StringListJsonConverter;
 
 @Entity
 @Table(name = "ranking_predictions")
@@ -26,8 +24,9 @@ public class RankingPrediction {
 	@Column(name = "season_year")
 	private int seasonYear;
 
-	@JdbcTypeCode(SqlTypes.JSON)
-	@Column(name = "prediction_data")
+	@Convert(converter = StringListJsonConverter.class)
+	@org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.LONG32VARCHAR)
+	@Column(name = "prediction_data", nullable = false)
 	private List<String> predictionData;
 
 	@Column(name = "created_at", updatable = false)

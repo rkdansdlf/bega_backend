@@ -1,6 +1,8 @@
 package com.example.leaderboard.service;
 
+import com.example.leaderboard.dto.AchievementDto;
 import com.example.leaderboard.dto.ScoreResultDto;
+import com.example.leaderboard.dto.SeatViewRewardDto;
 import com.example.leaderboard.entity.*;
 import com.example.leaderboard.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +31,8 @@ public class ScoringService {
     private static final int BASE_CORRECT_SCORE = 100;
     private static final int UPSET_BONUS = 50;
     private static final int PERFECT_DAY_BONUS = 200;
+    private static final int SEAT_VIEW_FIRST_POINTS = 100;
+    private static final int SEAT_VIEW_POINTS = 50;
 
     /**
      * 예측 결과 처리
@@ -209,6 +213,63 @@ public class ScoringService {
         achievementService.awardAchievement(userId, Achievement.PERFECT_DAY);
 
         log.info("User {} achieved PERFECT DAY! {} games won.", userId, gamesWon);
+    }
+
+    /**
+     * 좌석 시야 사진 기여 리워드 처리
+     *
+     * @param userId   사용자 ID
+     * @param diaryId  다이어리 ID (idempotency 키)
+     * @param stadium  구장명 (distinct 구장 수 집계용)
+     * @return 리워드 결과 DTO (중복 기여 시 null)
+     */
+    @Transactional
+    public SeatViewRewardDto processSeatViewReward(Long userId, Long diaryId, String stadium) {
+        // 중복 처리 방지
+        if (scoreEventRepository.existsByDiaryIdAndUserId(diaryId, userId)) {
+            log.info("Seat view reward already processed for diaryId={}, userId={}. Skipping.", diaryId, userId);
+            return null;
+        }
+
+        // 사용자 점수 조회 또는 생성
+        UserScore userScore = userScoreRepository.findByUserId(userId)
+                .orElseGet(() -> userScoreRepository.save(UserScore.createForUser(userId)));
+
+        // 기존 기여 횟수 조회 (현재 기여 이전 값)
+        long previousContributions = scoreEventRepository.countSeatViewContributionsByUserId(userId);
+        boolean isFirst = (previousContributions == 0);
+
+        // 포인트 결정
+        int points = isFirst ? SEAT_VIEW_FIRST_POINTS : SEAT_VIEW_POINTS;
+
+        // 점수 추가 (연승 배율 미적용 - 1배 고정)
+        userScore.setTotalScore(userScore.getTotalScore() + points);
+        userScore.setSeasonScore(userScore.getSeasonScore() + points);
+        userScore.setMonthlyScore(userScore.getMonthlyScore() + points);
+        userScore.setWeeklyScore(userScore.getWeeklyScore() + points);
+        userScore.setExperiencePoints(userScore.getExperiencePoints() + points);
+        userScoreRepository.save(userScore);
+
+        // 이벤트 기록
+        ScoreEvent event = ScoreEvent.createSeatViewContribution(userId, diaryId, stadium, points, isFirst);
+        scoreEventRepository.save(event);
+
+        // 업적 체크 (현재 기여 포함 횟수)
+        long totalContributions = previousContributions + 1;
+        long distinctStadiums = scoreEventRepository.countDistinctStadiumsBySeatViewUserId(userId);
+        List<Achievement> newAchievements = achievementService.checkSeatViewAchievements(userId, totalContributions, distinctStadiums);
+
+        log.info("Seat view reward processed: userId={}, diaryId={}, points={}, isFirst={}, total={}",
+                userId, diaryId, points, isFirst, totalContributions);
+
+        return SeatViewRewardDto.builder()
+                .pointsEarned(points)
+                .firstContribution(isFirst)
+                .unlockedAchievements(newAchievements.stream()
+                        .map(a -> AchievementDto.from(a, true, LocalDateTime.now()))
+                        .toList())
+                .totalContributions(totalContributions)
+                .build();
     }
 
     /**

@@ -169,35 +169,72 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    * @return 순위 데이터 (Object[] 배열)
    */
   @Query(value = """
-      WITH team_stats AS (
+      WITH season_games AS (
           SELECT
-              tf.current_code as team_id,
-              MAX(tf.name) as team_name,
-              COALESCE(SUM(CASE WHEN g.winning_team = t.team_id THEN 1 ELSE 0 END), 0) as wins,
-              COALESCE(SUM(CASE
-                  WHEN (g.home_team = t.team_id AND g.winning_team IS NOT NULL AND g.winning_team != t.team_id)
-                    OR (g.away_team = t.team_id AND g.winning_team IS NOT NULL AND g.winning_team != t.team_id)
-                  THEN 1 ELSE 0 END), 0) as losses,
-              COALESCE(SUM(CASE
-                  WHEN (g.home_team = t.team_id OR g.away_team = t.team_id)
-                       AND g.winning_team IS NULL
-                       AND g.game_status = 'COMPLETED'
-                  THEN 1 ELSE 0 END), 0) as draws,
-              COALESCE(COUNT(CASE
-                  WHEN (g.home_team = t.team_id OR g.away_team = t.team_id)
-                       AND g.game_status = 'COMPLETED'
-                  THEN 1 END), 0) as games_played
-          FROM teams t
-          JOIN team_franchises tf ON t.franchise_id = tf.id
-          LEFT JOIN game g ON (g.home_team = t.team_id OR g.away_team = t.team_id)
-          JOIN kbo_seasons s ON g.season_id = s.season_id
-          WHERE s.season_year = :seasonYear
-            AND s.league_type_code = 0
-            AND g.game_status = 'COMPLETED'
-          GROUP BY tf.id, tf.current_code
+              UPPER(TRIM(g.home_team)) AS home_team_id,
+              UPPER(TRIM(g.away_team)) AS away_team_id,
+              g.home_score,
+              g.away_score
+          FROM game g
+          LEFT JOIN kbo_seasons s ON (
+              g.season_id = s.season_id
+              OR (g.season_id IS NULL AND s.season_year = EXTRACT(YEAR FROM g.game_date))
+          )
+          WHERE COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
+            AND COALESCE(s.league_type_code, 0) = 0
+            AND g.home_score IS NOT NULL
+            AND g.away_score IS NOT NULL
+            AND g.is_dummy IS NOT TRUE
+            AND g.game_id NOT LIKE 'MOCK%'
+      ),
+      team_games AS (
+          SELECT
+              home_team_id AS team_id,
+              home_score AS team_score,
+              away_score AS opp_score
+          FROM season_games
+          UNION ALL
+          SELECT
+              away_team_id AS team_id,
+              away_score AS team_score,
+              home_score AS opp_score
+          FROM season_games
+      ),
+      team_stats AS (
+          SELECT
+              team_id,
+              team_id AS team_name,
+              SUM(CASE WHEN team_score > opp_score THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN team_score < opp_score THEN 1 ELSE 0 END) AS losses,
+              SUM(CASE WHEN team_score = opp_score THEN 1 ELSE 0 END) AS draws,
+              COUNT(*) AS games_played
+          FROM team_games
+          WHERE team_id IS NOT NULL
+            AND team_id <> ''
+          GROUP BY team_id
+      ),
+      top_teams AS (
+          SELECT team_id
+          FROM team_stats
+          ORDER BY games_played DESC, team_id ASC
+          FETCH FIRST 10 ROWS ONLY
+      ),
+      ranked AS (
+          SELECT
+              ts.team_id,
+              ts.team_name,
+              ts.wins,
+              ts.losses,
+              ts.draws,
+              ts.games_played,
+              RANK() OVER (ORDER BY ts.wins DESC, ts.losses ASC, ts.team_id ASC) AS season_rank,
+              FIRST_VALUE(ts.wins) OVER (ORDER BY ts.wins DESC, ts.losses ASC, ts.team_id ASC) AS top_wins,
+              FIRST_VALUE(ts.losses) OVER (ORDER BY ts.wins DESC, ts.losses ASC, ts.team_id ASC) AS top_losses
+          FROM team_stats ts
+          JOIN top_teams tt ON tt.team_id = ts.team_id
       )
       SELECT
-          RANK() OVER (ORDER BY wins DESC, losses ASC) as season_rank,
+          season_rank,
           team_id,
           team_name,
           wins,
@@ -209,18 +246,98 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
               ELSE 0.000
           END as win_pct,
           games_played,
-          ROUND(
-              (
-                  (FIRST_VALUE(wins) OVER (ORDER BY wins DESC, losses ASC) - wins)
-                  + (losses - FIRST_VALUE(losses) OVER (ORDER BY wins DESC, losses ASC))
-              ) / 2.0,
-              1
-          ) as games_behind
-      FROM team_stats
-      WHERE games_played > 0
-      ORDER BY season_rank
+          ROUND(((top_wins - wins) + (losses - top_losses)) / 2.0, 1) as games_behind
+      FROM ranked
+      ORDER BY season_rank, team_id
       """, nativeQuery = true)
   List<Object[]> findTeamRankingsBySeason(@Param("seasonYear") int seasonYear);
+
+  /**
+   * 시즌 연도로 팀 순위를 집계하는 폴백 쿼리
+   *
+   * @param seasonYear 시즌 연도
+   * @return 순위 데이터 (Object[] 배열)
+   */
+  @Query(value = """
+      WITH season_games AS (
+          SELECT
+              UPPER(TRIM(g.home_team)) AS home_team_id,
+              UPPER(TRIM(g.away_team)) AS away_team_id,
+              g.home_score,
+              g.away_score
+          FROM game g
+          LEFT JOIN kbo_seasons s ON g.season_id = s.season_id
+          WHERE EXTRACT(YEAR FROM g.game_date) = :seasonYear
+            AND (s.season_id IS NULL OR COALESCE(s.league_type_code, 0) = 0)
+            AND g.home_score IS NOT NULL
+            AND g.away_score IS NOT NULL
+            AND g.is_dummy IS NOT TRUE
+            AND g.game_id NOT LIKE 'MOCK%'
+      ),
+      team_games AS (
+          SELECT
+              home_team_id AS team_id,
+              home_score AS team_score,
+              away_score AS opp_score
+          FROM season_games
+          UNION ALL
+          SELECT
+              away_team_id AS team_id,
+              away_score AS team_score,
+              home_score AS opp_score
+          FROM season_games
+      ),
+      team_stats AS (
+          SELECT
+              team_id,
+              team_id AS team_name,
+              SUM(CASE WHEN team_score > opp_score THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN team_score < opp_score THEN 1 ELSE 0 END) AS losses,
+              SUM(CASE WHEN team_score = opp_score THEN 1 ELSE 0 END) AS draws,
+              COUNT(*) AS games_played
+          FROM team_games
+          WHERE team_id IS NOT NULL
+            AND team_id <> ''
+          GROUP BY team_id
+      ),
+      top_teams AS (
+          SELECT team_id
+          FROM team_stats
+          ORDER BY games_played DESC, team_id ASC
+          FETCH FIRST 10 ROWS ONLY
+      ),
+      ranked AS (
+          SELECT
+              ts.team_id,
+              ts.team_name,
+              ts.wins,
+              ts.losses,
+              ts.draws,
+              ts.games_played,
+              RANK() OVER (ORDER BY ts.wins DESC, ts.losses ASC, ts.team_id ASC) AS season_rank,
+              FIRST_VALUE(ts.wins) OVER (ORDER BY ts.wins DESC, ts.losses ASC, ts.team_id ASC) AS top_wins,
+              FIRST_VALUE(ts.losses) OVER (ORDER BY ts.wins DESC, ts.losses ASC, ts.team_id ASC) AS top_losses
+          FROM team_stats ts
+          JOIN top_teams tt ON tt.team_id = ts.team_id
+      )
+      SELECT
+          season_rank,
+          team_id,
+          team_name,
+          wins,
+          losses,
+          draws,
+          CASE
+              WHEN (wins + losses) > 0
+              THEN ROUND(CAST(wins AS DECIMAL) / (wins + losses), 3)
+              ELSE 0.000
+          END as win_pct,
+          games_played,
+          ROUND(((top_wins - wins) + (losses - top_losses)) / 2.0, 1) as games_behind
+      FROM ranked
+      ORDER BY season_rank, team_id
+      """, nativeQuery = true)
+  List<Object[]> findTeamRankingsBySeasonFallback(@Param("seasonYear") int seasonYear);
 
   /**
    * 한국시리즈 우승팀 조회
@@ -231,10 +348,13 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
   @Query(value = """
       SELECT g.winning_team
       FROM game g
-      JOIN kbo_seasons s ON g.season_id = s.season_id
-      WHERE s.league_type_code = 5
-        AND g.game_status = 'COMPLETED'
-        AND s.season_year = :seasonYear
+      JOIN kbo_seasons s ON (
+          g.season_id = s.season_id
+          OR (g.season_id IS NULL AND s.season_year = EXTRACT(YEAR FROM g.game_date))
+      )
+      WHERE COALESCE(s.league_type_code, 5) = 5
+        AND UPPER(TRIM(g.game_status)) IN ('COMPLETED', 'FINAL', 'FINISHED', 'DONE', 'END', 'E', 'F')
+        AND COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
       ORDER BY g.game_date DESC, g.game_id DESC
       FETCH FIRST 1 ROWS ONLY
       """, nativeQuery = true)
@@ -247,10 +367,14 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    * @return 시작 날짜
    */
   @Query(value = """
-      SELECT s.start_date
-      FROM kbo_seasons s
-      WHERE s.season_year = :seasonYear
-        AND s.league_type_code = 0
+      SELECT MIN(g.game_date)
+      FROM game g
+      JOIN kbo_seasons s ON (
+          g.season_id = s.season_id
+          OR (g.season_id IS NULL AND s.season_year = EXTRACT(YEAR FROM g.game_date))
+      )
+      WHERE COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
+        AND COALESCE(s.league_type_code, 0) = 0
       """, nativeQuery = true)
   Optional<LocalDate> findFirstRegularSeasonDate(@Param("seasonYear") int seasonYear);
 
@@ -261,11 +385,14 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    * @return 시작 날짜
    */
   @Query(value = """
-      SELECT s.start_date
-      FROM kbo_seasons s
-      WHERE s.season_year = :seasonYear
-        AND s.league_type_code = 2
-      FETCH FIRST 1 ROWS ONLY
+      SELECT MIN(g.game_date)
+      FROM game g
+      JOIN kbo_seasons s ON (
+          g.season_id = s.season_id
+          OR (g.season_id IS NULL AND s.season_year = EXTRACT(YEAR FROM g.game_date))
+      )
+      WHERE COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
+        AND COALESCE(s.league_type_code, 0) = 2
       """, nativeQuery = true)
   Optional<LocalDate> findFirstPostseasonDate(@Param("seasonYear") int seasonYear);
 
@@ -276,13 +403,62 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    * @return 시작 날짜
    */
   @Query(value = """
-      SELECT s.start_date
-      FROM kbo_seasons s
-      WHERE s.season_year = :seasonYear
-        AND s.league_type_code = 5
-      FETCH FIRST 1 ROWS ONLY
+      SELECT MIN(g.game_date)
+      FROM game g
+      JOIN kbo_seasons s ON (
+          g.season_id = s.season_id
+          OR (g.season_id IS NULL AND s.season_year = EXTRACT(YEAR FROM g.game_date))
+      )
+      WHERE COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
+        AND COALESCE(s.league_type_code, 0) = 5
       """, nativeQuery = true)
   Optional<LocalDate> findFirstKoreanSeriesDate(@Param("seasonYear") int seasonYear);
+
+  /**
+   * 특정 리그 타입의 해당 시즌 연도 기준 첫 경기 날짜 조회
+   */
+  @Query(value = """
+      SELECT MIN(g.game_date)
+      FROM game g
+      JOIN kbo_seasons s ON (
+          g.season_id = s.season_id
+          OR (g.season_id IS NULL AND s.season_year = EXTRACT(YEAR FROM g.game_date))
+      )
+      WHERE COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
+        AND COALESCE(s.league_type_code, 0) = :leagueTypeCode
+      """, nativeQuery = true)
+  Optional<LocalDate> findFirstStartDateByTypeFromSeasonYear(
+      @Param("leagueTypeCode") int leagueTypeCode,
+      @Param("seasonYear") int seasonYear);
+
+  /**
+   * 특정 리그 타입의 최근 시작일 조회 (기준일 이전)
+   */
+  @Query(value = """
+      SELECT s.start_date
+      FROM kbo_seasons s
+      WHERE s.league_type_code = :leagueTypeCode
+        AND s.start_date IS NOT NULL
+        AND s.start_date <= :asOfDate
+      ORDER BY s.season_year DESC
+      FETCH FIRST 1 ROWS ONLY
+      """, nativeQuery = true)
+  Optional<LocalDate> findLatestStartDateByTypeAsOf(
+          @Param("leagueTypeCode") int leagueTypeCode,
+          @Param("asOfDate") LocalDate asOfDate);
+
+  /**
+   * 특정 리그 타입의 최근 시작일 조회 (기준일 제한 없음)
+   */
+  @Query(value = """
+      SELECT s.start_date
+      FROM kbo_seasons s
+      WHERE s.league_type_code = :leagueTypeCode
+        AND s.start_date IS NOT NULL
+      ORDER BY s.season_year DESC
+      FETCH FIRST 1 ROWS ONLY
+      """, nativeQuery = true)
+  Optional<LocalDate> findLatestStartDateByType(@Param("leagueTypeCode") int leagueTypeCode);
 
   /**
    * 이전 경기 날짜 조회 (현재 날짜 기준 과거 중 가장 최근)

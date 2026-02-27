@@ -5,22 +5,31 @@ import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.PaymentIntent;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.PaymentFlowType;
+import com.example.mate.entity.PaymentStatus;
 import com.example.mate.exception.TossPaymentException;
+import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.service.PartyApplicationService;
 import com.example.mate.service.PaymentMetricsService;
 import com.example.mate.service.PaymentIntentService;
+import com.example.mate.service.MatePaymentModeService;
 import com.example.mate.service.PaymentTransactionService;
 import com.example.mate.service.TossPaymentService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
+import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
@@ -34,6 +43,7 @@ public class PaymentController {
     private final PaymentIntentService paymentIntentService;
     private final PaymentTransactionService paymentTransactionService;
     private final PaymentMetricsService paymentMetricsService;
+    private final MatePaymentModeService matePaymentModeService;
 
     /**
      * POST /api/payments/toss/prepare
@@ -43,6 +53,7 @@ public class PaymentController {
     public ResponseEntity<TossPaymentDTO.PrepareResponse> prepareTossPayment(
             @RequestBody TossPaymentDTO.PrepareClientRequest request,
             Principal principal) {
+        ensureTossPaymentEnabled();
 
         TossPaymentDTO.PrepareResponse response = paymentIntentService.prepareIntent(request, principal);
         return ResponseEntity.ok(response);
@@ -58,6 +69,7 @@ public class PaymentController {
     public ResponseEntity<?> confirmTossPayment(
             @RequestBody TossPaymentDTO.ClientConfirmRequest request,
             Principal principal) {
+        ensureTossPaymentEnabled();
 
         log.info("[Payment] Toss 결제 승인 요청: orderId={}, partyId={}, intentId={}",
                 request.getOrderId(), request.getPartyId(), request.getIntentId());
@@ -135,13 +147,15 @@ public class PaymentController {
                 .build();
 
         try {
-            PartyApplicationDTO.Response application = applicationService.createApplicationWithPayment(
-                appRequest,
-                principal,
-                tossResponse.getPaymentKey(),
-                tossResponse.getOrderId(),
-                intent.getExpectedAmount(),
-                intent.getPaymentType());
+            PartyApplicationService.PaymentCreationResult applicationResult = applicationService
+                    .createOrGetApplicationWithPayment(
+                            appRequest,
+                            principal,
+                            tossResponse.getPaymentKey(),
+                            tossResponse.getOrderId(),
+                            intent.getExpectedAmount(),
+                            intent.getPaymentType());
+            PartyApplicationDTO.Response application = applicationResult.response();
 
             var applicationEntity = applicationService.getApplicationEntity(application.getId());
             paymentTransactionService.createOrGetOnConfirm(
@@ -156,9 +170,10 @@ public class PaymentController {
             paymentIntentService.markApplicationCreated(intent);
             paymentMetricsService.recordConfirm("success");
             log.info("[Payment] 파티 신청 완료: applicationId={}, orderId={}", application.getId(), intent.getOrderId());
-            return ResponseEntity.status(HttpStatus.CREATED).body(application);
+            HttpStatus responseStatus = applicationResult.created() ? HttpStatus.CREATED : HttpStatus.OK;
+            return ResponseEntity.status(responseStatus).body(application);
         } catch (RuntimeException e) {
-            paymentIntentService.compensateAfterApplicationFailure(intent, e);
+            paymentIntentService.compensateAfterApplicationFailure(intent.getId(), e);
             paymentMetricsService.recordConfirm("fail");
             throw e;
         }
@@ -185,6 +200,7 @@ public class PaymentController {
         }
 
         validateRequestCompatibilityWithExisting(existing.get(), request);
+        validateTransactionCompatibilityWithExisting(orderId, request);
         return existing.get();
     }
 
@@ -261,6 +277,25 @@ public class PaymentController {
         }
     }
 
+    private void validateTransactionCompatibilityWithExisting(
+            String orderId,
+            TossPaymentDTO.ClientConfirmRequest request) {
+        if (orderId == null || orderId.isBlank()) {
+            return;
+        }
+
+        PaymentFlowType requestedFlowType = resolveRequestedFlowType(request);
+        paymentTransactionService.findByOrderId(orderId).ifPresent(tx -> {
+            if (requestedFlowType != null && tx.getFlowType() != requestedFlowType) {
+                throw new TossPaymentException("요청한 결제 흐름이 기존 결제 트랜잭션과 일치하지 않습니다.", HttpStatus.CONFLICT);
+            }
+            if (tx.getPaymentStatus() == PaymentStatus.CANCELED
+                    || tx.getPaymentStatus() == PaymentStatus.REFUND_FAILED) {
+                throw new TossPaymentException("기존 결제가 종료되어 재요청할 수 없습니다.", HttpStatus.CONFLICT);
+            }
+        });
+    }
+
     private void validateIntentAndRequestCompatibility(PaymentIntent intent, TossPaymentDTO.ClientConfirmRequest request) {
         if (request.getIntentId() != null && !request.getIntentId().equals(intent.getId())) {
             throw new TossPaymentException("요청한 결제 의도와 준비 정보가 일치하지 않습니다.", HttpStatus.CONFLICT);
@@ -319,5 +354,74 @@ public class PaymentController {
         return application.getPaymentType() == PartyApplication.PaymentType.FULL
                 ? PaymentFlowType.SELLING_FULL
                 : PaymentFlowType.DEPOSIT;
+    }
+
+    /**
+     * POST /api/payments/toss/{intentId}/cancel
+     * 결제 Intent를 취소합니다.
+     *
+     * - PREPARED 상태: Toss API 호출 없이 DB 상태만 CANCELED로 변경
+     * - CONFIRMED / APPLICATION_CREATED 상태: Toss 결제 취소 API 호출 후 CANCELED로 변경
+     * - CANCELED 상태: 멱등 처리 (200 반환)
+     * - CANCEL_REQUESTED / CANCEL_FAILED 상태: 409 반환
+     *
+     * 응답:
+     *   200 OK  - 취소 성공 또는 이미 취소된 경우
+     *   403 Forbidden - 본인이 아닌 경우
+     *   404 Not Found - Intent를 찾을 수 없는 경우
+     *   409 Conflict  - 취소 불가 상태 (진행 중, 실패, 만료)
+     *   503 Service Unavailable - 직거래 모드에서 호출
+     */
+    @PostMapping("/toss/{intentId}/cancel")
+    public ResponseEntity<?> cancelTossPayment(
+            @PathVariable Long intentId,
+            @RequestBody(required = false) @Valid CancelIntentRequest request,
+            Principal principal) {
+        ensureTossPaymentEnabled();
+
+        Long userId = paymentIntentService.resolveUserId(principal);
+        String reason = request != null ? request.getCancelReason() : null;
+
+        log.info("[Payment] 결제 취소 요청: intentId={}, userId={}", intentId, userId);
+
+        try {
+            PaymentIntent.IntentStatus resultStatus =
+                    paymentIntentService.cancelPaymentIntent(intentId, userId, reason);
+
+            return ResponseEntity.ok(Map.of(
+                    "intentId", intentId,
+                    "status", resultStatus.name(),
+                    "message", "결제가 취소되었습니다."));
+
+        } catch (UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", e.getMessage()));
+        } catch (TossPaymentException e) {
+            HttpStatus status = e.getStatusCode() instanceof HttpStatus httpStatus
+                    ? httpStatus
+                    : HttpStatus.BAD_REQUEST;
+            return ResponseEntity.status(status)
+                    .body(Map.of("error", e.getMessage()));
+        } catch (RuntimeException e) {
+            log.error("[Payment] 결제 취소 처리 중 오류: intentId={}", intentId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "결제 취소 처리 중 오류가 발생했습니다."));
+        }
+    }
+
+    /** POST /api/payments/toss/{intentId}/cancel 요청 바디 */
+    @Data
+    @NoArgsConstructor
+    public static class CancelIntentRequest {
+        @Size(max = 200, message = "취소 사유는 200자 이내로 입력해주세요.")
+        private String cancelReason;
+    }
+
+    private void ensureTossPaymentEnabled() {
+        if (matePaymentModeService.isDirectTrade()) {
+            throw new TossPaymentException(
+                    "직거래 모드에서는 앱 내 Toss 결제를 지원하지 않습니다.",
+                    HttpStatus.SERVICE_UNAVAILABLE);
+        }
     }
 }

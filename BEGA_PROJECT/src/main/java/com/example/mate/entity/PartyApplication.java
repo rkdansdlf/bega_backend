@@ -9,7 +9,10 @@ import lombok.Builder;
 import java.time.Instant;
 
 @Entity
-@Table(name = "party_applications")
+@Table(name = "party_applications", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_pa_order_id", columnNames = "order_id"),
+        @UniqueConstraint(name = "uk_pa_payment_key", columnNames = "payment_key")
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -79,9 +82,13 @@ public class PartyApplication {
     @Column(name = "response_deadline")
     private Instant responseDeadline; // 응답 기한 (48시간)
 
+    @Column(name = "last_read_chat_at")
+    private Instant lastReadChatAt; // 신청자 마지막 채팅 확인 시간
+
     @PrePersist
     protected void onCreate() {
         createdAt = Instant.now();
+        lastReadChatAt = Instant.now();
         if (isPaid == null) {
             isPaid = false;
         }
@@ -114,4 +121,5 @@ public class PartyApplication {
             return description;
         }
     }
+
 }

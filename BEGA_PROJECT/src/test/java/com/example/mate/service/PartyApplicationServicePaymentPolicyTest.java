@@ -1,6 +1,7 @@
 package com.example.mate.service;
 
 import com.example.auth.service.UserService;
+import com.example.auth.dto.UserDto;
 import com.example.kbo.service.TicketVerificationTokenStore;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.CancelReasonType;
@@ -16,6 +17,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
@@ -28,6 +31,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class PartyApplicationServicePaymentPolicyTest {
 
     @Mock
@@ -44,6 +48,8 @@ class PartyApplicationServicePaymentPolicyTest {
     private TicketVerificationTokenStore ticketVerificationTokenStore;
     @Mock
     private PaymentTransactionService paymentTransactionService;
+    @Mock
+    private MatePaymentModeService matePaymentModeService;
 
     @InjectMocks
     private PartyApplicationService partyApplicationService;
@@ -55,8 +61,35 @@ class PartyApplicationServicePaymentPolicyTest {
 
     @Test
     void createApplication_fullPaymentWithoutTossFlow_throws() {
+        Long applicantId = 7L;
+        Party party = Party.builder()
+                .id(1L)
+                .hostId(99L)
+                .status(Party.PartyStatus.PENDING)
+                .currentParticipants(0)
+                .maxParticipants(3)
+                .gameDate(LocalDate.now().plusDays(2))
+                .homeTeam("LG")
+                .awayTeam("OB")
+                .build();
+        UserDto applicant = UserDto.builder()
+                .name("테스터")
+                .build();
+
+        given(matePaymentModeService.isTossTest()).willReturn(true);
+        given(userService.getUserIdByEmail("user@example.com")).willReturn(applicantId);
+        given(userService.findUserByEmail("user@example.com")).willReturn(applicant);
+        given(userService.isSocialVerified(applicantId)).willReturn(true);
+        given(applicationRepository.findByPartyIdAndApplicantId(1L, applicantId)).willReturn(Optional.empty());
+        given(applicationRepository.existsByPartyIdAndApplicantIdAndIsRejectedTrue(1L, applicantId)).willReturn(false);
+        given(applicationRepository.countByPartyIdAndIsApprovedFalseAndIsRejectedFalse(1L)).willReturn(0L);
+        given(applicationRepository.countByApplicantIdAndIsApprovedTrue(applicantId)).willReturn(0L);
+        given(partyRepository.findById(1L)).willReturn(Optional.of(party));
+
         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                 .partyId(1L)
+                .message("신청합니다")
+                .depositAmount(50000)
                 .paymentType(PartyApplication.PaymentType.FULL)
                 .build();
 

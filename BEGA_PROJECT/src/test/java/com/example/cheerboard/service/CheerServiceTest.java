@@ -108,4 +108,51 @@ class CheerServiceTest {
                 // Then
                 verify(feedService).list("LG", "NORMAL", pageable, me);
         }
+
+        @Test
+        @DisplayName("toggleLike - interactionService.toggleLike 위임 확인")
+        void toggleLike_delegatesToInteractionService() {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                when(current.get()).thenReturn(me);
+
+                cheerService.toggleLike(1L);
+
+                verify(current).get();
+                verify(interactionService).toggleLike(1L, me);
+        }
+
+        @Test
+        @DisplayName("toggleBookmark - interactionService.toggleBookmark 위임 확인")
+        void toggleBookmark_delegatesToInteractionService() {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                when(current.get()).thenReturn(me);
+
+                cheerService.toggleBookmark(1L);
+
+                verify(current).get();
+                verify(interactionService).toggleBookmark(1L, me);
+        }
+
+        @Test
+        @DisplayName("toggleRepost - postService.toggleRepost 위임 확인")
+        void toggleRepost_delegatesToPostService() {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                when(current.get()).thenReturn(me);
+
+                cheerService.toggleRepost(1L);
+
+                verify(current).get();
+                verify(postService).toggleRepost(1L, me);
+        }
+
+        @Test
+        @DisplayName("List - 비로그인 시 null 사용자로 feedService에 위임")
+        void list_withUnauthenticatedUser_delegatesWithNull() {
+                Pageable pageable = Pageable.unpaged();
+                when(current.getOrNull()).thenReturn(null);
+
+                cheerService.list("HH", "NORMAL", pageable);
+
+                verify(feedService).list("HH", "NORMAL", pageable, null);
+        }
 }

@@ -61,9 +61,8 @@ public class SecurityConfig {
         private static final String[] PUBLIC_AUTH_ENDPOINTS = {
                         "/api/auth/login",
                         "/api/auth/signup",
+                        "/api/auth/policies/required",
                         "/api/auth/reissue",
-                        "/api/auth/check-email",
-                        "/api/auth/check-name",
                         "/api/auth/password/reset/request",
                         "/api/auth/password/reset/confirm",
                         "/api/auth/password-reset/request",
@@ -78,6 +77,7 @@ public class SecurityConfig {
         /** 인증 필요 엔드포인트 (auth 하위 경로 일부) */
         private static final String[] PRIVATE_AUTH_ENDPOINTS = {
                         "/api/auth/mypage",
+                        "/api/auth/policies/consents",
                         "/api/auth/password",
                         "/api/auth/account",
                         "/api/auth/link-token",
@@ -91,7 +91,12 @@ public class SecurityConfig {
         private static final String[] PUBLIC_SYSTEM_ENDPOINTS = {
                         "/api/test/**",
                         "/actuator/health",
-                        "/ws/**"
+                        "/actuator/prometheus",
+                        "/ws/**",
+                        // Swagger / OpenAPI (dev 전용 - prod에서는 springdoc.*.enabled=false로 비활성화)
+                        "/v3/api-docs/**",
+                        "/swagger-ui/**",
+                        "/swagger-ui.html"
         };
 
         /** 공개 API 엔드포인트 (인증 불필요) */
@@ -117,15 +122,22 @@ public class SecurityConfig {
                         "/api/cheer/user/**",
                         "/api/users/*/profile",
                         "/api/diary/games",
+                        "/api/diary/seat-views",
                         "/api/games/past",
-                        "/api/predictions/status/**",
                         "/api/predictions/ranking/current-season",
                         "/api/predictions/ranking/share/**",
                         "/api/reviews/party/**",
                         "/api/reviews/user/*/average",
                         "/api/users/*/follow-counts",
                         "/api/users/*/followers",
-                        "/api/users/*/following"
+                        "/api/users/*/following",
+                        "/api/leaderboard",
+                        "/api/leaderboard/hot-streaks",
+                        "/api/leaderboard/recent-scores",
+                        "/api/leaderboard/stats",
+                        "/api/leaderboard/users/*/rank",
+                        "/api/leaderboard/user/**",
+                        "/api/leaderboard/achievements/rare"
         };
 
         /** 공개 파티 조회 엔드포인트 (my는 제외) */
@@ -141,6 +153,11 @@ public class SecurityConfig {
         private static final String[] ADMIN_ENDPOINTS = {
                         "/api/admin/**",
                         "/admin/**"
+        };
+
+        /** AI 프록시 엔드포인트 (인증 필수) */
+        private static final String[] PRIVATE_AI_ENDPOINTS = {
+                        "/api/ai/**"
         };
 
         // ========================================
@@ -300,13 +317,14 @@ public class SecurityConfig {
                 // ========================================
                 // 경로별 인가 설정 (그룹화된 상수 사용)
                 // ========================================
-                http
+        http
                                         .authorizeHttpRequests((auth) -> auth
                                                 // 1. OPTIONS 요청 허용 (CORS Preflight)
                                                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                                                 // 2. 인증 관련 공개 엔드포인트
                                                 .requestMatchers(PUBLIC_AUTH_ENDPOINTS).permitAll()
+                                                .requestMatchers(HttpMethod.GET, "/api/auth/check-email").permitAll()
 
                                                 // 3. 시스템/테스트 엔드포인트
                                                 .requestMatchers(PUBLIC_SYSTEM_ENDPOINTS).permitAll()
@@ -317,6 +335,7 @@ public class SecurityConfig {
 
                                                 // 5. 인증 필수 엔드포인트 (순서 중요: 구체적 경로 먼저)
                                                 .requestMatchers(PRIVATE_AUTH_ENDPOINTS).authenticated()
+                                                .requestMatchers(PRIVATE_AI_ENDPOINTS).authenticated()
                                                 .requestMatchers(HttpMethod.GET, "/api/parties/my").authenticated()
                                                 .requestMatchers(HttpMethod.GET, "/api/cheer/posts/following")
                                                 .authenticated()
@@ -324,13 +343,20 @@ public class SecurityConfig {
                                                 .requestMatchers("/api/diary/**").authenticated()
                                                 .requestMatchers(HttpMethod.POST, "/api/predictions/vote")
                                                 .authenticated()
+                                                .requestMatchers(HttpMethod.GET, "/api/predictions/status/**")
+                                                .permitAll()
+                                                .requestMatchers(HttpMethod.GET, "/api/predictions/my-vote/**")
+                                                .authenticated()
                                                 .requestMatchers("/api/predictions/**").authenticated()
 
                                                 // 6. 공개 GET 요청 엔드포인트
                                                 .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                                                 .requestMatchers(HttpMethod.GET, PUBLIC_PARTY_GET_ENDPOINTS).permitAll()
 
-                                                // 7. 공개 API 엔드포인트
+                                                // 7. 공개 API 엔드포인트 (구체적 인증 경로 먼저, 와일드카드 이전)
+                                                .requestMatchers(HttpMethod.POST, "/api/stadiums/*/favorite").authenticated()
+                                                .requestMatchers(HttpMethod.DELETE, "/api/stadiums/*/favorite").authenticated()
+                                                .requestMatchers(HttpMethod.GET, "/api/stadiums/favorites").authenticated()
                                                 .requestMatchers(PUBLIC_API_ENDPOINTS).permitAll()
 
                                                 // 8. 나머지 모든 요청은 인증 필요

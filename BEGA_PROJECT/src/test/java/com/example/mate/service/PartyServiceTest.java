@@ -4,6 +4,8 @@ import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
+import com.example.mate.entity.PartyApplication;
+import com.example.mate.exception.PartyFullException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.notification.service.NotificationService;
@@ -25,10 +27,12 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -162,6 +166,81 @@ class PartyServiceTest {
 
                 assertThat(result.getContent()).hasSize(1);
                 assertThat(result.getContent().get(0).getHostProfileImageUrl()).isNull();
+        }
+
+        // ========== incrementParticipants() ==========
+
+        @Test
+        @DisplayName("incrementParticipants - 정원 도달 시 MATCHED로 자동 전환")
+        void incrementParticipants_autoTransitionsToMatchedWhenFull() {
+                Party party = createParty(1L, 10L, null);
+                party.setCurrentParticipants(3); // maxParticipants=4, one away from full
+
+                when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+                when(partyRepository.save(any(Party.class))).thenAnswer(inv -> inv.getArgument(0));
+
+                PartyDTO.Response response = partyService.incrementParticipants(1L);
+
+                assertThat(response.getStatus()).isEqualTo(Party.PartyStatus.MATCHED);
+                assertThat(response.getCurrentParticipants()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("incrementParticipants - 정원 초과 시 PartyFullException 발생")
+        void incrementParticipants_throwsPartyFullExceptionWhenAtCapacity() {
+                Party party = createParty(1L, 10L, null);
+                party.setCurrentParticipants(4); // already at max
+
+                when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+
+                assertThrows(PartyFullException.class, () -> partyService.incrementParticipants(1L));
+                verify(partyRepository, never()).save(any());
+        }
+
+        // ========== handleUserDeletion() ==========
+
+        @Test
+        @DisplayName("handleUserDeletion - 호스트 파티를 FAILED로 변경하고 save 호출")
+        void handleUserDeletion_setsHostedPartiesToFailed() {
+                Long userId = 99L;
+                Party hostedParty = createParty(1L, userId, null);
+
+                when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList()))
+                                .thenReturn(List.of(hostedParty));
+                when(applicationRepository.findByPartyIdAndIsApprovedTrue(1L))
+                                .thenReturn(List.of());
+                when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
+                                .thenReturn(List.of());
+
+                partyService.handleUserDeletion(userId);
+
+                assertThat(hostedParty.getStatus()).isEqualTo(Party.PartyStatus.FAILED);
+                verify(partyRepository).save(hostedParty);
+        }
+
+        @Test
+        @DisplayName("handleUserDeletion - 참여 중인 MATCHED 파티를 PENDING으로 되돌리고 신청 삭제")
+        void handleUserDeletion_revertsMatchedToPendingWhenParticipantLeaves() {
+                Long userId = 99L;
+                Party matchedParty = createParty(2L, 10L, null);
+                matchedParty.setStatus(Party.PartyStatus.MATCHED);
+                matchedParty.setCurrentParticipants(2);
+
+                PartyApplication application = mock(PartyApplication.class);
+                when(application.getPartyId()).thenReturn(2L);
+                when(application.getApplicantName()).thenReturn("DeletedUser");
+
+                when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList()))
+                                .thenReturn(List.of());
+                when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
+                                .thenReturn(List.of(application));
+                when(partyRepository.findById(2L)).thenReturn(Optional.of(matchedParty));
+
+                partyService.handleUserDeletion(userId);
+
+                assertThat(matchedParty.getStatus()).isEqualTo(Party.PartyStatus.PENDING);
+                assertThat(matchedParty.getCurrentParticipants()).isEqualTo(1);
+                verify(applicationRepository).delete(application);
         }
 
         private Party createParty(Long id, Long hostId, String hostProfileImageUrl) {
