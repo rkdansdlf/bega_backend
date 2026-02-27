@@ -28,10 +28,15 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -112,6 +117,14 @@ class MateFlowHappyPathIntegrationTest {
     @MockitoBean
     private PaymentTransactionService paymentTransactionService;
 
+    @MockitoBean
+    private StringRedisTemplate redisTemplate;
+
+    @SuppressWarnings("unchecked")
+    private final ValueOperations<String, String> valueOperations = Mockito.mock(ValueOperations.class);
+
+    private final ConcurrentMap<String, String> redisStore = new ConcurrentHashMap<>();
+
     @BeforeEach
     void setUp() {
         checkInRecordRepository.deleteAll();
@@ -131,6 +144,16 @@ class MateFlowHappyPathIntegrationTest {
         Mockito.doNothing().when(paymentTransactionService).requestSettlementOnApproval(Mockito.any());
         given(paymentTransactionService.createOrGetOnConfirm(Mockito.any(), Mockito.any(), Mockito.anyString()))
                 .willReturn(null);
+
+        given(redisTemplate.opsForValue()).willReturn(valueOperations);
+        Mockito.doAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            String value = invocation.getArgument(1);
+            redisStore.put(key, value);
+            return null;
+        }).when(valueOperations).set(Mockito.anyString(), Mockito.anyString(), Mockito.any(Duration.class));
+        given(valueOperations.get(Mockito.anyString()))
+                .willAnswer(invocation -> redisStore.get(invocation.getArgument(0)));
     }
 
     @Test
