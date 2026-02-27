@@ -3,6 +3,8 @@ package com.example.mate.integration;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.cheerboard.repo.CheerPostRepo;
+import com.example.cheerboard.repo.CheerReportRepo;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
@@ -33,6 +35,8 @@ import java.util.Map;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -55,6 +59,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.data.redis.repositories.enabled=false",
         "jobrunr.background-job-server.enabled=false",
         "jobrunr.dashboard.enabled=false",
+        "mate.payment.mode=TOSS_TEST",
         "storage.type=oci",
         "oci.s3.endpoint=http://localhost:4566",
         "oci.s3.access-key=test-access-key",
@@ -96,6 +101,12 @@ class MateFlowPolicyAbuseIntegrationTest {
 
     @MockitoBean
     private PaymentTransactionService paymentTransactionService;
+
+    @MockitoBean
+    private CheerPostRepo cheerPostRepo;
+
+    @MockitoBean
+    private CheerReportRepo cheerReportRepo;
 
     @BeforeEach
     void setUp() {
@@ -189,6 +200,63 @@ class MateFlowPolicyAbuseIntegrationTest {
     }
 
     @Test
+    @DisplayName("동일 orderId 재호출은 기존 신청을 재사용하고 Toss 재승인을 호출하지 않는다")
+    void confirmRetryReturnsExistingApplicationWithoutSecondTossConfirm() throws Exception {
+        UserEntity host = userRepository.findByEmail(HOST_EMAIL).orElseThrow();
+        Party pendingParty = partyRepository.save(MateTestFixtureFactory.pendingParty(
+                host.getId(), host.getName(), 2));
+
+        String prepareBody = objectMapper.writeValueAsString(Map.of(
+                "partyId", pendingParty.getId(),
+                "flowType", "DEPOSIT"));
+
+        String prepareJson = mockMvc.perform(post("/api/payments/toss/prepare")
+                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
+                        .contentType("application/json")
+                        .content(prepareBody))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode prepareNode = objectMapper.readTree(prepareJson);
+        long intentId = prepareNode.get("intentId").asLong();
+        String orderId = prepareNode.get("orderId").asText();
+        int expectedAmount = prepareNode.get("amount").asInt();
+
+        given(tossPaymentService.confirmPayment(eq("dup-pay-key"), eq(orderId), eq(expectedAmount)))
+                .willReturn(new TossPaymentDTO.ConfirmResponse(
+                        "dup-pay-key",
+                        orderId,
+                        "DONE",
+                        expectedAmount,
+                        "카드"));
+
+        String confirmBody = objectMapper.writeValueAsString(Map.of(
+                "paymentKey", "dup-pay-key",
+                "orderId", orderId,
+                "intentId", intentId,
+                "partyId", pendingParty.getId(),
+                "flowType", PaymentFlowType.DEPOSIT.name(),
+                "message", "중복 confirm 테스트"));
+
+        mockMvc.perform(post("/api/payments/toss/confirm")
+                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
+                        .contentType("application/json")
+                        .content(confirmBody))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/payments/toss/confirm")
+                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
+                        .contentType("application/json")
+                        .content(confirmBody))
+                .andExpect(status().isOk());
+
+        verify(tossPaymentService, times(1)).confirmPayment(eq("dup-pay-key"), eq(orderId), eq(expectedAmount));
+        org.assertj.core.api.Assertions.assertThat(partyApplicationRepository.countByOrderId(orderId)).isEqualTo(1L);
+    }
+
+    @Test
     @DisplayName("비참여자는 채팅 조회/전송 및 체크인을 할 수 없다")
     void nonMemberCannotAccessChatOrCheckIn() throws Exception {
         UserEntity host = userRepository.findByEmail(HOST_EMAIL).orElseThrow();
@@ -220,6 +288,51 @@ class MateFlowPolicyAbuseIntegrationTest {
                         .contentType("application/json")
                         .content(checkInBody))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("비호스트는 체크인 QR/수동코드 세션을 발급할 수 없다")
+    void nonHostCannotIssueCheckInQrSession() throws Exception {
+        UserEntity host = userRepository.findByEmail(HOST_EMAIL).orElseThrow();
+        Party party = partyRepository.save(MateTestFixtureFactory.pendingParty(
+                host.getId(), host.getName(), 3));
+
+        String requestBody = objectMapper.writeValueAsString(Map.of(
+                "partyId", party.getId()));
+
+        mockMvc.perform(post("/api/checkin/qr-session")
+                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
+                        .contentType("application/json")
+                        .content(requestBody))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("체크인은 qrSessionId/manualCode 중 정확히 하나만 허용한다")
+    void checkInRequiresExactlyOneCredential() throws Exception {
+        UserEntity host = userRepository.findByEmail(HOST_EMAIL).orElseThrow();
+        Party party = partyRepository.save(MateTestFixtureFactory.pendingParty(
+                host.getId(), host.getName(), 3));
+
+        String missingCredentialBody = objectMapper.writeValueAsString(Map.of(
+                "partyId", party.getId(),
+                "location", "잠실야구장"));
+        mockMvc.perform(post("/api/checkin")
+                        .with(MateTestTokenHelper.principalAs(HOST_EMAIL))
+                        .contentType("application/json")
+                        .content(missingCredentialBody))
+                .andExpect(status().isBadRequest());
+
+        String conflictCredentialBody = objectMapper.writeValueAsString(Map.of(
+                "partyId", party.getId(),
+                "location", "잠실야구장",
+                "qrSessionId", "session-duplicate",
+                "manualCode", "1234"));
+        mockMvc.perform(post("/api/checkin")
+                        .with(MateTestTokenHelper.principalAs(HOST_EMAIL))
+                        .contentType("application/json")
+                        .content(conflictCredentialBody))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
