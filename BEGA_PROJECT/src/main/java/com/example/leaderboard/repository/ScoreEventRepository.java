@@ -53,6 +53,18 @@ public interface ScoreEventRepository extends JpaRepository<ScoreEvent, Long> {
     boolean existsByPredictionIdAndUserId(Long predictionId, Long userId);
 
     // ============================================
+    // DIARY / SEAT VIEW QUERIES
+    // ============================================
+
+    boolean existsByDiaryIdAndUserId(Long diaryId, Long userId);
+
+    @Query("SELECT COUNT(se) FROM ScoreEvent se WHERE se.userId = :userId AND se.eventType = com.example.leaderboard.entity.ScoreEvent.EventType.SEAT_VIEW_CONTRIBUTION")
+    Long countSeatViewContributionsByUserId(@Param("userId") Long userId);
+
+    @Query("SELECT COUNT(DISTINCT se.gameId) FROM ScoreEvent se WHERE se.userId = :userId AND se.eventType = com.example.leaderboard.entity.ScoreEvent.EventType.SEAT_VIEW_CONTRIBUTION AND se.gameId IS NOT NULL")
+    Long countDistinctStadiumsBySeatViewUserId(@Param("userId") Long userId);
+
+    // ============================================
     // STATISTICS
     // ============================================
 

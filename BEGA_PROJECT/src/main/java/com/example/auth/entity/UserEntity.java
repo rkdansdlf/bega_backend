@@ -26,7 +26,7 @@ public class UserEntity {
     private Long id;
 
     // 내부 보안 식별자 (무작위 UUID)
-    @Column(name = "unique_id", unique = true, nullable = false)
+    @Column(name = "unique_id", unique = true, nullable = false, length = 36)
     private UUID uniqueId;
 
     // 사용자 아이디 (@handle)
@@ -164,7 +164,7 @@ public class UserEntity {
 
     public UserDto toDto() {
         return UserDto.builder()
-                .id(this.id)
+            .id(this.id)
                 .name(this.name)
                 .handle(this.handle)
                 .email(this.email)

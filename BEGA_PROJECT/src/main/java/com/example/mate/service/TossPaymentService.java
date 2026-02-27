@@ -5,6 +5,7 @@ import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.exception.TossPaymentException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -21,11 +22,17 @@ public class TossPaymentService {
     private final TossPaymentConfig tossPaymentConfig;
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
+    private final MatePaymentModeService matePaymentModeService;
 
-    public TossPaymentService(TossPaymentConfig tossPaymentConfig, RestClient tossRestClient, ObjectMapper objectMapper) {
+    public TossPaymentService(
+            TossPaymentConfig tossPaymentConfig,
+            @Qualifier("tossRestClient") RestClient tossRestClient,
+            ObjectMapper objectMapper,
+            MatePaymentModeService matePaymentModeService) {
         this.tossPaymentConfig = tossPaymentConfig;
         this.restClient = tossRestClient;
         this.objectMapper = objectMapper;
+        this.matePaymentModeService = matePaymentModeService;
     }
 
     /**
@@ -35,6 +42,7 @@ public class TossPaymentService {
      */
     public TossPaymentDTO.ConfirmResponse confirmPayment(
             String paymentKey, String orderId, Integer amount) {
+        ensureTossModeEnabled();
 
         TossPaymentDTO.ConfirmRequest body = TossPaymentDTO.ConfirmRequest.builder()
                 .paymentKey(paymentKey)
@@ -81,6 +89,8 @@ public class TossPaymentService {
      * POST https://api.tosspayments.com/v1/payments/{paymentKey}/cancel
      */
     public TossPaymentDTO.CancelResponse cancelPayment(String paymentKey, String cancelReason, Integer cancelAmount) {
+        ensureTossModeEnabled();
+
         TossPaymentDTO.CancelRequest body = TossPaymentDTO.CancelRequest.builder()
                 .cancelReason(cancelReason)
                 .cancelAmount(cancelAmount)
@@ -111,6 +121,8 @@ public class TossPaymentService {
     }
 
     public TossPaymentDTO.ConfirmResponse getPayment(String paymentKey) {
+        ensureTossModeEnabled();
+
         try {
             return restClient.get()
                     .uri("https://api.tosspayments.com/v1/payments/{paymentKey}", paymentKey)
@@ -149,5 +161,13 @@ public class TossPaymentService {
         String encoded = Base64.getEncoder()
                 .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
         return "Basic " + encoded;
+    }
+
+    private void ensureTossModeEnabled() {
+        if (matePaymentModeService.isDirectTrade()) {
+            throw new TossPaymentException(
+                    "직거래 모드에서는 앱 내 Toss 결제를 지원하지 않습니다.",
+                    HttpStatus.SERVICE_UNAVAILABLE);
+        }
     }
 }

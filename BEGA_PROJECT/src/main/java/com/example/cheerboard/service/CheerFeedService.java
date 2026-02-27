@@ -82,17 +82,23 @@ public class CheerFeedService {
         }
 
         java.util.Set<Long> excludedIds = getExcludedUserIds(me);
+        boolean hasExcludedIds = !excludedIds.isEmpty();
         log.debug("List - excludedIds size: {}", excludedIds.size());
 
         Page<CheerPost> page;
         boolean hasSort = pageable.getSort().isSorted();
 
         if (hasSort && pageable.getSort().stream().anyMatch(order -> !order.getProperty().equals("createdAt"))) {
-            page = postRepo.findByTeamIdAndPostType(normalizedTeamId, postType, excludedIds, pageable);
+            page = hasExcludedIds
+                    ? postRepo.findByTeamIdAndPostType(normalizedTeamId, postType, excludedIds, pageable)
+                    : postRepo.findByTeamIdAndPostTypeNoExcluded(normalizedTeamId, postType, pageable);
         } else {
             java.time.Instant cutoffDate = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS);
-            page = postRepo.findAllOrderByPostTypeAndCreatedAt(normalizedTeamId, postType, cutoffDate, excludedIds,
-                    pageable);
+            page = hasExcludedIds
+                    ? postRepo.findAllOrderByPostTypeAndCreatedAt(normalizedTeamId, postType, cutoffDate, excludedIds,
+                            pageable)
+                    : postRepo.findAllOrderByPostTypeAndCreatedAtNoExcluded(normalizedTeamId, postType, cutoffDate,
+                            pageable);
         }
 
         return buildPostSummaryPage(page, me);
@@ -102,7 +108,9 @@ public class CheerFeedService {
     public Page<PostSummaryRes> search(String q, String teamId, Pageable pageable, UserEntity me) {
         String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
         java.util.Set<Long> excludedIds = getExcludedUserIds(me);
-        Page<CheerPost> page = postRepo.search(q, normalizedTeamId, excludedIds, pageable);
+        Page<CheerPost> page = excludedIds.isEmpty()
+                ? postRepo.searchNoExcluded(q, normalizedTeamId, pageable)
+                : postRepo.search(q, normalizedTeamId, excludedIds, pageable);
 
         return buildPostSummaryPage(page, me);
     }
@@ -128,29 +136,51 @@ public class CheerFeedService {
         }
 
         java.util.Set<Long> excludedIds = getExcludedUserIds(me);
+        boolean hasExcludedIds = !excludedIds.isEmpty();
         Page<CheerPost> page;
         boolean hasSort = pageable.getSort().isSorted();
 
         if (hasSort && pageable.getSort().stream().anyMatch(order -> !order.getProperty().equals("createdAt"))) {
-            page = postRepo.findByTeamIdAndPostType(normalizedTeamId, postType, excludedIds, pageable);
+            page = hasExcludedIds
+                    ? postRepo.findByTeamIdAndPostType(normalizedTeamId, postType, excludedIds, pageable)
+                    : postRepo.findByTeamIdAndPostTypeNoExcluded(normalizedTeamId, postType, pageable);
         } else {
             java.time.Instant cutoffDate = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS);
-            page = postRepo.findAllOrderByPostTypeAndCreatedAt(normalizedTeamId, postType, cutoffDate, excludedIds,
-                    pageable);
+            page = hasExcludedIds
+                    ? postRepo.findAllOrderByPostTypeAndCreatedAt(normalizedTeamId, postType, cutoffDate, excludedIds,
+                            pageable)
+                    : postRepo.findAllOrderByPostTypeAndCreatedAtNoExcluded(normalizedTeamId, postType, cutoffDate,
+                            pageable);
         }
 
         List<Long> postIds = page.hasContent()
                 ? page.getContent().stream().map(CheerPost::getId).toList()
                 : Collections.emptyList();
 
-        Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
-                ? Collections.emptyMap()
-                : imageService.getPostImageUrlsByPostIds(postIds);
+        Map<Long, List<String>> imageUrlsByPostId = safeGetPostImageUrls(postIds);
 
         return page.map(post -> {
-            List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
-            return postDtoMapper.toPostLightweightSummaryRes(post, imageUrls);
+            try {
+                List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
+                return postDtoMapper.toPostLightweightSummaryRes(post, imageUrls);
+            } catch (Exception e) {
+                log.warn("Cheer lightweight feed enrichment failed for postId={}, fallback to minimal response", post.getId(), e);
+                return buildFallbackPostLightweightSummary(post);
+            }
         });
+    }
+
+    private com.example.cheerboard.dto.PostLightweightSummaryRes buildFallbackPostLightweightSummary(CheerPost post) {
+        return com.example.cheerboard.dto.PostLightweightSummaryRes.of(
+                post.getId(),
+                post.getContent(),
+                null,
+                post.getLikeCount(),
+                post.getCommentCount(),
+                post.getCreatedAt(),
+                post.getAuthor() != null ? post.getAuthor().getId() : null,
+                resolveDisplayName(post.getAuthor()),
+                post.getAuthor() != null ? resolveAuthorProfileImageUrl(post.getAuthor()) : null);
     }
 
     @Transactional(readOnly = true)
@@ -263,7 +293,7 @@ public class CheerFeedService {
         }
 
         List<Long> candidatePostIds = candidatePosts.stream().map(CheerPost::getId).toList();
-        Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(candidatePostIds);
+        Map<Long, Integer> viewCountMap = safeGetViewCounts(candidatePostIds);
         Set<Long> followingIds = me != null
                 ? new HashSet<>(followService.getFollowingIds(me.getId()))
                 : Collections.emptySet();
@@ -333,33 +363,111 @@ public class CheerFeedService {
     private List<PostSummaryRes> buildPostSummaries(List<CheerPost> posts, UserEntity me) {
         List<Long> postIds = posts.stream().map(CheerPost::getId).toList();
 
-        Map<Long, List<String>> imageUrlsByPostId = postIds.isEmpty()
-                ? Collections.emptyMap()
-                : imageService.getPostImageUrlsByPostIds(postIds);
-
+        Map<Long, List<String>> imageUrlsByPostId = safeGetPostImageUrls(postIds);
         Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(posts);
-        Map<Long, Integer> viewCountMap = redisPostService.getViewCounts(postIds);
-        Map<Long, Boolean> hotStatusMap = redisPostService.getCachedHotStatuses(postIds);
+        Map<Long, Integer> viewCountMap = safeGetViewCounts(postIds);
+        Map<Long, Boolean> hotStatusMap = safeGetHotStatusMap(postIds);
         // Use InteractionService for counts and statuses
-        Map<Long, Integer> bookmarkCountMap = interactionService.getBookmarkCountMap(postIds);
+        Map<Long, Integer> bookmarkCountMap = safeGetBookmarkCountMap(postIds);
 
-        Set<Long> likedPostIds = (me != null) ? interactionService.getLikedPostIds(me.getId(), postIds)
-                : Collections.emptySet();
-        Set<Long> bookmarkedPostIds = (me != null) ? interactionService.getBookmarkedPostIds(me.getId(), postIds)
-                : Collections.emptySet();
-        Set<Long> repostedPostIds = (me != null) ? interactionService.getRepostedPostIds(me.getId(), postIds)
-                : Collections.emptySet();
+        Set<Long> likedPostIds = (me != null) ? safeGetLikedPostIds(me, postIds) : Collections.emptySet();
+        Set<Long> bookmarkedPostIds = (me != null) ? safeGetBookmarkedPostIds(me, postIds) : Collections.emptySet();
+        Set<Long> repostedPostIds = (me != null) ? safeGetRepostedPostIds(me, postIds) : Collections.emptySet();
 
         return posts.stream()
                 .map(post -> {
-                    boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
-                    List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
-                    return postDtoMapper.toPostSummaryRes(post, likedPostIds.contains(post.getId()),
-                            bookmarkedPostIds.contains(post.getId()), isOwner, repostedPostIds.contains(post.getId()),
-                            bookmarkCountMap.getOrDefault(post.getId(), 0), imageUrls,
-                            viewCountMap, hotStatusMap, repostImageUrls);
+                    try {
+                        boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
+                        List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
+                        return postDtoMapper.toPostSummaryRes(post, likedPostIds.contains(post.getId()),
+                                bookmarkedPostIds.contains(post.getId()), isOwner, repostedPostIds.contains(post.getId()),
+                                bookmarkCountMap.getOrDefault(post.getId(), 0), imageUrls,
+                                viewCountMap, hotStatusMap, repostImageUrls);
+                    } catch (Exception e) {
+                        log.warn("Cheer feed summary enrichment failed for postId={}, fallback to minimal response", post.getId(), e);
+                        return buildFallbackPostSummary(post, me,
+                                likedPostIds.contains(post.getId()),
+                                bookmarkedPostIds.contains(post.getId()),
+                                repostedPostIds.contains(post.getId()),
+                                bookmarkCountMap.getOrDefault(post.getId(), 0));
+                    }
                 })
                 .collect(Collectors.toList());
+    }
+
+    private PostSummaryRes buildFallbackPostSummary(
+            CheerPost post,
+            UserEntity me,
+            boolean likedByMe,
+            boolean bookmarkedByMe,
+            boolean repostedByMe,
+            int bookmarkCount) {
+        boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
+        return PostSummaryRes.of(
+                post.getId(),
+                post.getTeamId(),
+                resolveTeamName(post.getTeam()),
+                resolveTeamShortName(post.getTeam()),
+                resolveTeamColor(post.getTeam()),
+                post.getContent(),
+                resolveDisplayName(post.getAuthor()),
+                post.getAuthor().getId(),
+                post.getAuthor().getHandle(),
+                resolveAuthorProfileImageUrl(post.getAuthor()),
+                post.getAuthor().getFavoriteTeamId(),
+                post.getCreatedAt(),
+                post.getCommentCount(),
+                post.getLikeCount(),
+                bookmarkCount,
+                likedByMe,
+                safeInt(post.getViews()),
+                false,
+                bookmarkedByMe,
+                isOwner,
+                post.getRepostCount(),
+                repostedByMe,
+                post.getPostType().name(),
+                Collections.emptyList());
+    }
+
+    private int safeInt(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private String resolveTeamName(com.example.kbo.entity.TeamEntity team) {
+        return team != null ? team.getTeamName() : null;
+    }
+
+    private String resolveTeamShortName(com.example.kbo.entity.TeamEntity team) {
+        return team != null ? team.getTeamShortName() : null;
+    }
+
+    private String resolveTeamColor(com.example.kbo.entity.TeamEntity team) {
+        return team != null ? team.getColor() : null;
+    }
+
+    private String resolveDisplayName(com.example.auth.entity.UserEntity author) {
+        if (author == null) {
+            return null;
+        }
+        if (author.getName() != null && !author.getName().isBlank()) {
+            return author.getName();
+        }
+        return author.getEmail();
+    }
+
+    private String resolveAuthorProfileImageUrl(com.example.auth.entity.UserEntity author) {
+        if (author == null) {
+            return null;
+        }
+        String rawValue = author.getProfileImageUrl();
+        if (rawValue == null || rawValue.isBlank()) {
+            return author.getProfileImageUrl();
+        }
+        if (rawValue.startsWith("http://") || rawValue.startsWith("https://") || rawValue.startsWith("/")) {
+            return rawValue;
+        }
+        return null;
     }
 
     private Map<Long, List<String>> prefetchRepostOriginalImages(List<CheerPost> posts) {
@@ -370,9 +478,7 @@ public class CheerFeedService {
                 .map(CheerPost::getId)
                 .distinct()
                 .toList();
-        return repostOriginalIds.isEmpty()
-                ? Collections.emptyMap()
-                : imageService.getPostImageUrlsByPostIds(repostOriginalIds);
+        return safeGetPostImageUrls(repostOriginalIds);
     }
 
     private java.util.Set<Long> getExcludedUserIds(UserEntity me) {
@@ -383,6 +489,81 @@ public class CheerFeedService {
         excluded.addAll(blockService.getBlockedIds(me.getId()));
         excluded.addAll(blockService.getBlockerIds(me.getId()));
         return excluded;
+    }
+
+    private Map<Long, List<String>> safeGetPostImageUrls(List<Long> postIds) {
+        if (postIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        try {
+            return imageService.getPostImageUrlsByPostIds(postIds);
+        } catch (Exception e) {
+            log.warn("Cheer feed image enrichment failed. postCount={}", postIds.size(), e);
+            return Collections.emptyMap();
+        }
+    }
+
+    private Map<Long, Integer> safeGetViewCounts(List<Long> postIds) {
+        if (postIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        try {
+            return redisPostService.getViewCounts(postIds);
+        } catch (Exception e) {
+            log.warn("Cheer feed view-count enrichment failed. postCount={}", postIds.size(), e);
+            return Collections.emptyMap();
+        }
+    }
+
+    private Map<Long, Boolean> safeGetHotStatusMap(List<Long> postIds) {
+        if (postIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        try {
+            return redisPostService.getCachedHotStatuses(postIds);
+        } catch (Exception e) {
+            log.warn("Cheer feed hot-status enrichment failed. postCount={}", postIds.size(), e);
+            return Collections.emptyMap();
+        }
+    }
+
+    private Map<Long, Integer> safeGetBookmarkCountMap(List<Long> postIds) {
+        if (postIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        try {
+            return interactionService.getBookmarkCountMap(postIds);
+        } catch (Exception e) {
+            log.warn("Cheer feed bookmark-count enrichment failed. postCount={}", postIds.size(), e);
+            return Collections.emptyMap();
+        }
+    }
+
+    private Set<Long> safeGetLikedPostIds(UserEntity me, List<Long> postIds) {
+        try {
+            return interactionService.getLikedPostIds(me.getId(), postIds);
+        } catch (Exception e) {
+            log.warn("Cheer feed liked-status enrichment failed. userId={}, postCount={}", me.getId(), postIds.size(), e);
+            return Collections.emptySet();
+        }
+    }
+
+    private Set<Long> safeGetBookmarkedPostIds(UserEntity me, List<Long> postIds) {
+        try {
+            return interactionService.getBookmarkedPostIds(me.getId(), postIds);
+        } catch (Exception e) {
+            log.warn("Cheer feed bookmark-status enrichment failed. userId={}, postCount={}", me.getId(), postIds.size(), e);
+            return Collections.emptySet();
+        }
+    }
+
+    private Set<Long> safeGetRepostedPostIds(UserEntity me, List<Long> postIds) {
+        try {
+            return interactionService.getRepostedPostIds(me.getId(), postIds);
+        } catch (Exception e) {
+            log.warn("Cheer feed repost-status enrichment failed. userId={}, postCount={}", me.getId(), postIds.size(), e);
+            return Collections.emptySet();
+        }
     }
 
     private record ScoredHotPost(CheerPost post, double score) {

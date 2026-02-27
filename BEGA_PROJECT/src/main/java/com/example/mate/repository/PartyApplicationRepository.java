@@ -4,12 +4,15 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import com.example.mate.entity.PartyApplication;
+import com.example.mate.entity.Party;
 
 @Repository
 public interface PartyApplicationRepository extends JpaRepository<PartyApplication, Long> {
@@ -34,10 +37,25 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
 
     Optional<PartyApplication> findByOrderId(String orderId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select pa from PartyApplication pa where pa.orderId = :orderId")
+    Optional<PartyApplication> findByOrderIdForUpdate(@Param("orderId") String orderId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select pa from PartyApplication pa where pa.paymentKey = :paymentKey")
+    Optional<PartyApplication> findByPaymentKeyForUpdate(@Param("paymentKey") String paymentKey);
+
     Optional<PartyApplication> findByPaymentKey(String paymentKey);
+
+    long countByOrderId(String orderId);
 
     // 신청자의 승인된 신청 목록
     List<PartyApplication> findByApplicantIdAndIsApprovedTrue(Long applicantId);
+
+    @Query("SELECT pa FROM PartyApplication pa WHERE pa.applicantId = :applicantId AND pa.isApproved = true "
+            + "AND EXISTS (SELECT 1 FROM Party p WHERE p.id = pa.partyId AND p.status IN :statuses)")
+    List<PartyApplication> findApprovedByApplicantIdAndPartyStatusIn(@Param("applicantId") Long applicantId,
+            @Param("statuses") List<Party.PartyStatus> statuses);
 
     // 파티별 승인된 신청 수
     long countByPartyIdAndIsApprovedTrue(Long partyId);

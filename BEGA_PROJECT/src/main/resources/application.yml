@@ -87,23 +87,12 @@ spring:
             user-info-uri: https://openapi.naver.com/v1/nid/me
             user-name-attribute: response
 
-# 로깅 설정 (기본값)
-logging:
-  level:
-    root: INFO
-    com.example: INFO
-    org.hibernate.SQL: WARN
-    org.hibernate.orm.jdbc.bind: WARN
-    org.hibernate.type.descriptor.sql: WARN
-    org.springframework: INFO
-    org.springframework.web.socket: INFO
-
-  # 이메일 설정 (환경 변수 사용)
+  # 이메일 설정 (환경 변수 사용) - prod 기본값; dev/local은 각 프로필에서 localhost로 오버라이드
   mail:
     host: smtp.gmail.com
     port: 587
-    username: ${MAIL_USERNAME}
-    password: ${MAIL_PASSWORD}
+    username: ${MAIL_USERNAME:${SPRING_MAIL_USERNAME}}
+    password: ${MAIL_PASSWORD:${SPRING_MAIL_PASSWORD}}
     properties:
       mail:
         smtp:
@@ -124,6 +113,17 @@ logging:
       skip-create: false
       table-prefix: jobrunr_ # 테이블 충돌 방지
 
+# 로깅 설정 (기본값)
+logging:
+  level:
+    root: INFO
+    com.example: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    org.hibernate.type.descriptor.sql: WARN
+    org.springframework: INFO
+    org.springframework.web.socket: INFO
+
 baseball:
   datasource:
     driver-class-name: org.postgresql.Driver
@@ -137,7 +137,10 @@ baseball:
       validation-timeout: 5000
       idle-timeout: 300000
       max-lifetime: 1200000
-      connection-test-query: SELECT 1
+
+kbo:
+  schema-guard:
+    strict: ${KBO_SCHEMA_GUARD_STRICT:true}
 
 # 애플리케이션 공통 설정
 app:
@@ -145,9 +148,14 @@ app:
     url: ${APP_FRONTEND_URL:http://localhost:3000}
   backend:
     url: ${APP_BACKEND_URL:http://localhost:8080}
+  flyway:
+    auto-repair: ${APP_FLYWAY_AUTO_REPAIR:false}
   allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176}
   cookie:
     secure: false  # 개발 환경 기본값 (HTTP), prod 프로필에서 true로 오버라이드
+  policy:
+    # 법무 승인 전에는 비워두어 하드 게이트를 비활성화합니다. (형식: YYYY-MM-DD)
+    hard-gate-approved-date: ${APP_POLICY_HARD_GATE_APPROVED_DATE:}
   oauth2:
     cookie-secret: ${OAUTH2_COOKIE_SECRET:}
 
@@ -177,9 +185,21 @@ toss:
     secret-key: ${TOSS_PAYMENT_SECRET_KEY:test_sk_placeholder}
     confirm-url: https://api.tosspayments.com/v1/payments/confirm
     cancel-url: https://api.tosspayments.com/v1/payments/{paymentKey}/cancel
+  payout:
+    api-secret: ${TOSS_PAYOUT_API_SECRET:}
+    base-url: ${TOSS_PAYOUT_BASE_URL:https://api.tosspayments.com}
+    request-path: ${TOSS_PAYOUT_REQUEST_PATH:/v2/payouts}
+    status-path: ${TOSS_PAYOUT_STATUS_PATH:/v2/payouts/{payoutId}}
+    seller-register-path: ${TOSS_PAYOUT_SELLER_REGISTER_PATH:/v2/payouts/sellers}
+    security-mode: ${TOSS_PAYOUT_SECURITY_MODE:ENCRYPTION}
+    encryption-public-key: ${TOSS_PAYOUT_ENCRYPTION_PUBLIC_KEY:}
+    encryption-public-key-path: ${TOSS_PAYOUT_ENCRYPTION_PUBLIC_KEY_PATH:}
 
 mate:
+  auth:
+    require-social-verification: ${MATE_REQUIRE_SOCIAL_VERIFICATION:true}
   payment:
+    mode: ${MATE_PAYMENT_MODE:DIRECT_TRADE}
     deposit-amount: ${MATE_PAYMENT_DEPOSIT_AMOUNT:10000}
     intent-ttl-minutes: ${MATE_PAYMENT_INTENT_TTL_MINUTES:30}
     fee-rate: ${MATE_FEE_RATE:0.10}
@@ -189,6 +209,18 @@ payment:
     enforced: ${PAYMENT_SELLING_ENFORCED:true}
   payout:
     enabled: ${PAYMENT_PAYOUT_ENABLED:false}
+    provider: ${PAYMENT_PAYOUT_PROVIDER:SIM}
+
+# Swagger / OpenAPI 설정 (기본값: 활성화 - dev/local 환경)
+springdoc:
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
 
 # Actuator health check (shared across profiles)
 management:
@@ -218,7 +250,7 @@ spring:
       on-profile: dev
   flyway:
     enabled: true
-    locations: classpath:db/migration_postgresql
+    locations: classpath:db/migration_postgresql/
     baseline-on-migrate: true
     validate-on-migrate: true
   security:
@@ -226,30 +258,14 @@ spring:
       client:
         registration:
           google:
-            client-id: dev-google
-            client-secret: dev-google-secret
+            client-id: ${GOOGLE_CLIENT_ID:dev-google}
+            client-secret: ${GOOGLE_CLIENT_SECRET:dev-google-secret}
           kakao:
-            client-id: dev-kakao
-            client-secret: dev-kakao-secret
+            client-id: ${KAKAO_CLIENT_ID:dev-kakao}
+            client-secret: ${KAKAO_CLIENT_SECRET:dev-kakao-secret}
           naver:
-            client-id: dev-naver
-            client-secret: dev-naver-secret
-        provider:
-          google:
-            authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
-            token-uri: https://oauth2.googleapis.com/token
-            user-info-uri: https://www.googleapis.com/oauth2/v3/userinfo
-            user-name-attribute: sub
-          kakao:
-            authorization-uri: https://kauth.kakao.com/oauth/authorize
-            token-uri: https://kauth.kakao.com/oauth/token
-            user-info-uri: https://kapi.kakao.com/v2/user/me
-            user-name-attribute: id
-          naver:
-            authorization-uri: https://nid.naver.com/oauth2.0/authorize
-            token-uri: https://nid.naver.com/oauth2.0/token
-            user-info-uri: https://openapi.naver.com/v1/nid/me
-            user-name-attribute: response
+            client-id: ${NAVER_CLIENT_ID:dev-naver}
+            client-secret: ${NAVER_CLIENT_SECRET:dev-naver-secret}
   mail:
     host: localhost
     port: 25
@@ -260,6 +276,8 @@ spring:
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
+    data-source-properties:
+      currentSchema: public
     hikari:
       maximum-pool-size: 10
       minimum-idle: 2
@@ -267,13 +285,10 @@ spring:
       validation-timeout: 5000
       idle-timeout: 300000
       max-lifetime: 1200000
-      connection-test-query: SELECT 1
-      data-source-properties:
-        currentSchema: public
   jpa:
-    generate-ddl: false
+    generate-ddl: true
     hibernate:
-      ddl-auto: validate
+      ddl-auto: update
     properties:
       hibernate:
         default_schema: public
@@ -291,6 +306,12 @@ spring:
     properties:
       hibernate: {}
 
+app:
+  oauth2:
+    cookie-secret: ${OAUTH2_COOKIE_SECRET:dev-oauth2-cookie-secret}
+  dev-data:
+    enabled: true
+
 ---
 # 'prod' 프로필: 배포 환경 (Oracle Autonomous DB 사용)
 spring:
@@ -299,9 +320,17 @@ spring:
       on-profile: prod
   datasource:
     driver-class-name: oracle.jdbc.OracleDriver
-    url: ${SPRING_DATASOURCE_URL:${DB_URL}}
-    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME}}
-    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD}}
+    url: ${SPRING_DATASOURCE_URL:?SPRING_DATASOURCE_URL is required in prod}
+    username: ${SPRING_DATASOURCE_USERNAME:?SPRING_DATASOURCE_USERNAME is required in prod}
+    password: ${SPRING_DATASOURCE_PASSWORD:?SPRING_DATASOURCE_PASSWORD is required in prod}
+    data-source-properties:
+      oracle.jdbc.defaultRowPrefetch: "100"
+      oracle.jdbc.implicitCachingEnabled: "true"
+      oracle.jdbc.maxStatementsLimit: "100"
+      oracle.jdbc.autoCommitSpecCompliant: "false"
+      oracle.jdbc.timezoneAsRegion: "false"
+      oracle.net.CONNECT_TIMEOUT: "10000"
+      oracle.net.READ_TIMEOUT: "30000"
     hikari:
       maximum-pool-size: 30
       minimum-idle: 10
@@ -311,17 +340,8 @@ spring:
       idle-timeout: 600000
       max-lifetime: 1800000
       keepalive-time: 45000
-      connection-test-query: SELECT 1 FROM DUAL
       leak-detection-threshold: 30000
       pool-name: KBO-Prod-Pool
-      data-source-properties:
-        oracle.jdbc.defaultRowPrefetch: "100"
-        oracle.jdbc.implicitCachingEnabled: "true"
-        oracle.jdbc.maxStatementsLimit: "100"
-        oracle.jdbc.autoCommitSpecCompliant: "false"
-        oracle.jdbc.timezoneAsRegion: "false"
-        oracle.net.CONNECT_TIMEOUT: "10000"
-        oracle.net.READ_TIMEOUT: "30000"
 
   jpa:
     show-sql: false # Production should not log SQL by default
@@ -336,8 +356,9 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
-    validate-on-migrate: false
-    locations: classpath:db/migration
+    validate-on-migrate: ${SPRING_FLYWAY_VALIDATE_ON_MIGRATE:false}
+    locations: classpath:db/migration/
+    ignore-migration-patterns: "*:pending"
     ignore-missing-migrations: true
 
 baseball:
@@ -345,14 +366,26 @@ baseball:
     # prod에서는 baseball(PostgreSQL) 연결 정보를 fallback 없이 강제한다.
     # 누락 시 앱을 fail-fast로 중단해 DB 토폴로지 오구성을 방지한다.
     driver-class-name: org.postgresql.Driver
-    url: ${BASEBALL_DB_URL}
-    username: ${BASEBALL_DB_USERNAME}
-    password: ${BASEBALL_DB_PASSWORD}
+    url: ${BASEBALL_DB_URL:?BASEBALL_DB_URL is required in prod}
+    username: ${BASEBALL_DB_USERNAME:?BASEBALL_DB_USERNAME is required in prod}
+    password: ${BASEBALL_DB_PASSWORD:?BASEBALL_DB_PASSWORD is required in prod}
 
-# prod 프로필 쿠키 보안 설정
 app:
+  flyway:
+    auto-repair: ${APP_FLYWAY_AUTO_REPAIR:false}
   cookie:
-    secure: true  # HTTPS 환경에서 Secure 플래그 활성화
+    secure: true
+  oauth2:
+    cookie-secret: ${OAUTH2_COOKIE_SECRET:?OAUTH2_COOKIE_SECRET is required in prod}
+  dev-data:
+    enabled: false
+
+# prod 환경에서 Swagger UI 및 API 문서 비활성화
+springdoc:
+  swagger-ui:
+    enabled: false
+  api-docs:
+    enabled: false
 
 ---
 # 'local' 프로필: 로컬 테스트 환경 (H2 In-Memory)
@@ -360,16 +393,43 @@ spring:
   config:
     activate:
       on-profile: local
+  flyway:
+    enabled: false # H2 환경에서 Oracle/PostgreSQL 마이그레이션 실행 방지 (ddl-auto: create-drop이 스키마 관리)
+  mail:
+    host: localhost
+    port: 25
+    username:
+    password:
   datasource:
     driver-class-name: org.h2.Driver
     url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=Oracle
     username: sa
     password: 
   jpa:
-    database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
       ddl-auto: create-drop # 매 실행 시 스키마 새로 생성
     properties:
       hibernate:
         show_sql: true
         format_sql: true
+
+kbo:
+  schema-guard:
+    strict: false
+
+# local 프로필에서 baseball datasource도 H2 사용
+# (root 설정의 PostgreSQL 드라이버 + ${DB_URL} H2 fallback 오류 방지)
+# kbo.schema-guard.strict=false로 인해 schema validation 없이 기동됨
+baseball:
+  datasource:
+    driver-class-name: org.h2.Driver
+    url: jdbc:h2:mem:baseballdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=Oracle
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+
+app:
+  dev-data:
+    enabled: true

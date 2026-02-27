@@ -10,12 +10,17 @@ import com.example.mate.entity.PaymentStatus;
 import com.example.mate.entity.PaymentTransaction;
 import com.example.mate.entity.PayoutTransaction;
 import com.example.mate.entity.SettlementStatus;
+import com.example.mate.exception.TossPaymentException;
 import com.example.mate.exception.PartyNotFoundException;
+import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PaymentTransactionRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,11 +37,16 @@ import java.util.stream.Collectors;
 public class PaymentTransactionService {
 
     private final PaymentTransactionRepository paymentTransactionRepository;
+    private final PartyApplicationRepository partyApplicationRepository;
     private final PartyRepository partyRepository;
     private final TossPaymentService tossPaymentService;
     private final CancelPolicyService cancelPolicyService;
     private final PayoutService payoutService;
     private final PaymentMetricsService metricsService;
+    private final MatePaymentModeService matePaymentModeService;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Transactional
     public PaymentTransaction createOrGetOnConfirm(PartyApplication application, PaymentIntent intent, String paymentKey) {
@@ -47,6 +57,8 @@ public class PaymentTransactionService {
             throw new IllegalArgumentException("paymentKey는 필수입니다.");
         }
 
+        partyApplicationRepository.findByOrderIdForUpdate(application.getOrderId());
+
         try {
             PaymentTransaction existing = findExistingTransaction(application.getOrderId(), paymentKey);
             if (existing != null) {
@@ -56,6 +68,9 @@ public class PaymentTransactionService {
 
             return createPaymentTransaction(application, intent, paymentKey);
         } catch (DataIntegrityViolationException ex) {
+            if (entityManager != null) {
+                entityManager.clear();
+            }
             PaymentTransaction existing = findExistingTransaction(application.getOrderId(), paymentKey);
             if (existing != null) {
                 validateExistingTransactionForRetry(existing, application, intent, paymentKey);
@@ -80,11 +95,21 @@ public class PaymentTransactionService {
 
     @Transactional
     public PayoutTransaction requestManualPayout(Long paymentId) {
+        if (matePaymentModeService.isDirectTrade()) {
+            throw new TossPaymentException(
+                    "직거래 모드에서는 수동 정산 지급을 요청할 수 없습니다.",
+                    HttpStatus.SERVICE_UNAVAILABLE);
+        }
         PaymentTransaction tx = paymentTransactionRepository.findById(paymentId)
                 .orElseThrow(() -> new IllegalArgumentException("결제 트랜잭션을 찾을 수 없습니다: " + paymentId));
         tx.setSettlementStatus(SettlementStatus.REQUESTED);
         paymentTransactionRepository.save(tx);
-        return payoutService.requestPayout(tx);
+        try {
+            return payoutService.requestPayout(tx);
+        } catch (RuntimeException e) {
+            return payoutService.findLatestByPaymentTransactionId(tx.getId())
+                    .orElseThrow(() -> e);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -161,7 +186,10 @@ public class PaymentTransactionService {
     public PartyApplicationDTO.CancelResponse processCancellation(
             PartyApplication application,
             PartyApplicationDTO.CancelRequest request) {
-        if (application == null || application.getOrderId() == null || application.getOrderId().isBlank()) {
+        if (application == null
+                || !Boolean.TRUE.equals(application.getIsPaid())
+                || application.getOrderId() == null
+                || application.getOrderId().isBlank()) {
             return PartyApplicationDTO.CancelResponse.builder()
                     .applicationId(application != null ? application.getId() : null)
                     .refundAmount(0)

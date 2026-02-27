@@ -1,5 +1,6 @@
 package com.example.common.image;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.coobird.thumbnailator.Thumbnails;
 import org.springframework.stereotype.Component;
@@ -18,6 +19,7 @@ import java.awt.image.BufferedImage;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class ImageUtil {
 
     private static final int MAX_WIDTH = 1024;
@@ -27,6 +29,8 @@ public class ImageUtil {
     private static final int PROFILE_MAX_HEIGHT = 1536;
     private static final double PROFILE_COMPRESSION_QUALITY = 0.88;
     private static final long COMPRESSION_THRESHOLD_BYTES = 1024 * 1024; // 1MB
+
+    private final ImageOptimizationMetricsService metricsService;
 
     private boolean webpAvailable = false;
 
@@ -106,59 +110,81 @@ public class ImageUtil {
      * Compress and optionally convert to WebP
      */
     public ProcessedImage process(MultipartFile file) throws IOException {
+        return process(file, "default");
+    }
+
+    public ProcessedImage process(MultipartFile file, String source) throws IOException {
         String originalContentType = file.getContentType();
         byte[] originalBytes = file.getBytes();
         String originalExtension = getExtension(file.getOriginalFilename());
 
         if (shouldSkip(originalContentType, originalBytes.length)) {
+            metricsService.record(source, "skipped");
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         }
 
         if (!webpAvailable) {
+            metricsService.record(source, "fallback");
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         }
 
         try {
-            return convertToWebP(originalBytes, MAX_WIDTH, MAX_HEIGHT, COMPRESSION_QUALITY);
+            ProcessedImage processed = convertToWebP(originalBytes, MAX_WIDTH, MAX_HEIGHT, COMPRESSION_QUALITY);
+            metricsService.record(source, "optimized");
+            return processed;
         } catch (UnsatisfiedLinkError e) {
             webpAvailable = false;
             log.warn("WebP native codec not available. Falling back to original image. reason={}", e.getMessage());
+            metricsService.record(source, "fallback");
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         } catch (LinkageError e) {
             webpAvailable = false;
             log.warn("WebP link error. Falling back to original image. reason={}", e.getMessage());
+            metricsService.record(source, "fallback");
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         } catch (Exception e) {
             log.warn("Image optimization failed. Falling back to original image.", e);
+            metricsService.record(source, "fallback");
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         }
     }
 
     public ProcessedImage processProfileImage(MultipartFile file) throws IOException {
+        return processProfileImage(file, "profile");
+    }
+
+    public ProcessedImage processProfileImage(MultipartFile file, String source) throws IOException {
         String originalContentType = file.getContentType();
         byte[] originalBytes = file.getBytes();
         String originalExtension = getExtension(file.getOriginalFilename());
 
         if (shouldSkip(originalContentType, originalBytes.length)) {
+            metricsService.record(source, "skipped");
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         }
 
         if (!webpAvailable) {
+            metricsService.record(source, "fallback");
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         }
 
         try {
-            return convertToWebP(originalBytes, PROFILE_MAX_WIDTH, PROFILE_MAX_HEIGHT, PROFILE_COMPRESSION_QUALITY);
+            ProcessedImage processed = convertToWebP(originalBytes, PROFILE_MAX_WIDTH, PROFILE_MAX_HEIGHT, PROFILE_COMPRESSION_QUALITY);
+            metricsService.record(source, "optimized");
+            return processed;
         } catch (UnsatisfiedLinkError e) {
             webpAvailable = false;
             log.warn("WebP native codec not available. Falling back to original image. reason={}", e.getMessage());
+            metricsService.record(source, "fallback");
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         } catch (LinkageError e) {
             webpAvailable = false;
             log.warn("WebP link error. Falling back to original image. reason={}", e.getMessage());
+            metricsService.record(source, "fallback");
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         } catch (Exception e) {
             log.warn("Image optimization failed. Falling back to original image.", e);
+            metricsService.record(source, "fallback");
             return new ProcessedImage(originalBytes, originalContentType, originalExtension);
         }
     }

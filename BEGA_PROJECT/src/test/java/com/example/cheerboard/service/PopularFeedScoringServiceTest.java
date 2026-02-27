@@ -48,8 +48,8 @@ class PopularFeedScoringServiceTest {
     @DisplayName("HYBRID 점수는 global/team/follow 가중치를 합산한다")
     void calculateHybridScore_combinesWeights() {
         double hybrid = scoringService.calculateHybridScore(0.7, 1.0, 1.0);
-        // 0.7*0.6 + 1.0*0.25 + 1.0*0.15 = 0.82
-        assertThat(hybrid).isCloseTo(0.82, within(0.0001));
+        // 0.7*0.7 + 1.0*0.2 + 1.0*0.1 = 0.79
+        assertThat(hybrid).isCloseTo(0.79, within(0.0001));
     }
 
     @Test
