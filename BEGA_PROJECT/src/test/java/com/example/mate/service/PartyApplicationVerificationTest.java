@@ -101,6 +101,12 @@ class PartyApplicationVerificationTest {
                                         app.setId(99L);
                                         return app;
                                 });
+                given(applicationRepository.saveAndFlush(any(PartyApplication.class)))
+                                .willAnswer(inv -> {
+                                        PartyApplication app = inv.getArgument(0);
+                                        app.setId(99L);
+                                        return app;
+                                });
         }
 
         @Nested
@@ -127,7 +133,7 @@ class PartyApplicationVerificationTest {
                         PartyApplicationDTO.Response response = service.createApplication(request, testPrincipal);
 
                         // then — 저장된 신청의 applicantId는 42L이어야 하고, name은 "TestUser"
-                        verify(applicationRepository).save(argThat(app -> app.getApplicantId().equals(42L) &&
+                        verify(applicationRepository).saveAndFlush(argThat(app -> app.getApplicantId().equals(42L) &&
                                         app.getApplicantName().equals("TestUser")));
                 }
 
@@ -183,7 +189,7 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.VERIFIED &&
+                                        .saveAndFlush(argThat(app -> app.getApplicantBadge() == Party.BadgeType.VERIFIED &&
                                                         app.getTicketVerified()));
                 }
 
@@ -204,7 +210,7 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW));
+                                        .saveAndFlush(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW));
                 }
 
                 @Test
@@ -224,7 +230,7 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW));
+                                        .saveAndFlush(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW));
                 }
 
                 @Test
@@ -243,7 +249,7 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.TRUSTED));
+                                        .saveAndFlush(argThat(app -> app.getApplicantBadge() == Party.BadgeType.TRUSTED));
                 }
         }
 
@@ -275,7 +281,7 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.VERIFIED &&
+                                        .saveAndFlush(argThat(app -> app.getApplicantBadge() == Party.BadgeType.VERIFIED &&
                                                         app.getTicketVerified()));
                 }
 
@@ -304,7 +310,7 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW &&
+                                        .saveAndFlush(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW &&
                                                         !app.getTicketVerified()));
                 }
 
@@ -326,7 +332,7 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW &&
+                                        .saveAndFlush(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW &&
                                                         !app.getTicketVerified()));
                 }
         }
