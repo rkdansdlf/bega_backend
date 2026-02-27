@@ -1,18 +1,21 @@
 package com.example.auth.controller;
 
 import com.example.auth.dto.OAuth2StateData;
+import com.example.auth.dto.PolicyConsentSubmitDto;
 import com.example.auth.service.OAuth2StateService;
 import com.example.common.dto.ApiResponse;
 import com.example.common.ratelimit.RateLimit;
 import com.example.auth.dto.LoginDto;
 import com.example.auth.dto.SignupDto;
+import com.example.auth.service.AuthRegistrationService;
+import com.example.auth.service.PolicyConsentService;
 import com.example.auth.service.UserService;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.util.AuthCookieUtil;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.Objects;
 import java.util.HashMap;
 
 import java.util.Map;
@@ -29,22 +32,30 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
 import jakarta.validation.Valid;
 
+@Tag(name = "인증", description = "회원가입, 로그인, 로그아웃, JWT 토큰 관리, OAuth2 계정 연동")
 @Slf4j
 @RestController
 @RequestMapping("/api/auth")
 public class APIController {
 
     private final UserService userService;
+    private final AuthRegistrationService authRegistrationService;
+    private final PolicyConsentService policyConsentService;
     private final OAuth2StateService oAuth2StateService;
     private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
     private final RefreshRepository refreshRepository;
     private final AuthCookieUtil authCookieUtil;
 
-    public APIController(UserService userService, OAuth2StateService oAuth2StateService,
+    public APIController(UserService userService,
+            AuthRegistrationService authRegistrationService,
+            PolicyConsentService policyConsentService,
+            OAuth2StateService oAuth2StateService,
             com.example.auth.service.TokenBlacklistService tokenBlacklistService,
             RefreshRepository refreshRepository,
             AuthCookieUtil authCookieUtil) {
         this.userService = userService;
+        this.authRegistrationService = authRegistrationService;
+        this.policyConsentService = policyConsentService;
         this.oAuth2StateService = oAuth2StateService;
         this.tokenBlacklistService = tokenBlacklistService;
         this.refreshRepository = refreshRepository;
@@ -56,11 +67,49 @@ public class APIController {
      */
     @RateLimit(limit = 3, window = 3600) // 1시간에 최대 3회 가입 시도
     @PostMapping("/signup")
-    public ResponseEntity<ApiResponse> signUp(@Valid @RequestBody SignupDto signupDto) {
-        userService.signUp(Objects.requireNonNull(signupDto.toUserDto()));
+    public ResponseEntity<ApiResponse> signUp(@Valid @RequestBody SignupDto signupDto, HttpServletRequest request) {
+        authRegistrationService.register(
+                signupDto,
+                resolveClientIp(request),
+                request.getHeader("User-Agent"));
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("회원가입이 완료되었습니다."));
+    }
+
+    @GetMapping("/policies/required")
+    public ResponseEntity<ApiResponse> getRequiredPolicies() {
+        return ResponseEntity.ok(ApiResponse.success(
+                "필수 정책 목록 조회 성공",
+                policyConsentService.getRequiredPolicyResponse()));
+    }
+
+    @PostMapping("/policies/consents")
+    public ResponseEntity<ApiResponse> submitPolicyConsents(
+            @AuthenticationPrincipal Long userId,
+            @Valid @RequestBody PolicyConsentSubmitDto consentSubmitDto,
+            HttpServletRequest request) {
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("인증이 필요합니다."));
+        }
+
+        policyConsentService.validateRequiredConsents(consentSubmitDto.getPolicyConsents());
+        policyConsentService.recordRequiredConsents(
+                userId,
+                consentSubmitDto.getPolicyConsents(),
+                "policy_gate",
+                resolveClientIp(request),
+                request.getHeader("User-Agent"));
+        PolicyConsentService.PolicyConsentStatus policyStatus = policyConsentService.evaluatePolicyConsentStatus(userId);
+
+        return ResponseEntity.ok(ApiResponse.success(
+                "정책 동의가 저장되었습니다.",
+                Map.of(
+                        "policyConsentRequired", policyStatus.policyConsentRequired(),
+                        "policyConsentNoticeRequired", policyStatus.policyConsentNoticeRequired(),
+                        "missingPolicyTypes", policyStatus.missingPolicyTypes(),
+                        "hardGateDate", policyStatus.hardGateDate())));
     }
 
     /**
@@ -274,5 +323,21 @@ public class APIController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
         }
+    }
+
+    private String resolveClientIp(HttpServletRequest request) {
+        if (request == null) {
+            return "unknown";
+        }
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor != null && !forwardedFor.isBlank()) {
+            return forwardedFor.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        String remoteAddr = request.getRemoteAddr();
+        return remoteAddr == null || remoteAddr.isBlank() ? "unknown" : remoteAddr;
     }
 }
