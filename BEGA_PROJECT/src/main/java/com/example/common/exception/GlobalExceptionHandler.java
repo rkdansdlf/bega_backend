@@ -20,6 +20,7 @@ import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.notification.exception.NotificationNotFoundException;
 import com.example.stadium.exception.StadiumNotFoundException;
 import com.example.cheerboard.service.CheerServiceConstants;
+import com.example.kbo.exception.TicketAnalysisException;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -31,6 +32,7 @@ import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -142,7 +144,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse> handleValidationException(MethodArgumentNotValidException e) {
         Map<String, String> errors = new HashMap<>();
         e.getBindingResult().getAllErrors().forEach((error) -> {
-            String fieldName = ((FieldError) error).getField();
+            String fieldName;
+            if (error instanceof FieldError fieldError) {
+                fieldName = fieldError.getField();
+            } else {
+                fieldName = error.getObjectName();
+            }
             String errorMessage = error.getDefaultMessage();
             errors.put(fieldName, errorMessage);
         });
@@ -161,6 +168,33 @@ public class GlobalExceptionHandler {
         log.warn("IllegalArgumentException: {}", e.getMessage());
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(e.getMessage()));
+    }
+
+    @ExceptionHandler(PolicyConsentException.class)
+    public ResponseEntity<ApiResponse> handlePolicyConsentException(PolicyConsentException e) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(
+                        e.getMessage(),
+                        Map.of(
+                                "code", e.getCode(),
+                                "policyTypes", e.getPolicyTypes())));
+    }
+
+    @ExceptionHandler(TicketAnalysisException.class)
+    public ResponseEntity<ApiResponse> handleTicketAnalysisException(TicketAnalysisException e) {
+        log.warn("TicketAnalysisException status={} message={}", e.getStatus().value(), e.getMessage());
+        return ResponseEntity
+                .status(e.getStatus())
+                .body(ApiResponse.error(e.getMessage()));
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ApiResponse> handleRateLimitExceededException(RateLimitExceededException e) {
+        log.warn("RateLimitExceededException: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
                 .body(ApiResponse.error(e.getMessage()));
     }
 
@@ -207,6 +241,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    /**
+     * 404 Not Found - 정적 리소스/매핑 없는 경로
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse> handleNoResourceFoundException(NoResourceFoundException ex) {
+        log.warn("NoResourceFoundException: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error("요청한 경로를 찾을 수 없습니다."));
     }
 
     @ExceptionHandler({ RepostNotAllowedException.class, RepostSelfNotAllowedException.class })

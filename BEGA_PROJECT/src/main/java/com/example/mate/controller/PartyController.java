@@ -4,6 +4,7 @@ import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.service.PartyService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.data.domain.Page;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.util.List;
 
+@Tag(name = "파티 매칭", description = "파티 생성, 조회, 신청, 체크인, 실시간 WebSocket 채팅")
 @RestController
 @RequestMapping("/api/parties")
 @RequiredArgsConstructor

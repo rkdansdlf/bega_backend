@@ -17,6 +17,7 @@ import com.example.cheerboard.dto.ReportCaseRes;
 import jakarta.validation.Valid;
 import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.service.CheerService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.data.web.PageableDefault;
@@ -24,6 +25,7 @@ import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 
+@Tag(name = "응원 게시판", description = "게시물 CRUD, 좋아요, 댓글, 신고, 북마크, 리포스트")
 @RestController
 @RequestMapping("/api/cheer")
 @RequiredArgsConstructor

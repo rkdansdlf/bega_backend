@@ -53,4 +53,5 @@ public class PostImage {
     void onCreate() {
         createdAt = Instant.now();
     }
+
 }

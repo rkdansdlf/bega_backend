@@ -234,7 +234,7 @@ public class UserService {
         validatePassword(user, password);
 
         // 일일 출석 보너스 체크
-        checkAndApplyDailyLoginBonus(Objects.requireNonNull(user));
+        int currentCheerPoints = checkAndApplyDailyLoginBonus(Objects.requireNonNull(user));
 
         int tokenVersion = Optional.ofNullable(user.getTokenVersion()).orElse(0);
         String accessToken = jwtUtil.createJwt(
@@ -256,7 +256,7 @@ public class UserService {
         profileData.put("name", user.getName());
         profileData.put("role", user.getRole());
         profileData.put("handle", user.getHandle());
-        profileData.put("cheerPoints", user.getCheerPoints());
+        profileData.put("cheerPoints", currentCheerPoints);
 
         return new LoginResult(
                 accessToken,
@@ -269,7 +269,7 @@ public class UserService {
      * 마지막 로그인 날짜(lastLoginDate)를 확인하여 오늘 첫 로그인인 경우 지급
      */
     @Transactional
-    public void checkAndApplyDailyLoginBonus(@NonNull UserEntity user) {
+    public int checkAndApplyDailyLoginBonus(@NonNull UserEntity user) {
         java.time.LocalDate today = java.time.LocalDate.now();
 
         // lastLoginDate가 없거나(첫 로그인), 마지막 로그인 날짜가 오늘보다 이전인 경우
@@ -277,15 +277,20 @@ public class UserService {
                 .map(last -> last.atZone(ZoneId.of("Asia/Seoul")).toLocalDate().isBefore(today))
                 .orElse(true);
 
+        int currentCheerPoints = Optional.ofNullable(user.getCheerPoints()).orElse(0);
+        int updatedCheerPoints = currentCheerPoints;
         if (shouldAward) {
-            user.addCheerPoints(5);
+            updatedCheerPoints += 5;
             log.info("Daily Login Bonus (5 points) awarded to user: {}. Current Points: {}", user.getEmail(),
-                    user.getCheerPoints());
+                    updatedCheerPoints);
         }
 
-        // 로그인 시간 갱신
-        user.setLastLoginDate(LocalDateTime.now());
-        userRepository.save(user);
+        int updatedRows = userRepository.updateLoginActivity(user.getId(), LocalDateTime.now(), updatedCheerPoints);
+        if (updatedRows != 1) {
+            throw new IllegalStateException("로그인 상태 업데이트에 실패했습니다.");
+        }
+
+        return updatedCheerPoints;
     }
 
     /**

@@ -33,7 +33,7 @@ public class OffseasonService {
     }
 
     private OffseasonMovementDto convertToDto(PlayerMovement entity) {
-        String remarks = entity.getRemarks() != null ? entity.getRemarks() : "";
+        String remarks = entity.getDetails() != null ? entity.getDetails() : "";
         Long amount = parseAmount(remarks);
         boolean isBig = isBigEvent(entity.getSection(), amount);
 

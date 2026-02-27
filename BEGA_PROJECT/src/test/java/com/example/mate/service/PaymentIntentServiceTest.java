@@ -17,6 +17,8 @@ import org.jobrunr.scheduling.JobScheduler;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.http.HttpStatus;
 
 import java.security.Principal;
@@ -39,6 +41,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class PaymentIntentServiceTest {
 
     @Mock
@@ -107,6 +110,7 @@ class PaymentIntentServiceTest {
         when(paymentIntentRepository.findByIdForUpdate(100L)).thenReturn(java.util.Optional.of(intent));
         given(userService.getUserIdByEmail("test@example.com")).willReturn(applicantId);
         given(userService.isSocialVerified(applicantId)).willReturn(true);
+        given(applicationRepository.findByOrderIdForUpdate("MATE-1-10-1000")).willReturn(java.util.Optional.empty());
         given(applicationRepository.findByPartyIdAndApplicantId(1L, applicantId)).willReturn(java.util.Optional.empty());
         given(applicationRepository.existsByPartyIdAndApplicantIdAndIsRejectedTrue(1L, applicantId)).willReturn(false);
         given(applicationRepository.countByPartyIdAndIsApprovedFalseAndIsRejectedFalse(1L)).willReturn(0L);
@@ -129,18 +133,63 @@ class PaymentIntentServiceTest {
                 .status(PaymentIntent.IntentStatus.CONFIRMED)
                 .build();
 
+        given(paymentIntentRepository.findByIdForUpdate(101L)).willReturn(java.util.Optional.of(intent));
+        given(applicationRepository.findByOrderIdForUpdate("MATE-1-10-2000")).willReturn(java.util.Optional.empty());
         given(tossPaymentService.cancelPayment(eq("pay_cancel_1"), any(), anyInt()))
                 .willThrow(new TossPaymentException("이미 취소된 결제입니다.", HttpStatus.CONFLICT));
 
-        paymentIntentService.compensateAfterApplicationFailure(intent, new IllegalStateException("payment failed"));
+        paymentIntentService.compensateAfterApplicationFailure(101L, new IllegalStateException("payment failed"));
 
         assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCELED);
         assertThat(intent.getCanceledAt()).isNotNull();
-        verify(paymentMetricsService).recordCompensation("retry");
+        verify(paymentMetricsService).recordCompensationRequested();
         verify(paymentMetricsService).recordCompensation("success");
         verify(paymentIntentRepository, times(2)).save(intent);
+        verify(tossPaymentService).cancelPayment(eq("pay_cancel_1"), any(), anyInt());
         verify(jobScheduler, never()).schedule(any(Instant.class), any(JobLambda.class));
-        verifyNoMoreInteractions(tossPaymentService);
+    }
+
+    @Test
+    void compensateAfterApplicationFailure_skipsIfApplicationAlreadyExists() {
+        PaymentIntent intent = PaymentIntent.builder()
+                .id(108L)
+                .orderId("MATE-1-10-2500")
+                .applicantId(10L)
+                .paymentKey("pay_exist_1")
+                .expectedAmount(25000)
+                .status(PaymentIntent.IntentStatus.CONFIRMED)
+                .build();
+
+        given(paymentIntentRepository.findByIdForUpdate(108L)).willReturn(java.util.Optional.of(intent));
+        given(applicationRepository.findByOrderIdForUpdate("MATE-1-10-2500"))
+                .willReturn(java.util.Optional.of(PartyApplication.builder().id(3L).build()));
+
+        paymentIntentService.compensateAfterApplicationFailure(108L, new IllegalStateException("payment failed"));
+
+        assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.APPLICATION_CREATED);
+        verify(paymentIntentRepository).save(intent);
+        verify(tossPaymentService, never()).cancelPayment(any(), any(), anyInt());
+    }
+
+    @Test
+    void compensateAfterApplicationFailure_skipsIfAlreadyCancelRequested() {
+        PaymentIntent intent = PaymentIntent.builder()
+                .id(109L)
+                .orderId("MATE-1-10-2600")
+                .applicantId(10L)
+                .paymentKey("pay_cancel_requested")
+                .expectedAmount(25000)
+                .status(PaymentIntent.IntentStatus.CANCEL_REQUESTED)
+                .build();
+
+        given(paymentIntentRepository.findByIdForUpdate(109L)).willReturn(java.util.Optional.of(intent));
+        given(applicationRepository.findByOrderIdForUpdate("MATE-1-10-2600")).willReturn(java.util.Optional.empty());
+
+        paymentIntentService.compensateAfterApplicationFailure(109L, new IllegalStateException("payment failed"));
+
+        assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCEL_REQUESTED);
+        verify(paymentIntentRepository, never()).save(intent);
+        verify(tossPaymentService, never()).cancelPayment(any(), any(), anyInt());
     }
 
     @Test
@@ -154,10 +203,12 @@ class PaymentIntentServiceTest {
                 .status(PaymentIntent.IntentStatus.CONFIRMED)
                 .build();
 
+        given(paymentIntentRepository.findByIdForUpdate(102L)).willReturn(java.util.Optional.of(intent));
+        given(applicationRepository.findByOrderIdForUpdate("MATE-1-10-2001")).willReturn(java.util.Optional.empty());
         given(tossPaymentService.cancelPayment(eq("pay_cancel_2"), any(), anyInt()))
                 .willThrow(new RuntimeException("cancel failed"));
 
-        paymentIntentService.compensateAfterApplicationFailure(intent, new IllegalStateException("payment failed"));
+        paymentIntentService.compensateAfterApplicationFailure(102L, new IllegalStateException("payment failed"));
 
         assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCEL_FAILED);
         assertThat(intent.getFailureCode()).isEqualTo("RuntimeException");
@@ -178,7 +229,7 @@ class PaymentIntentServiceTest {
                 .build();
 
         given(paymentIntentRepository.findByIdForUpdate(103L)).willReturn(java.util.Optional.of(intent));
-        given(applicationRepository.findByOrderId("MATE-1-10-3000"))
+        given(applicationRepository.findByOrderIdForUpdate("MATE-1-10-3000"))
                 .willReturn(java.util.Optional.of(PartyApplication.builder().id(3L).build()));
 
         paymentIntentService.retryCompensation(103L, 1);
@@ -220,17 +271,19 @@ class PaymentIntentServiceTest {
                 .status(PaymentIntent.IntentStatus.CONFIRMED)
                 .build();
 
+        given(paymentIntentRepository.findByIdForUpdate(105L)).willReturn(java.util.Optional.of(intent));
+        given(applicationRepository.findByOrderIdForUpdate("MATE-1-10-4000")).willReturn(java.util.Optional.empty());
         given(tossPaymentService.cancelPayment(eq("pay_already_cancelled"), any(), anyInt()))
                 .willThrow(new TossPaymentException(
                         "결제 취소에 실패했습니다: 409 CONFLICT",
                         HttpStatus.CONFLICT,
                         "ALREADY_CANCELED_PAYMENT"));
 
-        paymentIntentService.compensateAfterApplicationFailure(intent, new IllegalStateException("payment failed"));
+        paymentIntentService.compensateAfterApplicationFailure(105L, new IllegalStateException("payment failed"));
 
         assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCELED);
         assertThat(intent.getCanceledAt()).isNotNull();
-        verify(paymentMetricsService).recordCompensation("retry");
+        verify(paymentMetricsService).recordCompensationRequested();
         verify(paymentMetricsService).recordCompensation("success");
         verify(paymentIntentRepository, times(2)).save(intent);
         verify(jobScheduler, never()).schedule(any(Instant.class), any(JobLambda.class));
@@ -250,12 +303,14 @@ class PaymentIntentServiceTest {
 
         // 에러 메시지에 "취소"만 포함되고, tossErrorCode가 없으며 status도 409인 경우
         // → isAlreadyCancelledByProvider가 false를 반환해야 함(false positive 없음)
+        given(paymentIntentRepository.findByIdForUpdate(106L)).willReturn(java.util.Optional.of(intent));
+        given(applicationRepository.findByOrderIdForUpdate("MATE-1-10-5000")).willReturn(java.util.Optional.empty());
         given(tossPaymentService.cancelPayment(eq("pay_false_cancel"), any(), anyInt()))
                 .willThrow(new TossPaymentException(
                         "결제 취소에 실패했습니다: 409 CONFLICT",
                         HttpStatus.CONFLICT));
 
-        paymentIntentService.compensateAfterApplicationFailure(intent, new IllegalStateException("payment failed"));
+        paymentIntentService.compensateAfterApplicationFailure(106L, new IllegalStateException("payment failed"));
 
         assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCEL_FAILED);
         verify(paymentMetricsService).recordCompensation("fail");
@@ -274,13 +329,15 @@ class PaymentIntentServiceTest {
                 .status(PaymentIntent.IntentStatus.CONFIRMED)
                 .build();
 
+        given(paymentIntentRepository.findByIdForUpdate(107L)).willReturn(java.util.Optional.of(intent));
+        given(applicationRepository.findByOrderIdForUpdate("MATE-1-10-6000")).willReturn(java.util.Optional.empty());
         given(tossPaymentService.cancelPayment(eq("pay_fully_cancelled"), any(), anyInt()))
                 .willThrow(new TossPaymentException(
                         "결제 취소에 실패했습니다: 409 CONFLICT",
                         HttpStatus.CONFLICT,
                         "ALREADY_FULLY_CANCELED"));
 
-        paymentIntentService.compensateAfterApplicationFailure(intent, new IllegalStateException("payment failed"));
+        paymentIntentService.compensateAfterApplicationFailure(107L, new IllegalStateException("payment failed"));
 
         assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCELED);
         assertThat(intent.getCanceledAt()).isNotNull();

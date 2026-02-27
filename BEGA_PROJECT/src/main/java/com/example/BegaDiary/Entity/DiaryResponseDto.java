@@ -10,6 +10,7 @@ import lombok.Setter;
 
 import com.example.BegaDiary.Utils.BaseballConstants;
 import com.example.kbo.entity.GameEntity;
+import com.example.leaderboard.dto.SeatViewRewardDto;
 
 @Getter
 @Setter
@@ -27,7 +28,16 @@ public class DiaryResponseDto {
     private String memo;
     private List<String> photos;
     private String type;
-    
+
+    // 좌석 정보
+    private String section;
+    private String block;
+    private String seatRow;
+    private String seatNumber;
+
+    // 시야 사진 기여 리워드 (저장 직후에만 포함, 조회 시 null)
+    private SeatViewRewardDto seatViewReward;
+
     public static DiaryResponseDto from(BegaDiary diary) {
     	GameEntity game = diary.getGame();
         return DiaryResponseDto.builder()
@@ -41,6 +51,10 @@ public class DiaryResponseDto {
             .memo(diary.getMemo())
             .photos(diary.getPhotoUrls())
             .type(diary.getType().name().toLowerCase())
+            .section(diary.getSection())
+            .block(diary.getBlock())
+            .seatRow(diary.getSeatRow())
+            .seatNumber(diary.getSeatNumber())
             .build();
     }
     
@@ -71,6 +85,10 @@ public class DiaryResponseDto {
             .memo(diary.getMemo())
             .photos(signedUrls)
             .type(diary.getType().name().toLowerCase())
+            .section(diary.getSection())
+            .block(diary.getBlock())
+            .seatRow(diary.getSeatRow())
+            .seatNumber(diary.getSeatNumber())
             .build();
     }
 }

@@ -7,6 +7,7 @@ import com.example.notification.repository.NotificationRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import java.util.List;
 import java.util.Objects;
@@ -23,7 +24,7 @@ public class NotificationService {
     private final SimpMessagingTemplate messagingTemplate;
 
     // 알림 생성
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void createNotification(
             @NonNull Long userId,
             @NonNull Notification.NotificationType type,

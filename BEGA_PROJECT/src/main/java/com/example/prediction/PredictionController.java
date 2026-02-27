@@ -1,5 +1,6 @@
 package com.example.prediction;
 
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 import java.util.Objects;
 import jakarta.validation.Valid;
 
+@Tag(name = "경기 예측", description = "경기 결과 예측 투표, 내 투표 조회, 시즌 예측 순위")
 @RestController
 @RequestMapping("/api")
 @PreAuthorize("isAuthenticated()")
@@ -157,40 +159,6 @@ public class PredictionController {
         }
     }
 
-    @GetMapping("/predictions/my-vote/{gameId}")
-    public ResponseEntity<?> getMyVote(
-            Principal principal,
-            @PathVariable String gameId) {
-
-        if (principal == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다.");
-        }
-
-        Long userId;
-        try {
-            userId = parsePrincipalUserId(principal);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
-
-        String normalizedGameId = normalizePathGameId(gameId);
-        if (normalizedGameId == null) {
-            return ResponseEntity.badRequest().body("게임 ID가 잘못되었습니다.");
-        }
-
-        Optional<Prediction> prediction = predictionRepository.findByGameIdAndUserId(normalizedGameId, userId);
-
-        if (prediction.isPresent()) {
-            return ResponseEntity.ok(Map.of("votedTeam", prediction.get().getVotedTeam()));
-        } else {
-            // NullPointerException을 피하기 위해 HashMap을 사용
-            // Map.of()는 null 값을 허용하지 않음
-            Map<String, Object> responseMap = new HashMap<>();
-            responseMap.put("votedTeam", null);
-            return ResponseEntity.ok(responseMap);
-        }
-    }
-
     // 다수 경기 사용자 투표 일괄 조회
     @PostMapping("/predictions/my-votes")
     public ResponseEntity<Map<String, Object>> getMyVotesBulk(
@@ -229,8 +197,24 @@ public class PredictionController {
             return ResponseEntity.ok(Map.of("votes", Map.of()));
         }
 
-        for (String gameId : distinctGameIds) {
-            votes.put(gameId, null);
+        votes = buildUserVotesForGames(userId, distinctGameIds);
+
+        return ResponseEntity.ok(Map.of("votes", votes));
+    }
+
+    private Map<String, String> buildUserVotesForGames(Long userId, List<String> gameIds) {
+        Map<String, String> votes = new HashMap<>();
+        if (gameIds == null || gameIds.isEmpty()) {
+            return votes;
+        }
+
+        List<String> distinctGameIds = normalizeGameIds(gameIds);
+        if (distinctGameIds.isEmpty() || distinctGameIds.size() > MAX_MY_VOTE_BATCH_SIZE) {
+            return votes;
+        }
+
+        for (String resolvedGameId : distinctGameIds) {
+            votes.put(resolvedGameId, null);
         }
 
         List<Prediction> predictions = predictionRepository.findByUserIdAndGameIdIn(
@@ -241,7 +225,7 @@ public class PredictionController {
             votes.put(prediction.getGameId(), prediction.getVotedTeam());
         }
 
-        return ResponseEntity.ok(Map.of("votes", votes));
+        return votes;
     }
 
     private String normalizePathGameId(String gameId) {

@@ -3,6 +3,8 @@ package com.example.mate.integration;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.cheerboard.repo.CheerPostRepo;
+import com.example.cheerboard.repo.CheerReportRepo;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PaymentFlowType;
@@ -26,15 +28,23 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -56,6 +66,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.data.redis.repositories.enabled=false",
         "jobrunr.background-job-server.enabled=false",
         "jobrunr.dashboard.enabled=false",
+        "mate.payment.mode=TOSS_TEST",
         "storage.type=oci",
         "oci.s3.endpoint=http://localhost:4566",
         "oci.s3.access-key=test-access-key",
@@ -98,7 +109,21 @@ class MateFlowHappyPathIntegrationTest {
     private TossPaymentService tossPaymentService;
 
     @MockitoBean
+    private CheerPostRepo cheerPostRepo;
+
+    @MockitoBean
+    private CheerReportRepo cheerReportRepo;
+
+    @MockitoBean
     private PaymentTransactionService paymentTransactionService;
+
+    @MockitoBean
+    private StringRedisTemplate redisTemplate;
+
+    @SuppressWarnings("unchecked")
+    private final ValueOperations<String, String> valueOperations = Mockito.mock(ValueOperations.class);
+
+    private final ConcurrentMap<String, String> redisStore = new ConcurrentHashMap<>();
 
     @BeforeEach
     void setUp() {
@@ -119,6 +144,16 @@ class MateFlowHappyPathIntegrationTest {
         Mockito.doNothing().when(paymentTransactionService).requestSettlementOnApproval(Mockito.any());
         given(paymentTransactionService.createOrGetOnConfirm(Mockito.any(), Mockito.any(), Mockito.anyString()))
                 .willReturn(null);
+
+        given(redisTemplate.opsForValue()).willReturn(valueOperations);
+        Mockito.doAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            String value = invocation.getArgument(1);
+            redisStore.put(key, value);
+            return null;
+        }).when(valueOperations).set(Mockito.anyString(), Mockito.anyString(), Mockito.any(Duration.class));
+        given(valueOperations.get(Mockito.anyString()))
+                .willAnswer(invocation -> redisStore.get(invocation.getArgument(0)));
     }
 
     @Test
@@ -203,6 +238,18 @@ class MateFlowHappyPathIntegrationTest {
                         .with(MateTestTokenHelper.principalAs(HOST_EMAIL)))
                 .andExpect(status().isOk());
 
+        String qrSessionBody = objectMapper.writeValueAsString(Map.of("partyId", partyId));
+        String qrSessionJson = mockMvc.perform(post("/api/checkin/qr-session")
+                        .with(MateTestTokenHelper.principalAs(HOST_EMAIL))
+                        .contentType("application/json")
+                        .content(qrSessionBody))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        JsonNode qrSessionNode = objectMapper.readTree(qrSessionJson);
+        String manualCode = qrSessionNode.get("manualCode").asText();
+
         Party matchedParty = partyRepository.findById(partyId).orElseThrow();
         assertThat(matchedParty.getCurrentParticipants()).isEqualTo(2);
         assertThat(matchedParty.getStatus()).isEqualTo(Party.PartyStatus.MATCHED);
@@ -227,7 +274,8 @@ class MateFlowHappyPathIntegrationTest {
 
         String hostCheckInBody = objectMapper.writeValueAsString(Map.of(
                 "partyId", partyId,
-                "location", "잠실 1루 게이트"));
+                "location", "잠실 1루 게이트",
+                "manualCode", manualCode));
         mockMvc.perform(post("/api/checkin")
                         .with(MateTestTokenHelper.principalAs(HOST_EMAIL))
                         .contentType("application/json")
@@ -236,7 +284,8 @@ class MateFlowHappyPathIntegrationTest {
 
         String applicantCheckInBody = objectMapper.writeValueAsString(Map.of(
                 "partyId", partyId,
-                "location", "잠실 1루 게이트"));
+                "location", "잠실 1루 게이트",
+                "manualCode", manualCode));
         mockMvc.perform(post("/api/checkin")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
                         .contentType("application/json")
@@ -254,5 +303,120 @@ class MateFlowHappyPathIntegrationTest {
 
         Party completedParty = partyRepository.findById(partyId).orElseThrow();
         assertThat(completedParty.getStatus()).isEqualTo(Party.PartyStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("Happy path: 판매 전환(PENDING->SELLING) 후 SELLING_FULL 결제 승인 성공")
+    void sellingFlow_convertAndConfirmPayment() throws Exception {
+        String createPartyBody = objectMapper.writeValueAsString(Map.ofEntries(
+                Map.entry("hostName", "Happy Host"),
+                Map.entry("teamId", "LG"),
+                Map.entry("gameDate", LocalDate.now().plusDays(1).toString()),
+                Map.entry("gameTime", "18:30:00"),
+                Map.entry("stadium", "잠실"),
+                Map.entry("homeTeam", "LG"),
+                Map.entry("awayTeam", "OB"),
+                Map.entry("section", "1루"),
+                Map.entry("maxParticipants", 2),
+                Map.entry("description", "selling happy path"),
+                Map.entry("ticketPrice", 12000)));
+
+        String createdPartyJson = mockMvc.perform(post("/api/parties")
+                        .with(MateTestTokenHelper.principalAs(HOST_EMAIL))
+                        .contentType("application/json")
+                        .content(createPartyBody))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode partyNode = objectMapper.readTree(createdPartyJson);
+        long partyId = partyNode.get("id").asLong();
+
+        String sellingPatchBody = objectMapper.writeValueAsString(Map.of(
+                "status", Party.PartyStatus.SELLING.name(),
+                "price", 50000));
+
+        String sellingPartyJson = mockMvc.perform(patch("/api/parties/{id}", partyId)
+                        .with(MateTestTokenHelper.principalAs(HOST_EMAIL))
+                        .contentType("application/json")
+                        .content(sellingPatchBody))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode sellingPartyNode = objectMapper.readTree(sellingPartyJson);
+        assertThat(sellingPartyNode.get("status").asText()).isEqualTo(Party.PartyStatus.SELLING.name());
+        assertThat(sellingPartyNode.get("price").asInt()).isEqualTo(50000);
+
+        String prepareBody = objectMapper.writeValueAsString(Map.of(
+                "partyId", partyId,
+                "flowType", PaymentFlowType.SELLING_FULL.name()));
+
+        String prepareJson = mockMvc.perform(post("/api/payments/toss/prepare")
+                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
+                        .contentType("application/json")
+                        .content(prepareBody))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode prepareNode = objectMapper.readTree(prepareJson);
+        long intentId = prepareNode.get("intentId").asLong();
+        String orderId = prepareNode.get("orderId").asText();
+        int amount = prepareNode.get("amount").asInt();
+        assertThat(amount).isEqualTo(50000);
+
+        given(tossPaymentService.confirmPayment(eq("pay-key-selling-happy"), eq(orderId), eq(amount)))
+                .willReturn(new TossPaymentDTO.ConfirmResponse(
+                        "pay-key-selling-happy",
+                        orderId,
+                        "DONE",
+                        amount,
+                        "카드"));
+
+        String confirmBody = objectMapper.writeValueAsString(Map.of(
+                "paymentKey", "pay-key-selling-happy",
+                "orderId", orderId,
+                "intentId", intentId,
+                "partyId", partyId,
+                "flowType", PaymentFlowType.SELLING_FULL.name(),
+                "paymentType", "FULL",
+                "message", "티켓 구매 요청"));
+
+        String firstConfirmJson = mockMvc.perform(post("/api/payments/toss/confirm")
+                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
+                        .contentType("application/json")
+                        .content(confirmBody))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode firstConfirmNode = objectMapper.readTree(firstConfirmJson);
+        long applicationId = firstConfirmNode.get("id").asLong();
+        assertThat(firstConfirmNode.get("paymentType").asText()).isEqualTo("FULL");
+        assertThat(firstConfirmNode.get("isPaid").asBoolean()).isTrue();
+        assertThat(firstConfirmNode.get("isApproved").asBoolean()).isTrue();
+
+        String secondConfirmJson = mockMvc.perform(post("/api/payments/toss/confirm")
+                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
+                        .contentType("application/json")
+                        .content(confirmBody))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode secondConfirmNode = objectMapper.readTree(secondConfirmJson);
+        assertThat(secondConfirmNode.get("id").asLong()).isEqualTo(applicationId);
+
+        Party matchedParty = partyRepository.findById(partyId).orElseThrow();
+        assertThat(matchedParty.getCurrentParticipants()).isEqualTo(2);
+        assertThat(matchedParty.getStatus()).isEqualTo(Party.PartyStatus.MATCHED);
+
+        verify(tossPaymentService, times(1)).confirmPayment(eq("pay-key-selling-happy"), eq(orderId), eq(amount));
     }
 }

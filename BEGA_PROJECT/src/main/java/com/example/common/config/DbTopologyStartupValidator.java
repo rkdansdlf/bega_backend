@@ -1,5 +1,8 @@
 package com.example.common.config;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -74,6 +77,7 @@ public class DbTopologyStartupValidator {
         if (isBlank(environment.getProperty("BASEBALL_DB_PASSWORD"))) {
             failures.add("BASEBALL_DB_PASSWORD env var is missing");
         }
+        validateOracleWalletIfNeeded(failures, primaryDataSourceProperties.getUrl());
 
         if (!failures.isEmpty()) {
             String message = String.join(" | ", failures);
@@ -103,6 +107,91 @@ public class DbTopologyStartupValidator {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase();
+    }
+
+    private void validateOracleWalletIfNeeded(List<String> failures, String datasourceUrl) {
+        String url = datasourceUrl == null ? "" : datasourceUrl.trim();
+        String resolvedUrl = url.toLowerCase();
+        if (!resolvedUrl.startsWith("jdbc:oracle:thin:")) {
+            return;
+        }
+
+        if (!usesTnsAlias(url)) {
+            return;
+        }
+
+        String tnsAdmin = extractTnsAdmin(url);
+        if (isBlank(tnsAdmin)) {
+            tnsAdmin = environment.getProperty("TNS_ADMIN");
+        }
+        if (isBlank(tnsAdmin)) {
+            tnsAdmin = environment.getProperty("ORACLE_TNS_ADMIN");
+        }
+
+        if (isBlank(tnsAdmin)) {
+            failures.add("ORACLE_TNS_ADMIN is required for Oracle TNS alias datasource (SPRING_DATASOURCE_URL)");
+            return;
+        }
+
+        Path walletDir = Paths.get(tnsAdmin);
+        if (!Files.exists(walletDir) || !Files.isDirectory(walletDir)) {
+            failures.add("Oracle TNS_ADMIN path does not exist or is not a directory: " + tnsAdmin);
+            return;
+        }
+
+        if (!Files.isReadable(walletDir)) {
+            failures.add("Oracle wallet path is not readable: " + tnsAdmin);
+            return;
+        }
+
+        if (!Files.exists(walletDir.resolve("tnsnames.ora"))) {
+            failures.add("Oracle wallet path is missing tnsnames.ora: " + tnsAdmin);
+            return;
+        }
+
+        boolean walletFileExists = Files.exists(walletDir.resolve("cwallet.sso"))
+                || Files.exists(walletDir.resolve("ewallet.p12"));
+        if (!walletFileExists) {
+            failures.add("Oracle wallet path is missing cwallet.sso or ewallet.p12: " + tnsAdmin);
+        }
+    }
+
+    private String extractTnsAdmin(String datasourceUrl) {
+        int questionIndex = datasourceUrl.indexOf('?');
+        if (questionIndex < 0 || questionIndex + 1 >= datasourceUrl.length()) {
+            return "";
+        }
+
+        String query = datasourceUrl.substring(questionIndex + 1);
+        for (String entry : query.split("&")) {
+            int eq = entry.indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            String key = entry.substring(0, eq).trim();
+            if ("tns_admin".equalsIgnoreCase(key)) {
+                return entry.substring(eq + 1).trim();
+            }
+        }
+        return "";
+    }
+
+    private boolean usesTnsAlias(String datasourceUrl) {
+        int atIndex = datasourceUrl.indexOf('@');
+        if (atIndex < 0 || atIndex + 1 >= datasourceUrl.length()) {
+            return false;
+        }
+
+        String target = datasourceUrl.substring(atIndex + 1);
+        int queryIndex = target.indexOf('?');
+        if (queryIndex >= 0) {
+            target = target.substring(0, queryIndex);
+        }
+
+        if (target.startsWith("//") || target.contains(":") || target.contains("/")) {
+            return false;
+        }
+        return !isBlank(target);
     }
 
     private boolean isBlank(String value) {

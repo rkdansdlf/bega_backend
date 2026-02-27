@@ -2,7 +2,6 @@ package com.example.auth.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
-
 import java.io.Serializable;
 import java.time.Instant;
 
@@ -56,4 +55,5 @@ public class UserFollow {
         private Long followerId;
         private Long followingId;
     }
+
 }

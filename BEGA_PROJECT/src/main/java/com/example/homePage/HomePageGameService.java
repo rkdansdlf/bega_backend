@@ -1,6 +1,7 @@
 package com.example.homepage;
 
 import java.time.LocalDate;
+import java.time.Year;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -14,11 +15,13 @@ import com.example.kbo.repository.GameRepository;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
 
 import static com.example.common.config.CacheConfig.*;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class HomePageGameService {
 
@@ -135,10 +138,19 @@ public class HomePageGameService {
 	}
 
     // v_team_rank_all 뷰에서 순위 데이터를 가져오도록 수정
-    @Cacheable(value = TEAM_RANKINGS, key = "#seasonYear")
+    @Cacheable(value = TEAM_RANKINGS, key = "#seasonYear", unless = "#result == null || #result.isEmpty()")
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<HomePageTeamRankingDto> getTeamRankings(int seasonYear) {
         List<Object[]> results = gameRepository.findTeamRankingsBySeason(seasonYear);
+        if (log.isDebugEnabled()) {
+            log.debug("Team rankings query completed - seasonYear={}, source=primary, count={}", seasonYear, results.size());
+        }
+        if (results.isEmpty()) {
+            results = gameRepository.findTeamRankingsBySeasonFallback(seasonYear);
+            if (log.isDebugEnabled()) {
+                log.debug("Team rankings query completed - seasonYear={}, source=fallback, count={}", seasonYear, results.size());
+            }
+        }
 
         return results.stream()
                 .map(row -> HomePageTeamRankingDto.builder()
@@ -160,27 +172,46 @@ public class HomePageGameService {
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public LeagueStartDatesDto getLeagueStartDates() {
         LocalDate now = LocalDate.now();
-        // int currentYear = now.getYear();
         int seasonYear = now.getYear();
 
         // DB에서 각 리그의 첫 경기 날짜 조회
         LocalDate regularStart = gameRepository
                 .findFirstRegularSeasonDate(seasonYear)
-                .orElse(LocalDate.of(seasonYear, 3, 22));
+                .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(0, seasonYear))
+                .or(() -> gameRepository.findLatestStartDateByTypeAsOf(0, now))
+                .orElse(now);
 
         LocalDate postseasonStart = gameRepository
                 .findFirstPostseasonDate(seasonYear)
-                .orElse(LocalDate.of(seasonYear, 10, 6));
+                .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(2, seasonYear))
+                .or(() -> gameRepository.findLatestStartDateByTypeAsOf(2, now))
+                .orElse(now);
 
         LocalDate koreanSeriesStart = gameRepository
                 .findFirstKoreanSeriesDate(seasonYear)
-                .orElse(LocalDate.of(seasonYear, 10, 26));
+                .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(5, seasonYear))
+                .or(() -> gameRepository.findLatestStartDateByTypeAsOf(5, now))
+                .orElse(now);
+
+        regularStart = normalizeDateToSeasonYear(regularStart, seasonYear);
+        postseasonStart = normalizeDateToSeasonYear(postseasonStart, seasonYear);
+        koreanSeriesStart = normalizeDateToSeasonYear(koreanSeriesStart, seasonYear);
 
         return LeagueStartDatesDto.builder()
                 .regularSeasonStart(regularStart.toString())
                 .postseasonStart(postseasonStart.toString())
                 .koreanSeriesStart(koreanSeriesStart.toString())
                 .build();
+    }
+
+    private LocalDate normalizeDateToSeasonYear(LocalDate date, int seasonYear) {
+        if (date.getYear() == seasonYear) {
+            return date;
+        }
+
+        int maxDay = date.getMonth().length(Year.isLeap(seasonYear));
+        int normalizedDay = Math.min(date.getDayOfMonth(), maxDay);
+        return LocalDate.of(seasonYear, date.getMonth(), normalizedDay);
     }
 
     // 날짜 네비게이션 정보 조회
