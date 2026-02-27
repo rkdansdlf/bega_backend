@@ -103,6 +103,27 @@ public class DevDataInitializer implements CommandLineRunner {
             log.info("Test user already exists: {} (email: {})", name, email);
             Optional<UserEntity> existingUser = userRepository.findWithProvidersByEmail(email);
             existingUser.ifPresent(u -> {
+                boolean updated = false;
+                if (u.getPassword() == null || !passwordEncoder.matches(password, u.getPassword())) {
+                    u.setPassword(passwordEncoder.encode(password));
+                    updated = true;
+                }
+                if (u.getEnabled() == null || !u.getEnabled()) {
+                    u.setEnabled(true);
+                    updated = true;
+                }
+                if (u.getLocked() == null || u.getLocked()) {
+                    u.setLocked(false);
+                    updated = true;
+                }
+                if (u.getCheerPoints() == null || u.getCheerPoints() < 100000) {
+                    u.setCheerPoints(100000);
+                    updated = true;
+                }
+                if (updated) {
+                    userRepository.save(u);
+                    log.info("Synchronized test user baseline for {} (email: {})", name, email);
+                }
                 linkSocialProvider(u);
                 if (provisionPayoutProfile) {
                     linkSellerPayoutProfile(u);
