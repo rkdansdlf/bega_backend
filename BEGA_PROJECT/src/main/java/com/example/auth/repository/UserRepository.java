@@ -43,69 +43,69 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
   @Query("SELECT u FROM UserEntity u WHERE u.id = :userId")
   Optional<UserEntity> findByIdForWrite(@org.springframework.data.repository.query.Param("userId") Long userId);
 
-  @Query(value = """
-      SELECT EXISTS (
-        SELECT 1
-        FROM public.users u
-        WHERE u.id = :userId
-          AND u.enabled = true
-          AND (
-            u.locked = false
-            OR (
-              u.lock_expires_at IS NOT NULL
-              AND u.lock_expires_at < NOW()
-            )
+  @Query("""
+      SELECT CASE WHEN COUNT(u) > 0 THEN true ELSE false END
+      FROM UserEntity u
+      WHERE u.id = :userId
+        AND u.enabled = true
+        AND (
+          u.locked = false
+          OR (
+            u.lockExpiresAt IS NOT NULL
+            AND u.lockExpiresAt < CURRENT_TIMESTAMP
           )
-      )""", nativeQuery = true)
+        )
+      """)
   boolean existsUsableAuthorById(@Param("userId") Long userId);
 
-  @Query(value = """
-      SELECT EXISTS (
-        SELECT 1
-        FROM public.users u
-        WHERE u.id = :userId
-          AND COALESCE(u.token_version, 0) = :tokenVersion
-          AND u.enabled = true
-          AND (
-            u.locked = false
-            OR (
-              u.lock_expires_at IS NOT NULL
-              AND u.lock_expires_at < NOW()
-            )
+  @Query("""
+      SELECT CASE WHEN COUNT(u) > 0 THEN true ELSE false END
+      FROM UserEntity u
+      WHERE u.id = :userId
+        AND COALESCE(u.tokenVersion, 0) = :tokenVersion
+        AND u.enabled = true
+        AND (
+          u.locked = false
+          OR (
+            u.lockExpiresAt IS NOT NULL
+            AND u.lockExpiresAt < CURRENT_TIMESTAMP
           )
-      )""", nativeQuery = true)
+        )
+      """)
   boolean existsUsableAuthorByIdAndTokenVersion(@Param("userId") Long userId,
       @Param("tokenVersion") int tokenVersion);
 
-  @Query(value = """
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("""
       SELECT u.id
-      FROM public.users u
+      FROM UserEntity u
       WHERE u.id = :userId
         AND u.enabled = true
         AND (
           u.locked = false
           OR (
-            u.lock_expires_at IS NOT NULL
-            AND u.lock_expires_at < NOW()
+            u.lockExpiresAt IS NOT NULL
+            AND u.lockExpiresAt < CURRENT_TIMESTAMP
           )
         )
-      FOR UPDATE""", nativeQuery = true)
+      """)
   java.util.Optional<Long> lockUsableAuthorForWrite(@Param("userId") Long userId);
 
-  @Query(value = """
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("""
       SELECT u.id
-      FROM public.users u
+      FROM UserEntity u
       WHERE u.id = :userId
-        AND COALESCE(u.token_version, 0) = :tokenVersion
+        AND COALESCE(u.tokenVersion, 0) = :tokenVersion
         AND u.enabled = true
         AND (
           u.locked = false
           OR (
-            u.lock_expires_at IS NOT NULL
-            AND u.lock_expires_at < NOW()
+            u.lockExpiresAt IS NOT NULL
+            AND u.lockExpiresAt < CURRENT_TIMESTAMP
           )
         )
-      FOR UPDATE""", nativeQuery = true)
+      """)
   java.util.Optional<Long> lockUsableAuthorForWriteWithTokenVersion(@Param("userId") Long userId,
       @Param("tokenVersion") int tokenVersion);
 

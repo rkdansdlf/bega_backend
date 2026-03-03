@@ -18,6 +18,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
@@ -114,6 +115,37 @@ public class KboGamePostgresJpaConfig {
 
 	private String ensureKboGameSchema(DataSource stadiumDataSource) {
 		JdbcTemplate jdbcTemplate = new JdbcTemplate(stadiumDataSource);
+		final int maxAttempts = 6;
+		for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+			try {
+				return ensureKboGameSchemaInternal(jdbcTemplate);
+			} catch (CannotGetJdbcConnectionException ex) {
+				if (attempt == maxAttempts) {
+					log.error(
+							"Schema guard could not obtain JDBC connection after {} attempts. Falling back to '{}' for startup continuity.",
+							maxAttempts,
+							PUBLIC_SCHEMA,
+							ex
+					);
+					return PUBLIC_SCHEMA;
+				}
+				long backoffMs = Math.min(3000L, attempt * 500L);
+				String rootMessage = ex.getMostSpecificCause() == null ? ex.getMessage() : ex.getMostSpecificCause().getMessage();
+				log.warn(
+						"Schema guard JDBC connection failed (attempt {}/{}). Retrying in {}ms. reason={}",
+						attempt,
+						maxAttempts,
+						backoffMs,
+						rootMessage
+				);
+				sleepQuietly(backoffMs);
+			}
+		}
+
+		return PUBLIC_SCHEMA;
+	}
+
+	private String ensureKboGameSchemaInternal(JdbcTemplate jdbcTemplate) {
 		String activeSchema = resolveActiveSchema(jdbcTemplate);
 		if (!strictSchemaGuard) {
 			String schema = countTable(jdbcTemplate, PUBLIC_SCHEMA, GAME_TABLE) > 0 ? PUBLIC_SCHEMA : activeSchema;
@@ -136,6 +168,14 @@ public class KboGamePostgresJpaConfig {
 		validateBooleanColumnType(jdbcTemplate, gameSchema, GAME_INNING_SCORES_TABLE, IS_EXTRA_COLUMN);
 
 		return gameSchema;
+	}
+
+	private void sleepQuietly(long millis) {
+		try {
+			Thread.sleep(millis);
+		} catch (InterruptedException ex) {
+			Thread.currentThread().interrupt();
+		}
 	}
 
 	private String resolveActiveSchema(JdbcTemplate jdbcTemplate) {

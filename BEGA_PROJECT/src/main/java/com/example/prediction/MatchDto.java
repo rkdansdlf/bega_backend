@@ -1,5 +1,6 @@
 package com.example.prediction;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.example.kbo.entity.GameEntity;
 import java.time.LocalDate;
 
@@ -17,6 +18,7 @@ public class MatchDto {
     private Integer homeScore;
     private Integer awayScore;
     private String winner;
+    @JsonProperty("isDummy")
     private Boolean isDummy;
 
     // New Fields

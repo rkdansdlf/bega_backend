@@ -47,7 +47,7 @@ PSQL_URL="${DB_URL#jdbc:}"
 
 echo "[INFO] Flyway status for delivery migrations"
 PGPASSWORD="$DB_PASSWORD" psql "$PSQL_URL" -U "$DB_USERNAME" -Atc \
-  "select version || '|' || description || '|' || success from public.flyway_schema_history where version in ('102','103','104') order by version;"
+  "select distinct version || '|' || description || '|' || success from public.flyway_schema_history where version in ('102','103','104') order by 1;"
 
 echo "[INFO] Delivery count by stadium"
 PGPASSWORD="$DB_PASSWORD" psql "$PSQL_URL" -U "$DB_USERNAME" -Atc \

@@ -1,5 +1,6 @@
 package com.example.mate.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.CancelReasonType;
@@ -45,8 +46,11 @@ public class PartyApplicationDTO {
         private Double applicantRating;
         private String message;
         private Integer depositAmount;
+        @JsonProperty("isPaid")
         private Boolean isPaid;
+        @JsonProperty("isApproved")
         private Boolean isApproved;
+        @JsonProperty("isRejected")
         private Boolean isRejected;
         private PartyApplication.PaymentType paymentType;
         private Boolean ticketVerified;

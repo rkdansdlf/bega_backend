@@ -89,6 +89,14 @@ jobs:
             --tests "*BegaGameServiceTest*" \
             --tests "*HomePageGameServiceTest*"
 
+      - name: Run API contract serialization tests
+        working-directory: ./BEGA_PROJECT
+        run: |
+          ./gradlew test \
+            --tests "*FollowDtoSerializationTest*" \
+            --tests "*BooleanIsFieldSerializationTest*" \
+            -Dwebp.strict=false
+
   deploy:
     if: >
       vars.DEPLOY_TO_EC2 == 'true' &&

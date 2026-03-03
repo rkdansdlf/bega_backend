@@ -1,5 +1,6 @@
 package com.example.notification.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.example.notification.entity.Notification;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -20,6 +21,7 @@ public class NotificationDTO {
         private String title;
         private String message;
         private Long relatedId;
+        @JsonProperty("isRead")
         private Boolean isRead;
         private LocalDateTime createdAt;
 
