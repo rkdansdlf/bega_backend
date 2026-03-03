@@ -1,5 +1,6 @@
 package com.example.leaderboard.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -33,6 +34,7 @@ public class ScoreResultDto {
 
     // Streak info
     private Integer currentStreak;
+    @JsonProperty("isNewMaxStreak")
     private Boolean isNewMaxStreak;
 
     // Applied powerups

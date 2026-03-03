@@ -144,6 +144,8 @@ kbo:
 
 # 애플리케이션 공통 설정
 app:
+  dev-data:
+    enabled: false
   frontend:
     url: ${APP_FRONTEND_URL:http://localhost:3000}
   backend:

@@ -92,7 +92,8 @@ public class SecurityConfig {
                         "/api/test/**",
                         "/actuator/health",
                         "/actuator/prometheus",
-                        "/ws/**",
+            "/ws",
+            "/ws/**",
                         // Swagger / OpenAPI (dev 전용 - prod에서는 springdoc.*.enabled=false로 비활성화)
                         "/v3/api-docs/**",
                         "/swagger-ui/**",

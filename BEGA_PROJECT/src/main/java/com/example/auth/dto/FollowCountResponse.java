@@ -1,5 +1,6 @@
 package com.example.auth.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -17,6 +18,7 @@ import lombok.Setter;
 public class FollowCountResponse {
     private long followerCount;
     private long followingCount;
+    @JsonProperty("isFollowedByMe")
     private boolean isFollowedByMe;
     private boolean notifyNewPosts; // 내가 이 유저를 팔로우 중일 때 알림 설정 상태
     private boolean blockedByMe; // 내가 이 유저를 차단했는지

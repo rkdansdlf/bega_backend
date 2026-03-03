@@ -32,6 +32,7 @@ import com.example.auth.entity.RefreshToken;
 import com.example.common.exception.UserNotFoundException;
 import com.example.common.exception.TeamNotFoundException;
 import com.example.common.exception.DuplicateEmailException;
+import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.InvalidCredentialsException;
 import com.example.common.exception.SocialLoginRequiredException;
 
@@ -231,6 +232,7 @@ public class UserService {
         String normalizedEmail = Optional.ofNullable(email).map(e -> e.trim().toLowerCase()).orElse(null);
         UserEntity user = findUserByEmailOrThrow(normalizedEmail);
 
+        validateAuthorForLogin(user);
         validatePassword(user, password);
 
         // 일일 출석 보너스 체크
@@ -787,6 +789,33 @@ public class UserService {
         if (!bCryptPasswordEncoder.matches(password, user.getPassword())) {
             throw new InvalidCredentialsException();
         }
+    }
+
+    /**
+     * 로그인 전 계정 상태 검증
+     * - 비활성 계정(enabled=false) 차단
+     * - 잠금 계정(locked=true) 차단, 단 잠금 만료 시 허용
+     */
+    private void validateAuthorForLogin(UserEntity user) {
+        if (!user.isEnabled()) {
+            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+        }
+
+        if (!isAccountUsable(user)) {
+            throw new InvalidAuthorException("계정이 잠겨 있습니다. 잠시 후 다시 시도해 주세요.");
+        }
+    }
+
+    private boolean isAccountUsable(UserEntity user) {
+        if (!user.isLocked()) {
+            return true;
+        }
+
+        if (user.getLockExpiresAt() == null) {
+            return false;
+        }
+
+        return user.getLockExpiresAt().isBefore(LocalDateTime.now());
     }
 
     /**

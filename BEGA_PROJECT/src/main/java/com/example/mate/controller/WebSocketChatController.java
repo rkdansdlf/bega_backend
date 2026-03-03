@@ -27,6 +27,10 @@ public class WebSocketChatController {
             @DestinationVariable Long partyId,
             ChatMessageDTO.Request request,
             java.security.Principal principal) {
+        if (request == null) {
+            request = new ChatMessageDTO.Request();
+        }
+        request.setPartyId(partyId);
 
         // DB에 메시지 저장 (Principal 기반 인가 확인 포함)
         ChatMessageDTO.Response savedMessage = chatMessageService.sendMessage(request, principal);
