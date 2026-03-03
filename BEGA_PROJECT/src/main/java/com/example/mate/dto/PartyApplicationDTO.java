@@ -26,6 +26,7 @@ public class PartyApplicationDTO {
         private Party.BadgeType applicantBadge;
         private Double applicantRating;
         private String message;
+        // DIRECT_TRADE: 거래 기준 금액 스냅샷, TOSS_TEST: 보증금/결제 금액
         private Integer depositAmount;
         private PartyApplication.PaymentType paymentType;
         private Boolean ticketVerified; // Client-side flag (ignored for verification, used for UI)
@@ -45,6 +46,7 @@ public class PartyApplicationDTO {
         private Party.BadgeType applicantBadge;
         private Double applicantRating;
         private String message;
+        // DIRECT_TRADE: 거래 기준 금액 스냅샷, TOSS_TEST: 보증금/결제 금액
         private Integer depositAmount;
         @JsonProperty("isPaid")
         private Boolean isPaid;

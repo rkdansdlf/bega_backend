@@ -6,6 +6,7 @@ import com.example.stadium.dto.StadiumDto;
 import com.example.stadium.entity.Place;
 import com.example.stadium.entity.Stadium;
 import com.example.stadium.entity.UserStadiumFavorite;
+import com.example.stadium.exception.StadiumNotFoundException;
 import com.example.stadium.repository.PlaceRepository;
 import com.example.stadium.repository.StadiumRepository;
 import com.example.stadium.repository.UserStadiumFavoriteRepository;
@@ -21,8 +22,10 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -107,6 +110,15 @@ class StadiumServiceTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 구장 상세 조회 시 StadiumNotFoundException을 던진다")
+    void getStadiumDetail_notFound_throwsException() {
+        when(stadiumRepository.findById("UNKNOWN")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> stadiumService.getStadiumDetail("UNKNOWN"))
+                .isInstanceOf(StadiumNotFoundException.class);
+    }
+
+    @Test
     @DisplayName("즐겨찾기 추가 시 중복이 아니면 저장된다")
     void addFavorite_savesWhenNotExists() {
         when(favoriteRepository.existsByUserIdAndStadiumId(1L, "JAMSIL")).thenReturn(false);
@@ -137,5 +149,14 @@ class StadiumServiceTest {
         List<String> result = stadiumService.getFavoriteStadiumIds(3L);
 
         assertThat(result).containsExactly("JAMSIL", "GOCHEOK");
+    }
+
+    @Test
+    @DisplayName("즐겨찾기 삭제는 항목이 없어도 예외 없이 수행된다")
+    void removeFavorite_isIdempotent() {
+        stadiumService.removeFavorite(5L, "JAMSIL");
+        stadiumService.removeFavorite(5L, "JAMSIL");
+
+        verify(favoriteRepository, times(2)).deleteByUserIdAndStadiumId(5L, "JAMSIL");
     }
 }

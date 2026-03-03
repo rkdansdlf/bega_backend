@@ -7,13 +7,17 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+import javax.sql.DataSource;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.example.kbo.entity.GameEntity;
 import com.example.kbo.repository.GameRepository;
+import com.example.kbo.util.TeamCodeNormalizer;
 
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
@@ -27,11 +31,12 @@ public class HomePageGameService {
 
     private final GameRepository gameRepository;
 	private final HomePageTeamRepository homePageTeamRepository;
+    @Qualifier("stadiumDataSource")
+    private final DataSource stadiumDataSource;
 
 	private final Map<String, HomePageTeam> teamMap = new ConcurrentHashMap<>();
 	private final Map<Integer, Integer> leagueTypeCodeMap = new ConcurrentHashMap<>();
 
-    @PostConstruct
     @Transactional(readOnly = true, transactionManager = "transactionManager")
     public void init() {
         try {
@@ -52,6 +57,15 @@ public class HomePageGameService {
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<HomePageGameDto> getGamesByDate(LocalDate date) {
         List<GameEntity> games = gameRepository.findByGameDate(date);
+        if (games.isEmpty()) {
+            List<GameEntity> jdbcFallbackGames = findGamesByDateWithJdbc(date);
+            if (!jdbcFallbackGames.isEmpty()) {
+                log.warn("GameRepository returned empty list but JDBC fallback found {} rows for date={}",
+                        jdbcFallbackGames.size(),
+                        date);
+                games = jdbcFallbackGames;
+            }
+        }
 
         return games.stream()
                 .map(this::convertToDto)
@@ -61,6 +75,10 @@ public class HomePageGameService {
     private HomePageGameDto convertToDto(GameEntity game) {
 		HomePageTeam homeTeam = getTeam(game.getHomeTeam());
 		HomePageTeam awayTeam = getTeam(game.getAwayTeam());
+        String resolvedHomeTeamId = resolveTeamId(game.getHomeTeam(), homeTeam.getTeamId());
+        String resolvedAwayTeamId = resolveTeamId(game.getAwayTeam(), awayTeam.getTeamId());
+        String resolvedHomeTeamName = resolveTeamName(resolvedHomeTeamId, homeTeam.getTeamName());
+        String resolvedAwayTeamName = resolveTeamName(resolvedAwayTeamId, awayTeam.getTeamName());
 
 		String leagueType = determineLeagueType(game.getSeasonId());
 		String gameInfo = "";
@@ -88,10 +106,10 @@ public class HomePageGameService {
                 .stadium(game.getStadium())
                 .gameStatus(game.getGameStatus())
                 .gameStatusKr(gameStatusKr)
-                .homeTeam(homeTeam.getTeamId())
-                .homeTeamFull(homeTeam.getTeamName())
-                .awayTeam(awayTeam.getTeamId())
-                .awayTeamFull(awayTeam.getTeamName())
+                .homeTeam(resolvedHomeTeamId)
+                .homeTeamFull(resolvedHomeTeamName)
+                .awayTeam(resolvedAwayTeamId)
+                .awayTeamFull(resolvedAwayTeamName)
                 .homeScore(homeScore)
                 .awayScore(awayScore)
                 .time("18:30")
@@ -226,5 +244,69 @@ public class HomePageGameService {
                 .hasPrev(prev != null)
                 .hasNext(next != null)
                 .build();
+    }
+
+    private String resolveTeamId(String rawTeamCode, String mappedTeamId) {
+        if (mappedTeamId != null && !mappedTeamId.isBlank()) {
+            return mappedTeamId;
+        }
+        String normalized = TeamCodeNormalizer.normalize(rawTeamCode);
+        if (normalized == null || normalized.isBlank()) {
+            return rawTeamCode;
+        }
+        return normalized;
+    }
+
+    private String resolveTeamName(String resolvedTeamId, String mappedTeamName) {
+        if (mappedTeamName != null && !mappedTeamName.isBlank()) {
+            return mappedTeamName;
+        }
+        return resolvedTeamId;
+    }
+
+    private List<GameEntity> findGamesByDateWithJdbc(LocalDate date) {
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(stadiumDataSource);
+        return jdbcTemplate.query(
+                """
+                        SELECT
+                          id,
+                          game_id,
+                          game_date,
+                          stadium,
+                          home_team,
+                          away_team,
+                          home_score,
+                          away_score,
+                          winning_team,
+                          winning_score,
+                          season_id,
+                          stadium_id,
+                          game_status,
+                          is_dummy,
+                          home_pitcher,
+                          away_pitcher
+                        FROM game
+                        WHERE game_date = ?
+                        ORDER BY game_id
+                        """,
+                (rs, rowNum) -> GameEntity.builder()
+                        .id(rs.getLong("id"))
+                        .gameId(rs.getString("game_id"))
+                        .gameDate(rs.getDate("game_date").toLocalDate())
+                        .stadium(rs.getString("stadium"))
+                        .homeTeam(rs.getString("home_team"))
+                        .awayTeam(rs.getString("away_team"))
+                        .homeScore((Integer) rs.getObject("home_score"))
+                        .awayScore((Integer) rs.getObject("away_score"))
+                        .winningTeam(rs.getString("winning_team"))
+                        .winningScore((Integer) rs.getObject("winning_score"))
+                        .seasonId((Integer) rs.getObject("season_id"))
+                        .stadiumId(rs.getString("stadium_id"))
+                        .gameStatus(rs.getString("game_status"))
+                        .isDummy((Boolean) rs.getObject("is_dummy"))
+                        .homePitcher(rs.getString("home_pitcher"))
+                        .awayPitcher(rs.getString("away_pitcher"))
+                        .build(),
+                java.sql.Date.valueOf(date));
     }
 }

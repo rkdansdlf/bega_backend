@@ -255,6 +255,8 @@ spring:
     locations: classpath:db/migration_postgresql/
     baseline-on-migrate: true
     validate-on-migrate: true
+    connect-retries: 5            # DB 일시 불가 시 재시도 횟수
+    connect-retries-interval: 10  # 재시도 간격(초)
   security:
     oauth2:
       client:
@@ -280,6 +282,7 @@ spring:
     password: ${DB_PASSWORD}
     data-source-properties:
       currentSchema: public
+      targetServerType: primary  # standby/recovery 서버에 실수로 연결되는 것 방지
     hikari:
       maximum-pool-size: 10
       minimum-idle: 2
@@ -313,6 +316,10 @@ app:
     cookie-secret: ${OAUTH2_COOKIE_SECRET:dev-oauth2-cookie-secret}
   dev-data:
     enabled: true
+
+kbo:
+  schema-guard:
+    strict: false  # dev에서 baseball DB 테이블 부재/스키마 불일치 시 기동 차단 방지
 
 ---
 # 'prod' 프로필: 배포 환경 (Oracle Autonomous DB 사용)

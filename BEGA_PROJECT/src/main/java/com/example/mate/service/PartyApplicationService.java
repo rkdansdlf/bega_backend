@@ -65,6 +65,7 @@ public class PartyApplicationService {
         try {
             ApplicationCreationContext context = prepareCreationContext(request, principal);
             validateFullPaymentPolicy(request, context.party());
+            ApplicationPaymentSnapshot paymentSnapshot = resolveApplicationPaymentSnapshot(request, context.party());
 
             PartyApplication application = PartyApplication.builder()
                     .partyId(request.getPartyId())
@@ -73,8 +74,8 @@ public class PartyApplicationService {
                     .applicantBadge(context.applicantBadge())
                     .applicantRating(request.getApplicantRating() != null ? request.getApplicantRating() : 5.0)
                     .message(request.getMessage())
-                    .depositAmount(request.getDepositAmount() != null ? request.getDepositAmount() : 0)
-                    .paymentType(request.getPaymentType())
+                    .depositAmount(paymentSnapshot.amount())
+                    .paymentType(paymentSnapshot.paymentType())
                     .ticketVerified(context.ticketVerified())
                     .ticketImageUrl(request.getTicketImageUrl())
                     .isPaid(false)
@@ -527,6 +528,10 @@ public class PartyApplicationService {
             return;
         }
 
+        if (matePaymentModeService.isDirectTrade() && party.getStatus() != Party.PartyStatus.SELLING) {
+            throw new InvalidApplicationStatusException("직거래 모드에서는 SELLING 상태에서만 전액 신청이 가능합니다.");
+        }
+
         if (matePaymentModeService.isTossTest()) {
             if (sellingPaymentEnforced) {
                 throw new InvalidApplicationStatusException("전액 결제 신청은 결제 승인 API를 통해서만 생성할 수 있습니다.");
@@ -537,6 +542,29 @@ public class PartyApplicationService {
         if (party.getStatus() != Party.PartyStatus.SELLING) {
             throw new InvalidApplicationStatusException("직거래 모드에서는 SELLING 상태에서만 전액 신청이 가능합니다.");
         }
+    }
+
+    private ApplicationPaymentSnapshot resolveApplicationPaymentSnapshot(PartyApplicationDTO.Request request, Party party) {
+        if (!matePaymentModeService.isDirectTrade()) {
+            return new ApplicationPaymentSnapshot(
+                    request.getDepositAmount() != null ? request.getDepositAmount() : 0,
+                    request.getPaymentType());
+        }
+
+        if (party.getStatus() == Party.PartyStatus.SELLING) {
+            Integer sellingPrice = party.getPrice();
+            if (sellingPrice == null || sellingPrice <= 0) {
+                throw new InvalidApplicationStatusException("직거래 판매 파티의 거래 기준 금액이 올바르지 않습니다.");
+            }
+            return new ApplicationPaymentSnapshot(sellingPrice, PartyApplication.PaymentType.FULL);
+        }
+
+        Integer ticketPrice = party.getTicketPrice();
+        int baselineAmount = ticketPrice != null ? ticketPrice : 0;
+        if (baselineAmount < 0) {
+            throw new InvalidApplicationStatusException("직거래 파티의 티켓 가격이 올바르지 않습니다.");
+        }
+        return new ApplicationPaymentSnapshot(baselineAmount, PartyApplication.PaymentType.DEPOSIT);
     }
 
     private PartyApplication resolveExistingPaymentApplication(String orderId, String paymentKey, Long applicantId) {
@@ -671,6 +699,11 @@ public class PartyApplicationService {
             boolean ticketVerified,
             Party.BadgeType applicantBadge,
             Instant deadline) {
+    }
+
+    private record ApplicationPaymentSnapshot(
+            Integer amount,
+            PartyApplication.PaymentType paymentType) {
     }
 
 }
