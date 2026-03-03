@@ -145,8 +145,8 @@ class MateDirectTradeModeIntegrationTest {
     }
 
     @Test
-    @DisplayName("DIRECT_TRADE 모드에서 SELLING FULL 직접 신청은 생성되지만 자동 승인되지 않는다")
-    void directTradeSellingFullApplicationIsCreatedWithoutAutoApproval() throws Exception {
+    @DisplayName("DIRECT_TRADE SELLING 신청은 요청값과 무관하게 판매가/FULL로 저장되고 자동 승인되지 않는다")
+    void directTradeSellingApplicationNormalizesAmountAndTypeWithoutAutoApproval() throws Exception {
         UserEntity host = userRepository.findByEmail(HOST_EMAIL).orElseThrow();
         Party sellingParty = partyRepository.save(MateTestFixtureFactory.sellingParty(
                 host.getId(),
@@ -156,8 +156,8 @@ class MateDirectTradeModeIntegrationTest {
 
         String requestBody = objectMapper.writeValueAsString(Map.of(
                 "partyId", sellingParty.getId(),
-                "paymentType", "FULL",
-                "depositAmount", 50000,
+                "paymentType", "DEPOSIT",
+                "depositAmount", 10000,
                 "message", "직거래 판매 신청"));
 
         String createdJson = mockMvc.perform(post("/api/applications")
@@ -171,8 +171,62 @@ class MateDirectTradeModeIntegrationTest {
 
         JsonNode createdNode = objectMapper.readTree(createdJson);
         assertThat(createdNode.get("paymentType").asText()).isEqualTo("FULL");
+        assertThat(createdNode.get("depositAmount").asInt()).isEqualTo(50000);
         assertThat(createdNode.get("isPaid").asBoolean()).isFalse();
         assertThat(createdNode.get("isApproved").asBoolean()).isFalse();
+    }
+
+    @Test
+    @DisplayName("DIRECT_TRADE 일반 모집 신청은 요청값과 무관하게 티켓가격/DEPOSIT으로 저장된다")
+    void directTradePendingApplicationNormalizesAmountAndType() throws Exception {
+        UserEntity host = userRepository.findByEmail(HOST_EMAIL).orElseThrow();
+        Party party = partyRepository.save(MateTestFixtureFactory.pendingParty(
+                host.getId(),
+                host.getName(),
+                3));
+
+        String requestBody = objectMapper.writeValueAsString(Map.of(
+                "partyId", party.getId(),
+                "paymentType", "DEPOSIT",
+                "depositAmount", 999999,
+                "message", "직거래 일반 신청"));
+
+        String createdJson = mockMvc.perform(post("/api/applications")
+                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
+                        .contentType("application/json")
+                        .content(requestBody))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode createdNode = objectMapper.readTree(createdJson);
+        assertThat(createdNode.get("paymentType").asText()).isEqualTo("DEPOSIT");
+        assertThat(createdNode.get("depositAmount").asInt()).isEqualTo(12000);
+        assertThat(createdNode.get("isPaid").asBoolean()).isFalse();
+        assertThat(createdNode.get("isApproved").asBoolean()).isFalse();
+    }
+
+    @Test
+    @DisplayName("DIRECT_TRADE 일반 모집 파티에서 FULL 요청은 정책 위반으로 거부된다")
+    void directTradePendingFullRequestIsRejected() throws Exception {
+        UserEntity host = userRepository.findByEmail(HOST_EMAIL).orElseThrow();
+        Party party = partyRepository.save(MateTestFixtureFactory.pendingParty(
+                host.getId(),
+                host.getName(),
+                3));
+
+        String requestBody = objectMapper.writeValueAsString(Map.of(
+                "partyId", party.getId(),
+                "paymentType", "FULL",
+                "depositAmount", 12000,
+                "message", "FULL 요청 차단 확인"));
+
+        mockMvc.perform(post("/api/applications")
+                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
+                        .contentType("application/json")
+                        .content(requestBody))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

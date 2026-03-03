@@ -43,7 +43,7 @@ public class PartyApplication {
     private String message; // 신청 메시지
 
     @Column(name = "deposit_amount", nullable = false)
-    private Integer depositAmount; // 보증금 금액
+    private Integer depositAmount; // DIRECT_TRADE: 거래 기준 금액 스냅샷, TOSS_TEST: 보증금/결제 금액
 
     @Column(name = "is_paid", nullable = false)
     private Boolean isPaid; // 결제 완료 여부
@@ -56,7 +56,7 @@ public class PartyApplication {
 
     @Column(name = "payment_type", nullable = false, length = 20)
     @Enumerated(EnumType.STRING)
-    private PaymentType paymentType; // 결제 방식 (DEPOSIT, FULL)
+    private PaymentType paymentType; // DIRECT_TRADE: 매칭/판매 신청 타입, TOSS_TEST: 결제 타입
 
     @Column(name = "ticket_verified")
     private Boolean ticketVerified; // 티켓 인증 여부

@@ -146,6 +146,9 @@ public class BegaDiaryService {
         }
 
         GameEntity game = gameService.getGameById(requestDto.getGameId());
+        if (game == null) {
+            throw new GameNotFoundException();
+        }
 
         String homeTeamKorean = BaseballConstants.getTeamKoreanName(game.getHomeTeam());
         String awayTeamKorean = BaseballConstants.getTeamKoreanName(game.getAwayTeam());

@@ -11,6 +11,7 @@ import com.example.kbo.entity.GameInningScoreEntity;
 import com.example.kbo.entity.GameMetadataEntity;
 import com.example.kbo.entity.GameSummaryEntity;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.orm.jpa.EntityManagerFactoryBuilder;
@@ -35,6 +36,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @Slf4j
 @Configuration
 @EnableTransactionManagement
+@ConditionalOnProperty(name = "kbo.game.db.enabled", havingValue = "true", matchIfMissing = true)
 @EnableJpaRepositories(
 		basePackages = "com.example.kbo.repository",
 		excludeFilters = @ComponentScan.Filter(
@@ -89,6 +91,10 @@ public class KboGamePostgresJpaConfig {
 		String kboGameSchema = ensureKboGameSchema(stadiumDataSource);
 		Map<String, Object> jpaProperties = new HashMap<>();
 		jpaProperties.put("hibernate.default_schema", kboGameSchema);
+		jpaProperties.put("hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect");
+		jpaProperties.put("hibernate.boot.allow_jdbc_metadata_access", false);
+		jpaProperties.put("hibernate.temp.use_jdbc_metadata_defaults", false);
+		jpaProperties.put("hibernate.hbm2ddl.auto", "none");
 		PersistenceManagedTypes managedTypes = PersistenceManagedTypes.of(
 				List.of(
 						GameEntity.class.getName(),
@@ -114,6 +120,21 @@ public class KboGamePostgresJpaConfig {
 	}
 
 	private String ensureKboGameSchema(DataSource stadiumDataSource) {
+		if (!strictSchemaGuard) {
+			JdbcTemplate jdbcTemplate = new JdbcTemplate(stadiumDataSource);
+			try {
+				String activeSchema = resolveActiveSchema(jdbcTemplate);
+				log.info("Schema guard strict mode is disabled. Skipping JDBC schema validation and using active schema={}",
+						activeSchema);
+				return activeSchema;
+			} catch (CannotGetJdbcConnectionException ex) {
+				log.warn(
+						"Schema guard strict mode is disabled, but active schema probe failed. Falling back to schema={}. reason={}",
+						PUBLIC_SCHEMA,
+						ex.getMostSpecificCause() == null ? ex.getMessage() : ex.getMostSpecificCause().getMessage());
+				return PUBLIC_SCHEMA;
+			}
+		}
 		JdbcTemplate jdbcTemplate = new JdbcTemplate(stadiumDataSource);
 		final int maxAttempts = 6;
 		for (int attempt = 1; attempt <= maxAttempts; attempt++) {
