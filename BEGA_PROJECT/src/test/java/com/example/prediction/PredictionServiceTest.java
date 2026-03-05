@@ -135,6 +135,27 @@ class PredictionServiceTest {
         assertThat(response.getLatestGameDate()).isNull();
     }
 
+    @Test
+    @DisplayName("getMatchBounds는 legacy 팀코드 variant까지 포함해 조회한다")
+    void getMatchBounds_includesLegacyTeamVariants() {
+        LocalDate earliest = LocalDate.of(2026, 3, 22);
+        LocalDate latest = LocalDate.of(2026, 10, 1);
+
+        when(gameRepository.findCanonicalMinGameDate(anyList())).thenReturn(Optional.of(earliest));
+        when(gameRepository.findCanonicalMaxGameDate(anyList())).thenReturn(Optional.of(latest));
+
+        predictionService.getMatchBounds();
+
+        verify(gameRepository).findCanonicalMinGameDate(org.mockito.ArgumentMatchers.argThat(teamCodes ->
+                teamCodes.contains("SSG")
+                        && teamCodes.contains("SK")
+                        && teamCodes.contains("DB")
+                        && teamCodes.contains("OB")
+                        && teamCodes.contains("KH")
+                        && teamCodes.contains("WO")
+                        && teamCodes.contains("NX")));
+    }
+
     // ========== vote() ==========
 
     @Test
