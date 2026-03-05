@@ -74,14 +74,14 @@ public class CheerInteractionService {
         int likes;
 
         try {
-            UserEntity postAuthor = userRepo.findByIdForWrite(Objects.requireNonNull(post.getAuthor().getId()))
+            UserEntity postAuthor = userRepo.findById(Objects.requireNonNull(post.getAuthor().getId()))
                     .orElseThrow(() -> new UserNotFoundException(post.getAuthor().getId()));
 
             if (likeRepo.existsById(likeId)) {
                 // 좋아요 취소
                 likeRepo.deleteById(likeId);
-                likes = Math.max(0, post.getLikeCount() - 1);
-                post.setLikeCount(likes);
+                postRepo.decrementLikeCount(post.getId());
+                likes = readLikeCount(post.getId());
                 liked = false;
 
                 // 작성자 포인트 차감 (Entity Update)
@@ -96,8 +96,8 @@ public class CheerInteractionService {
                 like.setPost(post);
                 like.setUser(author);
                 likeRepo.save(like);
-                likes = post.getLikeCount() + 1;
-                post.setLikeCount(likes);
+                postRepo.incrementLikeCount(post.getId());
+                likes = readLikeCount(post.getId());
                 liked = true;
 
                 // 작성자 포인트 증가 (Entity Update)
@@ -126,7 +126,8 @@ public class CheerInteractionService {
                     }
                 }
             }
-            postRepo.save(Objects.requireNonNull(post));
+            entityManager.detach(post);
+            post.setLikeCount(likes);
             postService.updateHotScore(post);
             return Objects.requireNonNull(new LikeToggleResponse(liked, likes));
         } catch (DataIntegrityViolationException ex) {
@@ -505,5 +506,10 @@ public class CheerInteractionService {
             builder.append('\n');
         }
         builder.append('[').append(key).append("] ").append(value.trim());
+    }
+
+    private int readLikeCount(Long postId) {
+        Integer count = postRepo.findLikeCountById(postId);
+        return count == null ? 0 : count;
     }
 }

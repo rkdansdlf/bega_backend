@@ -5,6 +5,7 @@ import com.example.cheerboard.entity.CheerVoteId;
 import com.example.cheerboard.repository.CheerVoteRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -76,24 +77,29 @@ public class CheerBattleService {
 
         int newValue = counter.incrementAndGet();
 
-        // 4. Update DB (Vote Count)
-        CheerVoteId id = CheerVoteId.builder()
-                .gameId(gameId)
-                .teamId(normalizedTeamId)
-                .build();
-
-        CheerVoteEntity entity = cheerVoteRepository.findById(Objects.requireNonNull(id))
-                .orElse(CheerVoteEntity.builder()
+        // 4. Update DB (Vote Count) using atomic increment to prevent lost updates
+        int updatedRows = cheerVoteRepository.incrementVoteCount(gameId, normalizedTeamId);
+        if (updatedRows == 0) {
+            try {
+                cheerVoteRepository.save(CheerVoteEntity.builder()
                         .gameId(gameId)
                         .teamId(normalizedTeamId)
                         .voteCount(0)
                         .build());
+            } catch (DataIntegrityViolationException ignored) {
+                // inserted by another concurrent request
+            }
+            cheerVoteRepository.incrementVoteCount(gameId, normalizedTeamId);
+        }
 
-        entity.setVoteCount(newValue);
-        cheerVoteRepository.save(entity);
+        Integer dbCount = cheerVoteRepository.findVoteCount(gameId, normalizedTeamId);
+        if (dbCount != null && dbCount > counter.get()) {
+            counter.set(dbCount);
+        }
+
         metricsService.recordBattleVote("success");
 
-        return newValue;
+        return dbCount == null ? newValue : dbCount;
     }
 
     public Map<String, Integer> getGameStats(String gameId) {
