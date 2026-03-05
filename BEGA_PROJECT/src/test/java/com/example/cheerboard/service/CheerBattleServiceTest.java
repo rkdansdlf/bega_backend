@@ -62,6 +62,8 @@ class CheerBattleServiceTest {
                 .build();
 
         when(cheerVoteRepository.findById(Objects.requireNonNull(voteId))).thenReturn(Optional.of(voteEntity));
+        when(cheerVoteRepository.incrementVoteCount(gameId, normalizedTeamId)).thenReturn(1);
+        when(cheerVoteRepository.findVoteCount(gameId, normalizedTeamId)).thenReturn(6);
 
         // When
         int result = cheerBattleService.vote(gameId, rawTeamId, email);
@@ -71,7 +73,8 @@ class CheerBattleServiceTest {
         assertThat(user.getCheerPoints()).isEqualTo(9); // 10 - 1
 
         verify(userRepository).save(user); // Points must be saved
-        verify(cheerVoteRepository).save(any(CheerVoteEntity.class)); // Votes must be saved
+        verify(cheerVoteRepository, never()).save(any(CheerVoteEntity.class)); // Existing vote row path uses atomic update
+        verify(cheerVoteRepository).incrementVoteCount(gameId, normalizedTeamId);
     }
 
     @Test

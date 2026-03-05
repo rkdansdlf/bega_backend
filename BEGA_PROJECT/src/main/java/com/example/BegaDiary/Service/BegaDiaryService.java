@@ -28,6 +28,7 @@ import com.example.BegaDiary.Exception.DiaryNotFoundException;
 import com.example.BegaDiary.Exception.GameNotFoundException;
 import com.example.BegaDiary.Exception.ImageProcessingException;
 import com.example.BegaDiary.Exception.WinningNameNotFoundException;
+import org.springframework.security.access.AccessDeniedException;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Utils.BaseballConstants;
 import com.example.cheerboard.repo.CheerPostRepo;
@@ -218,12 +219,16 @@ public class BegaDiaryService {
 
     // 다이어리 수정
     @Transactional
-    public BegaDiary update(Long id, DiaryRequestDto requestDto) {
+    public BegaDiary update(Long id, Long userId, DiaryRequestDto requestDto) {
         if (id == null) {
             throw new IllegalArgumentException("Diary ID cannot be null");
         }
         BegaDiary diary = this.diaryRepository.findById(id)
                 .orElseThrow(() -> new DiaryNotFoundException(id));
+
+        if (!diary.getUser().getId().equals(userId)) {
+            throw new AccessDeniedException("본인의 일기만 수정할 수 있습니다.");
+        }
 
         DiaryEmoji mood = DiaryEmoji.fromKoreanName(requestDto.getEmojiName());
 
@@ -237,12 +242,16 @@ public class BegaDiaryService {
 
     // 다이어리 삭제
     @Transactional
-    public void delete(Long id) {
+    public void delete(Long id, Long userId) {
         if (id == null) {
             throw new IllegalArgumentException("Diary ID cannot be null");
         }
         BegaDiary diary = this.diaryRepository.findById(id)
                 .orElseThrow(() -> new DiaryNotFoundException(id));
+
+        if (!diary.getUser().getId().equals(userId)) {
+            throw new AccessDeniedException("본인의 일기만 삭제할 수 있습니다.");
+        }
 
         if (diary.getPhotoUrls() != null && !diary.getPhotoUrls().isEmpty()) {
             try {

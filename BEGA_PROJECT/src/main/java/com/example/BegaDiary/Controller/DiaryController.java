@@ -17,6 +17,8 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import org.springframework.security.access.AccessDeniedException;
+
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.DiaryRequestDto;
 import com.example.BegaDiary.Entity.DiaryResponseDto;
@@ -101,6 +103,12 @@ public class DiaryController {
 
         Long userId = Long.valueOf(principal.getName());
 
+        // 소유자 검증: 해당 일기가 현재 사용자 소유인지 확인
+        BegaDiary ownerCheck = this.diaryService.getDiaryEntityById(diaryId);
+        if (!ownerCheck.getUser().getId().equals(userId)) {
+            throw new AccessDeniedException("본인의 일기에만 이미지를 업로드할 수 있습니다.");
+        }
+
         try {
             List<String> storagePaths = imageService.uploadDiaryImages(userId, diaryId, images)
                     .block();
@@ -154,8 +162,10 @@ public class DiaryController {
     @PostMapping("/{id}/modify")
     public ResponseEntity<DiaryResponseDto> updateDiary(
             @PathVariable("id") Long id,
-            @RequestBody DiaryRequestDto requestDto) {
-        BegaDiary updatedDiary = this.diaryService.update(id, requestDto);
+            @RequestBody DiaryRequestDto requestDto,
+            Principal principal) {
+        Long userId = Long.valueOf(principal.getName());
+        BegaDiary updatedDiary = this.diaryService.update(id, userId, requestDto);
         DiaryResponseDto response = DiaryResponseDto.from(updatedDiary);
         return ResponseEntity.ok(response);
     }
@@ -163,8 +173,9 @@ public class DiaryController {
     // 다이어리 삭제
     @PreAuthorize("isAuthenticated()")
     @PostMapping("/{id}/delete")
-    public ResponseEntity<Void> deleteDiary(@PathVariable("id") Long id) {
-        this.diaryService.delete(id);
+    public ResponseEntity<Void> deleteDiary(@PathVariable("id") Long id, Principal principal) {
+        Long userId = Long.valueOf(principal.getName());
+        this.diaryService.delete(id, userId);
         return ResponseEntity.noContent().build();
     }
 
