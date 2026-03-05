@@ -90,6 +90,10 @@ public class CheerPostService {
         // 저장 직전 재검증(토큰/계정 상태 동기화 갱신)
         author = ensureAuthorRecordStillExists(author);
 
+        if (req.content() == null || req.content().isBlank()) {
+            throw new IllegalArgumentException("내용은 필수입니다.");
+        }
+
         // AI Moderation 체크
         AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
         if (!modResult.isAllowed()) {

@@ -1,11 +1,13 @@
 package com.example.cheerboard.dto;
 
 import com.example.cheerboard.domain.CheerPost;
+import jakarta.validation.constraints.NotBlank;
 
 import java.util.List;
 
 public record CreatePostReq(String teamId,
                 // title removed
+                @NotBlank(message = "내용은 필수입니다.")
                 String content,
                 List<String> images,
                 String postType,

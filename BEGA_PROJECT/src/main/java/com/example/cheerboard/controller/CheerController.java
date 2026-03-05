@@ -112,7 +112,7 @@ public class CheerController {
     @RateLimit(limit = 5, window = 60) // 1분에 최대 5개 게시글
     @PostMapping("/posts")
     @ResponseStatus(HttpStatus.CREATED)
-    public PostDetailRes create(@RequestBody CreatePostReq req) {
+    public PostDetailRes create(@Valid @RequestBody CreatePostReq req) {
         return svc.createPost(req);
     }
 
