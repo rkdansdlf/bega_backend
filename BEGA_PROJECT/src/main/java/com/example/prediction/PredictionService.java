@@ -9,6 +9,7 @@ import com.example.kbo.repository.GameInningScoreRepository;
 import com.example.kbo.repository.GameMetadataRepository;
 import com.example.kbo.repository.GameSummaryRepository;
 import com.example.kbo.util.KboTeamCodePolicy;
+import com.example.kbo.util.TeamCodeResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -49,6 +50,10 @@ public class PredictionService {
             "INPROGRESS");
     private static final Pattern GAME_ID_PATTERN = Pattern.compile("^[A-Za-z0-9_-]+$");
     private static final List<String> CANONICAL_TEAMS = List.of("SS", "LT", "LG", "DB", "KIA", "KH", "HH", "SSG", "NC", "KT");
+    private static final List<String> QUERYABLE_TEAM_CODES = CANONICAL_TEAMS.stream()
+            .flatMap(teamCode -> TeamCodeResolver.resolveVariants(teamCode).stream())
+            .distinct()
+            .collect(Collectors.toList());
     private static final int MAX_VOTE_RETRY_ATTEMPTS = 2;
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
@@ -133,8 +138,8 @@ public class PredictionService {
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public MatchBoundsResponseDto getMatchBounds() {
-        Optional<LocalDate> earliestGameDate = gameRepository.findCanonicalMinGameDate(CANONICAL_TEAMS);
-        Optional<LocalDate> latestGameDate = gameRepository.findCanonicalMaxGameDate(CANONICAL_TEAMS);
+        Optional<LocalDate> earliestGameDate = gameRepository.findCanonicalMinGameDate(QUERYABLE_TEAM_CODES);
+        Optional<LocalDate> latestGameDate = gameRepository.findCanonicalMaxGameDate(QUERYABLE_TEAM_CODES);
         boolean hasData = earliestGameDate.isPresent() && latestGameDate.isPresent();
 
         return new MatchBoundsResponseDto(
@@ -201,7 +206,7 @@ public class PredictionService {
         Page<GameEntity> rangePage = gameRepository.findCanonicalByDateRange(
                 effectiveStartDate,
                 effectiveEndDate,
-                CANONICAL_TEAMS,
+                QUERYABLE_TEAM_CODES,
                 pageable);
 
         if (rangePage.isEmpty()) {
