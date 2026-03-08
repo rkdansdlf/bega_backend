@@ -28,21 +28,23 @@ public class CheerBattleService {
     private final Map<String, Map<String, AtomicInteger>> gameVotes = new ConcurrentHashMap<>();
 
     @Transactional
-    public int vote(String gameId, String teamId, String userEmail) {
+    public int vote(String gameId, String teamId, Long userId) {
         String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
+
+        // 1. 사용자 정보 및 이메일 확인
+        com.example.auth.entity.UserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> {
+                    metricsService.recordBattleVote("user_not_found");
+                    return new IllegalArgumentException("사용자를 찾을 수 없습니다.");
+                });
+
+        String userEmail = user.getEmail();
 
         // Check if already voted
         if (cheerBattleLogRepository.existsByGameIdAndUserEmail(gameId, userEmail)) {
             metricsService.recordBattleVote("already_voted");
             throw new IllegalStateException("이미 투표에 참여하셨습니다.");
         }
-
-        // 1. 사용자 포인트 차감
-        com.example.auth.entity.UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> {
-                    metricsService.recordBattleVote("user_not_found");
-                    return new IllegalArgumentException("사용자를 찾을 수 없습니다.");
-                });
 
         // 포인트 차감 (부족하면 예외 발생)
         try {
@@ -122,8 +124,9 @@ public class CheerBattleService {
         return result;
     }
 
-    public String getUserVote(String gameId, String userEmail) {
-        return cheerBattleLogRepository.findByGameIdAndUserEmail(gameId, userEmail)
+    public String getUserVote(String gameId, Long userId) {
+        return userRepository.findById(userId)
+                .flatMap(user -> cheerBattleLogRepository.findByGameIdAndUserEmail(gameId, user.getEmail()))
                 .map(com.example.cheerboard.entity.CheerBattleLog::getTeamId)
                 .orElse(null);
     }

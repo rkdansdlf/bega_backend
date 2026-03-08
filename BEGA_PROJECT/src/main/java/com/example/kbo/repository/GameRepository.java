@@ -142,6 +142,26 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
   Optional<LocalDate> findCanonicalMaxGameDate(
       @Param("canonicalTeams") List<String> canonicalTeams);
 
+  @Query("SELECT MAX(g.gameDate) FROM GameEntity g " +
+      "WHERE g.gameDate < :date " +
+      "AND g.isDummy IS NOT TRUE " +
+      "AND g.gameId NOT LIKE 'MOCK%' " +
+      "AND g.homeTeam IN :canonicalTeams " +
+      "AND g.awayTeam IN :canonicalTeams")
+  Optional<LocalDate> findCanonicalPrevGameDate(
+      @Param("date") LocalDate date,
+      @Param("canonicalTeams") List<String> canonicalTeams);
+
+  @Query("SELECT MIN(g.gameDate) FROM GameEntity g " +
+      "WHERE g.gameDate > :date " +
+      "AND g.isDummy IS NOT TRUE " +
+      "AND g.gameId NOT LIKE 'MOCK%' " +
+      "AND g.homeTeam IN :canonicalTeams " +
+      "AND g.awayTeam IN :canonicalTeams")
+  Optional<LocalDate> findCanonicalNextGameDate(
+      @Param("date") LocalDate date,
+      @Param("canonicalTeams") List<String> canonicalTeams);
+
   /**
    * 기간 내 완료된 경기 조회
    * 
@@ -488,4 +508,26 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
       FETCH FIRST 1 ROWS ONLY
       """, nativeQuery = true)
   Optional<Integer> findLeagueTypeCodeBySeasonId(@Param("seasonId") Integer seasonId);
+
+  @Query(value = """
+      SELECT COUNT(*)
+      FROM game g
+      WHERE g.season_id = :seasonId
+        AND (
+          (UPPER(TRIM(g.home_team)) = UPPER(TRIM(:homeTeam)) AND UPPER(TRIM(g.away_team)) = UPPER(TRIM(:awayTeam)))
+          OR
+          (UPPER(TRIM(g.home_team)) = UPPER(TRIM(:awayTeam)) AND UPPER(TRIM(g.away_team)) = UPPER(TRIM(:homeTeam)))
+        )
+        AND UPPER(TRIM(COALESCE(g.game_status, ''))) IN ('COMPLETED', 'FINAL', 'FINISHED', 'DONE', 'END', 'E', 'F')
+        AND (
+          g.game_date < :gameDate
+          OR (g.game_date = :gameDate AND g.game_id < :gameId)
+        )
+      """, nativeQuery = true)
+  long countPreviousCompletedSeriesGames(
+      @Param("seasonId") Integer seasonId,
+      @Param("homeTeam") String homeTeam,
+      @Param("awayTeam") String awayTeam,
+      @Param("gameDate") LocalDate gameDate,
+      @Param("gameId") String gameId);
 }

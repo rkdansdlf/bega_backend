@@ -1,11 +1,11 @@
 package com.example.kbo.service;
 
 import com.example.BegaDiary.Service.BegaGameService;
+import com.example.ai.config.AiServiceSettings;
 import com.example.kbo.dto.TicketInfo;
 import com.example.kbo.exception.TicketAnalysisException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.MultipartBodyBuilder;
@@ -27,23 +27,22 @@ import java.util.Objects;
 public class TicketAnalysisService {
     private static final Duration AI_REQUEST_TIMEOUT = Duration.ofSeconds(30);
 
-    @Value("${ai.service-url}")
-    private String aiServiceUrl;
-
-    @Value("${ai.internal-token:}")
-    private String aiInternalToken;
-
+    private final AiServiceSettings aiServiceSettings;
     private final WebClient.Builder webClientBuilder;
     private final BegaGameService begaGameService;
 
     public TicketInfo analyzeTicket(MultipartFile file) {
         log.info("Analyzing ticket image: {}", file.getOriginalFilename());
 
+        String aiServiceUrl = aiServiceSettings.getResolvedServiceUrl();
         if (!StringUtils.hasText(aiServiceUrl)) {
+            log.error("AI service URL is not configured for ticket analysis.");
             throw new TicketAnalysisException(
                     HttpStatus.SERVICE_UNAVAILABLE,
                     "티켓 분석 서비스 주소가 설정되지 않았습니다.");
         }
+
+        String aiInternalToken = aiServiceSettings.getResolvedInternalToken();
         if (!StringUtils.hasText(aiInternalToken)) {
             log.error("ai.internal-token is not configured; cannot call ticket analysis endpoint.");
             throw new TicketAnalysisException(
@@ -58,11 +57,11 @@ public class TicketAnalysisService {
                     .build();
 
             try {
-                return analyzeTicketWithUri(client, imageBytes, fileName, "/ai/vision/ticket");
+                return analyzeTicketWithUri(client, imageBytes, fileName, "/ai/vision/ticket", aiInternalToken);
             } catch (WebClientResponseException ex) {
                 if (ex.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
                     log.warn("Primary AI ticket endpoint not found, fallback to legacy path. cause={}", ex.getMessage());
-                    return analyzeTicketWithUri(client, imageBytes, fileName, "/vision/ticket");
+                    return analyzeTicketWithUri(client, imageBytes, fileName, "/vision/ticket", aiInternalToken);
                 }
                 throw mapUpstreamException(ex);
             }
@@ -96,7 +95,12 @@ public class TicketAnalysisService {
         }
     }
 
-    private TicketInfo analyzeTicketWithUri(WebClient client, byte[] imageBytes, String filename, String uri) {
+    private TicketInfo analyzeTicketWithUri(
+            WebClient client,
+            byte[] imageBytes,
+            String filename,
+            String uri,
+            String aiInternalToken) {
         MultipartBodyBuilder builder = new MultipartBodyBuilder();
         builder.part("file", new ByteArrayResource(imageBytes) {
             @Override

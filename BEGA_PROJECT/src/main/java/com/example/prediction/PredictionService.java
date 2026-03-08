@@ -21,9 +21,11 @@ import org.springframework.data.domain.Pageable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
@@ -73,7 +75,7 @@ public class PredictionService {
 
         return Objects.requireNonNull(matches.stream()
                 .filter(this::isCanonicalGame)
-                .map(MatchDto::fromEntity)
+                .map(this::toMatchDto)
                 .collect(Collectors.toList()));
     }
 
@@ -87,8 +89,25 @@ public class PredictionService {
                 .collect(Collectors.toList());
 
         return Objects.requireNonNull(matches.stream()
-                .map(MatchDto::fromEntity)
+                .map(this::toMatchDto)
                 .collect(Collectors.toList()));
+    }
+
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
+    public MatchDayNavigationResponseDto getMatchDayNavigation(LocalDate date) {
+        LocalDate targetDate = Objects.requireNonNull(date, "조회 날짜가 올바르지 않습니다.");
+        List<MatchDto> matches = getMatchesByDate(targetDate);
+        Optional<LocalDate> prevDate = gameRepository.findCanonicalPrevGameDate(targetDate, QUERYABLE_TEAM_CODES);
+        Optional<LocalDate> nextDate = gameRepository.findCanonicalNextGameDate(targetDate, QUERYABLE_TEAM_CODES);
+
+        return new MatchDayNavigationResponseDto(
+                targetDate,
+                matches,
+                prevDate.orElse(null),
+                nextDate.orElse(null),
+                prevDate.isPresent(),
+                nextDate.isPresent()
+        );
     }
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
@@ -109,7 +128,7 @@ public class PredictionService {
         List<GameEntity> selectedMatches = matches.getContent();
 
         return Objects.requireNonNull(selectedMatches.stream()
-                .map(MatchDto::fromEntity)
+                .map(this::toMatchDto)
                 .collect(Collectors.toList()));
     }
 
@@ -125,7 +144,7 @@ public class PredictionService {
 
         return new MatchRangePageResponseDto(
                 matches.getContent().stream()
-                        .map(MatchDto::fromEntity)
+                        .map(this::toMatchDto)
                         .collect(Collectors.toList()),
                 matches.getNumber(),
                 matches.getSize(),
@@ -147,6 +166,91 @@ public class PredictionService {
                 hasData ? latestGameDate.get() : null,
                 hasData
         );
+    }
+
+    private final Map<Integer, Optional<Integer>> leagueTypeCodeCache = new ConcurrentHashMap<>();
+
+    private MatchDto toMatchDto(GameEntity game) {
+        Integer leagueTypeCode = resolveLeagueTypeCode(game);
+        return MatchDto.builder()
+                .gameId(game.getGameId())
+                .gameDate(game.getGameDate())
+                .homeTeam(com.example.kbo.util.TeamCodeNormalizer.normalize(game.getHomeTeam()))
+                .awayTeam(com.example.kbo.util.TeamCodeNormalizer.normalize(game.getAwayTeam()))
+                .stadium(game.getStadium())
+                .homeScore(game.getHomeScore())
+                .awayScore(game.getAwayScore())
+                .winner(game.getWinner())
+                .isDummy(game.getIsDummy())
+                .homePitcher(MatchDto.pitcherOf(game.getHomePitcher()))
+                .awayPitcher(MatchDto.pitcherOf(game.getAwayPitcher()))
+                .aiSummary(null)
+                .winProbability(null)
+                .seasonId(game.getSeasonId())
+                .leagueType(mapLeagueType(leagueTypeCode))
+                .postSeasonSeries(mapPostSeasonSeries(leagueTypeCode))
+                .seriesGameNo(resolveSeriesGameNo(game, leagueTypeCode))
+                .build();
+    }
+
+    private Integer resolveLeagueTypeCode(GameEntity game) {
+        Integer seasonId = game.getSeasonId();
+        if (seasonId == null) {
+            return null;
+        }
+        Optional<Integer> cached = leagueTypeCodeCache.get(seasonId);
+        if (cached != null) {
+            return cached.orElse(null);
+        }
+        Optional<Integer> fetched = Optional.empty();
+        Optional<Integer> repositoryValue = gameRepository.findLeagueTypeCodeBySeasonId(seasonId);
+        if (repositoryValue != null) {
+            fetched = repositoryValue;
+        }
+        leagueTypeCodeCache.put(seasonId, fetched);
+        return fetched.orElse(null);
+    }
+
+    private String mapLeagueType(Integer leagueTypeCode) {
+        if (leagueTypeCode == null) {
+            return null;
+        }
+        return switch (leagueTypeCode) {
+            case 0 -> "REGULAR";
+            case 1 -> "PRE";
+            case 2, 3, 4, 5 -> "POST";
+            default -> null;
+        };
+    }
+
+    private String mapPostSeasonSeries(Integer leagueTypeCode) {
+        if (leagueTypeCode == null) {
+            return null;
+        }
+        return switch (leagueTypeCode) {
+            case 2 -> "WC";
+            case 3 -> "SEMI_PO";
+            case 4 -> "PO";
+            case 5 -> "KS";
+            default -> null;
+        };
+    }
+
+    private Integer resolveSeriesGameNo(GameEntity game, Integer leagueTypeCode) {
+        if (leagueTypeCode == null || leagueTypeCode < 2 || leagueTypeCode > 5) {
+            return null;
+        }
+        if (game.getSeasonId() == null || game.getGameDate() == null || game.getGameId() == null) {
+            return null;
+        }
+        long previousGames = gameRepository.countPreviousCompletedSeriesGames(
+                game.getSeasonId(),
+                game.getHomeTeam(),
+                game.getAwayTeam(),
+                game.getGameDate(),
+                game.getGameId()
+        );
+        return Math.toIntExact(previousGames + 1L);
     }
 
     private Page<GameEntity> getCanonicalMatchRangePage(
@@ -252,6 +356,31 @@ public class PredictionService {
                 .findAllByGameIdOrderBySummaryTypeAscIdAsc(gameId);
 
         return Objects.requireNonNull(GameDetailDto.from(game, metadata, inningScores, summaries));
+    }
+
+    @Transactional(transactionManager = "kboGameTransactionManager")
+    public int upsertInningScores(String gameId, List<GameInningScoreRequestDto> scores) {
+        gameRepository.findByGameId(gameId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 경기입니다: " + gameId));
+
+        gameInningScoreRepository.deleteAllByGameId(gameId);
+
+        List<GameInningScoreEntity> entities = scores.stream()
+                .map(dto -> GameInningScoreEntity.builder()
+                        .gameId(gameId)
+                        .inning(dto.getInning())
+                        .teamSide(dto.getTeamSide())
+                        .teamCode(dto.getTeamCode())
+                        .runs(dto.getRuns())
+                        .isExtra(dto.getIsExtra())
+                        .createdAt(LocalDateTime.now())
+                        .updatedAt(LocalDateTime.now())
+                        .build())
+                .collect(Collectors.toList());
+
+        gameInningScoreRepository.saveAll(entities);
+        log.info("Upserted {} inning score records for gameId={}", entities.size(), gameId);
+        return entities.size();
     }
 
     @Transactional(transactionManager = "transactionManager")

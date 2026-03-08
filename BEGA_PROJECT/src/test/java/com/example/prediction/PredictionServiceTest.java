@@ -109,6 +109,38 @@ class PredictionServiceTest {
     }
 
     @Test
+    void getMatchesByDateRangeShouldPopulateLeagueTypeAndSeriesMetadataFromSeason() {
+        LocalDate startDate = LocalDate.of(2025, 10, 20);
+        LocalDate endDate = LocalDate.of(2025, 10, 20);
+        GameEntity postseasonGame = buildGame("202510200002", startDate, "HH", "LG", false);
+        postseasonGame.setSeasonId(20254);
+        Pageable pageRequest = PageRequest.of(0, 1000);
+
+        when(gameRepository.findCanonicalByDateRange(
+                any(LocalDate.class),
+                any(LocalDate.class),
+                anyList(),
+                any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(postseasonGame), pageRequest, 1));
+        when(gameRepository.findLeagueTypeCodeBySeasonId(20254)).thenReturn(Optional.of(4));
+        when(gameRepository.countPreviousCompletedSeriesGames(
+                20254,
+                "HH",
+                "LG",
+                startDate,
+                "202510200002"
+        )).thenReturn(2L);
+
+        List<MatchDto> matches = predictionService.getMatchesByDateRange(startDate, endDate);
+
+        assertThat(matches).hasSize(1);
+        MatchDto match = matches.get(0);
+        assertThat(match.getLeagueType()).isEqualTo("POST");
+        assertThat(match.getPostSeasonSeries()).isEqualTo("PO");
+        assertThat(match.getSeriesGameNo()).isEqualTo(3);
+    }
+
+    @Test
     void getMatchBoundsShouldReturnBoundsWhenDataExists() {
         LocalDate earliest = LocalDate.of(2026, 3, 20);
         LocalDate latest = LocalDate.of(2026, 10, 1);
@@ -133,6 +165,60 @@ class PredictionServiceTest {
         assertThat(response.isHasData()).isFalse();
         assertThat(response.getEarliestGameDate()).isNull();
         assertThat(response.getLatestGameDate()).isNull();
+    }
+
+    @Test
+    void getMatchDayNavigationShouldReturnGamesAndAdjacentDates() {
+        LocalDate targetDate = LocalDate.of(2026, 5, 5);
+        LocalDate prevDate = LocalDate.of(2026, 5, 3);
+        LocalDate nextDate = LocalDate.of(2026, 5, 7);
+        GameEntity canonical = buildGame("202605050001", targetDate, "HH", "SS", false);
+
+        when(gameRepository.findByGameDate(targetDate)).thenReturn(List.of(canonical));
+        when(gameRepository.findCanonicalPrevGameDate(
+                org.mockito.ArgumentMatchers.eq(targetDate),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(Optional.of(prevDate));
+        when(gameRepository.findCanonicalNextGameDate(
+                org.mockito.ArgumentMatchers.eq(targetDate),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(Optional.of(nextDate));
+
+        MatchDayNavigationResponseDto response = predictionService.getMatchDayNavigation(targetDate);
+
+        assertThat(response.getDate()).isEqualTo(targetDate);
+        assertThat(response.getGames()).hasSize(1);
+        assertThat(response.getGames().get(0).getGameId()).isEqualTo("202605050001");
+        assertThat(response.getPrevDate()).isEqualTo(prevDate);
+        assertThat(response.getNextDate()).isEqualTo(nextDate);
+        assertThat(response.isHasPrev()).isTrue();
+        assertThat(response.isHasNext()).isTrue();
+    }
+
+    @Test
+    void getMatchDayNavigationShouldKeepEmptyTodayWhileReturningAdjacentDates() {
+        LocalDate targetDate = LocalDate.of(2026, 5, 5);
+        LocalDate prevDate = LocalDate.of(2026, 5, 4);
+        LocalDate nextDate = LocalDate.of(2026, 5, 6);
+
+        when(gameRepository.findByGameDate(targetDate)).thenReturn(List.of());
+        when(gameRepository.findCanonicalPrevGameDate(
+                org.mockito.ArgumentMatchers.eq(targetDate),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(Optional.of(prevDate));
+        when(gameRepository.findCanonicalNextGameDate(
+                org.mockito.ArgumentMatchers.eq(targetDate),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(Optional.of(nextDate));
+
+        MatchDayNavigationResponseDto response = predictionService.getMatchDayNavigation(targetDate);
+
+        assertThat(response.getDate()).isEqualTo(targetDate);
+        assertThat(response.getGames()).isEmpty();
+        assertThat(response.getPrevDate()).isEqualTo(prevDate);
+        assertThat(response.getNextDate()).isEqualTo(nextDate);
+        assertThat(response.isHasPrev()).isTrue();
+        assertThat(response.isHasNext()).isTrue();
     }
 
     @Test
@@ -305,5 +391,60 @@ class PredictionServiceTest {
                 .homeScore(0)
                 .awayScore(0)
                 .build();
+    }
+
+    // ──────────────────────────────────────────────────
+    // upsertInningScores
+    // ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("upsertInningScores - 정상 저장")
+    void upsertInningScoresShouldSaveAll() {
+        String gameId = "GAME001";
+        GameEntity game = buildGame(gameId, LocalDate.of(2025, 5, 1), "LG", "KT", false);
+        when(gameRepository.findByGameId(gameId)).thenReturn(Optional.of(game));
+        when(gameInningScoreRepository.deleteAllByGameId(gameId)).thenReturn(0);
+        when(gameInningScoreRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+
+        GameInningScoreRequestDto away1 = new GameInningScoreRequestDto();
+        setField(away1, "inning", 1);
+        setField(away1, "teamSide", "away");
+        setField(away1, "teamCode", "KT");
+        setField(away1, "runs", 2);
+        setField(away1, "isExtra", false);
+
+        GameInningScoreRequestDto home1 = new GameInningScoreRequestDto();
+        setField(home1, "inning", 1);
+        setField(home1, "teamSide", "home");
+        setField(home1, "teamCode", "LG");
+        setField(home1, "runs", 0);
+        setField(home1, "isExtra", false);
+
+        int saved = predictionService.upsertInningScores(gameId, List.of(away1, home1));
+
+        assertThat(saved).isEqualTo(2);
+        verify(gameInningScoreRepository).deleteAllByGameId(gameId);
+        verify(gameInningScoreRepository).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("upsertInningScores - 존재하지 않는 gameId는 예외 발생")
+    void upsertInningScoresShouldThrowWhenGameNotFound() {
+        String gameId = "NOTEXIST";
+        when(gameRepository.findByGameId(gameId)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> predictionService.upsertInningScores(gameId, List.of()));
+    }
+
+    /** NoArgsConstructor DTO의 private 필드를 reflection으로 설정 */
+    private static void setField(Object target, String fieldName, Object value) {
+        try {
+            java.lang.reflect.Field field = target.getClass().getDeclaredField(fieldName);
+            field.setAccessible(true);
+            field.set(target, value);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 }

@@ -124,9 +124,12 @@ public class KboGamePostgresJpaConfig {
 			JdbcTemplate jdbcTemplate = new JdbcTemplate(stadiumDataSource);
 			try {
 				String activeSchema = resolveActiveSchema(jdbcTemplate);
-				log.info("Schema guard strict mode is disabled. Skipping JDBC schema validation and using active schema={}",
+				String schema = resolveRelaxedSchema(jdbcTemplate, activeSchema);
+				log.info(
+						"Schema guard strict mode is disabled. Skipping JDBC schema validation and using schema={} (active schema={})",
+						schema,
 						activeSchema);
-				return activeSchema;
+				return schema;
 			} catch (CannotGetJdbcConnectionException ex) {
 				log.warn(
 						"Schema guard strict mode is disabled, but active schema probe failed. Falling back to schema={}. reason={}",
@@ -164,6 +167,29 @@ public class KboGamePostgresJpaConfig {
 		}
 
 		return PUBLIC_SCHEMA;
+	}
+
+	String resolveRelaxedSchema(JdbcTemplate jdbcTemplate, String activeSchema) {
+		if (hasAllKboGameTables(jdbcTemplate, PUBLIC_SCHEMA)) {
+			if (!PUBLIC_SCHEMA.equals(activeSchema) && hasAllKboGameTables(jdbcTemplate, activeSchema)) {
+				log.warn(
+						"Schema guard relaxed mode: kboGame tables exist in both active schema ({}) and public; using public as canonical",
+						activeSchema
+				);
+			}
+			return PUBLIC_SCHEMA;
+		}
+		if (hasAllKboGameTables(jdbcTemplate, activeSchema)) {
+			return activeSchema;
+		}
+		if (countTable(jdbcTemplate, PUBLIC_SCHEMA, GAME_TABLE) > 0) {
+			log.warn(
+					"Schema guard relaxed mode: public has partial kboGame tables. Falling back to public for compatibility. active schema={}",
+					activeSchema
+			);
+			return PUBLIC_SCHEMA;
+		}
+		return activeSchema;
 	}
 
 	private String ensureKboGameSchemaInternal(JdbcTemplate jdbcTemplate) {
@@ -205,6 +231,13 @@ public class KboGamePostgresJpaConfig {
 			return PUBLIC_SCHEMA;
 		}
 		return activeSchema;
+	}
+
+	private boolean hasAllKboGameTables(JdbcTemplate jdbcTemplate, String schema) {
+		return countTable(jdbcTemplate, schema, GAME_TABLE) > 0
+				&& countTable(jdbcTemplate, schema, GAME_METADATA_TABLE) > 0
+				&& countTable(jdbcTemplate, schema, GAME_SUMMARY_TABLE) > 0
+				&& countTable(jdbcTemplate, schema, GAME_INNING_SCORES_TABLE) > 0;
 	}
 
 	private String resolveSchemaForTable(JdbcTemplate jdbcTemplate, String activeSchema, String tableName) {

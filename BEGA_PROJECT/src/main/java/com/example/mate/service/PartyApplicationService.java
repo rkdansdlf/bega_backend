@@ -243,26 +243,39 @@ public class PartyApplicationService {
         return Objects.requireNonNull(getApplicationsByApplicantId(userId));
     }
 
-    // 대기중인 신청 목록 조회
+    // 파티 호스트 검증 헬퍼 — pending/approved/rejected 목록 조회 시 재사용
+    private void validatePartyHost(Long partyId, Principal principal) {
+        Long requesterId = resolveUserId(principal);
+        Party party = partyRepository.findById(java.util.Objects.requireNonNull(partyId))
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+        if (!party.getHostId().equals(requesterId)) {
+            throw new UnauthorizedAccessException("파티 호스트만 신청 목록을 조회할 수 있습니다.");
+        }
+    }
+
+    // 대기중인 신청 목록 조회 (호스트 전용)
     @Transactional(readOnly = true)
-    public List<PartyApplicationDTO.Response> getPendingApplications(Long partyId) {
+    public List<PartyApplicationDTO.Response> getPendingApplications(Long partyId, Principal principal) {
+        validatePartyHost(partyId, principal);
         return Objects.requireNonNull(
                 applicationRepository.findByPartyIdAndIsApprovedFalseAndIsRejectedFalse(partyId).stream()
                         .map(PartyApplicationDTO.Response::from)
                         .collect(Collectors.toList()));
     }
 
-    // 승인된 신청 목록 조회
+    // 승인된 신청 목록 조회 (호스트 전용)
     @Transactional(readOnly = true)
-    public List<PartyApplicationDTO.Response> getApprovedApplications(Long partyId) {
+    public List<PartyApplicationDTO.Response> getApprovedApplications(Long partyId, Principal principal) {
+        validatePartyHost(partyId, principal);
         return Objects.requireNonNull(applicationRepository.findByPartyIdAndIsApprovedTrue(partyId).stream()
                 .map(PartyApplicationDTO.Response::from)
                 .collect(Collectors.toList()));
     }
 
-    // 거절된 신청 목록 조회
+    // 거절된 신청 목록 조회 (호스트 전용)
     @Transactional(readOnly = true)
-    public List<PartyApplicationDTO.Response> getRejectedApplications(Long partyId) {
+    public List<PartyApplicationDTO.Response> getRejectedApplications(Long partyId, Principal principal) {
+        validatePartyHost(partyId, principal);
         return Objects.requireNonNull(applicationRepository.findByPartyIdAndIsRejectedTrue(partyId).stream()
                 .map(PartyApplicationDTO.Response::from)
                 .collect(Collectors.toList()));

@@ -109,7 +109,7 @@ public class ProfileImageService {
                     log.warn("롤백 이미지 삭제 실패: {}", uploadedPath);
                 }
             }
-            throw new RuntimeException("프로필 이미지 업로드 중 오류가 발생했습니다: " + e.getMessage(), e);
+            throw new RuntimeException("프로필 이미지 업로드 중 오류가 발생했습니다.", e);
         }
     }
 

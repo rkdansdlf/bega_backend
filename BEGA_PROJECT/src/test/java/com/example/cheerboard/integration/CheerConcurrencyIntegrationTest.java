@@ -278,7 +278,7 @@ class CheerConcurrencyIntegrationTest {
             final UserEntity voter = voters.get(i);
             executorService.submit(() -> {
                 try {
-                    battleService.vote(gameId, teamId, voter.getEmail());
+                    battleService.vote(gameId, teamId, voter.getId());
                 } catch (Exception e) {
                     e.printStackTrace();
                 } finally {

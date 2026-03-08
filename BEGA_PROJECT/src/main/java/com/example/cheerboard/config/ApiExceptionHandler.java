@@ -86,7 +86,6 @@ public class ApiExceptionHandler {
         return build(HttpStatus.NOT_FOUND, code, message);
     }
 
-
     @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleUnauthorized(AuthenticationCredentialsNotFoundException ex) {
         return build(HttpStatus.UNAUTHORIZED, "INVALID_AUTHOR", ex.getMessage());
@@ -102,7 +101,8 @@ public class ApiExceptionHandler {
         return build(HttpStatus.FORBIDDEN, "FORBIDDEN", ex.getMessage());
     }
 
-    @ExceptionHandler({ IllegalArgumentException.class, MethodArgumentNotValidException.class, IllegalStateException.class })
+    @ExceptionHandler({ IllegalArgumentException.class, MethodArgumentNotValidException.class,
+            IllegalStateException.class })
     public ResponseEntity<Map<String, Object>> handleBadRequest(Exception ex) {
         String message = ex instanceof MethodArgumentNotValidException manv
                 ? manv.getBindingResult().getAllErrors().stream()
@@ -116,6 +116,12 @@ public class ApiExceptionHandler {
     @ExceptionHandler(NoSuchElementException.class)
     public ResponseEntity<Map<String, Object>> handleNotFound(NoSuchElementException ex) {
         return build(HttpStatus.NOT_FOUND, "NOT_FOUND", ex.getMessage());
+    }
+
+    @ExceptionHandler(com.example.common.exception.RateLimitExceededException.class)
+    public ResponseEntity<Map<String, Object>> handleRateLimitExceeded(
+            com.example.common.exception.RateLimitExceededException ex) {
+        return build(HttpStatus.TOO_MANY_REQUESTS, "TOO_MANY_REQUESTS", ex.getMessage());
     }
 
     @ExceptionHandler(ResponseStatusException.class)
@@ -212,10 +218,9 @@ public class ApiExceptionHandler {
             return false;
         }
 
-        boolean isUserFkColumn =
-                lower.contains("author_id")
-                        || lower.contains("user_id")
-                        || lower.contains("reporter_id");
+        boolean isUserFkColumn = lower.contains("author_id")
+                || lower.contains("user_id")
+                || lower.contains("reporter_id");
 
         if (!isUserFkColumn) {
             return false;

@@ -9,16 +9,20 @@ import com.example.admin.dto.AdminStatsDto;
 import com.example.admin.dto.AdminUserDto;
 import com.example.admin.service.AdminService;
 import com.example.common.dto.ApiResponse;
+import com.example.prediction.GameInningScoreRequestDto;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 관리자 API 컨트롤러
@@ -27,6 +31,7 @@ import java.util.List;
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
 @Slf4j
+@Validated
 @PreAuthorize("hasRole('ADMIN')") // 🔥 관리자만 접근 가능
 public class AdminController {
 
@@ -153,5 +158,18 @@ public class AdminController {
     public ResponseEntity<ApiResponse> getCacheStats() {
         var stats = adminService.getCacheStats();
         return ResponseEntity.ok(ApiResponse.success("캐시 통계 조회 성공", stats));
+    }
+
+    /**
+     * 경기 이닝별 스코어 저장 (upsert)
+     * PUT /api/admin/games/{gameId}/inning-scores
+     */
+    @PutMapping("/games/{gameId}/inning-scores")
+    public ResponseEntity<ApiResponse> upsertInningScores(
+            @PathVariable String gameId,
+            @Valid @RequestBody List<GameInningScoreRequestDto> scores) {
+        int saved = adminService.upsertInningScores(gameId, scores);
+        return ResponseEntity.ok(ApiResponse.success("이닝 스코어 저장 성공",
+                Map.of("gameId", gameId, "saved", saved)));
     }
 }
