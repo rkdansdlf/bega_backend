@@ -29,6 +29,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class OAuth2LinkStateServiceTest {
@@ -100,10 +101,24 @@ class OAuth2LinkStateServiceTest {
         OAuth2LinkStateData data = new OAuth2LinkStateData("link", 1L, null, System.currentTimeMillis(), null);
 
         assertThatThrownBy(() -> failingService.saveLinkByState("state", data))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage("Failed to save OAuth2 link state");
+                .isInstanceOf(OAuth2LinkStateService.OAuth2LinkStateStoreException.class)
+                .hasMessage(OAuth2LinkStateService.ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE);
 
         verify(valueOperations, never()).set(anyString(), anyString(), eq(5L), eq(TimeUnit.MINUTES));
+    }
+
+    @Test
+    @DisplayName("saveLinkByState: Redis 저장 실패 시 코드형 예외를 던진다")
+    void saveLinkByState_throwsWhenRedisWriteFails() {
+        doThrow(new RuntimeException("redis down"))
+                .when(valueOperations)
+                .set(anyString(), anyString(), anyLong(), any(TimeUnit.class));
+
+        OAuth2LinkStateData data = new OAuth2LinkStateData("link", 1L, null, System.currentTimeMillis(), null);
+
+        assertThatThrownBy(() -> service.saveLinkByState("state", data))
+                .isInstanceOf(OAuth2LinkStateService.OAuth2LinkStateStoreException.class)
+                .hasMessage(OAuth2LinkStateService.ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE);
     }
 
     @Test
@@ -167,6 +182,17 @@ class OAuth2LinkStateServiceTest {
         when(valueOperations.getAndDelete("oauth2:link:broken")).thenReturn("{not-json}");
 
         OAuth2LinkStateData result = service.consumeLinkByState("broken");
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("consumeLinkByState: Redis 조회 실패 시 null")
+    void consumeLinkByState_returnsNullWhenRedisFails() {
+        when(valueOperations.getAndDelete("oauth2:link:redis-error"))
+                .thenThrow(new RuntimeException("redis down"));
+
+        OAuth2LinkStateData result = service.consumeLinkByState("redis-error");
 
         assertThat(result).isNull();
     }

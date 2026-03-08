@@ -2,6 +2,7 @@ package com.example.auth.dto;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.HashMap;
 
 public class KaKaoResponse implements OAuth2Response {
 
@@ -9,13 +10,12 @@ public class KaKaoResponse implements OAuth2Response {
     private final Map<String, Object> kakaoAccount;
     private final Map<String, Object> profile;
 
-    @SuppressWarnings("unchecked")
     public KaKaoResponse(Map<String, Object> attribute) {
-        this.attribute = attribute;
+        this.attribute = attribute != null ? attribute : Map.of();
         // kakao_account 가져오기
-        this.kakaoAccount = (Map<String, Object>) attribute.get("kakao_account");
+        this.kakaoAccount = asMap(this.attribute.get("kakao_account"));
         // kakaoAccount에서 profile 가져오기
-        this.profile = (this.kakaoAccount != null) ? (Map<String, Object>) this.kakaoAccount.get("profile") : null;
+        this.profile = (this.kakaoAccount != null) ? asMap(this.kakaoAccount.get("profile")) : null;
     }
 
     @Override
@@ -38,7 +38,7 @@ public class KaKaoResponse implements OAuth2Response {
         }
 
         // 이메일 필수 동의 확인
-        Boolean needsAgreement = (Boolean) kakaoAccount.get("email_needs_agreement");
+        Boolean needsAgreement = asBoolean(kakaoAccount.get("email_needs_agreement"));
 
         // 사용자가 이메일 제공에 동의하지 않은 경우
         if (Boolean.TRUE.equals(needsAgreement)) {
@@ -49,8 +49,8 @@ public class KaKaoResponse implements OAuth2Response {
         }
 
         // 이메일 유효성 확인
-        Boolean emailValid = (Boolean) kakaoAccount.get("is_email_valid");
-        Boolean emailVerified = (Boolean) kakaoAccount.get("is_email_verified");
+        Boolean emailValid = asBoolean(kakaoAccount.get("is_email_valid"));
+        Boolean emailVerified = asBoolean(kakaoAccount.get("is_email_verified"));
 
         if (Boolean.FALSE.equals(emailValid) || Boolean.FALSE.equals(emailVerified)) {
             throw new IllegalStateException(
@@ -97,5 +97,34 @@ public class KaKaoResponse implements OAuth2Response {
 
         String url = profileImage.toString().trim();
         return url.isBlank() ? null : url;
+    }
+
+    private Map<String, Object> asMap(Object value) {
+        if (!(value instanceof Map<?, ?> raw)) {
+            return null;
+        }
+        Map<String, Object> converted = new HashMap<>();
+        for (Map.Entry<?, ?> entry : raw.entrySet()) {
+            if (entry.getKey() instanceof String key) {
+                converted.put(key, entry.getValue());
+            }
+        }
+        return converted;
+    }
+
+    private Boolean asBoolean(Object value) {
+        if (value instanceof Boolean boolVal) {
+            return boolVal;
+        }
+        if (value instanceof String text) {
+            String normalized = text.trim();
+            if ("true".equalsIgnoreCase(normalized)) {
+                return Boolean.TRUE;
+            }
+            if ("false".equalsIgnoreCase(normalized)) {
+                return Boolean.FALSE;
+            }
+        }
+        return null;
     }
 }

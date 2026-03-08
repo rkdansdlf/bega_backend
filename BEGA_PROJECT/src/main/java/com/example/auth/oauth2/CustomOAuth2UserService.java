@@ -84,6 +84,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 throw new OAuth2AuthenticationException(errorMsg);
             }
             throw new OAuth2AuthenticationException("소셜 로그인 중 이메일 정보를 가져올 수 없습니다: " + e.getMessage());
+        } catch (RuntimeException e) {
+            log.warn("Failed to parse OAuth2 provider payload: provider={}", registrationId, e);
+            throw new OAuth2AuthenticationException("oauth2_provider_payload_invalid");
         }
 
         if (email == null || email.isEmpty()) {

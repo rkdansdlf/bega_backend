@@ -188,6 +188,27 @@ class JWTFilterTokenTypeTest {
         assertThat(response.getStatus()).isNotEqualTo(HttpStatus.FORBIDDEN.value());
     }
 
+    @Test
+    @DisplayName("블랙리스트 조회 실패 시 요청을 401로 차단한다")
+    void blacklistLookupFailure_rejectsRequestWith401() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        when(tokenBlacklistService.isBlacklisted(anyString())).thenThrow(
+                new TokenBlacklistService.TokenBlacklistUnavailableException(
+                        TokenBlacklistService.ERROR_CODE_BLACKLIST_UNAVAILABLE,
+                        new RuntimeException("redis unavailable")));
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/protected/resource");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DummyFilterChain chain = new DummyFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isFalse();
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED.value());
+        assertThat(response.getContentAsString()).contains("\"code\":\"INVALID_AUTHOR\"");
+    }
+
     private void executeFilter(String token) throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/protected/resource");
         request.addHeader("Authorization", "Bearer " + token);

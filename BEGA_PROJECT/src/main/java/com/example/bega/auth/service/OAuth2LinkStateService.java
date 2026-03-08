@@ -21,6 +21,7 @@ public class OAuth2LinkStateService {
 
     private static final String PREFIX = "oauth2:link:";
     private static final long TTL_MINUTES = 5;
+    public static final String ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE = "oauth2_link_state_store_unavailable";
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -42,7 +43,10 @@ public class OAuth2LinkStateService {
                 state, data.userId(), data.mode());
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize OAuth2LinkStateData", e);
-            throw new RuntimeException("Failed to save OAuth2 link state", e);
+            throw new OAuth2LinkStateStoreException(ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE, e);
+        } catch (Exception e) {
+            log.error("Failed to persist OAuth2 link state", e);
+            throw new OAuth2LinkStateStoreException(ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE, e);
         }
     }
 
@@ -82,6 +86,15 @@ public class OAuth2LinkStateService {
         } catch (JsonProcessingException e) {
             log.error("Failed to deserialize OAuth2LinkStateData", e);
             return null;
+        } catch (Exception e) {
+            log.error("Failed to consume OAuth2LinkStateData", e);
+            return null;
+        }
+    }
+
+    public static class OAuth2LinkStateStoreException extends RuntimeException {
+        public OAuth2LinkStateStoreException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 }

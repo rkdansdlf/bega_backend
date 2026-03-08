@@ -9,14 +9,20 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.authorization.AuthenticatedAuthorizationManager;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.util.StringUtils;
 
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import com.example.ai.config.AiServiceSettings;
 import com.example.auth.oauth2.CustomOAuth2UserService;
 import com.example.auth.oauth2.CustomSuccessHandler;
 import com.example.auth.oauth2.CookieAuthorizationRequestRepository;
@@ -25,6 +31,8 @@ import com.example.auth.repository.UserRepository;
 import com.example.auth.util.JWTUtil;
 
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -33,27 +41,40 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 
+import org.springframework.core.env.Environment;
+
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
 public class SecurityConfig {
 
+        private static final AuthenticatedAuthorizationManager<Object> AUTHENTICATED_AUTHORIZATION_MANAGER = AuthenticatedAuthorizationManager
+                        .authenticated();
+
         // ========================================
 
         private static final List<String> DEFAULT_ALLOWED_ORIGINS = List.of(
-                "http://localhost",
-                "http://localhost:3000",
-                "http://localhost:5173",
-                "http://localhost:5176",
-                "http://localhost:8080",
-                "http://127.0.0.1",
-                "http://127.0.0.1:3000",
-                "http://127.0.0.1:5173",
-                "http://127.0.0.1:5176",
-                "https://www.begabaseball.xyz",
-                "https://begabaseball.xyz",
-                "https://*.frontend-dfl.pages.dev",
-                "http://[::1]");
+                        "http://localhost",
+                        "http://localhost:3000",
+                        "http://localhost:5173",
+                        "http://localhost:5176",
+                        "http://localhost:5177",
+                        "http://localhost:8080",
+                        "http://host.docker.internal",
+                        "http://host.docker.internal:3000",
+                        "http://host.docker.internal:5173",
+                        "http://host.docker.internal:5176",
+                        "http://host.docker.internal:5177",
+                        "http://host.docker.internal:8080",
+                        "http://127.0.0.1",
+                        "http://127.0.0.1:3000",
+                        "http://127.0.0.1:5173",
+                        "http://127.0.0.1:5176",
+                        "http://127.0.0.1:5177",
+                        "https://www.begabaseball.xyz",
+                        "https://begabaseball.xyz",
+                        "https://*.frontend-dfl.pages.dev",
+                        "http://[::1]");
         // 공개 엔드포인트 그룹 정의
         // ========================================
 
@@ -63,6 +84,7 @@ public class SecurityConfig {
                         "/api/auth/signup",
                         "/api/auth/policies/required",
                         "/api/auth/reissue",
+                        "/api/auth/logout",
                         "/api/auth/password/reset/request",
                         "/api/auth/password/reset/confirm",
                         "/api/auth/password-reset/request",
@@ -92,8 +114,8 @@ public class SecurityConfig {
                         "/api/test/**",
                         "/actuator/health",
                         "/actuator/prometheus",
-            "/ws",
-            "/ws/**",
+                        "/ws",
+                        "/ws/**",
                         // Swagger / OpenAPI (dev 전용 - prod에서는 springdoc.*.enabled=false로 비활성화)
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
@@ -170,11 +192,17 @@ public class SecurityConfig {
         private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
         private final UserRepository userRepository;
         private final com.example.auth.service.AuthSecurityMonitoringService authSecurityMonitoringService;
+        private final Environment environment;
+        private final AiServiceSettings aiServiceSettings;
+        @org.springframework.beans.factory.annotation.Value("${app.ai.proxy.public-in-dev:false}")
+        private boolean publicAiProxyInDevEnabled;
 
-    @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176,https://www.begabaseball.xyz,https://begabaseball.xyz,https://*.frontend-dfl.pages.dev}")
-    private String allowedOriginsStr;
+        @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:5177,http://localhost:8080,http://host.docker.internal,http://host.docker.internal:3000,http://host.docker.internal:5173,http://host.docker.internal:5176,http://host.docker.internal:5177,http://host.docker.internal:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176,http://127.0.0.1:5177,https://www.begabaseball.xyz,https://begabaseball.xyz,https://*.frontend-dfl.pages.dev}")
+        private String allowedOriginsStr;
+
         private java.util.List<String> parseAllowedOrigins() {
-                List<String> parsed = Arrays.stream(allowedOriginsStr == null ? new String[0] : allowedOriginsStr.split(","))
+                List<String> parsed = Arrays
+                                .stream(allowedOriginsStr == null ? new String[0] : allowedOriginsStr.split(","))
                                 .map(String::trim)
                                 .filter(origin -> !origin.isEmpty())
                                 .filter(origin -> !origin.equals("*"))
@@ -193,7 +221,9 @@ public class SecurityConfig {
                         CookieAuthorizationRequestRepository cookieauthorizationrequestRepository,
                         com.example.auth.service.TokenBlacklistService tokenBlacklistService,
                         UserRepository userRepository,
-                        com.example.auth.service.AuthSecurityMonitoringService authSecurityMonitoringService) {
+                        com.example.auth.service.AuthSecurityMonitoringService authSecurityMonitoringService,
+                        Environment environment,
+                        AiServiceSettings aiServiceSettings) {
 
                 this.customOAuth2UserService = customOAuth2UserService;
                 this.customSuccessHandler = customSuccessHandler;
@@ -202,6 +232,50 @@ public class SecurityConfig {
                 this.tokenBlacklistService = tokenBlacklistService;
                 this.userRepository = userRepository;
                 this.authSecurityMonitoringService = authSecurityMonitoringService;
+                this.environment = environment;
+                this.aiServiceSettings = aiServiceSettings;
+        }
+
+        private boolean isDevOrLocalProfile() {
+                return Arrays.stream(environment.getActiveProfiles())
+                                .anyMatch(profile -> "dev".equalsIgnoreCase(profile)
+                                                || "local".equalsIgnoreCase(profile));
+        }
+
+        boolean allowUnauthenticatedAiProxy() {
+                return publicAiProxyInDevEnabled && isDevOrLocalProfile();
+        }
+
+        boolean isAuthenticatedPrincipal(Authentication authentication, Object object) {
+                if (authentication == null) {
+                        return false;
+                }
+
+                AuthorizationDecision decision = AUTHENTICATED_AUTHORIZATION_MANAGER.check(() -> authentication,
+                                object);
+                return decision != null && decision.isGranted();
+        }
+
+        boolean hasValidAiProxyInternalToken(Object object) {
+                if (!isDevOrLocalProfile()) {
+                        return false;
+                }
+                if (!(object instanceof RequestAuthorizationContext requestContext)) {
+                        return false;
+                }
+
+                HttpServletRequest request = requestContext.getRequest();
+                if (request == null) {
+                        return false;
+                }
+
+                String expectedToken = aiServiceSettings.getResolvedInternalToken();
+                String providedToken = request.getHeader("X-Internal-Api-Key");
+                if (!StringUtils.hasText(expectedToken) || !StringUtils.hasText(providedToken)) {
+                        return false;
+                }
+
+                return expectedToken.trim().equals(providedToken.trim());
         }
 
         @Bean
@@ -250,27 +324,37 @@ public class SecurityConfig {
         }
 
         @Bean
-    public JWTFilter jwtFilter(org.springframework.core.env.Environment env) {
+        public JWTFilter jwtFilter(org.springframework.core.env.Environment env) {
                 boolean isDev = Arrays.asList(env.getActiveProfiles()).contains("dev");
                 List<String> origins = parseAllowedOrigins();
                 return new JWTFilter(
-                        jwtUtil,
-                        isDev,
-                        origins,
-                        tokenBlacklistService,
-                        userRepository,
-                        authSecurityMonitoringService);
+                                jwtUtil,
+                                isDev,
+                                origins,
+                                tokenBlacklistService,
+                                userRepository,
+                                authSecurityMonitoringService);
         }
 
         @Bean
         public SecurityFilterChain filterChain(HttpSecurity http, JWTFilter jwtFilter) throws Exception {
+                final boolean publicAiProxyInDev = allowUnauthenticatedAiProxy();
 
-                // CORS 활성화 및 CSRF 비활성화
+                // CORS 활성화 및 CSRF 비활성화 (JWT 토큰 기반 인증이므로 CSRF 비활성화)
                 http
                                 .cors((cors) -> cors.configurationSource(corsConfigurationSource()));
 
                 http
                                 .csrf((auth) -> auth.disable());
+
+                // 보안 HTTP 헤더 설정
+                http
+                                .headers((headers) -> headers
+                                                .frameOptions(frame -> frame.deny())
+                                                .contentTypeOptions(org.springframework.security.config.Customizer
+                                                                .withDefaults())
+                                                .xssProtection(org.springframework.security.config.Customizer
+                                                                .withDefaults()));
 
                 // From 로그인 방식 disable
                 http
@@ -294,19 +378,18 @@ public class SecurityConfig {
                                                         Object oauth2CookieError = request.getAttribute(
                                                                         CookieAuthorizationRequestRepository.OAUTH2_COOKIE_ERROR_ATTRIBUTE);
                                                         if (oauth2CookieError instanceof String) {
-                                                                cookieauthorizationrequestRepository.removeAuthorizationRequestCookies(
-                                                                                request, response);
+                                                                cookieauthorizationrequestRepository
+                                                                                .removeAuthorizationRequestCookies(
+                                                                                                request, response);
                                                                 response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-                                                                response.setContentType("application/json;charset=UTF-8");
+                                                                response.setContentType(
+                                                                                "application/json;charset=UTF-8");
                                                                 response.getWriter().write(
                                                                                 "{\"error\":\"invalid_oauth2_request\",\"message\":\"OAuth2 인증 요청이 유효하지 않습니다.\"}");
                                                                 return;
                                                         }
 
-                                                        String errorMessage = exception != null
-                                                                        && exception.getMessage() != null
-                                                                                ? exception.getMessage()
-                                                                                : "oauth2_auth_failed";
+                                                        String errorMessage = sanitizeOAuth2FailureCode(exception);
                                                         response.sendRedirect("/login?error="
                                                                         + URLEncoder.encode(errorMessage,
                                                                                         StandardCharsets.UTF_8));
@@ -318,8 +401,10 @@ public class SecurityConfig {
                 // ========================================
                 // 경로별 인가 설정 (그룹화된 상수 사용)
                 // ========================================
-        http
-                                        .authorizeHttpRequests((auth) -> auth
+                http
+                                .authorizeHttpRequests((auth) -> auth
+                                                .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR)
+                                                .permitAll()
                                                 // 1. OPTIONS 요청 허용 (CORS Preflight)
                                                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
@@ -336,7 +421,17 @@ public class SecurityConfig {
 
                                                 // 5. 인증 필수 엔드포인트 (순서 중요: 구체적 경로 먼저)
                                                 .requestMatchers(PRIVATE_AUTH_ENDPOINTS).authenticated()
-                                                .requestMatchers(PRIVATE_AI_ENDPOINTS).authenticated()
+                                                .requestMatchers(PRIVATE_AI_ENDPOINTS)
+                                                .access((authentication, object) -> {
+                                                        boolean authenticated = isAuthenticatedPrincipal(
+                                                                        authentication.get(),
+                                                                        object);
+                                                        boolean internalTokenAuthorized = hasValidAiProxyInternalToken(
+                                                                        object);
+                                                        return new AuthorizationDecision(
+                                                                        publicAiProxyInDev || authenticated
+                                                                                        || internalTokenAuthorized);
+                                                })
                                                 .requestMatchers(HttpMethod.GET, "/api/parties/my").authenticated()
                                                 .requestMatchers(HttpMethod.GET, "/api/cheer/posts/following")
                                                 .authenticated()
@@ -355,23 +450,29 @@ public class SecurityConfig {
                                                 .requestMatchers(HttpMethod.GET, PUBLIC_PARTY_GET_ENDPOINTS).permitAll()
 
                                                 // 7. 공개 API 엔드포인트 (구체적 인증 경로 먼저, 와일드카드 이전)
-                                                .requestMatchers(HttpMethod.POST, "/api/stadiums/*/favorite").authenticated()
-                                                .requestMatchers(HttpMethod.DELETE, "/api/stadiums/*/favorite").authenticated()
-                                                .requestMatchers(HttpMethod.GET, "/api/stadiums/favorites").authenticated()
+                                                .requestMatchers(HttpMethod.POST, "/api/stadiums/*/favorite")
+                                                .authenticated()
+                                                .requestMatchers(HttpMethod.DELETE, "/api/stadiums/*/favorite")
+                                                .authenticated()
+                                                .requestMatchers(HttpMethod.GET, "/api/stadiums/favorites")
+                                                .authenticated()
                                                 .requestMatchers(PUBLIC_API_ENDPOINTS).permitAll()
 
                                                 // 8. 나머지 모든 요청은 인증 필요
                                                 .anyRequest().authenticated())
 
-        // 302 리다이렉션 방지: 인증 실패 시 /login으로 리다이렉트 대신 401 응답 반환
+                                // 302 리다이렉션 방지: 인증 실패 시 /login으로 리다이렉트 대신 401 응답 반환
                                 .exceptionHandling((exceptionHandling) -> exceptionHandling
                                                 .authenticationEntryPoint((request, response, authException) -> {
                                                         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                                                         response.setContentType("application/json;charset=UTF-8");
 
-                                                        boolean invalidAuthor = Boolean.TRUE.equals(request.getAttribute("INVALID_AUTHOR"));
-                                                        String errorCode = invalidAuthor ? "INVALID_AUTHOR" : "UNAUTHORIZED";
-                                                        String message = invalidAuthor ? "인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요."
+                                                        boolean invalidAuthor = Boolean.TRUE
+                                                                        .equals(request.getAttribute("INVALID_AUTHOR"));
+                                                        String errorCode = invalidAuthor ? "INVALID_AUTHOR"
+                                                                        : "UNAUTHORIZED";
+                                                        String message = invalidAuthor
+                                                                        ? "인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요."
                                                                         : "인증이 필요합니다.";
 
                                                         String jsonResponse = String.format(
@@ -387,5 +488,32 @@ public class SecurityConfig {
                                                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS));
 
                 return http.build();
+        }
+
+        private String sanitizeOAuth2FailureCode(Exception exception) {
+                String message = exception != null && exception.getMessage() != null
+                                ? exception.getMessage().trim()
+                                : "";
+                if (message.isEmpty()) {
+                        return "oauth2_auth_failed";
+                }
+                if (message.startsWith("KAKAO_")
+                                || message.startsWith("NAVER_")
+                                || message.startsWith("GOOGLE_")) {
+                        return message;
+                }
+                if (message.equals(com.example.auth.service.OAuth2StateService.ERROR_CODE_STATE_STORE_UNAVAILABLE)) {
+                        return message;
+                }
+                if ("oauth2_provider_payload_invalid".equals(message)) {
+                        return message;
+                }
+                if (message.contains("계정 연동 세션이 만료")) {
+                        return "oauth2_link_session_expired";
+                }
+                if (message.contains("계정 연동 실패")) {
+                        return "oauth2_link_failed";
+                }
+                return "oauth2_auth_failed";
         }
 }

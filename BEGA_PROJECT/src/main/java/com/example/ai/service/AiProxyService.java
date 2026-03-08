@@ -6,12 +6,11 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Set;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import com.example.ai.config.AiServiceSettings;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -22,29 +21,43 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import lombok.extern.slf4j.Slf4j;
+
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AiProxyService {
 
-    private static final Duration AI_PROXY_TIMEOUT = Duration.ofSeconds(60);
     private static final Set<String> PASS_THROUGH_HEADERS = Set.of(
             HttpHeaders.CONTENT_TYPE,
             HttpHeaders.CACHE_CONTROL,
             HttpHeaders.RETRY_AFTER,
             "X-Accel-Buffering");
 
-    @Value("${ai.service-url}")
-    private String aiServiceUrl;
-
-    @Value("${ai.internal-token:}")
-    private String aiInternalToken;
-
+    private final AiServiceSettings aiServiceSettings;
     private final WebClient.Builder webClientBuilder;
+    private final Duration requestTimeout;
+
+    @Autowired
+    public AiProxyService(
+            AiServiceSettings aiServiceSettings,
+            WebClient.Builder webClientBuilder,
+            @org.springframework.beans.factory.annotation.Value("${app.ai.proxy.request-timeout-seconds:180}") long requestTimeoutSeconds) {
+        this(aiServiceSettings, webClientBuilder, Duration.ofSeconds(Math.max(30L, requestTimeoutSeconds)));
+    }
+
+    AiProxyService(
+            AiServiceSettings aiServiceSettings,
+            WebClient.Builder webClientBuilder,
+            Duration requestTimeout) {
+        this.aiServiceSettings = aiServiceSettings;
+        this.webClientBuilder = webClientBuilder;
+        this.requestTimeout = requestTimeout;
+    }
 
     public ProxyByteResponse forwardJson(String uri, String payload) {
         WebClient.RequestHeadersSpec<?> request = client().post()
@@ -52,7 +65,14 @@ public class AiProxyService {
                 .contentType(MediaType.APPLICATION_JSON)
                 .headers(this::applyInternalAuth)
                 .bodyValue(payload);
-        return executeByteRequest(request);
+        return executeByteRequest(uri, request);
+    }
+
+    public ProxyByteResponse forwardGet(String uri) {
+        WebClient.RequestHeadersSpec<?> request = client().get()
+                .uri(uri)
+                .headers(this::applyInternalAuth);
+        return executeByteRequest(uri, request);
     }
 
     public ProxyByteResponse forwardMultipart(String uri, MultipartFile file) {
@@ -74,7 +94,7 @@ public class AiProxyService {
                     .headers(this::applyInternalAuth)
                     .body(BodyInserters.fromMultipartData(builder.build()));
 
-            return executeByteRequest(request);
+            return executeByteRequest(uri, request);
         } catch (IOException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid upload payload", e);
         }
@@ -87,26 +107,36 @@ public class AiProxyService {
                 .headers(this::applyInternalAuth)
                 .bodyValue(payload);
 
-        ProxyStreamResponse response = request.exchangeToMono(clientResponse -> {
-            HttpStatusCode statusCode = clientResponse.statusCode();
-            HttpHeaders headers = filterResponseHeaders(clientResponse.headers().asHttpHeaders());
-            if (statusCode.is2xxSuccessful()) {
-                return Mono.just(new ProxyStreamResponse(
-                        statusCode,
-                        headers,
-                        clientResponse.bodyToFlux(DataBuffer.class),
-                        null));
-            }
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            return clientResponse.bodyToMono(byte[].class)
-                    .defaultIfEmpty(new byte[0])
-                    .map(ignored -> new ProxyStreamResponse(
+        ProxyStreamResponse response;
+        try {
+            response = request.exchangeToMono(clientResponse -> {
+                HttpStatusCode statusCode = clientResponse.statusCode();
+                HttpHeaders headers = filterResponseHeaders(clientResponse.headers().asHttpHeaders());
+                if (statusCode.is2xxSuccessful()) {
+                    return Mono.just(new ProxyStreamResponse(
                             statusCode,
                             headers,
-                            Flux.empty(),
-                            buildStandardizedErrorBody(statusCode)));
-        })
-                .block(AI_PROXY_TIMEOUT);
+                            clientResponse.bodyToFlux(DataBuffer.class),
+                            null));
+                }
+                log.warn("AI upstream returned status={} for stream uri={}", statusCode.value(), uri);
+                headers.setContentType(MediaType.APPLICATION_JSON);
+                return clientResponse.bodyToMono(byte[].class)
+                        .defaultIfEmpty(new byte[0])
+                        .map(ignored -> new ProxyStreamResponse(
+                                statusCode,
+                                headers,
+                                Flux.empty(),
+                                buildStandardizedErrorBody(statusCode)));
+            })
+                    .block(requestTimeout);
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (WebClientRequestException e) {
+            throw mapRequestFailure(uri, e);
+        } catch (IllegalStateException e) {
+            throw mapBlockingFailure(uri, e);
+        }
 
         if (response == null) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI upstream response was empty");
@@ -127,20 +157,30 @@ public class AiProxyService {
         }
     }
 
-    private ProxyByteResponse executeByteRequest(WebClient.RequestHeadersSpec<?> request) {
-        ProxyByteResponse response = request.exchangeToMono(clientResponse -> clientResponse
-                .bodyToMono(byte[].class)
-                .defaultIfEmpty(new byte[0])
-                .map(body -> {
-                    HttpStatusCode statusCode = clientResponse.statusCode();
-                    HttpHeaders headers = filterResponseHeaders(clientResponse.headers().asHttpHeaders());
-                    if (!statusCode.is2xxSuccessful()) {
-                        headers.setContentType(MediaType.APPLICATION_JSON);
-                        body = buildStandardizedErrorBody(statusCode);
-                    }
-                    return new ProxyByteResponse(statusCode, headers, body);
-                }))
-                .block(AI_PROXY_TIMEOUT);
+    private ProxyByteResponse executeByteRequest(String uri, WebClient.RequestHeadersSpec<?> request) {
+        ProxyByteResponse response;
+        try {
+            response = request.exchangeToMono(clientResponse -> clientResponse
+                    .bodyToMono(byte[].class)
+                    .defaultIfEmpty(new byte[0])
+                    .map(body -> {
+                        HttpStatusCode statusCode = clientResponse.statusCode();
+                        HttpHeaders headers = filterResponseHeaders(clientResponse.headers().asHttpHeaders());
+                        if (!statusCode.is2xxSuccessful()) {
+                            log.warn("AI upstream returned status={} for uri={}", statusCode.value(), uri);
+                            headers.setContentType(MediaType.APPLICATION_JSON);
+                            body = buildStandardizedErrorBody(statusCode);
+                        }
+                        return new ProxyByteResponse(statusCode, headers, body);
+                    }))
+                    .block(requestTimeout);
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (WebClientRequestException e) {
+            throw mapRequestFailure(uri, e);
+        } catch (IllegalStateException e) {
+            throw mapBlockingFailure(uri, e);
+        }
 
         if (response == null) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI upstream response was empty");
@@ -149,10 +189,22 @@ public class AiProxyService {
     }
 
     private WebClient client() {
-        return webClientBuilder.baseUrl(aiServiceUrl).build();
+        String aiServiceUrl = aiServiceSettings.getResolvedServiceUrl();
+        if (!StringUtils.hasText(aiServiceUrl)) {
+            log.error("AI service URL is not configured.");
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "AI service URL is not configured");
+        }
+
+        try {
+            return webClientBuilder.baseUrl(aiServiceUrl).build();
+        } catch (IllegalArgumentException e) {
+            log.error("AI service URL is invalid. url={}", aiServiceUrl, e);
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "AI service URL is invalid", e);
+        }
     }
 
     private void applyInternalAuth(HttpHeaders headers) {
+        String aiInternalToken = aiServiceSettings.getResolvedInternalToken();
         if (!StringUtils.hasText(aiInternalToken)) {
             log.error("ai.internal-token is not configured.");
             throw new ResponseStatusException(
@@ -160,6 +212,19 @@ public class AiProxyService {
                     "AI internal authentication is not configured");
         }
         headers.set("X-Internal-Api-Key", aiInternalToken);
+    }
+
+    private ResponseStatusException mapRequestFailure(String uri, WebClientRequestException e) {
+        log.error("AI upstream connection failed. uri={} message={}", uri, e.getMessage(), e);
+        return new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI upstream connection failed", e);
+    }
+
+    private RuntimeException mapBlockingFailure(String uri, IllegalStateException e) {
+        if (e.getMessage() != null && e.getMessage().contains("Timeout on blocking read")) {
+            log.error("AI upstream request timed out. uri={} timeout={}s", uri, requestTimeout.toSeconds(), e);
+            return new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "AI upstream request timed out", e);
+        }
+        return e;
     }
 
     private HttpHeaders filterResponseHeaders(HttpHeaders upstream) {

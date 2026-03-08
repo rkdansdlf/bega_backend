@@ -51,6 +51,8 @@ class PartyApplicationVerificationTest {
         private TicketVerificationTokenStore ticketVerificationTokenStore;
         @Mock
         private PaymentTransactionService paymentTransactionService;
+        @Mock
+        private MatePaymentModeService matePaymentModeService;
 
         @InjectMocks
         private PartyApplicationService service;
@@ -60,6 +62,8 @@ class PartyApplicationVerificationTest {
 
         @BeforeEach
         void setUp() {
+                given(matePaymentModeService.isDirectTrade()).willReturn(false);
+
                 testParty = Party.builder()
                                 .id(1L)
                                 .hostId(100L)

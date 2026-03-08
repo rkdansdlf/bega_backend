@@ -139,10 +139,10 @@ public class CheerCommentService {
 
             CheerComment comment = saveNewComment(targetPost, author, req);
 
-            // Increment comment count - PostService/PostRepo responsibility?
-            // CheerService did: post.setCommentCount(...)
+            // 댓글 수 원자적 증가 (Race Condition 방지)
+            postRepo.incrementCommentCount(targetPost.getId());
+            // hot score 계산을 위해 in-memory 엔티티도 동기화 (DB 추가 쿼리 없이)
             targetPost.setCommentCount(targetPost.getCommentCount() + 1);
-            postRepo.save(targetPost); // Save count update
 
             postService.updateHotScore(targetPost);
 
@@ -204,8 +204,10 @@ public class CheerCommentService {
 
             CheerComment reply = saveNewReply(targetPost, parentComment, author, req);
 
+            // 댓글 수 원자적 증가 (Race Condition 방지)
+            postRepo.incrementCommentCount(targetPost.getId());
+            // hot score 계산을 위해 in-memory 엔티티도 동기화 (DB 추가 쿼리 없이)
             targetPost.setCommentCount(targetPost.getCommentCount() + 1);
-            postRepo.save(targetPost);
 
             postService.updateHotScore(targetPost);
 
@@ -246,10 +248,10 @@ public class CheerCommentService {
         try {
             commentRepo.delete(comment);
 
-            // 실제 DB에서 댓글 수 재계산 (댓글 + 대댓글 모두 포함)
+            // 실제 DB에서 댓글 수 재계산 후 원자적 UPDATE (Lost Update 방지)
             Long actualCount = commentRepo.countByPostId(Objects.requireNonNull(post.getId()).longValue());
-            post.setCommentCount(actualCount != null ? actualCount.intValue() : 0);
-            postRepo.save(post);
+            int newCount = actualCount != null ? actualCount.intValue() : 0;
+            postRepo.setExactCommentCount(post.getId(), newCount);
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(author);

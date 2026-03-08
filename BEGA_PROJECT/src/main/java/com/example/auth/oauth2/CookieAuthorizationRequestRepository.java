@@ -141,9 +141,14 @@ public class CookieAuthorizationRequestRepository
             );
 
             // 원본 state를 key로 사용하여 저장
-            oAuth2LinkStateService.saveLinkByState(originalState, linkData);
-            log.info("Saved OAuth2 link state to Redis: state={}, userId={}, failure={}",
-                    originalState, authUserId, failureReason);
+            try {
+                oAuth2LinkStateService.saveLinkByState(originalState, linkData);
+                log.info("Saved OAuth2 link state to Redis: state={}, userId={}, failure={}",
+                        originalState, authUserId, failureReason);
+            } catch (OAuth2LinkStateService.OAuth2LinkStateStoreException e) {
+                securityMonitoringService.recordOAuth2StateReject();
+                log.error("Failed to save OAuth2 link state; link flow will be rejected later", e);
+            }
         }
 
         // 2. Authorization Request를 쿠키에 저장합니다 (state 수정 없이 원본 그대로).

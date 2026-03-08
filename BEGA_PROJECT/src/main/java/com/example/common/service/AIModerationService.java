@@ -1,9 +1,11 @@
 package com.example.common.service;
 
+import com.example.ai.config.AiServiceSettings;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Arrays;
@@ -19,8 +21,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AIModerationService {
 
-    @Value("${ai.service-url}")
-    private String aiServiceUrl;
+    private final AiServiceSettings aiServiceSettings;
 
     @Value("${ai.moderation.high-risk-keywords:죽어,죽인다,살인,테러,시발,씨발,병신,개새끼}")
     private String highRiskKeywordsRaw;
@@ -51,7 +52,11 @@ public class AIModerationService {
         ModerationResult ruleResult = evaluateRuleBasedRisk(content);
 
         try {
-            String url = aiServiceUrl + "/moderation/safety-check";
+            String url = aiServiceSettings.buildUrl("/moderation/safety-check");
+            if (!StringUtils.hasText(url)) {
+                log.error("AI moderation service URL is not configured; using rule fallback.");
+                return ruleResult.withDecisionSource("FALLBACK");
+            }
             Map<String, String> request = Map.of("content", content);
 
             @SuppressWarnings("unchecked")

@@ -45,14 +45,16 @@ class CheerBattleServiceTest {
         String gameId = "game1";
         String rawTeamId = "teamA";
         String normalizedTeamId = "TEAMA";
+        Long userId = 1L;
         String email = "user@test.com";
 
         UserEntity user = UserEntity.builder()
+                .id(userId)
                 .email(email)
                 .cheerPoints(10)
                 .build();
 
-        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
 
         CheerVoteId voteId = CheerVoteId.builder().gameId(gameId).teamId(normalizedTeamId).build();
         CheerVoteEntity voteEntity = CheerVoteEntity.builder()
@@ -66,14 +68,15 @@ class CheerBattleServiceTest {
         when(cheerVoteRepository.findVoteCount(gameId, normalizedTeamId)).thenReturn(6);
 
         // When
-        int result = cheerBattleService.vote(gameId, rawTeamId, email);
+        int result = cheerBattleService.vote(gameId, rawTeamId, userId);
 
         // Then
         assertThat(result).isEqualTo(6); // 5 + 1
         assertThat(user.getCheerPoints()).isEqualTo(9); // 10 - 1
 
         verify(userRepository).save(user); // Points must be saved
-        verify(cheerVoteRepository, never()).save(any(CheerVoteEntity.class)); // Existing vote row path uses atomic update
+        verify(cheerVoteRepository, never()).save(any(CheerVoteEntity.class)); // Existing vote row path uses atomic
+                                                                               // update
         verify(cheerVoteRepository).incrementVoteCount(gameId, normalizedTeamId);
     }
 
@@ -83,18 +86,20 @@ class CheerBattleServiceTest {
         // Given
         String gameId = "game1";
         String teamId = "teamA";
+        Long userId = 2L;
         String email = "poor@test.com";
 
         UserEntity user = UserEntity.builder()
+                .id(userId)
                 .email(email)
                 .cheerPoints(0)
                 .build();
 
-        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
 
         // When & Then
         assertThrows(IllegalStateException.class, () -> {
-            cheerBattleService.vote(gameId, teamId, email);
+            cheerBattleService.vote(gameId, teamId, userId);
         });
 
         verify(cheerVoteRepository, never()).save(any(CheerVoteEntity.class));
