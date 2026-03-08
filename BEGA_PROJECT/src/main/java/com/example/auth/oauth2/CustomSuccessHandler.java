@@ -23,6 +23,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+
 @Component
 @lombok.extern.slf4j.Slf4j
 public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
@@ -108,8 +111,15 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
             response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
 
-            // [Security Fix] State 데이터 저장 - userId만 Redis에 저장 (민감 정보 최소화)
-            String stateId = oAuth2StateService.saveState(userId);
+            String stateId;
+            try {
+                // [Security Fix] State 데이터 저장 - userId만 Redis에 저장 (민감 정보 최소화)
+                stateId = oAuth2StateService.saveState(userId);
+            } catch (OAuth2StateService.OAuth2StateStoreException e) {
+                log.error("Failed to save OAuth2 state in link mode", e);
+                redirectWithError(request, response, OAuth2StateService.ERROR_CODE_STATE_STORE_UNAVAILABLE);
+                return;
+            }
             String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId + "&status=linked";
             getRedirectStrategy().sendRedirect(request, response, redirectUrl);
             return;
@@ -143,8 +153,15 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             request.getSession(false).invalidate();
         }
 
-        // [Security Fix] 사용자 정보를 Redis에 저장 - userId만 저장 (민감 정보 최소화)
-        String stateId = oAuth2StateService.saveState(userId);
+        String stateId;
+        try {
+            // [Security Fix] 사용자 정보를 Redis에 저장 - userId만 저장 (민감 정보 최소화)
+            stateId = oAuth2StateService.saveState(userId);
+        } catch (OAuth2StateService.OAuth2StateStoreException e) {
+            log.error("Failed to save OAuth2 state in normal mode", e);
+            redirectWithError(request, response, OAuth2StateService.ERROR_CODE_STATE_STORE_UNAVAILABLE);
+            return;
+        }
         String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId;
         getRedirectStrategy().sendRedirect(request, response, redirectUrl);
 
@@ -160,5 +177,13 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             return false;
         }
         return state.contains("|");
+    }
+
+    private void redirectWithError(HttpServletRequest request, HttpServletResponse response, String errorCode)
+            throws IOException {
+        String encoded = URLEncoder.encode(
+                errorCode == null ? "oauth2_auth_failed" : errorCode,
+                StandardCharsets.UTF_8);
+        getRedirectStrategy().sendRedirect(request, response, frontendUrl + "/login?error=" + encoded);
     }
 }

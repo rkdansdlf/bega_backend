@@ -24,8 +24,15 @@ public class CheerWebSocketController {
             throw new IllegalArgumentException("로그인이 필요합니다.");
         }
 
+        Long userId;
+        try {
+            userId = Long.valueOf(principal.getName());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("잘못된 인증 정보입니다.");
+        }
+
         // Increment vote with point deduction
-        battleService.vote(gameId, teamId, principal.getName());
+        battleService.vote(gameId, teamId, userId);
 
         // Return updated stats for this game
         return battleService.getGameStats(gameId);

@@ -113,6 +113,9 @@ public class PrimaryOracleJpaConfig {
 				jpaProperties.put("hibernate.type.preferred_boolean_jdbc_type", Types.INTEGER);
 				jpaProperties.put("hibernate.type.preferred_json_jdbc_type", Types.CLOB);
 				jpaProperties.put("hibernate.type.preferred_uuid_jdbc_type", Types.VARCHAR);
+				jpaProperties.put("hibernate.dialect", "org.hibernate.dialect.OracleDialect");
+				jpaProperties.put("hibernate.boot.allow_jdbc_metadata_access", false);
+				jpaProperties.put("hibernate.temp.use_jdbc_metadata_defaults", false);
 			}
 
 		return builder

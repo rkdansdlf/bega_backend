@@ -5,6 +5,7 @@ import com.example.cheerboard.entity.CheerVoteId;
 import com.example.cheerboard.repository.CheerVoteRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,21 +28,23 @@ public class CheerBattleService {
     private final Map<String, Map<String, AtomicInteger>> gameVotes = new ConcurrentHashMap<>();
 
     @Transactional
-    public int vote(String gameId, String teamId, String userEmail) {
+    public int vote(String gameId, String teamId, Long userId) {
         String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
+
+        // 1. 사용자 정보 및 이메일 확인
+        com.example.auth.entity.UserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> {
+                    metricsService.recordBattleVote("user_not_found");
+                    return new IllegalArgumentException("사용자를 찾을 수 없습니다.");
+                });
+
+        String userEmail = user.getEmail();
 
         // Check if already voted
         if (cheerBattleLogRepository.existsByGameIdAndUserEmail(gameId, userEmail)) {
             metricsService.recordBattleVote("already_voted");
             throw new IllegalStateException("이미 투표에 참여하셨습니다.");
         }
-
-        // 1. 사용자 포인트 차감
-        com.example.auth.entity.UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> {
-                    metricsService.recordBattleVote("user_not_found");
-                    return new IllegalArgumentException("사용자를 찾을 수 없습니다.");
-                });
 
         // 포인트 차감 (부족하면 예외 발생)
         try {
@@ -76,24 +79,29 @@ public class CheerBattleService {
 
         int newValue = counter.incrementAndGet();
 
-        // 4. Update DB (Vote Count)
-        CheerVoteId id = CheerVoteId.builder()
-                .gameId(gameId)
-                .teamId(normalizedTeamId)
-                .build();
-
-        CheerVoteEntity entity = cheerVoteRepository.findById(Objects.requireNonNull(id))
-                .orElse(CheerVoteEntity.builder()
+        // 4. Update DB (Vote Count) using atomic increment to prevent lost updates
+        int updatedRows = cheerVoteRepository.incrementVoteCount(gameId, normalizedTeamId);
+        if (updatedRows == 0) {
+            try {
+                cheerVoteRepository.save(CheerVoteEntity.builder()
                         .gameId(gameId)
                         .teamId(normalizedTeamId)
                         .voteCount(0)
                         .build());
+            } catch (DataIntegrityViolationException ignored) {
+                // inserted by another concurrent request
+            }
+            cheerVoteRepository.incrementVoteCount(gameId, normalizedTeamId);
+        }
 
-        entity.setVoteCount(newValue);
-        cheerVoteRepository.save(entity);
+        Integer dbCount = cheerVoteRepository.findVoteCount(gameId, normalizedTeamId);
+        if (dbCount != null && dbCount > counter.get()) {
+            counter.set(dbCount);
+        }
+
         metricsService.recordBattleVote("success");
 
-        return newValue;
+        return dbCount == null ? newValue : dbCount;
     }
 
     public Map<String, Integer> getGameStats(String gameId) {
@@ -116,8 +124,9 @@ public class CheerBattleService {
         return result;
     }
 
-    public String getUserVote(String gameId, String userEmail) {
-        return cheerBattleLogRepository.findByGameIdAndUserEmail(gameId, userEmail)
+    public String getUserVote(String gameId, Long userId) {
+        return userRepository.findById(userId)
+                .flatMap(user -> cheerBattleLogRepository.findByGameIdAndUserEmail(gameId, user.getEmail()))
                 .map(com.example.cheerboard.entity.CheerBattleLog::getTeamId)
                 .orElse(null);
     }

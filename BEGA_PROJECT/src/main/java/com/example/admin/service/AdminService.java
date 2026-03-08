@@ -24,6 +24,8 @@ import com.example.auth.repository.RefreshRepository;
 import com.example.mate.entity.Party;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.service.PartyService;
+import com.example.prediction.GameInningScoreRequestDto;
+import com.example.prediction.PredictionService;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -57,6 +59,7 @@ public class AdminService {
     private final AuditLogRepository auditLogRepository;
     private final PartyService partyService;
     private final RefreshRepository refreshRepository;
+    private final PredictionService predictionService;
 
     /**
      * 대시보드 통계 조회
@@ -491,5 +494,9 @@ public class AdminService {
         }
 
         return result;
+    }
+
+    public int upsertInningScores(String gameId, List<GameInningScoreRequestDto> scores) {
+        return predictionService.upsertInningScores(gameId, scores);
     }
 }

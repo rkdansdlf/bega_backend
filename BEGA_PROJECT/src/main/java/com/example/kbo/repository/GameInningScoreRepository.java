@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface GameInningScoreRepository extends JpaRepository<GameInningScoreEntity, Integer> {
     List<GameInningScoreEntity> findAllByGameIdOrderByInningAscTeamSideAsc(String gameId);
+    int deleteAllByGameId(String gameId);
 }

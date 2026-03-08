@@ -5,6 +5,7 @@ import com.example.mate.exception.TossPaymentException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 
@@ -204,5 +205,15 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.getMessage()).isEqualTo("결제 승인 실패");
+    }
+
+    @Test
+    void responseStatusException_preservesOriginalStatus() {
+        var ex = new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "AI service URL is not configured");
+        var response = handler.handleResponseStatusException(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getMessage()).isEqualTo("AI service URL is not configured");
     }
 }

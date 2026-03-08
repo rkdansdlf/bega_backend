@@ -3,6 +3,7 @@ package com.example.mate.controller;
 import com.example.mate.dto.ChatMessageDTO;
 import com.example.mate.service.ChatMessageService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +16,7 @@ import java.util.List;
 public class ChatMessageController {
 
     private final ChatMessageService chatMessageService;
+    private final SimpMessagingTemplate messagingTemplate;
 
     // 메시지 전송
     @PostMapping("/messages")
@@ -23,6 +25,7 @@ public class ChatMessageController {
             java.security.Principal principal) {
         try {
             ChatMessageDTO.Response response = chatMessageService.sendMessage(request, principal);
+            messagingTemplate.convertAndSend("/topic/party/" + response.getPartyId(), response);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } catch (com.example.mate.exception.UnauthorizedAccessException e) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));

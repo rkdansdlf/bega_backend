@@ -22,7 +22,6 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.BlockService;
 import com.example.common.exception.InvalidAuthorException;
-import com.example.common.exception.UserNotFoundException;
 import com.example.notification.service.NotificationService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityNotFoundException;
@@ -74,20 +73,18 @@ public class CheerInteractionService {
         int likes;
 
         try {
-            UserEntity postAuthor = userRepo.findByIdForWrite(Objects.requireNonNull(post.getAuthor().getId()))
-                    .orElseThrow(() -> new UserNotFoundException(post.getAuthor().getId()));
+            Long postAuthorId = Objects.requireNonNull(post.getAuthor().getId());
 
             if (likeRepo.existsById(likeId)) {
                 // 좋아요 취소
                 likeRepo.deleteById(likeId);
-                likes = Math.max(0, post.getLikeCount() - 1);
-                post.setLikeCount(likes);
+                postRepo.decrementLikeCount(post.getId());
+                likes = readLikeCount(post.getId());
                 liked = false;
 
-                // 작성자 포인트 차감 (Entity Update)
-                postAuthor.deductCheerPoints(1);
-                userRepo.save(postAuthor);
-                log.info("Points deducted for user {}: -1 (Entity Update)", postAuthor.getId());
+                // 작성자 포인트 차감 (원자적 UPDATE)
+                userRepo.modifyCheerPoints(postAuthorId, -1);
+                log.info("Points deducted for user {}: -1 (Atomic UPDATE)", postAuthorId);
 
             } else {
                 // 좋아요 추가
@@ -96,18 +93,17 @@ public class CheerInteractionService {
                 like.setPost(post);
                 like.setUser(author);
                 likeRepo.save(like);
-                likes = post.getLikeCount() + 1;
-                post.setLikeCount(likes);
+                postRepo.incrementLikeCount(post.getId());
+                likes = readLikeCount(post.getId());
                 liked = true;
 
-                // 작성자 포인트 증가 (Entity Update)
-                postAuthor.addCheerPoints(1);
-                userRepo.save(postAuthor);
-                log.info("Points awarded to user {}: +1 (Entity Update)", postAuthor.getId());
+                // 작성자 포인트 증가 (원자적 UPDATE)
+                userRepo.modifyCheerPoints(postAuthorId, 1);
+                log.info("Points awarded to user {}: +1 (Atomic UPDATE)", postAuthorId);
 
                 // 게시글 작성자에게 알림 (본인이 아닐 때만)
-                if (!postAuthor.getId().equals(author.getId())) {
-                    boolean isBlocked = blockService.hasBidirectionalBlock(author.getId(), postAuthor.getId());
+                if (!postAuthorId.equals(author.getId())) {
+                    boolean isBlocked = blockService.hasBidirectionalBlock(author.getId(), postAuthorId);
                     if (!isBlocked) {
                         try {
                             String authorName = author.getName() != null && !author.getName().isBlank()
@@ -115,7 +111,7 @@ public class CheerInteractionService {
                                     : author.getEmail();
 
                             notificationService.createNotification(
-                                    Objects.requireNonNull(post.getAuthor().getId()),
+                                    postAuthorId,
                                     com.example.notification.entity.Notification.NotificationType.POST_LIKE,
                                     "좋아요 알림",
                                     authorName + "님이 회원님의 게시글을 좋아합니다.",
@@ -126,7 +122,8 @@ public class CheerInteractionService {
                     }
                 }
             }
-            postRepo.save(Objects.requireNonNull(post));
+            entityManager.detach(post);
+            post.setLikeCount(likes);
             postService.updateHotScore(post);
             return Objects.requireNonNull(new LikeToggleResponse(liked, likes));
         } catch (DataIntegrityViolationException ex) {
@@ -231,17 +228,17 @@ public class CheerInteractionService {
         int likes;
 
         try {
+            Long commentAuthorId = Objects.requireNonNull(comment.getAuthor().getId());
+
             if (commentLikeRepo.existsById(likeId)) {
                 commentLikeRepo.deleteById(likeId);
-                likes = Math.max(0, comment.getLikeCount() - 1);
-                comment.setLikeCount(likes);
+                commentRepo.decrementLikeCount(comment.getId());
+                likes = readCommentLikeCount(comment.getId());
                 liked = false;
 
-                UserEntity commentAuthor = userRepo.findById(Objects.requireNonNull(comment.getAuthor().getId()))
-                        .orElseThrow(() -> new UserNotFoundException(comment.getAuthor().getId()));
-                commentAuthor.deductCheerPoints(1);
-                userRepo.save(commentAuthor);
-                log.info("Points deducted for comment author {}: -1 (Entity Update)", commentAuthor.getId());
+                // 작성자 포인트 차감 (원자적 UPDATE)
+                userRepo.modifyCheerPoints(commentAuthorId, -1);
+                log.info("Points deducted for comment author {}: -1 (Atomic UPDATE)", commentAuthorId);
 
             } else {
                 CheerCommentLike like = new CheerCommentLike();
@@ -249,18 +246,15 @@ public class CheerInteractionService {
                 like.setComment(comment);
                 like.setUser(author);
                 commentLikeRepo.save(like);
-                likes = comment.getLikeCount() + 1;
-                comment.setLikeCount(likes);
+                commentRepo.incrementLikeCount(comment.getId());
+                likes = readCommentLikeCount(comment.getId());
                 liked = true;
 
-                UserEntity commentAuthor = userRepo.findById(Objects.requireNonNull(comment.getAuthor().getId()))
-                        .orElseThrow(() -> new UserNotFoundException(comment.getAuthor().getId()));
-                commentAuthor.addCheerPoints(1);
-                userRepo.save(commentAuthor);
-                log.info("Points awarded to comment author {}: +1 (Entity Update)", commentAuthor.getId());
+                // 작성자 포인트 증가 (원자적 UPDATE)
+                userRepo.modifyCheerPoints(commentAuthorId, 1);
+                log.info("Points awarded to comment author {}: +1 (Atomic UPDATE)", commentAuthorId);
             }
 
-            commentRepo.save(Objects.requireNonNull(comment));
             return Objects.requireNonNull(new LikeToggleResponse(liked, likes));
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
@@ -505,5 +499,15 @@ public class CheerInteractionService {
             builder.append('\n');
         }
         builder.append('[').append(key).append("] ").append(value.trim());
+    }
+
+    private int readLikeCount(Long postId) {
+        Integer count = postRepo.findLikeCountById(postId);
+        return count == null ? 0 : count;
+    }
+
+    private int readCommentLikeCount(Long commentId) {
+        Integer count = commentRepo.findLikeCountById(commentId);
+        return count == null ? 0 : count;
     }
 }

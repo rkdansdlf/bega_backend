@@ -34,6 +34,17 @@ public interface CheerCommentRepo extends JpaRepository<CheerComment, Long> {
     @Modifying(clearAutomatically = true)
     @Query("DELETE FROM CheerComment c WHERE c.post.id = :postId")
     void deleteByPostId(Long postId);
+
+    @Query("SELECT c.likeCount FROM CheerComment c WHERE c.id = :commentId")
+    Integer findLikeCountById(@Param("commentId") Long commentId);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE CheerComment c SET c.likeCount = c.likeCount + 1 WHERE c.id = :commentId")
+    void incrementLikeCount(@Param("commentId") Long commentId);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE CheerComment c SET c.likeCount = CASE WHEN c.likeCount > 0 THEN c.likeCount - 1 ELSE 0 END WHERE c.id = :commentId")
+    void decrementLikeCount(@Param("commentId") Long commentId);
     
     /**
      * 특정 게시글의 전체 댓글 수 조회 (댓글 + 대댓글 모두 포함)

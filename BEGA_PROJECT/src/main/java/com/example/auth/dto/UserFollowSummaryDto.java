@@ -1,6 +1,7 @@
 package com.example.auth.dto;
 
 import com.example.auth.entity.UserEntity;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -21,6 +22,7 @@ public class UserFollowSummaryDto {
     private String name;
     private String profileImageUrl;
     private String favoriteTeam;
+    @JsonProperty("isFollowedByMe")
     private boolean isFollowedByMe;
 
     public static UserFollowSummaryDto from(UserEntity user, boolean isFollowedByMe) {

@@ -28,7 +28,19 @@ public class RateLimitAspect {
     public void checkRateLimit(JoinPoint joinPoint) {
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
         Method method = signature.getMethod();
-        RateLimit annotation = method.getAnnotation(RateLimit.class);
+        RateLimit annotation = org.springframework.core.annotation.AnnotationUtils.findAnnotation(method,
+                RateLimit.class);
+        if (annotation == null) {
+            try {
+                annotation = joinPoint.getTarget().getClass()
+                        .getMethod(method.getName(), method.getParameterTypes())
+                        .getAnnotation(RateLimit.class);
+            } catch (NoSuchMethodException e) {
+                // Ignore
+            }
+        }
+        if (annotation == null)
+            return; // defensive
 
         String key = generateKey(joinPoint, annotation);
         int limit = annotation.limit();

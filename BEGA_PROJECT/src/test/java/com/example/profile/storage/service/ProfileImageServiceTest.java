@@ -141,4 +141,28 @@ class ProfileImageServiceTest {
         assertThat(resolved).isEqualTo(signedUrl);
         verify(storageStrategy).getUrl(profileBucket, "profiles/7/avatar.webp", 518400);
     }
+
+    @Test
+    @DisplayName("업로드 내부 예외 메시지는 외부 예외 메시지에 노출되지 않는다")
+    void uploadProfileImage_masksInternalExceptionMessage() throws Exception {
+        Long userId = 11L;
+        String profileBucket = "profile-images";
+        byte[] processedBytes = new byte[] { 7, 8, 9 };
+        com.example.common.image.ImageUtil.ProcessedImage processedImage = new com.example.common.image.ImageUtil.ProcessedImage(
+                processedBytes, "image/webp", "webp");
+
+        when(config.getProfileBucket()).thenReturn(profileBucket);
+        when(userRepository.existsById(userId)).thenReturn(true);
+        when(userRepository.findProfileImageUrlById(userId)).thenReturn(java.util.Optional.empty());
+        when(multipartFile.getOriginalFilename()).thenReturn("avatar.png");
+        when(imageUtil.processProfileImage(multipartFile)).thenReturn(processedImage);
+        when(storageStrategy.uploadBytes(eq(processedBytes), eq("image/webp"), eq(profileBucket), any(String.class)))
+                .thenReturn(Mono.error(new RuntimeException("s3://internal/secret-path")));
+
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> profileImageService.uploadProfileImage(userId, multipartFile));
+
+        assertThat(ex.getMessage()).isEqualTo("프로필 이미지 업로드 중 오류가 발생했습니다.");
+        assertThat(ex.getMessage()).doesNotContain("secret-path");
+    }
 }
