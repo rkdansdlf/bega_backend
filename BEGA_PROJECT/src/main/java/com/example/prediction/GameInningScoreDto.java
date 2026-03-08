@@ -1,5 +1,6 @@
 package com.example.prediction;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.example.kbo.entity.GameInningScoreEntity;
 import lombok.Builder;
 import lombok.Getter;
@@ -11,6 +12,7 @@ public class GameInningScoreDto {
     private String teamSide;
     private String teamCode;
     private Integer runs;
+    @JsonProperty("isExtra")
     private Boolean isExtra;
 
     public static GameInningScoreDto fromEntity(GameInningScoreEntity score) {

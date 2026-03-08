@@ -6,6 +6,7 @@ import com.example.mate.service.PartyApplicationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
@@ -76,28 +77,52 @@ public class PartyApplicationController {
         }
     }
 
-    // 대기중인 신청 목록 조회
+    // 대기중인 신청 목록 조회 (호스트 전용)
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/party/{partyId}/pending")
-    public ResponseEntity<List<PartyApplicationDTO.Response>> getPendingApplications(
-            @PathVariable Long partyId) {
-        List<PartyApplicationDTO.Response> applications = applicationService.getPendingApplications(partyId);
-        return ResponseEntity.ok(applications);
+    public ResponseEntity<?> getPendingApplications(
+            @PathVariable Long partyId,
+            Principal principal) {
+        try {
+            List<PartyApplicationDTO.Response> applications = applicationService.getPendingApplications(partyId, principal);
+            return ResponseEntity.ok(applications);
+        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
+        }
     }
 
-    // 승인된 신청 목록 조회
+    // 승인된 신청 목록 조회 (호스트 전용)
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/party/{partyId}/approved")
-    public ResponseEntity<List<PartyApplicationDTO.Response>> getApprovedApplications(
-            @PathVariable Long partyId) {
-        List<PartyApplicationDTO.Response> applications = applicationService.getApprovedApplications(partyId);
-        return ResponseEntity.ok(applications);
+    public ResponseEntity<?> getApprovedApplications(
+            @PathVariable Long partyId,
+            Principal principal) {
+        try {
+            List<PartyApplicationDTO.Response> applications = applicationService.getApprovedApplications(partyId, principal);
+            return ResponseEntity.ok(applications);
+        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
+        }
     }
 
-    // 거절된 신청 목록 조회
+    // 거절된 신청 목록 조회 (호스트 전용)
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/party/{partyId}/rejected")
-    public ResponseEntity<List<PartyApplicationDTO.Response>> getRejectedApplications(
-            @PathVariable Long partyId) {
-        List<PartyApplicationDTO.Response> applications = applicationService.getRejectedApplications(partyId);
-        return ResponseEntity.ok(applications);
+    public ResponseEntity<?> getRejectedApplications(
+            @PathVariable Long partyId,
+            Principal principal) {
+        try {
+            List<PartyApplicationDTO.Response> applications = applicationService.getRejectedApplications(partyId, principal);
+            return ResponseEntity.ok(applications);
+        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
+        }
     }
 
     // 신청 승인

@@ -1,5 +1,6 @@
 package com.example.mate.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.CancelReasonType;
@@ -25,6 +26,7 @@ public class PartyApplicationDTO {
         private Party.BadgeType applicantBadge;
         private Double applicantRating;
         private String message;
+        // DIRECT_TRADE: 거래 기준 금액 스냅샷, TOSS_TEST: 보증금/결제 금액
         private Integer depositAmount;
         private PartyApplication.PaymentType paymentType;
         private Boolean ticketVerified; // Client-side flag (ignored for verification, used for UI)
@@ -44,9 +46,13 @@ public class PartyApplicationDTO {
         private Party.BadgeType applicantBadge;
         private Double applicantRating;
         private String message;
+        // DIRECT_TRADE: 거래 기준 금액 스냅샷, TOSS_TEST: 보증금/결제 금액
         private Integer depositAmount;
+        @JsonProperty("isPaid")
         private Boolean isPaid;
+        @JsonProperty("isApproved")
         private Boolean isApproved;
+        @JsonProperty("isRejected")
         private Boolean isRejected;
         private PartyApplication.PaymentType paymentType;
         private Boolean ticketVerified;

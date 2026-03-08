@@ -85,6 +85,7 @@ public class CheerController {
     }
 
     @PostMapping(value = "/posts/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("isAuthenticated()")
     public java.util.List<String> uploadImages(
             @PathVariable Long id,
             @RequestPart("files") java.util.List<org.springframework.web.multipart.MultipartFile> images) {
@@ -111,17 +112,20 @@ public class CheerController {
 
     @RateLimit(limit = 5, window = 60) // 1분에 최대 5개 게시글
     @PostMapping("/posts")
+    @PreAuthorize("isAuthenticated()")
     @ResponseStatus(HttpStatus.CREATED)
-    public PostDetailRes create(@RequestBody CreatePostReq req) {
+    public PostDetailRes create(@Valid @RequestBody CreatePostReq req) {
         return svc.createPost(req);
     }
 
     @PutMapping("/posts/{id}")
+    @PreAuthorize("isAuthenticated()")
     public PostDetailRes update(@PathVariable Long id, @Valid @RequestBody UpdatePostReq req) {
         return svc.updatePost(id, req);
     }
 
     @DeleteMapping("/posts/{id}")
+    @PreAuthorize("isAuthenticated()")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
         svc.deletePost(id);
@@ -129,17 +133,20 @@ public class CheerController {
 
     @RateLimit(limit = 10, window = 60) // 1분에 최대 10번 좋아요 토글
     @PostMapping("/posts/{id}/like")
+    @PreAuthorize("isAuthenticated()")
     public LikeToggleResponse toggleLike(@PathVariable Long id) {
         return svc.toggleLike(id);
     }
 
     @PostMapping("/posts/{id}/bookmark")
+    @PreAuthorize("isAuthenticated()")
     public BookmarkResponse toggleBookmark(@PathVariable Long id) {
         return svc.toggleBookmark(id);
     }
 
     @RateLimit(limit = 10, window = 60) // 1분에 최대 10번 리포스트 토글
     @PostMapping("/posts/{id}/repost")
+    @PreAuthorize("isAuthenticated()")
     public RepostToggleResponse toggleRepost(@PathVariable Long id) {
         return svc.toggleRepost(id);
     }
@@ -195,11 +202,13 @@ public class CheerController {
 
     @RateLimit(limit = 10, window = 60) // 1분에 최대 10개 댓글
     @PostMapping("/posts/{id}/comments")
+    @PreAuthorize("isAuthenticated()")
     public CommentRes addComment(@PathVariable Long id, @Valid @RequestBody CreateCommentReq req) {
         return svc.addComment(id, req);
     }
 
     @DeleteMapping("/comments/{commentId}")
+    @PreAuthorize("isAuthenticated()")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteComment(@PathVariable Long commentId) {
         svc.deleteComment(commentId);
@@ -207,12 +216,14 @@ public class CheerController {
 
     @RateLimit(limit = 10, window = 60) // 1분에 최대 10번 댓글 좋아요 토글
     @PostMapping("/comments/{commentId}/like")
+    @PreAuthorize("isAuthenticated()")
     public LikeToggleResponse toggleCommentLike(@PathVariable Long commentId) {
         return svc.toggleCommentLike(commentId);
     }
 
     @RateLimit(limit = 10, window = 60) // 1분에 최대 10개 답글
     @PostMapping("/posts/{postId}/comments/{parentCommentId}/replies")
+    @PreAuthorize("isAuthenticated()")
     public CommentRes addReply(@PathVariable Long postId, @PathVariable Long parentCommentId,
             @Valid @RequestBody CreateCommentReq req) {
         return svc.addReply(postId, parentCommentId, req);
@@ -232,7 +243,12 @@ public class CheerController {
         java.util.Map<String, Integer> stats = battleService.getGameStats(gameId);
         String myVote = null;
         if (principal != null) {
-            myVote = battleService.getUserVote(gameId, principal.getName());
+            try {
+                Long userId = Long.valueOf(principal.getName());
+                myVote = battleService.getUserVote(gameId, userId);
+            } catch (NumberFormatException e) {
+                // Ignore invalid principal formats silently for status endpoint
+            }
         }
 
         return com.example.cheerboard.dto.CheerBattleStatusRes.builder()

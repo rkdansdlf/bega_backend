@@ -52,6 +52,13 @@ public class PredictionController {
         return ResponseEntity.ok(matches);
     }
 
+    @PreAuthorize("permitAll()")
+    @GetMapping("/matches/day")
+    public ResponseEntity<MatchDayNavigationResponseDto> getMatchDay(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return ResponseEntity.ok(predictionService.getMatchDayNavigation(date));
+    }
+
     // 특정 기간의 경기 조회 (과거 일주일치 등)
     @PreAuthorize("permitAll()")
     @GetMapping("/matches/range")

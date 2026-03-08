@@ -14,6 +14,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,19 +26,30 @@ import com.example.kbo.repository.GameMetadataRepository;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.util.TeamCodeResolver;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class BegaGameService {
 
 	private final GameRepository gameRepository;
 	private final GameMetadataRepository gameMetadataRepository;
 
-	@Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
+	public BegaGameService(
+			ObjectProvider<GameRepository> gameRepositoryProvider,
+			ObjectProvider<GameMetadataRepository> gameMetadataRepositoryProvider) {
+		this.gameRepository = gameRepositoryProvider.getIfAvailable();
+		this.gameMetadataRepository = gameMetadataRepositoryProvider.getIfAvailable();
+		if (this.gameRepository == null || this.gameMetadataRepository == null) {
+			log.warn("KBO game repositories are unavailable. Game lookup features are temporarily disabled.");
+		}
+	}
+
+	@Transactional(readOnly = true)
 	public List<GameResponseDto> getGamesByDate(LocalDate date) {
+		if (isGameDbUnavailable()) {
+			return List.of();
+		}
 		List<GameEntity> games = gameRepository.findByGameDate(date);
 		return Objects.requireNonNull(games.stream()
 				.map(this::convertToDto)
@@ -48,13 +60,17 @@ public class BegaGameService {
 		return findGameIdByDateAndTeams(dateStr, homeTeam, awayTeam, null, null);
 	}
 
-	@Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
+	@Transactional(readOnly = true)
 	public Long findGameIdByDateAndTeams(
 			String dateStr,
 			String homeTeam,
 			String awayTeam,
 			String stadium,
 			String time) {
+		if (isGameDbUnavailable()) {
+			log.warn("[BegaGameService] ticket_match skipped because game DB is unavailable");
+			return null;
+		}
 		if (dateStr == null || homeTeam == null || awayTeam == null) {
 			log.info(
 					"[BegaGameService] ticket_match skipped date={} home={} away={} reason=missing_required_field",
@@ -159,12 +175,19 @@ public class BegaGameService {
 		}
 	}
 
-	@Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
+	@Transactional(readOnly = true)
 	public GameEntity getGameById(Long id) {
+		if (isGameDbUnavailable()) {
+			return null;
+		}
 		if (id == null) {
 			return null;
 		}
 		return gameRepository.findById(Objects.requireNonNull(id)).orElse(null);
+	}
+
+	private boolean isGameDbUnavailable() {
+		return gameRepository == null || gameMetadataRepository == null;
 	}
 
 	private GameResponseDto convertToDto(GameEntity game) {

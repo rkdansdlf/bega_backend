@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class OAuth2ResponseMappingTest {
 
@@ -78,5 +79,30 @@ class OAuth2ResponseMappingTest {
         OAuth2Response oauthResponse = new NaverResponse(new HashMap<>(root));
 
         assertThat(oauthResponse.getProfileImageUrl()).isNull();
+    }
+
+    @Test
+    void kakaoResponse_handlesMalformedNestedPayloadSafely() {
+        Map<String, Object> attributes = new HashMap<>();
+        attributes.put("kakao_account", "not-a-map");
+
+        OAuth2Response response = new KaKaoResponse(attributes);
+
+        assertThatThrownBy(response::getEmail)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("KAKAO_ACCOUNT_INFO_MISSING");
+    }
+
+    @Test
+    void naverResponse_handlesMalformedNestedPayloadSafely() {
+        Map<String, Object> root = new HashMap<>();
+        root.put("response", "not-a-map");
+
+        OAuth2Response response = new NaverResponse(root);
+
+        assertThat(response.getProviderId()).isNull();
+        assertThat(response.getEmail()).isNull();
+        assertThat(response.getName()).isNull();
+        assertThat(response.getProfileImageUrl()).isNull();
     }
 }

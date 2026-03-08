@@ -164,7 +164,8 @@ public class CheerFeedService {
                 List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
                 return postDtoMapper.toPostLightweightSummaryRes(post, imageUrls);
             } catch (Exception e) {
-                log.warn("Cheer lightweight feed enrichment failed for postId={}, fallback to minimal response", post.getId(), e);
+                log.warn("Cheer lightweight feed enrichment failed for postId={}, fallback to minimal response",
+                        post.getId(), e);
                 return buildFallbackPostLightweightSummary(post);
             }
         });
@@ -304,14 +305,19 @@ public class CheerFeedService {
                     int combinedViews = post.getViews() + viewCountMap.getOrDefault(post.getId(), 0);
                     double globalScore = popularFeedScoringService.calculateTimeDecayScore(post, combinedViews, now);
                     double normalizedGlobal = popularFeedScoringService.normalizeGlobalHotScore(globalScore);
+                    double engagementScore = popularFeedScoringService.calculateEngagementRateScore(post,
+                            combinedViews);
+                    double normalizedEngagement = popularFeedScoringService
+                            .normalizeGlobalHotScore(engagementScore * 100);
                     double teamAffinity = me != null
                             ? popularFeedScoringService.calculateTeamAffinity(me.getFavoriteTeamId(), post.getTeamId())
-                            : 0.0;
+                            : popularFeedScoringService.calculateTeamAffinity(null, post.getTeamId());
                     double followAffinity = me != null
                             ? popularFeedScoringService.calculateFollowAffinity(followingIds, post.getAuthor().getId())
                             : 0.0;
+                    double freshnessBoost = popularFeedScoringService.calculateFreshnessBoost(post.getCreatedAt(), now);
                     double hybridScore = popularFeedScoringService.calculateHybridScore(
-                            normalizedGlobal, teamAffinity, followAffinity);
+                            normalizedGlobal, normalizedEngagement, teamAffinity, followAffinity, freshnessBoost);
                     return new ScoredHotPost(post, hybridScore);
                 })
                 .sorted(Comparator.comparingDouble(ScoredHotPost::score)
@@ -380,11 +386,13 @@ public class CheerFeedService {
                         boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
                         List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
                         return postDtoMapper.toPostSummaryRes(post, likedPostIds.contains(post.getId()),
-                                bookmarkedPostIds.contains(post.getId()), isOwner, repostedPostIds.contains(post.getId()),
+                                bookmarkedPostIds.contains(post.getId()), isOwner,
+                                repostedPostIds.contains(post.getId()),
                                 bookmarkCountMap.getOrDefault(post.getId(), 0), imageUrls,
                                 viewCountMap, hotStatusMap, repostImageUrls);
                     } catch (Exception e) {
-                        log.warn("Cheer feed summary enrichment failed for postId={}, fallback to minimal response", post.getId(), e);
+                        log.warn("Cheer feed summary enrichment failed for postId={}, fallback to minimal response",
+                                post.getId(), e);
                         return buildFallbackPostSummary(post, me,
                                 likedPostIds.contains(post.getId()),
                                 bookmarkedPostIds.contains(post.getId()),
@@ -543,7 +551,8 @@ public class CheerFeedService {
         try {
             return interactionService.getLikedPostIds(me.getId(), postIds);
         } catch (Exception e) {
-            log.warn("Cheer feed liked-status enrichment failed. userId={}, postCount={}", me.getId(), postIds.size(), e);
+            log.warn("Cheer feed liked-status enrichment failed. userId={}, postCount={}", me.getId(), postIds.size(),
+                    e);
             return Collections.emptySet();
         }
     }
@@ -552,7 +561,8 @@ public class CheerFeedService {
         try {
             return interactionService.getBookmarkedPostIds(me.getId(), postIds);
         } catch (Exception e) {
-            log.warn("Cheer feed bookmark-status enrichment failed. userId={}, postCount={}", me.getId(), postIds.size(), e);
+            log.warn("Cheer feed bookmark-status enrichment failed. userId={}, postCount={}", me.getId(),
+                    postIds.size(), e);
             return Collections.emptySet();
         }
     }
@@ -561,7 +571,8 @@ public class CheerFeedService {
         try {
             return interactionService.getRepostedPostIds(me.getId(), postIds);
         } catch (Exception e) {
-            log.warn("Cheer feed repost-status enrichment failed. userId={}, postCount={}", me.getId(), postIds.size(), e);
+            log.warn("Cheer feed repost-status enrichment failed. userId={}, postCount={}", me.getId(), postIds.size(),
+                    e);
             return Collections.emptySet();
         }
     }

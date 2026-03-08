@@ -101,9 +101,11 @@ public class JWTFilter extends OncePerRequestFilter {
             return;
         }
 
+        boolean aiProxyRequest = requestUri != null && requestUri.startsWith("/api/ai/");
+
         // 🚨 CSRF 방지: Referer 체크 (상태 변경 요청에 대해)
         String method = request.getMethod();
-        if (!method.equals("GET") && !method.equals("HEAD") && !method.equals("OPTIONS")) {
+        if (!aiProxyRequest && !method.equals("GET") && !method.equals("HEAD") && !method.equals("OPTIONS")) {
             String referer = request.getHeader("Referer");
             String origin = request.getHeader("Origin");
 
@@ -125,14 +127,22 @@ public class JWTFilter extends OncePerRequestFilter {
         boolean mutableRequest = isMutableRequest(request);
 
         // [Security Fix] 블랙리스트 확인 (로그아웃된 토큰)
-        if (tokenBlacklistService != null && tokenBlacklistService.isBlacklisted(token)) {
-            log.debug("Blacklisted token rejected");
-            securityMonitoringService.recordTokenReject();
-            if (mutableRequest) {
-                sendInvalidAuthorResponse(response, "로그아웃된 토큰입니다. 다시 로그인해 주세요.");
+        try {
+            if (tokenBlacklistService != null && tokenBlacklistService.isBlacklisted(token)) {
+                log.debug("Blacklisted token rejected");
+                securityMonitoringService.recordTokenReject();
+                if (mutableRequest) {
+                    sendInvalidAuthorResponse(response, "로그아웃된 토큰입니다. 다시 로그인해 주세요.");
+                    return;
+                }
+                filterChain.doFilter(request, response);
                 return;
             }
-            filterChain.doFilter(request, response);
+        } catch (com.example.auth.service.TokenBlacklistService.TokenBlacklistUnavailableException e) {
+            securityMonitoringService.recordTokenReject();
+            SecurityContextHolder.clearContext();
+            log.error("Blacklist verification failed, rejecting request: {}", e.getMessage());
+            sendInvalidAuthorResponse(response, "인증 검증을 완료할 수 없습니다. 다시 로그인해 주세요.");
             return;
         }
 
@@ -289,6 +299,11 @@ public class JWTFilter extends OncePerRequestFilter {
             return false;
         }
         if (origin.equals(pattern)) {
+            return true;
+        }
+
+        // Support Spring's simple wildcard matching (e.g. *.domain.com)
+        if (org.springframework.util.PatternMatchUtils.simpleMatch(pattern, origin)) {
             return true;
         }
 

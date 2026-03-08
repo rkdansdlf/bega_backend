@@ -77,7 +77,7 @@ public class ProfileImageController {
         } catch (Exception e) {
             log.error("프로필 이미지 업로드 실패", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("프로필 이미지 업로드 실패: " + e.getMessage()));
+                    .body(ApiResponse.error("프로필 이미지 업로드 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
         }
     }
 }

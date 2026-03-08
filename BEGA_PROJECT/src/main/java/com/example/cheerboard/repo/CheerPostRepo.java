@@ -82,6 +82,29 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
         @Query("UPDATE CheerPost p SET p.views = p.views + :delta WHERE p.id = :postId")
         void incrementViewCountByDelta(@Param("postId") Long postId, @Param("delta") int delta);
 
+        @Query("SELECT p.likeCount FROM CheerPost p WHERE p.id = :postId")
+        Integer findLikeCountById(@Param("postId") Long postId);
+
+        @Modifying(clearAutomatically = true)
+        @Query("UPDATE CheerPost p SET p.likeCount = p.likeCount + 1 WHERE p.id = :postId")
+        void incrementLikeCount(@Param("postId") Long postId);
+
+        @Modifying(clearAutomatically = true)
+        @Query("UPDATE CheerPost p SET p.likeCount = CASE WHEN p.likeCount > 0 THEN p.likeCount - 1 ELSE 0 END WHERE p.id = :postId")
+        void decrementLikeCount(@Param("postId") Long postId);
+
+        @Modifying(clearAutomatically = true)
+        @Query("UPDATE CheerPost p SET p.commentCount = p.commentCount + 1 WHERE p.id = :postId")
+        void incrementCommentCount(@Param("postId") Long postId);
+
+        @Modifying(clearAutomatically = true)
+        @Query("UPDATE CheerPost p SET p.commentCount = CASE WHEN p.commentCount > 0 THEN p.commentCount - 1 ELSE 0 END WHERE p.id = :postId")
+        void decrementCommentCount(@Param("postId") Long postId);
+
+        @Modifying(clearAutomatically = true)
+        @Query("UPDATE CheerPost p SET p.commentCount = :count WHERE p.id = :postId")
+        void setExactCommentCount(@Param("postId") Long postId, @Param("count") int count);
+
         @Query("SELECT p.repostCount FROM CheerPost p WHERE p.id = :postId")
         Integer findRepostCountById(@Param("postId") Long postId);
 

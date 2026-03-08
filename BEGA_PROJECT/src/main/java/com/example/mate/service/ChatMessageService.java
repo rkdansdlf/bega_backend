@@ -32,6 +32,9 @@ public class ChatMessageService {
     // 메시지 전송
     @Transactional
     public ChatMessageDTO.Response sendMessage(ChatMessageDTO.Request request, Principal principal) {
+        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+            throw new UnauthorizedAccessException("로그인이 필요합니다.");
+        }
         Long userId = userService.getUserIdByEmail(principal.getName());
 
         // 파티 존재 확인 및 멤버 여부 확인

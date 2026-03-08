@@ -1,28 +1,38 @@
 package com.example.auth.service;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jobrunr.jobs.annotations.Job;
 import org.jobrunr.scheduling.JobScheduler;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class EmailService {
 
     private final JavaMailSender mailSender;
     private final JobScheduler jobScheduler;
 
+    public EmailService(JavaMailSender mailSender, ObjectProvider<JobScheduler> jobSchedulerProvider) {
+        this.mailSender = mailSender;
+        this.jobScheduler = jobSchedulerProvider.getIfAvailable();
+    }
+
     @org.springframework.beans.factory.annotation.Value("${app.frontend.url:http://localhost:3000}")
     private String frontendUrl;
 
     public void sendPasswordResetEmail(String toEmail, String resetToken) {
-        // JobRunr를 사용하여 백그라운드 작업으로 등록 (Fire-and-Forget)
-        jobScheduler.enqueue(() -> sendPasswordResetEmailJob(toEmail, resetToken));
-        log.info("Password reset email job enqueued for {}", toEmail);
+        if (jobScheduler != null) {
+            // JobRunr를 사용하여 백그라운드 작업으로 등록 (Fire-and-Forget)
+            jobScheduler.enqueue(() -> sendPasswordResetEmailJob(toEmail, resetToken));
+            log.info("Password reset email job enqueued for {}", toEmail);
+            return;
+        }
+
+        log.warn("JobScheduler unavailable. Sending password reset email immediately for {}", toEmail);
+        sendPasswordResetEmailJob(toEmail, resetToken);
     }
 
     /**

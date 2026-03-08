@@ -34,6 +34,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.util.HtmlUtils;
 
 import java.time.LocalDateTime;
 import java.util.EnumSet;
@@ -89,6 +90,10 @@ public class CheerPostService {
         UserEntity author = resolveWriteAuthor(me);
         // 저장 직전 재검증(토큰/계정 상태 동기화 갱신)
         author = ensureAuthorRecordStillExists(author);
+
+        if (req.content() == null || req.content().isBlank()) {
+            throw new IllegalArgumentException("내용은 필수입니다.");
+        }
 
         // AI Moderation 체크
         AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
@@ -575,7 +580,7 @@ public class CheerPostService {
     }
 
     private void updatePostContent(CheerPost post, UpdatePostReq req) {
-        post.setContent(req.content());
+        post.setContent(sanitizePostContent(req.content()));
         if (req.shareMode() != null || hasAnySourceMeta(req)) {
             CheerPost.ShareMode nextMode = req.shareMode() != null
                     ? resolveShareMode(req.shareMode(), post.getRepostType())
@@ -597,7 +602,9 @@ public class CheerPostService {
     }
 
     private String sanitizePostContent(String content) {
-        return (content == null || content.isBlank()) ? "" : content;
+        if (content == null || content.isBlank())
+            return "";
+        return HtmlUtils.htmlEscape(content);
     }
 
     private CheerPost.ShareMode resolveShareMode(CheerPost.ShareMode requested, CheerPost.RepostType repostType) {
@@ -697,7 +704,13 @@ public class CheerPostService {
     private CheerPost resolveRepostRootPost(CheerPost post) {
         CheerPost current = post;
         int hops = 0;
+        java.util.Set<Long> visited = new java.util.HashSet<>();
+
         while (current.isRepost()) {
+            if (!visited.add(current.getId())) {
+                throw new RepostNotAllowedException(REPOST_CYCLE_DETECTED_CODE, REPOST_CYCLE_DETECTED_ERROR);
+            }
+
             CheerPost parent = current.getRepostOf();
             if (parent == null) {
                 throw new RepostTargetNotFoundException(REPOST_TARGET_NOT_FOUND_CODE, REPOST_TARGET_NOT_FOUND_ERROR);
@@ -707,6 +720,12 @@ public class CheerPostService {
                 throw new RepostNotAllowedException(REPOST_CYCLE_DETECTED_CODE, REPOST_CYCLE_DETECTED_ERROR);
             }
         }
+
+        // Final check for the ultimate root
+        if (!visited.add(current.getId()) && visited.size() > 1) {
+            throw new RepostNotAllowedException(REPOST_CYCLE_DETECTED_CODE, REPOST_CYCLE_DETECTED_ERROR);
+        }
+
         return current;
     }
 

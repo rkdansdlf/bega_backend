@@ -4,12 +4,13 @@ import com.example.kbo.entity.GameEntity;
 import com.example.kbo.entity.GameMetadataEntity;
 import com.example.kbo.repository.GameMetadataRepository;
 import com.example.kbo.repository.GameRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -30,8 +31,20 @@ class BegaGameServiceTest {
     @Mock
     private GameMetadataRepository gameMetadataRepository;
 
-    @InjectMocks
+    @Mock
+    private ObjectProvider<GameRepository> gameRepositoryProvider;
+
+    @Mock
+    private ObjectProvider<GameMetadataRepository> gameMetadataRepositoryProvider;
+
     private BegaGameService begaGameService;
+
+    @BeforeEach
+    void setUp() {
+        when(gameRepositoryProvider.getIfAvailable()).thenReturn(gameRepository);
+        when(gameMetadataRepositoryProvider.getIfAvailable()).thenReturn(gameMetadataRepository);
+        begaGameService = new BegaGameService(gameRepositoryProvider, gameMetadataRepositoryProvider);
+    }
 
     @Test
     @DisplayName("OCR 팀명이 canonical/legacy 혼재여도 경기 ID를 매칭한다")

@@ -19,6 +19,7 @@ public class TokenBlacklistService {
     private final StringRedisTemplate redisTemplate;
 
     private static final String PREFIX = "token:blacklist:";
+    public static final String ERROR_CODE_BLACKLIST_UNAVAILABLE = "token_blacklist_unavailable";
 
     /**
      * 토큰을 블랙리스트에 추가
@@ -36,9 +37,14 @@ public class TokenBlacklistService {
             return;
         }
 
-        String key = PREFIX + token;
-        redisTemplate.opsForValue().set(key, "revoked", Duration.ofMillis(expiryMs));
-        log.info("Token blacklisted for {} ms", expiryMs);
+        try {
+            String key = PREFIX + token;
+            redisTemplate.opsForValue().set(key, "revoked", Duration.ofMillis(expiryMs));
+            log.info("Token blacklisted for {} ms", expiryMs);
+        } catch (Exception e) {
+            log.error("Failed to write token blacklist entry", e);
+            throw new TokenBlacklistUnavailableException(ERROR_CODE_BLACKLIST_UNAVAILABLE, e);
+        }
     }
 
     /**
@@ -51,7 +57,18 @@ public class TokenBlacklistService {
             return false;
         }
 
-        String key = PREFIX + token;
-        return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+        try {
+            String key = PREFIX + token;
+            return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+        } catch (Exception e) {
+            log.error("Failed to read token blacklist entry", e);
+            throw new TokenBlacklistUnavailableException(ERROR_CODE_BLACKLIST_UNAVAILABLE, e);
+        }
+    }
+
+    public static class TokenBlacklistUnavailableException extends RuntimeException {
+        public TokenBlacklistUnavailableException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 }
