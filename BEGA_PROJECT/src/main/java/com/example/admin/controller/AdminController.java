@@ -5,9 +5,12 @@ import com.example.admin.dto.AdminPostDto;
 import com.example.admin.dto.AdminReportActionReq;
 import com.example.admin.dto.AdminReportAppealReq;
 import com.example.admin.dto.AdminReportDto;
+import com.example.admin.dto.AdminSeatViewActionReq;
+import com.example.admin.dto.AdminSeatViewDto;
 import com.example.admin.dto.AdminStatsDto;
 import com.example.admin.dto.AdminUserDto;
 import com.example.admin.service.AdminService;
+import com.example.BegaDiary.Service.SeatViewService;
 import com.example.common.dto.ApiResponse;
 import com.example.prediction.GameInningScoreRequestDto;
 import jakarta.validation.Valid;
@@ -36,6 +39,7 @@ import java.util.Map;
 public class AdminController {
 
     private final AdminService adminService;
+    private final SeatViewService seatViewService;
 
     /**
      * 대시보드 통계 조회
@@ -84,6 +88,37 @@ public class AdminController {
     public ResponseEntity<ApiResponse> getReport(@PathVariable Long reportId) {
         AdminReportDto report = adminService.getReport(reportId);
         return ResponseEntity.ok(ApiResponse.success("신고 케이스 상세 조회 성공", report));
+    }
+
+    @GetMapping("/seat-views")
+    public ResponseEntity<ApiResponse> getSeatViews(
+            @RequestParam(required = false) String moderationStatus,
+            @RequestParam(required = false) String stadium,
+            @RequestParam(required = false) String aiSuggestedLabel,
+            @RequestParam(required = false) String adminLabel,
+            @RequestParam(required = false) Boolean ticketVerified) {
+        List<AdminSeatViewDto> seatViews = seatViewService.getAdminSeatViews(
+                moderationStatus,
+                stadium,
+                aiSuggestedLabel,
+                adminLabel,
+                ticketVerified);
+        return ResponseEntity.ok(ApiResponse.success("시야뷰 후보 조회 성공", seatViews));
+    }
+
+    @GetMapping("/seat-views/{seatViewId}")
+    public ResponseEntity<ApiResponse> getSeatView(@PathVariable Long seatViewId) {
+        AdminSeatViewDto seatView = seatViewService.getAdminSeatView(seatViewId);
+        return ResponseEntity.ok(ApiResponse.success("시야뷰 후보 상세 조회 성공", seatView));
+    }
+
+    @PatchMapping("/seat-views/{seatViewId}")
+    public ResponseEntity<ApiResponse> handleSeatView(
+            @AuthenticationPrincipal Long adminId,
+            @PathVariable Long seatViewId,
+            @RequestBody AdminSeatViewActionReq req) {
+        AdminSeatViewDto result = seatViewService.reviewSeatView(seatViewId, adminId, req);
+        return ResponseEntity.ok(ApiResponse.success("시야뷰 후보 처리 완료", result));
     }
 
     @PatchMapping("/reports/{reportId}")

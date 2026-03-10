@@ -35,6 +35,8 @@ public class DiaryResponseDto {
     private String seatRow;
     private String seatNumber;
 
+    private boolean ticketVerified;
+
     // 시야 사진 기여 리워드 (저장 직후에만 포함, 조회 시 null)
     private SeatViewRewardDto seatViewReward;
 
@@ -55,6 +57,7 @@ public class DiaryResponseDto {
             .block(diary.getBlock())
             .seatRow(diary.getSeatRow())
             .seatNumber(diary.getSeatNumber())
+            .ticketVerified(diary.isTicketVerified())
             .build();
     }
     
@@ -89,6 +92,7 @@ public class DiaryResponseDto {
             .block(diary.getBlock())
             .seatRow(diary.getSeatRow())
             .seatNumber(diary.getSeatNumber())
+            .ticketVerified(diary.isTicketVerified())
             .build();
     }
 }

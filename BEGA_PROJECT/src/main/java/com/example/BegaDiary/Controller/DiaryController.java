@@ -3,7 +3,7 @@ package com.example.BegaDiary.Controller;
 import java.security.Principal;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -20,16 +20,19 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.security.access.AccessDeniedException;
 
 import com.example.BegaDiary.Entity.BegaDiary;
+import com.example.BegaDiary.Entity.DiaryImageUploadResponse;
 import com.example.BegaDiary.Entity.DiaryRequestDto;
 import com.example.BegaDiary.Entity.DiaryResponseDto;
 import com.example.BegaDiary.Entity.DiaryStatisticsDto;
 import com.example.BegaDiary.Entity.GameResponseDto;
+import com.example.BegaDiary.Entity.SeatViewCandidateDto;
+import com.example.BegaDiary.Entity.SeatViewPhoto;
 import com.example.BegaDiary.Entity.SeatViewPhotoDto;
+import com.example.BegaDiary.Entity.SeatViewSelectionRequest;
 import com.example.BegaDiary.Service.BegaDiaryService;
 import com.example.BegaDiary.Service.BegaGameService;
+import com.example.BegaDiary.Service.SeatViewService;
 import com.example.cheerboard.storage.service.ImageService;
-import com.example.leaderboard.dto.SeatViewRewardDto;
-import com.example.leaderboard.service.ScoringService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,7 +46,7 @@ public class DiaryController {
     private final BegaDiaryService diaryService;
     private final BegaGameService gameService;
     private final ImageService imageService;
-    private final ScoringService scoringService;
+    private final SeatViewService seatViewService;
 
     @GetMapping("/games")
     public ResponseEntity<List<GameResponseDto>> getGamesByDate(
@@ -77,20 +80,6 @@ public class DiaryController {
         BegaDiary savedDiary = this.diaryService.save(userId, requestDto);
         DiaryResponseDto response = DiaryResponseDto.from(savedDiary);
 
-        // 좌석 시야 사진 리워드 조건 체크: ATTENDED + 사진 있음 + 좌석 정보 있음
-        boolean hasSeatInfo = savedDiary.getSection() != null || savedDiary.getBlock() != null;
-        boolean hasPhotos = savedDiary.getPhotoUrls() != null && !savedDiary.getPhotoUrls().isEmpty();
-        if (BegaDiary.DiaryType.ATTENDED.equals(savedDiary.getType()) && hasSeatInfo && hasPhotos) {
-            try {
-                SeatViewRewardDto reward = scoringService.processSeatViewReward(
-                        userId, savedDiary.getId(), savedDiary.getStadium());
-                response.setSeatViewReward(reward);
-            } catch (Exception e) {
-                log.warn("시야 사진 리워드 처리 실패 (다이어리 저장은 성공): diaryId={}, error={}",
-                        savedDiary.getId(), e.getMessage());
-            }
-        }
-
         return ResponseEntity.ok(response);
     }
 
@@ -99,6 +88,7 @@ public class DiaryController {
     public ResponseEntity<?> uploadImages(
             @PathVariable("id") Long diaryId,
             @RequestPart("images") List<MultipartFile> images,
+            @RequestParam(value = "sourceTypes", required = false) List<String> sourceTypes,
             Principal principal) {
 
         Long userId = Long.valueOf(principal.getName());
@@ -114,46 +104,59 @@ public class DiaryController {
                     .block();
 
             if (storagePaths == null || storagePaths.isEmpty()) {
-                return ResponseEntity.ok().body(Map.of(
-                        "message", "업로드할 이미지가 없습니다.",
-                        "diaryId", diaryId,
-                        "photos", List.of()));
+                return ResponseEntity.ok().body(DiaryImageUploadResponse.builder()
+                        .message("업로드할 이미지가 없습니다.")
+                        .diaryId(diaryId)
+                        .photos(List.of())
+                        .candidates(List.of())
+                        .build());
             }
 
-            // 이미지 업로드 후 좌석 시야 리워드 조건 체크
-            SeatViewRewardDto seatViewReward = null;
-            try {
-                BegaDiary diary = this.diaryService.getDiaryEntityById(diaryId);
-                boolean hasSeatInfo = diary.getSection() != null || diary.getBlock() != null;
-                if (BegaDiary.DiaryType.ATTENDED.equals(diary.getType()) && hasSeatInfo) {
-                    seatViewReward = scoringService.processSeatViewReward(userId, diaryId, diary.getStadium());
-                }
-            } catch (Exception e) {
-                log.warn("이미지 업로드 후 시야 리워드 처리 실패: diaryId={}, error={}", diaryId, e.getMessage());
-            }
+            List<SeatViewPhoto.SourceType> parsedSourceTypes = parseSourceTypes(sourceTypes);
+            List<SeatViewCandidateDto> candidates = seatViewService.createCandidates(
+                    diaryId,
+                    userId,
+                    images,
+                    storagePaths,
+                    parsedSourceTypes);
 
-            Map<String, Object> responseBody = new java.util.HashMap<>();
-            responseBody.put("message", "이미지 업로드가 완료되었습니다.");
-            responseBody.put("diaryId", diaryId);
-            responseBody.put("photos", storagePaths);
-            if (seatViewReward != null) {
-                responseBody.put("seatViewReward", seatViewReward);
-            }
-            return ResponseEntity.ok().body(responseBody);
+            return ResponseEntity.ok().body(DiaryImageUploadResponse.builder()
+                    .message("이미지 업로드가 완료되었습니다.")
+                    .diaryId(diaryId)
+                    .photos(storagePaths)
+                    .candidates(candidates)
+                    .build());
 
         } catch (Exception ex) {
             log.error("이미지 업로드/URL 생성 실패: diaryId={}", diaryId, ex);
-            return ResponseEntity.internalServerError().body(Map.of(
+            return ResponseEntity.internalServerError().body(java.util.Map.of(
                     "message", "이미지 처리 중 오류가 발생했습니다.",
                     "error", ex.getMessage()));
         }
     }
 
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping("/{id}/seat-view-selections")
+    public ResponseEntity<?> submitSeatViewSelections(
+            @PathVariable("id") Long diaryId,
+            @RequestBody SeatViewSelectionRequest request,
+            Principal principal) {
+        Long userId = Long.valueOf(principal.getName());
+        var selected = seatViewService.submitSelections(
+                diaryId,
+                userId,
+                request != null ? request.getCandidateIds() : List.of());
+        return ResponseEntity.ok(java.util.Map.of(
+                "message", "시야뷰 제출이 완료되었습니다.",
+                "candidates", selected));
+    }
+
     // 특정 다이어리 조회
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/{id}")
-    public ResponseEntity<DiaryResponseDto> getDiary(@PathVariable("id") Long id) {
-        DiaryResponseDto diary = this.diaryService.getDiaryById(id);
+    public ResponseEntity<DiaryResponseDto> getDiary(@PathVariable("id") Long id, Principal principal) {
+        Long userId = Long.valueOf(principal.getName());
+        DiaryResponseDto diary = this.diaryService.getDiaryById(id, userId);
         return ResponseEntity.ok(diary);
     }
 
@@ -196,5 +199,15 @@ public class DiaryController {
         Long userId = Long.valueOf(principal.getName());
         DiaryStatisticsDto statistics = this.diaryService.getStatistics(userId);
         return ResponseEntity.ok(statistics);
+    }
+
+    private List<SeatViewPhoto.SourceType> parseSourceTypes(List<String> sourceTypes) {
+        if (sourceTypes == null || sourceTypes.isEmpty()) {
+            return List.of();
+        }
+        return sourceTypes.stream()
+                .filter(Objects::nonNull)
+                .map(value -> SeatViewPhoto.SourceType.valueOf(value.trim().toUpperCase()))
+                .toList();
     }
 }

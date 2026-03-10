@@ -45,6 +45,17 @@ public class TicketVerificationTokenStore {
         return token;
     }
 
+    @Transactional(readOnly = true)
+    public TicketInfo peekToken(String token) {
+        if (token == null || token.isBlank()) {
+            return null;
+        }
+
+        return verificationRepository.findByTokenAndConsumedFalseAndExpiresAtAfter(token, Instant.now())
+                .map(this::toTicketInfo)
+                .orElse(null);
+    }
+
     /**
      * Atomically consumes a token and returns the ticket info.
      * Uses a single UPDATE query to prevent double-consume under concurrency.
@@ -63,13 +74,7 @@ public class TicketVerificationTokenStore {
 
         // Step 2: Read the (now-consumed) entity to extract ticket data
         return verificationRepository.findById(token)
-                .map(entity -> TicketInfo.builder()
-                        .date(entity.getTicketDate())
-                        .stadium(entity.getTicketStadium())
-                        .homeTeam(entity.getHomeTeam())
-                        .awayTeam(entity.getAwayTeam())
-                        .gameId(entity.getGameId())
-                        .build())
+                .map(this::toTicketInfo)
                 .orElse(null);
     }
 
@@ -80,5 +85,15 @@ public class TicketVerificationTokenStore {
     @Transactional
     public void cleanupExpiredTokens() {
         verificationRepository.deleteExpiredTokens(Instant.now());
+    }
+
+    private TicketInfo toTicketInfo(TicketVerification entity) {
+        return TicketInfo.builder()
+                .date(entity.getTicketDate())
+                .stadium(entity.getTicketStadium())
+                .homeTeam(entity.getHomeTeam())
+                .awayTeam(entity.getAwayTeam())
+                .gameId(entity.getGameId())
+                .build();
     }
 }
