@@ -1,9 +1,11 @@
 package com.example.common.service;
 
 import com.example.ai.config.AiServiceSettings;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
@@ -18,7 +20,6 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AIModerationService {
 
     private final AiServiceSettings aiServiceSettings;
@@ -41,8 +42,12 @@ public class AIModerationService {
     @Value("${ai.moderation.spam-block-threshold:3}")
     private int spamBlockThreshold;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private RestTemplate restTemplate = new RestTemplate();
     private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+|www\\.\\S+");
+
+    public AIModerationService(AiServiceSettings aiServiceSettings) {
+        this.aiServiceSettings = aiServiceSettings;
+    }
 
     public ModerationResult checkContent(String content) {
         if (content == null || content.isBlank()) {
@@ -50,17 +55,27 @@ public class AIModerationService {
         }
 
         ModerationResult ruleResult = evaluateRuleBasedRisk(content);
+        String url = aiServiceSettings.buildUrl("/moderation/safety-check");
+        if (!StringUtils.hasText(url)) {
+            log.warn("AI moderation service URL is not configured; using rule fallback.");
+            return ruleResult.withDecisionSource("FALLBACK");
+        }
+
+        String aiInternalToken = aiServiceSettings.getResolvedInternalToken();
+        if (!StringUtils.hasText(aiInternalToken)) {
+            log.warn("AI moderation internal token is not configured; using rule fallback.");
+            return ruleResult.withDecisionSource("FALLBACK");
+        }
 
         try {
-            String url = aiServiceSettings.buildUrl("/moderation/safety-check");
-            if (!StringUtils.hasText(url)) {
-                log.error("AI moderation service URL is not configured; using rule fallback.");
-                return ruleResult.withDecisionSource("FALLBACK");
-            }
             Map<String, String> request = Map.of("content", content);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Internal-Api-Key", aiInternalToken);
+            HttpEntity<Map<String, String>> requestEntity = new HttpEntity<>(request, headers);
 
             @SuppressWarnings("unchecked")
-            Map<String, Object> response = restTemplate.postForObject(url, request, Map.class);
+            Map<String, Object> response = restTemplate.postForObject(url, requestEntity, Map.class);
 
             if (response == null) {
                 log.warn("AI moderation response is null; using rule fallback.");
