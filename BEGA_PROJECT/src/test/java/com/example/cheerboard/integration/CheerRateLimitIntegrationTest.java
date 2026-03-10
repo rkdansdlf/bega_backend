@@ -16,8 +16,8 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
@@ -100,7 +100,7 @@ class CheerRateLimitIntegrationTest {
                 """;
         // The limit is 5 per 60 seconds. We'll mock the rateLimitService since Redis
         // isn't running.
-        when(rateLimitService.isAllowed(anyString(), anyInt(), anyInt()))
+        when(rateLimitService.isAllowed(anyString(), anyInt(), anyInt(), anyBoolean()))
                 .thenReturn(true, true, true, true, true, false);
 
         for (int i = 0; i < 5; i++) {
