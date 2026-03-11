@@ -7,6 +7,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -17,16 +18,25 @@ public class EmailService {
 
     private final JavaMailSender mailSender;
     private final JobScheduler jobScheduler;
+    private final boolean mailEnabled;
 
-    public EmailService(JavaMailSender mailSender, ObjectProvider<JobScheduler> jobSchedulerProvider) {
+    public EmailService(
+            JavaMailSender mailSender,
+            ObjectProvider<JobScheduler> jobSchedulerProvider,
+            @Value("${app.mail.enabled:true}") boolean mailEnabled) {
         this.mailSender = mailSender;
         this.jobScheduler = jobSchedulerProvider.getIfAvailable();
+        this.mailEnabled = mailEnabled;
     }
 
-    @org.springframework.beans.factory.annotation.Value("${app.frontend.url:http://localhost:3000}")
+    @Value("${app.frontend.url:http://localhost:3000}")
     private String frontendUrl;
 
     public void sendPasswordResetEmail(String toEmail, String resetToken) {
+        if (!mailEnabled) {
+            log.debug("Mail delivery disabled. Skipping password reset email enqueue for {}", toEmail);
+            return;
+        }
         if (jobScheduler != null) {
             try {
                 jobScheduler.enqueue((EmailService emailService) ->
@@ -48,6 +58,10 @@ public class EmailService {
      */
     @Job(name = "Send Password Reset Email")
     public void sendPasswordResetEmailJob(String toEmail, String resetToken) {
+        if (!mailEnabled) {
+            log.debug("Mail delivery disabled. Skipping password reset email job for {}", toEmail);
+            return;
+        }
         log.info("Starting email sending to {}", toEmail);
         String resetLink = frontendUrl + "/password/reset/confirm?token=" + resetToken;
 
@@ -74,6 +88,10 @@ public class EmailService {
     }
 
     public void sendNewDeviceLoginEmail(String toEmail, String deviceLabel, String browser, String os, String ipAddress) {
+        if (!mailEnabled) {
+            log.debug("Mail delivery disabled. Skipping new device login email enqueue for {}", toEmail);
+            return;
+        }
         if (jobScheduler != null) {
             try {
                 jobScheduler.enqueue((EmailService emailService) ->
@@ -90,6 +108,10 @@ public class EmailService {
 
     @Job(name = "Send New Device Login Email")
     public void sendNewDeviceLoginEmailJob(String toEmail, String deviceLabel, String browser, String os, String ipAddress) {
+        if (!mailEnabled) {
+            log.debug("Mail delivery disabled. Skipping new device login email job for {}", toEmail);
+            return;
+        }
         String detectedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"))
                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
         String accountSettingsLink = frontendUrl + "/mypage?view=accountSettings";
@@ -122,6 +144,10 @@ public class EmailService {
     }
 
     public void sendAccountDeletionRecoveryEmail(String toEmail, String recoveryToken, LocalDateTime scheduledFor) {
+        if (!mailEnabled) {
+            log.debug("Mail delivery disabled. Skipping account deletion recovery email enqueue for {}", toEmail);
+            return;
+        }
         if (jobScheduler != null) {
             try {
                 jobScheduler.enqueue((EmailService emailService) ->
@@ -138,6 +164,10 @@ public class EmailService {
 
     @Job(name = "Send Account Deletion Recovery Email")
     public void sendAccountDeletionRecoveryEmailJob(String toEmail, String recoveryToken, LocalDateTime scheduledFor) {
+        if (!mailEnabled) {
+            log.debug("Mail delivery disabled. Skipping account deletion recovery email job for {}", toEmail);
+            return;
+        }
         String recoveryLink = frontendUrl + "/account/deletion/recovery?token=" + recoveryToken;
         String requestedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"))
                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
