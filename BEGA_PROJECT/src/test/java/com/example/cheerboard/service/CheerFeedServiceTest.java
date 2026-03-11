@@ -1,14 +1,18 @@
 package com.example.cheerboard.service;
 
 import com.example.auth.entity.UserEntity;
+import com.example.auth.service.PublicVisibilityVerifier;
+import com.example.auth.service.UserService;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.PostType;
+import com.example.cheerboard.dto.PostChangesResponse;
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.repo.CheerBookmarkRepo;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.service.ImageService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -22,6 +26,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,6 +47,15 @@ class CheerFeedServiceTest {
     private CheerInteractionService interactionService; // FeedService uses InteractionService
     @Mock
     private PostDtoMapper postDtoMapper;
+    @Mock
+    private PublicVisibilityVerifier publicVisibilityVerifier;
+    @Mock
+    private UserService userService;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(publicVisibilityVerifier.canAccess(any(), any())).thenReturn(true);
+    }
 
     @Test
     @DisplayName("HOT 목록은 Redis 랭킹 순서를 그대로 유지해야 한다")
@@ -87,7 +101,6 @@ class CheerFeedServiceTest {
                             "#C30452",
                             post.getContent(),
                             "author",
-                            post.getAuthor().getId(),
                             "author",
                             null,
                             null,
@@ -113,6 +126,37 @@ class CheerFeedServiceTest {
         assertThat(page.getContent())
                 .extracting(PostSummaryRes::id)
                 .containsExactly(3L, 1L, 2L);
+    }
+
+    @Test
+    @DisplayName("listByUserHandle rejects inaccessible private accounts")
+    void listByUserHandle_rejectsInaccessiblePrivateAccounts() {
+        PageRequest pageable = PageRequest.of(0, 10);
+
+        when(userService.getPublicUserProfileByHandle("@private", null))
+                .thenThrow(new org.springframework.security.access.AccessDeniedException("비공개 계정"));
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                org.springframework.security.access.AccessDeniedException.class,
+                () -> feedService.listByUserHandle("@private", pageable, null));
+    }
+
+    @Test
+    @DisplayName("checkPostChanges counts only visible new posts")
+    void checkPostChanges_countsOnlyVisiblePosts() {
+        UserEntity visibleAuthor = UserEntity.builder().id(101L).name("Visible").build();
+        UserEntity hiddenAuthor = UserEntity.builder().id(202L).name("Hidden").privateAccount(true).build();
+        CheerPost visiblePost = CheerPost.builder().id(12L).author(visibleAuthor).postType(PostType.NORMAL).build();
+        CheerPost hiddenPost = CheerPost.builder().id(13L).author(hiddenAuthor).postType(PostType.NORMAL).build();
+
+        when(postRepo.findNewPostsSinceOrderByIdDesc(10L, null)).thenReturn(List.of(hiddenPost, visiblePost));
+        when(publicVisibilityVerifier.canAccess(visibleAuthor, null)).thenReturn(true);
+        when(publicVisibilityVerifier.canAccess(hiddenAuthor, null)).thenReturn(false);
+
+        PostChangesResponse response = feedService.checkPostChanges(10L, null, null);
+
+        assertThat(response.newCount()).isEqualTo(1);
+        assertThat(response.latestId()).isEqualTo(12L);
     }
 
     private CheerPost createSimplePost(Long postId, Long authorId) {

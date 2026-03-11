@@ -21,6 +21,7 @@ import com.example.cheerboard.repo.CheerReportRepo;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.BlockService;
+import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.common.exception.InvalidAuthorException;
 import com.example.notification.service.NotificationService;
 import jakarta.persistence.EntityManager;
@@ -53,6 +54,7 @@ public class CheerInteractionService {
     private final UserRepository userRepo;
     private final NotificationService notificationService;
     private final BlockService blockService;
+    private final PublicVisibilityVerifier publicVisibilityVerifier;
     private final PermissionValidator permissionValidator;
     private final EntityManager entityManager;
 
@@ -64,6 +66,7 @@ public class CheerInteractionService {
         UserEntity author = resolveWriteAuthor(me);
         CheerPost post = postService.findPostById(postId);
 
+        publicVisibilityVerifier.validate(post.getAuthor(), author.getId(), "게시글");
         // [NEW] 차단 관계 확인 (양방향)
         validateNoBlockBetween(author.getId(), post.getAuthor().getId(), "좋아요를 누를 수 없습니다.");
 
@@ -138,6 +141,8 @@ public class CheerInteractionService {
     public BookmarkResponse toggleBookmark(Long postId, UserEntity me) {
         UserEntity author = resolveWriteAuthor(me);
         CheerPost target = resolveActionTargetPost(postId);
+        publicVisibilityVerifier.validate(target.getAuthor(), author.getId(), "게시글");
+        validateNoBlockBetween(author.getId(), target.getAuthor().getId(), "북마크할 수 없습니다.");
         CheerPostBookmark.Id bookmarkId = new CheerPostBookmark.Id(target.getId(), author.getId());
 
         boolean bookmarked;
@@ -167,6 +172,8 @@ public class CheerInteractionService {
     public ReportCaseRes reportPost(Long postId, ReportRequest req, UserEntity me) {
         UserEntity reporter = resolveWriteAuthor(me);
         CheerPost post = postService.findPostById(postId);
+        publicVisibilityVerifier.validate(post.getAuthor(), reporter.getId(), "게시글");
+        validateNoBlockBetween(reporter.getId(), post.getAuthor().getId(), "신고할 수 없습니다.");
 
         if (req.reason() == null) {
             throw new IllegalArgumentException("신고 사유를 선택해 주세요.");
@@ -219,7 +226,10 @@ public class CheerInteractionService {
     public LikeToggleResponse toggleCommentLike(Long commentId, UserEntity me) {
         UserEntity author = resolveWriteAuthor(me);
         CheerComment comment = findCommentById(commentId);
+        CheerPost targetPost = resolveActionTargetPost(comment.getPost());
 
+        publicVisibilityVerifier.validate(targetPost.getAuthor(), author.getId(), "게시글");
+        validateNoBlockBetween(author.getId(), comment.getAuthor().getId(), "댓글 좋아요를 누를 수 없습니다.");
         permissionValidator.validateTeamAccess(author, comment.getPost().getTeamId(), "댓글 좋아요");
 
         CheerCommentLike.Id likeId = new CheerCommentLike.Id(comment.getId(), author.getId());

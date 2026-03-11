@@ -166,6 +166,7 @@ public class ImageService {
      */
     @Transactional(readOnly = true)
     public List<PostImageDto> listPostImages(Long postId) {
+        requireAccessiblePost(postId);
         List<PostImage> images = postImageRepo.findByPostIdOrderByCreatedAtAsc(postId);
 
         return images.stream()
@@ -375,8 +376,11 @@ public class ImageService {
      */
 
     public SignedUrlDto renewSignedUrl(Long imageId) {
+        UserEntity me = currentUser.get();
         PostImage image = postImageRepo.findById(Objects.requireNonNull(imageId))
                 .orElseThrow(() -> new java.util.NoSuchElementException("이미지를 찾을 수 없습니다: " + imageId));
+        requireAccessiblePost(image.getPost().getId());
+        permissionValidator.validateOwnerOrAdmin(me, image.getPost().getAuthor(), "이미지 서명 URL 갱신");
 
         String signedUrl = generateSignedUrl(image.getStoragePath());
         Instant expiresAt = Instant.now().plusSeconds(config.getSignedUrlTtlSeconds());
@@ -496,6 +500,10 @@ public class ImageService {
     private CheerPost findPostById(Long postId) {
         return postRepo.findById(Objects.requireNonNull(postId))
                 .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
+    }
+
+    private CheerPost requireAccessiblePost(Long postId) {
+        return findPostById(postId);
     }
 
     // 다이어리 스토리지

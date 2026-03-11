@@ -18,6 +18,7 @@ import com.example.cheerboard.dto.UpdatePostReq;
 import com.example.cheerboard.storage.dto.PostImageDto;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.service.BlockService;
+import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.cheerboard.config.CurrentUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,6 +50,7 @@ public class CheerService {
     private final PostDtoMapper postDtoMapper;
     private final RedisPostService redisPostService;
     private final BlockService blockService;
+    private final PublicVisibilityVerifier publicVisibilityVerifier;
     private final PermissionValidator permissionValidator;
 
     // --- Feed Operations ---
@@ -132,10 +134,9 @@ public class CheerService {
     public PostDetailRes get(Long id) {
         UserEntity me = current.getOrNull();
         CheerPost post = postService.findPostById(id);
+        Long viewerId = me != null ? me.getId() : null;
 
-        if (me != null && blockService.hasBidirectionalBlock(me.getId(), post.getAuthor().getId())) {
-            throw new IllegalStateException("차단된 사용자의 게시글은 조회할 수 없습니다.");
-        }
+        publicVisibilityVerifier.validate(post.getAuthor(), viewerId, "게시글");
 
         // Increase view count
         if (me == null || !post.getAuthor().getId().equals(me.getId())) {
@@ -230,6 +231,12 @@ public class CheerService {
 
     @Transactional(readOnly = true)
     public List<PostImageDto> getPostImages(Long postId) {
+        UserEntity me = current.getOrNull();
+        CheerPost post = postService.findPostById(postId);
+        Long viewerId = me != null ? me.getId() : null;
+
+        publicVisibilityVerifier.validate(post.getAuthor(), viewerId, "게시글");
+
         return postService.getPostImages(postId);
     }
 

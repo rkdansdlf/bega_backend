@@ -82,4 +82,59 @@ class ImageServiceTest {
         assertThrows(AccessDeniedException.class, () -> imageService.deleteImage(10L));
         verify(postImageRepo, never()).delete(image);
     }
+
+    @Test
+    @DisplayName("I-05: 삭제된 게시글의 이미지 목록은 다시 공개되지 않는다")
+    void listPostImages_rejectsSoftDeletedPost() {
+        when(postRepo.findById(100L)).thenReturn(Optional.empty());
+
+        assertThrows(java.util.NoSuchElementException.class, () -> imageService.listPostImages(100L));
+        verify(postImageRepo, never()).findByPostIdOrderByCreatedAtAsc(100L);
+    }
+
+    @Test
+    @DisplayName("I-06: 삭제된 게시글 이미지의 signed URL 재발급은 차단된다")
+    void renewSignedUrl_rejectsSoftDeletedPostImage() {
+        CheerPost deletedPost = CheerPost.builder().id(100L).build();
+        PostImage image = PostImage.builder()
+                .id(10L)
+                .post(deletedPost)
+                .storagePath("posts/100/demo.webp")
+                .mimeType("image/webp")
+                .bytes(1024L)
+                .isThumbnail(false)
+                .build();
+
+        when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
+        when(postRepo.findById(100L)).thenReturn(Optional.empty());
+
+        assertThrows(java.util.NoSuchElementException.class, () -> imageService.renewSignedUrl(10L));
+        verify(storageStrategy, never()).getUrl(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    @DisplayName("I-07: 다른 게시글 소유자의 이미지 signed URL 재발급은 차단된다")
+    void renewSignedUrl_forbidden_for_non_owner() {
+        UserEntity postOwner = UserEntity.builder().id(1L).role("ROLE_USER").build();
+        UserEntity attacker = UserEntity.builder().id(2L).role("ROLE_USER").build();
+
+        CheerPost post = CheerPost.builder().id(100L).author(postOwner).build();
+        PostImage image = PostImage.builder()
+                .id(10L)
+                .post(post)
+                .storagePath("posts/100/demo.webp")
+                .mimeType("image/webp")
+                .bytes(1024L)
+                .isThumbnail(false)
+                .build();
+
+        when(currentUser.get()).thenReturn(attacker);
+        when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
+        when(postRepo.findById(100L)).thenReturn(Optional.of(post));
+
+        assertThrows(AccessDeniedException.class, () -> imageService.renewSignedUrl(10L));
+        verify(storageStrategy, never()).getUrl(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt());
+    }
 }
