@@ -11,7 +11,6 @@ public record PostSummaryRes(
                 // title removed
                 String content,
                 String author,
-                Long authorId,
                 String authorHandle,
                 String authorProfileImageUrl,
                 String authorTeamId,
@@ -48,7 +47,6 @@ public record PostSummaryRes(
                         // title removed
                         String content,
                         String author,
-                        Long authorId,
                         String authorHandle,
                         String authorProfileImageUrl,
                         String authorTeamId,
@@ -67,7 +65,7 @@ public record PostSummaryRes(
                         java.util.List<String> imageUrls) {
                 return new PostSummaryRes(
                                 id, teamId, teamName, teamShortName, teamColor, // title removed,
-                                content, author, authorId, authorHandle,
+                                content, author, authorHandle,
                                 authorProfileImageUrl, authorTeamId, createdAt,
                                 comments, likes, bookmarkCount, liked, views, isHot, isBookmarked,
                                 isOwner, repostCount, repostedByMe, postType, imageUrls,

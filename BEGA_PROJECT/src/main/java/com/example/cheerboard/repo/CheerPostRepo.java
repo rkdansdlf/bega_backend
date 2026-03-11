@@ -128,7 +128,11 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
 
         List<CheerPost> findByAuthor(UserEntity author);
 
-        @Query(value = "SELECT * FROM cheer_post WHERE deleted = 1", nativeQuery = true)
+        @Query(value = """
+                        SELECT *
+                        FROM cheer_post
+                        WHERE LOWER(TRIM(CAST(deleted AS CHAR(5)))) IN ('1','t','true')
+                        """, nativeQuery = true)
         List<CheerPost> findSoftDeletedPosts();
 
         @Modifying
@@ -181,6 +185,10 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
          */
         @Query("SELECT COUNT(p) FROM CheerPost p WHERE p.id > :sinceId AND (:teamId IS NULL OR p.team.teamId = :teamId) AND (p.repostType IS NULL OR p.repostType != 'SIMPLE')")
         int countNewPostsSince(@Param("sinceId") Long sinceId, @Param("teamId") String teamId);
+
+        @EntityGraph(attributePaths = { "author", "team" })
+        @Query("SELECT p FROM CheerPost p WHERE p.id > :sinceId AND (:teamId IS NULL OR p.team.teamId = :teamId) AND (p.repostType IS NULL OR p.repostType != 'SIMPLE') ORDER BY p.id DESC")
+        List<CheerPost> findNewPostsSinceOrderByIdDesc(@Param("sinceId") Long sinceId, @Param("teamId") String teamId);
 
         /**
          * 가장 최근 게시글 ID 조회 (폴링용)

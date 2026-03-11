@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -45,6 +46,14 @@ public class ImageController {
             log.warn("이미지 업로드 검증 실패: postId={}, error={}", postId, e.getMessage());
             return ResponseEntity.badRequest().build();
 
+        } catch (java.util.NoSuchElementException e) {
+            log.warn("게시글을 찾을 수 없음: postId={}", postId);
+            return ResponseEntity.notFound().build();
+
+        } catch (AccessDeniedException e) {
+            log.warn("이미지 업로드 권한 없음: postId={}, error={}", postId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+
         } catch (Exception e) {
             log.error("이미지 업로드 실패: postId={}", postId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -59,6 +68,10 @@ public class ImageController {
         try {
             List<PostImageDto> images = imageService.listPostImages(postId);
             return ResponseEntity.ok(images);
+
+        } catch (java.util.NoSuchElementException e) {
+            log.warn("게시글을 찾을 수 없음: postId={}", postId);
+            return ResponseEntity.notFound().build();
 
         } catch (Exception e) {
             log.error("이미지 목록 조회 실패: postId={}", postId, e);
@@ -79,6 +92,10 @@ public class ImageController {
             log.warn("이미지를 찾을 수 없음: imageId={}", imageId);
             return ResponseEntity.notFound().build();
 
+        } catch (AccessDeniedException e) {
+            log.warn("서명 URL 갱신 권한 없음: imageId={}, error={}", imageId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+
         } catch (Exception e) {
             log.error("서명 URL 갱신 실패: imageId={}", imageId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -98,6 +115,10 @@ public class ImageController {
             log.warn("이미지를 찾을 수 없음: imageId={}", imageId);
             return ResponseEntity.notFound().build();
 
+        } catch (AccessDeniedException e) {
+            log.warn("썸네일 지정 권한 없음: imageId={}, error={}", imageId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+
         } catch (Exception e) {
             log.error("썸네일 지정 실패: imageId={}", imageId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -116,6 +137,10 @@ public class ImageController {
         } catch (java.util.NoSuchElementException e) {
             log.warn("이미지를 찾을 수 없음: imageId={}", imageId);
             return ResponseEntity.notFound().build();
+
+        } catch (AccessDeniedException e) {
+            log.warn("이미지 삭제 권한 없음: imageId={}, error={}", imageId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
 
         } catch (Exception e) {
             log.error("이미지 삭제 실패: imageId={}", imageId, e);
