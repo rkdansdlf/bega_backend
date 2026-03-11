@@ -24,7 +24,7 @@ public class PasswordResetToken {
     @JoinColumn(name = "user_id", nullable = false)
     private UserEntity user;
 
-    @Column(name = "expiry_date", nullable = false)
+    @Column(name = "expirydate", nullable = false)
     private LocalDateTime expiryDate;
 
     @Builder.Default

@@ -6,6 +6,7 @@ import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.util.JWTUtil;
+import com.example.common.web.ClientIpResolver;
 import com.example.common.dto.ApiResponse;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,13 +40,21 @@ class ReissueControllerTokenTypeTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private ClientIpResolver clientIpResolver;
+
     private ReissueController reissueController;
 
     private final AuthCookieUtil authCookieUtil = new AuthCookieUtil(false);
 
     @BeforeEach
     void setUp() {
-        reissueController = new ReissueController(jwtUtil, refreshRepository, userRepository, authCookieUtil);
+        reissueController = new ReissueController(
+                jwtUtil,
+                refreshRepository,
+                userRepository,
+                authCookieUtil,
+                clientIpResolver);
     }
 
     @Test
@@ -117,6 +126,7 @@ class ReissueControllerTokenTypeTest {
         when(jwtUtil.createRefreshToken("user@test.com", "ROLE_USER", 1L, 0))
                 .thenReturn("new-refresh-token");
         when(jwtUtil.getRefreshTokenExpirationTime()).thenReturn(1000L * 60 * 60 * 24 * 7);
+        when(clientIpResolver.resolveOrUnknown(request)).thenReturn("127.0.0.1");
 
         ResponseEntity<?> result = reissueController.reissue(request, response);
 

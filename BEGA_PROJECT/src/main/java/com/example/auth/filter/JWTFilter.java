@@ -82,6 +82,7 @@ public class JWTFilter extends OncePerRequestFilter {
                 normalizedRequestUri.equals("/api/auth/logout") ||
                 normalizedRequestUri.equals("/api/auth/password/reset/request") ||
                 normalizedRequestUri.equals("/api/auth/password/reset/confirm") ||
+                normalizedRequestUri.equals("/api/auth/account/deletion/recovery") ||
                 normalizedRequestUri.equals("/api/auth/password-reset/request") ||
                 normalizedRequestUri.equals("/api/auth/password-reset/confirm"))) {
             filterChain.doFilter(request, response);

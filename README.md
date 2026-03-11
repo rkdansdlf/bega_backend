@@ -249,7 +249,6 @@ POST   /api/auth/login        - 사용자 로그인
 POST   /api/auth/logout       - 사용자 로그아웃
 POST   /auth/kakao/login      - 카카오 로그인
 POST   /auth/google/login     - 구글 로그인
-GET    /api/auth/check-email  - 사용자 이메일 중복 체크
 ```
 ### 사용자 설정 엔드포인트
 ```

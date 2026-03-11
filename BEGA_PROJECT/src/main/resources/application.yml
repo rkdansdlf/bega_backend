@@ -100,7 +100,8 @@ spring:
           starttls:
             enable: true
 
-  # JobRunr 설정
+# JobRunr 설정
+org:
   jobrunr:
     background-job-server:
       enabled: true
@@ -108,7 +109,7 @@ spring:
     dashboard:
       enabled: true # /dashboard
     jobs:
-      default-retries: 2
+      default-number-of-retries: 2
     database:
       skip-create: false
       table-prefix: jobrunr_ # 테이블 충돌 방지
@@ -157,6 +158,7 @@ app:
       # 기본값은 false. dev/local에서만 필요 시 APP_AI_PROXY_PUBLIC_IN_DEV=true로 명시적으로 엽니다.
       public-in-dev: ${APP_AI_PROXY_PUBLIC_IN_DEV:false}
       request-timeout-seconds: ${APP_AI_PROXY_REQUEST_TIMEOUT_SECONDS:180}
+  trusted-proxies: ${APP_TRUSTED_PROXIES:}
   allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:5177,http://localhost:8080,http://host.docker.internal,http://host.docker.internal:3000,http://host.docker.internal:5173,http://host.docker.internal:5176,http://host.docker.internal:5177,http://host.docker.internal:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176,http://127.0.0.1:5177}
   cookie:
     secure: false  # 개발 환경 기본값 (HTTP), prod 프로필에서 true로 오버라이드
@@ -280,6 +282,12 @@ spring:
     port: 25
     username: 
     password: 
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
   datasource:
     driver-class-name: org.postgresql.Driver
     url: ${DB_URL}
@@ -404,6 +412,11 @@ springdoc:
   api-docs:
     enabled: false
 
+management:
+  endpoint:
+    health:
+      show-details: never
+
 ---
 # 'local' 프로필: 로컬 테스트 환경 (H2 In-Memory)
 spring:
@@ -416,7 +429,13 @@ spring:
     host: localhost
     port: 25
     username:
-    password:
+    password: 
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
   datasource:
     driver-class-name: org.h2.Driver
     url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=Oracle

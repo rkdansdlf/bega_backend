@@ -1,7 +1,8 @@
 package com.example.auth.dto;
 
 import java.util.Map;
-import java.util.Optional; 
+import java.util.Locale;
+import java.util.Optional;
 
 public class GoogleResponse implements OAuth2Response {
 
@@ -48,5 +49,41 @@ public class GoogleResponse implements OAuth2Response {
                 .map(Object::toString)
                 .filter(url -> !url.isBlank())
                 .orElse(null);
+    }
+
+    @Override
+    public boolean isEmailVerified() {
+        return asBoolean(attribute.get("email_verified"));
+    }
+
+    @Override
+    public boolean isAuthoritativeForAutoLink() {
+        String email = Optional.ofNullable(attribute.get("email"))
+                .map(Object::toString)
+                .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                .orElse("");
+        if (email.isBlank() || !isEmailVerified()) {
+            return false;
+        }
+
+        if (email.endsWith("@gmail.com") || email.endsWith("@googlemail.com")) {
+            return true;
+        }
+
+        return Optional.ofNullable(attribute.get("hd"))
+                .map(Object::toString)
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .isPresent();
+    }
+
+    private boolean asBoolean(Object value) {
+        if (value instanceof Boolean booleanValue) {
+            return booleanValue;
+        }
+        if (value instanceof String textValue) {
+            return Boolean.parseBoolean(textValue.trim());
+        }
+        return false;
     }
 }

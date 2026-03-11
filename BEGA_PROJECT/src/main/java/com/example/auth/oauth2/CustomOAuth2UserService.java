@@ -32,6 +32,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             Pattern.compile("_(?:\\d{2,4})x(?:\\d{2,4})(?=\\.[a-zA-Z0-9]+(?:\\?|#|$))");
     private static final String GOOGLE_HIGH_RES_SIZE = "640";
     private static final String PROFILE_SIZE_SUFFIX = "640x640";
+    private static final String MANUAL_LINK_REQUIRED = "manual_link_required";
 
     private final UserRepository userRepository;
     private final com.example.auth.repository.UserProviderRepository userProviderRepository;
@@ -148,7 +149,14 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         if (linkData != null && linkData.isLinkMode()) {
             userEntity = processAccountLink(linkData, provider, providerId, email);
         } else {
-            userEntity = processNormalLogin(userProviderOpt, email, userName, provider, providerId, profileImageUrl);
+            userEntity = processNormalLogin(
+                    userProviderOpt,
+                    email,
+                    userName,
+                    provider,
+                    providerId,
+                    profileImageUrl,
+                    oAuth2Response.isAuthoritativeForAutoLink());
         }
         applyProfileImageFromOAuth(userEntity, profileImageUrl, provider);
 
@@ -370,7 +378,8 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
      * 일반 로그인 처리
      */
     private UserEntity processNormalLogin(Optional<com.example.auth.entity.UserProvider> userProviderOpt,
-            String email, String userName, String provider, String providerId, String profileImageUrl) {
+            String email, String userName, String provider, String providerId, String profileImageUrl,
+            boolean authoritativeForAutoLink) {
         if (userProviderOpt.isPresent()) {
             // [일반 로그인] 이미 연동된 계정이 있는 경우 -> 해당 사용자 반환
             log.info("Existing Provider Found. Logging in.");
@@ -395,7 +404,11 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                                     "기존 계정으로 로그인 후 마이페이지에서 소셜 계정을 연동해주세요.");
                 }
 
-                // OAuth2 계정끼리의 자동 연동은 허용 (기존 동작 유지)
+                if (!authoritativeForAutoLink) {
+                    log.warn("Auto-link requires manual confirmation: provider={} email={}", provider, email);
+                    throw new OAuth2AuthenticationException(MANUAL_LINK_REQUIRED);
+                }
+
                 log.info("Existing OAuth2 Email Found. Auto-linking.");
                 linkAccount(existingUser, provider, providerId, email);
                 // 이름 강제 업데이트 방지
