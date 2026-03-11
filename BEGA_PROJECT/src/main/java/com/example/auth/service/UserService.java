@@ -24,6 +24,8 @@ import com.example.kbo.entity.TeamEntity;
 import com.example.auth.entity.Role;
 import com.example.auth.util.JWTUtil;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.repository.UserBlockRepository;
+import com.example.auth.repository.UserFollowRepository;
 import com.example.kbo.repository.TeamRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
 import com.example.auth.repository.RefreshRepository;
@@ -35,11 +37,13 @@ import com.example.common.exception.DuplicateEmailException;
 import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.InvalidCredentialsException;
 import com.example.common.exception.SocialLoginRequiredException;
+import com.example.common.web.ClientIpResolver;
 
 import com.example.mate.service.PartyService;
 import com.example.profile.storage.service.ProfileImageService;
 
 import org.springframework.context.annotation.Lazy;
+import org.springframework.security.access.AccessDeniedException;
 
 @Service
 public class UserService {
@@ -50,28 +54,43 @@ public class UserService {
     private final UserRepository userRepository;
     private final TeamRepository teamRepository;
     private final RefreshRepository refreshRepository;
+    private final UserFollowRepository userFollowRepository;
+    private final UserBlockRepository userBlockRepository;
     private final com.example.auth.repository.UserProviderRepository userProviderRepository;
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final JWTUtil jwtUtil;
     private final PartyService partyService;
     private final ProfileImageService profileImageService;
+    private final ClientIpResolver clientIpResolver;
+    private final AccountDeletionService accountDeletionService;
+    private final AccountSecurityService accountSecurityService;
 
     public UserService(UserRepository userRepository,
             TeamRepository teamRepository,
             RefreshRepository refreshRepository,
+            UserFollowRepository userFollowRepository,
+            UserBlockRepository userBlockRepository,
             com.example.auth.repository.UserProviderRepository userProviderRepository,
             BCryptPasswordEncoder bCryptPasswordEncoder,
             JWTUtil jwtUtil,
             @Lazy PartyService partyService,
-            ProfileImageService profileImageService) {
+            ProfileImageService profileImageService,
+            ClientIpResolver clientIpResolver,
+            AccountDeletionService accountDeletionService,
+            AccountSecurityService accountSecurityService) {
         this.userRepository = userRepository;
         this.teamRepository = teamRepository;
         this.refreshRepository = refreshRepository;
+        this.userFollowRepository = userFollowRepository;
+        this.userBlockRepository = userBlockRepository;
         this.userProviderRepository = userProviderRepository;
         this.bCryptPasswordEncoder = bCryptPasswordEncoder;
         this.jwtUtil = jwtUtil;
         this.partyService = partyService;
         this.profileImageService = profileImageService;
+        this.clientIpResolver = clientIpResolver;
+        this.accountDeletionService = accountDeletionService;
+        this.accountSecurityService = accountSecurityService;
     }
 
     public JWTUtil getJWTUtil() {
@@ -252,6 +271,7 @@ public class UserService {
 
         // Refresh Token DB 저장
         saveOrUpdateRefreshToken(user.getEmail(), refreshToken, request);
+        accountSecurityService.handleSuccessfulLogin(user, request);
 
         Map<String, Object> profileData = new HashMap<>();
         profileData.put("id", user.getId());
@@ -314,7 +334,7 @@ public class UserService {
     public void saveOrUpdateRefreshToken(String email, String token, HttpServletRequest request) {
         List<RefreshToken> tokens = refreshRepository.findAllByEmailOrderByIdDesc(email);
         String userAgent = request != null ? request.getHeader("User-Agent") : null;
-        String ipAddress = resolveIpAddress(request);
+        String ipAddress = clientIpResolver.resolve(request);
         String deviceType = resolveDeviceType(userAgent);
         String deviceLabel = resolveDeviceLabel(userAgent, deviceType);
         String browser = resolveBrowser(userAgent);
@@ -374,25 +394,6 @@ public class UserService {
 
     private String normalizeText(String value, String fallback) {
         return value != null && !value.isBlank() ? value : fallback;
-    }
-
-    private String resolveIpAddress(HttpServletRequest request) {
-        if (request == null) {
-            return null;
-        }
-
-        String xff = request.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isBlank()) {
-            return xff.split(",")[0].trim();
-        }
-
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) {
-            return realIp.trim();
-        }
-
-        String remoteAddr = request.getRemoteAddr();
-        return remoteAddr != null ? remoteAddr : null;
     }
 
     private String resolveDeviceType(String userAgent) {
@@ -562,7 +563,10 @@ public class UserService {
 
         // 새 비밀번호 암호화 및 저장
         user.setPassword(bCryptPasswordEncoder.encode(newPassword));
+        user.setTokenVersion(Optional.ofNullable(user.getTokenVersion()).orElse(0) + 1);
         userRepository.save(user);
+        refreshRepository.deleteByEmail(user.getEmail());
+        accountSecurityService.recordPasswordChanged(userId);
 
         log.info("Password changed/set for user ID: {}", userId);
     }
@@ -571,35 +575,8 @@ public class UserService {
      * 계정 삭제 (회원탈퇴)
      */
     @Transactional
-    public void deleteAccount(Long userId, String password) {
-        UserEntity user = findUserById(Objects.requireNonNull(userId));
-
-        // LOCAL 사용자는 비밀번호 확인 필요
-        if (!user.isOAuth2User()) {
-            if (password == null || password.isEmpty()) {
-                throw new IllegalArgumentException("비밀번호를 입력해주세요.");
-            }
-            if (user.getPassword() == null) {
-                throw new IllegalStateException("비밀번호가 설정되어 있지 않습니다.");
-            }
-
-            if (!bCryptPasswordEncoder.matches(password, user.getPassword())) {
-                throw new InvalidCredentialsException("비밀번호가 일치하지 않습니다.");
-            }
-        }
-
-        String userEmail = user.getEmail();
-        user.setEnabled(false);
-        user.setTokenVersion(Optional.ofNullable(user.getTokenVersion()).orElse(0) + 1);
-        userRepository.save(Objects.requireNonNull(user));
-
-        // Refresh Token 삭제
-        refreshRepository.deleteByEmail(userEmail);
-
-        // 메이트 관련 데이터 정리 (파티 취소, 참여 신청 처리, 알림 발송)
-        partyService.handleUserDeletion(userId);
-
-        log.info("Account deleted for user ID: {}, email: {}", userId, userEmail);
+    public LocalDateTime deleteAccount(Long userId, String password) {
+        return accountDeletionService.scheduleAccountDeletion(userId, password);
     }
 
     /**
@@ -641,6 +618,7 @@ public class UserService {
         }
 
         userProviderRepository.deleteByUserIdAndProvider(userId, provider);
+        accountSecurityService.recordProviderUnlinked(userId, provider);
         log.info("Unlinked info for user ID: {}, provider: {}", userId, provider);
     }
 
@@ -716,23 +694,14 @@ public class UserService {
      * 공개 프로필 조회 (핸들 기준)
      */
     @Transactional(readOnly = true)
-    public com.example.auth.dto.PublicUserProfileDto getPublicUserProfileByHandle(String handle) {
-        // 1. First, try finding exactly as requested
-        java.util.Optional<UserEntity> userOpt = userRepository.findByHandle(handle);
+    public com.example.auth.dto.PublicUserProfileDto getPublicUserProfileByHandle(String handle, Long currentUserId) {
+        UserEntity user = findUserByHandleOrThrow(handle);
+        validatePublicProfileAccess(user, currentUserId);
+        return toPublicUserProfile(user);
+    }
 
-        // 2. If not found, try alternative format (with/without @)
-        if (userOpt.isEmpty()) {
-            if (handle.startsWith("@")) {
-                userOpt = userRepository.findByHandle(handle.substring(1));
-            } else {
-                userOpt = userRepository.findByHandle("@" + handle);
-            }
-        }
-
-        UserEntity user = userOpt.orElseThrow(() -> new UserNotFoundException("handle", handle));
-
+    private com.example.auth.dto.PublicUserProfileDto toPublicUserProfile(UserEntity user) {
         return com.example.auth.dto.PublicUserProfileDto.builder()
-                .id(user.getId())
                 .name(user.getName())
                 .handle(user.getHandle())
                 .favoriteTeam(user.getFavoriteTeamId())
@@ -742,21 +711,48 @@ public class UserService {
                 .build();
     }
 
-    /**
-     * 공개 프로필 조회
-     */
+    private UserEntity findUserByHandleOrThrow(String handle) {
+        String normalizedHandle = normalizeHandle(handle);
+        return userRepository.findByHandle(normalizedHandle)
+                .orElseThrow(() -> new UserNotFoundException("handle", handle));
+    }
+
     @Transactional(readOnly = true)
-    public com.example.auth.dto.PublicUserProfileDto getPublicUserProfile(Long userId) {
-        UserEntity user = findUserById(Objects.requireNonNull(userId));
-        return com.example.auth.dto.PublicUserProfileDto.builder()
-                .id(user.getId())
-                .name(user.getName())
-                .handle(user.getHandle())
-                .favoriteTeam(user.getFavoriteTeamId())
-                .profileImageUrl(resolvePublicProfileImageUrl(user.getProfileImageUrl()))
-                .bio(user.getBio())
-                .cheerPoints(user.getCheerPoints())
-                .build();
+    public Long getUserIdByHandle(String handle) {
+        return findUserByHandleOrThrow(handle).getId();
+    }
+
+    private String normalizeHandle(String handle) {
+        if (handle == null || handle.isBlank()) {
+            throw new UserNotFoundException("handle", String.valueOf(handle));
+        }
+        return handle.startsWith("@") ? handle : "@" + handle;
+    }
+
+    private void validatePublicProfileAccess(UserEntity target, Long currentUserId) {
+        Long targetUserId = target.getId();
+        if (targetUserId == null) {
+            throw new UserNotFoundException("userId", "null");
+        }
+
+        if (currentUserId != null && currentUserId.equals(targetUserId)) {
+            return;
+        }
+
+        if (currentUserId != null && userBlockRepository.existsBidirectionalBlock(currentUserId, targetUserId)) {
+            throw new AccessDeniedException("차단 관계인 사용자의 프로필은 조회할 수 없습니다.");
+        }
+
+        if (!target.isPrivateAccount()) {
+            return;
+        }
+
+        if (currentUserId != null
+                && userFollowRepository.existsById(new com.example.auth.entity.UserFollow.Id(currentUserId, targetUserId))) {
+            return;
+        }
+
+        throw new AccessDeniedException("비공개 계정의 프로필은 팔로워만 조회할 수 있습니다.");
     }
 
     private String resolvePublicProfileImageUrl(String profileImageUrl) {
@@ -797,6 +793,10 @@ public class UserService {
      * - 잠금 계정(locked=true) 차단, 단 잠금 만료 시 허용
      */
     private void validateAuthorForLogin(UserEntity user) {
+        if (user.isPendingDeletion()) {
+            throw new InvalidAuthorException("계정 삭제 예약 상태입니다. 이메일의 복구 링크를 확인해주세요.");
+        }
+
         if (!user.isEnabled()) {
             throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
         }

@@ -87,6 +87,7 @@ public class SecurityConfig {
                         "/api/auth/logout",
                         "/api/auth/password/reset/request",
                         "/api/auth/password/reset/confirm",
+                        "/api/auth/account/deletion/recovery",
                         "/api/auth/password-reset/request",
                         "/api/auth/password-reset/confirm",
                         "/api/auth/oauth2/state/**",
@@ -102,21 +103,25 @@ public class SecurityConfig {
                         "/api/auth/policies/consents",
                         "/api/auth/password",
                         "/api/auth/account",
+                        "/api/auth/security-events",
                         "/api/auth/link-token",
                         "/api/auth/sessions",
                         "/api/auth/sessions/**",
+                        "/api/auth/trusted-devices",
+                        "/api/auth/trusted-devices/*",
                         "/api/auth/providers",
                         "/api/auth/providers/*"
         };
 
         /** 테스트 및 시스템 엔드포인트 */
         private static final String[] PUBLIC_SYSTEM_ENDPOINTS = {
+                        "/actuator/health"
+        };
+
+        /** 개발/로컬에서만 공개되는 시스템 엔드포인트 */
+        private static final String[] DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS = {
                         "/api/test/**",
-                        "/actuator/health",
                         "/actuator/prometheus",
-                        "/ws",
-                        "/ws/**",
-                        // Swagger / OpenAPI (dev 전용 - prod에서는 springdoc.*.enabled=false로 비활성화)
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
                         "/swagger-ui.html"
@@ -128,7 +133,6 @@ public class SecurityConfig {
                         "/api/places/**",
                         "/api/teams/**",
                         "/api/games/**",
-                        "/api/users/email-to-id",
                         "/api/kbo/league-start-dates",
                         "/api/kbo/schedule/**",
                         "/api/kbo/rankings/**",
@@ -139,27 +143,24 @@ public class SecurityConfig {
 
         /** 공개 GET 요청 엔드포인트 */
         private static final String[] PUBLIC_GET_ENDPOINTS = {
-                        "/api/checkin/**",
                         "/api/cheer/posts",
                         "/api/cheer/posts/**",
                         "/api/cheer/user/**",
-                        "/api/users/*/profile",
+                        "/api/users/profile/*",
                         "/api/diary/games",
                         "/api/diary/seat-views",
                         "/api/games/past",
                         "/api/predictions/ranking/current-season",
                         "/api/predictions/ranking/share/**",
-                        "/api/reviews/party/**",
-                        "/api/reviews/user/*/average",
-                        "/api/users/*/follow-counts",
-                        "/api/users/*/followers",
-                        "/api/users/*/following",
+                        "/api/users/profile/*/follow-counts",
+                        "/api/users/profile/*/followers",
+                        "/api/users/profile/*/following",
                         "/api/leaderboard",
                         "/api/leaderboard/hot-streaks",
                         "/api/leaderboard/recent-scores",
                         "/api/leaderboard/stats",
-                        "/api/leaderboard/users/*/rank",
-                        "/api/leaderboard/user/**",
+                        "/api/leaderboard/profile/*",
+                        "/api/leaderboard/profile/*/rank",
                         "/api/leaderboard/achievements/rare"
         };
 
@@ -168,14 +169,21 @@ public class SecurityConfig {
                         "/api/parties",
                         "/api/parties/search",
                         "/api/parties/status/*",
-                        "/api/parties/host/*",
+                        "/api/parties/profile/*",
                         "/api/parties/upcoming"
         };
 
         /** 관리자 전용 엔드포인트 */
         private static final String[] ADMIN_ENDPOINTS = {
                         "/api/admin/**",
-                        "/admin/**"
+                        "/admin/**",
+                        "/dashboard",
+                        "/dashboard/**"
+        };
+
+        /** AI 프록시 엔드포인트 (인증 필수) */
+        private static final String[] ADMIN_AI_ENDPOINTS = {
+                        "/api/ai/release-decision/**"
         };
 
         /** AI 프록시 엔드포인트 (인증 필수) */
@@ -240,6 +248,28 @@ public class SecurityConfig {
                 return Arrays.stream(environment.getActiveProfiles())
                                 .anyMatch(profile -> "dev".equalsIgnoreCase(profile)
                                                 || "local".equalsIgnoreCase(profile));
+        }
+
+        boolean isProdProfile() {
+                return Arrays.stream(environment.getActiveProfiles())
+                                .anyMatch(profile -> "prod".equalsIgnoreCase(profile));
+        }
+
+        String[] publicSystemEndpoints() {
+                if (!isDevOrLocalProfile()) {
+                        return PUBLIC_SYSTEM_ENDPOINTS;
+                }
+
+                String[] merged = Arrays.copyOf(
+                                PUBLIC_SYSTEM_ENDPOINTS,
+                                PUBLIC_SYSTEM_ENDPOINTS.length + DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS.length);
+                System.arraycopy(
+                                DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS,
+                                0,
+                                merged,
+                                PUBLIC_SYSTEM_ENDPOINTS.length,
+                                DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS.length);
+                return merged;
         }
 
         boolean allowUnauthenticatedAiProxy() {
@@ -410,14 +440,15 @@ public class SecurityConfig {
 
                                                 // 2. 인증 관련 공개 엔드포인트
                                                 .requestMatchers(PUBLIC_AUTH_ENDPOINTS).permitAll()
-                                                .requestMatchers(HttpMethod.GET, "/api/auth/check-email").permitAll()
 
                                                 // 3. 시스템/테스트 엔드포인트
-                                                .requestMatchers(PUBLIC_SYSTEM_ENDPOINTS).permitAll()
+                                                .requestMatchers(publicSystemEndpoints()).permitAll()
                                                 .requestMatchers("/actuator/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
 
                                                 // 4. 관리자 전용 엔드포인트
                                                 .requestMatchers(ADMIN_ENDPOINTS).hasAnyRole("ADMIN", "SUPER_ADMIN")
+                                                .requestMatchers(ADMIN_AI_ENDPOINTS).hasAnyRole("ADMIN",
+                                                                "SUPER_ADMIN")
 
                                                 // 5. 인증 필수 엔드포인트 (순서 중요: 구체적 경로 먼저)
                                                 .requestMatchers(PRIVATE_AUTH_ENDPOINTS).authenticated()
@@ -440,6 +471,10 @@ public class SecurityConfig {
                                                 .requestMatchers(HttpMethod.POST, "/api/predictions/vote")
                                                 .authenticated()
                                                 .requestMatchers(HttpMethod.GET, "/api/predictions/status/**")
+                                                .permitAll()
+                                                .requestMatchers(HttpMethod.GET, "/api/predictions/ranking/current-season")
+                                                .permitAll()
+                                                .requestMatchers(HttpMethod.GET, "/api/predictions/ranking/share/**")
                                                 .permitAll()
                                                 .requestMatchers(HttpMethod.GET, "/api/predictions/my-vote/**")
                                                 .authenticated()
@@ -506,6 +541,9 @@ public class SecurityConfig {
                         return message;
                 }
                 if ("oauth2_provider_payload_invalid".equals(message)) {
+                        return message;
+                }
+                if ("manual_link_required".equals(message)) {
                         return message;
                 }
                 if (message.contains("계정 연동 세션이 만료")) {

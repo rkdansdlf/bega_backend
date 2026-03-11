@@ -12,10 +12,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.util.UUID;
 
@@ -72,13 +74,13 @@ class FollowBlockVerificationTest {
     @BeforeEach
     void setUp() {
         // Create test users with unique data to avoid conflicts in shared DB
-        String uniqueIdStr = UUID.randomUUID().toString().substring(0, 8);
+        String uniqueIdStr = UUID.randomUUID().toString().substring(0, 4);
 
         userA = new UserEntity();
         userA.setUniqueId(UUID.randomUUID());
         userA.setEmail("userA_" + uniqueIdStr + "@test.com");
         userA.setName("User A " + uniqueIdStr);
-        userA.setHandle("user_a_" + uniqueIdStr);
+        userA.setHandle("@ua" + uniqueIdStr);
         userA.setRole("ROLE_USER");
         userA = userRepository.save(userA);
 
@@ -86,7 +88,7 @@ class FollowBlockVerificationTest {
         userB.setUniqueId(UUID.randomUUID());
         userB.setEmail("userB_" + uniqueIdStr + "@test.com");
         userB.setName("User B " + uniqueIdStr);
-        userB.setHandle("user_b_" + uniqueIdStr);
+        userB.setHandle("@ub" + uniqueIdStr);
         userB.setRole("ROLE_USER");
         userB = userRepository.save(userB);
     }
@@ -180,5 +182,34 @@ class FollowBlockVerificationTest {
         assertThatThrownBy(() -> followService.toggleFollow(userB.getId()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("차단 관계가 있어 팔로우할 수 없습니다.");
+    }
+
+    @Test
+    @DisplayName("Private account follow information should reject anonymous viewers")
+    void testPrivateAccountFollowInfoRejectsAnonymousViewer() {
+        userB.setPrivateAccount(true);
+        userRepository.save(userB);
+        when(currentUser.getOrNull()).thenReturn(null);
+
+        assertThatThrownBy(() -> followService.getPublicFollowCounts(userB.getHandle()))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("비공개 계정");
+    }
+
+    @Test
+    @DisplayName("Private account follow list should be visible to followers without exposing internal ids")
+    void testPrivateAccountFollowInfoAllowsFollowerWithoutExposingIds() {
+        userB.setPrivateAccount(true);
+        userRepository.save(userB);
+
+        when(currentUser.get()).thenReturn(userA);
+        when(currentUser.getOrNull()).thenReturn(userA);
+        followService.toggleFollow(userB.getId());
+
+        var page = followService.getPublicFollowers(userB.getHandle(), PageRequest.of(0, 20));
+
+        assertThat(page.getContent()).hasSize(1);
+        assertThat(page.getContent().get(0).getHandle()).isEqualTo(userA.getHandle());
+        assertThat(page.getContent().get(0).getId()).isNull();
     }
 }

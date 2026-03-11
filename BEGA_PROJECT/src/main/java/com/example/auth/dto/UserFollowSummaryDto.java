@@ -25,7 +25,18 @@ public class UserFollowSummaryDto {
     @JsonProperty("isFollowedByMe")
     private boolean isFollowedByMe;
 
-    public static UserFollowSummaryDto from(UserEntity user, boolean isFollowedByMe) {
+    public static UserFollowSummaryDto fromPublic(UserEntity user, boolean isFollowedByMe) {
+        return UserFollowSummaryDto.builder()
+                .id(null)
+                .handle(user.getHandle())
+                .name(user.getName())
+                .profileImageUrl(user.getProfileImageUrl())
+                .favoriteTeam(user.getFavoriteTeamId())
+                .isFollowedByMe(isFollowedByMe)
+                .build();
+    }
+
+    public static UserFollowSummaryDto fromPrivate(UserEntity user, boolean isFollowedByMe) {
         return UserFollowSummaryDto.builder()
                 .id(user.getId())
                 .handle(user.getHandle())

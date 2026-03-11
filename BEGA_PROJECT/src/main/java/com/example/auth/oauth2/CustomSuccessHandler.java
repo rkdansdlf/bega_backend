@@ -33,6 +33,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     private final JWTUtil jwtUtil;
     private final UserRepository userRepository;
     private final com.example.auth.service.UserService userService; // Inject UserService
+    private final com.example.auth.service.AccountSecurityService accountSecurityService;
     private final OAuth2StateService oAuth2StateService;
     private final AuthCookieUtil authCookieUtil;
 
@@ -41,11 +42,13 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
     public CustomSuccessHandler(JWTUtil jwtUtil, UserRepository userRepository,
             @org.springframework.context.annotation.Lazy com.example.auth.service.UserService userService,
+            com.example.auth.service.AccountSecurityService accountSecurityService,
             OAuth2StateService oAuth2StateService,
             AuthCookieUtil authCookieUtil) {
         this.jwtUtil = jwtUtil;
         this.userRepository = userRepository;
         this.userService = userService;
+        this.accountSecurityService = accountSecurityService;
         this.oAuth2StateService = oAuth2StateService;
         this.authCookieUtil = authCookieUtil;
     }
@@ -110,6 +113,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
             ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
             response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+            accountSecurityService.recordProviderLinked(userId, resolveProviderFromRequest(request));
 
             String stateId;
             try {
@@ -139,6 +143,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         // Refresh Token DB 저장/갱신
         userService.saveOrUpdateRefreshToken(userEmail, refreshToken, request);
+        accountSecurityService.handleSuccessfulLogin(userEntity, request);
 
         // 쿠키에 토큰 저장
         int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);
@@ -177,6 +182,24 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             return false;
         }
         return state.contains("|");
+    }
+
+    private String resolveProviderFromRequest(HttpServletRequest request) {
+        if (request == null) {
+            return "social";
+        }
+
+        String uri = request.getRequestURI();
+        if (uri == null || uri.isBlank()) {
+            return "social";
+        }
+
+        int lastSlash = uri.lastIndexOf('/');
+        if (lastSlash < 0 || lastSlash + 1 >= uri.length()) {
+            return "social";
+        }
+
+        return uri.substring(lastSlash + 1);
     }
 
     private void redirectWithError(HttpServletRequest request, HttpServletResponse response, String errorCode)

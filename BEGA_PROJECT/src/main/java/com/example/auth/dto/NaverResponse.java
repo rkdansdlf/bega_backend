@@ -50,6 +50,16 @@ public class NaverResponse implements OAuth2Response {
                 .orElse(null);
     }
 
+    @Override
+    public boolean isEmailVerified() {
+        return false;
+    }
+
+    @Override
+    public boolean isAuthoritativeForAutoLink() {
+        return false;
+    }
+
     private Map<String, Object> asMap(Object value) {
         if (!(value instanceof Map<?, ?> raw)) {
             return null;

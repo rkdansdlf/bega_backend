@@ -5,17 +5,22 @@ import com.example.auth.dto.PasswordResetRequestDto;
 import com.example.auth.entity.PasswordResetToken;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.PasswordResetTokenRepository;
+import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class PasswordResetService {
 
@@ -23,34 +28,50 @@ public class PasswordResetService {
     private final PasswordResetTokenRepository tokenRepository;
     private final EmailService emailService;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final RefreshRepository refreshRepository;
+    private final AuthSecurityMonitoringService authSecurityMonitoringService;
 
     @Transactional
     public void requestPasswordReset(PasswordResetRequestDto request) {
-        // 사용자 조회
-        UserEntity user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new IllegalArgumentException("해당 이메일로 가입된 사용자를 찾을 수 없습니다."));
+        String normalizedEmail = normalizeEmail(request.getEmail());
+        Optional<UserEntity> userOpt = userRepository.findByEmail(normalizedEmail);
+        if (userOpt.isEmpty()) {
+            authSecurityMonitoringService.recordPasswordResetSuppressed();
+            log.info("Password reset request suppressed for unknown email");
+            return;
+        }
+
+        UserEntity user = userOpt.get();
 
         // 소셜 로그인 전용 계정 체크
         if (user.getPassword() == null) {
-            throw new IllegalArgumentException("소셜 로그인 계정은 비밀번호 재설정을 할 수 없습니다.");
+            authSecurityMonitoringService.recordPasswordResetSuppressed();
+            log.info("Password reset request suppressed for social-only account: userId={}", user.getId());
+            return;
         }
 
-        // 기존 토큰 삭제
-        tokenRepository.deleteByUserId(Objects.requireNonNull(user.getId()));
+        try {
+            // 기존 토큰 삭제
+            tokenRepository.deleteByUserId(Objects.requireNonNull(user.getId()));
 
-        // 새 토큰 생성 (30분 유효)
-        String token = UUID.randomUUID().toString();
-        PasswordResetToken resetToken = PasswordResetToken.builder()
-                .token(token)
-                .user(user)
-                .expiryDate(LocalDateTime.now().plusMinutes(30))
-                .used(false)
-                .build();
+            // 새 토큰 생성 (30분 유효)
+            String token = UUID.randomUUID().toString();
+            PasswordResetToken resetToken = PasswordResetToken.builder()
+                    .token(token)
+                    .user(user)
+                    .expiryDate(LocalDateTime.now().plusMinutes(30))
+                    .used(false)
+                    .build();
 
-        tokenRepository.save(Objects.requireNonNull(resetToken));
+            tokenRepository.save(Objects.requireNonNull(resetToken));
 
-        // 이메일 발송
-        emailService.sendPasswordResetEmail(Objects.requireNonNull(user.getEmail()), token);
+            // 이메일 발송
+            emailService.sendPasswordResetEmail(Objects.requireNonNull(user.getEmail()), token);
+        } catch (RuntimeException e) {
+            authSecurityMonitoringService.recordPasswordResetSuppressed();
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            log.warn("Password reset request suppressed after internal failure: userId={}", user.getId(), e);
+        }
     }
 
     @Transactional
@@ -84,10 +105,19 @@ public class PasswordResetService {
         // 비밀번호 변경
         UserEntity user = resetToken.getUser();
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        user.setTokenVersion(Optional.ofNullable(user.getTokenVersion()).orElse(0) + 1);
         userRepository.save(Objects.requireNonNull(user));
+        refreshRepository.deleteByEmail(user.getEmail());
 
         // 토큰 사용 처리
         resetToken.setUsed(true);
         tokenRepository.save(Objects.requireNonNull(resetToken));
+    }
+
+    private String normalizeEmail(String email) {
+        if (email == null) {
+            return null;
+        }
+        return email.trim().toLowerCase();
     }
 }

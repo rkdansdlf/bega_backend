@@ -12,4 +12,12 @@ public interface OAuth2Response {
     String getName();
     //프로필 이미지 URL
     String getProfileImageUrl();
+
+    default boolean isEmailVerified() {
+        return false;
+    }
+
+    default boolean isAuthoritativeForAutoLink() {
+        return false;
+    }
 }
