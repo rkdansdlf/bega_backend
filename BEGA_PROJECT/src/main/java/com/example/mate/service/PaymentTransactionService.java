@@ -114,10 +114,10 @@ public class PaymentTransactionService {
 
     @Transactional(readOnly = true)
     public void enrichResponse(PartyApplicationDTO.Response response) {
-        if (response == null || response.getOrderId() == null || response.getOrderId().isBlank()) {
+        if (response == null || response.getId() == null) {
             return;
         }
-        paymentTransactionRepository.findByOrderId(response.getOrderId())
+        paymentTransactionRepository.findByApplicationId(response.getId())
                 .ifPresent(tx -> applyTransactionFields(response, tx));
     }
 
@@ -126,21 +126,20 @@ public class PaymentTransactionService {
         if (responses == null || responses.isEmpty()) {
             return;
         }
-        List<String> orderIds = responses.stream()
-                .map(PartyApplicationDTO.Response::getOrderId)
+        List<Long> applicationIds = responses.stream()
+                .map(PartyApplicationDTO.Response::getId)
                 .filter(Objects::nonNull)
-                .filter(orderId -> !orderId.isBlank())
                 .distinct()
                 .toList();
-        if (orderIds.isEmpty()) {
+        if (applicationIds.isEmpty()) {
             return;
         }
 
-        Map<String, PaymentTransaction> byOrderId = paymentTransactionRepository.findByOrderIdIn(orderIds).stream()
-                .collect(Collectors.toMap(PaymentTransaction::getOrderId, tx -> tx, (a, b) -> a, HashMap::new));
+        Map<Long, PaymentTransaction> byApplicationId = paymentTransactionRepository.findByApplicationIdIn(applicationIds).stream()
+                .collect(Collectors.toMap(PaymentTransaction::getApplicationId, tx -> tx, (a, b) -> a, HashMap::new));
 
         responses.forEach(response -> {
-            PaymentTransaction tx = byOrderId.get(response.getOrderId());
+            PaymentTransaction tx = byApplicationId.get(response.getId());
             if (tx != null) {
                 applyTransactionFields(response, tx);
             }

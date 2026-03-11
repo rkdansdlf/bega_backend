@@ -21,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.Optional;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -246,6 +247,57 @@ class PaymentTransactionServiceTest {
 
         verify(paymentTransactionRepository).findByOrderIdForUpdate(application.getOrderId());
         verify(paymentTransactionRepository, never()).save(any(PaymentTransaction.class));
+    }
+
+    @Test
+    void enrichResponse_usesApplicationIdWithoutExposingOrderId() {
+        PartyApplicationDTO.Response response = PartyApplicationDTO.Response.builder()
+                .id(777L)
+                .depositAmount(50000)
+                .build();
+
+        PaymentTransaction tx = PaymentTransaction.builder()
+                .applicationId(777L)
+                .feeAmount(1000)
+                .netAmount(49000)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.REQUESTED)
+                .build();
+
+        given(paymentTransactionRepository.findByApplicationId(777L)).willReturn(Optional.of(tx));
+
+        paymentTransactionService.enrichResponse(response);
+
+        assertThat(response.getFeeAmount()).isEqualTo(1000);
+        assertThat(response.getNetSettlementAmount()).isEqualTo(49000);
+        assertThat(response.getPaymentStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(response.getSettlementStatus()).isEqualTo(SettlementStatus.REQUESTED);
+        verify(paymentTransactionRepository).findByApplicationId(777L);
+        verify(paymentTransactionRepository, never()).findByOrderId(any());
+    }
+
+    @Test
+    void enrichResponses_usesApplicationIdsInBulk() {
+        PartyApplicationDTO.Response first = PartyApplicationDTO.Response.builder().id(1L).depositAmount(10000).build();
+        PartyApplicationDTO.Response second = PartyApplicationDTO.Response.builder().id(2L).depositAmount(20000).build();
+        PaymentTransaction tx = PaymentTransaction.builder()
+                .applicationId(2L)
+                .feeAmount(500)
+                .netAmount(19500)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.PENDING)
+                .build();
+
+        given(paymentTransactionRepository.findByApplicationIdIn(List.of(1L, 2L))).willReturn(List.of(tx));
+
+        paymentTransactionService.enrichResponses(List.of(first, second));
+
+        assertThat(first.getPaymentStatus()).isNull();
+        assertThat(second.getFeeAmount()).isEqualTo(500);
+        assertThat(second.getNetSettlementAmount()).isEqualTo(19500);
+        assertThat(second.getSettlementStatus()).isEqualTo(SettlementStatus.PENDING);
+        verify(paymentTransactionRepository).findByApplicationIdIn(List.of(1L, 2L));
+        verify(paymentTransactionRepository, never()).findByOrderIdIn(any());
     }
 
     @Test

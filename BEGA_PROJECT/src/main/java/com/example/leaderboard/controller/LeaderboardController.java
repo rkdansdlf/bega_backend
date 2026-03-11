@@ -47,10 +47,12 @@ public class LeaderboardController {
     public ResponseEntity<Page<LeaderboardEntryDto>> getLeaderboard(
             @RequestParam(defaultValue = "season") String type,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "20") int size,
+            Principal principal
     ) {
         log.debug("Get leaderboard: type={}, page={}, size={}", type, page, size);
-        Page<LeaderboardEntryDto> leaderboard = leaderboardService.getLeaderboard(type, page, size);
+        Page<LeaderboardEntryDto> leaderboard = leaderboardService.getLeaderboard(type, page, size,
+                extractUserId(principal));
         return ResponseEntity.ok(leaderboard);
     }
 
@@ -70,25 +72,19 @@ public class LeaderboardController {
         return ResponseEntity.ok(stats);
     }
 
-    /**
-     * 사용자 통계 조회
-     */
-    @GetMapping("/user/{userId}")
+    @GetMapping("/profile/{handle}")
     @PreAuthorize("permitAll()")
-    public ResponseEntity<UserStatsDto> getUserStats(@PathVariable Long userId) {
-        log.debug("Get user stats: userId={}", userId);
-        UserStatsDto stats = leaderboardService.getUserStats(userId);
+    public ResponseEntity<UserStatsDto> getUserStatsByHandle(@PathVariable String handle, Principal principal) {
+        log.debug("Get user stats by handle: handle={}", handle);
+        UserStatsDto stats = leaderboardService.getUserStatsByHandle(handle, extractUserId(principal));
         return ResponseEntity.ok(stats);
     }
 
-    /**
-     * 사용자 랭킹 조회 (시즌 기준)
-     */
-    @GetMapping("/users/{userId}/rank")
+    @GetMapping("/profile/{handle}/rank")
     @PreAuthorize("permitAll()")
-    public ResponseEntity<UserRankDto> getUserRank(@PathVariable Long userId) {
-        log.debug("Get user rank: userId={}", userId);
-        UserRankDto rank = leaderboardService.getUserRank(userId);
+    public ResponseEntity<UserRankDto> getUserRankByHandle(@PathVariable String handle, Principal principal) {
+        log.debug("Get user rank by handle: handle={}", handle);
+        UserRankDto rank = leaderboardService.getUserRankByHandle(handle, extractUserId(principal));
         return ResponseEntity.ok(rank);
     }
 
@@ -103,10 +99,11 @@ public class LeaderboardController {
     @PreAuthorize("permitAll()")
     public ResponseEntity<List<HotStreakDto>> getHotStreaks(
             @RequestParam(defaultValue = "3") int minStreak,
-            @RequestParam(defaultValue = "10") int limit
+            @RequestParam(defaultValue = "10") int limit,
+            Principal principal
     ) {
         log.debug("Get hot streaks: minStreak={}, limit={}", minStreak, limit);
-        List<HotStreakDto> hotStreaks = leaderboardService.getHotStreaks(minStreak, limit);
+        List<HotStreakDto> hotStreaks = leaderboardService.getHotStreaks(minStreak, limit, extractUserId(principal));
         return ResponseEntity.ok(hotStreaks);
     }
 
@@ -116,10 +113,11 @@ public class LeaderboardController {
     @GetMapping("/recent-scores")
     @PreAuthorize("permitAll()")
     public ResponseEntity<List<RecentScoreDto>> getRecentScores(
-            @RequestParam(defaultValue = "20") int limit
+            @RequestParam(defaultValue = "20") int limit,
+            Principal principal
     ) {
         log.debug("Get recent scores: limit={}", limit);
-        List<RecentScoreDto> recentScores = leaderboardService.getRecentScores(limit);
+        List<RecentScoreDto> recentScores = leaderboardService.getRecentScores(limit, extractUserId(principal));
         return ResponseEntity.ok(recentScores);
     }
 
@@ -291,27 +289,6 @@ public class LeaderboardController {
         return ResponseEntity.ok(Map.of(
                 "totalUsers", totalUsers != null ? totalUsers : 0,
                 "averageScore", avgScore != null ? Math.round(avgScore) : 0
-        ));
-    }
-
-    // ============================================
-    // DEV/TEST ENDPOINTS
-    // ============================================
-
-    /**
-     * 테스트 데이터 시드 (개발/테스트 전용)
-     * 기존 점수가 없는 사용자에게 랜덤 점수 데이터를 생성합니다.
-     */
-    @org.springframework.context.annotation.Profile("!prod")
-    @PostMapping("/seed-test-data")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> seedTestData() {
-        log.info("Seeding test data for leaderboard");
-        int seededCount = leaderboardService.seedTestData();
-        return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "테스트 데이터가 생성되었습니다.",
-                "seededCount", seededCount
         ));
     }
 

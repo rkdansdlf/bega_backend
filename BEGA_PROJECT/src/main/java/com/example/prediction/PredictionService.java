@@ -8,6 +8,7 @@ import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.GameInningScoreRepository;
 import com.example.kbo.repository.GameMetadataRepository;
 import com.example.kbo.repository.GameSummaryRepository;
+import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.util.KboTeamCodePolicy;
 import com.example.kbo.util.TeamCodeResolver;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +26,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
@@ -41,6 +41,7 @@ public class PredictionService {
     private final GameSummaryRepository gameSummaryRepository;
     private final VoteFinalResultRepository voteFinalResultRepository;
     private final com.example.auth.repository.UserRepository userRepository;
+    private final LeagueStageResolver leagueStageResolver;
     private static final Set<String> BLOCKED_VOTE_STATUSES = Set.of(
             "COMPLETED",
             "CANCELLED",
@@ -168,10 +169,8 @@ public class PredictionService {
         );
     }
 
-    private final Map<Integer, Optional<Integer>> leagueTypeCodeCache = new ConcurrentHashMap<>();
-
     private MatchDto toMatchDto(GameEntity game) {
-        Integer leagueTypeCode = resolveLeagueTypeCode(game);
+        Integer leagueTypeCode = leagueStageResolver.resolveEffectiveLeagueTypeCode(game);
         return MatchDto.builder()
                 .gameId(game.getGameId())
                 .gameDate(game.getGameDate())
@@ -191,24 +190,6 @@ public class PredictionService {
                 .postSeasonSeries(mapPostSeasonSeries(leagueTypeCode))
                 .seriesGameNo(resolveSeriesGameNo(game, leagueTypeCode))
                 .build();
-    }
-
-    private Integer resolveLeagueTypeCode(GameEntity game) {
-        Integer seasonId = game.getSeasonId();
-        if (seasonId == null) {
-            return null;
-        }
-        Optional<Integer> cached = leagueTypeCodeCache.get(seasonId);
-        if (cached != null) {
-            return cached.orElse(null);
-        }
-        Optional<Integer> fetched = Optional.empty();
-        Optional<Integer> repositoryValue = gameRepository.findLeagueTypeCodeBySeasonId(seasonId);
-        if (repositoryValue != null) {
-            fetched = repositoryValue;
-        }
-        leagueTypeCodeCache.put(seasonId, fetched);
-        return fetched.orElse(null);
     }
 
     private String mapLeagueType(Integer leagueTypeCode) {

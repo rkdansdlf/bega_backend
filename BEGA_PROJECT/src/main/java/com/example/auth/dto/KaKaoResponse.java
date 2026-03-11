@@ -99,6 +99,31 @@ public class KaKaoResponse implements OAuth2Response {
         return url.isBlank() ? null : url;
     }
 
+    @Override
+    public boolean isEmailVerified() {
+        if (kakaoAccount == null) {
+            return false;
+        }
+
+        if (Boolean.TRUE.equals(asBoolean(kakaoAccount.get("email_needs_agreement")))) {
+            return false;
+        }
+
+        Boolean emailValid = asBoolean(kakaoAccount.get("is_email_valid"));
+        Boolean emailVerified = asBoolean(kakaoAccount.get("is_email_verified"));
+        Object email = kakaoAccount.get("email");
+
+        return email != null
+                && !email.toString().isBlank()
+                && !Boolean.FALSE.equals(emailValid)
+                && !Boolean.FALSE.equals(emailVerified);
+    }
+
+    @Override
+    public boolean isAuthoritativeForAutoLink() {
+        return isEmailVerified();
+    }
+
     private Map<String, Object> asMap(Object value) {
         if (!(value instanceof Map<?, ?> raw)) {
             return null;

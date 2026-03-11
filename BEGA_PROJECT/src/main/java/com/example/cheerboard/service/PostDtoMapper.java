@@ -103,7 +103,6 @@ public class PostDtoMapper {
                 resolveTeamColor(post.getTeam()),
                 post.getContent(),
                 resolveDisplayName(post.getAuthor()),
-                post.getAuthor().getId(),
                 post.getAuthor().getHandle(),
                 resolveAuthorProfileImageUrl(post.getAuthor()),
                 post.getAuthor().getFavoriteTeamId(),
@@ -173,9 +172,7 @@ public class PostDtoMapper {
                 // title removed
                 post.getContent(),
                 resolveDisplayName(post.getAuthor()),
-                post.getAuthor().getId(),
                 post.getAuthor().getHandle(),
-                post.getAuthor().getEmail(),
                 resolveAuthorProfileImageUrl(post.getAuthor()),
                 post.getCreatedAt(),
                 post.getCommentCount(),
@@ -230,9 +227,7 @@ public class PostDtoMapper {
                 // title removed
                 post.getContent(),
                 resolveDisplayName(author),
-                author.getId(),
                 author.getHandle(),
-                author.getEmail(),
                 resolveAuthorProfileImageUrl(author),
                 post.getCreatedAt(),
                 0, // 새 게시글이므로 댓글 수 0
@@ -306,7 +301,6 @@ public class PostDtoMapper {
                 resolveTeamColor(post.getTeam()),
                 post.getContent(),
                 resolveDisplayName(post.getAuthor()),
-                post.getAuthor().getId(),
                 post.getAuthor().getHandle(),
                 resolveAuthorProfileImageUrl(post.getAuthor()),
                 post.getAuthor().getFavoriteTeamId(),
@@ -389,10 +383,16 @@ public class PostDtoMapper {
     }
 
     private String resolveDisplayName(UserEntity author) {
+        if (author == null) {
+            return "사용자";
+        }
         if (author.getName() != null && !author.getName().isBlank()) {
             return author.getName();
         }
-        return author.getEmail();
+        if (author.getHandle() != null && !author.getHandle().isBlank()) {
+            return author.getHandle();
+        }
+        return "사용자";
     }
 
     private String resolveTeamName(TeamEntity team) {
@@ -448,7 +448,6 @@ public class PostDtoMapper {
                 post.getLikeCount(),
                 post.getCommentCount(),
                 post.getCreatedAt(),
-                post.getAuthor().getId(),
                 resolveDisplayName(post.getAuthor()),
                 resolveAuthorProfileImageUrl(post.getAuthor()));
     }

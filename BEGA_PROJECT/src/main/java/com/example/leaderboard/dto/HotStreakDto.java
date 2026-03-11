@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class HotStreakDto {
-    private Long userId;
+    private String handle;
     private String userName;
     private String profileImageUrl;
     private Integer streak;
@@ -22,9 +22,9 @@ public class HotStreakDto {
     private String rankTier;
     private Long totalScore;
 
-    public static HotStreakDto from(UserScore userScore, String nickname, String profileImageUrl) {
+    public static HotStreakDto from(UserScore userScore, String handle, String nickname, String profileImageUrl) {
         return HotStreakDto.builder()
-                .userId(userScore.getUserId())
+                .handle(handle)
                 .userName(nickname)
                 .profileImageUrl(profileImageUrl)
                 .streak(userScore.getCurrentStreak())

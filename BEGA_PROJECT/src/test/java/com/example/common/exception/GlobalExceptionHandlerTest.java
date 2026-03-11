@@ -5,6 +5,7 @@ import com.example.mate.exception.TossPaymentException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
@@ -215,5 +216,16 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.getMessage()).isEqualTo("AI service URL is not configured");
+    }
+
+    @Test
+    void accessDenied_returnsForbidden() {
+        var ex = new AccessDeniedException("본인의 일기만 조회할 수 있습니다.");
+        var response = handler.handleAccessDeniedException(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.isSuccess()).isFalse();
+        assertThat(body.getMessage()).isEqualTo("본인의 일기만 조회할 수 있습니다.");
     }
 }

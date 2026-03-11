@@ -132,4 +132,6 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
   @org.springframework.data.jpa.repository.Query("UPDATE UserEntity u SET u.cheerPoints = COALESCE(u.cheerPoints, 0) + :points WHERE u.id = :userId")
   void modifyCheerPoints(@org.springframework.data.repository.query.Param("userId") Long userId,
       @org.springframework.data.repository.query.Param("points") int points);
+
+  List<UserEntity> findByPendingDeletionTrueAndDeletionScheduledForLessThanEqual(java.time.LocalDateTime scheduledFor);
 }

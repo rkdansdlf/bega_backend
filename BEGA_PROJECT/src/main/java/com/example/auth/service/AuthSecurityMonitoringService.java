@@ -11,6 +11,8 @@ public class AuthSecurityMonitoringService {
     private final Counter tokenRejectTotal;
     private final Counter unsignedOauth2CookieTotal;
     private final Counter oauth2StateRejectTotal;
+    private final Counter authRateLimitRejectTotal;
+    private final Counter passwordResetSuppressedTotal;
 
     public AuthSecurityMonitoringService(MeterRegistry meterRegistry) {
         this.invalidOriginTotal = Counter.builder("auth_security_events_total")
@@ -32,6 +34,16 @@ public class AuthSecurityMonitoringService {
                 .description("OAuth2 state lookup or payload rejection")
                 .tag("event", "OAUTH2_STATE_REJECT")
                 .register(meterRegistry);
+
+        this.authRateLimitRejectTotal = Counter.builder("auth_security_events_total")
+                .description("Rejected authentication-related requests due to rate limiting")
+                .tag("event", "AUTH_RATE_LIMIT_REJECT")
+                .register(meterRegistry);
+
+        this.passwordResetSuppressedTotal = Counter.builder("auth_security_events_total")
+                .description("Suppressed password reset requests for enumeration-resistant handling")
+                .tag("event", "PASSWORD_RESET_SUPPRESSED")
+                .register(meterRegistry);
     }
 
     public void recordInvalidOrigin() {
@@ -48,5 +60,13 @@ public class AuthSecurityMonitoringService {
 
     public void recordOAuth2StateReject() {
         oauth2StateRejectTotal.increment();
+    }
+
+    public void recordAuthRateLimitReject() {
+        authRateLimitRejectTotal.increment();
+    }
+
+    public void recordPasswordResetSuppressed() {
+        passwordResetSuppressedTotal.increment();
     }
 }

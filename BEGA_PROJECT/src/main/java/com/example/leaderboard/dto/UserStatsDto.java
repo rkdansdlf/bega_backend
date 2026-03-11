@@ -16,7 +16,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UserStatsDto {
-    private Long userId;
+    private String handle;
     private String userName;
     private String profileImageUrl;
     private Long rank;
@@ -56,7 +56,7 @@ public class UserStatsDto {
     // Powerups
     private List<PowerupInventoryDto> powerups;
 
-    public static UserStatsDto from(UserScore userScore, String nickname, String profileImageUrl) {
+    public static UserStatsDto from(UserScore userScore, String handle, String nickname, String profileImageUrl) {
         long nextLevelExp = userScore.getNextLevelExp();
         long currentExp = userScore.getExperiencePoints() != null ? userScore.getExperiencePoints() : 0L;
         double levelProgress = nextLevelExp > 0
@@ -64,7 +64,7 @@ public class UserStatsDto {
                 : 0.0;
 
         return UserStatsDto.builder()
-                .userId(userScore.getUserId())
+                .handle(handle)
                 .userName(nickname)
                 .profileImageUrl(profileImageUrl)
                 .totalScore(userScore.getTotalScore())

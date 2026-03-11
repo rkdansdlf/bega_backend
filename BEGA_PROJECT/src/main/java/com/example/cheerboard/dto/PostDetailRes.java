@@ -12,9 +12,7 @@ public record PostDetailRes(
                 // title removed
                 String content,
                 String author,
-                Long authorId,
                 String authorHandle,
-                String authorEmail,
                 String authorProfileImageUrl,
                 Instant createdAt,
                 int comments,
@@ -48,9 +46,7 @@ public record PostDetailRes(
                         // title removed
                         String content,
                         String author,
-                        Long authorId,
                         String authorHandle,
-                        String authorEmail,
                         String authorProfileImageUrl,
                         Instant createdAt,
                         int comments,
@@ -66,8 +62,8 @@ public record PostDetailRes(
                         String postType) {
                 return new PostDetailRes(
                                 id, teamId, teamName, teamShortName, teamColor, // title removed,
-                                content, author, authorId, authorHandle,
-                                authorEmail, authorProfileImageUrl, createdAt,
+                                content, author, authorHandle,
+                                authorProfileImageUrl, createdAt,
                                 comments, likes, bookmarkCount, likedByMe, isBookmarked, isOwner,
                                 imageUrls, views, repostCount, repostedByMe, postType,
                                 null, null, null, false, null, null);

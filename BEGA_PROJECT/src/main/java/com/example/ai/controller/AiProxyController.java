@@ -5,6 +5,7 @@ import com.example.ai.service.AiProxyService.ProxyByteResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,42 +47,49 @@ public class AiProxyController {
     }
 
     @GetMapping("/release-decision/presets")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<byte[]> releaseDecisionPresets() {
         ProxyByteResponse proxyResponse = aiProxyService.forwardGet("/ai/release-decision/presets");
         return toByteResponse(proxyResponse);
     }
 
     @GetMapping("/release-decision/eval-cases")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<byte[]> releaseDecisionEvalCases() {
         ProxyByteResponse proxyResponse = aiProxyService.forwardGet("/ai/release-decision/eval-cases");
         return toByteResponse(proxyResponse);
     }
 
     @GetMapping("/release-decision/artifacts")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<byte[]> releaseDecisionArtifacts() {
         ProxyByteResponse proxyResponse = aiProxyService.forwardGet("/ai/release-decision/artifacts");
         return toByteResponse(proxyResponse);
     }
 
     @GetMapping("/release-decision/artifacts/{artifactId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<byte[]> releaseDecisionArtifactDetail(@PathVariable String artifactId) {
         ProxyByteResponse proxyResponse = aiProxyService.forwardGet("/ai/release-decision/artifacts/" + artifactId);
         return toByteResponse(proxyResponse);
     }
 
     @PostMapping("/release-decision/draft")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<byte[]> releaseDecisionDraft(@RequestBody String payload) {
         ProxyByteResponse proxyResponse = aiProxyService.forwardJson("/ai/release-decision/draft", payload);
         return toByteResponse(proxyResponse);
     }
 
     @PostMapping("/release-decision/evaluate")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<byte[]> releaseDecisionEvaluate(@RequestBody String payload) {
         ProxyByteResponse proxyResponse = aiProxyService.forwardJson("/ai/release-decision/evaluate", payload);
         return toByteResponse(proxyResponse);
     }
 
     @PostMapping("/release-decision/save")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<byte[]> releaseDecisionSave(@RequestBody String payload) {
         ProxyByteResponse proxyResponse = aiProxyService.forwardJson("/ai/release-decision/save", payload);
         return toByteResponse(proxyResponse);

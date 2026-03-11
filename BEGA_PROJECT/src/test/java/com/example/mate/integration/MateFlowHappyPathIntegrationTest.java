@@ -160,7 +160,6 @@ class MateFlowHappyPathIntegrationTest {
     @DisplayName("Happy path: 파티 생성 -> 결제 승인 신청 -> 호스트 승인 -> 채팅 -> 체크인 -> 자동 COMPLETED")
     void happyPath_endToEndFlow() throws Exception {
         String createPartyBody = objectMapper.writeValueAsString(Map.ofEntries(
-                Map.entry("hostName", "Happy Host"),
                 Map.entry("teamId", "LG"),
                 Map.entry("gameDate", LocalDate.now().plusDays(1).toString()),
                 Map.entry("gameTime", "18:30:00"),
@@ -309,7 +308,6 @@ class MateFlowHappyPathIntegrationTest {
     @DisplayName("Happy path: 판매 전환(PENDING->SELLING) 후 SELLING_FULL 결제 승인 성공")
     void sellingFlow_convertAndConfirmPayment() throws Exception {
         String createPartyBody = objectMapper.writeValueAsString(Map.ofEntries(
-                Map.entry("hostName", "Happy Host"),
                 Map.entry("teamId", "LG"),
                 Map.entry("gameDate", LocalDate.now().plusDays(1).toString()),
                 Map.entry("gameTime", "18:30:00"),

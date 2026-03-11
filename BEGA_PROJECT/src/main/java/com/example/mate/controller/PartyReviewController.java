@@ -43,13 +43,4 @@ public class PartyReviewController {
         List<PartyReviewDTO.Response> reviews = partyReviewService.getReviewsByParty(partyId);
         return ResponseEntity.ok(reviews);
     }
-
-    /**
-     * 사용자의 평균 평점 조회
-     */
-    @GetMapping("/user/{userId}/average")
-    public ResponseEntity<Double> getAverageRating(@PathVariable Long userId) {
-        Double averageRating = partyReviewService.getAverageRating(userId);
-        return ResponseEntity.ok(averageRating);
-    }
 }

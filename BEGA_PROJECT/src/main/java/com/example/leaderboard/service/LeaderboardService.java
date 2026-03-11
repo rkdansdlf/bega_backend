@@ -2,6 +2,8 @@ package com.example.leaderboard.service;
 
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.service.PublicVisibilityVerifier;
+import com.example.common.exception.UserNotFoundException;
 import com.example.leaderboard.dto.*;
 import com.example.leaderboard.entity.ScoreEvent;
 import com.example.leaderboard.entity.UserScore;
@@ -10,6 +12,7 @@ import com.example.leaderboard.repository.UserScoreRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -35,6 +38,7 @@ public class LeaderboardService {
     private final UserScoreRepository userScoreRepository;
     private final ScoreEventRepository scoreEventRepository;
     private final UserRepository userRepository;
+    private final PublicVisibilityVerifier publicVisibilityVerifier;
 
     /**
      * 리더보드 조회
@@ -42,7 +46,7 @@ public class LeaderboardService {
      * @param page 페이지 번호
      * @param size 페이지 크기
      */
-    public Page<LeaderboardEntryDto> getLeaderboard(String type, int page, int size) {
+    public Page<LeaderboardEntryDto> getLeaderboard(String type, int page, int size, Long viewerId) {
         Pageable pageable = PageRequest.of(page, size);
 
         Page<UserScore> scorePage = switch (type.toLowerCase()) {
@@ -61,22 +65,12 @@ public class LeaderboardService {
         // 랭크 계산 (페이지 오프셋 기반)
         long startRank = (long) page * size + 1;
 
-        return scorePage.map(userScore -> {
-            UserEntity user = userMap.get(userScore.getUserId());
-            String nickname = user != null ? user.getName() : "Unknown";
-            String profileUrl = user != null ? user.getProfileImageUrl() : null;
+        List<LeaderboardEntryDto> visibleEntries = scorePage.getContent().stream()
+                .map(userScore -> buildVisibleLeaderboardEntry(userScore, userMap, viewerId, type, startRank, scorePage))
+                .filter(java.util.Objects::nonNull)
+                .toList();
 
-            long rank = startRank + scorePage.getContent().indexOf(userScore);
-
-            Long score = switch (type.toLowerCase()) {
-                case "season" -> userScore.getSeasonScore();
-                case "monthly" -> userScore.getMonthlyScore();
-                case "weekly" -> userScore.getWeeklyScore();
-                default -> userScore.getTotalScore();
-            };
-
-            return LeaderboardEntryDto.fromWithScore(userScore, rank, score, nickname, profileUrl);
-        });
+        return new PageImpl<>(visibleEntries, pageable, visibleEntries.size());
     }
 
     /**
@@ -87,10 +81,11 @@ public class LeaderboardService {
                 .orElseGet(() -> UserScore.createForUser(userId));
 
         UserEntity user = userRepository.findById(userId).orElse(null);
+        String handle = user != null ? user.getHandle() : null;
         String nickname = user != null ? user.getName() : "Unknown";
         String profileUrl = user != null ? user.getProfileImageUrl() : null;
 
-        UserStatsDto stats = UserStatsDto.from(userScore, nickname, profileUrl);
+        UserStatsDto stats = UserStatsDto.from(userScore, handle, nickname, profileUrl);
 
         // 랭킹 정보 추가
         stats.setTotalRank(userScoreRepository.findTotalRankByScore(userScore.getTotalScore()));
@@ -100,6 +95,12 @@ public class LeaderboardService {
         stats.setRank(stats.getSeasonRank());
 
         return stats;
+    }
+
+    public UserStatsDto getUserStatsByHandle(String handle, Long viewerId) {
+        UserEntity user = findUserByHandleOrThrow(handle);
+        publicVisibilityVerifier.validate(user, viewerId, "리더보드 정보");
+        return getUserStats(user.getId());
     }
 
     /**
@@ -118,6 +119,12 @@ public class LeaderboardService {
                 .build();
     }
 
+    public UserRankDto getUserRankByHandle(String handle, Long viewerId) {
+        UserEntity user = findUserByHandleOrThrow(handle);
+        publicVisibilityVerifier.validate(user, viewerId, "리더보드 정보");
+        return getUserRank(user.getId());
+    }
+
     /**
      * 현재 사용자 또는 새 사용자의 점수 데이터 조회/생성
      */
@@ -130,7 +137,7 @@ public class LeaderboardService {
     /**
      * 핫 스트릭 목록 조회 (연승 중인 유저들)
      */
-    public List<HotStreakDto> getHotStreaks(int minStreak, int limit) {
+    public List<HotStreakDto> getHotStreaks(int minStreak, int limit, Long viewerId) {
         Pageable pageable = PageRequest.of(0, limit);
         List<UserScore> hotStreakers = userScoreRepository.findHotStreaks(minStreak, pageable);
 
@@ -138,11 +145,13 @@ public class LeaderboardService {
         Map<Long, UserEntity> userMap = getUserMap(userIds);
 
         return hotStreakers.stream()
+                .filter(userScore -> isVisible(userMap.get(userScore.getUserId()), viewerId))
                 .map(userScore -> {
                     UserEntity user = userMap.get(userScore.getUserId());
+                    String handle = user != null ? user.getHandle() : null;
                     String nickname = user != null ? user.getName() : "Unknown";
                     String profileUrl = user != null ? user.getProfileImageUrl() : null;
-                    return HotStreakDto.from(userScore, nickname, profileUrl);
+                    return HotStreakDto.from(userScore, handle, nickname, profileUrl);
                 })
                 .toList();
     }
@@ -150,7 +159,7 @@ public class LeaderboardService {
     /**
      * 최근 점수 획득 이벤트 조회 (글로벌 피드)
      */
-    public List<RecentScoreDto> getRecentScores(int limit) {
+    public List<RecentScoreDto> getRecentScores(int limit, Long viewerId) {
         Pageable pageable = PageRequest.of(0, limit);
         List<ScoreEvent> recentEvents = scoreEventRepository.findRecentScores(pageable);
 
@@ -158,11 +167,13 @@ public class LeaderboardService {
         Map<Long, UserEntity> userMap = getUserMap(userIds);
 
         return recentEvents.stream()
+                .filter(event -> isVisible(userMap.get(event.getUserId()), viewerId))
                 .map(event -> {
                     UserEntity user = userMap.get(event.getUserId());
+                    String handle = user != null ? user.getHandle() : null;
                     String nickname = user != null ? user.getName() : "Unknown";
                     String profileUrl = user != null ? user.getProfileImageUrl() : null;
-                    return RecentScoreDto.from(event, nickname, profileUrl);
+                    return RecentScoreDto.from(event, handle, nickname, profileUrl);
                 })
                 .toList();
     }
@@ -175,10 +186,11 @@ public class LeaderboardService {
         Page<ScoreEvent> events = scoreEventRepository.findByUserId(userId, pageable);
 
         Optional<UserEntity> user = userRepository.findById(userId);
+        String handle = user.map(UserEntity::getHandle).orElse(null);
         String nickname = user.map(UserEntity::getName).orElse("Unknown");
         String profileUrl = user.map(UserEntity::getProfileImageUrl).orElse(null);
 
-        return events.map(event -> RecentScoreDto.from(event, nickname, profileUrl));
+        return events.map(event -> RecentScoreDto.from(event, handle, nickname, profileUrl));
     }
 
     /**
@@ -242,5 +254,48 @@ public class LeaderboardService {
     private Map<Long, UserEntity> getUserMap(List<Long> userIds) {
         return userRepository.findAllById(userIds).stream()
                 .collect(Collectors.toMap(UserEntity::getId, Function.identity()));
+    }
+
+    private LeaderboardEntryDto buildVisibleLeaderboardEntry(
+            UserScore userScore,
+            Map<Long, UserEntity> userMap,
+            Long viewerId,
+            String type,
+            long startRank,
+            Page<UserScore> scorePage) {
+        UserEntity user = userMap.get(userScore.getUserId());
+        if (!isVisible(user, viewerId)) {
+            return null;
+        }
+
+        String handle = user.getHandle();
+        String nickname = user.getName();
+        String profileUrl = user.getProfileImageUrl();
+
+        long rank = startRank + scorePage.getContent().stream()
+                .filter(score -> isVisible(userMap.get(score.getUserId()), viewerId))
+                .toList()
+                .indexOf(userScore);
+
+        Long score = switch (type.toLowerCase()) {
+            case "season" -> userScore.getSeasonScore();
+            case "monthly" -> userScore.getMonthlyScore();
+            case "weekly" -> userScore.getWeeklyScore();
+            default -> userScore.getTotalScore();
+        };
+
+        return LeaderboardEntryDto.fromWithScore(userScore, rank, score, handle, nickname, profileUrl);
+    }
+
+    private boolean isVisible(UserEntity user, Long viewerId) {
+        return user != null && publicVisibilityVerifier.canAccess(user, viewerId);
+    }
+
+    private UserEntity findUserByHandleOrThrow(String handle) {
+        String normalizedHandle = handle == null || handle.isBlank()
+                ? handle
+                : (handle.startsWith("@") ? handle : "@" + handle);
+        return userRepository.findByHandle(normalizedHandle)
+                .orElseThrow(() -> new UserNotFoundException("handle", handle));
     }
 }

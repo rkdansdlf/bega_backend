@@ -7,8 +7,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 @RestController
 @RequestMapping("/api/checkin")
 @RequiredArgsConstructor
@@ -48,22 +46,29 @@ public class CheckInRecordController {
 
     // 파티별 체크인 기록 조회
     @GetMapping("/party/{partyId}")
-    public ResponseEntity<java.util.List<CheckInRecordDTO.Response>> getCheckInsByPartyId(@PathVariable Long partyId) {
-        java.util.List<CheckInRecordDTO.Response> records = checkInRecordService.getCheckInsByPartyId(partyId);
+    public ResponseEntity<java.util.List<CheckInRecordDTO.Response>> getCheckInsByPartyId(
+            @PathVariable Long partyId,
+            java.security.Principal principal) {
+        java.util.List<CheckInRecordDTO.Response> records = checkInRecordService.getCheckInsByPartyId(partyId,
+                principal);
         return ResponseEntity.ok(records);
     }
 
     // 사용자별 체크인 기록 조회
     @GetMapping("/user/{userId}")
-    public ResponseEntity<java.util.List<CheckInRecordDTO.Response>> getCheckInsByUserId(@PathVariable Long userId) {
-        java.util.List<CheckInRecordDTO.Response> records = checkInRecordService.getCheckInsByUserId(userId);
+    public ResponseEntity<java.util.List<CheckInRecordDTO.Response>> getCheckInsByUserId(
+            @PathVariable Long userId,
+            java.security.Principal principal) {
+        java.util.List<CheckInRecordDTO.Response> records = checkInRecordService.getCheckInsByUserId(userId, principal);
         return ResponseEntity.ok(records);
     }
 
     // 파티별 체크인 인원 수 조회
     @GetMapping("/party/{partyId}/count")
-    public ResponseEntity<Long> getCheckInCount(@PathVariable Long partyId) {
-        long count = checkInRecordService.getCheckInCount(partyId);
+    public ResponseEntity<Long> getCheckInCount(
+            @PathVariable Long partyId,
+            java.security.Principal principal) {
+        long count = checkInRecordService.getCheckInCount(partyId, principal);
         return ResponseEntity.ok(count);
     }
 

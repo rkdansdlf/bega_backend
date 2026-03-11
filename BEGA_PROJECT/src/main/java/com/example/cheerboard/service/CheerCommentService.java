@@ -10,6 +10,7 @@ import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.BlockService;
+import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.common.exception.InvalidAuthorException;
 import com.example.common.service.AIModerationService;
 import com.example.notification.service.NotificationService;
@@ -50,6 +51,7 @@ public class CheerCommentService {
     private final UserRepository userRepo;
     private final NotificationService notificationService;
     private final BlockService blockService;
+    private final PublicVisibilityVerifier publicVisibilityVerifier;
     private final PermissionValidator permissionValidator;
     private final AIModerationService moderationService;
     private final CommentDtoMapper commentDtoMapper;
@@ -58,7 +60,9 @@ public class CheerCommentService {
     @Transactional(readOnly = true)
     public Page<CommentRes> listComments(Long postId, Pageable pageable, UserEntity me) {
         // me can be null
-        postService.findPostById(postId);
+        CheerPost post = postService.findPostById(postId);
+        CheerPost targetPost = resolveActionTargetPost(post);
+        publicVisibilityVerifier.validate(targetPost.getAuthor(), me != null ? me.getId() : null, "댓글");
 
         // [NEW] 차단 유저 등 필터링 필요시 추가 - CheerService logic didn't explicitly filter
         // listComments by block,
@@ -123,6 +127,7 @@ public class CheerCommentService {
         // Logic: if repost, go to repostOf.
         CheerPost targetPost = resolveActionTargetPost(post);
 
+        publicVisibilityVerifier.validate(targetPost.getAuthor(), author.getId(), "게시글");
         validateNoBlockBetween(author.getId(), targetPost.getAuthor().getId(), "차단 관계가 있어 댓글을 작성할 수 없습니다.");
 
         permissionValidator.validateTeamAccess(author, targetPost.getTeamId(), "댓글 작성");
@@ -183,6 +188,7 @@ public class CheerCommentService {
         CheerPost targetPost = resolveActionTargetPost(post);
         CheerComment parentComment = findCommentById(parentCommentId);
 
+        publicVisibilityVerifier.validate(targetPost.getAuthor(), author.getId(), "게시글");
         validateNoBlockBetween(author.getId(), targetPost.getAuthor().getId(), "원글 작성자와 차단 관계가 있어 답글을 작성할 수 없습니다.");
         validateNoBlockBetween(author.getId(), parentComment.getAuthor().getId(), "댓글 작성자와 차단 관계가 있어 답글을 작성할 수 없습니다.");
 

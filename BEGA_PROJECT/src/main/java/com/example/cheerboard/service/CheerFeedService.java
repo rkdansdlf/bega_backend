@@ -10,6 +10,8 @@ import com.example.cheerboard.storage.service.ImageService;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.service.BlockService;
 import com.example.auth.service.FollowService;
+import com.example.auth.service.PublicVisibilityVerifier;
+import com.example.auth.service.UserService;
 import com.example.kbo.util.TeamCodeNormalizer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +44,8 @@ public class CheerFeedService {
     private final PopularFeedScoringService popularFeedScoringService;
     private final FollowService followService;
     private final BlockService blockService;
+    private final PublicVisibilityVerifier publicVisibilityVerifier;
+    private final UserService userService;
     private final PermissionValidator permissionValidator;
     private final PostDtoMapper postDtoMapper;
     private final com.example.cheerboard.repo.CheerBookmarkRepo bookmarkRepo;
@@ -153,13 +157,15 @@ public class CheerFeedService {
                             pageable);
         }
 
-        List<Long> postIds = page.hasContent()
-                ? page.getContent().stream().map(CheerPost::getId).toList()
+        List<CheerPost> visiblePosts = filterVisiblePosts(page.getContent(), me);
+
+        List<Long> postIds = !visiblePosts.isEmpty()
+                ? visiblePosts.stream().map(CheerPost::getId).toList()
                 : Collections.emptyList();
 
         Map<Long, List<String>> imageUrlsByPostId = safeGetPostImageUrls(postIds);
 
-        return page.map(post -> {
+        List<PostLightweightSummaryRes> content = visiblePosts.stream().map(post -> {
             try {
                 List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
                 return postDtoMapper.toPostLightweightSummaryRes(post, imageUrls);
@@ -168,7 +174,9 @@ public class CheerFeedService {
                         post.getId(), e);
                 return buildFallbackPostLightweightSummary(post);
             }
-        });
+        }).toList();
+
+        return new PageImpl<>(content, pageable, page.getTotalElements());
     }
 
     private com.example.cheerboard.dto.PostLightweightSummaryRes buildFallbackPostLightweightSummary(CheerPost post) {
@@ -179,7 +187,6 @@ public class CheerFeedService {
                 post.getLikeCount(),
                 post.getCommentCount(),
                 post.getCreatedAt(),
-                post.getAuthor() != null ? post.getAuthor().getId() : null,
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor() != null ? resolveAuthorProfileImageUrl(post.getAuthor()) : null);
     }
@@ -194,8 +201,15 @@ public class CheerFeedService {
             permissionValidator.validateTeamAccess(me, normalizedTeamId, "게시글 조회");
         }
 
-        int newCount = postRepo.countNewPostsSince(sinceId != null ? sinceId : 0L, normalizedTeamId);
-        Long latestId = postRepo.findLatestPostId(normalizedTeamId);
+        long resolvedSinceId = sinceId != null ? sinceId : 0L;
+        List<CheerPost> visibleNewPosts = filterVisiblePosts(
+                postRepo.findNewPostsSinceOrderByIdDesc(resolvedSinceId, normalizedTeamId),
+                me);
+        int newCount = visibleNewPosts.size();
+        Long latestId = visibleNewPosts.stream()
+                .map(CheerPost::getId)
+                .max(Long::compareTo)
+                .orElse(sinceId);
 
         return new PostChangesResponse(newCount, latestId);
     }
@@ -225,7 +239,9 @@ public class CheerFeedService {
 
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> listByUserHandle(String handle, Pageable pageable, UserEntity me) {
-        Page<CheerPost> page = postRepo.findByAuthor_HandleOrderByCreatedAtDesc(handle, pageable);
+        Long viewerId = me != null ? me.getId() : null;
+        String normalizedHandle = userService.getPublicUserProfileByHandle(handle, viewerId).getHandle();
+        Page<CheerPost> page = postRepo.findByAuthor_HandleOrderByCreatedAtDesc(normalizedHandle, pageable);
         return buildPostSummaryPage(page, me);
     }
 
@@ -367,7 +383,12 @@ public class CheerFeedService {
     }
 
     private List<PostSummaryRes> buildPostSummaries(List<CheerPost> posts, UserEntity me) {
-        List<Long> postIds = posts.stream().map(CheerPost::getId).toList();
+        List<CheerPost> visiblePosts = filterVisiblePosts(posts, me);
+        if (visiblePosts.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Long> postIds = visiblePosts.stream().map(CheerPost::getId).toList();
 
         Map<Long, List<String>> imageUrlsByPostId = safeGetPostImageUrls(postIds);
         Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(posts);
@@ -380,7 +401,7 @@ public class CheerFeedService {
         Set<Long> bookmarkedPostIds = (me != null) ? safeGetBookmarkedPostIds(me, postIds) : Collections.emptySet();
         Set<Long> repostedPostIds = (me != null) ? safeGetRepostedPostIds(me, postIds) : Collections.emptySet();
 
-        return posts.stream()
+        return visiblePosts.stream()
                 .map(post -> {
                     try {
                         boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
@@ -403,6 +424,17 @@ public class CheerFeedService {
                 .collect(Collectors.toList());
     }
 
+    private List<CheerPost> filterVisiblePosts(List<CheerPost> posts, UserEntity me) {
+        if (posts == null || posts.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Long viewerId = me != null ? me.getId() : null;
+        return posts.stream()
+                .filter(post -> post.getAuthor() == null || publicVisibilityVerifier.canAccess(post.getAuthor(), viewerId))
+                .toList();
+    }
+
     private PostSummaryRes buildFallbackPostSummary(
             CheerPost post,
             UserEntity me,
@@ -419,7 +451,6 @@ public class CheerFeedService {
                 resolveTeamColor(post.getTeam()),
                 post.getContent(),
                 resolveDisplayName(post.getAuthor()),
-                post.getAuthor().getId(),
                 post.getAuthor().getHandle(),
                 resolveAuthorProfileImageUrl(post.getAuthor()),
                 post.getAuthor().getFavoriteTeamId(),
@@ -456,12 +487,15 @@ public class CheerFeedService {
 
     private String resolveDisplayName(com.example.auth.entity.UserEntity author) {
         if (author == null) {
-            return null;
+            return "사용자";
         }
         if (author.getName() != null && !author.getName().isBlank()) {
             return author.getName();
         }
-        return author.getEmail();
+        if (author.getHandle() != null && !author.getHandle().isBlank()) {
+            return author.getHandle();
+        }
+        return "사용자";
     }
 
     private String resolveAuthorProfileImageUrl(com.example.auth.entity.UserEntity author) {

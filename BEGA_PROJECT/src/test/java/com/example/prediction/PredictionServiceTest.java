@@ -17,6 +17,7 @@ import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.GameInningScoreRepository;
 import com.example.kbo.repository.GameMetadataRepository;
 import com.example.kbo.repository.GameSummaryRepository;
+import com.example.kbo.service.LeagueStageResolver;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
@@ -59,6 +60,7 @@ class PredictionServiceTest {
 
     @BeforeEach
     void setUp() {
+        LeagueStageResolver leagueStageResolver = new LeagueStageResolver(gameRepository);
         predictionService = new PredictionService(
                 predictionRepository,
                 gameRepository,
@@ -66,7 +68,8 @@ class PredictionServiceTest {
                 gameInningScoreRepository,
                 gameSummaryRepository,
                 voteFinalResultRepository,
-                userRepository
+                userRepository,
+                leagueStageResolver
         );
     }
 
@@ -138,6 +141,45 @@ class PredictionServiceTest {
         assertThat(match.getLeagueType()).isEqualTo("POST");
         assertThat(match.getPostSeasonSeries()).isEqualTo("PO");
         assertThat(match.getSeriesGameNo()).isEqualTo(3);
+    }
+
+    @Test
+    void getMatchesByDateRangeShouldInferPostseasonRoundFromConfiguredStartDatesWhenSeasonTypeIsInflated() {
+        LocalDate gameDate = LocalDate.of(2025, 10, 18);
+        GameEntity postseasonGame = buildGame("202510180002", gameDate, "SS", "HH", false);
+        postseasonGame.setSeasonId(264);
+        Pageable pageRequest = PageRequest.of(0, 1000);
+
+        when(gameRepository.findCanonicalByDateRange(
+                any(LocalDate.class),
+                any(LocalDate.class),
+                anyList(),
+                any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(postseasonGame), pageRequest, 1));
+        when(gameRepository.findLeagueTypeCodeBySeasonId(264)).thenReturn(Optional.of(5));
+        when(gameRepository.findConfiguredStartDateByTypeFromSeasonYear(2, 2025))
+                .thenReturn(Optional.of(LocalDate.of(2025, 10, 6)));
+        when(gameRepository.findConfiguredStartDateByTypeFromSeasonYear(3, 2025))
+                .thenReturn(Optional.of(LocalDate.of(2025, 10, 9)));
+        when(gameRepository.findConfiguredStartDateByTypeFromSeasonYear(4, 2025))
+                .thenReturn(Optional.of(LocalDate.of(2025, 10, 18)));
+        when(gameRepository.findConfiguredStartDateByTypeFromSeasonYear(5, 2025))
+                .thenReturn(Optional.of(LocalDate.of(2025, 10, 26)));
+        when(gameRepository.countPreviousCompletedSeriesGames(
+                264,
+                "SS",
+                "HH",
+                gameDate,
+                "202510180002"
+        )).thenReturn(1L);
+
+        List<MatchDto> matches = predictionService.getMatchesByDateRange(gameDate, gameDate);
+
+        assertThat(matches).hasSize(1);
+        MatchDto match = matches.get(0);
+        assertThat(match.getLeagueType()).isEqualTo("POST");
+        assertThat(match.getPostSeasonSeries()).isEqualTo("PO");
+        assertThat(match.getSeriesGameNo()).isEqualTo(2);
     }
 
     @Test

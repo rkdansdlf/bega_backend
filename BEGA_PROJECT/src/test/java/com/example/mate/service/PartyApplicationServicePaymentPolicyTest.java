@@ -10,6 +10,7 @@ import com.example.mate.entity.PartyApplication;
 import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
+import com.example.mate.repository.PartyReviewRepository;
 import com.example.notification.service.NotificationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,8 @@ class PartyApplicationServicePaymentPolicyTest {
     private PartyApplicationRepository applicationRepository;
     @Mock
     private PartyRepository partyRepository;
+    @Mock
+    private PartyReviewRepository partyReviewRepository;
     @Mock
     private PartyService partyService;
     @Mock

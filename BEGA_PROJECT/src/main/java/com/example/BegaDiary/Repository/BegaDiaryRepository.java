@@ -75,4 +75,22 @@ public interface BegaDiaryRepository extends JpaRepository<BegaDiary, Long> {
                      @Param("type") DiaryType type,
                      Pageable pageable);
 
+       @Query("""
+                     SELECT d FROM BegaDiary d
+                     WHERE d.stadium = :stadium
+                       AND (:section IS NULL OR :section = '' OR d.section = :section)
+                       AND d.type = :type
+                       AND d.photoUrls IS NOT EMPTY
+                       AND NOT EXISTS (
+                           SELECT 1 FROM SeatViewPhoto sv
+                           WHERE sv.diary = d
+                       )
+                     ORDER BY d.diaryDate DESC
+                     """)
+       List<BegaDiary> findLegacySeatViewPhotos(
+                     @Param("stadium") String stadium,
+                     @Param("section") String section,
+                     @Param("type") DiaryType type,
+                     Pageable pageable);
+
 }

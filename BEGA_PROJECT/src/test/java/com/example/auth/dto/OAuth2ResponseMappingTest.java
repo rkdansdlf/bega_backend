@@ -21,6 +21,42 @@ class OAuth2ResponseMappingTest {
     }
 
     @Test
+    void googleResponse_authoritativeWhenVerifiedGmail() {
+        Map<String, Object> attributes = new HashMap<>();
+        attributes.put("email", "user@gmail.com");
+        attributes.put("email_verified", true);
+
+        OAuth2Response response = new GoogleResponse(attributes);
+
+        assertThat(response.isEmailVerified()).isTrue();
+        assertThat(response.isAuthoritativeForAutoLink()).isTrue();
+    }
+
+    @Test
+    void googleResponse_authoritativeWhenHostedDomainVerified() {
+        Map<String, Object> attributes = new HashMap<>();
+        attributes.put("email", "user@company.com");
+        attributes.put("email_verified", "true");
+        attributes.put("hd", "company.com");
+
+        OAuth2Response response = new GoogleResponse(attributes);
+
+        assertThat(response.isAuthoritativeForAutoLink()).isTrue();
+    }
+
+    @Test
+    void googleResponse_notAuthoritativeWithoutVerifiedEmail() {
+        Map<String, Object> attributes = new HashMap<>();
+        attributes.put("email", "user@gmail.com");
+        attributes.put("email_verified", false);
+
+        OAuth2Response response = new GoogleResponse(attributes);
+
+        assertThat(response.isEmailVerified()).isFalse();
+        assertThat(response.isAuthoritativeForAutoLink()).isFalse();
+    }
+
+    @Test
     void kakaoResponse_prefersProfileImageUrl() {
         Map<String, Object> profile = new HashMap<>();
         profile.put("nickname", "kakaoUser");
@@ -71,6 +107,27 @@ class OAuth2ResponseMappingTest {
     }
 
     @Test
+    void kakaoResponse_treatsVerifiedEmailAsAuthoritative() {
+        Map<String, Object> profile = new HashMap<>();
+        profile.put("nickname", "kakaoUser");
+
+        Map<String, Object> kakaoAccount = new HashMap<>();
+        kakaoAccount.put("profile", profile);
+        kakaoAccount.put("email", "user@example.com");
+        kakaoAccount.put("is_email_valid", true);
+        kakaoAccount.put("is_email_verified", true);
+
+        Map<String, Object> attributes = new HashMap<>();
+        attributes.put("id", "123456789");
+        attributes.put("kakao_account", kakaoAccount);
+
+        OAuth2Response response = new KaKaoResponse(attributes);
+
+        assertThat(response.isEmailVerified()).isTrue();
+        assertThat(response.isAuthoritativeForAutoLink()).isTrue();
+    }
+
+    @Test
     void naverResponse_profileImage_blankIsNull() {
         Map<String, Object> response = Map.of("profile_image", "   ");
 
@@ -104,5 +161,17 @@ class OAuth2ResponseMappingTest {
         assertThat(response.getEmail()).isNull();
         assertThat(response.getName()).isNull();
         assertThat(response.getProfileImageUrl()).isNull();
+    }
+
+    @Test
+    void naverResponse_isNotAuthoritativeForAutoLink() {
+        Map<String, Object> response = new HashMap<>();
+        response.put("id", "naver-user");
+        response.put("email", "user@naver.com");
+
+        OAuth2Response oauthResponse = new NaverResponse(Map.of("response", response));
+
+        assertThat(oauthResponse.isEmailVerified()).isFalse();
+        assertThat(oauthResponse.isAuthoritativeForAutoLink()).isFalse();
     }
 }
