@@ -26,4 +26,9 @@ public @interface RateLimit {
      * 제한 구분 키 (기본값은 빈 문자열로, 엔드포인트와 IP/ID로 자동 생성)
      */
     String key() default "";
+
+    /**
+     * 레이트리밋 저장소 장애 시 요청을 차단할지 여부
+     */
+    boolean failClosed() default false;
 }

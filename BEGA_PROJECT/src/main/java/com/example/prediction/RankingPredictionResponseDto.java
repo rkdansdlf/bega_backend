@@ -9,16 +9,16 @@ import lombok.Getter;
 public class RankingPredictionResponseDto {
 
 	private Long id;
-	private String userId;
+	private String shareId;
 	private int seasonYear;
 	private List<String> teamIdsInOrder;
 	private List<TeamRankingDetail> teamDetails; // 상세 정보 추가
 	private LocalDateTime createdAt;
 
-	public RankingPredictionResponseDto(Long id, String userId, int seasonYear, List<String> teamIdsInOrder,
+	public RankingPredictionResponseDto(Long id, String shareId, int seasonYear, List<String> teamIdsInOrder,
 			List<TeamRankingDetail> teamDetails, LocalDateTime createdAt) {
 		this.id = id;
-		this.userId = userId;
+		this.shareId = shareId;
 		this.seasonYear = seasonYear;
 		this.teamIdsInOrder = teamIdsInOrder;
 		this.teamDetails = teamDetails;

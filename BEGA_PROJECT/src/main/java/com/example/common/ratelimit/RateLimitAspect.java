@@ -1,6 +1,8 @@
 package com.example.common.ratelimit;
 
+import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.common.exception.RateLimitExceededException;
+import com.example.common.web.ClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +25,8 @@ import java.lang.reflect.Method;
 public class RateLimitAspect {
 
     private final RateLimitService rateLimitService;
+    private final ClientIpResolver clientIpResolver;
+    private final AuthSecurityMonitoringService authSecurityMonitoringService;
 
     @Before("@annotation(com.example.common.ratelimit.RateLimit)")
     public void checkRateLimit(JoinPoint joinPoint) {
@@ -46,7 +50,10 @@ public class RateLimitAspect {
         int limit = annotation.limit();
         int window = annotation.window();
 
-        if (!rateLimitService.isAllowed(key, limit, window)) {
+        if (!rateLimitService.isAllowed(key, limit, window, annotation.failClosed())) {
+            if (isAuthRateLimit(annotation)) {
+                authSecurityMonitoringService.recordAuthRateLimitReject();
+            }
             log.warn("Rate limit exceeded for key: {}", key);
             throw new RateLimitExceededException("너무 많은 요청을 보냈습니다. 잠시 후 다시 시도해주세요.");
         }
@@ -69,7 +76,7 @@ public class RateLimitAspect {
         if (auth != null && auth.isAuthenticated() && !auth.getPrincipal().equals("anonymousUser")) {
             clientIdentifier = auth.getName(); // Email or Username
         } else {
-            clientIdentifier = getClientIP(request);
+            clientIdentifier = clientIpResolver.resolveOrUnknown(request);
         }
 
         // 3. 사용자 정의 키가 있으면 추가
@@ -81,11 +88,7 @@ public class RateLimitAspect {
         return String.format("rate:limit:%s:%s", endpoint, clientIdentifier);
     }
 
-    private String getClientIP(HttpServletRequest request) {
-        String xfHeader = request.getHeader("X-Forwarded-For");
-        if (xfHeader == null) {
-            return request.getRemoteAddr();
-        }
-        return xfHeader.split(",")[0].trim();
+    private boolean isAuthRateLimit(RateLimit annotation) {
+        return annotation != null && annotation.key().startsWith("auth:");
     }
 }

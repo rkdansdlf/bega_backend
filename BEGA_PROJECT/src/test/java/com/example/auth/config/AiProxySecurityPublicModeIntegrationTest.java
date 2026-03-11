@@ -57,6 +57,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AiProxySecurityPublicModeIntegrationTest {
 
     private static final String CHAT_ENDPOINT = "/api/ai/chat/completion";
+    private static final String RELEASE_DECISION_PRESETS_ENDPOINT = "/api/ai/release-decision/presets";
     private static final String PAYLOAD = "{\"question\":\"테스트\"}";
     private static final byte[] RESPONSE_BODY = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
 
@@ -70,6 +71,8 @@ class AiProxySecurityPublicModeIntegrationTest {
     void setUp() {
         reset(aiProxyService);
         given(aiProxyService.forwardJson(eq("/ai/chat/completion"), eq(PAYLOAD)))
+                .willReturn(new ProxyByteResponse(HttpStatus.OK, new HttpHeaders(), RESPONSE_BODY));
+        given(aiProxyService.forwardGet(eq("/ai/release-decision/presets")))
                 .willReturn(new ProxyByteResponse(HttpStatus.OK, new HttpHeaders(), RESPONSE_BODY));
     }
 
@@ -96,5 +99,34 @@ class AiProxySecurityPublicModeIntegrationTest {
                 .andExpect(content().bytes(RESPONSE_BODY));
 
         verify(aiProxyService, times(1)).forwardJson("/ai/chat/completion", PAYLOAD);
+    }
+
+    @Test
+    @DisplayName("public dev/local mode still blocks unauthenticated release decision routes")
+    void releaseDecision_blocksUnauthenticatedRequestWhenPublicModeEnabled() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        RELEASE_DECISION_PRESETS_ENDPOINT))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("public dev/local mode still blocks non-admin release decision routes")
+    void releaseDecision_blocksAuthenticatedNonAdminWhenPublicModeEnabled() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        RELEASE_DECISION_PRESETS_ENDPOINT)
+                        .with(user("tester").roles("USER")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("public dev/local mode allows admin release decision routes")
+    void releaseDecision_allowsAdminWhenPublicModeEnabled() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        RELEASE_DECISION_PRESETS_ENDPOINT)
+                        .with(user("admin").roles("ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(RESPONSE_BODY));
+
+        verify(aiProxyService).forwardGet("/ai/release-decision/presets");
     }
 }

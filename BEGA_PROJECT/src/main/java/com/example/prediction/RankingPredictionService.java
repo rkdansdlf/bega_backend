@@ -4,6 +4,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
+import java.util.UUID;
+
+import com.example.auth.entity.UserEntity;
+import com.example.auth.repository.UserRepository;
 import com.example.kbo.repository.GameRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -15,6 +19,7 @@ public class RankingPredictionService {
 	private final RankingPredictionRepository rankingPredictionRepository;
 	private final GameRepository gameRepository;
 	private final com.example.homepage.HomePageTeamRepository homePageTeamRepository;
+	private final UserRepository userRepository;
 
 	// 순위 예측을 저장 (수정 불가, 1회만 가능)
 	@Transactional(transactionManager = "transactionManager")
@@ -56,8 +61,12 @@ public class RankingPredictionService {
 	}
 
 	@Transactional(readOnly = true, transactionManager = "transactionManager")
-	public RankingPredictionResponseDto getPredictionByUserIdAndSeason(String userId, int seasonYear) {
-		return rankingPredictionRepository.findByUserIdAndSeasonYear(userId, seasonYear)
+	public RankingPredictionResponseDto getPredictionByShareIdAndSeason(String shareId, int seasonYear) {
+		UserEntity user = findUserByShareId(shareId);
+		if (user == null) {
+			return null;
+		}
+		return rankingPredictionRepository.findByUserIdAndSeasonYear(String.valueOf(user.getId()), seasonYear)
 				.map(this::convertToResponseDto)
 				.orElse(null);
 	}
@@ -96,7 +105,7 @@ public class RankingPredictionService {
 
 		return Objects.requireNonNull(new RankingPredictionResponseDto(
 				prediction.getId(),
-				prediction.getUserId(),
+				resolveShareId(prediction.getUserId()),
 				prediction.getSeasonYear(),
 				prediction.getPredictionData(),
 				details,
@@ -109,6 +118,39 @@ public class RankingPredictionService {
 					"현재는 순위 예측 기간이 아닙니다. (예측 가능 기간: 11월 1일 ~ 5월 31일)");
 		}
 		return SeasonUtils.getCurrentPredictionSeason();
+	}
+
+	private UserEntity findUserByShareId(String shareId) {
+		if (shareId == null || shareId.isBlank()) {
+			throw new IllegalArgumentException("공유 식별자가 필요합니다.");
+		}
+
+		final UUID uniqueId;
+		try {
+			uniqueId = UUID.fromString(shareId.trim());
+		} catch (IllegalArgumentException ex) {
+			throw new IllegalArgumentException("공유 식별자 형식이 올바르지 않습니다.");
+		}
+
+		return userRepository.findByUniqueId(uniqueId).orElse(null);
+	}
+
+	private String resolveShareId(String userIdString) {
+		if (userIdString == null || userIdString.isBlank()) {
+			return null;
+		}
+
+		final Long userId;
+		try {
+			userId = Long.valueOf(userIdString);
+		} catch (NumberFormatException ex) {
+			return null;
+		}
+
+		return userRepository.findById(userId)
+				.map(UserEntity::getUniqueId)
+				.map(UUID::toString)
+				.orElse(null);
 	}
 
 }

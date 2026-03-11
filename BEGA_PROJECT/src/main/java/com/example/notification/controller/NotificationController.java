@@ -31,14 +31,6 @@ public class NotificationController {
         return ResponseEntity.ok(count);
     }
 
-    @GetMapping("/user/{userId}/unread-count")
-    public ResponseEntity<Long> getUnreadCountByUserId(
-            @PathVariable Long userId,
-            @AuthenticationPrincipal Long principalUserId) {
-        Long count = notificationService.getUnreadCountByUserId(userId, principalUserId);
-        return ResponseEntity.ok(count);
-    }
-
     // 알림 읽음 처리
     @PostMapping("/{notificationId}/read")
     public ResponseEntity<?> markAsRead(@PathVariable Long notificationId, @AuthenticationPrincipal Long userId) {

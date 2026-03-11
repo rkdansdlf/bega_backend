@@ -71,6 +71,12 @@ public class BlockService {
                 .build();
     }
 
+    @Transactional
+    public BlockToggleResponse toggleBlockByHandle(String handle) {
+        UserEntity target = findUserByHandleOrThrow(handle);
+        return toggleBlock(target.getId());
+    }
+
     /**
      * 차단 여부 확인
      */
@@ -111,6 +117,18 @@ public class BlockService {
         UserEntity me = currentUser.get();
         Page<UserEntity> blockedUsers = blockRepo.findBlockedByBlockerId(Objects.requireNonNull(me.getId()), pageable);
 
-        return blockedUsers.map(user -> UserFollowSummaryDto.from(user, false));
+        return blockedUsers.map(user -> UserFollowSummaryDto.fromPrivate(user, false));
+    }
+
+    private UserEntity findUserByHandleOrThrow(String handle) {
+        return userRepo.findByHandle(normalizeHandle(handle))
+                .orElseThrow(() -> new NoSuchElementException("사용자를 찾을 수 없습니다."));
+    }
+
+    private String normalizeHandle(String handle) {
+        if (handle == null || handle.isBlank()) {
+            throw new IllegalArgumentException("유효한 핸들이 필요합니다.");
+        }
+        return handle.startsWith("@") ? handle : "@" + handle;
     }
 }

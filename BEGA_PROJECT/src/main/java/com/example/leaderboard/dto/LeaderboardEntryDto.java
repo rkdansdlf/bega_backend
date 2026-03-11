@@ -15,7 +15,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class LeaderboardEntryDto {
     private Long rank;
-    private Long userId;
+    private String handle;
     private String userName;
     private String profileImageUrl;
     private Long score;
@@ -25,10 +25,10 @@ public class LeaderboardEntryDto {
     private Integer maxStreak;
     private Double accuracy;
 
-    public static LeaderboardEntryDto from(UserScore userScore, Long rank, String nickname, String profileImageUrl) {
+    public static LeaderboardEntryDto from(UserScore userScore, Long rank, String handle, String nickname, String profileImageUrl) {
         return LeaderboardEntryDto.builder()
                 .rank(rank)
-                .userId(userScore.getUserId())
+                .handle(handle)
                 .userName(nickname)
                 .profileImageUrl(profileImageUrl)
                 .score(userScore.getTotalScore())
@@ -40,10 +40,16 @@ public class LeaderboardEntryDto {
                 .build();
     }
 
-    public static LeaderboardEntryDto fromWithScore(UserScore userScore, Long rank, Long score, String nickname, String profileImageUrl) {
+    public static LeaderboardEntryDto fromWithScore(
+            UserScore userScore,
+            Long rank,
+            Long score,
+            String handle,
+            String nickname,
+            String profileImageUrl) {
         return LeaderboardEntryDto.builder()
                 .rank(rank)
-                .userId(userScore.getUserId())
+                .handle(handle)
                 .userName(nickname)
                 .profileImageUrl(profileImageUrl)
                 .score(score)

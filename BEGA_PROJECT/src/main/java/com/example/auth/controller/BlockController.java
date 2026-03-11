@@ -19,14 +19,11 @@ public class BlockController {
 
     private final BlockService blockService;
 
-    /**
-     * 차단 토글 (차단/차단해제)
-     */
-    @RateLimit(limit = 30, window = 60) // 1분에 최대 30번
-    @PostMapping("/{userId}/block")
+    @RateLimit(limit = 30, window = 60)
+    @PostMapping("/profile/{handle}/block")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<BlockToggleResponse> toggleBlock(@PathVariable Long userId) {
-        return ResponseEntity.ok(blockService.toggleBlock(userId));
+    public ResponseEntity<BlockToggleResponse> toggleBlockByHandle(@PathVariable String handle) {
+        return ResponseEntity.ok(blockService.toggleBlockByHandle(handle));
     }
 
     /**

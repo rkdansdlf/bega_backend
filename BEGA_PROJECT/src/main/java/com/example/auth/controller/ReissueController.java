@@ -21,6 +21,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.util.JWTUtil;
 import com.example.auth.repository.RefreshRepository;
+import com.example.common.web.ClientIpResolver;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -35,13 +36,15 @@ public class ReissueController {
     private final RefreshRepository refreshRepository;
     private final UserRepository userRepository;
     private final AuthCookieUtil authCookieUtil;
+    private final ClientIpResolver clientIpResolver;
 
     public ReissueController(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository,
-            AuthCookieUtil authCookieUtil) {
+            AuthCookieUtil authCookieUtil, ClientIpResolver clientIpResolver) {
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
         this.userRepository = userRepository;
         this.authCookieUtil = authCookieUtil;
+        this.clientIpResolver = clientIpResolver;
     }
 
     @PostMapping("/reissue")
@@ -143,7 +146,7 @@ public class ReissueController {
         existToken.setDeviceLabel(resolveDeviceLabel(userAgent, deviceType));
         existToken.setBrowser(resolveBrowser(userAgent));
         existToken.setOs(resolveOs(userAgent));
-        existToken.setIp(resolveIpAddress(request));
+        existToken.setIp(clientIpResolver.resolveOrUnknown(request));
         refreshRepository.save(existToken);
 
         // Access Token 쿠키
@@ -192,21 +195,6 @@ public class ReissueController {
                 "success", false,
                 "code", "INVALID_AUTHOR",
                 "message", message);
-    }
-
-    private String resolveIpAddress(HttpServletRequest request) {
-        String xff = request.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isBlank()) {
-            return xff.split(",")[0].trim();
-        }
-
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) {
-            return realIp.trim();
-        }
-
-        String remoteAddr = request.getRemoteAddr();
-        return remoteAddr != null ? remoteAddr : "unknown";
     }
 
     private String resolveDeviceType(String userAgent) {

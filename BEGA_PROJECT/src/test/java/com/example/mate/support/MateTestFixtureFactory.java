@@ -64,7 +64,6 @@ public final class MateTestFixtureFactory {
                 .hostId(hostId)
                 .hostName(hostName)
                 .hostBadge(Party.BadgeType.NEW)
-                .hostRating(5.0)
                 .teamId("LG")
                 .gameDate(gameDate)
                 .gameTime(gameTime)

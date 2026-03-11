@@ -452,6 +452,22 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
       @Param("seasonYear") int seasonYear);
 
   /**
+   * kbo_seasons 테이블 기준 시즌/리그 타입 시작일 조회
+   */
+  @Query(value = """
+      SELECT s.start_date
+      FROM kbo_seasons s
+      WHERE s.season_year = :seasonYear
+        AND s.league_type_code = :leagueTypeCode
+        AND s.start_date IS NOT NULL
+      ORDER BY s.season_id DESC
+      FETCH FIRST 1 ROWS ONLY
+      """, nativeQuery = true)
+  Optional<LocalDate> findConfiguredStartDateByTypeFromSeasonYear(
+      @Param("leagueTypeCode") int leagueTypeCode,
+      @Param("seasonYear") int seasonYear);
+
+  /**
    * 특정 리그 타입의 최근 시작일 조회 (기준일 이전)
    */
   @Query(value = """

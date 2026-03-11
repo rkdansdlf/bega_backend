@@ -80,7 +80,6 @@ class PartyServiceUserDeletionTest {
                 .ticketVerified(true)
                 .status(Party.PartyStatus.PENDING)
                 .hostBadge(Party.BadgeType.VERIFIED)
-                .hostRating(5.0)
                 .build();
 
         // MATCHED 파티 생성
@@ -101,7 +100,6 @@ class PartyServiceUserDeletionTest {
                 .ticketVerified(true)
                 .status(Party.PartyStatus.MATCHED)
                 .hostBadge(Party.BadgeType.TRUSTED)
-                .hostRating(4.8)
                 .build();
 
         // 승인된 신청들
@@ -239,7 +237,6 @@ class PartyServiceUserDeletionTest {
                 .ticketVerified(true)
                 .status(Party.PartyStatus.MATCHED)
                 .hostBadge(Party.BadgeType.VERIFIED)
-                .hostRating(4.7)
                 .build();
 
         when(partyRepository.findByHostIdAndStatusIn(eq(participantUserId1), anyList()))
@@ -294,7 +291,6 @@ class PartyServiceUserDeletionTest {
                 .ticketVerified(true)
                 .status(Party.PartyStatus.PENDING)
                 .hostBadge(Party.BadgeType.VERIFIED)
-                .hostRating(4.9)
                 .build();
 
         PartyApplication asParticipant = PartyApplication.builder()

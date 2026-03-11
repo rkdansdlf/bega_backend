@@ -13,6 +13,7 @@ import com.example.auth.service.UserService;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.util.AuthCookieUtil;
+import com.example.common.web.ClientIpResolver;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 
@@ -45,6 +46,7 @@ public class APIController {
     private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
     private final RefreshRepository refreshRepository;
     private final AuthCookieUtil authCookieUtil;
+    private final ClientIpResolver clientIpResolver;
 
     public APIController(UserService userService,
             AuthRegistrationService authRegistrationService,
@@ -52,7 +54,8 @@ public class APIController {
             OAuth2StateService oAuth2StateService,
             com.example.auth.service.TokenBlacklistService tokenBlacklistService,
             RefreshRepository refreshRepository,
-            AuthCookieUtil authCookieUtil) {
+            AuthCookieUtil authCookieUtil,
+            ClientIpResolver clientIpResolver) {
         this.userService = userService;
         this.authRegistrationService = authRegistrationService;
         this.policyConsentService = policyConsentService;
@@ -60,6 +63,7 @@ public class APIController {
         this.tokenBlacklistService = tokenBlacklistService;
         this.refreshRepository = refreshRepository;
         this.authCookieUtil = authCookieUtil;
+        this.clientIpResolver = clientIpResolver;
     }
 
     /**
@@ -70,7 +74,7 @@ public class APIController {
     public ResponseEntity<ApiResponse> signUp(@Valid @RequestBody SignupDto signupDto, HttpServletRequest request) {
         authRegistrationService.register(
                 signupDto,
-                resolveClientIp(request),
+                clientIpResolver.resolveOrUnknown(request),
                 request.getHeader("User-Agent"));
 
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -99,7 +103,7 @@ public class APIController {
                 userId,
                 consentSubmitDto.getPolicyConsents(),
                 "policy_gate",
-                resolveClientIp(request),
+                clientIpResolver.resolveOrUnknown(request),
                 request.getHeader("User-Agent"));
         PolicyConsentService.PolicyConsentStatus policyStatus = policyConsentService.evaluatePolicyConsentStatus(userId);
 
@@ -115,7 +119,7 @@ public class APIController {
     /**
      * 로그인
      */
-    @RateLimit(limit = 10, window = 60) // 1분에 최대 10회 로그인 시도
+    @RateLimit(limit = 10, window = 60, key = "auth:login", failClosed = true) // 1분에 최대 10회 로그인 시도
     @PostMapping("/login")
     public ResponseEntity<ApiResponse> login(
             @Valid @RequestBody LoginDto loginDto,
@@ -143,21 +147,6 @@ public class APIController {
 
         // 성공 응답
         return ResponseEntity.ok(ApiResponse.success("로그인 성공", responseData));
-    }
-
-    /**
-     * 이메일 중복 체크
-     */
-    @RateLimit(limit = 20, window = 60) // 1분에 최대 20회 이메일 중복 체크
-    @GetMapping("/check-email")
-    public ResponseEntity<ApiResponse> checkEmail(@RequestParam String email) {
-        boolean exists = userService.isEmailExists(email.trim().toLowerCase());
-
-        if (exists) {
-            return ResponseEntity.ok(ApiResponse.error("이미 사용 중인 이메일입니다."));
-        }
-
-        return ResponseEntity.ok(ApiResponse.success("사용 가능한 이메일입니다."));
     }
 
     /**
@@ -285,6 +274,7 @@ public class APIController {
      * - 5분 유효의 단기 토큰 반환
      * - 이 토큰을 OAuth2 리다이렉트 URL에 포함하여 연동 모드 활성화
      */
+    @RateLimit(limit = 10, window = 600, key = "auth:link-token", failClosed = true)
     @GetMapping("/link-token")
     public ResponseEntity<?> generateLinkToken() {
         try {
@@ -323,21 +313,5 @@ public class APIController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
         }
-    }
-
-    private String resolveClientIp(HttpServletRequest request) {
-        if (request == null) {
-            return "unknown";
-        }
-        String forwardedFor = request.getHeader("X-Forwarded-For");
-        if (forwardedFor != null && !forwardedFor.isBlank()) {
-            return forwardedFor.split(",")[0].trim();
-        }
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) {
-            return realIp.trim();
-        }
-        String remoteAddr = request.getRemoteAddr();
-        return remoteAddr == null || remoteAddr.isBlank() ? "unknown" : remoteAddr;
     }
 }

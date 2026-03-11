@@ -51,8 +51,9 @@ public class NotificationService {
                     @Override
                     public void afterCommit() {
                         try {
-                            messagingTemplate.convertAndSend(
-                                    "/topic/notifications/" + userId,
+                            messagingTemplate.convertAndSendToUser(
+                                    String.valueOf(userId),
+                                    "/queue/notifications",
                                     dto);
                             log.info("알림 전송 성공 (After Commit): userId={}, type={}", userId, type);
                         } catch (Exception e) {
@@ -77,16 +78,6 @@ public class NotificationService {
     @Transactional(readOnly = true)
     public Long getMyUnreadCount(@NonNull Long userId) {
         ensureAuthenticatedUser(userId);
-        return Objects.requireNonNull(notificationRepository.countByUserIdAndIsReadFalse(userId));
-    }
-
-    // 읽지 않은 알림 개수 (userId 경로 호환용)
-    @Transactional(readOnly = true)
-    public Long getUnreadCountByUserId(@NonNull Long userId, @NonNull Long currentUserId) {
-        ensureAuthenticatedUser(currentUserId);
-        if (!currentUserId.equals(userId)) {
-            throw new UnauthorizedAccessException("본인 알림만 조회할 수 있습니다.");
-        }
         return Objects.requireNonNull(notificationRepository.countByUserIdAndIsReadFalse(userId));
     }
 

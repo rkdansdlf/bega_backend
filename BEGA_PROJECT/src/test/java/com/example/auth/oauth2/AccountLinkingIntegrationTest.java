@@ -4,6 +4,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.entity.UserProvider;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.common.ratelimit.RateLimitService;
 import com.example.bega.auth.dto.OAuth2LinkStateData;
 import com.example.bega.auth.service.OAuth2LinkStateService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -33,10 +34,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
@@ -56,19 +58,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 "spring.datasource.driver-class-name=org.h2.Driver",
                 "spring.datasource.username=sa",
                 "spring.datasource.password=",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false",
-        "spring.jpa.open-in-view=false",
-        "spring.data.redis.host=127.0.0.1",
-        "spring.data.redis.port=6379",
-        "spring.data.redis.repositories.enabled=false",
-        "storage.type=oci",
-        "oci.s3.endpoint=http://localhost:4566",
-        "oci.s3.access-key=test-access-key",
-        "oci.s3.secret-key=test-secret-key",
-        "oci.s3.bucket=test-bucket",
-        "oci.s3.region=ap-seoul-1",
-        "spring.autoconfigure.exclude=io.awspring.cloud.autoconfigure.s3.S3AutoConfiguration"
+                "spring.jpa.hibernate.ddl-auto=create-drop",
+                "spring.flyway.enabled=false",
+                "spring.jpa.open-in-view=false",
+                "spring.data.redis.host=127.0.0.1",
+                "spring.data.redis.port=6379",
+                "spring.data.redis.repositories.enabled=false",
+                "storage.type=oci",
+                "oci.s3.endpoint=http://localhost:4566",
+                "oci.s3.access-key=test-access-key",
+                "oci.s3.secret-key=test-secret-key",
+                "oci.s3.bucket=test-bucket",
+                "oci.s3.region=ap-seoul-1",
+                "spring.autoconfigure.exclude=io.awspring.cloud.autoconfigure.s3.S3AutoConfiguration"
 })
 @Transactional
 class AccountLinkingIntegrationTest {
@@ -94,6 +96,9 @@ class AccountLinkingIntegrationTest {
         @MockitoBean
         private StringRedisTemplate redisTemplate;
 
+        @MockitoBean
+        private RateLimitService rateLimitService;
+
         private ValueOperations<String, String> valueOperations;
         private Map<String, String> redisStorage;
 
@@ -103,6 +108,8 @@ class AccountLinkingIntegrationTest {
                 redisStorage = new ConcurrentHashMap<>();
 
                 lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+                lenient().when(rateLimitService.isAllowed(anyString(), anyInt(), anyInt(), anyBoolean()))
+                                .thenReturn(true);
 
                 // Simulate minimal Redis set/getAndDelete operations
                 // Simulate minimal Redis set/getAndDelete operations

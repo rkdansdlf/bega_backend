@@ -28,7 +28,7 @@ class SecurityConfigTest {
                 "/api/parties",
                 "/api/parties/search",
                 "/api/parties/status/*",
-                "/api/parties/host/*",
+                "/api/parties/profile/*",
                 "/api/parties/upcoming");
     }
 
@@ -40,6 +40,73 @@ class SecurityConfigTest {
 
         assertThat(publicGetEndpoints).doesNotContain("/api/parties/my");
         assertThat(publicPartyGetEndpoints).doesNotContain("/api/parties/my");
+    }
+
+    @Test
+    @DisplayName("public GET endpoints should expose handle-based profile and follow routes only")
+    void publicGetEndpoints_exposeHandleBasedProfileAndFollowRoutesOnly() throws Exception {
+        String[] publicGetEndpoints = getPrivateStaticStringArray("PUBLIC_GET_ENDPOINTS");
+
+        assertThat(publicGetEndpoints)
+                .contains(
+                        "/api/users/profile/*",
+                        "/api/users/profile/*/follow-counts",
+                        "/api/users/profile/*/followers",
+                        "/api/users/profile/*/following",
+                        "/api/leaderboard/profile/*",
+                        "/api/leaderboard/profile/*/rank")
+                .doesNotContain(
+                        "/api/users/*/profile",
+                        "/api/users/*/follow-counts",
+                        "/api/users/*/followers",
+                        "/api/users/*/following",
+                        "/api/leaderboard/users/*/rank",
+                        "/api/leaderboard/user/**");
+    }
+
+    @Test
+    @DisplayName("prod profile should not expose debug or diagnostics endpoints publicly")
+    void publicSystemEndpoints_excludeDiagnosticsInProd() {
+        SecurityConfig securityConfig = newSecurityConfig("prod");
+
+        assertThat(securityConfig.publicSystemEndpoints())
+                .contains("/actuator/health")
+                .doesNotContain("/api/test/**", "/actuator/prometheus", "/swagger-ui.html", "/v3/api-docs/**", "/ws",
+                        "/ws/**");
+    }
+
+    @Test
+    @DisplayName("dev profile should keep debug and diagnostics endpoints public")
+    void publicSystemEndpoints_includeDiagnosticsInDev() {
+        SecurityConfig securityConfig = newSecurityConfig("dev");
+
+        assertThat(securityConfig.publicSystemEndpoints())
+                .contains("/actuator/health", "/api/test/**", "/actuator/prometheus", "/swagger-ui.html", "/v3/api-docs/**")
+                .doesNotContain("/ws", "/ws/**");
+    }
+
+    @Test
+    @DisplayName("public API endpoints should not expose email-to-id mapping")
+    void publicApiEndpoints_excludeEmailToId() throws Exception {
+        String[] publicApiEndpoints = getPrivateStaticStringArray("PUBLIC_API_ENDPOINTS");
+
+        assertThat(publicApiEndpoints).doesNotContain("/api/users/email-to-id");
+    }
+
+    @Test
+    @DisplayName("admin endpoints should include dashboard routes")
+    void adminEndpoints_includeDashboardRoutes() throws Exception {
+        String[] adminEndpoints = getPrivateStaticStringArray("ADMIN_ENDPOINTS");
+
+        assertThat(adminEndpoints).contains("/dashboard", "/dashboard/**");
+    }
+
+    @Test
+    @DisplayName("admin AI endpoints should isolate release decision routes")
+    void adminAiEndpoints_includeReleaseDecisionRoutes() throws Exception {
+        String[] adminAiEndpoints = getPrivateStaticStringArray("ADMIN_AI_ENDPOINTS");
+
+        assertThat(adminAiEndpoints).contains("/api/ai/release-decision/**");
     }
 
     @Test

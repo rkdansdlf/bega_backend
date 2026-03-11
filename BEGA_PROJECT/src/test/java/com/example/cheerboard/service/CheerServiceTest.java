@@ -2,6 +2,7 @@ package com.example.cheerboard.service;
 
 import com.example.auth.entity.UserEntity;
 import com.example.auth.service.BlockService;
+import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.cheerboard.config.CurrentUser;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.dto.PostDetailRes;
@@ -12,6 +13,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -41,6 +43,8 @@ class CheerServiceTest {
         @Mock
         private BlockService blockService;
         @Mock
+        private PublicVisibilityVerifier publicVisibilityVerifier;
+        @Mock
         private PermissionValidator permissionValidator;
 
         @Test
@@ -54,7 +58,7 @@ class CheerServiceTest {
 
                 when(current.getOrNull()).thenReturn(me);
                 when(postService.findPostById(postId)).thenReturn(post);
-                when(blockService.hasBidirectionalBlock(me.getId(), author.getId())).thenReturn(false);
+                doNothing().when(publicVisibilityVerifier).validate(author, me.getId(), "게시글");
 
                 // Mock interaction service checks called by reconstructPostDetailRes
                 when(interactionService.isPostLikedByUser(postId, me.getId())).thenReturn(true);
@@ -86,10 +90,11 @@ class CheerServiceTest {
 
                 when(current.getOrNull()).thenReturn(me);
                 when(postService.findPostById(postId)).thenReturn(post);
-                when(blockService.hasBidirectionalBlock(me.getId(), author.getId())).thenReturn(true);
+                doThrow(new AccessDeniedException("차단 관계"))
+                                .when(publicVisibilityVerifier).validate(author, me.getId(), "게시글");
 
                 // When & Then
-                assertThrows(IllegalStateException.class, () -> cheerService.get(postId));
+                assertThrows(AccessDeniedException.class, () -> cheerService.get(postId));
 
                 verify(redisPostService, never()).incrementViewCount(anyLong(), any());
         }
@@ -154,5 +159,40 @@ class CheerServiceTest {
                 cheerService.list("HH", "NORMAL", pageable);
 
                 verify(feedService).list("HH", "NORMAL", pageable, null);
+        }
+
+        @Test
+        @DisplayName("Get Post Images - visibility validated before delegation")
+        void getPostImages_validatesVisibilityBeforeDelegating() {
+                Long postId = 10L;
+                UserEntity me = UserEntity.builder().id(100L).build();
+                UserEntity author = UserEntity.builder().id(200L).build();
+                CheerPost post = CheerPost.builder().id(postId).author(author).build();
+
+                when(current.getOrNull()).thenReturn(me);
+                when(postService.findPostById(postId)).thenReturn(post);
+                doNothing().when(publicVisibilityVerifier).validate(author, me.getId(), "게시글");
+
+                cheerService.getPostImages(postId);
+
+                verify(publicVisibilityVerifier).validate(author, me.getId(), "게시글");
+                verify(postService).getPostImages(postId);
+        }
+
+        @Test
+        @DisplayName("Get Post Images - inaccessible post is rejected")
+        void getPostImages_rejectsInaccessiblePost() {
+                Long postId = 10L;
+                UserEntity author = UserEntity.builder().id(200L).privateAccount(true).build();
+                CheerPost post = CheerPost.builder().id(postId).author(author).build();
+
+                when(current.getOrNull()).thenReturn(null);
+                when(postService.findPostById(postId)).thenReturn(post);
+                doThrow(new AccessDeniedException("비공개 게시글"))
+                                .when(publicVisibilityVerifier).validate(author, null, "게시글");
+
+                assertThrows(AccessDeniedException.class, () -> cheerService.getPostImages(postId));
+
+                verify(postService, never()).getPostImages(postId);
         }
 }
