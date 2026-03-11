@@ -145,6 +145,8 @@ kbo:
 
 # 애플리케이션 공통 설정
 app:
+  mail:
+    enabled: ${APP_MAIL_ENABLED:true}
   dev-data:
     enabled: false
   frontend:
@@ -325,6 +327,8 @@ spring:
       hibernate: {}
 
 app:
+  mail:
+    enabled: ${APP_MAIL_ENABLED:false}
   oauth2:
     cookie-secret: ${OAUTH2_COOKIE_SECRET:dev-oauth2-cookie-secret}
   dev-data:
@@ -467,5 +471,7 @@ baseball:
       ddl-auto: create-drop
 
 app:
+  mail:
+    enabled: ${APP_MAIL_ENABLED:false}
   dev-data:
     enabled: true
