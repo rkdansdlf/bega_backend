@@ -6,6 +6,7 @@ import com.example.mypage.dto.UserProfileDto;
 import com.example.mypage.dto.DeviceSessionDto;
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.repository.RefreshRepository;
+import com.example.auth.service.AccountSecurityService;
 import com.example.auth.service.PolicyConsentService;
 import com.example.auth.util.AuthCookieUtil;
 
@@ -50,6 +51,7 @@ public class MypageController {
         private final RefreshRepository refreshRepository;
         private final AuthCookieUtil authCookieUtil;
         private final PolicyConsentService policyConsentService;
+        private final AccountSecurityService accountSecurityService;
 
         // 프로필 정보 조회 (GET /mypage) - 수정 없음
         @GetMapping("/mypage")
@@ -184,8 +186,13 @@ public class MypageController {
                         }
 
                         userService.changePassword(userId, request.getCurrentPassword(), request.getNewPassword());
+                        ResponseCookie expireAuthCookie = authCookieUtil.buildExpiredAuthCookie();
+                        ResponseCookie expireRefreshCookie = authCookieUtil.buildExpiredRefreshCookie();
 
-                        return ResponseEntity.ok(ApiResponse.success("비밀번호가 성공적으로 변경되었습니다."));
+                        return ResponseEntity.ok()
+                                        .header(HttpHeaders.SET_COOKIE, expireAuthCookie.toString())
+                                        .header(HttpHeaders.SET_COOKIE, expireRefreshCookie.toString())
+                                        .body(ApiResponse.success("비밀번호가 성공적으로 변경되었습니다."));
 
                 } catch (IllegalStateException e) {
                         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -207,9 +214,14 @@ public class MypageController {
                         @AuthenticationPrincipal Long userId,
                         @RequestBody(required = false) com.example.mypage.dto.DeleteAccountRequest request) {
                 try {
+                        if (userId == null) {
+                                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                                                .body(ApiResponse.error("인증이 필요합니다."));
+                        }
+
                         String password = request != null ? request.getPassword() : null;
 
-                        userService.deleteAccount(userId, password);
+                        LocalDateTime scheduledFor = userService.deleteAccount(userId, password);
 
                         // 쿠키 삭제를 위한 빈 쿠키 생성
                         ResponseCookie authCookie = authCookieUtil.buildExpiredAuthCookie();
@@ -219,7 +231,9 @@ public class MypageController {
                         return ResponseEntity.ok()
                                         .header(HttpHeaders.SET_COOKIE, authCookie.toString())
                                         .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
-                                        .body(ApiResponse.success("계정이 성공적으로 삭제되었습니다."));
+                                        .body(ApiResponse.success(
+                                                        "계정 삭제가 예약되었습니다.",
+                                                        Map.of("scheduledFor", scheduledFor == null ? null : scheduledFor.toString())));
 
                 } catch (IllegalArgumentException e) {
                         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -291,8 +305,17 @@ public class MypageController {
                         String requestUserAgent = request.getHeader("User-Agent");
                         String requestIpAddress = resolveIpAddress(request);
 
+                        RefreshToken currentSessionToken = resolveCurrentSessionToken(
+                                        refreshTokens,
+                                        currentRefreshToken,
+                                        requestUserAgent,
+                                        requestIpAddress);
+                        String currentSessionId = currentSessionToken != null && currentSessionToken.getId() != null
+                                        ? String.valueOf(currentSessionToken.getId())
+                                        : null;
+
                         List<DeviceSessionDto> sessions = refreshTokens.stream()
-                                        .map(token -> buildDeviceSessionDto(token, currentRefreshToken, requestUserAgent, requestIpAddress))
+                                        .map(token -> buildDeviceSessionDto(token, currentSessionId, requestUserAgent, requestIpAddress))
                                         .sorted((left, right) -> {
                                                 if (left.isCurrent() != right.isCurrent()) {
                                                         return left.isCurrent() ? -1 : 1;
@@ -333,12 +356,14 @@ public class MypageController {
 
                         List<RefreshToken> refreshTokens = refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail());
                         String currentRefreshToken = resolveCookieValue(request, "Refresh");
-                        String currentSessionId = refreshTokens.stream()
-                                        .filter(item -> item.getToken() != null && item.getToken().equals(currentRefreshToken)
-                                                        && item.getId() != null)
-                                        .map(item -> String.valueOf(item.getId()))
-                                        .findFirst()
-                                        .orElse(null);
+                        RefreshToken currentSessionToken = resolveCurrentSessionToken(
+                                        refreshTokens,
+                                        currentRefreshToken,
+                                        request.getHeader("User-Agent"),
+                                        resolveIpAddress(request));
+                        String currentSessionId = currentSessionToken != null && currentSessionToken.getId() != null
+                                        ? String.valueOf(currentSessionToken.getId())
+                                        : null;
                         RefreshToken targetToken = refreshTokens.stream()
                                         .filter(item -> item.getId() != null && String.valueOf(item.getId()).equals(sessionId))
                                         .findFirst()
@@ -355,6 +380,7 @@ public class MypageController {
                         }
 
                         refreshRepository.delete(targetToken);
+                        accountSecurityService.recordSessionRevoked(userId, targetToken);
                         return ResponseEntity.ok(ApiResponse.success("선택한 세션을 종료했습니다."));
                 } catch (Exception e) {
                         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -388,15 +414,29 @@ public class MypageController {
 
                 List<RefreshToken> refreshTokens = refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail());
                 String currentRefreshToken = resolveCookieValue(request, "Refresh");
-                List<RefreshToken> targets = currentRefreshToken == null
-                                ? refreshTokens
-                                : refreshRepository.findAllByEmailAndTokenNot(user.getEmail(), currentRefreshToken);
+                RefreshToken currentSessionToken = resolveCurrentSessionToken(
+                                refreshTokens,
+                                currentRefreshToken,
+                                request.getHeader("User-Agent"),
+                                resolveIpAddress(request));
+
+                if (currentSessionToken == null || currentSessionToken.getId() == null) {
+                        return ResponseEntity.status(HttpStatus.CONFLICT)
+                                        .body(ApiResponse.error("현재 세션을 확인하지 못해 다른 기기 로그아웃을 중단했습니다. 다시 로그인 후 시도해주세요."));
+                }
+
+                List<RefreshToken> targets = refreshTokens.stream()
+                                .filter(token -> token.getId() != null
+                                                && !Objects.equals(token.getId(), currentSessionToken.getId()))
+                                .toList();
 
                 if (targets.isEmpty()) {
                         return ResponseEntity.ok(ApiResponse.success("종료할 다른 세션이 없습니다."));
                 }
 
+                int revokedCount = targets.size();
                 refreshRepository.deleteAll(targets);
+                accountSecurityService.recordOtherSessionsRevoked(userId, revokedCount);
                 return ResponseEntity.ok(ApiResponse.success("현재 기기 제외 다른 기기 로그아웃이 완료되었습니다."));
                 } catch (Exception e) {
                         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -434,13 +474,12 @@ public class MypageController {
                 return remoteAddr != null ? remoteAddr : "unknown";
         }
 
-        private DeviceSessionDto buildDeviceSessionDto(RefreshToken refreshToken, String currentRefreshToken, String requestUserAgent,
+        private DeviceSessionDto buildDeviceSessionDto(RefreshToken refreshToken, String currentSessionId, String requestUserAgent,
                         String requestIpAddress) {
                 String userAgent = requestUserAgent;
-                boolean isExpired = refreshToken.getExpiryDate() == null
-                                || refreshToken.getExpiryDate().isBefore(LocalDateTime.now());
-                boolean isCurrentSession = refreshToken.getToken() != null && currentRefreshToken != null
-                                ? refreshToken.getToken().equals(currentRefreshToken) && !isExpired
+                boolean isExpired = isRefreshTokenExpired(refreshToken);
+                boolean isCurrentSession = refreshToken.getId() != null && currentSessionId != null
+                                ? String.valueOf(refreshToken.getId()).equals(currentSessionId) && !isExpired
                                 : false;
 
                 String sessionId = refreshToken.getId() != null
@@ -477,6 +516,58 @@ public class MypageController {
                                 .isRevoked(isExpired)
                                 .ip(ipAddress)
                                 .build();
+        }
+
+        private RefreshToken resolveCurrentSessionToken(
+                        List<RefreshToken> refreshTokens,
+                        String currentRefreshToken,
+                        String requestUserAgent,
+                        String requestIpAddress) {
+                if (refreshTokens == null || refreshTokens.isEmpty()) {
+                        return null;
+                }
+
+                RefreshToken cookieMatchedToken = refreshTokens.stream()
+                                .filter(token -> token.getId() != null
+                                                && token.getToken() != null
+                                                && currentRefreshToken != null
+                                                && token.getToken().equals(currentRefreshToken)
+                                                && !isRefreshTokenExpired(token))
+                                .findFirst()
+                                .orElse(null);
+                if (cookieMatchedToken != null) {
+                        return cookieMatchedToken;
+                }
+
+                String resolvedDeviceType = resolveDeviceType(requestUserAgent);
+                String resolvedDeviceLabel = resolveDeviceLabel(requestUserAgent, resolvedDeviceType);
+                String resolvedBrowser = resolveBrowser(requestUserAgent);
+                String resolvedOs = resolveOs(requestUserAgent);
+
+                return refreshTokens.stream()
+                                .filter(token -> token.getId() != null && !isRefreshTokenExpired(token))
+                                .filter(token -> isSameText(token.getDeviceType(), resolvedDeviceType))
+                                .filter(token -> isSameText(token.getDeviceLabel(), resolvedDeviceLabel))
+                                .filter(token -> isSameText(token.getBrowser(), resolvedBrowser))
+                                .filter(token -> isSameText(token.getOs(), resolvedOs))
+                                .filter(token -> token.getIp() == null || token.getIp().isBlank()
+                                                || requestIpAddress == null || requestIpAddress.isBlank()
+                                                || token.getIp().equals(requestIpAddress))
+                                .findFirst()
+                                .orElse(null);
+        }
+
+        private boolean isRefreshTokenExpired(RefreshToken refreshToken) {
+                return refreshToken.getExpiryDate() == null
+                                || refreshToken.getExpiryDate().isBefore(LocalDateTime.now());
+        }
+
+        private boolean isSameText(String left, String right) {
+                if (left == null || left.isBlank() || right == null || right.isBlank()) {
+                        return false;
+                }
+
+                return left.trim().equalsIgnoreCase(right.trim());
         }
 
         private String normalizeText(String value, String fallback) {

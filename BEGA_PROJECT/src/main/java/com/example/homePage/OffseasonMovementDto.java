@@ -12,7 +12,16 @@ public class OffseasonMovementDto {
     private String section;
     private String team;
     private String player;
+    private String summary;
     private String remarks;
+    private String contractTerm;
+    private String contractValue;
+    private String optionDetails;
+    private String counterpartyTeam;
+    private String counterpartyDetails;
+    private String sourceLabel;
+    private String sourceUrl;
+    private String announcedAt;
 
     // Derived fields
     @JsonProperty("isBigEvent")
