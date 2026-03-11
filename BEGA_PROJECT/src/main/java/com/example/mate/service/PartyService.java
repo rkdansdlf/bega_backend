@@ -1,9 +1,11 @@
 package com.example.mate.service;
 
 import java.util.Objects;
-import java.util.Optional;
+import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.service.PublicVisibilityVerifier;
+import com.example.common.exception.UserNotFoundException;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
@@ -13,6 +15,7 @@ import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
+import com.example.mate.repository.PartyReviewRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -23,8 +26,10 @@ import org.springframework.beans.factory.annotation.Value;
 
 import java.time.LocalDate;
 import java.security.Principal;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.lang.NonNull;
 
@@ -36,7 +41,9 @@ public class PartyService {
     private final PartyRepository partyRepository;
     private final UserRepository userRepository;
     private final PartyApplicationRepository applicationRepository;
+    private final PartyReviewRepository partyReviewRepository;
     private final UserProviderRepository userProviderRepository;
+    private final PublicVisibilityVerifier publicVisibilityVerifier;
     private final com.example.notification.service.NotificationService notificationService;
     private final com.example.profile.storage.service.ProfileImageService profileImageService;
     @Value("${mate.auth.require-social-verification:true}")
@@ -45,39 +52,31 @@ public class PartyService {
     @Transactional
     public PartyDTO.Response createParty(@NonNull PartyDTO.Request request, Principal principal) {
         Long hostId = getUserIdFromPrincipal(principal);
+        UserEntity hostUser = userRepository.findById(hostId)
+                .orElseThrow(() -> new UserNotFoundException(hostId));
+        boolean socialVerified = isSocialVerified(hostId);
 
         // 본인인증(소셜 연동) 여부 확인
-        if (requireSocialVerification) {
-            boolean isSocialVerified = userProviderRepository.findByUserId(hostId).stream()
-                    .anyMatch(p -> "kakao".equalsIgnoreCase(p.getProvider()) || "naver".equalsIgnoreCase(p.getProvider()));
-            if (!isSocialVerified) {
-                throw new com.example.common.exception.IdentityVerificationRequiredException(
-                        "메이트를 생성하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
-            }
+        if (requireSocialVerification && !socialVerified) {
+            throw new com.example.common.exception.IdentityVerificationRequiredException(
+                    "메이트를 생성하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
         }
 
         // 사용자 정보에서 profileImageUrl, favoriteTeam 가져오기
-        var userInfo = userRepository.findById(hostId)
-                .map(user -> {
-                    String imageUrl = user.getProfileImageUrl();
-                    // blob URL 또는 data URL 등은 null로 처리하여 나중에 resolver에서 처리되도록 유도
-                    if (imageUrl != null && isLegacyOrInvalidProfileValue(imageUrl)) {
-                        imageUrl = null;
-                    }
-                    return new String[] { imageUrl, user.getFavoriteTeamId() };
-                })
-                .orElse(new String[] { null, null });
-
-        String hostProfileImageUrl = userInfo[0];
-        String hostFavoriteTeam = userInfo[1];
+        String hostProfileImageUrl = hostUser.getProfileImageUrl();
+        if (hostProfileImageUrl != null && isLegacyOrInvalidProfileValue(hostProfileImageUrl)) {
+            hostProfileImageUrl = null;
+        }
+        String hostFavoriteTeam = hostUser.getFavoriteTeamId();
+        String hostName = hostUser.getName();
+        Party.BadgeType hostBadge = resolveHostBadge(hostId, socialVerified);
 
         Party party = Party.builder()
                 .hostId(hostId)
-                .hostName(request.getHostName())
+                .hostName(hostName)
                 .hostProfileImageUrl(hostProfileImageUrl)
                 .hostFavoriteTeam(hostFavoriteTeam)
-                .hostBadge(Optional.ofNullable(request.getHostBadge()).orElse(Party.BadgeType.NEW))
-                .hostRating(Optional.ofNullable(request.getHostRating()).orElse(5.0))
+                .hostBadge(hostBadge)
                 .teamId(request.getTeamId())
                 .gameDate(request.getGameDate())
                 .gameTime(request.getGameTime())
@@ -93,7 +92,7 @@ public class PartyService {
                         request.getHomeTeam(),
                         request.getAwayTeam(),
                         request.getSection(),
-                        request.getHostName(),
+                        hostName,
                         request.getDescription()))
                 .ticketVerified(request.getTicketImageUrl() != null)
                 .ticketImageUrl(request.getTicketImageUrl())
@@ -109,8 +108,9 @@ public class PartyService {
 
     // 모든 파티 조회 (검색 및 필터링 통합)
     @Transactional(readOnly = true)
-    public Page<PartyDTO.Response> getAllParties(String teamId, String stadium, LocalDate gameDate, String searchQuery,
-            Pageable pageable, Party.PartyStatus status) {
+    public Page<PartyDTO.PublicResponse> getAllParties(String teamId, String stadium, LocalDate gameDate,
+            String searchQuery,
+            Pageable pageable, Party.PartyStatus status, Long currentUserId) {
         String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
         String normalizedSearchQuery = normalizeSearchQuery(searchQuery);
 
@@ -136,48 +136,53 @@ public class PartyService {
                 status,
                 pageable);
 
-        return Objects.requireNonNull(parties.map(this::convertToDto));
+        List<Party> visibleParties = filterVisiblePublicParties(parties.getContent(), currentUserId);
+        List<PartyDTO.PublicResponse> visibleContent = convertToPublicResponses(visibleParties);
+        return new org.springframework.data.domain.PageImpl<>(visibleContent, pageable, parties.getTotalElements());
     }
 
     // 파티 ID로 조회
     @Transactional(readOnly = true)
-    public PartyDTO.Response getPartyById(@NonNull Long id) {
+    public PartyDTO.PublicResponse getPartyById(@NonNull Long id, Long currentUserId) {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
-        return Objects.requireNonNull(convertToDto(party));
+        validatePartyVisibility(party, currentUserId);
+        return Objects.requireNonNull(convertToPublicDto(party));
     }
 
     // 상태별 파티 조회
     @Transactional(readOnly = true)
-    public List<PartyDTO.Response> getPartiesByStatus(Party.PartyStatus status) {
-        return partyRepository.findByStatusOrderByCreatedAtDesc(status).stream()
-                .map(this::convertToDto)
-                .collect(Collectors.toList());
+    public List<PartyDTO.PublicResponse> getPartiesByStatus(Party.PartyStatus status, Long currentUserId) {
+        List<Party> visibleParties = filterVisiblePublicParties(
+                partyRepository.findByStatusOrderByCreatedAtDesc(status),
+                currentUserId);
+        return convertToPublicResponses(visibleParties);
     }
 
-    // 호스트별 파티 조회
     @Transactional(readOnly = true)
-    public List<PartyDTO.Response> getPartiesByHostId(Long hostId) {
-        return partyRepository.findByHostId(hostId).stream()
-                .map(this::convertToDto)
-                .collect(Collectors.toList());
+    public List<PartyDTO.PublicResponse> getPartiesByHostHandle(String handle, Long currentUserId) {
+        UserEntity host = userRepository.findByHandle(normalizeHandle(handle))
+                .orElseThrow(() -> new UserNotFoundException("handle", handle));
+        publicVisibilityVerifier.validate(host, currentUserId, "파티");
+        Long hostId = host.getId();
+        return convertToPublicResponses(partyRepository.findByHostId(hostId));
     }
 
     // 검색
     @Transactional(readOnly = true)
-    public List<PartyDTO.Response> searchParties(String query) {
-        return partyRepository.searchParties(query).stream()
-                .map(this::convertToDto)
-                .collect(Collectors.toList());
+    public List<PartyDTO.PublicResponse> searchParties(String query, Long currentUserId) {
+        List<Party> visibleParties = filterVisiblePublicParties(partyRepository.searchParties(query), currentUserId);
+        return convertToPublicResponses(visibleParties);
     }
 
     // 경기 날짜 이후 파티 조회
     @Transactional(readOnly = true)
-    public List<PartyDTO.Response> getUpcomingParties() {
+    public List<PartyDTO.PublicResponse> getUpcomingParties(Long currentUserId) {
         LocalDate today = LocalDate.now();
-        return partyRepository.findByGameDateAfterOrderByGameDateAsc(today).stream()
-                .map(this::convertToDto)
-                .collect(Collectors.toList());
+        List<Party> visibleParties = filterVisiblePublicParties(
+                partyRepository.findByGameDateAfterOrderByGameDateAsc(today),
+                currentUserId);
+        return convertToPublicResponses(visibleParties);
     }
 
     // 파티 업데이트
@@ -213,7 +218,8 @@ public class PartyService {
                 party.setStatus(request.getStatus());
             }
 
-            // price, section, maxParticipants, ticketPrice는 PENDING 상태이고 승인된 신청이 없을 때만 변경 가능
+            // price, section, maxParticipants, ticketPrice는 PENDING 상태이고 승인된 신청이 없을 때만 변경
+            // 가능
             if (party.getStatus() == Party.PartyStatus.PENDING && !hasApprovedApplications) {
                 if (request.getPrice() != null) {
                     party.setPrice(request.getPrice());
@@ -231,7 +237,8 @@ public class PartyService {
                 if (request.getTicketPrice() != null) {
                     party.setTicketPrice(request.getTicketPrice());
                 }
-            } else if (request.getPrice() != null || request.getSection() != null || request.getMaxParticipants() != null
+            } else if (request.getPrice() != null || request.getSection() != null
+                    || request.getMaxParticipants() != null
                     || request.getTicketPrice() != null) {
                 throw new InvalidApplicationStatusException(
                         "승인된 참여자가 있거나 모집 중 상태가 아닌 경우 가격/좌석/인원을 변경할 수 없습니다.");
@@ -271,6 +278,37 @@ public class PartyService {
         if (request.getSection() != null || request.getMaxParticipants() != null) {
             throw new InvalidApplicationStatusException("판매 전환 요청에서는 좌석/인원 변경을 함께 요청할 수 없습니다.");
         }
+    }
+
+    private List<Party> filterVisiblePublicParties(List<Party> parties, Long currentUserId) {
+        if (parties == null || parties.isEmpty()) {
+            return List.of();
+        }
+
+        java.util.Map<Long, UserEntity> hostsById = userRepository.findAllById(
+                parties.stream()
+                        .map(Party::getHostId)
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .toList())
+                .stream()
+                .collect(Collectors.toMap(UserEntity::getId, java.util.function.Function.identity()));
+
+        return parties.stream()
+                .filter(party -> {
+                    UserEntity host = hostsById.get(party.getHostId());
+                    return host == null || publicVisibilityVerifier.canAccess(host, currentUserId);
+                })
+                .toList();
+    }
+
+    private void validatePartyVisibility(Party party, Long currentUserId) {
+        if (party.getHostId() == null) {
+            return;
+        }
+
+        userRepository.findById(party.getHostId())
+                .ifPresent(host -> publicVisibilityVerifier.validate(host, currentUserId, "파티"));
     }
 
     // 파티 참여 인원 증가
@@ -392,9 +430,7 @@ public class PartyService {
             return b.getCreatedAt().compareTo(a.getCreatedAt());
         });
 
-        return allParties.stream()
-                .map(this::convertToDto)
-                .toList();
+        return convertToResponses(allParties);
     }
 
     /**
@@ -513,6 +549,10 @@ public class PartyService {
     }
 
     private PartyDTO.Response convertToDto(Party party) {
+        return convertToDto(party, loadHostRatingMetrics(List.of(party)));
+    }
+
+    private PartyDTO.Response convertToDto(Party party, Map<Long, HostRatingMetrics> ratingMetricsByHostId) {
         if (party == null)
             return null;
 
@@ -529,8 +569,82 @@ public class PartyService {
         // 호스트의 최종 결정된 profilePathOrUrl이 path 형태인 경우 최종적으로 URL로 변환
         String resolvedUrl = profileImageService.getProfileImageUrl(profilePathOrUrl);
         response.setHostProfileImageUrl(resolvedUrl);
+        userRepository.findById(party.getHostId())
+                .map(UserEntity::getHandle)
+                .ifPresent(response::setHostHandle);
+        applyHostRatingMetrics(response, ratingMetricsByHostId.getOrDefault(party.getHostId(), HostRatingMetrics.empty()));
 
         return Objects.requireNonNull(response);
+    }
+
+    private PartyDTO.PublicResponse convertToPublicDto(Party party) {
+        PartyDTO.Response response = convertToDto(party, loadHostRatingMetrics(List.of(party)));
+        return response == null ? null : PartyDTO.PublicResponse.from(response);
+    }
+
+    private List<PartyDTO.Response> convertToResponses(List<Party> parties) {
+        if (parties == null || parties.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, HostRatingMetrics> ratingMetricsByHostId = loadHostRatingMetrics(parties);
+        return parties.stream()
+                .map(party -> convertToDto(party, ratingMetricsByHostId))
+                .toList();
+    }
+
+    private List<PartyDTO.PublicResponse> convertToPublicResponses(List<Party> parties) {
+        if (parties == null || parties.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, HostRatingMetrics> ratingMetricsByHostId = loadHostRatingMetrics(parties);
+        return parties.stream()
+                .map(party -> {
+                    PartyDTO.Response response = convertToDto(party, ratingMetricsByHostId);
+                    return response == null ? null : PartyDTO.PublicResponse.from(response);
+                })
+                .toList();
+    }
+
+    private Map<Long, HostRatingMetrics> loadHostRatingMetrics(List<Party> parties) {
+        if (parties == null || parties.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Long> hostIds = parties.stream()
+                .map(Party::getHostId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (hostIds.isEmpty()) {
+            return Map.of();
+        }
+
+        List<PartyReviewRepository.RevieweeRatingSummary> summaries = partyReviewRepository
+                .findRatingSummariesByRevieweeIds(hostIds);
+        if (summaries == null || summaries.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<Long, HostRatingMetrics> metricsByHostId = new HashMap<>();
+        summaries.forEach(summary -> {
+            if (summary.getRevieweeId() == null) {
+                return;
+            }
+            metricsByHostId.put(
+                    summary.getRevieweeId(),
+                    new HostRatingMetrics(summary.getAverageRating(), summary.getReviewCount()));
+        });
+        return metricsByHostId;
+    }
+
+    private void applyHostRatingMetrics(PartyDTO.Response response, HostRatingMetrics metrics) {
+        if (response == null || metrics == null) {
+            return;
+        }
+        response.setHostAverageRating(metrics.reviewCount() > 0 ? metrics.averageRating() : null);
+        response.setHostReviewCount(metrics.reviewCount());
     }
 
     private String normalizeSearchQuery(String searchQuery) {
@@ -538,6 +652,13 @@ public class PartyService {
             return "";
         }
         return searchQuery.trim();
+    }
+
+    private String normalizeHandle(String handle) {
+        if (handle == null || handle.isBlank()) {
+            throw new UserNotFoundException("handle", String.valueOf(handle));
+        }
+        return handle.startsWith("@") ? handle : "@" + handle;
     }
 
     private String buildSearchText(
@@ -605,6 +726,29 @@ public class PartyService {
             return userRepository.findByEmail(principalName)
                     .map(com.example.auth.entity.UserEntity::getId)
                     .orElseThrow(() -> new UnauthorizedAccessException("사용자를 찾을 수 없습니다."));
+        }
+    }
+
+    private boolean isSocialVerified(Long userId) {
+        return userProviderRepository.findByUserId(userId).stream()
+                .anyMatch(provider -> "kakao".equalsIgnoreCase(provider.getProvider())
+                        || "naver".equalsIgnoreCase(provider.getProvider()));
+    }
+
+    private Party.BadgeType resolveHostBadge(Long userId, boolean socialVerified) {
+        int checkedInPartyCount = applicationRepository.countCheckedInPartiesByUserId(userId);
+        if (checkedInPartyCount >= 3) {
+            return Party.BadgeType.TRUSTED;
+        }
+        if (socialVerified) {
+            return Party.BadgeType.VERIFIED;
+        }
+        return Party.BadgeType.NEW;
+    }
+
+    private record HostRatingMetrics(Double averageRating, long reviewCount) {
+        private static HostRatingMetrics empty() {
+            return new HostRatingMetrics(null, 0L);
         }
     }
 }

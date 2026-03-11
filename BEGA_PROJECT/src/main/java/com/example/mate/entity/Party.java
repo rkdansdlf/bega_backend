@@ -35,9 +35,6 @@ public class Party {
     @Column(name = "host_profile_image_url", length = 2048)
     private String hostProfileImageUrl;
 
-    @Column(name = "hostrating", nullable = false)
-    private Double hostRating; // 호스트 평점
-
     @Column(name = "teamid", nullable = false, length = 20)
     private String teamId; // 응원 팀 ID
 
@@ -112,9 +109,6 @@ public class Party {
         }
         if (ticketVerified == null) {
             ticketVerified = false;
-        }
-        if (hostRating == null) {
-            hostRating = 5.0;
         }
     }
 

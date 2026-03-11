@@ -17,7 +17,6 @@ public class CheckInRecordDTO {
     @Builder
     public static class Request {
         private Long partyId;
-        private Long userId;
         private String location;
         private String qrSessionId;
         private String manualCode;
@@ -50,16 +49,16 @@ public class CheckInRecordDTO {
     public static class Response {
         private Long id;
         private Long partyId;
-        private Long userId;
-        private String userName; // Added userName
+        private String userHandle;
+        private String userName;
         private String location;
         private LocalDateTime checkedInAt;
 
-        public static Response from(CheckInRecord record, String userName) {
+        public static Response from(CheckInRecord record, String userHandle, String userName) {
             return Response.builder()
                     .id(record.getId())
                     .partyId(record.getPartyId())
-                    .userId(record.getUserId())
+                    .userHandle(userHandle)
                     .userName(userName)
                     .location(record.getLocation())
                     .checkedInAt(record.getCheckedInAt())

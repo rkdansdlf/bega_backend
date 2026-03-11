@@ -16,6 +16,7 @@ import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PaymentIntentRepository;
+import com.example.mate.repository.PartyReviewRepository;
 import com.example.notification.service.NotificationService;
 import com.example.notification.entity.Notification;
 
@@ -43,6 +44,7 @@ public class PartyApplicationService {
     private final PartyApplicationRepository applicationRepository;
     private final PartyRepository partyRepository;
     private final PaymentIntentRepository paymentIntentRepository;
+    private final PartyReviewRepository partyReviewRepository;
     private final PartyService partyService;
     private final NotificationService notificationService;
     private final UserService userService;
@@ -72,7 +74,7 @@ public class PartyApplicationService {
                     .applicantId(context.applicantId())
                     .applicantName(context.applicantName())
                     .applicantBadge(context.applicantBadge())
-                    .applicantRating(request.getApplicantRating() != null ? request.getApplicantRating() : 5.0)
+                    .applicantRating(context.applicantRating())
                     .message(request.getMessage())
                     .depositAmount(paymentSnapshot.amount())
                     .paymentType(paymentSnapshot.paymentType())
@@ -86,7 +88,7 @@ public class PartyApplicationService {
 
             PartyApplication savedApplication = Objects.requireNonNull(applicationRepository.saveAndFlush(application));
             notifyHostOnApplicationSafely(context.party(), context.applicantName(), savedApplication.getPartyId());
-            return Objects.requireNonNull(PartyApplicationDTO.Response.from(savedApplication));
+            return toResponse(savedApplication);
         } catch (RuntimeException e) {
             log.error("[Application] createApplication failed: partyId={}, principal={}, paymentType={}",
                     request.getPartyId(),
@@ -102,7 +104,7 @@ public class PartyApplicationService {
      */
     @Transactional
     public PartyApplicationDTO.Response createApplication(PartyApplicationDTO.Request request) {
-        return createApplication(request, null);
+        throw new UnauthorizedAccessException("인증 정보가 없습니다.");
     }
 
     /**
@@ -150,7 +152,7 @@ public class PartyApplicationService {
         PartyApplication applicantIdExisting = resolveExistingPaymentApplication(orderId, paymentKey, applicantId);
         if (applicantIdExisting != null) {
             return new PaymentCreationResult(
-                    Objects.requireNonNull(PartyApplicationDTO.Response.from(applicantIdExisting)),
+                    toResponse(applicantIdExisting),
                     false);
         }
 
@@ -159,7 +161,7 @@ public class PartyApplicationService {
                 context.applicantId());
         if (contextExisting != null) {
             return new PaymentCreationResult(
-                    Objects.requireNonNull(PartyApplicationDTO.Response.from(contextExisting)),
+                    toResponse(contextExisting),
                     false);
         }
 
@@ -168,7 +170,7 @@ public class PartyApplicationService {
                 .applicantId(context.applicantId())
                 .applicantName(context.applicantName())
                 .applicantBadge(context.applicantBadge())
-                .applicantRating(request.getApplicantRating() != null ? request.getApplicantRating() : 5.0)
+                .applicantRating(context.applicantRating())
                 .message(request.getMessage() != null ? request.getMessage() : "함께 즐거운 관람 부탁드립니다!")
                 .depositAmount(confirmedAmount)
                 .paymentType(forcedPaymentType)
@@ -194,7 +196,7 @@ public class PartyApplicationService {
         PartyApplication savedApplication = Objects.requireNonNull(applicationRepository.save(application));
         notifyHostOnApplicationSafely(context.party(), context.applicantName(), savedApplication.getPartyId());
         return new PaymentCreationResult(
-                Objects.requireNonNull(PartyApplicationDTO.Response.from(savedApplication)),
+                toResponse(savedApplication),
                 true);
     }
 
@@ -211,7 +213,7 @@ public class PartyApplicationService {
 
         List<PartyApplicationDTO.Response> responses = Objects
                 .requireNonNull(applicationRepository.findByPartyId(partyId).stream()
-                        .map(PartyApplicationDTO.Response::from)
+                        .map(this::toResponse)
                         .collect(Collectors.toList()));
         paymentTransactionService.enrichResponses(responses);
         return responses;
@@ -222,7 +224,7 @@ public class PartyApplicationService {
     public PartyApplicationDTO.Response getMyApplicationByPartyId(Long partyId, Principal principal) {
         Long applicantId = resolveUserId(principal);
         PartyApplicationDTO.Response response = applicationRepository.findByPartyIdAndApplicantId(partyId, applicantId)
-                .map(PartyApplicationDTO.Response::from)
+                .map(this::toResponse)
                 .orElse(null);
         paymentTransactionService.enrichResponse(response);
         return response;
@@ -232,7 +234,7 @@ public class PartyApplicationService {
     @Transactional(readOnly = true)
     public List<PartyApplicationDTO.Response> getApplicationsByApplicantId(Long applicantId) {
         return Objects.requireNonNull(applicationRepository.findByApplicantId(applicantId).stream()
-                .map(PartyApplicationDTO.Response::from)
+                .map(this::toResponse)
                 .collect(Collectors.toList()));
     }
 
@@ -259,7 +261,7 @@ public class PartyApplicationService {
         validatePartyHost(partyId, principal);
         return Objects.requireNonNull(
                 applicationRepository.findByPartyIdAndIsApprovedFalseAndIsRejectedFalse(partyId).stream()
-                        .map(PartyApplicationDTO.Response::from)
+                        .map(this::toResponse)
                         .collect(Collectors.toList()));
     }
 
@@ -268,7 +270,7 @@ public class PartyApplicationService {
     public List<PartyApplicationDTO.Response> getApprovedApplications(Long partyId, Principal principal) {
         validatePartyHost(partyId, principal);
         return Objects.requireNonNull(applicationRepository.findByPartyIdAndIsApprovedTrue(partyId).stream()
-                .map(PartyApplicationDTO.Response::from)
+                .map(this::toResponse)
                 .collect(Collectors.toList()));
     }
 
@@ -277,7 +279,7 @@ public class PartyApplicationService {
     public List<PartyApplicationDTO.Response> getRejectedApplications(Long partyId, Principal principal) {
         validatePartyHost(partyId, principal);
         return Objects.requireNonNull(applicationRepository.findByPartyIdAndIsRejectedTrue(partyId).stream()
-                .map(PartyApplicationDTO.Response::from)
+                .map(this::toResponse)
                 .collect(Collectors.toList()));
     }
 
@@ -320,7 +322,7 @@ public class PartyApplicationService {
                 "파티 참여 신청이 승인되었습니다!",
                 application.getPartyId());
 
-        PartyApplicationDTO.Response response = PartyApplicationDTO.Response.from(savedApplication);
+        PartyApplicationDTO.Response response = toResponse(savedApplication);
         paymentTransactionService.enrichResponse(response);
         return response;
     }
@@ -373,7 +375,7 @@ public class PartyApplicationService {
                 "파티 참여 신청이 거절되었습니다.",
                 application.getPartyId());
 
-        PartyApplicationDTO.Response response = PartyApplicationDTO.Response.from(savedApplication);
+        PartyApplicationDTO.Response response = toResponse(savedApplication);
         paymentTransactionService.enrichResponse(response);
         return response;
     }
@@ -451,16 +453,9 @@ public class PartyApplicationService {
 
     private ApplicationCreationContext prepareCreationContext(PartyApplicationDTO.Request request,
             Principal principal) {
-        Long applicantId;
-        String applicantName;
-        if (principal != null) {
-            applicantId = resolveUserId(principal);
-            applicantName = resolveUserName(principal, applicantId);
-            log.info("[Application] Resolved applicantId={} from principal={}", applicantId, principal.getName());
-        } else {
-            applicantId = request.getApplicantId();
-            applicantName = request.getApplicantName();
-        }
+        Long applicantId = resolveUserId(principal);
+        String applicantName = resolveUserName(principal, applicantId);
+        log.info("[Application] Resolved applicantId={} from principal={}", applicantId, principal.getName());
 
         if (requireSocialVerification && !userService.isSocialVerified(applicantId)) {
             throw new com.example.common.exception.IdentityVerificationRequiredException(
@@ -491,8 +486,16 @@ public class PartyApplicationService {
 
         boolean ticketVerified = consumeAndValidateTicketToken(request, party, applicantId);
         Party.BadgeType badge = resolveBadge(applicantId, ticketVerified);
+        Double applicantRating = resolveUserRating(applicantId);
         Instant deadline = Instant.now().plus(48, ChronoUnit.HOURS);
-        return new ApplicationCreationContext(applicantId, applicantName, party, ticketVerified, badge, deadline);
+        return new ApplicationCreationContext(
+                applicantId,
+                applicantName,
+                party,
+                ticketVerified,
+                badge,
+                applicantRating,
+                deadline);
     }
 
     private boolean consumeAndValidateTicketToken(
@@ -637,6 +640,21 @@ public class PartyApplicationService {
         return userService.findUserById(userId).getName();
     }
 
+    private PartyApplicationDTO.Response toResponse(PartyApplication application) {
+        PartyApplicationDTO.Response response = Objects.requireNonNull(PartyApplicationDTO.Response.from(application));
+        if (application.getApplicantId() != null) {
+            response.setApplicantHandle(resolveUserHandle(application.getApplicantId()));
+        }
+        return response;
+    }
+
+    private String resolveUserHandle(Long userId) {
+        if (userId == null) {
+            return null;
+        }
+        return userService.findUserById(userId).getHandle();
+    }
+
     // Verify that ticket information matches the party's game details
     /**
      * 서버 사이드 배지 결정.
@@ -654,6 +672,11 @@ public class PartyApplicationService {
             return Party.BadgeType.TRUSTED;
         }
         return Party.BadgeType.NEW;
+    }
+
+    private Double resolveUserRating(Long applicantId) {
+        Double averageRating = partyReviewRepository.calculateAverageRating(applicantId);
+        return averageRating != null ? averageRating : 5.0;
     }
 
     /**
@@ -711,6 +734,7 @@ public class PartyApplicationService {
             Party party,
             boolean ticketVerified,
             Party.BadgeType applicantBadge,
+            Double applicantRating,
             Instant deadline) {
     }
 

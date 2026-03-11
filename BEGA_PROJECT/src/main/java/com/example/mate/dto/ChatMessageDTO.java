@@ -16,8 +16,6 @@ public class ChatMessageDTO {
     @Builder
     public static class Request {
         private Long partyId;
-        private Long senderId;
-        private String senderName;
         private String message;
         private String imageUrl;
     }
