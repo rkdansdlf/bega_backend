@@ -40,6 +40,7 @@ public class PartyReviewService {
             throw new UnauthorizedAccessException("인증 정보가 없습니다.");
         }
         Long reviewerId = userService.getUserIdByEmail(principal.getName());
+        Long revieweeId = resolveRevieweeId(request);
 
         // 1. 파티 존재 여부 확인
         Party party = partyRepository.findById(request.getPartyId())
@@ -62,9 +63,9 @@ public class PartyReviewService {
         }
 
         // 4. 리뷰 대상자가 파티 참여자인지 확인
-        boolean revieweeIsHost = party.getHostId().equals(request.getRevieweeId());
+        boolean revieweeIsHost = party.getHostId().equals(revieweeId);
         boolean revieweeIsApprovedApplicant = partyApplicationRepository
-                .findByPartyIdAndApplicantId(request.getPartyId(), request.getRevieweeId())
+                .findByPartyIdAndApplicantId(request.getPartyId(), revieweeId)
                 .map(PartyApplication::getIsApproved)
                 .orElse(false);
 
@@ -73,14 +74,14 @@ public class PartyReviewService {
         }
 
         // 5. 본인에게 리뷰 작성 방지
-        if (reviewerId.equals(request.getRevieweeId())) {
+        if (reviewerId.equals(revieweeId)) {
             throw new InvalidReviewException("본인에게는 리뷰를 작성할 수 없습니다.");
         }
 
         // 6. 중복 리뷰 방지
         if (partyReviewRepository.existsByPartyIdAndReviewerIdAndRevieweeId(
-                request.getPartyId(), reviewerId, request.getRevieweeId())) {
-            throw new DuplicateReviewException(request.getPartyId(), reviewerId, request.getRevieweeId());
+                request.getPartyId(), reviewerId, revieweeId)) {
+            throw new DuplicateReviewException(request.getPartyId(), reviewerId, revieweeId);
         }
 
         // 7. 평점 유효성 검사 (1-5)
@@ -97,14 +98,14 @@ public class PartyReviewService {
         PartyReview review = PartyReview.builder()
                 .partyId(request.getPartyId())
                 .reviewerId(reviewerId)
-                .revieweeId(request.getRevieweeId())
+                .revieweeId(revieweeId)
                 .rating(request.getRating())
                 .comment(request.getComment())
                 .build();
 
         PartyReview savedReview = partyReviewRepository.save(review);
 
-        return PartyReviewDTO.Response.from(savedReview);
+        return toResponse(savedReview);
     }
 
     /**
@@ -113,16 +114,28 @@ public class PartyReviewService {
     @Transactional(readOnly = true)
     public List<PartyReviewDTO.Response> getReviewsByParty(Long partyId) {
         return partyReviewRepository.findByPartyId(partyId).stream()
-                .map(PartyReviewDTO.Response::from)
+                .map(this::toResponse)
                 .collect(Collectors.toList());
     }
 
-    /**
-     * 사용자의 평균 평점 조회
-     */
-    @Transactional(readOnly = true)
-    public Double getAverageRating(Long userId) {
-        Double avgRating = partyReviewRepository.calculateAverageRating(userId);
-        return avgRating != null ? avgRating : 0.0;
+    private Long resolveRevieweeId(PartyReviewDTO.Request request) {
+        if (request.getRevieweeHandle() != null && !request.getRevieweeHandle().isBlank()) {
+            return userService.getUserIdByHandle(request.getRevieweeHandle());
+        }
+        throw new InvalidReviewException("리뷰 대상자는 필수입니다.");
+    }
+
+    private PartyReviewDTO.Response toResponse(PartyReview review) {
+        PartyReviewDTO.Response response = PartyReviewDTO.Response.from(review);
+        response.setReviewerHandle(resolveUserHandle(review.getReviewerId()));
+        response.setRevieweeHandle(resolveUserHandle(review.getRevieweeId()));
+        return response;
+    }
+
+    private String resolveUserHandle(Long userId) {
+        if (userId == null) {
+            return null;
+        }
+        return userService.findUserById(userId).getHandle();
     }
 }

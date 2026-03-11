@@ -71,15 +71,11 @@ public class CheckInRecordService {
     // 체크인
     @Transactional
     public CheckInRecordDTO.Response checkIn(CheckInRecordDTO.Request request, Principal principal) {
-        if (principal == null) {
-            throw new UnauthorizedAccessException("로그인이 필요합니다.");
-        }
-
         if (request == null || request.getPartyId() == null) {
             throw new RuntimeException("partyId는 필수입니다.");
         }
 
-        Long userId = userService.getUserIdByEmail(principal.getName());
+        Long userId = resolveUserId(principal);
 
         Party party = partyRepository.findById(request.getPartyId())
                 .orElseThrow(() -> new PartyNotFoundException(request.getPartyId()));
@@ -118,24 +114,17 @@ public class CheckInRecordService {
         // 모든 참여자가 체크인했는지 확인
         checkAndUpdatePartyStatus(request.getPartyId());
 
-        String userName = userRepository.findById(userId)
-                .map(com.example.auth.entity.UserEntity::getName)
-                .orElse("Unknown");
-
-        return CheckInRecordDTO.Response.from(savedRecord, userName);
+        return toResponse(savedRecord);
     }
 
     @Transactional
     public CheckInRecordDTO.QrSessionResponse createQrSession(CheckInRecordDTO.QrSessionRequest request,
             Principal principal) {
-        if (principal == null) {
-            throw new UnauthorizedAccessException("로그인이 필요합니다.");
-        }
         if (request == null || request.getPartyId() == null) {
             throw new RuntimeException("partyId는 필수입니다.");
         }
 
-        Long userId = userService.getUserIdByEmail(principal.getName());
+        Long userId = resolveUserId(principal);
         Party party = partyRepository.findById(request.getPartyId())
                 .orElseThrow(() -> new PartyNotFoundException(request.getPartyId()));
 
@@ -187,27 +176,30 @@ public class CheckInRecordService {
 
     // 파티별 체크인 기록 조회
     @Transactional(readOnly = true)
-    public List<CheckInRecordDTO.Response> getCheckInsByPartyId(Long partyId) {
+    public List<CheckInRecordDTO.Response> getCheckInsByPartyId(Long partyId, Principal principal) {
+        Long requesterId = resolveUserId(principal);
+        Party party = partyRepository.findById(partyId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+
+        if (!isPartyMember(partyId, requesterId, party)) {
+            throw new UnauthorizedAccessException("파티 참여자만 체크인 현황을 조회할 수 있습니다.");
+        }
+
         return checkInRecordRepository.findByPartyId(partyId).stream()
-                .map(record -> {
-                    String userName = userRepository.findById(record.getUserId())
-                            .map(com.example.auth.entity.UserEntity::getName)
-                            .orElse("Unknown");
-                    return CheckInRecordDTO.Response.from(record, userName);
-                })
+                .map(this::toResponse)
                 .collect(Collectors.toList());
     }
 
     // 사용자별 체크인 기록 조회
     @Transactional(readOnly = true)
-    public List<CheckInRecordDTO.Response> getCheckInsByUserId(Long userId) {
+    public List<CheckInRecordDTO.Response> getCheckInsByUserId(Long userId, Principal principal) {
+        Long requesterId = resolveUserId(principal);
+        if (!requesterId.equals(userId)) {
+            throw new UnauthorizedAccessException("본인의 체크인 기록만 조회할 수 있습니다.");
+        }
+
         return checkInRecordRepository.findByUserId(userId).stream()
-                .map(record -> {
-                    String userName = userRepository.findById(record.getUserId())
-                            .map(com.example.auth.entity.UserEntity::getName)
-                            .orElse("Unknown");
-                    return CheckInRecordDTO.Response.from(record, userName);
-                })
+                .map(this::toResponse)
                 .collect(Collectors.toList());
     }
 
@@ -216,13 +208,21 @@ public class CheckInRecordService {
     public boolean isCheckedIn(Long partyId, Principal principal) {
         if (principal == null)
             return false;
-        Long userId = userService.getUserIdByEmail(principal.getName());
+        Long userId = resolveUserId(principal);
         return checkInRecordRepository.findByPartyIdAndUserId(partyId, userId).isPresent();
     }
 
     // 파티별 체크인 인원 수 조회
     @Transactional(readOnly = true)
-    public long getCheckInCount(Long partyId) {
+    public long getCheckInCount(Long partyId, Principal principal) {
+        Long requesterId = resolveUserId(principal);
+        Party party = partyRepository.findById(partyId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+
+        if (!isPartyMember(partyId, requesterId, party)) {
+            throw new UnauthorizedAccessException("파티 참여자만 체크인 인원 수를 조회할 수 있습니다.");
+        }
+
         return checkInRecordRepository.countByPartyId(partyId);
     }
 
@@ -246,6 +246,20 @@ public class CheckInRecordService {
                 applicationRepository.findByPartyIdAndApplicantId(partyId, userId)
                         .map(com.example.mate.entity.PartyApplication::getIsApproved)
                         .orElse(false);
+    }
+
+    private CheckInRecordDTO.Response toResponse(CheckInRecord record) {
+        com.example.auth.entity.UserEntity user = userRepository.findById(record.getUserId()).orElse(null);
+        String userHandle = user != null ? user.getHandle() : null;
+        String userName = user != null ? user.getName() : "Unknown";
+        return CheckInRecordDTO.Response.from(record, userHandle, userName);
+    }
+
+    private Long resolveUserId(Principal principal) {
+        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+            throw new UnauthorizedAccessException("로그인이 필요합니다.");
+        }
+        return userService.getUserIdByEmail(principal.getName());
     }
 
     private CheckInCredentialMode resolveCredentialMode(Long partyId, String qrSessionId, String manualCode) {

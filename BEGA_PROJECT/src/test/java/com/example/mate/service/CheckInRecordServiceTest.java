@@ -28,6 +28,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -212,7 +213,7 @@ class CheckInRecordServiceTest {
         when(checkInRecordRepository.findByPartyIdAndUserId(1L, 10L)).thenReturn(Optional.empty());
         when(checkInRecordRepository.save(any(CheckInRecord.class))).thenReturn(savedRecord);
         when(checkInRecordRepository.countByPartyId(1L)).thenReturn(1L);
-        when(userRepository.findById(10L)).thenReturn(Optional.of(UserEntity.builder().id(10L).name("호스트").build()));
+        when(userRepository.findById(10L)).thenReturn(Optional.of(UserEntity.builder().id(10L).name("호스트").handle("@host").build()));
 
         CheckInRecordDTO.Request request = CheckInRecordDTO.Request.builder()
                 .partyId(1L)
@@ -223,7 +224,7 @@ class CheckInRecordServiceTest {
         CheckInRecordDTO.Response response = checkInRecordService.checkIn(request, principal);
 
         assertThat(response.getId()).isEqualTo(100L);
-        assertThat(response.getUserId()).isEqualTo(10L);
+        assertThat(response.getUserHandle()).isEqualTo("@host");
         assertThat(response.getUserName()).isEqualTo("호스트");
     }
 
@@ -302,13 +303,69 @@ class CheckInRecordServiceTest {
                 .hasMessageContaining("유효하지 않거나 만료된 수동 체크인 코드");
     }
 
+    @Test
+    @DisplayName("getCheckInsByPartyId rejects non-member viewer")
+    void getCheckInsByPartyId_rejectsNonMemberViewer() {
+        Principal principal = () -> "viewer@test.com";
+        Party party = createParty(1L, 10L);
+
+        when(userService.getUserIdByEmail("viewer@test.com")).thenReturn(77L);
+        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(applicationRepository.findByPartyIdAndApplicantId(1L, 77L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> checkInRecordService.getCheckInsByPartyId(1L, principal))
+                .isInstanceOf(UnauthorizedAccessException.class)
+                .hasMessageContaining("파티 참여자만 체크인 현황을 조회할 수 있습니다.");
+    }
+
+    @Test
+    @DisplayName("getCheckInsByPartyId allows approved participant")
+    void getCheckInsByPartyId_allowsApprovedParticipant() {
+        Principal principal = () -> "viewer@test.com";
+        Party party = createParty(1L, 10L);
+        CheckInRecord record = CheckInRecord.builder()
+                .id(9L)
+                .partyId(1L)
+                .userId(10L)
+                .location("잠실야구장")
+                .checkedInAt(LocalDateTime.now())
+                .build();
+
+        when(userService.getUserIdByEmail("viewer@test.com")).thenReturn(77L);
+        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(applicationRepository.findByPartyIdAndApplicantId(1L, 77L))
+                .thenReturn(Optional.of(com.example.mate.entity.PartyApplication.builder()
+                        .id(55L)
+                        .partyId(1L)
+                        .applicantId(77L)
+                        .isApproved(true)
+                        .build()));
+        when(checkInRecordRepository.findByPartyId(1L)).thenReturn(List.of(record));
+        when(userRepository.findById(10L)).thenReturn(Optional.of(UserEntity.builder().id(10L).name("호스트").handle("@host").build()));
+
+        var responses = checkInRecordService.getCheckInsByPartyId(1L, principal);
+
+        assertThat(responses).hasSize(1);
+        assertThat(responses.get(0).getUserHandle()).isEqualTo("@host");
+    }
+
+    @Test
+    @DisplayName("getCheckInsByUserId rejects other user's history")
+    void getCheckInsByUserId_rejectsOtherUserHistory() {
+        Principal principal = () -> "viewer@test.com";
+        when(userService.getUserIdByEmail("viewer@test.com")).thenReturn(77L);
+
+        assertThatThrownBy(() -> checkInRecordService.getCheckInsByUserId(10L, principal))
+                .isInstanceOf(UnauthorizedAccessException.class)
+                .hasMessageContaining("본인의 체크인 기록만 조회할 수 있습니다.");
+    }
+
     private Party createParty(Long partyId, Long hostId) {
         return Party.builder()
                 .id(partyId)
                 .hostId(hostId)
                 .hostName("호스트")
                 .hostBadge(Party.BadgeType.NEW)
-                .hostRating(5.0)
                 .teamId("LG")
                 .gameDate(LocalDate.now().plusDays(1))
                 .gameTime(LocalTime.of(18, 30))

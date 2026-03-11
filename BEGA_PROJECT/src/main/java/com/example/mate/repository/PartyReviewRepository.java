@@ -8,10 +8,19 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 
 @Repository
 public interface PartyReviewRepository extends JpaRepository<PartyReview, Long> {
+
+    interface RevieweeRatingSummary {
+        Long getRevieweeId();
+
+        Double getAverageRating();
+
+        Long getReviewCount();
+    }
 
     /**
      * 특정 파티에 대한 모든 리뷰 조회
@@ -33,4 +42,15 @@ public interface PartyReviewRepository extends JpaRepository<PartyReview, Long> 
      */
     @Query("SELECT AVG(r.rating) FROM PartyReview r WHERE r.revieweeId = :userId")
     Double calculateAverageRating(@Param("userId") Long userId);
+
+    @Query("""
+            SELECT r.revieweeId AS revieweeId,
+                   AVG(r.rating) AS averageRating,
+                   COUNT(r.id) AS reviewCount
+              FROM PartyReview r
+             WHERE r.revieweeId IN :revieweeIds
+             GROUP BY r.revieweeId
+            """)
+    List<RevieweeRatingSummary> findRatingSummariesByRevieweeIds(
+            @Param("revieweeIds") Collection<Long> revieweeIds);
 }

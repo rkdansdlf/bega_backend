@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.security.Principal;
 import java.util.stream.Collectors;
@@ -147,9 +148,7 @@ public class ChatMessageService {
         long totalUnread = 0;
 
         for (com.example.mate.entity.Party party : hostedParties) {
-            java.time.Instant lastRead = party.getHostLastReadChatAt();
-            if (lastRead == null)
-                lastRead = party.getCreatedAt();
+            Instant lastRead = resolveUnreadCountStart(party.getHostLastReadChatAt(), party.getCreatedAt());
             totalUnread += chatMessageRepository.countByPartyIdAndCreatedAtAfterAndSenderIdNot(
                     party.getId(),
                     lastRead,
@@ -157,9 +156,7 @@ public class ChatMessageService {
         }
 
         for (com.example.mate.entity.PartyApplication app : applications) {
-            java.time.Instant lastRead = app.getLastReadChatAt();
-            if (lastRead == null)
-                lastRead = app.getCreatedAt();
+            Instant lastRead = resolveUnreadCountStart(app.getLastReadChatAt(), app.getCreatedAt());
             totalUnread += chatMessageRepository.countByPartyIdAndCreatedAtAfterAndSenderIdNot(
                     app.getPartyId(),
                     lastRead,
@@ -167,6 +164,16 @@ public class ChatMessageService {
         }
 
         return totalUnread;
+    }
+
+    private Instant resolveUnreadCountStart(Instant lastReadAt, Instant createdAt) {
+        if (lastReadAt != null) {
+            return lastReadAt;
+        }
+        if (createdAt != null) {
+            return createdAt;
+        }
+        return Instant.EPOCH;
     }
 
     private ChatMessageDTO.Response toResponseWithResolvedImage(ChatMessage chatMessage) {

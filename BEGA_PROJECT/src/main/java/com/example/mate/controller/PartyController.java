@@ -43,7 +43,7 @@ public class PartyController {
 
     // 모든 파티 조회
     @GetMapping
-    public ResponseEntity<Page<PartyDTO.Response>> getAllParties(
+    public ResponseEntity<Page<PartyDTO.PublicResponse>> getAllParties(
             @RequestParam(required = false) String teamId,
             @RequestParam(required = false) String stadium,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
@@ -52,7 +52,8 @@ public class PartyController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "9") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
-            @RequestParam(defaultValue = "desc") String sortDir) {
+            @RequestParam(defaultValue = "desc") String sortDir,
+            @AuthenticationPrincipal Long currentUserId) {
         Party.PartyStatus parsedStatus = null;
         if (status != null && !status.trim().isEmpty()) {
             try {
@@ -64,16 +65,27 @@ public class PartyController {
 
         Sort.Direction direction = sortDir.equalsIgnoreCase("asc") ? Sort.Direction.ASC : Sort.Direction.DESC;
         Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
-        Page<PartyDTO.Response> parties = partyService.getAllParties(teamId, stadium, date, searchQuery, pageable, parsedStatus);
+        Page<PartyDTO.PublicResponse> parties = partyService.getAllParties(
+                teamId,
+                stadium,
+                date,
+                searchQuery,
+                pageable,
+                parsedStatus,
+                currentUserId);
         return ResponseEntity.ok(parties);
     }
 
     // 파티 ID로 조회
     @GetMapping("/{id}")
-    public ResponseEntity<PartyDTO.Response> getPartyById(@PathVariable Long id) {
+    public ResponseEntity<PartyDTO.PublicResponse> getPartyById(
+            @PathVariable Long id,
+            @AuthenticationPrincipal Long currentUserId) {
         try {
-            PartyDTO.Response response = partyService.getPartyById(id);
+            PartyDTO.PublicResponse response = partyService.getPartyById(id, currentUserId);
             return ResponseEntity.ok(response);
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(null);
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
         }
@@ -81,10 +93,12 @@ public class PartyController {
 
     // 상태별 파티 조회
     @GetMapping("/status/{status}")
-    public ResponseEntity<List<PartyDTO.Response>> getPartiesByStatus(@PathVariable String status) {
+    public ResponseEntity<List<PartyDTO.PublicResponse>> getPartiesByStatus(
+            @PathVariable String status,
+            @AuthenticationPrincipal Long currentUserId) {
         try {
             Party.PartyStatus partyStatus = Party.PartyStatus.valueOf(status.toUpperCase());
-            List<PartyDTO.Response> parties = partyService.getPartiesByStatus(partyStatus);
+            List<PartyDTO.PublicResponse> parties = partyService.getPartiesByStatus(partyStatus, currentUserId);
             return ResponseEntity.ok(parties);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
@@ -92,23 +106,28 @@ public class PartyController {
     }
 
     // 호스트별 파티 조회
-    @GetMapping("/host/{hostId}")
-    public ResponseEntity<List<PartyDTO.Response>> getPartiesByHostId(@PathVariable Long hostId) {
-        List<PartyDTO.Response> parties = partyService.getPartiesByHostId(hostId);
+    @GetMapping("/profile/{handle}")
+    public ResponseEntity<List<PartyDTO.PublicResponse>> getPartiesByHostHandle(
+            @PathVariable String handle,
+            @AuthenticationPrincipal Long currentUserId) {
+        List<PartyDTO.PublicResponse> parties = partyService.getPartiesByHostHandle(handle, currentUserId);
         return ResponseEntity.ok(parties);
     }
 
     // 검색
     @GetMapping("/search")
-    public ResponseEntity<List<PartyDTO.Response>> searchParties(@RequestParam String query) {
-        List<PartyDTO.Response> parties = partyService.searchParties(query);
+    public ResponseEntity<List<PartyDTO.PublicResponse>> searchParties(
+            @RequestParam String query,
+            @AuthenticationPrincipal Long currentUserId) {
+        List<PartyDTO.PublicResponse> parties = partyService.searchParties(query, currentUserId);
         return ResponseEntity.ok(parties);
     }
 
     // 경기 예정 파티 조회
     @GetMapping("/upcoming")
-    public ResponseEntity<List<PartyDTO.Response>> getUpcomingParties() {
-        List<PartyDTO.Response> parties = partyService.getUpcomingParties();
+    public ResponseEntity<List<PartyDTO.PublicResponse>> getUpcomingParties(
+            @AuthenticationPrincipal Long currentUserId) {
+        List<PartyDTO.PublicResponse> parties = partyService.getUpcomingParties(currentUserId);
         return ResponseEntity.ok(parties);
     }
 
