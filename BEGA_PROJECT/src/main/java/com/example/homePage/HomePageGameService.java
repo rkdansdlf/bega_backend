@@ -16,6 +16,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.example.kbo.entity.GameEntity;
 import com.example.kbo.repository.GameRepository;
+import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.util.TeamCodeNormalizer;
 
 import lombok.RequiredArgsConstructor;
@@ -33,9 +34,9 @@ public class HomePageGameService {
 	private final HomePageTeamRepository homePageTeamRepository;
     @Qualifier("stadiumDataSource")
     private final DataSource stadiumDataSource;
+    private final LeagueStageResolver leagueStageResolver;
 
 	private final Map<String, HomePageTeam> teamMap = new ConcurrentHashMap<>();
-	private final Map<Integer, Integer> leagueTypeCodeMap = new ConcurrentHashMap<>();
 
     @Transactional(readOnly = true, transactionManager = "transactionManager")
     public void init() {
@@ -80,7 +81,7 @@ public class HomePageGameService {
         String resolvedHomeTeamName = resolveTeamName(resolvedHomeTeamId, homeTeam.getTeamName());
         String resolvedAwayTeamName = resolveTeamName(resolvedAwayTeamId, awayTeam.getTeamName());
 
-		String leagueType = determineLeagueType(game.getSeasonId());
+		String leagueType = determineLeagueType(game);
 		String gameInfo = "";
 
 		if ("KOREAN_SERIES".equals(leagueType)) {
@@ -138,14 +139,11 @@ public class HomePageGameService {
         }
     }
 
-	private String determineLeagueType(Integer seasonId) {
-		if (seasonId == null) {
+	private String determineLeagueType(GameEntity game) {
+		Integer leagueTypeCode = leagueStageResolver.resolveEffectiveLeagueTypeCode(game);
+		if (leagueTypeCode == null) {
 			return "OFFSEASON";
 		}
-
-		Integer leagueTypeCode = leagueTypeCodeMap.computeIfAbsent(
-				seasonId,
-				id -> gameRepository.findLeagueTypeCodeBySeasonId(id).orElse(-1));
 
 		return switch (leagueTypeCode) {
 			case 0 -> "REGULAR";
@@ -195,18 +193,21 @@ public class HomePageGameService {
         // DB에서 각 리그의 첫 경기 날짜 조회
         LocalDate regularStart = gameRepository
                 .findFirstRegularSeasonDate(seasonYear)
+                .or(() -> gameRepository.findConfiguredStartDateByTypeFromSeasonYear(0, seasonYear))
                 .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(0, seasonYear))
                 .or(() -> gameRepository.findLatestStartDateByTypeAsOf(0, now))
                 .orElse(now);
 
         LocalDate postseasonStart = gameRepository
                 .findFirstPostseasonDate(seasonYear)
+                .or(() -> gameRepository.findConfiguredStartDateByTypeFromSeasonYear(2, seasonYear))
                 .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(2, seasonYear))
                 .or(() -> gameRepository.findLatestStartDateByTypeAsOf(2, now))
                 .orElse(now);
 
         LocalDate koreanSeriesStart = gameRepository
                 .findFirstKoreanSeriesDate(seasonYear)
+                .or(() -> gameRepository.findConfiguredStartDateByTypeFromSeasonYear(5, seasonYear))
                 .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(5, seasonYear))
                 .or(() -> gameRepository.findLatestStartDateByTypeAsOf(5, now))
                 .orElse(now);

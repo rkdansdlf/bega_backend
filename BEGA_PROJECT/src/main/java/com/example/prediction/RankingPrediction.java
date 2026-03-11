@@ -49,7 +49,7 @@ public class RankingPrediction {
 	public RankingPredictionResponseDto toDto() {
 		return new RankingPredictionResponseDto(
 				this.id,
-				this.userId,
+				null,
 				this.seasonYear,
 				this.predictionData,
 				null, // teamDetails 필드 추가됨
