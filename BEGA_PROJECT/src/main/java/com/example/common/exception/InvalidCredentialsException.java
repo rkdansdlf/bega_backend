@@ -1,12 +1,12 @@
 package com.example.common.exception;
 
-public class InvalidCredentialsException extends RuntimeException {
+public class InvalidCredentialsException extends UnauthorizedBusinessException {
     public InvalidCredentialsException() {
-        super("이메일 또는 비밀번호가 일치하지 않습니다.");
+        super("INVALID_CREDENTIALS", "이메일 또는 비밀번호가 일치하지 않습니다.");
     }
     
     public InvalidCredentialsException(String message) {
-        super(message);
+        super("INVALID_CREDENTIALS", message);
     }
 }
   

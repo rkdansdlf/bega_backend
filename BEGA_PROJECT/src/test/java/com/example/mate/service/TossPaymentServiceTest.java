@@ -110,7 +110,9 @@ class TossPaymentServiceTest {
         assertThatThrownBy(() ->
                 tossPaymentService.confirmPayment("invalid_key", "order_x", 10000))
                 .isInstanceOf(TossPaymentException.class)
-                .hasMessageContaining("결제 승인에 실패했습니다");
+                .hasMessageContaining("결제 승인에 실패했습니다")
+                .extracting("code")
+                .isEqualTo("NOT_FOUND_PAYMENT");
         mockServer.verify();
     }
 
@@ -135,7 +137,9 @@ class TossPaymentServiceTest {
         // when & then
         assertThatThrownBy(() ->
                 tossPaymentService.confirmPayment("pk_test", "order_1", 10000))
-                .isInstanceOf(TossPaymentException.class);
+                .isInstanceOf(TossPaymentException.class)
+                .extracting("code")
+                .isEqualTo("UNAUTHORIZED_KEY");
         mockServer.verify();
     }
 
@@ -151,7 +155,9 @@ class TossPaymentServiceTest {
         // when & then
         assertThatThrownBy(() ->
                 tossPaymentService.confirmPayment("pk_test", "order_1", 10000))
-                .isInstanceOf(TossPaymentException.class);
+                .isInstanceOf(TossPaymentException.class)
+                .extracting("code")
+                .isEqualTo("TOSS_CONFIRM_REQUEST_FAILED");
         mockServer.verify();
     }
 
@@ -182,7 +188,9 @@ class TossPaymentServiceTest {
 
         assertThatThrownBy(() -> tossPaymentService.confirmPayment("pk", "order", 10000))
                 .isInstanceOf(TossPaymentException.class)
-                .hasMessageContaining("직거래 모드");
+                .hasMessageContaining("직거래 모드")
+                .extracting("code")
+                .isEqualTo("TOSS_PAYMENT_DISABLED");
     }
 
     private void stubTossEnabled() {

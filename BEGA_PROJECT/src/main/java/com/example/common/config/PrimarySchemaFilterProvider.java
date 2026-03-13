@@ -10,7 +10,7 @@ import org.hibernate.tool.schema.spi.SchemaFilter;
 import org.hibernate.tool.schema.spi.SchemaFilterProvider;
 
 /**
- * primary(Oracle) validation에서 postgres 전용 game-read 테이블을 제외한다.
+ * primary(Oracle) validation에서 postgres 전용 read-model 테이블을 제외한다.
  *
  * 동일 엔티티를 dual DB에서 공유할 때 발생하는 타입 불일치(oracle number vs postgres boolean)
  * 를 validation 단계에서 분리해, 실제 사용 persistence unit(kboGame)에서 검증하도록 한다.
@@ -21,7 +21,9 @@ public class PrimarySchemaFilterProvider implements SchemaFilterProvider {
             "game",
             "game_metadata",
             "game_summary",
-            "game_inning_scores"
+            "game_inning_scores",
+            "player_season_batting",
+            "player_season_pitching"
     );
 
     private static final SchemaFilter VALIDATE_FILTER = new SchemaFilter() {

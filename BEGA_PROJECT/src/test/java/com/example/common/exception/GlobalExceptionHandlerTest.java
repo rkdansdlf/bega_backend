@@ -1,39 +1,38 @@
 package com.example.common.exception;
 
-import com.example.common.dto.ApiResponse;
-import com.example.mate.exception.TossPaymentException;
-import org.junit.jupiter.api.Test;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.web.server.ResponseStatusException;
-
-import java.util.Map;
-
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_CODE;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CANCEL_NOT_ALLOWED_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CANCEL_NOT_ALLOWED_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CONFLICT_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CONFLICT_ERROR;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_CODE;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_PRIVATE_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_PRIVATE_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_SELF_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_A_REPOST_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_A_REPOST_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_QUOTE_NOT_ALLOWED_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_QUOTE_NOT_ALLOWED_ERROR;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_SELF_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_SELF_NOT_ALLOWED_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET_NOT_FOUND_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET_NOT_FOUND_ERROR;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.springframework.http.HttpStatus.BAD_REQUEST;
-import static org.springframework.http.HttpStatus.NOT_FOUND;
+
+import com.example.common.dto.ApiResponse;
+import com.example.mate.exception.TossPaymentException;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.validation.BindException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.server.ResponseStatusException;
 
 class GlobalExceptionHandlerTest {
 
@@ -45,9 +44,9 @@ class GlobalExceptionHandlerTest {
         var response = handler.handleRepostNotAllowed(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        var body = assertInstanceOf(Map.class, response.getBody());
-        assertThat(body.get("code")).isEqualTo(REPOST_SELF_NOT_ALLOWED_CODE);
-        assertThat(body.get("message")).isEqualTo(REPOST_NOT_ALLOWED_SELF_ERROR);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(REPOST_SELF_NOT_ALLOWED_CODE);
+        assertThat(body.getMessage()).isEqualTo(REPOST_NOT_ALLOWED_SELF_ERROR);
     }
 
     @Test
@@ -56,9 +55,9 @@ class GlobalExceptionHandlerTest {
         var response = handler.handleRepostNotAllowed(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        var body = assertInstanceOf(Map.class, response.getBody());
-        assertThat(body.get("code")).isEqualTo(REPOST_NOT_ALLOWED_BLOCKED_CODE);
-        assertThat(body.get("message")).isEqualTo(REPOST_NOT_ALLOWED_BLOCKED_ERROR);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(REPOST_NOT_ALLOWED_BLOCKED_CODE);
+        assertThat(body.getMessage()).isEqualTo(REPOST_NOT_ALLOWED_BLOCKED_ERROR);
     }
 
     @Test
@@ -67,9 +66,9 @@ class GlobalExceptionHandlerTest {
         var response = handler.handleRepostNotAllowed(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        var body = assertInstanceOf(Map.class, response.getBody());
-        assertThat(body.get("code")).isEqualTo(REPOST_NOT_ALLOWED_PRIVATE_CODE);
-        assertThat(body.get("message")).isEqualTo(REPOST_NOT_ALLOWED_PRIVATE_ERROR);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(REPOST_NOT_ALLOWED_PRIVATE_CODE);
+        assertThat(body.getMessage()).isEqualTo(REPOST_NOT_ALLOWED_PRIVATE_ERROR);
     }
 
     @Test
@@ -78,9 +77,9 @@ class GlobalExceptionHandlerTest {
         var response = handler.handleRepostNotAllowed(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        var body = assertInstanceOf(Map.class, response.getBody());
-        assertThat(body.get("code")).isEqualTo(REPOST_CANCEL_NOT_ALLOWED_CODE);
-        assertThat(body.get("message")).isEqualTo(REPOST_CANCEL_NOT_ALLOWED_ERROR);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(REPOST_CANCEL_NOT_ALLOWED_CODE);
+        assertThat(body.getMessage()).isEqualTo(REPOST_CANCEL_NOT_ALLOWED_ERROR);
     }
 
     @Test
@@ -89,9 +88,9 @@ class GlobalExceptionHandlerTest {
         var response = handler.handleRepostNotAllowed(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        var body = assertInstanceOf(Map.class, response.getBody());
-        assertThat(body.get("code")).isEqualTo(REPOST_NOT_A_REPOST_CODE);
-        assertThat(body.get("message")).isEqualTo(REPOST_NOT_A_REPOST_ERROR);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(REPOST_NOT_A_REPOST_CODE);
+        assertThat(body.getMessage()).isEqualTo(REPOST_NOT_A_REPOST_ERROR);
     }
 
     @Test
@@ -100,9 +99,9 @@ class GlobalExceptionHandlerTest {
         var response = handler.handleRepostNotAllowed(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        var body = assertInstanceOf(Map.class, response.getBody());
-        assertThat(body.get("code")).isEqualTo(REPOST_QUOTE_NOT_ALLOWED_CODE);
-        assertThat(body.get("message")).isEqualTo(REPOST_QUOTE_NOT_ALLOWED_ERROR);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(REPOST_QUOTE_NOT_ALLOWED_CODE);
+        assertThat(body.getMessage()).isEqualTo(REPOST_QUOTE_NOT_ALLOWED_ERROR);
     }
 
     @Test
@@ -111,9 +110,9 @@ class GlobalExceptionHandlerTest {
         var response = handler.handleRepostTargetNotFoundException(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        var body = assertInstanceOf(Map.class, response.getBody());
-        assertThat(body.get("code")).isEqualTo(REPOST_TARGET_NOT_FOUND_CODE);
-        assertThat(body.get("message")).isEqualTo(REPOST_TARGET_NOT_FOUND_ERROR);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(REPOST_TARGET_NOT_FOUND_CODE);
+        assertThat(body.getMessage()).isEqualTo(REPOST_TARGET_NOT_FOUND_ERROR);
     }
 
     @Test
@@ -123,9 +122,9 @@ class GlobalExceptionHandlerTest {
         var response = handler.handleDataIntegrityViolation(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        var body = assertInstanceOf(Map.class, response.getBody());
-        assertThat(body.get("code")).isEqualTo(REPOST_CONFLICT_CODE);
-        assertThat(body.get("message")).isEqualTo(REPOST_CONFLICT_ERROR);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(REPOST_CONFLICT_CODE);
+        assertThat(body.getMessage()).isEqualTo(REPOST_CONFLICT_ERROR);
     }
 
     @Test
@@ -135,9 +134,9 @@ class GlobalExceptionHandlerTest {
         var response = handler.handleDataIntegrityViolation(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        var body = assertInstanceOf(Map.class, response.getBody());
-        assertThat(body.get("code")).isEqualTo(REPOST_CONFLICT_CODE);
-        assertThat(body.get("message")).isEqualTo(REPOST_CONFLICT_ERROR);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(REPOST_CONFLICT_CODE);
+        assertThat(body.getMessage()).isEqualTo(REPOST_CONFLICT_ERROR);
     }
 
     @Test
@@ -146,9 +145,9 @@ class GlobalExceptionHandlerTest {
         var response = handler.handleRepostNotAllowed(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        var body = assertInstanceOf(Map.class, response.getBody());
-        assertThat(body.get("code")).isEqualTo(REPOST_CYCLE_DETECTED_CODE);
-        assertThat(body.get("message")).isEqualTo(REPOST_CYCLE_DETECTED_ERROR);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(REPOST_CYCLE_DETECTED_CODE);
+        assertThat(body.getMessage()).isEqualTo(REPOST_CYCLE_DETECTED_ERROR);
     }
 
     @Test
@@ -157,9 +156,25 @@ class GlobalExceptionHandlerTest {
         var response = handler.handleRepostNotAllowed(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        var body = assertInstanceOf(Map.class, response.getBody());
-        assertThat(body.get("code")).isEqualTo(REPOST_NOT_ALLOWED_CODE);
-        assertThat(body.get("message")).isEqualTo(REPOST_NOT_ALLOWED_ERROR);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(REPOST_NOT_ALLOWED_CODE);
+        assertThat(body.getMessage()).isEqualTo(REPOST_NOT_ALLOWED_ERROR);
+    }
+
+    @Test
+    void bindException_returnsValidationErrorsMap() {
+        BindException ex = new BindException(new Object(), "signupDto");
+        ex.addError(new FieldError("signupDto", "email", "유효하지 않은 이메일 형식입니다."));
+        ex.addError(new FieldError("signupDto", "confirmPassword", "비밀번호와 비밀번호 확인이 일치하지 않습니다."));
+
+        var response = handler.handleBindException(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo("VALIDATION_ERROR");
+        assertThat(body.getErrors()).isEqualTo(Map.of(
+                "email", "유효하지 않은 이메일 형식입니다.",
+                "confirmPassword", "비밀번호와 비밀번호 확인이 일치하지 않습니다."));
     }
 
     @Test
@@ -167,9 +182,10 @@ class GlobalExceptionHandlerTest {
         var ex = new java.util.NoSuchElementException("요청한 데이터를 찾을 수 없습니다.");
         var response = handler.handleNoSuchElementException(ex);
 
-        assertThat(response.getStatusCode()).isEqualTo(NOT_FOUND);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.isSuccess()).isFalse();
+        assertThat(body.getCode()).isEqualTo("NOT_FOUND");
         assertThat(body.getMessage()).isEqualTo("요청한 데이터를 찾을 수 없습니다.");
         assertThat(body.getData()).isNull();
     }
@@ -177,34 +193,35 @@ class GlobalExceptionHandlerTest {
     @Test
     void illegalArgument_returnsBadRequest() {
         var ex = new IllegalArgumentException("잘못된 입력입니다.");
-        var response = handler.handleIllegalArgumentException(ex);
+        var response = handler.handleBadRequestExceptions(ex);
 
-        assertThat(response.getStatusCode()).isEqualTo(BAD_REQUEST);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.isSuccess()).isFalse();
+        assertThat(body.getCode()).isEqualTo("BAD_REQUEST");
         assertThat(body.getMessage()).isEqualTo("잘못된 입력입니다.");
-        assertThat(body.getData()).isNull();
     }
 
     @Test
     void illegalState_returnsBadRequest() {
         var ex = new IllegalStateException("요청 상태가 올바르지 않습니다.");
-        var response = handler.handleIllegalStateException(ex);
+        var response = handler.handleBadRequestExceptions(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.isSuccess()).isFalse();
+        assertThat(body.getCode()).isEqualTo("BAD_REQUEST");
         assertThat(body.getMessage()).isEqualTo("요청 상태가 올바르지 않습니다.");
-        assertThat(body.getData()).isNull();
     }
 
     @Test
     void tossPaymentException_preservesHttpStatus() {
-        var ex = new TossPaymentException("결제 승인 실패", HttpStatus.UNAUTHORIZED);
-        var response = handler.handleTossPaymentException(ex);
+        var ex = new TossPaymentException("PAYMENT_CONFIRM_FAILED", "결제 승인 실패", HttpStatus.UNAUTHORIZED);
+        var response = handler.handleBusinessException(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo("PAYMENT_CONFIRM_FAILED");
         assertThat(body.getMessage()).isEqualTo("결제 승인 실패");
     }
 
@@ -215,6 +232,7 @@ class GlobalExceptionHandlerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo("SERVICE_UNAVAILABLE");
         assertThat(body.getMessage()).isEqualTo("AI service URL is not configured");
     }
 
@@ -226,6 +244,7 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.isSuccess()).isFalse();
+        assertThat(body.getCode()).isEqualTo("FORBIDDEN");
         assertThat(body.getMessage()).isEqualTo("본인의 일기만 조회할 수 있습니다.");
     }
 }

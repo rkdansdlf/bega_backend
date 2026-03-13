@@ -23,15 +23,9 @@ public class ChatMessageController {
     public ResponseEntity<?> sendMessage(
             @RequestBody ChatMessageDTO.Request request,
             java.security.Principal principal) {
-        try {
-            ChatMessageDTO.Response response = chatMessageService.sendMessage(request, principal);
-            messagingTemplate.convertAndSend("/topic/party/" + response.getPartyId(), response);
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        ChatMessageDTO.Response response = chatMessageService.sendMessage(request, principal);
+        messagingTemplate.convertAndSend("/topic/party/" + response.getPartyId(), response);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     // 파티별 채팅 메시지 조회
@@ -39,14 +33,8 @@ public class ChatMessageController {
     public ResponseEntity<?> getMessagesByPartyId(
             @PathVariable Long partyId,
             java.security.Principal principal) {
-        try {
-            List<ChatMessageDTO.Response> messages = chatMessageService.getMessagesByPartyId(partyId, principal);
-            return ResponseEntity.ok(messages);
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        List<ChatMessageDTO.Response> messages = chatMessageService.getMessagesByPartyId(partyId, principal);
+        return ResponseEntity.ok(messages);
     }
 
     // 파티별 최근 메시지 조회
@@ -54,16 +42,10 @@ public class ChatMessageController {
     public ResponseEntity<?> getLatestMessage(
             @PathVariable Long partyId,
             java.security.Principal principal) {
-        try {
-            ChatMessageDTO.Response message = chatMessageService.getLatestMessage(partyId, principal);
-            if (message != null) {
-                return ResponseEntity.ok(message);
-            }
-            return ResponseEntity.noContent().build();
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
+        ChatMessageDTO.Response message = chatMessageService.getLatestMessage(partyId, principal);
+        if (message != null) {
+            return ResponseEntity.ok(message);
         }
+        return ResponseEntity.noContent().build();
     }
 }

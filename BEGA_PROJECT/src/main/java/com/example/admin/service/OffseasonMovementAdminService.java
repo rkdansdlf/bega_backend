@@ -2,18 +2,16 @@ package com.example.admin.service;
 
 import com.example.admin.dto.OffseasonMovementAdminDto;
 import com.example.admin.dto.OffseasonMovementAdminRequest;
+import com.example.admin.exception.OffseasonMovementNotFoundException;
 import com.example.kbo.entity.PlayerMovement;
 import com.example.kbo.repository.PlayerMovementRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
-import org.springframework.web.server.ResponseStatusException;
-
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Locale;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -51,7 +49,7 @@ public class OffseasonMovementAdminService {
     @Transactional
     public OffseasonMovementAdminDto updateMovement(Long id, OffseasonMovementAdminRequest request) {
         PlayerMovement movement = repository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "이동 정보를 찾을 수 없습니다. id=" + id));
+                .orElseThrow(() -> new OffseasonMovementNotFoundException(id));
         applyRequest(movement, request);
         return toDto(repository.save(movement));
     }
@@ -59,7 +57,7 @@ public class OffseasonMovementAdminService {
     @Transactional
     public void deleteMovement(Long id) {
         if (!repository.existsById(id)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "이동 정보를 찾을 수 없습니다. id=" + id);
+            throw new OffseasonMovementNotFoundException(id);
         }
         repository.deleteById(id);
     }

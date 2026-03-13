@@ -2,6 +2,7 @@ package com.example.common.validation;
 
 import com.example.auth.dto.PasswordResetConfirmDto;
 import com.example.auth.dto.SignupDto;
+import com.example.mypage.dto.ChangePasswordRequest;
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
 
@@ -37,8 +38,21 @@ public class PasswordMatchesValidator implements ConstraintValidator<PasswordMat
             password = dto.getNewPassword();
             confirmPassword = dto.getConfirmPassword();
         }
+        else if (obj instanceof ChangePasswordRequest) {
+            ChangePasswordRequest dto = (ChangePasswordRequest) obj;
+            password = dto.getNewPassword();
+            confirmPassword = dto.getConfirmPassword();
+        }
 
         // 비밀번호 일치 여부 확인
-        return password != null && password.equals(confirmPassword);
+        if (password == null || confirmPassword == null || password.equals(confirmPassword)) {
+            return true;
+        }
+
+        context.disableDefaultConstraintViolation();
+        context.buildConstraintViolationWithTemplate(context.getDefaultConstraintMessageTemplate())
+                .addPropertyNode("confirmPassword")
+                .addConstraintViolation();
+        return false;
     }
 }

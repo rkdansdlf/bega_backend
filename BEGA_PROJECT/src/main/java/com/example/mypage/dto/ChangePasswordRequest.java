@@ -1,5 +1,6 @@
 package com.example.mypage.dto;
 
+import com.example.common.validation.PasswordMatches;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
@@ -7,6 +8,7 @@ import lombok.Setter;
 
 @Getter
 @Setter
+@PasswordMatches
 public class ChangePasswordRequest {
 
     private String currentPassword;

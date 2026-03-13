@@ -1,5 +1,6 @@
 package com.example.ai.service;
 
+import com.example.ai.exception.AiProxyException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -14,8 +15,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.server.ResponseStatusException;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -44,7 +43,8 @@ class AiProxyServiceTest {
 
         assertThat(response.status().value()).isEqualTo(401);
         assertThat(new String(response.body(), StandardCharsets.UTF_8))
-                .contains("Unauthorized request to AI upstream.");
+                .contains("\"code\":\"AI_UPSTREAM_UNAUTHORIZED\"")
+                .contains("\"message\":\"AI 서비스 인증에 실패했습니다.\"");
         assertThat(internalToken.get()).isEqualTo("test-token");
     }
 
@@ -58,7 +58,8 @@ class AiProxyServiceTest {
 
         assertThat(response.status().value()).isEqualTo(503);
         assertThat(new String(response.errorBody(), StandardCharsets.UTF_8))
-                .contains("AI upstream is unavailable.");
+                .contains("\"code\":\"AI_UPSTREAM_UNAVAILABLE\"")
+                .contains("\"message\":\"AI 서비스가 현재 사용할 수 없습니다.\"");
     }
 
     @Test
@@ -75,7 +76,8 @@ class AiProxyServiceTest {
 
         assertThat(response.status().value()).isEqualTo(401);
         assertThat(new String(response.body(), StandardCharsets.UTF_8))
-                .contains("Unauthorized request to AI upstream.");
+                .contains("\"code\":\"AI_UPSTREAM_UNAUTHORIZED\"")
+                .contains("\"message\":\"AI 서비스 인증에 실패했습니다.\"");
         assertThat(internalToken.get()).isEqualTo("preset-token");
     }
 
@@ -95,11 +97,12 @@ class AiProxyServiceTest {
         AiProxyService service = newService(Duration.ofMillis(50), "slow-token");
 
         assertThatThrownBy(() -> service.forwardJson("/ai/chat/completion", "{\"test\":true}"))
-                .isInstanceOf(ResponseStatusException.class)
+                .isInstanceOf(AiProxyException.class)
                 .satisfies(throwable -> {
-                    ResponseStatusException ex = (ResponseStatusException) throwable;
-                    assertThat(ex.getStatusCode().value()).isEqualTo(504);
-                    assertThat(ex.getReason()).isEqualTo("AI upstream request timed out");
+                    AiProxyException ex = (AiProxyException) throwable;
+                    assertThat(ex.getStatus().value()).isEqualTo(504);
+                    assertThat(ex.getCode()).isEqualTo("AI_UPSTREAM_TIMEOUT");
+                    assertThat(ex.getMessage()).isEqualTo("AI 응답 시간이 초과되었습니다.");
                 });
     }
 

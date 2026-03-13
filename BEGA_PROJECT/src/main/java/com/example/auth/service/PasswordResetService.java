@@ -66,7 +66,7 @@ public class PasswordResetService {
             tokenRepository.save(Objects.requireNonNull(resetToken));
 
             // 이메일 발송
-            emailService.sendPasswordResetEmail(Objects.requireNonNull(user.getEmail()), token);
+            emailService.sendPasswordResetEmail(Objects.requireNonNull(user.getEmail()), token, request.getRedirect());
         } catch (RuntimeException e) {
             authSecurityMonitoringService.recordPasswordResetSuppressed();
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();

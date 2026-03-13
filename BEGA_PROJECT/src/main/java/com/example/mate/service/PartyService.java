@@ -5,6 +5,8 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.PublicVisibilityVerifier;
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.UserNotFoundException;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
@@ -393,7 +395,7 @@ public class PartyService {
     @Transactional(readOnly = true)
     public List<PartyDTO.Response> getMyParties(Long userId) {
         if (userId == null) {
-            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
+            throw new AuthenticationRequiredException("인증 정보가 없습니다.");
         }
 
         // 1. 호스트로 생성한 파티
@@ -703,12 +705,12 @@ public class PartyService {
 
     private Long getUserIdFromPrincipal(Principal principal) {
         if (principal == null) {
-            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
+            throw new AuthenticationRequiredException("인증 정보가 없습니다.");
         }
         String principalName = principal.getName();
 
         if (principalName == null || principalName.isBlank()) {
-            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
+            throw new AuthenticationRequiredException("인증 정보가 없습니다.");
         }
 
         // 1) 신규 인증 구조(일반적으로 userId)를 우선 처리
@@ -720,12 +722,12 @@ public class PartyService {
                     // 2) 기존 구조(이메일) 호환 - 숫자로 보이지만 ID가 아닌 경우
                     userRepository.findByEmail(principalName)
                             .map(com.example.auth.entity.UserEntity::getId)
-                            .orElseThrow(() -> new UnauthorizedAccessException("사용자를 찾을 수 없습니다.")));
+                            .orElseThrow(() -> new InvalidAuthorException("사용자를 찾을 수 없습니다.")));
         } catch (NumberFormatException e) {
             // 2) 기존 구조(이메일) 호환
             return userRepository.findByEmail(principalName)
                     .map(com.example.auth.entity.UserEntity::getId)
-                    .orElseThrow(() -> new UnauthorizedAccessException("사용자를 찾을 수 없습니다."));
+                    .orElseThrow(() -> new InvalidAuthorException("사용자를 찾을 수 없습니다."));
         }
     }
 

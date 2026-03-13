@@ -2,6 +2,8 @@ package com.example.mate.service;
 
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
+import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.InternalServerBusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,7 +22,7 @@ public class ChatImageService {
 
     public UploadResult uploadChatImage(Long userId, MultipartFile file) {
         if (userId == null) {
-            throw new IllegalArgumentException("사용자 정보가 없습니다.");
+            throw new BadRequestBusinessException("USER_ID_REQUIRED", "사용자 정보를 확인할 수 없습니다.");
         }
         validateFile(file);
 
@@ -34,14 +36,14 @@ public class ChatImageService {
                             storagePath)
                     .block();
             if (uploadedPath == null || uploadedPath.isBlank()) {
-                throw new RuntimeException("이미지 업로드에 실패했습니다.");
+                throw new InternalServerBusinessException("CHAT_IMAGE_UPLOAD_FAILED", "채팅 이미지 업로드에 실패했습니다.");
             }
 
             String signedUrl = storageStrategy
                     .getUrl(storageConfig.getCheerBucket(), storagePath, storageConfig.getSignedUrlTtlSeconds())
                     .block();
             if (signedUrl == null || signedUrl.isBlank()) {
-                throw new RuntimeException("이미지 URL 생성에 실패했습니다.");
+                throw new InternalServerBusinessException("CHAT_IMAGE_URL_GENERATION_FAILED", "채팅 이미지 URL 생성에 실패했습니다.");
             }
 
             return new UploadResult(storagePath, signedUrl);
@@ -49,7 +51,7 @@ public class ChatImageService {
             throw e;
         } catch (Exception e) {
             log.error("채팅 이미지 업로드 실패: userId={}", userId, e);
-            throw new RuntimeException("채팅 이미지 업로드 중 오류가 발생했습니다.", e);
+            throw new InternalServerBusinessException("CHAT_IMAGE_UPLOAD_FAILED", "채팅 이미지 업로드에 실패했습니다.");
         }
     }
 
@@ -80,14 +82,14 @@ public class ChatImageService {
 
     private void validateFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("업로드할 파일이 없습니다.");
+            throw new BadRequestBusinessException("CHAT_IMAGE_FILE_REQUIRED", "업로드할 파일이 없습니다.");
         }
         if (file.getSize() > storageConfig.getMaxImageBytes()) {
-            throw new IllegalArgumentException("이미지 크기는 5MB 이하여야 합니다.");
+            throw new BadRequestBusinessException("CHAT_IMAGE_FILE_TOO_LARGE", "이미지 크기는 5MB 이하여야 합니다.");
         }
         String contentType = file.getContentType();
         if (contentType == null || !contentType.startsWith("image/")) {
-            throw new IllegalArgumentException("이미지 파일만 업로드 가능합니다.");
+            throw new BadRequestBusinessException("CHAT_IMAGE_INVALID_TYPE", "이미지 파일만 업로드 가능합니다.");
         }
     }
 

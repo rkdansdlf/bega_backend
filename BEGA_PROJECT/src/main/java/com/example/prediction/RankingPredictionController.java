@@ -2,9 +2,11 @@ package com.example.prediction;
 
 import java.security.Principal;
 import java.util.Map;
-import java.util.UUID;
+import java.util.regex.Pattern;
 
-import org.springframework.http.HttpStatus;
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 
@@ -25,20 +27,16 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class RankingPredictionController {
 
+	private static final Pattern SHARE_ID_PATTERN = Pattern.compile(
+			"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$");
+
 	private final RankingPredictionService rankingPredictionService;
 
 	@PreAuthorize("permitAll()")
 	@GetMapping("/current-season")
 	public ResponseEntity<?> getCurrentSeason() {
-
-		try {
-			int currentSeason = rankingPredictionService.getCurrentSeason();
-			return ResponseEntity.ok(Map.of("seasonYear", currentSeason));
-		} catch (IllegalStateException e) {
-			return ResponseEntity
-					.status(HttpStatus.BAD_REQUEST)
-					.body(Map.of("error", e.getMessage()));
-		}
+		int currentSeason = rankingPredictionService.getCurrentSeason();
+		return ResponseEntity.ok(Map.of("seasonYear", currentSeason));
 	}
 
 	// 예측 저장 요청
@@ -47,30 +45,12 @@ public class RankingPredictionController {
 	@PostMapping
 	public ResponseEntity<?> savePrediction(
 			Principal principal, @RequestBody RankingPredictionRequestDto requestDto) {
+		Principal authenticatedPrincipal = requirePrincipal(principal);
+		RankingPredictionResponseDto savedDto = rankingPredictionService.savePrediction(
+				requestDto,
+				authenticatedPrincipal.getName());
 
-		// 로그인 체크
-		if (principal == null) {
-			return ResponseEntity
-					.status(HttpStatus.UNAUTHORIZED)
-					.body(Map.of("error", "로그인이 필요합니다."));
-		}
-
-		try {
-			RankingPredictionResponseDto savedDto = rankingPredictionService.savePrediction(requestDto,
-					principal.getName());
-
-			return ResponseEntity.ok(savedDto);
-
-		} catch (IllegalArgumentException e) {
-			return ResponseEntity
-					.status(HttpStatus.BAD_REQUEST)
-					.body(Map.of("error", e.getMessage()));
-		} catch (Exception e) {
-			log.error("Ranking prediction save failed", e);
-			return ResponseEntity
-					.status(HttpStatus.INTERNAL_SERVER_ERROR)
-					.body(Map.of("error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
-		}
+		return ResponseEntity.ok(savedDto);
 	}
 
 	@PreAuthorize("isAuthenticated()")
@@ -79,12 +59,9 @@ public class RankingPredictionController {
 			Principal principal,
 			@RequestParam int seasonYear) {
 
-		if (principal == null) {
-			// @PreAuthorize("isAuthenticated()")에 의해 차단되지만, 안전을 위해 추가
-			return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-		}
+		Principal authenticatedPrincipal = requirePrincipal(principal);
 
-		RankingPredictionResponseDto prediction = rankingPredictionService.getPrediction(principal.getName(),
+		RankingPredictionResponseDto prediction = rankingPredictionService.getPrediction(authenticatedPrincipal.getName(),
 				seasonYear);
 
 		return ResponseEntity.ok(prediction);
@@ -98,39 +75,29 @@ public class RankingPredictionController {
 			@PathVariable int seasonYear) {
 
 		if (!isValidShareId(shareId)) {
-			return ResponseEntity
-					.status(HttpStatus.BAD_REQUEST)
-					.body(Map.of("error", "공유 식별자 형식이 올바르지 않습니다."));
+			throw new BadRequestBusinessException("INVALID_SHARE_ID", "공유 식별자 형식이 올바르지 않습니다.");
 		}
 
-		try {
-			RankingPredictionResponseDto prediction = rankingPredictionService.getPredictionByShareIdAndSeason(shareId,
-					seasonYear);
+		RankingPredictionResponseDto prediction = rankingPredictionService.getPredictionByShareIdAndSeason(shareId,
+				seasonYear);
 
-			if (prediction != null) {
-				return ResponseEntity.ok(prediction);
-			} else {
-				return ResponseEntity.notFound().build();
-			}
-		} catch (IllegalArgumentException e) {
-			return ResponseEntity
-					.status(HttpStatus.BAD_REQUEST)
-					.body(Map.of("error", e.getMessage()));
-		} catch (Exception e) {
-			log.error("Shared ranking prediction lookup failed: shareId={}, seasonYear={}", shareId, seasonYear, e);
-			return ResponseEntity
-					.status(HttpStatus.INTERNAL_SERVER_ERROR)
-					.body(Map.of("error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
+		if (prediction != null) {
+			return ResponseEntity.ok(prediction);
 		}
+		throw new NotFoundBusinessException(
+				"RANKING_PREDICTION_SHARE_NOT_FOUND",
+				"공유된 시즌 순위 예측을 찾을 수 없습니다.");
+	}
+
+	private Principal requirePrincipal(Principal principal) {
+		if (principal == null) {
+			throw new AuthenticationRequiredException("로그인이 필요합니다.");
+		}
+		return principal;
 	}
 
 	private boolean isValidShareId(String shareId) {
-		try {
-			UUID.fromString(shareId);
-			return true;
-		} catch (IllegalArgumentException ex) {
-			return false;
-		}
+		return shareId != null && SHARE_ID_PATTERN.matcher(shareId.trim()).matches();
 	}
 
 }

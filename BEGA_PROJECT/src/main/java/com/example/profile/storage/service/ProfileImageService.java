@@ -1,5 +1,9 @@
 package com.example.profile.storage.service;
 
+import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.BusinessException;
+import com.example.common.exception.InternalServerBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
 import com.example.auth.repository.UserRepository;
@@ -36,15 +40,21 @@ public class ProfileImageService {
      */
     public ProfileImageDto uploadProfileImage(Long userId, MultipartFile file) {
         log.info("프로필 이미지 업로드 시작: userId={}, filename={}", userId, file.getOriginalFilename());
-        java.util.Objects.requireNonNull(userId, "userId must not be null");
+        if (userId == null) {
+            throw new BadRequestBusinessException("USER_ID_REQUIRED", "사용자 정보를 확인할 수 없습니다.");
+        }
 
         // 1. 사용자 확인 + 기존 프로필 경로 경량 조회
         if (!userRepository.existsById(userId)) {
-            throw new IllegalArgumentException("사용자를 찾을 수 없습니다.");
+            throw new NotFoundBusinessException("USER_NOT_FOUND", "사용자를 찾을 수 없습니다.");
         }
         String oldProfileUrl = userRepository.findProfileImageUrlById(userId).orElse(null);
 
-        validator.validateProfileImage(file);
+        try {
+            validator.validateProfileImage(file);
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestBusinessException("INVALID_PROFILE_IMAGE", e.getMessage());
+        }
 
         // 2. 이미지 처리 및 업로드 (DB 트랜잭션 외부)
         String uploadedPath = null;
@@ -66,7 +76,7 @@ public class ProfileImageService {
                     .block();
 
             if (uploadedPath == null) {
-                throw new RuntimeException("파일 업로드에 실패했습니다.");
+                throw new InternalServerBusinessException("PROFILE_IMAGE_UPLOAD_FAILED", "프로필 이미지 업로드 중 오류가 발생했습니다.");
             }
 
             // 주의: uploadedPath는 버킷명이 포함될 수 있음. getUrl에는 storagePath를 넘겨야 함 (이전 버그 수정 반영)
@@ -77,7 +87,7 @@ public class ProfileImageService {
                     .block();
 
             if (profileUrl == null || profileUrl.isEmpty()) {
-                throw new RuntimeException("이미지 URL 생성에 실패했습니다.");
+                throw new InternalServerBusinessException("PROFILE_IMAGE_URL_GENERATION_FAILED", "프로필 이미지 업로드 중 오류가 발생했습니다.");
             }
 
             // 3. DB 업데이트 (트랜잭션 진입) -> URL이 아닌 경로(Key)를 저장
@@ -96,20 +106,17 @@ public class ProfileImageService {
                     processed.getContentType(),
                     processed.getSize()));
 
+        } catch (BusinessException e) {
+            cleanupUploadedImage(uploadedPath);
+            throw e;
+        } catch (RuntimeException e) {
+            log.error("프로필 이미지 업로드 실패. 롤백 처리 진행. Error: {}", e.getMessage(), e);
+            cleanupUploadedImage(uploadedPath);
+            throw new InternalServerBusinessException("PROFILE_IMAGE_UPLOAD_FAILED", "프로필 이미지 업로드 중 오류가 발생했습니다.");
         } catch (Exception e) {
             log.error("프로필 이미지 업로드 실패. 롤백 처리 진행. Error: {}", e.getMessage(), e);
-
-            // DB 업데이트 실패 또는 업로드 중 에러 발생 시: 방금 올린 파일 삭제 (Cleanup)
-            if (uploadedPath != null) {
-                // delete logic depends on storageStrategy implementation details
-                // try best effort delete
-                try {
-                    storageStrategy.delete(config.getProfileBucket(), uploadedPath).block();
-                } catch (Exception ex) {
-                    log.warn("롤백 이미지 삭제 실패: {}", uploadedPath);
-                }
-            }
-            throw new RuntimeException("프로필 이미지 업로드 중 오류가 발생했습니다.", e);
+            cleanupUploadedImage(uploadedPath);
+            throw new InternalServerBusinessException("PROFILE_IMAGE_UPLOAD_FAILED", "프로필 이미지 업로드 중 오류가 발생했습니다.");
         }
     }
 
@@ -119,7 +126,7 @@ public class ProfileImageService {
     protected void updateUserProfileUrl(Long userId, String profilePath) {
         int updatedRows = userRepository.updateProfileImageUrlById(userId, profilePath);
         if (updatedRows == 0) {
-            throw new IllegalArgumentException("사용자를 찾을 수 없습니다.");
+            throw new NotFoundBusinessException("USER_NOT_FOUND", "사용자를 찾을 수 없습니다.");
         }
     }
 
@@ -202,6 +209,18 @@ public class ProfileImageService {
 
     private boolean isHttpUrl(String value) {
         return value.startsWith("http://") || value.startsWith("https://");
+    }
+
+    private void cleanupUploadedImage(String uploadedPath) {
+        if (uploadedPath == null) {
+            return;
+        }
+
+        try {
+            storageStrategy.delete(config.getProfileBucket(), uploadedPath).block();
+        } catch (Exception ex) {
+            log.warn("롤백 이미지 삭제 실패: {}", uploadedPath);
+        }
     }
 
     private void deleteImageByUrl(String url) {

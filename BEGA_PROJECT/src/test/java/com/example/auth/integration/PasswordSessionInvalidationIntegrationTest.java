@@ -140,6 +140,7 @@ class PasswordSessionInvalidationIntegrationTest {
                         .cookie(new Cookie("Refresh", refreshToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("REFRESH_TOKEN_NOT_FOUND"))
                 .andExpect(jsonPath("$.message").value("잘못된 Refresh Token입니다."));
     }
 }

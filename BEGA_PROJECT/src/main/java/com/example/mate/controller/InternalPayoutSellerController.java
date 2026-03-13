@@ -1,11 +1,11 @@
 package com.example.mate.controller;
 
 import com.example.common.dto.ApiResponse;
+import com.example.common.exception.NotFoundBusinessException;
 import com.example.mate.dto.SellerPayoutProfileDTO;
 import com.example.mate.entity.SellerPayoutProfile;
 import com.example.mate.service.SellerPayoutProfileService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -38,12 +38,13 @@ public class InternalPayoutSellerController {
     public ResponseEntity<ApiResponse> getSellerProfile(
             @PathVariable Long userId,
             @RequestParam(name = "provider", defaultValue = "TOSS") String provider) {
-        return sellerPayoutProfileService.findByUserIdAndProvider(userId, provider)
-                .map(profile -> ResponseEntity.ok(ApiResponse.success(
-                        "판매자 정산 매핑 조회 성공",
-                        SellerPayoutProfileDTO.Response.from(profile))))
-                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(ApiResponse.error("판매자 정산 매핑을 찾을 수 없습니다.")));
+        SellerPayoutProfile profile = sellerPayoutProfileService.findByUserIdAndProvider(userId, provider)
+                .orElseThrow(() -> new NotFoundBusinessException(
+                        "SELLER_PAYOUT_PROFILE_NOT_FOUND",
+                        "판매자 정산 매핑을 찾을 수 없습니다."));
+
+        return ResponseEntity.ok(ApiResponse.success(
+                "판매자 정산 매핑 조회 성공",
+                SellerPayoutProfileDTO.Response.from(profile)));
     }
 }
-

@@ -6,6 +6,7 @@ import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.util.JWTUtil;
+import com.example.common.exception.GlobalExceptionHandler;
 import com.example.common.web.ClientIpResolver;
 import com.example.common.dto.ApiResponse;
 import jakarta.servlet.http.Cookie;
@@ -21,12 +22,17 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
 class ReissueControllerTokenTypeTest {
@@ -44,6 +50,7 @@ class ReissueControllerTokenTypeTest {
     private ClientIpResolver clientIpResolver;
 
     private ReissueController reissueController;
+    private MockMvc mockMvc;
 
     private final AuthCookieUtil authCookieUtil = new AuthCookieUtil(false);
 
@@ -55,23 +62,22 @@ class ReissueControllerTokenTypeTest {
                 userRepository,
                 authCookieUtil,
                 clientIpResolver);
+        mockMvc = MockMvcBuilders.standaloneSetup(reissueController)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
     }
 
     @Test
     @DisplayName("refresh 타입이 아닌 토큰은 재발급이 거부된다")
-    void reissue_rejectsNonRefreshTokenType() {
-        MockHttpServletRequest request = requestWithRefreshCookie("access-token");
-        MockHttpServletResponse response = new MockHttpServletResponse();
-
+    void reissue_rejectsNonRefreshTokenType() throws Exception {
         when(jwtUtil.getTokenType("access-token")).thenReturn("access");
 
-        ResponseEntity<?> result = reissueController.reissue(request, response);
-
-        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(result.getBody()).isInstanceOf(ApiResponse.class);
-        ApiResponse body = (ApiResponse) result.getBody();
-        assertThat(body.isSuccess()).isFalse();
-        assertThat(body.getMessage()).isEqualTo("유효하지 않은 Refresh Token 타입입니다.");
+        mockMvc.perform(post("/api/auth/reissue")
+                        .cookie(new Cookie("Refresh", "access-token")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("INVALID_REFRESH_TOKEN_TYPE"))
+                .andExpect(jsonPath("$.message").value("유효하지 않은 Refresh Token 타입입니다."));
 
         verify(jwtUtil, never()).isExpired("access-token");
         verifyNoInteractions(refreshRepository);
@@ -79,19 +85,15 @@ class ReissueControllerTokenTypeTest {
 
     @Test
     @DisplayName("토큰 파싱 오류면 재발급이 거부된다")
-    void reissue_rejectsWhenTokenTypeParsingFails() {
-        MockHttpServletRequest request = requestWithRefreshCookie("broken-token");
-        MockHttpServletResponse response = new MockHttpServletResponse();
-
+    void reissue_rejectsWhenTokenTypeParsingFails() throws Exception {
         when(jwtUtil.getTokenType("broken-token")).thenThrow(new RuntimeException("invalid token"));
 
-        ResponseEntity<?> result = reissueController.reissue(request, response);
-
-        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(result.getBody()).isInstanceOf(ApiResponse.class);
-        ApiResponse body = (ApiResponse) result.getBody();
-        assertThat(body.isSuccess()).isFalse();
-        assertThat(body.getMessage()).isEqualTo("유효하지 않은 Refresh Token입니다.");
+        mockMvc.perform(post("/api/auth/reissue")
+                        .cookie(new Cookie("Refresh", "broken-token")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("INVALID_REFRESH_TOKEN"))
+                .andExpect(jsonPath("$.message").value("유효하지 않은 Refresh Token입니다."));
 
         verifyNoInteractions(refreshRepository);
     }

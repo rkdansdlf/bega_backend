@@ -33,6 +33,9 @@ import com.example.cheerboard.storage.strategy.StorageStrategy;
 import com.example.cheerboard.storage.validator.ImageValidator;
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.auth.entity.UserEntity;
+import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.InternalServerBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -65,7 +68,8 @@ public class ImageService {
     @CacheEvict(value = POST_IMAGE_URLS, key = "#postId")
     @Transactional
     public List<PostImageDto> uploadPostImages(Long postId, List<MultipartFile> files) {
-        log.info("이미지 업로드 시작 (Parallel): postId={}, 파일 수={}", postId, files.size());
+        int fileCount = files == null ? 0 : files.size();
+        log.info("이미지 업로드 시작 (Parallel): postId={}, 파일 수={}", postId, fileCount);
         UserEntity me = currentUser.get();
         CheerPost post = findPostById(postId);
 
@@ -75,7 +79,11 @@ public class ImageService {
         // 현재 이미지 개수 확인
         long currentCount = postImageRepo.countByPostId(Objects.requireNonNull(postId).longValue());
         log.debug("현재 저장된 이미지 수: {}", currentCount);
-        validator.validateFiles(files, (int) currentCount);
+        try {
+            validator.validateFiles(files, (int) currentCount);
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestBusinessException("INVALID_POST_IMAGE_REQUEST", e.getMessage());
+        }
 
         List<PostImageDto> uploadedImages = new ArrayList<>();
 
@@ -130,7 +138,7 @@ public class ImageService {
                     .toList();
 
             compensateUploadFailure(pathsToDelete);
-            throw new RuntimeException("이미지 업로드 중 오류가 발생했습니다.", e);
+            throw new InternalServerBusinessException("POST_IMAGE_UPLOAD_FAILED", "이미지 업로드 중 오류가 발생했습니다.");
         }
 
         // 3. DB Save (Single Batch Transaction)
@@ -290,8 +298,7 @@ public class ImageService {
     @Transactional
     public void deleteImage(Long imageId) {
         UserEntity me = currentUser.get();
-        PostImage image = postImageRepo.findById(Objects.requireNonNull(imageId))
-                .orElseThrow(() -> new java.util.NoSuchElementException("이미지를 찾을 수 없습니다: " + imageId));
+        PostImage image = findPostImageById(imageId);
 
         // 권한 체크
         permissionValidator.validateOwnerOrAdmin(me, image.getPost().getAuthor(), "이미지 삭제");
@@ -377,8 +384,7 @@ public class ImageService {
 
     public SignedUrlDto renewSignedUrl(Long imageId) {
         UserEntity me = currentUser.get();
-        PostImage image = postImageRepo.findById(Objects.requireNonNull(imageId))
-                .orElseThrow(() -> new java.util.NoSuchElementException("이미지를 찾을 수 없습니다: " + imageId));
+        PostImage image = findPostImageById(imageId);
         requireAccessiblePost(image.getPost().getId());
         permissionValidator.validateOwnerOrAdmin(me, image.getPost().getAuthor(), "이미지 서명 URL 갱신");
 
@@ -396,8 +402,7 @@ public class ImageService {
 
     public PostImageDto markAsThumbnail(Long imageId) {
         UserEntity me = currentUser.get();
-        PostImage image = postImageRepo.findById(Objects.requireNonNull(imageId))
-                .orElseThrow(() -> new java.util.NoSuchElementException("이미지를 찾을 수 없습니다: " + imageId));
+        PostImage image = findPostImageById(imageId);
 
         // 권한 체크
         permissionValidator.validateOwnerOrAdmin(me, image.getPost().getAuthor(), "썸네일 지정");
@@ -499,11 +504,16 @@ public class ImageService {
 
     private CheerPost findPostById(Long postId) {
         return postRepo.findById(Objects.requireNonNull(postId))
-                .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
+                .orElseThrow(() -> new NotFoundBusinessException("CHEER_POST_NOT_FOUND", "게시글을 찾을 수 없습니다."));
     }
 
     private CheerPost requireAccessiblePost(Long postId) {
         return findPostById(postId);
+    }
+
+    private PostImage findPostImageById(Long imageId) {
+        return postImageRepo.findById(Objects.requireNonNull(imageId))
+                .orElseThrow(() -> new NotFoundBusinessException("POST_IMAGE_NOT_FOUND", "이미지를 찾을 수 없습니다."));
     }
 
     // 다이어리 스토리지

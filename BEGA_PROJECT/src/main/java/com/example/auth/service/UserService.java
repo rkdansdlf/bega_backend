@@ -5,8 +5,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.time.ZoneId;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -32,8 +33,11 @@ import com.example.auth.repository.RefreshRepository;
 import com.example.auth.entity.RefreshToken;
 
 import com.example.common.exception.UserNotFoundException;
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.TeamNotFoundException;
 import com.example.common.exception.DuplicateEmailException;
+import com.example.common.exception.DuplicateNameException;
 import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.InvalidCredentialsException;
 import com.example.common.exception.SocialLoginRequiredException;
@@ -50,6 +54,8 @@ public class UserService {
 
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
     private static final long ACCESS_EXPIRATION_TIME = 1000L * 60 * 60;
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    private static final int DAILY_LOGIN_BONUS_POINTS = 5;
 
     private final UserRepository userRepository;
     private final TeamRepository teamRepository;
@@ -292,27 +298,28 @@ public class UserService {
      */
     @Transactional
     public int checkAndApplyDailyLoginBonus(@NonNull UserEntity user) {
-        java.time.LocalDate today = java.time.LocalDate.now();
+        LocalDate today = LocalDate.now(KST);
 
-        // lastLoginDate가 없거나(첫 로그인), 마지막 로그인 날짜가 오늘보다 이전인 경우
-        boolean shouldAward = Optional.ofNullable(user.getLastLoginDate())
-                .map(last -> last.atZone(ZoneId.of("Asia/Seoul")).toLocalDate().isBefore(today))
+        boolean shouldAward = Optional.ofNullable(user.getLastBonusDate())
+                .map(lastBonusDate -> lastBonusDate.isBefore(today))
                 .orElse(true);
 
         int currentCheerPoints = Optional.ofNullable(user.getCheerPoints()).orElse(0);
-        int updatedCheerPoints = currentCheerPoints;
+        LocalDateTime now = LocalDateTime.now();
         if (shouldAward) {
-            updatedCheerPoints += 5;
+            currentCheerPoints += DAILY_LOGIN_BONUS_POINTS;
+            user.setCheerPoints(currentCheerPoints);
+            user.setLastBonusDate(today);
             log.info("Daily Login Bonus (5 points) awarded to user: {}. Current Points: {}", user.getEmail(),
-                    updatedCheerPoints);
+                    currentCheerPoints);
+        } else if (user.getCheerPoints() == null) {
+            user.setCheerPoints(currentCheerPoints);
         }
 
-        int updatedRows = userRepository.updateLoginActivity(user.getId(), LocalDateTime.now(), updatedCheerPoints);
-        if (updatedRows != 1) {
-            throw new IllegalStateException("로그인 상태 업데이트에 실패했습니다.");
-        }
+        user.setLastLoginDate(now);
+        userRepository.save(user);
 
-        return updatedCheerPoints;
+        return currentCheerPoints;
     }
 
     /**
@@ -554,7 +561,7 @@ public class UserService {
         // 현재 비밀번호가 설정되어 있는 경우에만 검증
         if (user.getPassword() != null) {
             if (currentPassword == null || currentPassword.isEmpty()) {
-                throw new IllegalArgumentException("현재 비밀번호를 입력해주세요.");
+                throw new BadRequestBusinessException("CURRENT_PASSWORD_REQUIRED", "현재 비밀번호를 입력해주세요.");
             }
             if (!bCryptPasswordEncoder.matches(currentPassword, user.getPassword())) {
                 throw new InvalidCredentialsException("현재 비밀번호가 일치하지 않습니다.");
@@ -614,7 +621,9 @@ public class UserService {
         long linkedCount = userProviderRepository.findByUserId(userId).size();
 
         if (!hasPassword && linkedCount <= 1) {
-            throw new IllegalStateException("최소 하나의 로그인 방식(비밀번호 또는 소셜 연동)이 존재해야 합니다.");
+            throw new BadRequestBusinessException(
+                    "LOGIN_METHOD_REQUIRED",
+                    "최소 하나의 로그인 방식(비밀번호 또는 소셜 연동)이 존재해야 합니다.");
         }
 
         userProviderRepository.deleteByUserIdAndProvider(userId, provider);
@@ -886,24 +895,28 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
-    public boolean isNameAvailable(Long userId, String name) {
+    public String ensureNameAvailable(Long userId, String name) {
         if (userId == null) {
-            throw new IllegalArgumentException("인증이 필요합니다.");
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
         }
 
         String normalizedName = name == null ? "" : name.trim();
         if (normalizedName.isBlank()) {
-            throw new IllegalArgumentException("닉네임을 입력해 주세요.");
+            throw new BadRequestBusinessException("NAME_REQUIRED", "닉네임을 입력해 주세요.");
         }
         if (normalizedName.length() < 2) {
-            throw new IllegalArgumentException("닉네임은 최소 2자 이상이어야 합니다.");
+            throw new BadRequestBusinessException("NAME_TOO_SHORT", "닉네임은 최소 2자 이상이어야 합니다.");
         }
         if (normalizedName.length() > 20) {
-            throw new IllegalArgumentException("닉네임은 20자 이하여야 합니다.");
+            throw new BadRequestBusinessException("NAME_TOO_LONG", "닉네임은 20자 이하여야 합니다.");
         }
 
         UserEntity target = userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException(userId));
         Optional<UserEntity> existing = userRepository.findByNameIgnoreCase(normalizedName);
-        return existing.isEmpty() || existing.get().getId().equals(target.getId());
+        if (existing.isPresent() && !existing.get().getId().equals(target.getId())) {
+            throw new DuplicateNameException(normalizedName);
+        }
+
+        return normalizedName;
     }
 }

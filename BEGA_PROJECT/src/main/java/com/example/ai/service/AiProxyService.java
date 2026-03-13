@@ -1,12 +1,15 @@
 package com.example.ai.service;
 
+import com.example.ai.config.AiServiceSettings;
+import com.example.ai.exception.AiProxyException;
+import com.example.common.dto.ApiResponse;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Set;
-
-import com.example.ai.config.AiServiceSettings;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -22,16 +25,14 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
 public class AiProxyService {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Set<String> PASS_THROUGH_HEADERS = Set.of(
             HttpHeaders.CONTENT_TYPE,
             HttpHeaders.CACHE_CONTROL,
@@ -96,7 +97,7 @@ public class AiProxyService {
 
             return executeByteRequest(uri, request);
         } catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid upload payload", e);
+            throw new AiProxyException(HttpStatus.BAD_REQUEST, "AI_PROXY_INVALID_UPLOAD_PAYLOAD", "업로드 파일을 읽을 수 없습니다.");
         }
     }
 
@@ -130,8 +131,6 @@ public class AiProxyService {
                                 buildStandardizedErrorBody(statusCode)));
             })
                     .block(requestTimeout);
-        } catch (ResponseStatusException e) {
-            throw e;
         } catch (WebClientRequestException e) {
             throw mapRequestFailure(uri, e);
         } catch (IllegalStateException e) {
@@ -139,7 +138,7 @@ public class AiProxyService {
         }
 
         if (response == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI upstream response was empty");
+            throw new AiProxyException(HttpStatus.BAD_GATEWAY, "AI_UPSTREAM_EMPTY_RESPONSE", "AI 응답이 비어 있습니다.");
         }
         return response;
     }
@@ -174,8 +173,6 @@ public class AiProxyService {
                         return new ProxyByteResponse(statusCode, headers, body);
                     }))
                     .block(requestTimeout);
-        } catch (ResponseStatusException e) {
-            throw e;
         } catch (WebClientRequestException e) {
             throw mapRequestFailure(uri, e);
         } catch (IllegalStateException e) {
@@ -183,7 +180,7 @@ public class AiProxyService {
         }
 
         if (response == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI upstream response was empty");
+            throw new AiProxyException(HttpStatus.BAD_GATEWAY, "AI_UPSTREAM_EMPTY_RESPONSE", "AI 응답이 비어 있습니다.");
         }
         return response;
     }
@@ -192,14 +189,14 @@ public class AiProxyService {
         String aiServiceUrl = aiServiceSettings.getResolvedServiceUrl();
         if (!StringUtils.hasText(aiServiceUrl)) {
             log.error("AI service URL is not configured.");
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "AI service URL is not configured");
+            throw new AiProxyException(HttpStatus.SERVICE_UNAVAILABLE, "AI_SERVICE_URL_NOT_CONFIGURED", "AI 서비스 주소가 설정되지 않았습니다.");
         }
 
         try {
             return webClientBuilder.baseUrl(aiServiceUrl).build();
         } catch (IllegalArgumentException e) {
             log.error("AI service URL is invalid. url={}", aiServiceUrl, e);
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "AI service URL is invalid", e);
+            throw new AiProxyException(HttpStatus.SERVICE_UNAVAILABLE, "AI_SERVICE_URL_INVALID", "AI 서비스 주소 설정이 올바르지 않습니다.");
         }
     }
 
@@ -207,22 +204,23 @@ public class AiProxyService {
         String aiInternalToken = aiServiceSettings.getResolvedInternalToken();
         if (!StringUtils.hasText(aiInternalToken)) {
             log.error("ai.internal-token is not configured.");
-            throw new ResponseStatusException(
+            throw new AiProxyException(
                     HttpStatus.SERVICE_UNAVAILABLE,
-                    "AI internal authentication is not configured");
+                    "AI_INTERNAL_AUTH_NOT_CONFIGURED",
+                    "AI 내부 인증 설정이 누락되었습니다.");
         }
         headers.set("X-Internal-Api-Key", aiInternalToken);
     }
 
-    private ResponseStatusException mapRequestFailure(String uri, WebClientRequestException e) {
+    private AiProxyException mapRequestFailure(String uri, WebClientRequestException e) {
         log.error("AI upstream connection failed. uri={} message={}", uri, e.getMessage(), e);
-        return new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI upstream connection failed", e);
+        return new AiProxyException(HttpStatus.BAD_GATEWAY, "AI_UPSTREAM_CONNECTION_FAILED", "AI 서비스 연결에 실패했습니다.");
     }
 
     private RuntimeException mapBlockingFailure(String uri, IllegalStateException e) {
         if (e.getMessage() != null && e.getMessage().contains("Timeout on blocking read")) {
             log.error("AI upstream request timed out. uri={} timeout={}s", uri, requestTimeout.toSeconds(), e);
-            return new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "AI upstream request timed out", e);
+            return new AiProxyException(HttpStatus.GATEWAY_TIMEOUT, "AI_UPSTREAM_TIMEOUT", "AI 응답 시간이 초과되었습니다.");
         }
         return e;
     }
@@ -247,24 +245,34 @@ public class AiProxyService {
     }
 
     private byte[] buildStandardizedErrorBody(HttpStatusCode statusCode) {
-        String message;
-        if (statusCode.value() == HttpStatus.UNAUTHORIZED.value()) {
-            message = "Unauthorized request to AI upstream.";
-        } else if (statusCode.value() == HttpStatus.FORBIDDEN.value()) {
-            message = "Forbidden request to AI upstream.";
-        } else if (statusCode.value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
-            message = "AI upstream rate limit exceeded.";
-        } else if (statusCode.is4xxClientError()) {
-            message = "AI upstream rejected the request.";
-        } else {
-            message = "AI upstream is unavailable.";
+        AiUpstreamError error = resolveUpstreamError(statusCode);
+        try {
+            return OBJECT_MAPPER.writeValueAsBytes(ApiResponse.error(error.code(), error.message()));
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialize AI proxy error response. status={}", statusCode.value(), e);
+            return fallbackErrorJson(error);
         }
+    }
 
-        String payload = String.format(
-                "{\"success\":false,\"status\":%d,\"message\":\"%s\"}",
-                statusCode.value(),
-                message);
-        return payload.getBytes(StandardCharsets.UTF_8);
+    private AiUpstreamError resolveUpstreamError(HttpStatusCode statusCode) {
+        if (statusCode.value() == HttpStatus.UNAUTHORIZED.value()) {
+            return new AiUpstreamError("AI_UPSTREAM_UNAUTHORIZED", "AI 서비스 인증에 실패했습니다.");
+        }
+        if (statusCode.value() == HttpStatus.FORBIDDEN.value()) {
+            return new AiUpstreamError("AI_UPSTREAM_FORBIDDEN", "AI 서비스 접근이 거부되었습니다.");
+        }
+        if (statusCode.value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
+            return new AiUpstreamError("AI_UPSTREAM_RATE_LIMITED", "AI 서비스 요청 한도를 초과했습니다.");
+        }
+        if (statusCode.is4xxClientError()) {
+            return new AiUpstreamError("AI_UPSTREAM_BAD_REQUEST", "AI 서비스가 요청을 처리할 수 없습니다.");
+        }
+        return new AiUpstreamError("AI_UPSTREAM_UNAVAILABLE", "AI 서비스가 현재 사용할 수 없습니다.");
+    }
+
+    private byte[] fallbackErrorJson(AiUpstreamError error) {
+        String payload = "{\"success\":false,\"code\":\"" + error.code() + "\",\"message\":\"" + error.message() + "\"}";
+        return payload.getBytes(java.nio.charset.StandardCharsets.UTF_8);
     }
 
     public record ProxyByteResponse(HttpStatusCode status, HttpHeaders headers, byte[] body) {
@@ -275,5 +283,8 @@ public class AiProxyService {
             HttpHeaders headers,
             Flux<DataBuffer> bodyFlux,
             byte[] errorBody) {
+    }
+
+    private record AiUpstreamError(String code, String message) {
     }
 }
