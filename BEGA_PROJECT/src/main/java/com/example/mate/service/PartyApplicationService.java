@@ -4,6 +4,7 @@ import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.CancelReasonType;
+import com.example.common.exception.AuthenticationRequiredException;
 import com.example.auth.service.UserService;
 import com.example.kbo.service.TicketVerificationTokenStore;
 import com.example.kbo.util.TicketTeamNormalizer;
@@ -104,7 +105,7 @@ public class PartyApplicationService {
      */
     @Transactional
     public PartyApplicationDTO.Response createApplication(PartyApplicationDTO.Request request) {
-        throw new UnauthorizedAccessException("인증 정보가 없습니다.");
+        throw new AuthenticationRequiredException("인증 정보가 없습니다.");
     }
 
     /**
@@ -621,7 +622,7 @@ public class PartyApplicationService {
 
     private Long resolveUserId(Principal principal) {
         if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
-            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
+            throw new AuthenticationRequiredException("인증 정보가 없습니다.");
         }
         return userService.getUserIdByEmail(principal.getName());
     }

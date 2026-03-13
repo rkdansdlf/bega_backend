@@ -5,9 +5,9 @@ import com.example.auth.dto.AccountDeletionRecoveryRequestDto;
 import com.example.auth.service.AccountDeletionService;
 import com.example.auth.service.AccountSecurityService;
 import com.example.common.dto.ApiResponse;
+import com.example.common.exception.AuthenticationRequiredException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -29,66 +29,43 @@ public class AccountSecurityController {
 
     @GetMapping("/security-events")
     public ResponseEntity<ApiResponse> getSecurityEvents(@AuthenticationPrincipal Long userId) {
-        if (userId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.error("인증이 필요합니다."));
-        }
-
         return ResponseEntity.ok(ApiResponse.success(
                 "최근 보안 활동 조회 성공",
-                accountSecurityService.getSecurityEvents(userId)));
+                accountSecurityService.getSecurityEvents(requireAuthenticatedUserId(userId))));
     }
 
     @GetMapping("/trusted-devices")
     public ResponseEntity<ApiResponse> getTrustedDevices(@AuthenticationPrincipal Long userId) {
-        if (userId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.error("인증이 필요합니다."));
-        }
-
         return ResponseEntity.ok(ApiResponse.success(
                 "신뢰 기기 조회 성공",
-                accountSecurityService.getTrustedDevices(userId)));
+                accountSecurityService.getTrustedDevices(requireAuthenticatedUserId(userId))));
     }
 
     @DeleteMapping("/trusted-devices/{deviceId}")
     public ResponseEntity<ApiResponse> deleteTrustedDevice(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long deviceId) {
-        if (userId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.error("인증이 필요합니다."));
-        }
-
-        try {
-            accountSecurityService.revokeTrustedDevice(userId, deviceId);
-            return ResponseEntity.ok(ApiResponse.success("신뢰 기기가 해제되었습니다."));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiResponse.error(e.getMessage()));
-        }
+        accountSecurityService.revokeTrustedDevice(requireAuthenticatedUserId(userId), deviceId);
+        return ResponseEntity.ok(ApiResponse.success("신뢰 기기가 해제되었습니다."));
     }
 
     @GetMapping("/account/deletion/recovery")
     public ResponseEntity<ApiResponse> getDeletionRecoveryInfo(@RequestParam("token") String token) {
-        try {
-            AccountDeletionRecoveryInfoDto info = accountDeletionService.getRecoveryInfo(token);
-            return ResponseEntity.ok(ApiResponse.success("계정 삭제 복구 정보 조회 성공", info));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiResponse.error(e.getMessage()));
-        }
+        AccountDeletionRecoveryInfoDto info = accountDeletionService.getRecoveryInfo(token);
+        return ResponseEntity.ok(ApiResponse.success("계정 삭제 복구 정보 조회 성공", info));
     }
 
     @PostMapping("/account/deletion/recovery")
     public ResponseEntity<ApiResponse> recoverDeletedAccount(
             @Valid @RequestBody AccountDeletionRecoveryRequestDto request) {
-        try {
-            accountDeletionService.recoverAccount(request.getToken());
-            return ResponseEntity.ok(ApiResponse.success("계정 삭제 예약이 취소되었습니다."));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiResponse.error(e.getMessage()));
+        accountDeletionService.recoverAccount(request.getToken());
+        return ResponseEntity.ok(ApiResponse.success("계정 삭제 예약이 취소되었습니다."));
+    }
+
+    private Long requireAuthenticatedUserId(Long userId) {
+        if (userId == null) {
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
         }
+        return userId;
     }
 }

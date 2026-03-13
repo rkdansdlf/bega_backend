@@ -24,14 +24,8 @@ public class PartyApplicationController {
     public ResponseEntity<?> createApplication(
             @RequestBody PartyApplicationDTO.Request request,
             Principal principal) {
-        try {
-            PartyApplicationDTO.Response response = applicationService.createApplication(request, principal);
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-        } catch (com.example.common.exception.IdentityVerificationRequiredException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        PartyApplicationDTO.Response response = applicationService.createApplication(request, principal);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     // 파티별 신청 목록 조회
@@ -39,14 +33,8 @@ public class PartyApplicationController {
     public ResponseEntity<?> getApplicationsByPartyId(
             @PathVariable Long partyId,
             Principal principal) {
-        try {
-            List<PartyApplicationDTO.Response> applications = applicationService.getApplicationsByPartyId(partyId, principal);
-            return ResponseEntity.ok(applications);
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        List<PartyApplicationDTO.Response> applications = applicationService.getApplicationsByPartyId(partyId, principal);
+        return ResponseEntity.ok(applications);
     }
 
     // 특정 파티에 대한 내 신청 단건 조회
@@ -54,27 +42,15 @@ public class PartyApplicationController {
     public ResponseEntity<?> getMyApplicationByPartyId(
             @PathVariable Long partyId,
             Principal principal) {
-        try {
-            PartyApplicationDTO.Response application = applicationService.getMyApplicationByPartyId(partyId, principal);
-            return ResponseEntity.ok(application);
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        PartyApplicationDTO.Response application = applicationService.getMyApplicationByPartyId(partyId, principal);
+        return ResponseEntity.ok(application);
     }
 
     // 내 신청 목록 조회 (로그인 사용자 기준)
     @GetMapping("/my")
     public ResponseEntity<?> getMyApplications(Principal principal) {
-        try {
-            List<PartyApplicationDTO.Response> applications = applicationService.getMyApplications(principal);
-            return ResponseEntity.ok(applications);
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        List<PartyApplicationDTO.Response> applications = applicationService.getMyApplications(principal);
+        return ResponseEntity.ok(applications);
     }
 
     // 대기중인 신청 목록 조회 (호스트 전용)
@@ -83,14 +59,8 @@ public class PartyApplicationController {
     public ResponseEntity<?> getPendingApplications(
             @PathVariable Long partyId,
             Principal principal) {
-        try {
-            List<PartyApplicationDTO.Response> applications = applicationService.getPendingApplications(partyId, principal);
-            return ResponseEntity.ok(applications);
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        List<PartyApplicationDTO.Response> applications = applicationService.getPendingApplications(partyId, principal);
+        return ResponseEntity.ok(applications);
     }
 
     // 승인된 신청 목록 조회 (호스트 전용)
@@ -99,14 +69,8 @@ public class PartyApplicationController {
     public ResponseEntity<?> getApprovedApplications(
             @PathVariable Long partyId,
             Principal principal) {
-        try {
-            List<PartyApplicationDTO.Response> applications = applicationService.getApprovedApplications(partyId, principal);
-            return ResponseEntity.ok(applications);
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        List<PartyApplicationDTO.Response> applications = applicationService.getApprovedApplications(partyId, principal);
+        return ResponseEntity.ok(applications);
     }
 
     // 거절된 신청 목록 조회 (호스트 전용)
@@ -115,14 +79,8 @@ public class PartyApplicationController {
     public ResponseEntity<?> getRejectedApplications(
             @PathVariable Long partyId,
             Principal principal) {
-        try {
-            List<PartyApplicationDTO.Response> applications = applicationService.getRejectedApplications(partyId, principal);
-            return ResponseEntity.ok(applications);
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        List<PartyApplicationDTO.Response> applications = applicationService.getRejectedApplications(partyId, principal);
+        return ResponseEntity.ok(applications);
     }
 
     // 신청 승인
@@ -130,14 +88,8 @@ public class PartyApplicationController {
     public ResponseEntity<?> approveApplication(
             @PathVariable Long applicationId,
             Principal principal) {
-        try {
-            PartyApplicationDTO.Response response = applicationService.approveApplication(applicationId, principal);
-            return ResponseEntity.ok(response);
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        PartyApplicationDTO.Response response = applicationService.approveApplication(applicationId, principal);
+        return ResponseEntity.ok(response);
     }
 
     // 신청 거절
@@ -145,14 +97,8 @@ public class PartyApplicationController {
     public ResponseEntity<?> rejectApplication(
             @PathVariable Long applicationId,
             Principal principal) {
-        try {
-            PartyApplicationDTO.Response response = applicationService.rejectApplication(applicationId, principal);
-            return ResponseEntity.ok(response);
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        PartyApplicationDTO.Response response = applicationService.rejectApplication(applicationId, principal);
+        return ResponseEntity.ok(response);
     }
 
     // 신청 취소 — applicantId는 인증 principal에서 파생
@@ -161,29 +107,21 @@ public class PartyApplicationController {
             @PathVariable Long applicationId,
             @RequestBody(required = false) PartyApplicationDTO.CancelRequest request,
             Principal principal) {
-        try {
-            PartyApplicationDTO.CancelRequest cancelRequest = request != null
-                    ? request
-                    : PartyApplicationDTO.CancelRequest.builder().build();
-            PartyApplicationDTO.CancelResponse response = applicationService.cancelApplication(
-                    applicationId,
-                    principal,
-                    cancelRequest);
-            return ResponseEntity.ok(response);
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        PartyApplicationDTO.CancelRequest cancelRequest = request != null
+                ? request
+                : PartyApplicationDTO.CancelRequest.builder().build();
+        PartyApplicationDTO.CancelResponse response = applicationService.cancelApplication(
+                applicationId,
+                principal,
+                cancelRequest);
+        return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/{applicationId}")
     public ResponseEntity<?> cancelApplication(
             @PathVariable Long applicationId,
             Principal principal) {
-        try {
-            applicationService.cancelApplication(applicationId, principal);
-            return ResponseEntity.noContent().build();
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        applicationService.cancelApplication(applicationId, principal);
+        return ResponseEntity.noContent().build();
     }
 }

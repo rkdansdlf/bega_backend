@@ -3,6 +3,7 @@ package com.example.auth.controller;
 import com.example.auth.dto.PublicUserProfileDto;
 import com.example.auth.service.UserService;
 import com.example.common.dto.ApiResponse;
+import com.example.common.exception.ForbiddenBusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -12,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -49,12 +51,9 @@ class UserControllerTest {
 
     @Test
     void checkSocialVerified_rejectsAnotherUsersStatusLookup() {
-        ResponseEntity<ApiResponse> result = userController.checkSocialVerified(2L, 1L);
-
-        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        assertThat(result.getBody()).isInstanceOf(ApiResponse.class);
-        assertThat(result.getBody().isSuccess()).isFalse();
-        assertThat(result.getBody().getMessage()).isEqualTo("본인의 소셜 연동 상태만 조회할 수 있습니다.");
+        assertThatThrownBy(() -> userController.checkSocialVerified(2L, 1L))
+                .isInstanceOf(ForbiddenBusinessException.class)
+                .hasMessageContaining("본인의 소셜 연동 상태만 조회할 수 있습니다.");
     }
 
     @Test

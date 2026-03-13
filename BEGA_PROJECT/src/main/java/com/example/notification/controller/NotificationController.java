@@ -34,24 +34,14 @@ public class NotificationController {
     // 알림 읽음 처리
     @PostMapping("/{notificationId}/read")
     public ResponseEntity<?> markAsRead(@PathVariable Long notificationId, @AuthenticationPrincipal Long userId) {
-        try {
-            notificationService.markAsRead(notificationId, userId);
-            return ResponseEntity.noContent().build();
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
-                    .body(java.util.Map.of("error", e.getMessage()));
-        }
+        notificationService.markAsRead(notificationId, userId);
+        return ResponseEntity.noContent().build();
     }
 
     // 알림 삭제
     @DeleteMapping("/{notificationId}")
     public ResponseEntity<?> deleteNotification(@PathVariable Long notificationId, @AuthenticationPrincipal Long userId) {
-        try {
-            notificationService.deleteNotification(notificationId, userId);
-            return ResponseEntity.noContent().build();
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
-                    .body(java.util.Map.of("error", e.getMessage()));
-        }
+        notificationService.deleteNotification(notificationId, userId);
+        return ResponseEntity.noContent().build();
     }
 }

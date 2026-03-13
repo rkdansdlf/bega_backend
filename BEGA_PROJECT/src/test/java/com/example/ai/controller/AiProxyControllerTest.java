@@ -1,7 +1,9 @@
 package com.example.ai.controller;
 
+import com.example.ai.exception.AiProxyException;
 import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
+import com.example.common.exception.GlobalExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,6 +19,7 @@ import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class AiProxyControllerTest {
@@ -28,7 +31,9 @@ class AiProxyControllerTest {
     void setup() {
         aiProxyService = mock(AiProxyService.class);
         AiProxyController controller = new AiProxyController(aiProxyService);
-        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
     }
 
     @Test
@@ -156,5 +161,24 @@ class AiProxyControllerTest {
                         .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(content().json(responseBody));
+    }
+
+    @Test
+    @DisplayName("AI 프록시 예외는 표준 에러 응답으로 변환된다")
+    void chatCompletionProxyFailureReturnsStandardizedErrorResponse() throws Exception {
+        String payload = "{\"question\":\"테스트\"}";
+        given(aiProxyService.forwardJson(eq("/ai/chat/completion"), eq(payload)))
+                .willThrow(new AiProxyException(
+                        HttpStatus.GATEWAY_TIMEOUT,
+                        "AI_UPSTREAM_TIMEOUT",
+                        "AI 응답 시간이 초과되었습니다."));
+
+        mockMvc.perform(post("/api/ai/chat/completion")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isGatewayTimeout())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("AI_UPSTREAM_TIMEOUT"))
+                .andExpect(jsonPath("$.message").value("AI 응답 시간이 초과되었습니다."));
     }
 }

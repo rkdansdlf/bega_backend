@@ -10,6 +10,7 @@ import com.example.cheerboard.storage.entity.PostImage;
 import com.example.cheerboard.storage.repository.PostImageRepository;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
 import com.example.cheerboard.storage.validator.ImageValidator;
+import com.example.common.exception.NotFoundBusinessException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -88,7 +89,9 @@ class ImageServiceTest {
     void listPostImages_rejectsSoftDeletedPost() {
         when(postRepo.findById(100L)).thenReturn(Optional.empty());
 
-        assertThrows(java.util.NoSuchElementException.class, () -> imageService.listPostImages(100L));
+        NotFoundBusinessException ex = assertThrows(NotFoundBusinessException.class,
+                () -> imageService.listPostImages(100L));
+        org.assertj.core.api.Assertions.assertThat(ex.getCode()).isEqualTo("CHEER_POST_NOT_FOUND");
         verify(postImageRepo, never()).findByPostIdOrderByCreatedAtAsc(100L);
     }
 
@@ -108,7 +111,9 @@ class ImageServiceTest {
         when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
         when(postRepo.findById(100L)).thenReturn(Optional.empty());
 
-        assertThrows(java.util.NoSuchElementException.class, () -> imageService.renewSignedUrl(10L));
+        NotFoundBusinessException ex = assertThrows(NotFoundBusinessException.class,
+                () -> imageService.renewSignedUrl(10L));
+        org.assertj.core.api.Assertions.assertThat(ex.getCode()).isEqualTo("CHEER_POST_NOT_FOUND");
         verify(storageStrategy, never()).getUrl(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt());
     }

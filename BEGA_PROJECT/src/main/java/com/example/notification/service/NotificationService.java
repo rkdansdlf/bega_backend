@@ -4,6 +4,7 @@ import com.example.notification.dto.NotificationDTO;
 import com.example.notification.entity.Notification;
 import com.example.notification.exception.NotificationNotFoundException;
 import com.example.notification.repository.NotificationRepository;
+import com.example.common.exception.AuthenticationRequiredException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -116,7 +117,7 @@ public class NotificationService {
 
     private void ensureAuthenticatedUser(Long userId) {
         if (userId == null || userId <= 0) {
-            throw new UnauthorizedAccessException("인증이 필요합니다.");
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
         }
     }
 }

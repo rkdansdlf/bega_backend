@@ -6,6 +6,7 @@ import com.example.auth.entity.TrustedDevice;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.AccountSecurityEventRepository;
 import com.example.auth.repository.TrustedDeviceRepository;
+import com.example.common.exception.NotFoundBusinessException;
 import com.example.common.web.ClientIpResolver;
 import com.example.mypage.dto.AccountSecurityEventDto;
 import com.example.mypage.dto.TrustedDeviceDto;
@@ -118,7 +119,7 @@ public class AccountSecurityService {
     @Transactional
     public void revokeTrustedDevice(Long userId, Long deviceId) {
         TrustedDevice trustedDevice = trustedDeviceRepository.findByIdAndUserIdAndRevokedAtIsNull(deviceId, userId)
-                .orElseThrow(() -> new IllegalArgumentException("신뢰 기기 정보를 찾을 수 없습니다."));
+                .orElseThrow(() -> new NotFoundBusinessException("TRUSTED_DEVICE_NOT_FOUND", "신뢰 기기 정보를 찾을 수 없습니다."));
 
         trustedDevice.setRevokedAt(LocalDateTime.now());
         trustedDeviceRepository.save(trustedDevice);

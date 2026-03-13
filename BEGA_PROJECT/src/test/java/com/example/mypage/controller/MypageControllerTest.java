@@ -1,6 +1,7 @@
 package com.example.mypage.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyIterable;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -15,6 +16,7 @@ import com.example.auth.service.UserService;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.util.JWTUtil;
 import com.example.common.dto.ApiResponse;
+import com.example.common.exception.ConflictBusinessException;
 import com.example.mypage.dto.ChangePasswordRequest;
 import com.example.profile.storage.service.ProfileImageService;
 import jakarta.servlet.http.Cookie;
@@ -196,11 +198,9 @@ class MypageControllerTest {
         when(refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail()))
                 .thenReturn(List.of(phoneSession, macSession));
 
-        ResponseEntity<ApiResponse> response = controller.deleteSessions(1L, true, request);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().getMessage()).contains("현재 세션을 확인하지 못해");
+        assertThatThrownBy(() -> controller.deleteSessions(1L, true, request))
+                .isInstanceOf(ConflictBusinessException.class)
+                .hasMessageContaining("현재 세션을 확인하지 못해");
         verify(refreshRepository, never()).deleteAll(anyIterable());
     }
 

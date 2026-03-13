@@ -2,6 +2,7 @@ package com.example.admin.service;
 
 import com.example.admin.dto.OffseasonMovementAdminDto;
 import com.example.admin.dto.OffseasonMovementAdminRequest;
+import com.example.admin.exception.OffseasonMovementNotFoundException;
 import com.example.kbo.entity.PlayerMovement;
 import com.example.kbo.repository.PlayerMovementRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,8 +11,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.web.server.ResponseStatusException;
-
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -120,9 +119,10 @@ class OffseasonMovementAdminServiceTest {
         request.setTeamCode("LG");
         request.setPlayerName("홍길동");
 
-        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+        OffseasonMovementNotFoundException exception = assertThrows(OffseasonMovementNotFoundException.class,
                 () -> service.updateMovement(99L, request));
 
-        assertEquals(404, exception.getStatusCode().value());
+        assertEquals("OFFSEASON_MOVEMENT_NOT_FOUND", exception.getCode());
+        assertEquals("이동 정보를 찾을 수 없습니다. id=99", exception.getMessage());
     }
 }

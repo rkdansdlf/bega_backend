@@ -46,7 +46,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 				),
 				@ComponentScan.Filter(
 						type = org.springframework.context.annotation.FilterType.REGEX,
-						pattern = "com\\.example\\.kbo\\.repository\\.(GameRepository|GameMetadataRepository|GameInningScoreRepository|GameSummaryRepository)"
+						pattern = "com\\.example\\.kbo\\.repository\\.(GameRepository|GameMetadataRepository|GameInningScoreRepository|GameSummaryRepository|PlayerSeasonBattingRepository|PlayerSeasonPitchingRepository)"
 				)
 		}
 )
