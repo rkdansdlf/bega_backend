@@ -35,9 +35,6 @@ public class Party {
     @Column(name = "host_profile_image_url", length = 2048)
     private String hostProfileImageUrl;
 
-    @Column(name = "hostrating", nullable = false)
-    private Double hostRating; // 호스트 평점
-
     @Column(name = "teamid", nullable = false, length = 20)
     private String teamId; // 응원 팀 ID
 
@@ -93,6 +90,9 @@ public class Party {
     @Column(name = "ticketprice")
     private Integer ticketPrice; // 티켓 가격(1인당)
 
+    @Column(name = "host_last_read_chat_at")
+    private Instant hostLastReadChatAt; // 호스트 마지막 채팅 확인 시간
+
     @Column(name = "createdat", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -103,14 +103,12 @@ public class Party {
     protected void onCreate() {
         createdAt = Instant.now();
         updatedAt = Instant.now();
+        hostLastReadChatAt = Instant.now();
         if (currentParticipants == null) {
             currentParticipants = 1; // 호스트 포함
         }
         if (ticketVerified == null) {
             ticketVerified = false;
-        }
-        if (hostRating == null) {
-            hostRating = 5.0;
         }
     }
 
@@ -155,4 +153,5 @@ public class Party {
             return description;
         }
     }
+
 }

@@ -2,8 +2,11 @@ package com.example.auth.dto;
 
 import com.example.common.validation.PasswordMatches;
 import com.example.common.validation.ValidPassword;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -42,6 +45,10 @@ public class SignupDto {
     // 소셜 연동 관련 필드
     private String provider;
     private String providerId;
+
+    @Valid
+    @NotEmpty(message = "필수 정책 동의가 필요합니다.")
+    private List<PolicyConsentItemDto> policyConsents;
 
     public UserDto toUserDto() {
         return UserDto.builder()

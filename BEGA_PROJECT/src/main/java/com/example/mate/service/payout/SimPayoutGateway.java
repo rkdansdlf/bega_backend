@@ -1,6 +1,5 @@
 package com.example.mate.service.payout;
 
-import com.example.mate.entity.PaymentTransaction;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -12,7 +11,12 @@ public class SimPayoutGateway implements PayoutGateway {
     }
 
     @Override
-    public String requestPayout(PaymentTransaction paymentTransaction) {
-        return "SIM-" + paymentTransaction.getId();
+    public PayoutResult requestPayout(PayoutRequest request) {
+        return new PayoutResult("SIM-" + request.paymentTransactionId(), "COMPLETED");
+    }
+
+    @Override
+    public SellerRegistrationResult registerSeller(SellerRegistrationRequest request) {
+        return new SellerRegistrationResult(request.providerSellerId(), "REGISTERED");
     }
 }

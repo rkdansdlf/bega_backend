@@ -58,7 +58,6 @@ public class CommentDtoMapper {
         return new CommentRes(
                 comment.getId(),
                 resolveDisplayName(comment.getAuthor()),
-                comment.getAuthor().getEmail(),
                 comment.getAuthor().getFavoriteTeamId(),
                 resolveAuthorProfileImageUrl(comment.getAuthor()),
                 comment.getAuthor().getHandle(),
@@ -70,10 +69,16 @@ public class CommentDtoMapper {
     }
 
     private String resolveDisplayName(UserEntity user) {
+        if (user == null) {
+            return "사용자";
+        }
         if (user.getName() != null && !user.getName().isBlank()) {
             return user.getName();
         }
-        return user.getEmail();
+        if (user.getHandle() != null && !user.getHandle().isBlank()) {
+            return user.getHandle();
+        }
+        return "사용자";
     }
 
     private String resolveAuthorProfileImageUrl(UserEntity author) {

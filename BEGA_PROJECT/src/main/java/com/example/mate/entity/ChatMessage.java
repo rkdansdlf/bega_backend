@@ -20,19 +20,22 @@ public class ChatMessage {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(name = "party_id", nullable = false)
     private Long partyId; // 파티 ID
 
-    @Column(nullable = false)
+    @Column(name = "sender_id", nullable = false)
     private Long senderId; // 발신자 사용자 ID
 
-    @Column(nullable = false, length = 50)
+    @Column(name = "sender_name", nullable = false, length = 50)
     private String senderName; // 발신자 이름
 
-    @Column(nullable = false, length = 1000)
+    @Column(name = "message", nullable = false, length = 1000)
     private String message; // 메시지 내용
 
-    @Column(nullable = false, updatable = false)
+    @Column(name = "image_url", length = 2048)
+    private String imageUrl; // 이미지 첨부 URL (선택)
+
+    @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
     @PrePersist

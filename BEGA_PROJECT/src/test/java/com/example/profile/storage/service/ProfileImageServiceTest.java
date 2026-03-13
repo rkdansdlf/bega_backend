@@ -13,6 +13,8 @@ import static org.mockito.Mockito.when;
 import com.example.auth.repository.UserRepository;
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
+import com.example.common.exception.InternalServerBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 import com.example.profile.storage.validator.ProfileImageValidator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -100,9 +102,10 @@ class ProfileImageServiceTest {
         when(userRepository.updateProfileImageUrlById(99L, "profiles/99/new.webp")).thenReturn(0);
 
         // When / Then
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+        NotFoundBusinessException ex = assertThrows(NotFoundBusinessException.class,
                 () -> profileImageService.updateUserProfileUrl(99L, "profiles/99/new.webp"));
         assertThat(ex.getMessage()).isEqualTo("사용자를 찾을 수 없습니다.");
+        assertThat(ex.getCode()).isEqualTo("USER_NOT_FOUND");
     }
 
     @Test
@@ -140,5 +143,30 @@ class ProfileImageServiceTest {
         // Then
         assertThat(resolved).isEqualTo(signedUrl);
         verify(storageStrategy).getUrl(profileBucket, "profiles/7/avatar.webp", 518400);
+    }
+
+    @Test
+    @DisplayName("업로드 내부 예외 메시지는 외부 예외 메시지에 노출되지 않는다")
+    void uploadProfileImage_masksInternalExceptionMessage() throws Exception {
+        Long userId = 11L;
+        String profileBucket = "profile-images";
+        byte[] processedBytes = new byte[] { 7, 8, 9 };
+        com.example.common.image.ImageUtil.ProcessedImage processedImage = new com.example.common.image.ImageUtil.ProcessedImage(
+                processedBytes, "image/webp", "webp");
+
+        when(config.getProfileBucket()).thenReturn(profileBucket);
+        when(userRepository.existsById(userId)).thenReturn(true);
+        when(userRepository.findProfileImageUrlById(userId)).thenReturn(java.util.Optional.empty());
+        when(multipartFile.getOriginalFilename()).thenReturn("avatar.png");
+        when(imageUtil.processProfileImage(multipartFile)).thenReturn(processedImage);
+        when(storageStrategy.uploadBytes(eq(processedBytes), eq("image/webp"), eq(profileBucket), any(String.class)))
+                .thenReturn(Mono.error(new RuntimeException("s3://internal/secret-path")));
+
+        InternalServerBusinessException ex = assertThrows(InternalServerBusinessException.class,
+                () -> profileImageService.uploadProfileImage(userId, multipartFile));
+
+        assertThat(ex.getMessage()).isEqualTo("프로필 이미지 업로드 중 오류가 발생했습니다.");
+        assertThat(ex.getMessage()).doesNotContain("secret-path");
+        assertThat(ex.getCode()).isEqualTo("PROFILE_IMAGE_UPLOAD_FAILED");
     }
 }

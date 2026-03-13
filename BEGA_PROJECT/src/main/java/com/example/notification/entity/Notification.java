@@ -72,7 +72,10 @@ public class Notification {
 
         // 팔로우 관련 알림
         NEW_FOLLOWER("새 팔로워"),
-        FOLLOWING_NEW_POST("새로운 게시글");
+        FOLLOWING_NEW_POST("새로운 게시글"),
+
+        // 계정 보안 관련 알림
+        NEW_DEVICE_LOGIN("새 기기 로그인");
 
         private final String description;
 
@@ -84,4 +87,5 @@ public class Notification {
             return description;
         }
     }
+
 }

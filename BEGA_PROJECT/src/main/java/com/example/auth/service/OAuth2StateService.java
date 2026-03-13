@@ -32,6 +32,7 @@ public class OAuth2StateService {
 
     private static final String PREFIX = "oauth2:state:";
     private static final Duration TTL = Duration.ofMinutes(5);
+    public static final String ERROR_CODE_STATE_STORE_UNAVAILABLE = "oauth2_state_store_unavailable";
 
     /**
      * OAuth2 인증 상태 저장 (userId만 Redis에 저장)
@@ -47,19 +48,15 @@ public class OAuth2StateService {
             redisTemplate.opsForValue().set(PREFIX + stateId, json, TTL);
             log.info("OAuth2 state saved: stateId={}, userId={}", stateId, userId);
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize OAuth2 state data", e);
+            securityMonitoringService.recordOAuth2StateReject();
+            log.error("Failed to serialize OAuth2 state data: userId={}", userId, e);
+            throw new OAuth2StateStoreException(ERROR_CODE_STATE_STORE_UNAVAILABLE, e);
+        } catch (Exception e) {
+            securityMonitoringService.recordOAuth2StateReject();
+            log.error("Failed to persist OAuth2 state: stateId={}, userId={}", stateId, userId, e);
+            throw new OAuth2StateStoreException(ERROR_CODE_STATE_STORE_UNAVAILABLE, e);
         }
         return stateId;
-    }
-
-    /**
-     * @deprecated Use saveState(Long userId) instead
-     */
-    @Deprecated
-    public String saveState(OAuth2StateData data) {
-        // 하위 호환성: OAuth2StateData에서 userId를 추출하지 못하므로 레거시 지원 불가
-        throw new UnsupportedOperationException(
-                "saveState(OAuth2StateData) is deprecated. Use saveState(Long userId) instead.");
     }
 
     /**
@@ -70,7 +67,14 @@ public class OAuth2StateService {
      */
     public OAuth2StateData consumeState(String stateId) {
         String key = PREFIX + stateId;
-        String json = redisTemplate.opsForValue().getAndDelete(key);
+        String json;
+        try {
+            json = redisTemplate.opsForValue().getAndDelete(key);
+        } catch (Exception e) {
+            log.error("Failed to consume OAuth2 state from Redis: stateId={}", stateId, e);
+            securityMonitoringService.recordOAuth2StateReject();
+            return null;
+        }
         if (json == null) {
             log.warn("OAuth2 state not found or already consumed: stateId={}", stateId);
             securityMonitoringService.recordOAuth2StateReject();
@@ -123,6 +127,10 @@ public class OAuth2StateService {
             log.error("Failed to deserialize OAuth2 state data: stateId={}", stateId, e);
             securityMonitoringService.recordOAuth2StateReject();
             return null;
+        } catch (Exception e) {
+            log.error("Failed to process OAuth2 state: stateId={}", stateId, e);
+            securityMonitoringService.recordOAuth2StateReject();
+            return null;
         }
     }
 
@@ -134,7 +142,13 @@ public class OAuth2StateService {
      */
     public Long peekUserId(String stateId) {
         String key = PREFIX + stateId;
-        String json = redisTemplate.opsForValue().get(key);
+        String json;
+        try {
+            json = redisTemplate.opsForValue().get(key);
+        } catch (Exception e) {
+            log.error("Failed to peek OAuth2 state in Redis: stateId={}", stateId, e);
+            return null;
+        }
         if (json == null) {
             return null;
         }
@@ -144,6 +158,15 @@ public class OAuth2StateService {
         } catch (JsonProcessingException e) {
             log.error("Failed to peek OAuth2 state: stateId={}", stateId, e);
             return null;
+        } catch (Exception e) {
+            log.error("Failed to process peek OAuth2 state: stateId={}", stateId, e);
+            return null;
+        }
+    }
+
+    public static class OAuth2StateStoreException extends RuntimeException {
+        public OAuth2StateStoreException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 }

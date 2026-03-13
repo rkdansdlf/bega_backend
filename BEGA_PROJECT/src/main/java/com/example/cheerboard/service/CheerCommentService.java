@@ -10,6 +10,7 @@ import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.BlockService;
+import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.common.exception.InvalidAuthorException;
 import com.example.common.service.AIModerationService;
 import com.example.notification.service.NotificationService;
@@ -50,6 +51,7 @@ public class CheerCommentService {
     private final UserRepository userRepo;
     private final NotificationService notificationService;
     private final BlockService blockService;
+    private final PublicVisibilityVerifier publicVisibilityVerifier;
     private final PermissionValidator permissionValidator;
     private final AIModerationService moderationService;
     private final CommentDtoMapper commentDtoMapper;
@@ -58,7 +60,9 @@ public class CheerCommentService {
     @Transactional(readOnly = true)
     public Page<CommentRes> listComments(Long postId, Pageable pageable, UserEntity me) {
         // me can be null
-        postService.findPostById(postId);
+        CheerPost post = postService.findPostById(postId);
+        CheerPost targetPost = resolveActionTargetPost(post);
+        publicVisibilityVerifier.validate(targetPost.getAuthor(), me != null ? me.getId() : null, "댓글");
 
         // [NEW] 차단 유저 등 필터링 필요시 추가 - CheerService logic didn't explicitly filter
         // listComments by block,
@@ -123,6 +127,7 @@ public class CheerCommentService {
         // Logic: if repost, go to repostOf.
         CheerPost targetPost = resolveActionTargetPost(post);
 
+        publicVisibilityVerifier.validate(targetPost.getAuthor(), author.getId(), "게시글");
         validateNoBlockBetween(author.getId(), targetPost.getAuthor().getId(), "차단 관계가 있어 댓글을 작성할 수 없습니다.");
 
         permissionValidator.validateTeamAccess(author, targetPost.getTeamId(), "댓글 작성");
@@ -139,10 +144,10 @@ public class CheerCommentService {
 
             CheerComment comment = saveNewComment(targetPost, author, req);
 
-            // Increment comment count - PostService/PostRepo responsibility?
-            // CheerService did: post.setCommentCount(...)
+            // 댓글 수 원자적 증가 (Race Condition 방지)
+            postRepo.incrementCommentCount(targetPost.getId());
+            // hot score 계산을 위해 in-memory 엔티티도 동기화 (DB 추가 쿼리 없이)
             targetPost.setCommentCount(targetPost.getCommentCount() + 1);
-            postRepo.save(targetPost); // Save count update
 
             postService.updateHotScore(targetPost);
 
@@ -183,6 +188,7 @@ public class CheerCommentService {
         CheerPost targetPost = resolveActionTargetPost(post);
         CheerComment parentComment = findCommentById(parentCommentId);
 
+        publicVisibilityVerifier.validate(targetPost.getAuthor(), author.getId(), "게시글");
         validateNoBlockBetween(author.getId(), targetPost.getAuthor().getId(), "원글 작성자와 차단 관계가 있어 답글을 작성할 수 없습니다.");
         validateNoBlockBetween(author.getId(), parentComment.getAuthor().getId(), "댓글 작성자와 차단 관계가 있어 답글을 작성할 수 없습니다.");
 
@@ -204,8 +210,10 @@ public class CheerCommentService {
 
             CheerComment reply = saveNewReply(targetPost, parentComment, author, req);
 
+            // 댓글 수 원자적 증가 (Race Condition 방지)
+            postRepo.incrementCommentCount(targetPost.getId());
+            // hot score 계산을 위해 in-memory 엔티티도 동기화 (DB 추가 쿼리 없이)
             targetPost.setCommentCount(targetPost.getCommentCount() + 1);
-            postRepo.save(targetPost);
 
             postService.updateHotScore(targetPost);
 
@@ -246,10 +254,10 @@ public class CheerCommentService {
         try {
             commentRepo.delete(comment);
 
-            // 실제 DB에서 댓글 수 재계산 (댓글 + 대댓글 모두 포함)
+            // 실제 DB에서 댓글 수 재계산 후 원자적 UPDATE (Lost Update 방지)
             Long actualCount = commentRepo.countByPostId(Objects.requireNonNull(post.getId()).longValue());
-            post.setCommentCount(actualCount != null ? actualCount.intValue() : 0);
-            postRepo.save(post);
+            int newCount = actualCount != null ? actualCount.intValue() : 0;
+            postRepo.setExactCommentCount(post.getId(), newCount);
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(author);

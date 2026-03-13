@@ -18,8 +18,7 @@ public class PartyReviewDTO {
     @Builder
     public static class Request {
         private Long partyId;
-        private Long reviewerId;
-        private Long revieweeId;
+        private String revieweeHandle;
         private Integer rating; // 1-5
         private String comment; // 최대 200자
     }
@@ -31,8 +30,8 @@ public class PartyReviewDTO {
     public static class Response {
         private Long id;
         private Long partyId;
-        private Long reviewerId;
-        private Long revieweeId;
+        private String reviewerHandle;
+        private String revieweeHandle;
         private Integer rating;
         private String comment;
         private Instant createdAt;
@@ -41,8 +40,8 @@ public class PartyReviewDTO {
             return Response.builder()
                     .id(review.getId())
                     .partyId(review.getPartyId())
-                    .reviewerId(review.getReviewerId())
-                    .revieweeId(review.getRevieweeId())
+                    .reviewerHandle(null)
+                    .revieweeHandle(null)
                     .rating(review.getRating())
                     .comment(review.getComment())
                     .createdAt(review.getCreatedAt())

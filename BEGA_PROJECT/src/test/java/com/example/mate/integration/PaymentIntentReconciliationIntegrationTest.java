@@ -1,5 +1,7 @@
 package com.example.mate.integration;
 
+import com.example.cheerboard.repo.CheerPostRepo;
+import com.example.cheerboard.repo.CheerReportRepo;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.PaymentFlowType;
@@ -85,6 +87,12 @@ class PaymentIntentReconciliationIntegrationTest {
 
     @MockitoBean
     private JobScheduler jobScheduler;
+
+    @MockitoBean
+    private CheerPostRepo cheerPostRepo;
+
+    @MockitoBean
+    private CheerReportRepo cheerReportRepo;
 
     @BeforeEach
     void setUp() {

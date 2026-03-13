@@ -3,6 +3,8 @@ package com.example.mate.service;
 import com.example.mate.dto.CheckInRecordDTO;
 import com.example.mate.entity.CheckInRecord;
 import com.example.mate.entity.Party;
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.exception.BadRequestBusinessException;
 import com.example.mate.exception.DuplicateCheckInException;
 import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.exception.UnauthorizedAccessException;
@@ -18,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.Principal;
+import java.security.SecureRandom;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -35,7 +38,10 @@ import com.example.mate.repository.PartyApplicationRepository;
 public class CheckInRecordService {
 
     private static final String QR_SESSION_PREFIX = "mate:checkin:qr:";
+    private static final String MANUAL_CODE_PREFIX = "mate:checkin:manual:";
+    private static final String MANUAL_CODE_ACTIVE_SESSION_PREFIX = "mate:checkin:manual:active:";
     private static final Duration QR_SESSION_TTL = Duration.ofMinutes(30);
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final CheckInRecordRepository checkInRecordRepository;
     private final PartyRepository partyRepository;
@@ -59,18 +65,19 @@ public class CheckInRecordService {
         private Instant expiresAt;
     }
 
+    private enum CheckInCredentialMode {
+        QR_SESSION,
+        MANUAL_CODE
+    }
+
     // 체크인
     @Transactional
     public CheckInRecordDTO.Response checkIn(CheckInRecordDTO.Request request, Principal principal) {
-        if (principal == null) {
-            throw new UnauthorizedAccessException("로그인이 필요합니다.");
-        }
-
         if (request == null || request.getPartyId() == null) {
-            throw new RuntimeException("partyId는 필수입니다.");
+            throw new BadRequestBusinessException("INVALID_CHECK_IN_REQUEST", "partyId는 필수입니다.");
         }
 
-        Long userId = userService.getUserIdByEmail(principal.getName());
+        Long userId = resolveUserId(principal);
 
         Party party = partyRepository.findById(request.getPartyId())
                 .orElseThrow(() -> new PartyNotFoundException(request.getPartyId()));
@@ -79,7 +86,14 @@ public class CheckInRecordService {
             throw new UnauthorizedAccessException("파티 참여자만 체크인할 수 있습니다.");
         }
 
-        validateQrSession(request.getPartyId(), request.getQrSessionId());
+        String qrSessionId = request.getQrSessionId() == null ? null : request.getQrSessionId().trim();
+        String manualCode = request.getManualCode() == null ? null : request.getManualCode().trim();
+        CheckInCredentialMode credentialMode = resolveCredentialMode(request.getPartyId(), qrSessionId, manualCode);
+        if (credentialMode == CheckInCredentialMode.MANUAL_CODE) {
+            validateManualCode(request.getPartyId(), manualCode);
+        } else {
+            validateQrSession(request.getPartyId(), qrSessionId);
+        }
 
         // 중복 체크인 확인
         checkInRecordRepository.findByPartyIdAndUserId(request.getPartyId(), userId)
@@ -102,29 +116,24 @@ public class CheckInRecordService {
         // 모든 참여자가 체크인했는지 확인
         checkAndUpdatePartyStatus(request.getPartyId());
 
-        String userName = userRepository.findById(userId)
-                .map(com.example.auth.entity.UserEntity::getName)
-                .orElse("Unknown");
-
-        return CheckInRecordDTO.Response.from(savedRecord, userName);
+        return toResponse(savedRecord);
     }
 
     @Transactional
     public CheckInRecordDTO.QrSessionResponse createQrSession(CheckInRecordDTO.QrSessionRequest request,
             Principal principal) {
-        if (principal == null) {
-            throw new UnauthorizedAccessException("로그인이 필요합니다.");
-        }
         if (request == null || request.getPartyId() == null) {
-            throw new RuntimeException("partyId는 필수입니다.");
+            throw new BadRequestBusinessException("INVALID_CHECK_IN_REQUEST", "partyId는 필수입니다.");
         }
 
-        Long userId = userService.getUserIdByEmail(principal.getName());
+        Long userId = resolveUserId(principal);
         Party party = partyRepository.findById(request.getPartyId())
                 .orElseThrow(() -> new PartyNotFoundException(request.getPartyId()));
 
-        if (!isPartyMember(request.getPartyId(), userId, party)) {
-            throw new UnauthorizedAccessException("파티 참여자만 QR 코드를 생성할 수 있습니다.");
+        if (!Objects.equals(party.getHostId(), userId)) {
+            log.warn("issuer_forbidden: partyId={}, requesterUserId={}, hostId={}",
+                    request.getPartyId(), userId, party.getHostId());
+            throw new UnauthorizedAccessException("호스트만 QR 코드를 생성할 수 있습니다.");
         }
 
         String sessionId = UUID.randomUUID().toString();
@@ -145,40 +154,54 @@ public class CheckInRecordService {
                     QR_SESSION_TTL);
         } catch (JsonProcessingException e) {
             log.error("QR 세션 직렬화 실패: partyId={}, userId={}", request.getPartyId(), userId, e);
-            throw new RuntimeException("QR 세션 생성에 실패했습니다.");
+            throw new BadRequestBusinessException("QR_SESSION_CREATE_FAILED", "QR 세션 생성에 실패했습니다.");
         }
+
+        String manualCode = String.format("%04d", SECURE_RANDOM.nextInt(10000));
+        redisTemplate.opsForValue().set(
+                MANUAL_CODE_PREFIX + sessionId,
+                manualCode,
+                QR_SESSION_TTL);
+        redisTemplate.opsForValue().set(
+                MANUAL_CODE_ACTIVE_SESSION_PREFIX + request.getPartyId(),
+                sessionId,
+                QR_SESSION_TTL);
 
         return CheckInRecordDTO.QrSessionResponse.builder()
                 .sessionId(sessionId)
                 .partyId(request.getPartyId())
                 .expiresAt(expiresAt)
                 .checkinUrl(buildCheckInUrl(request.getPartyId(), sessionId))
+                .manualCode(manualCode)
                 .build();
     }
 
     // 파티별 체크인 기록 조회
     @Transactional(readOnly = true)
-    public List<CheckInRecordDTO.Response> getCheckInsByPartyId(Long partyId) {
+    public List<CheckInRecordDTO.Response> getCheckInsByPartyId(Long partyId, Principal principal) {
+        Long requesterId = resolveUserId(principal);
+        Party party = partyRepository.findById(partyId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+
+        if (!isPartyMember(partyId, requesterId, party)) {
+            throw new UnauthorizedAccessException("파티 참여자만 체크인 현황을 조회할 수 있습니다.");
+        }
+
         return checkInRecordRepository.findByPartyId(partyId).stream()
-                .map(record -> {
-                    String userName = userRepository.findById(record.getUserId())
-                            .map(com.example.auth.entity.UserEntity::getName)
-                            .orElse("Unknown");
-                    return CheckInRecordDTO.Response.from(record, userName);
-                })
+                .map(this::toResponse)
                 .collect(Collectors.toList());
     }
 
     // 사용자별 체크인 기록 조회
     @Transactional(readOnly = true)
-    public List<CheckInRecordDTO.Response> getCheckInsByUserId(Long userId) {
+    public List<CheckInRecordDTO.Response> getCheckInsByUserId(Long userId, Principal principal) {
+        Long requesterId = resolveUserId(principal);
+        if (!requesterId.equals(userId)) {
+            throw new UnauthorizedAccessException("본인의 체크인 기록만 조회할 수 있습니다.");
+        }
+
         return checkInRecordRepository.findByUserId(userId).stream()
-                .map(record -> {
-                    String userName = userRepository.findById(record.getUserId())
-                            .map(com.example.auth.entity.UserEntity::getName)
-                            .orElse("Unknown");
-                    return CheckInRecordDTO.Response.from(record, userName);
-                })
+                .map(this::toResponse)
                 .collect(Collectors.toList());
     }
 
@@ -187,13 +210,21 @@ public class CheckInRecordService {
     public boolean isCheckedIn(Long partyId, Principal principal) {
         if (principal == null)
             return false;
-        Long userId = userService.getUserIdByEmail(principal.getName());
+        Long userId = resolveUserId(principal);
         return checkInRecordRepository.findByPartyIdAndUserId(partyId, userId).isPresent();
     }
 
     // 파티별 체크인 인원 수 조회
     @Transactional(readOnly = true)
-    public long getCheckInCount(Long partyId) {
+    public long getCheckInCount(Long partyId, Principal principal) {
+        Long requesterId = resolveUserId(principal);
+        Party party = partyRepository.findById(partyId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+
+        if (!isPartyMember(partyId, requesterId, party)) {
+            throw new UnauthorizedAccessException("파티 참여자만 체크인 인원 수를 조회할 수 있습니다.");
+        }
+
         return checkInRecordRepository.countByPartyId(partyId);
     }
 
@@ -219,14 +250,47 @@ public class CheckInRecordService {
                         .orElse(false);
     }
 
+    private CheckInRecordDTO.Response toResponse(CheckInRecord record) {
+        com.example.auth.entity.UserEntity user = userRepository.findById(record.getUserId()).orElse(null);
+        String userHandle = user != null ? user.getHandle() : null;
+        String userName = user != null ? user.getName() : "Unknown";
+        return CheckInRecordDTO.Response.from(record, userHandle, userName);
+    }
+
+    private Long resolveUserId(Principal principal) {
+        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+            throw new AuthenticationRequiredException("로그인이 필요합니다.");
+        }
+        return userService.getUserIdByEmail(principal.getName());
+    }
+
+    private CheckInCredentialMode resolveCredentialMode(Long partyId, String qrSessionId, String manualCode) {
+        boolean hasQrSessionId = qrSessionId != null && !qrSessionId.isBlank();
+        boolean hasManualCode = manualCode != null && !manualCode.isBlank();
+
+        if (!hasQrSessionId && !hasManualCode) {
+            log.warn("credential_missing: partyId={}", partyId);
+            throw new BadRequestBusinessException(
+                    "INVALID_CHECK_IN_CREDENTIAL",
+                    "체크인 인증 정보(qrSessionId 또는 manualCode) 중 하나는 필수입니다.");
+        }
+
+        if (hasQrSessionId && hasManualCode) {
+            log.warn("credential_conflict: partyId={}", partyId);
+            throw new BadRequestBusinessException("INVALID_CHECK_IN_CREDENTIAL", "체크인 인증 정보는 하나만 제공해야 합니다.");
+        }
+
+        return hasManualCode ? CheckInCredentialMode.MANUAL_CODE : CheckInCredentialMode.QR_SESSION;
+    }
+
     private void validateQrSession(Long partyId, String qrSessionId) {
         if (qrSessionId == null || qrSessionId.isBlank()) {
-            return;
+            throw new BadRequestBusinessException("INVALID_QR_SESSION", "QR 세션 ID가 필요합니다.");
         }
 
         String serializedPayload = redisTemplate.opsForValue().get(QR_SESSION_PREFIX + qrSessionId);
         if (serializedPayload == null || serializedPayload.isBlank()) {
-            throw new RuntimeException("유효하지 않거나 만료된 QR 세션입니다.");
+            throw new BadRequestBusinessException("INVALID_QR_SESSION", "유효하지 않거나 만료된 QR 세션입니다.");
         }
 
         QrSessionPayload payload;
@@ -234,17 +298,41 @@ public class CheckInRecordService {
             payload = objectMapper.readValue(serializedPayload, QrSessionPayload.class);
         } catch (JsonProcessingException e) {
             log.error("QR 세션 역직렬화 실패: sessionId={}", qrSessionId, e);
-            throw new RuntimeException("QR 세션 정보를 읽지 못했습니다.");
+            throw new BadRequestBusinessException("INVALID_QR_SESSION", "QR 세션 정보를 읽지 못했습니다.");
         }
 
         Instant expiresAt = payload.getExpiresAt();
         if (expiresAt == null || expiresAt.isBefore(Instant.now())) {
             redisTemplate.delete(QR_SESSION_PREFIX + qrSessionId);
-            throw new RuntimeException("QR 세션이 만료되었습니다.");
+            throw new BadRequestBusinessException("INVALID_QR_SESSION", "QR 세션이 만료되었습니다.");
         }
 
         if (!Objects.equals(payload.getPartyId(), partyId)) {
-            throw new RuntimeException("QR 세션의 파티 정보가 일치하지 않습니다.");
+            throw new BadRequestBusinessException("INVALID_QR_SESSION", "QR 세션의 파티 정보가 일치하지 않습니다.");
+        }
+    }
+
+    private void validateManualCode(Long partyId, String manualCode) {
+        if (manualCode == null || manualCode.isBlank()) {
+            throw new BadRequestBusinessException("INVALID_MANUAL_CHECK_IN_CODE", "수동 체크인 코드를 입력해주세요.");
+        }
+        String activeSessionId = redisTemplate.opsForValue().get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + partyId);
+        if (activeSessionId == null || activeSessionId.isBlank()) {
+            log.warn("manual_code_invalid: reason=active_session_missing, partyId={}", partyId);
+            throw new BadRequestBusinessException("INVALID_MANUAL_CHECK_IN_CODE", "유효하지 않거나 만료된 수동 체크인 코드입니다.");
+        }
+
+        try {
+            validateQrSession(partyId, activeSessionId);
+        } catch (BadRequestBusinessException e) {
+            log.warn("manual_code_invalid: reason=session_invalid, partyId={}, sessionId={}", partyId, activeSessionId);
+            throw new BadRequestBusinessException("INVALID_MANUAL_CHECK_IN_CODE", "유효하지 않거나 만료된 수동 체크인 코드입니다.");
+        }
+
+        String storedCode = redisTemplate.opsForValue().get(MANUAL_CODE_PREFIX + activeSessionId);
+        if (storedCode == null || !storedCode.equals(manualCode)) {
+            log.warn("manual_code_invalid: reason=code_mismatch, partyId={}, sessionId={}", partyId, activeSessionId);
+            throw new BadRequestBusinessException("INVALID_MANUAL_CHECK_IN_CODE", "유효하지 않거나 만료된 수동 체크인 코드입니다.");
         }
     }
 

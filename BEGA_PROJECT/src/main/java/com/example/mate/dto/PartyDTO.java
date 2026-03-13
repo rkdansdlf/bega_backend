@@ -17,10 +17,6 @@ public class PartyDTO {
     @AllArgsConstructor
     @Builder
     public static class Request {
-        private Long hostId;
-        private String hostName;
-        private Party.BadgeType hostBadge;
-        private Double hostRating;
         private String teamId;
         private LocalDate gameDate;
         private LocalTime gameTime;
@@ -39,14 +35,80 @@ public class PartyDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
-    public static class Response {
+    public static class PublicResponse {
         private Long id;
-        private Long hostId;
+        private String hostHandle;
         private String hostName;
         private String hostProfileImageUrl;
         private String hostFavoriteTeam;
         private Party.BadgeType hostBadge;
-        private Double hostRating;
+        private Double hostAverageRating;
+        private Long hostReviewCount;
+        private String teamId;
+        private LocalDate gameDate;
+        private LocalTime gameTime;
+        private String stadium;
+        private String homeTeam;
+        private String awayTeam;
+        private String section;
+        private Integer maxParticipants;
+        private Integer currentParticipants;
+        private String description;
+        private Boolean ticketVerified;
+        private String ticketImageUrl;
+        private Party.PartyStatus status;
+        private Integer price;
+        private Integer ticketPrice;
+        private String reservationNumber;
+        private Instant createdAt;
+        private Instant updatedAt;
+
+        public static PublicResponse from(Response response) {
+            return PublicResponse.builder()
+                    .id(response.getId())
+                    .hostHandle(response.getHostHandle())
+                    .hostName(response.getHostName())
+                    .hostProfileImageUrl(response.getHostProfileImageUrl())
+                    .hostFavoriteTeam(response.getHostFavoriteTeam())
+                    .hostBadge(response.getHostBadge())
+                    .hostAverageRating(response.getHostAverageRating())
+                    .hostReviewCount(response.getHostReviewCount())
+                    .teamId(response.getTeamId())
+                    .gameDate(response.getGameDate())
+                    .gameTime(response.getGameTime())
+                    .stadium(response.getStadium())
+                    .homeTeam(response.getHomeTeam())
+                    .awayTeam(response.getAwayTeam())
+                    .section(response.getSection())
+                    .maxParticipants(response.getMaxParticipants())
+                    .currentParticipants(response.getCurrentParticipants())
+                    .description(response.getDescription())
+                    .ticketVerified(response.getTicketVerified())
+                    .ticketImageUrl(response.getTicketImageUrl())
+                    .status(response.getStatus())
+                    .price(response.getPrice())
+                    .ticketPrice(response.getTicketPrice())
+                    .reservationNumber(response.getReservationNumber())
+                    .createdAt(response.getCreatedAt())
+                    .updatedAt(response.getUpdatedAt())
+                    .build();
+        }
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class Response {
+        private Long id;
+        private Long hostId;
+        private String hostHandle;
+        private String hostName;
+        private String hostProfileImageUrl;
+        private String hostFavoriteTeam;
+        private Party.BadgeType hostBadge;
+        private Double hostAverageRating;
+        private Long hostReviewCount;
         private String teamId;
         private LocalDate gameDate;
         private LocalTime gameTime;
@@ -70,11 +132,11 @@ public class PartyDTO {
             return Response.builder()
                     .id(party.getId())
                     .hostId(party.getHostId())
+                    .hostHandle(null)
                     .hostName(party.getHostName())
                     .hostProfileImageUrl(party.getHostProfileImageUrl())
                     .hostFavoriteTeam(party.getHostFavoriteTeam())
                     .hostBadge(party.getHostBadge())
-                    .hostRating(party.getHostRating())
                     .teamId(party.getTeamId())
                     .gameDate(party.getGameDate())
                     .gameTime(party.getGameTime())

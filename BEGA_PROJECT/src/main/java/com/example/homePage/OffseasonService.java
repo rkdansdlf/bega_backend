@@ -4,6 +4,7 @@ import com.example.kbo.entity.PlayerMovement;
 import com.example.kbo.repository.PlayerMovementRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.util.Comparator;
 import java.util.List;
@@ -17,8 +18,9 @@ public class OffseasonService {
 
     private final PlayerMovementRepository repository;
 
-    // Pattern to catch amounts like "60억", "100억", "4년 60억"
-    private static final Pattern MONEY_PATTERN = Pattern.compile("(\\d{1,4})\\s*억");
+    // Pattern to catch sortable amount tokens like "60억", "100억", "4년 60억"
+    private static final Pattern MONEY_PATTERN = Pattern.compile("(\\d{1,4}(?:,\\d{3})*)\\s*억");
+    private static final Pattern DISPLAY_AMOUNT_PATTERN = Pattern.compile("(?:\\d+\\s*년\\s*)?\\d{1,4}(?:,\\d{3})*\\s*(?:억|만\\s*원|만\\s*달러|달러)");
 
     public List<OffseasonMovementDto> getOffseasonMovements() {
         // Filter for 2025 Stove League (Movements after 2024-11-01)
@@ -33,8 +35,10 @@ public class OffseasonService {
     }
 
     private OffseasonMovementDto convertToDto(PlayerMovement entity) {
-        String remarks = entity.getRemarks() != null ? entity.getRemarks() : "";
-        Long amount = parseAmount(remarks);
+        String remarks = trimToEmpty(entity.getDetails());
+        String summary = firstNonBlank(entity.getSummary(), remarks);
+        String contractValue = trimToNull(entity.getContractValue());
+        Long amount = parseAmount(firstNonBlank(contractValue, remarks));
         boolean isBig = isBigEvent(entity.getSection(), amount);
 
         return OffseasonMovementDto.builder()
@@ -43,23 +47,49 @@ public class OffseasonService {
                 .section(entity.getSection())
                 .team(entity.getTeamCode())
                 .player(entity.getPlayerName())
+                .summary(summary)
                 .remarks(remarks)
+                .contractTerm(trimToNull(entity.getContractTerm()))
+                .contractValue(contractValue)
+                .optionDetails(trimToNull(entity.getOptionDetails()))
+                .counterpartyTeam(trimToNull(entity.getCounterpartyTeam()))
+                .counterpartyDetails(trimToNull(entity.getCounterpartyDetails()))
+                .sourceLabel(trimToNull(entity.getSourceLabel()))
+                .sourceUrl(trimToNull(entity.getSourceUrl()))
+                .announcedAt(entity.getAnnouncedAt() != null ? entity.getAnnouncedAt().toString() : null)
                 .isBigEvent(isBig)
                 .estimatedAmount(amount)
+                .displayAmount(extractDisplayAmount(firstNonBlank(contractValue, remarks)))
                 .build();
     }
 
     private Long parseAmount(String text) {
+        if (!StringUtils.hasText(text)) {
+            return 0L;
+        }
+
         Matcher matcher = MONEY_PATTERN.matcher(text);
         if (matcher.find()) {
             try {
                 // Return amount in "Eok" (100 million) units
-                return Long.parseLong(matcher.group(1));
+                return Long.parseLong(matcher.group(1).replace(",", ""));
             } catch (NumberFormatException e) {
                 return 0L;
             }
         }
         return 0L;
+    }
+
+    private String extractDisplayAmount(String text) {
+        if (!StringUtils.hasText(text)) {
+            return null;
+        }
+
+        Matcher matcher = DISPLAY_AMOUNT_PATTERN.matcher(text);
+        if (matcher.find()) {
+            return matcher.group().replaceAll("\\s+", " ").trim();
+        }
+        return null;
     }
 
     private boolean isBigEvent(String section, Long amount) {
@@ -80,6 +110,28 @@ public class OffseasonService {
         }
 
         return false;
+    }
+
+    private String trimToNull(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+
+        return value.trim();
+    }
+
+    private String trimToEmpty(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value.trim();
+            }
+        }
+
+        return null;
     }
 
     private Comparator<OffseasonMovementDto> movementComparator() {

@@ -1,5 +1,6 @@
 package com.example.admin.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -23,5 +24,6 @@ public class AdminPostDto {
     private Integer likeCount;
     private Integer commentCount;
     private Integer views;
+    @JsonProperty("isHot")
     private Boolean isHot;
 }

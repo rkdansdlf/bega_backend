@@ -13,7 +13,7 @@ BEGIN
             expected_amount NUMBER(10) NOT NULL,
             currency VARCHAR2(10) DEFAULT 'KRW' NOT NULL,
             payment_type VARCHAR2(20) NOT NULL,
-            mode VARCHAR2(20) NOT NULL,
+            pay_mode VARCHAR2(20) NOT NULL,
             status VARCHAR2(30) NOT NULL,
             payment_key VARCHAR2(200),
             failure_code VARCHAR2(100),

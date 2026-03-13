@@ -1,9 +1,14 @@
 package com.example.stadium.config;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import javax.sql.DataSource;
 
+import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.orm.jpa.EntityManagerFactoryBuilder;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -29,6 +34,18 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 )
 public class StadiumPostgresJpaConfig {
 
+	private static final String HIBERNATE_DEFAULT_SCHEMA = "hibernate.default_schema";
+	private static final String HIBERNATE_HBM2DDL_AUTO = "hibernate.hbm2ddl.auto";
+	private static final String HIBERNATE_DIALECT = "hibernate.dialect";
+	private static final String HIBERNATE_ALLOW_METADATA = "hibernate.boot.allow_jdbc_metadata_access";
+	private static final String HIBERNATE_METADATA_DEFAULTS = "hibernate.temp.use_jdbc_metadata_defaults";
+
+	@Value("${baseball.datasource.data-source-properties.currentSchema:public}")
+	private String stadiumDefaultSchema;
+
+	@Value("${baseball.jpa.hibernate.ddl-auto:none}")
+	private String stadiumDdlAuto;
+
 	@Bean
 	@ConfigurationProperties("baseball.datasource")
 	public DataSourceProperties stadiumDataSourceProperties() {
@@ -38,18 +55,33 @@ public class StadiumPostgresJpaConfig {
 	@Bean
 	@ConfigurationProperties("baseball.datasource.hikari")
 	public DataSource stadiumDataSource() {
-		return stadiumDataSourceProperties()
+		DataSource dataSource = stadiumDataSourceProperties()
 				.initializeDataSourceBuilder()
 				.build();
+		if (dataSource instanceof HikariDataSource hikariDataSource) {
+			hikariDataSource.setMinimumIdle(0);
+			hikariDataSource.setInitializationFailTimeout(-1);
+			hikariDataSource.setConnectionTimeout(3000);
+			hikariDataSource.setValidationTimeout(2000);
+		}
+		return dataSource;
 	}
 
 	@Bean
 	public LocalContainerEntityManagerFactoryBean stadiumEntityManagerFactory(
 			EntityManagerFactoryBuilder builder) {
+		Map<String, Object> jpaProperties = new LinkedHashMap<>();
+		jpaProperties.put(HIBERNATE_DEFAULT_SCHEMA, stadiumDefaultSchema);
+		jpaProperties.put(HIBERNATE_HBM2DDL_AUTO, stadiumDdlAuto);
+		jpaProperties.put(HIBERNATE_DIALECT, "org.hibernate.dialect.PostgreSQLDialect");
+		jpaProperties.put(HIBERNATE_ALLOW_METADATA, false);
+		jpaProperties.put(HIBERNATE_METADATA_DEFAULTS, false);
+
 		return builder
 				.dataSource(stadiumDataSource())
 				.packages("com.example.stadium.entity")
 				.persistenceUnit("stadium")
+				.properties(jpaProperties)
 				.build();
 	}
 

@@ -1,7 +1,11 @@
 package com.example.prediction;
 
+import com.example.common.dto.ApiResponse;
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.UnauthorizedBusinessException;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -18,6 +22,7 @@ import java.util.stream.Collectors;
 import java.util.Objects;
 import jakarta.validation.Valid;
 
+@Tag(name = "경기 예측", description = "경기 결과 예측 투표, 내 투표 조회, 시즌 예측 순위")
 @RestController
 @RequestMapping("/api")
 @PreAuthorize("isAuthenticated()")
@@ -48,6 +53,13 @@ public class PredictionController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         List<MatchDto> matches = predictionService.getMatchesByDate(date);
         return ResponseEntity.ok(matches);
+    }
+
+    @PreAuthorize("permitAll()")
+    @GetMapping("/matches/day")
+    public ResponseEntity<MatchDayNavigationResponseDto> getMatchDay(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return ResponseEntity.ok(predictionService.getMatchDayNavigation(date));
     }
 
     // 특정 기간의 경기 조회 (과거 일주일치 등)
@@ -88,10 +100,7 @@ public class PredictionController {
     @PreAuthorize("permitAll()")
     @GetMapping("/matches/{gameId}")
     public ResponseEntity<?> getMatchDetail(@PathVariable String gameId) {
-        String normalizedGameId = normalizePathGameId(gameId);
-        if (normalizedGameId == null) {
-            return ResponseEntity.badRequest().body("게임 ID가 잘못되었습니다.");
-        }
+        String normalizedGameId = requireNormalizedGameId(gameId);
 
         GameDetailDto detail = predictionService.getGameDetail(normalizedGameId);
         return ResponseEntity.ok(detail);
@@ -99,36 +108,19 @@ public class PredictionController {
 
     // 투표하기
     @PostMapping("/predictions/vote")
-    public ResponseEntity<?> vote(@Valid @RequestBody PredictionRequestDto request, Principal principal) {
-        if (principal == null) {
-            // 사용자 정보가 없으면, 401 Unauthorized 또는 적절한 오류 응답을 반환
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다.");
-        }
-
-        PredictionRequestDto normalizedRequest = normalizePredictionRequest(request);
-        if (normalizedRequest == null) {
-            return ResponseEntity.badRequest().body("투표 입력 값이 올바르지 않습니다.");
-        }
-
-        Long userId;
-        try {
-            userId = parsePrincipalUserId(principal);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
+    public ResponseEntity<ApiResponse> vote(@Valid @RequestBody PredictionRequestDto request, Principal principal) {
+        PredictionRequestDto normalizedRequest = requireNormalizedPredictionRequest(request);
+        Long userId = parsePrincipalUserId(requirePrincipal(principal));
 
         predictionService.vote(userId, normalizedRequest);
-        return ResponseEntity.ok("투표 성공");
+        return ResponseEntity.ok(ApiResponse.success("투표 성공"));
     }
 
     // 투표 현황 조회
     @PreAuthorize("permitAll()")
     @GetMapping("/predictions/status/{gameId}")
     public ResponseEntity<?> getVoteStatus(@PathVariable String gameId) {
-        String normalizedGameId = normalizePathGameId(gameId);
-        if (normalizedGameId == null) {
-            return ResponseEntity.badRequest().body("게임 ID가 잘못되었습니다.");
-        }
+        String normalizedGameId = requireNormalizedGameId(gameId);
 
         PredictionResponseDto response = predictionService.getVoteStatus(normalizedGameId);
         return ResponseEntity.ok(response);
@@ -136,101 +128,60 @@ public class PredictionController {
 
     // 투표 취소
     @DeleteMapping("/predictions/{gameId}")
-    public ResponseEntity<String> cancelVote(
+    public ResponseEntity<ApiResponse> cancelVote(
             Principal principal,
             @PathVariable String gameId) {
-        try {
-            if (principal == null) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다.");
-            }
+        Long userId = parsePrincipalUserId(requirePrincipal(principal));
+        String normalizedGameId = requireNormalizedGameId(gameId);
 
-            Long userId = parsePrincipalUserId(principal);
-            String normalizedGameId = normalizePathGameId(gameId);
-            if (normalizedGameId == null) {
-                return ResponseEntity.badRequest().body("게임 ID가 잘못되었습니다.");
-            }
-
-            predictionService.cancelVote(userId, normalizedGameId);
-            return ResponseEntity.ok("투표가 취소되었습니다.");
-        } catch (IllegalStateException | IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
-    }
-
-    @GetMapping("/predictions/my-vote/{gameId}")
-    public ResponseEntity<?> getMyVote(
-            Principal principal,
-            @PathVariable String gameId) {
-
-        if (principal == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다.");
-        }
-
-        Long userId;
-        try {
-            userId = parsePrincipalUserId(principal);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
-
-        String normalizedGameId = normalizePathGameId(gameId);
-        if (normalizedGameId == null) {
-            return ResponseEntity.badRequest().body("게임 ID가 잘못되었습니다.");
-        }
-
-        Optional<Prediction> prediction = predictionRepository.findByGameIdAndUserId(normalizedGameId, userId);
-
-        if (prediction.isPresent()) {
-            return ResponseEntity.ok(Map.of("votedTeam", prediction.get().getVotedTeam()));
-        } else {
-            // NullPointerException을 피하기 위해 HashMap을 사용
-            // Map.of()는 null 값을 허용하지 않음
-            Map<String, Object> responseMap = new HashMap<>();
-            responseMap.put("votedTeam", null);
-            return ResponseEntity.ok(responseMap);
-        }
+        predictionService.cancelVote(userId, normalizedGameId);
+        return ResponseEntity.ok(ApiResponse.success("투표가 취소되었습니다."));
     }
 
     // 다수 경기 사용자 투표 일괄 조회
     @PostMapping("/predictions/my-votes")
-    public ResponseEntity<Map<String, Object>> getMyVotesBulk(
+    public ResponseEntity<?> getMyVotesBulk(
             @Valid @RequestBody PredictionMyVotesRequestDto request,
             Principal principal) {
-        if (principal == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("votes", Map.of()));
-        }
-
-        Long userId;
-        try {
-            userId = parsePrincipalUserId(principal);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "votes", Map.of(),
-                    "message", e.getMessage()
-            ));
-        }
+        Long userId = parsePrincipalUserIdForMyVotes(requirePrincipalForMyVotes(principal));
         List<String> gameIds = request == null ? null : request.getGameIds();
 
         if (gameIds == null || gameIds.isEmpty()) {
-            return ResponseEntity.ok(Map.of("votes", Map.of()));
+            return ResponseEntity.ok(emptyVotesPayload());
         }
 
         Map<String, String> votes = new HashMap<>();
         List<String> distinctGameIds = normalizeGameIds(gameIds);
 
         if (distinctGameIds.size() > MAX_MY_VOTE_BATCH_SIZE) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "votes", Map.of(),
-                    "message", "요청한 경기 수가 너무 많습니다."
-            ));
+            throw new BadRequestBusinessException(
+                    "TOO_MANY_GAME_IDS",
+                    "요청한 경기 수가 너무 많습니다.",
+                    emptyVotesPayload());
         }
 
         if (distinctGameIds.isEmpty()) {
-            return ResponseEntity.ok(Map.of("votes", Map.of()));
+            return ResponseEntity.ok(emptyVotesPayload());
         }
 
-        for (String gameId : distinctGameIds) {
-            votes.put(gameId, null);
+        votes = buildUserVotesForGames(userId, distinctGameIds);
+
+        return ResponseEntity.ok(Map.of("votes", votes));
+    }
+
+    private Map<String, String> buildUserVotesForGames(Long userId, List<String> gameIds) {
+        Map<String, String> votes = new HashMap<>();
+        if (gameIds == null || gameIds.isEmpty()) {
+            return votes;
+        }
+
+        List<String> distinctGameIds = normalizeGameIds(gameIds);
+        if (distinctGameIds.isEmpty() || distinctGameIds.size() > MAX_MY_VOTE_BATCH_SIZE) {
+            return votes;
+        }
+
+        for (String resolvedGameId : distinctGameIds) {
+            votes.put(resolvedGameId, null);
         }
 
         List<Prediction> predictions = predictionRepository.findByUserIdAndGameIdIn(
@@ -241,7 +192,7 @@ public class PredictionController {
             votes.put(prediction.getGameId(), prediction.getVotedTeam());
         }
 
-        return ResponseEntity.ok(Map.of("votes", votes));
+        return votes;
     }
 
     private String normalizePathGameId(String gameId) {
@@ -295,44 +246,71 @@ public class PredictionController {
 
     // 내 예측 통계 조회
     @GetMapping("/prediction/stats/me")
-    public ResponseEntity<Map<String, Object>> getMyStats(Principal principal) {
-        if (principal == null) {
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "로그인이 필요합니다.");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
-        }
-        Long userId;
-        try {
-            userId = parsePrincipalUserId(principal);
-        } catch (IllegalArgumentException e) {
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", e.getMessage());
-            return ResponseEntity.badRequest().body(response);
-        }
+    public ResponseEntity<ApiResponse> getMyStats(Principal principal) {
+        Long userId = parsePrincipalUserId(requirePrincipal(principal));
         UserPredictionStatsDto stats = predictionService.getUserStats(userId);
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("data", stats);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(ApiResponse.success("내 예측 통계를 조회했습니다.", stats));
+    }
+
+    private String requireNormalizedGameId(String gameId) {
+        String normalizedGameId = normalizePathGameId(gameId);
+        if (normalizedGameId == null) {
+            throw new BadRequestBusinessException("INVALID_GAME_ID", "게임 ID가 잘못되었습니다.");
+        }
+        return normalizedGameId;
+    }
+
+    private PredictionRequestDto requireNormalizedPredictionRequest(PredictionRequestDto request) {
+        PredictionRequestDto normalizedRequest = normalizePredictionRequest(request);
+        if (normalizedRequest == null) {
+            throw new BadRequestBusinessException("INVALID_PREDICTION_INPUT", "투표 입력 값이 올바르지 않습니다.");
+        }
+        return normalizedRequest;
+    }
+
+    private Principal requirePrincipal(Principal principal) {
+        if (principal == null) {
+            throw new AuthenticationRequiredException("로그인이 필요합니다.");
+        }
+        return principal;
+    }
+
+    private Principal requirePrincipalForMyVotes(Principal principal) {
+        if (principal == null) {
+            throw new UnauthorizedBusinessException(
+                    "AUTHENTICATION_REQUIRED",
+                    "로그인이 필요합니다.",
+                    emptyVotesPayload());
+        }
+        return principal;
     }
 
     private Long parsePrincipalUserId(Principal principal) {
         if (principal == null || principal.getName() == null) {
-            throw new IllegalArgumentException("로그인 사용자 정보를 확인할 수 없습니다.");
+            throw new BadRequestBusinessException("INVALID_PRINCIPAL", "로그인 사용자 정보를 확인할 수 없습니다.");
         }
 
         String normalizedUserId = principal.getName().trim();
         if (normalizedUserId.isEmpty()) {
-            throw new IllegalArgumentException("로그인 사용자 정보를 확인할 수 없습니다.");
+            throw new BadRequestBusinessException("INVALID_PRINCIPAL", "로그인 사용자 정보를 확인할 수 없습니다.");
         }
 
         try {
             return Long.valueOf(normalizedUserId);
         } catch (NumberFormatException ex) {
-            throw new IllegalArgumentException("로그인 사용자 ID 형식이 올바르지 않습니다.");
+            throw new BadRequestBusinessException("INVALID_PRINCIPAL", "로그인 사용자 ID 형식이 올바르지 않습니다.");
         }
     }
 
+    private Long parsePrincipalUserIdForMyVotes(Principal principal) {
+        try {
+            return parsePrincipalUserId(principal);
+        } catch (BadRequestBusinessException ex) {
+            throw new BadRequestBusinessException(ex.getCode(), ex.getMessage(), emptyVotesPayload());
+        }
+    }
+
+    private Map<String, Object> emptyVotesPayload() {
+        return Map.of("votes", Map.of());
+    }
 }

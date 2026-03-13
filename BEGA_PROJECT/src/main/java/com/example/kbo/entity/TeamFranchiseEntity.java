@@ -53,7 +53,7 @@ public class TeamFranchiseEntity {
     private LocalDateTime updatedAt;
 
     // 메타데이터 (JSON 형태, 추가 정보 저장용)
-    @Column(name = "metadata_json", columnDefinition = "TEXT")
+    @Column(name = "metadata_json")
     private String metadataJson;
 
     // 공식 웹사이트 URL

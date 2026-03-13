@@ -714,8 +714,8 @@ class CheerPostServiceTest {
                 when(postRepo.saveAndFlush(any(CheerPost.class))).thenReturn(savedPost);
                 when(postDtoMapper.toNewPostDetailRes(any(CheerPost.class), any(UserEntity.class)))
                                 .thenReturn(PostDetailRes.of(
-                                                1L, "LG", "LG", "LG", "#C30452", "My Content", "Me", 100L,
-                                                "me", "me@example.com", "http://example.com/me.jpg", null,
+                                                1L, "LG", "LG", "LG", "#C30452", "My Content", "Me",
+                                                "me", "http://example.com/me.jpg", null,
                                                 0, 0, 0, false, false, false, null, 0, 0, false, "CHEER"));
 
                 // When

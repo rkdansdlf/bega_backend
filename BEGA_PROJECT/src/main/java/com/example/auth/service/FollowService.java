@@ -14,6 +14,7 @@ import com.example.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -93,6 +94,12 @@ public class FollowService {
                 .build();
     }
 
+    @Transactional
+    public FollowToggleResponse toggleFollowByHandle(String handle) {
+        UserEntity target = findUserByHandleOrThrow(handle);
+        return toggleFollow(target.getId());
+    }
+
     /**
      * 알림 설정 변경
      */
@@ -117,33 +124,41 @@ public class FollowService {
                 .build();
     }
 
+    @Transactional
+    public FollowToggleResponse updateNotifySettingByHandle(String handle, boolean notifyNewPosts) {
+        UserEntity target = findUserByHandleOrThrow(handle);
+        return updateNotifySetting(target.getId(), notifyNewPosts);
+    }
+
     /**
      * 팔로우 카운트 및 상태 조회
      */
     @Transactional(readOnly = true)
     public FollowCountResponse getFollowCounts(Long userId) {
         UserEntity me = currentUser.getOrNull();
+        UserEntity target = resolveAccessibleTargetById(userId, me);
 
-        long followerCount = followRepo.countByFollowingId(userId);
-        long followingCount = followRepo.countByFollowerId(userId);
+        long targetUserId = Objects.requireNonNull(target.getId());
+        long followerCount = followRepo.countByFollowingId(targetUserId);
+        long followingCount = followRepo.countByFollowerId(targetUserId);
         boolean isFollowedByMe = false;
         boolean notifyNewPosts = false;
         boolean blockedByMe = false;
         boolean blockingMe = false;
 
-        if (me != null && !me.getId().equals(userId)) {
-            UserFollow.Id followId = new UserFollow.Id(me.getId(), userId);
+        if (me != null && !me.getId().equals(targetUserId)) {
+            UserFollow.Id followId = new UserFollow.Id(me.getId(), targetUserId);
             isFollowedByMe = followRepo.existsById(followId);
 
             if (isFollowedByMe) {
-                notifyNewPosts = followRepo.findByFollowerIdAndFollowingId(me.getId(), userId)
+                notifyNewPosts = followRepo.findByFollowerIdAndFollowingId(me.getId(), targetUserId)
                         .map(UserFollow::getNotifyNewPosts)
                         .orElse(false);
             }
 
             // [NEW] 차단 상태 조회
-            blockedByMe = blockRepo.existsById(new com.example.auth.entity.UserBlock.Id(me.getId(), userId));
-            blockingMe = blockRepo.existsById(new com.example.auth.entity.UserBlock.Id(userId, me.getId()));
+            blockedByMe = blockRepo.existsById(new com.example.auth.entity.UserBlock.Id(me.getId(), targetUserId));
+            blockingMe = blockRepo.existsById(new com.example.auth.entity.UserBlock.Id(targetUserId, me.getId()));
         }
 
         return FollowCountResponse.builder()
@@ -154,6 +169,12 @@ public class FollowService {
                 .blockedByMe(blockedByMe)
                 .blockingMe(blockingMe)
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public FollowCountResponse getPublicFollowCounts(String handle) {
+        UserEntity target = findUserByHandleOrThrow(handle);
+        return getFollowCounts(target.getId());
     }
 
     /**
@@ -186,7 +207,8 @@ public class FollowService {
     @Transactional(readOnly = true)
     public Page<UserFollowSummaryDto> getFollowers(Long userId, Pageable pageable) {
         UserEntity me = currentUser.getOrNull();
-        Page<UserEntity> followers = followRepo.findFollowersByFollowingId(userId, pageable);
+        UserEntity target = resolveAccessibleTargetById(userId, me);
+        Page<UserEntity> followers = followRepo.findFollowersByFollowingId(target.getId(), pageable);
 
         List<Long> followerIds = followers.getContent().stream()
                 .map(UserEntity::getId).toList();
@@ -198,7 +220,13 @@ public class FollowService {
         }
 
         final Set<Long> finalMyFollowingIds = myFollowingIds;
-        return followers.map(user -> UserFollowSummaryDto.from(user, finalMyFollowingIds.contains(user.getId())));
+        return followers.map(user -> UserFollowSummaryDto.fromPublic(user, finalMyFollowingIds.contains(user.getId())));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<UserFollowSummaryDto> getPublicFollowers(String handle, Pageable pageable) {
+        UserEntity target = findUserByHandleOrThrow(handle);
+        return getFollowers(target.getId(), pageable);
     }
 
     /**
@@ -207,7 +235,8 @@ public class FollowService {
     @Transactional(readOnly = true)
     public Page<UserFollowSummaryDto> getFollowing(Long userId, Pageable pageable) {
         UserEntity me = currentUser.getOrNull();
-        Page<UserEntity> following = followRepo.findFollowingByFollowerId(userId, pageable);
+        UserEntity target = resolveAccessibleTargetById(userId, me);
+        Page<UserEntity> following = followRepo.findFollowingByFollowerId(target.getId(), pageable);
 
         List<Long> followingIds = following.getContent().stream()
                 .map(UserEntity::getId).toList();
@@ -219,7 +248,13 @@ public class FollowService {
         }
 
         final Set<Long> finalMyFollowingIds = myFollowingIds;
-        return following.map(user -> UserFollowSummaryDto.from(user, finalMyFollowingIds.contains(user.getId())));
+        return following.map(user -> UserFollowSummaryDto.fromPublic(user, finalMyFollowingIds.contains(user.getId())));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<UserFollowSummaryDto> getPublicFollowing(String handle, Pageable pageable) {
+        UserEntity target = findUserByHandleOrThrow(handle);
+        return getFollowing(target.getId(), pageable);
     }
 
     /**
@@ -249,5 +284,47 @@ public class FollowService {
         // userId2 -> userId1 관계 삭제
         followRepo.findByFollowerIdAndFollowingId(userId2, userId1)
                 .ifPresent(followRepo::delete);
+    }
+
+    private UserEntity resolveAccessibleTargetById(Long userId, UserEntity viewer) {
+        UserEntity target = userRepo.findById(Objects.requireNonNull(userId))
+                .orElseThrow(() -> new NoSuchElementException("사용자를 찾을 수 없습니다."));
+        validatePublicRelationshipAccess(target, viewer);
+        return target;
+    }
+
+    private void validatePublicRelationshipAccess(UserEntity target, UserEntity viewer) {
+        Long targetUserId = Objects.requireNonNull(target.getId());
+        Long viewerId = viewer != null ? viewer.getId() : null;
+
+        if (viewerId != null && viewerId.equals(targetUserId)) {
+            return;
+        }
+
+        if (viewerId != null && blockRepo.existsBidirectionalBlock(viewerId, targetUserId)) {
+            throw new AccessDeniedException("차단 관계인 사용자의 팔로우 정보는 조회할 수 없습니다.");
+        }
+
+        if (!target.isPrivateAccount()) {
+            return;
+        }
+
+        if (viewerId != null && followRepo.existsById(new UserFollow.Id(viewerId, targetUserId))) {
+            return;
+        }
+
+        throw new AccessDeniedException("비공개 계정의 팔로우 정보는 팔로워만 조회할 수 있습니다.");
+    }
+
+    private UserEntity findUserByHandleOrThrow(String handle) {
+        return userRepo.findByHandle(normalizeHandle(handle))
+                .orElseThrow(() -> new NoSuchElementException("사용자를 찾을 수 없습니다."));
+    }
+
+    private String normalizeHandle(String handle) {
+        if (handle == null || handle.isBlank()) {
+            throw new IllegalArgumentException("유효한 핸들이 필요합니다.");
+        }
+        return handle.startsWith("@") ? handle : "@" + handle;
     }
 }

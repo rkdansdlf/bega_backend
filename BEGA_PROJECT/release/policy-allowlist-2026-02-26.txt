@@ -1,0 +1,17 @@
+src/main/java/com/example/auth/controller/APIController.java
+src/main/java/com/example/auth/dto/SignupDto.java
+src/main/java/com/example/auth/dto/PolicyConsentItemDto.java
+src/main/java/com/example/auth/dto/PolicyConsentSubmitDto.java
+src/main/java/com/example/auth/dto/PolicyRequiredResponseDto.java
+src/main/java/com/example/auth/dto/PolicyRequirementItemDto.java
+src/main/java/com/example/auth/entity/PolicyType.java
+src/main/java/com/example/auth/entity/UserPolicyConsent.java
+src/main/java/com/example/auth/repository/UserPolicyConsentRepository.java
+src/main/java/com/example/auth/service/AuthRegistrationService.java
+src/main/java/com/example/auth/service/PolicyConsentService.java
+src/main/java/com/example/common/exception/PolicyConsentException.java
+src/main/java/com/example/common/exception/GlobalExceptionHandler.java
+src/main/java/com/example/mypage/controller/MypageController.java
+src/main/java/com/example/mypage/dto/UserProfileDto.java
+src/main/resources/db/migration/V94__create_user_policy_consents.sql
+src/main/resources/db/migration_postgresql/V95__create_user_policy_consents.sql

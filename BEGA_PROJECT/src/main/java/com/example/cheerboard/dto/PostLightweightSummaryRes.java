@@ -16,7 +16,6 @@ public record PostLightweightSummaryRes(
         int commentCount,
         Instant createdAt,
         // Author info (minimal)
-        Long authorId,
         String authorNickname,
         String authorProfileImage
 ) {
@@ -30,7 +29,6 @@ public record PostLightweightSummaryRes(
             int likeCount,
             int commentCount,
             Instant createdAt,
-            Long authorId,
             String authorNickname,
             String authorProfileImage) {
 
@@ -46,7 +44,6 @@ public record PostLightweightSummaryRes(
                 likeCount,
                 commentCount,
                 createdAt,
-                authorId,
                 authorNickname,
                 authorProfileImage
         );

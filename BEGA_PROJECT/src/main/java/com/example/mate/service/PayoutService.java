@@ -4,6 +4,7 @@ import com.example.mate.entity.PayoutTransaction;
 import com.example.mate.entity.PaymentTransaction;
 import com.example.mate.entity.SettlementStatus;
 import com.example.mate.service.payout.PayoutGateway;
+import com.example.mate.service.payout.PayoutGateway.PayoutGatewayException;
 import com.example.mate.repository.PayoutTransactionRepository;
 import com.example.mate.repository.PaymentTransactionRepository;
 import org.jobrunr.jobs.annotations.Job;
@@ -33,6 +34,7 @@ public class PayoutService {
     private final PayoutTransactionRepository payoutTransactionRepository;
     private final PaymentTransactionRepository paymentTransactionRepository;
     private final PaymentMetricsService metricsService;
+    private final SellerPayoutProfileService sellerPayoutProfileService;
     private final JobScheduler jobScheduler;
 
     private final Map<String, PayoutGateway> payoutGateways;
@@ -42,11 +44,13 @@ public class PayoutService {
             PayoutTransactionRepository payoutTransactionRepository,
             PaymentTransactionRepository paymentTransactionRepository,
             PaymentMetricsService metricsService,
+            SellerPayoutProfileService sellerPayoutProfileService,
             JobScheduler jobScheduler,
             java.util.List<PayoutGateway> payoutGateways) {
         this.payoutTransactionRepository = payoutTransactionRepository;
         this.paymentTransactionRepository = paymentTransactionRepository;
         this.metricsService = metricsService;
+        this.sellerPayoutProfileService = sellerPayoutProfileService;
         this.jobScheduler = jobScheduler;
         this.payoutGateways = payoutGateways.stream()
                 .collect(Collectors.toMap(
@@ -61,7 +65,7 @@ public class PayoutService {
     @Value("${payment.payout.provider:SIM}")
     private String payoutProvider;
 
-    @Transactional
+    @Transactional(noRollbackFor = RuntimeException.class)
     public PayoutTransaction requestPayout(PaymentTransaction paymentTransaction) {
         if (paymentTransaction == null || paymentTransaction.getId() == null) {
             throw new IllegalArgumentException("결제 트랜잭션이 올바르지 않습니다.");
@@ -92,7 +96,11 @@ public class PayoutService {
         }
 
         if (!payoutEnabled) {
-            return markPayoutSkipped(paymentTransaction, payout, "PAYMENT_PAYOUT_DISABLED");
+            return markPayoutSkipped(
+                    paymentTransaction,
+                    payout,
+                    "PAYMENT_PAYOUT_DISABLED",
+                    "payment.payout.enabled=false");
         }
 
         return executePayoutRequest(paymentTransaction, payout);
@@ -131,20 +139,29 @@ public class PayoutService {
 
     private PayoutTransaction executePayoutRequest(PaymentTransaction paymentTransaction, PayoutTransaction payout) {
         if (!payoutEnabled) {
-            return markPayoutSkipped(paymentTransaction, payout, "PAYMENT_PAYOUT_DISABLED");
+            return markPayoutSkipped(
+                    paymentTransaction,
+                    payout,
+                    "PAYMENT_PAYOUT_DISABLED",
+                    "payment.payout.enabled=false");
         }
+
+        String providerCode = resolveProviderCode();
 
         payout.setStatus(SettlementStatus.REQUESTED);
         payout.setRequestedAmount(paymentTransaction.getNetAmount());
         payout.setRequestedAt(Instant.now());
         payout.setFailReason(null);
+        payout.setFailureCode(null);
         payout.setLastRetryAt(Instant.now());
         payout.setNextRetryAt(null);
         payout = payoutTransactionRepository.save(payout);
 
         try {
-            String providerRef = resolveGateway().requestPayout(paymentTransaction);
-            payout.setProviderRef(providerRef);
+            PayoutGateway.PayoutRequest payoutRequest = buildPayoutRequest(paymentTransaction, providerCode);
+            PayoutGateway payoutGateway = resolveGateway(providerCode);
+            PayoutGateway.PayoutResult gatewayResult = payoutGateway.requestPayout(payoutRequest);
+            payout.setProviderRef(gatewayResult.providerRef());
             payout.setCompletedAt(Instant.now());
             payout.setStatus(SettlementStatus.COMPLETED);
             payout = payoutTransactionRepository.save(payout);
@@ -155,8 +172,10 @@ public class PayoutService {
                     paymentTransaction.getId(), payout.getId());
             metricsService.recordPayout("success");
         } catch (RuntimeException e) {
+            String failureCode = resolveFailureCode(e);
             payout.setStatus(SettlementStatus.FAILED);
             payout.setRetryCount(payout.getRetryCount() == null ? 1 : payout.getRetryCount() + 1);
+            payout.setFailureCode(failureCode);
             payout.setFailReason(String.valueOf(e.getMessage()));
             long nextDelaySeconds = calculateRetryDelaySeconds(payout.getRetryCount());
             payout.setNextRetryAt(Instant.now().plusSeconds(nextDelaySeconds));
@@ -166,7 +185,8 @@ public class PayoutService {
             paymentTransactionRepository.save(paymentTransaction);
             metricsService.recordPayout("fail");
 
-            if (payout.getRetryCount() < MAX_PAYOUT_RETRY_ATTEMPTS) {
+            if (isRetryableFailure(failureCode)
+                    && payout.getRetryCount() < MAX_PAYOUT_RETRY_ATTEMPTS) {
                 scheduleRetry(payout.getId(), payout.getNextRetryAt());
             }
 
@@ -200,6 +220,7 @@ public class PayoutService {
     private PayoutTransaction markPayoutSkipped(
             PaymentTransaction paymentTransaction,
             PayoutTransaction payout,
+            String failureCode,
             String failReason) {
         if (payout.getStatus() == SettlementStatus.SKIPPED) {
             return payout;
@@ -210,6 +231,7 @@ public class PayoutService {
         payout.setRequestedAt(Instant.now());
         payout.setLastRetryAt(null);
         payout.setNextRetryAt(null);
+        payout.setFailureCode(failureCode);
         payout.setFailReason(failReason);
         payout = payoutTransactionRepository.save(payout);
 
@@ -220,13 +242,62 @@ public class PayoutService {
         return payout;
     }
 
-    private PayoutGateway resolveGateway() {
-        PayoutGateway gateway = payoutGateways.get(Objects.toString(payoutProvider, "SIM").toUpperCase(Locale.ROOT));
+    private PayoutGateway resolveGateway(String providerCode) {
+        PayoutGateway gateway = payoutGateways.get(providerCode);
         if (gateway == null) {
             throw new IllegalStateException("지원되지 않는 지급대행 provider: " + payoutProvider);
         }
         return gateway;
 
+    }
+
+    private PayoutGateway.PayoutRequest buildPayoutRequest(PaymentTransaction paymentTransaction, String providerCode) {
+        String providerSellerId = null;
+        if ("TOSS".equals(providerCode)) {
+            providerSellerId = sellerPayoutProfileService.getRequiredProviderSellerId(
+                    paymentTransaction.getSellerUserId(),
+                    providerCode);
+        }
+
+        return new PayoutGateway.PayoutRequest(
+                paymentTransaction.getId(),
+                paymentTransaction.getOrderId(),
+                paymentTransaction.getSellerUserId(),
+                providerSellerId,
+                paymentTransaction.getNetAmount(),
+                "KRW");
+    }
+
+    private String resolveProviderCode() {
+        return Objects.toString(payoutProvider, "SIM").toUpperCase(Locale.ROOT);
+    }
+
+    private String resolveFailureCode(RuntimeException e) {
+        if (e instanceof PayoutGatewayException payoutGatewayException
+                && payoutGatewayException.getFailureCode() != null
+                && !payoutGatewayException.getFailureCode().isBlank()) {
+            return payoutGatewayException.getFailureCode();
+        }
+        if (e.getMessage() != null && e.getMessage().contains("SELLER_PROFILE_MISSING")) {
+            return "SELLER_PROFILE_MISSING";
+        }
+        return e.getClass().getSimpleName();
+    }
+
+    private boolean isRetryableFailure(String failureCode) {
+        if (failureCode == null) {
+            return true;
+        }
+        return !"SELLER_PROFILE_MISSING".equals(failureCode)
+                && !"PAYMENT_PAYOUT_DISABLED".equals(failureCode);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.Optional<PayoutTransaction> findLatestByPaymentTransactionId(Long paymentTransactionId) {
+        if (paymentTransactionId == null) {
+            return java.util.Optional.empty();
+        }
+        return payoutTransactionRepository.findTopByPaymentTransactionIdOrderByIdDesc(paymentTransactionId);
     }
 
 }

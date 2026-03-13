@@ -2,15 +2,17 @@ package com.example.auth.dto;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.HashMap;
 
 public class NaverResponse implements OAuth2Response {
 
     private final Map<String, Object> attribute;
 
-    @SuppressWarnings("unchecked")
     public NaverResponse(Map<String, Object> attribute) {
         // Naver의 속성은 "response" 키 안에 중첩되어 있습니다.
-        this.attribute = (Map<String, Object>) attribute.get("response");
+        Map<String, Object> root = attribute != null ? attribute : Map.of();
+        Map<String, Object> nested = asMap(root.get("response"));
+        this.attribute = nested != null ? nested : Map.of();
     }
 
     @Override
@@ -46,5 +48,28 @@ public class NaverResponse implements OAuth2Response {
                 .map(String::trim)
                 .filter(url -> !url.isBlank())
                 .orElse(null);
+    }
+
+    @Override
+    public boolean isEmailVerified() {
+        return false;
+    }
+
+    @Override
+    public boolean isAuthoritativeForAutoLink() {
+        return false;
+    }
+
+    private Map<String, Object> asMap(Object value) {
+        if (!(value instanceof Map<?, ?> raw)) {
+            return null;
+        }
+        Map<String, Object> converted = new HashMap<>();
+        for (Map.Entry<?, ?> entry : raw.entrySet()) {
+            if (entry.getKey() instanceof String key) {
+                converted.put(key, entry.getValue());
+            }
+        }
+        return converted;
     }
 }

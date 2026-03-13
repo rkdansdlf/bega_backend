@@ -25,14 +25,8 @@ public class PartyReviewController {
     public ResponseEntity<?> createReview(
             @RequestBody PartyReviewDTO.Request request,
             java.security.Principal principal) {
-        try {
-            PartyReviewDTO.Response response = partyReviewService.createReview(request, principal);
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        PartyReviewDTO.Response response = partyReviewService.createReview(request, principal);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     /**
@@ -42,14 +36,5 @@ public class PartyReviewController {
     public ResponseEntity<List<PartyReviewDTO.Response>> getReviewsByParty(@PathVariable Long partyId) {
         List<PartyReviewDTO.Response> reviews = partyReviewService.getReviewsByParty(partyId);
         return ResponseEntity.ok(reviews);
-    }
-
-    /**
-     * 사용자의 평균 평점 조회
-     */
-    @GetMapping("/user/{userId}/average")
-    public ResponseEntity<Double> getAverageRating(@PathVariable Long userId) {
-        Double averageRating = partyReviewService.getAverageRating(userId);
-        return ResponseEntity.ok(averageRating);
     }
 }

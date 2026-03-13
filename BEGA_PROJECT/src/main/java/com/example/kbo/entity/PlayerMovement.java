@@ -2,8 +2,6 @@ package com.example.kbo.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -32,9 +30,36 @@ public class PlayerMovement {
     @Column(name = "player_name", nullable = false, length = 100)
     private String playerName;
 
-    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
-    @Column
-    private String remarks; // Contract details or notes
+    @Column(length = 300)
+    private String summary;
+
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.LONG32VARCHAR)
+    @Column(name = "details")
+    private String details; // Contract details or notes
+
+    @Column(name = "contract_term", length = 100)
+    private String contractTerm;
+
+    @Column(name = "contract_value", length = 120)
+    private String contractValue;
+
+    @Column(name = "option_details", length = 300)
+    private String optionDetails;
+
+    @Column(name = "counterparty_team", length = 50)
+    private String counterpartyTeam;
+
+    @Column(name = "counterparty_details", length = 500)
+    private String counterpartyDetails;
+
+    @Column(name = "source_label", length = 100)
+    private String sourceLabel;
+
+    @Column(name = "source_url", length = 500)
+    private String sourceUrl;
+
+    @Column(name = "announced_at")
+    private LocalDateTime announcedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

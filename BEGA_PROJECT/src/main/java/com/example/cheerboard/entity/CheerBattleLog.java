@@ -21,16 +21,16 @@ public class CheerBattleLog {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(name = "game_id", nullable = false)
     private String gameId;
 
-    @Column(nullable = false)
+    @Column(name = "team_id", nullable = false)
     private String teamId;
 
-    @Column(nullable = false)
+    @Column(name = "user_email", nullable = false)
     private String userEmail;
 
     @CreatedDate
-    @Column(nullable = false, updatable = false)
+    @Column(name = "voted_at", nullable = false, updatable = false)
     private Instant votedAt;
 }

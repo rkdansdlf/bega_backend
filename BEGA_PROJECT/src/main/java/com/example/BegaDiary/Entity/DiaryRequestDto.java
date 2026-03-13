@@ -23,4 +23,6 @@ public class DiaryRequestDto {
     private String block;
     private String seatRow;
     private String seatNumber;
+
+    private String ticketVerificationToken;
 }

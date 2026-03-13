@@ -5,20 +5,27 @@ import com.example.admin.dto.AdminPostDto;
 import com.example.admin.dto.AdminReportActionReq;
 import com.example.admin.dto.AdminReportAppealReq;
 import com.example.admin.dto.AdminReportDto;
+import com.example.admin.dto.AdminSeatViewActionReq;
+import com.example.admin.dto.AdminSeatViewDto;
 import com.example.admin.dto.AdminStatsDto;
 import com.example.admin.dto.AdminUserDto;
 import com.example.admin.service.AdminService;
+import com.example.BegaDiary.Service.SeatViewService;
 import com.example.common.dto.ApiResponse;
+import com.example.prediction.GameInningScoreRequestDto;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 관리자 API 컨트롤러
@@ -27,10 +34,12 @@ import java.util.List;
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
 @Slf4j
+@Validated
 @PreAuthorize("hasRole('ADMIN')") // 🔥 관리자만 접근 가능
 public class AdminController {
 
     private final AdminService adminService;
+    private final SeatViewService seatViewService;
 
     /**
      * 대시보드 통계 조회
@@ -79,6 +88,37 @@ public class AdminController {
     public ResponseEntity<ApiResponse> getReport(@PathVariable Long reportId) {
         AdminReportDto report = adminService.getReport(reportId);
         return ResponseEntity.ok(ApiResponse.success("신고 케이스 상세 조회 성공", report));
+    }
+
+    @GetMapping("/seat-views")
+    public ResponseEntity<ApiResponse> getSeatViews(
+            @RequestParam(required = false) String moderationStatus,
+            @RequestParam(required = false) String stadium,
+            @RequestParam(required = false) String aiSuggestedLabel,
+            @RequestParam(required = false) String adminLabel,
+            @RequestParam(required = false) Boolean ticketVerified) {
+        List<AdminSeatViewDto> seatViews = seatViewService.getAdminSeatViews(
+                moderationStatus,
+                stadium,
+                aiSuggestedLabel,
+                adminLabel,
+                ticketVerified);
+        return ResponseEntity.ok(ApiResponse.success("시야뷰 후보 조회 성공", seatViews));
+    }
+
+    @GetMapping("/seat-views/{seatViewId}")
+    public ResponseEntity<ApiResponse> getSeatView(@PathVariable Long seatViewId) {
+        AdminSeatViewDto seatView = seatViewService.getAdminSeatView(seatViewId);
+        return ResponseEntity.ok(ApiResponse.success("시야뷰 후보 상세 조회 성공", seatView));
+    }
+
+    @PatchMapping("/seat-views/{seatViewId}")
+    public ResponseEntity<ApiResponse> handleSeatView(
+            @AuthenticationPrincipal Long adminId,
+            @PathVariable Long seatViewId,
+            @RequestBody AdminSeatViewActionReq req) {
+        AdminSeatViewDto result = seatViewService.reviewSeatView(seatViewId, adminId, req);
+        return ResponseEntity.ok(ApiResponse.success("시야뷰 후보 처리 완료", result));
     }
 
     @PatchMapping("/reports/{reportId}")
@@ -153,5 +193,18 @@ public class AdminController {
     public ResponseEntity<ApiResponse> getCacheStats() {
         var stats = adminService.getCacheStats();
         return ResponseEntity.ok(ApiResponse.success("캐시 통계 조회 성공", stats));
+    }
+
+    /**
+     * 경기 이닝별 스코어 저장 (upsert)
+     * PUT /api/admin/games/{gameId}/inning-scores
+     */
+    @PutMapping("/games/{gameId}/inning-scores")
+    public ResponseEntity<ApiResponse> upsertInningScores(
+            @PathVariable String gameId,
+            @Valid @RequestBody List<GameInningScoreRequestDto> scores) {
+        int saved = adminService.upsertInningScores(gameId, scores);
+        return ResponseEntity.ok(ApiResponse.success("이닝 스코어 저장 성공",
+                Map.of("gameId", gameId, "saved", saved)));
     }
 }

@@ -9,7 +9,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.security.Principal;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -73,5 +75,35 @@ public class StadiumApiController {
     public ResponseEntity<List<PlaceDto>> getAllPlaces() {
         log.debug("전체 장소 조회 요청");
         return ResponseEntity.ok(stadiumService.getAllPlaces());
+    }
+
+    // ─── 즐겨찾기 엔드포인트 (인증 필수) ────────────────────────────────────────
+
+    @PostMapping("/{stadiumId}/favorite")
+    public ResponseEntity<Map<String, Boolean>> addFavorite(
+            @PathVariable("stadiumId") String stadiumId,
+            Principal principal) {
+        Long userId = Long.parseLong(principal.getName());
+        log.debug("즐겨찾기 추가 요청: userId={}, stadiumId={}", userId, stadiumId);
+        stadiumService.addFavorite(userId, stadiumId);
+        return ResponseEntity.ok(Map.of("favourited", true));
+    }
+
+    @DeleteMapping("/{stadiumId}/favorite")
+    public ResponseEntity<Map<String, Boolean>> removeFavorite(
+            @PathVariable("stadiumId") String stadiumId,
+            Principal principal) {
+        Long userId = Long.parseLong(principal.getName());
+        log.debug("즐겨찾기 삭제 요청: userId={}, stadiumId={}", userId, stadiumId);
+        stadiumService.removeFavorite(userId, stadiumId);
+        return ResponseEntity.ok(Map.of("favourited", false));
+    }
+
+    @GetMapping("/favorites")
+    public ResponseEntity<Map<String, List<String>>> getFavorites(Principal principal) {
+        Long userId = Long.parseLong(principal.getName());
+        log.debug("즐겨찾기 목록 조회 요청: userId={}", userId);
+        List<String> stadiumIds = stadiumService.getFavoriteStadiumIds(userId);
+        return ResponseEntity.ok(Map.of("stadiumIds", stadiumIds));
     }
 }

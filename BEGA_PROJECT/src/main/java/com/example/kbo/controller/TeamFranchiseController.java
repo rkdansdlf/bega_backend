@@ -3,6 +3,8 @@ package com.example.kbo.controller;
 import java.util.List;
 import java.util.Map;
 
+import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -60,7 +62,9 @@ public class TeamFranchiseController {
 
         return franchiseService.getFranchiseById(id)
             .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
+            .orElseThrow(() -> new NotFoundBusinessException(
+                    "FRANCHISE_NOT_FOUND",
+                    "프랜차이즈 정보를 찾을 수 없습니다."));
     }
 
     /**
@@ -77,7 +81,9 @@ public class TeamFranchiseController {
 
         return franchiseService.getFranchiseByCode(code)
             .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
+            .orElseThrow(() -> new NotFoundBusinessException(
+                    "FRANCHISE_NOT_FOUND",
+                    "프랜차이즈 정보를 찾을 수 없습니다."));
     }
 
     /**
@@ -95,10 +101,7 @@ public class TeamFranchiseController {
             @RequestParam(defaultValue = "false") boolean includeInactive) {
         log.info("GET /api/franchises/{}/teams - Fetching all teams for franchise", id);
 
-        // 프랜차이즈 존재 여부 확인
-        if (franchiseService.getFranchiseById(id).isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
+        ensureFranchiseExists(id);
 
         List<TeamEntity> teams = includeInactive
                 ? franchiseService.getTeamsByFranchiseId(id)
@@ -135,10 +138,7 @@ public class TeamFranchiseController {
     public ResponseEntity<List<TeamHistoryEntity>> getFranchiseHistory(@PathVariable Integer id) {
         log.info("GET /api/franchises/{}/history - Fetching franchise history", id);
 
-        // 프랜차이즈 존재 여부 확인
-        if (franchiseService.getFranchiseById(id).isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
+        ensureFranchiseExists(id);
 
         List<TeamHistoryEntity> history = historyService.getFranchiseHistory(id);
         return ResponseEntity.ok(history);
@@ -160,14 +160,12 @@ public class TeamFranchiseController {
 
         log.info("GET /api/franchises/{}/history/recent?years={} - Fetching recent history", id, years);
 
-        // 프랜차이즈 존재 여부 확인
-        if (franchiseService.getFranchiseById(id).isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
+        ensureFranchiseExists(id);
 
-        // years 유효성 검사
         if (years < 1 || years > 50) {
-            return ResponseEntity.badRequest().build();
+            throw new BadRequestBusinessException(
+                    "INVALID_FRANCHISE_HISTORY_YEARS",
+                    "years는 1부터 50 사이여야 합니다.");
         }
 
         List<TeamHistoryEntity> history = historyService.getRecentHistory(id, years);
@@ -186,10 +184,7 @@ public class TeamFranchiseController {
     public ResponseEntity<Map<String, Object>> getFranchiseMetadata(@PathVariable Integer id) {
         log.info("GET /api/franchises/{}/metadata - Fetching franchise metadata", id);
 
-        // 프랜차이즈 존재 여부 확인
-        if (franchiseService.getFranchiseById(id).isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
+        ensureFranchiseExists(id);
 
         Map<String, Object> metadata = franchiseService.getFranchiseMetadata(id);
         return ResponseEntity.ok(metadata);
@@ -210,10 +205,18 @@ public class TeamFranchiseController {
         log.info("GET /api/franchises/search?keyword={} - Searching franchises", keyword);
 
         if (keyword == null || keyword.trim().isEmpty()) {
-            return ResponseEntity.badRequest().build();
+            throw new BadRequestBusinessException(
+                    "FRANCHISE_SEARCH_KEYWORD_REQUIRED",
+                    "검색어를 입력해주세요.");
         }
 
         List<TeamFranchiseEntity> franchises = franchiseService.searchFranchisesByName(keyword);
         return ResponseEntity.ok(franchises);
+    }
+
+    private void ensureFranchiseExists(Integer id) {
+        if (franchiseService.getFranchiseById(id).isEmpty()) {
+            throw new NotFoundBusinessException("FRANCHISE_NOT_FOUND", "프랜차이즈 정보를 찾을 수 없습니다.");
+        }
     }
 }

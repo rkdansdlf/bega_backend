@@ -144,6 +144,34 @@ public class AchievementService {
     }
 
     /**
+     * 좌석 시야 사진 기여 업적 확인 및 부여
+     *
+     * @param userId              사용자 ID
+     * @param totalContributions  총 시야 사진 기여 횟수
+     * @param distinctStadiums    기여한 서로 다른 구장 수
+     * @return 새로 획득한 업적 목록
+     */
+    @Transactional
+    public List<Achievement> checkSeatViewAchievements(Long userId, long totalContributions, long distinctStadiums) {
+        List<Achievement> newAchievements = new ArrayList<>();
+
+        if (totalContributions >= 1) {
+            awardIfNotEarned(userId, Achievement.FIRST_SEAT_VIEW).ifPresent(newAchievements::add);
+        }
+        if (totalContributions >= 5) {
+            awardIfNotEarned(userId, Achievement.SEAT_VIEW_5).ifPresent(newAchievements::add);
+        }
+        if (totalContributions >= 10) {
+            awardIfNotEarned(userId, Achievement.SEAT_VIEW_10).ifPresent(newAchievements::add);
+        }
+        if (distinctStadiums >= 3) {
+            awardIfNotEarned(userId, Achievement.SEAT_VIEW_EXPLORER).ifPresent(newAchievements::add);
+        }
+
+        return newAchievements;
+    }
+
+    /**
      * 최근 희귀 업적 획득 목록 (글로벌 피드)
      */
     @Transactional(readOnly = true)

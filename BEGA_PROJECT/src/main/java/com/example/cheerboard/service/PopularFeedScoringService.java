@@ -23,10 +23,15 @@ public class PopularFeedScoringService {
     private static final double ENGAGEMENT_REPOST_WEIGHT = 3.0;
     private static final double ENGAGEMENT_VIEW_SMOOTHING = 20.0;
 
-    private static final double HYBRID_GLOBAL_WEIGHT = 0.6;
-    private static final double HYBRID_TEAM_WEIGHT = 0.25;
-    private static final double HYBRID_FOLLOW_WEIGHT = 0.15;
-    private static final double HYBRID_GLOBAL_NORMALIZER = 20.0;
+    private static final double HYBRID_GLOBAL_WEIGHT = 0.55;
+    private static final double HYBRID_ENGAGEMENT_WEIGHT = 0.15;
+    private static final double HYBRID_TEAM_WEIGHT = 0.2;
+    private static final double HYBRID_FOLLOW_WEIGHT = 0.1;
+    private static final double HYBRID_GLOBAL_NORMALIZER = 200.0;
+
+    private static final double FRESHNESS_MAX_BOOST = 1.5;
+    private static final long FRESHNESS_WINDOW_MINUTES = 120;
+    private static final double TEAM_AFFINITY_DEFAULT = 0.3;
 
     public double calculateTimeDecayScore(CheerPost post, int combinedViews, Instant now) {
         double baseScore = (post.getLikeCount() * TIME_DECAY_LIKE_WEIGHT)
@@ -39,7 +44,7 @@ public class PopularFeedScoringService {
             ageSeconds = 0;
         }
         double ageHours = ageSeconds / 3600.0;
-        double decay = Math.exp(-(ageHours / TIME_DECAY_HALF_LIFE_HOURS));
+        double decay = Math.pow(0.5, ageHours / TIME_DECAY_HALF_LIFE_HOURS);
         return baseScore * decay;
     }
 
@@ -56,7 +61,7 @@ public class PopularFeedScoringService {
 
     public double calculateTeamAffinity(String favoriteTeamId, String postTeamId) {
         if (favoriteTeamId == null || favoriteTeamId.isBlank()) {
-            return 0.0;
+            return TEAM_AFFINITY_DEFAULT;
         }
         if (postTeamId == null || postTeamId.isBlank()) {
             return 0.0;
@@ -71,9 +76,32 @@ public class PopularFeedScoringService {
         return followingIds.contains(authorId) ? 1.0 : 0.0;
     }
 
-    public double calculateHybridScore(double normalizedGlobal, double teamAffinity, double followAffinity) {
-        return (normalizedGlobal * HYBRID_GLOBAL_WEIGHT)
+    public double calculateHybridScore(double normalizedGlobal, double normalizedEngagement,
+            double teamAffinity, double followAffinity, double freshnessBoost) {
+        double base = (normalizedGlobal * HYBRID_GLOBAL_WEIGHT)
+                + (normalizedEngagement * HYBRID_ENGAGEMENT_WEIGHT)
                 + (teamAffinity * HYBRID_TEAM_WEIGHT)
                 + (followAffinity * HYBRID_FOLLOW_WEIGHT);
+        return base * freshnessBoost;
+    }
+
+    /**
+     * @deprecated Use
+     *             {@link #calculateHybridScore(double, double, double, double, double)}
+     *             instead.
+     */
+    @Deprecated
+    public double calculateHybridScore(double normalizedGlobal, double teamAffinity, double followAffinity) {
+        return calculateHybridScore(normalizedGlobal, 0.0, teamAffinity, followAffinity, 1.0);
+    }
+
+    public double calculateFreshnessBoost(java.time.Instant createdAt, java.time.Instant now) {
+        long ageMinutes = Duration.between(createdAt, now).toMinutes();
+        if (ageMinutes < 0)
+            ageMinutes = 0;
+        if (ageMinutes <= FRESHNESS_WINDOW_MINUTES) {
+            return FRESHNESS_MAX_BOOST - ((FRESHNESS_MAX_BOOST - 1.0) * ageMinutes / FRESHNESS_WINDOW_MINUTES);
+        }
+        return 1.0;
     }
 }

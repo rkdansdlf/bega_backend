@@ -16,9 +16,8 @@ public class ChatMessageDTO {
     @Builder
     public static class Request {
         private Long partyId;
-        private Long senderId;
-        private String senderName;
         private String message;
+        private String imageUrl;
     }
 
     @Data
@@ -31,6 +30,7 @@ public class ChatMessageDTO {
         private Long senderId;
         private String senderName;
         private String message;
+        private String imageUrl;
         private Instant createdAt;
 
         public static Response from(ChatMessage chatMessage) {
@@ -40,6 +40,7 @@ public class ChatMessageDTO {
                     .senderId(chatMessage.getSenderId())
                     .senderName(chatMessage.getSenderName())
                     .message(chatMessage.getMessage())
+                    .imageUrl(chatMessage.getImageUrl())
                     .createdAt(chatMessage.getCreatedAt())
                     .build();
         }

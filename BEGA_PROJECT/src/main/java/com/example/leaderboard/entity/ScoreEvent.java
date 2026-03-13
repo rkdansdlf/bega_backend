@@ -5,6 +5,7 @@ import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -34,6 +35,9 @@ public class ScoreEvent {
     @Column(name = "game_id", length = 50)
     private String gameId;
 
+    @Column(name = "diary_id")
+    private Long diaryId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "event_type", nullable = false, length = 50)
     private EventType eventType;
@@ -41,9 +45,9 @@ public class ScoreEvent {
     @Column(name = "base_score", nullable = false)
     private Integer baseScore;
 
-    @Column(name = "multiplier", nullable = false)
+    @Column(name = "multiplier", nullable = false, precision = 5, scale = 2)
     @Builder.Default
-    private Double multiplier = 1.0;
+    private BigDecimal multiplier = BigDecimal.ONE;
 
     @Column(name = "final_score", nullable = false)
     private Integer finalScore;
@@ -76,7 +80,10 @@ public class ScoreEvent {
         PERFECT_DAY("퍼펙트 데이", 200),
 
         /** 파워업 배율 적용 (매직 배트 등) */
-        POWER_UP_MULTIPLIER("파워업 보너스", 0);
+        POWER_UP_MULTIPLIER("파워업 보너스", 0),
+
+        /** 좌석 시야 사진 기여 */
+        SEAT_VIEW_CONTRIBUTION("시야 사진 기여", 50);
 
         private final String koreanName;
         private final int defaultPoints;
@@ -112,7 +119,7 @@ public class ScoreEvent {
                 .gameId(gameId)
                 .eventType(EventType.CORRECT_PREDICTION)
                 .baseScore(baseScore)
-                .multiplier((double) Math.max(1, streak))
+                .multiplier(BigDecimal.valueOf(Math.max(1, streak)))
                 .finalScore(finalScore)
                 .streakCount(streak)
                 .description(String.format("%d연승! +%d점", streak, finalScore))
@@ -131,7 +138,7 @@ public class ScoreEvent {
                 .gameId(gameId)
                 .eventType(EventType.UPSET_BONUS)
                 .baseScore(baseScore)
-                .multiplier(1.0)
+                .multiplier(BigDecimal.ONE)
                 .finalScore(baseScore)
                 .streakCount(0)
                 .description("이변 예측 성공! UPSET BONUS!")
@@ -148,10 +155,28 @@ public class ScoreEvent {
                 .userId(userId)
                 .eventType(EventType.PERFECT_DAY)
                 .baseScore(baseScore)
-                .multiplier(1.0)
+                .multiplier(BigDecimal.ONE)
                 .finalScore(baseScore)
                 .streakCount(0)
                 .description(String.format("PERFECT DAY! %d경기 전승!", gamesWon))
+                .build();
+    }
+
+    /**
+     * 좌석 시야 사진 기여 이벤트 생성
+     * gameId 필드에 구장명을 저장해 distinct 구장 수 집계에 활용
+     */
+    public static ScoreEvent createSeatViewContribution(Long userId, Long diaryId, String stadium, int points, boolean isFirst) {
+        return ScoreEvent.builder()
+                .userId(userId)
+                .diaryId(diaryId)
+                .gameId(stadium)
+                .eventType(EventType.SEAT_VIEW_CONTRIBUTION)
+                .baseScore(points)
+                .multiplier(BigDecimal.ONE)
+                .finalScore(points)
+                .streakCount(0)
+                .description(isFirst ? "첫 시야 사진 기여! +" + points + "점" : "시야 사진 기여! +" + points + "점")
                 .build();
     }
 
@@ -160,7 +185,8 @@ public class ScoreEvent {
      */
     public static ScoreEvent createPowerUpBonus(Long userId, Long predictionId, String gameId,
             int originalScore, double multiplier, String powerupName) {
-        int bonusScore = (int) Math.round(originalScore * (multiplier - 1));
+        double multiplierValue = multiplier;
+        int bonusScore = (int) Math.round((multiplierValue - 1.0) * originalScore);
 
         return ScoreEvent.builder()
                 .userId(userId)
@@ -168,10 +194,10 @@ public class ScoreEvent {
                 .gameId(gameId)
                 .eventType(EventType.POWER_UP_MULTIPLIER)
                 .baseScore(originalScore)
-                .multiplier(multiplier)
+                .multiplier(BigDecimal.valueOf(multiplierValue))
                 .finalScore(bonusScore)
                 .streakCount(0)
-                .description(String.format("%s 사용! x%.1f 배율 적용!", powerupName, multiplier))
+                .description(String.format("%s 사용! x%.1f 배율 적용!", powerupName, multiplierValue))
                 .build();
     }
 }

@@ -1,5 +1,6 @@
 package com.example.mate.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.CancelReasonType;
@@ -20,11 +21,8 @@ public class PartyApplicationDTO {
     @Builder
     public static class Request {
         private Long partyId;
-        private Long applicantId;
-        private String applicantName;
-        private Party.BadgeType applicantBadge;
-        private Double applicantRating;
         private String message;
+        // DIRECT_TRADE: 거래 기준 금액 스냅샷, TOSS_TEST: 보증금/결제 금액
         private Integer depositAmount;
         private PartyApplication.PaymentType paymentType;
         private Boolean ticketVerified; // Client-side flag (ignored for verification, used for UI)
@@ -39,14 +37,18 @@ public class PartyApplicationDTO {
     public static class Response {
         private Long id;
         private Long partyId;
-        private Long applicantId;
+        private String applicantHandle;
         private String applicantName;
         private Party.BadgeType applicantBadge;
         private Double applicantRating;
         private String message;
+        // DIRECT_TRADE: 거래 기준 금액 스냅샷, TOSS_TEST: 보증금/결제 금액
         private Integer depositAmount;
+        @JsonProperty("isPaid")
         private Boolean isPaid;
+        @JsonProperty("isApproved")
         private Boolean isApproved;
+        @JsonProperty("isRejected")
         private Boolean isRejected;
         private PartyApplication.PaymentType paymentType;
         private Boolean ticketVerified;
@@ -66,7 +68,7 @@ public class PartyApplicationDTO {
             return Response.builder()
                     .id(application.getId())
                     .partyId(application.getPartyId())
-                    .applicantId(application.getApplicantId())
+                    .applicantHandle(null)
                     .applicantName(application.getApplicantName())
                     .applicantBadge(application.getApplicantBadge())
                     .applicantRating(application.getApplicantRating())
@@ -78,8 +80,8 @@ public class PartyApplicationDTO {
                     .paymentType(application.getPaymentType())
                     .ticketVerified(application.getTicketVerified())
                     .ticketImageUrl(application.getTicketImageUrl())
-                    .paymentKey(application.getPaymentKey())
-                    .orderId(application.getOrderId())
+                    .paymentKey(null)
+                    .orderId(null)
                     .feeAmount(0)
                     .netSettlementAmount(application.getDepositAmount())
                     .paymentStatus(null)

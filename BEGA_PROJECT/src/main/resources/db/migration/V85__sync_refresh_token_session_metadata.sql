@@ -1,0 +1,59 @@
+-- V85: Ensure refresh token session metadata columns exist for Oracle environments where V32 was skipped.
+DECLARE
+  v_count INTEGER;
+BEGIN
+  SELECT COUNT(*)
+  INTO v_count
+  FROM USER_TAB_COLUMNS
+  WHERE TABLE_NAME = 'REFRESH_TOKENS'
+    AND COLUMN_NAME = 'DEVICE_TYPE';
+  IF v_count = 0 THEN
+    EXECUTE IMMEDIATE 'ALTER TABLE refresh_tokens ADD (device_type VARCHAR2(32))';
+  END IF;
+
+  SELECT COUNT(*)
+  INTO v_count
+  FROM USER_TAB_COLUMNS
+  WHERE TABLE_NAME = 'REFRESH_TOKENS'
+    AND COLUMN_NAME = 'DEVICE_LABEL';
+  IF v_count = 0 THEN
+    EXECUTE IMMEDIATE 'ALTER TABLE refresh_tokens ADD (device_label VARCHAR2(255))';
+  END IF;
+
+  SELECT COUNT(*)
+  INTO v_count
+  FROM USER_TAB_COLUMNS
+  WHERE TABLE_NAME = 'REFRESH_TOKENS'
+    AND COLUMN_NAME = 'BROWSER';
+  IF v_count = 0 THEN
+    EXECUTE IMMEDIATE 'ALTER TABLE refresh_tokens ADD (browser VARCHAR2(64))';
+  END IF;
+
+  SELECT COUNT(*)
+  INTO v_count
+  FROM USER_TAB_COLUMNS
+  WHERE TABLE_NAME = 'REFRESH_TOKENS'
+    AND COLUMN_NAME = 'OS';
+  IF v_count = 0 THEN
+    EXECUTE IMMEDIATE 'ALTER TABLE refresh_tokens ADD (os VARCHAR2(64))';
+  END IF;
+
+  SELECT COUNT(*)
+  INTO v_count
+  FROM USER_TAB_COLUMNS
+  WHERE TABLE_NAME = 'REFRESH_TOKENS'
+    AND COLUMN_NAME = 'IP';
+  IF v_count = 0 THEN
+    EXECUTE IMMEDIATE 'ALTER TABLE refresh_tokens ADD (ip VARCHAR2(64))';
+  END IF;
+
+  SELECT COUNT(*)
+  INTO v_count
+  FROM USER_TAB_COLUMNS
+  WHERE TABLE_NAME = 'REFRESH_TOKENS'
+    AND COLUMN_NAME = 'LAST_SEEN_AT';
+  IF v_count = 0 THEN
+    EXECUTE IMMEDIATE 'ALTER TABLE refresh_tokens ADD (last_seen_at TIMESTAMP)';
+  END IF;
+END;
+/

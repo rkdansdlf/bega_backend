@@ -1,6 +1,7 @@
 package com.example.mate.controller;
 
 import com.example.common.dto.ApiResponse;
+import com.example.mate.dto.InternalSettlementDTO;
 import com.example.mate.entity.PayoutTransaction;
 import com.example.mate.service.PaymentTransactionService;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,8 @@ public class InternalSettlementController {
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse> requestPayout(@PathVariable Long paymentId) {
         PayoutTransaction payoutTransaction = paymentTransactionService.requestManualPayout(paymentId);
-        return ResponseEntity.ok(ApiResponse.success("정산 지급 요청이 생성되었습니다.", payoutTransaction));
+        return ResponseEntity.ok(ApiResponse.success(
+                "정산 지급 요청이 생성되었습니다.",
+                InternalSettlementDTO.PayoutResponse.from(payoutTransaction)));
     }
 }

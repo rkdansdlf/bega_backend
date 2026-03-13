@@ -75,7 +75,6 @@ class PartyRepositoryTest {
                 .hostId(Math.abs((long) hostName.hashCode()))
                 .hostName(hostName)
                 .hostBadge(Party.BadgeType.NEW)
-                .hostRating(5.0)
                 .teamId(teamId)
                 .gameDate(LocalDate.now().plusDays(1))
                 .gameTime(LocalTime.of(18, 30))

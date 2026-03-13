@@ -4,9 +4,11 @@ import com.example.notification.dto.NotificationDTO;
 import com.example.notification.entity.Notification;
 import com.example.notification.exception.NotificationNotFoundException;
 import com.example.notification.repository.NotificationRepository;
+import com.example.common.exception.AuthenticationRequiredException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import java.util.List;
 import java.util.Objects;
@@ -23,7 +25,7 @@ public class NotificationService {
     private final SimpMessagingTemplate messagingTemplate;
 
     // 알림 생성
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void createNotification(
             @NonNull Long userId,
             @NonNull Notification.NotificationType type,
@@ -50,8 +52,9 @@ public class NotificationService {
                     @Override
                     public void afterCommit() {
                         try {
-                            messagingTemplate.convertAndSend(
-                                    "/topic/notifications/" + userId,
+                            messagingTemplate.convertAndSendToUser(
+                                    String.valueOf(userId),
+                                    "/queue/notifications",
                                     dto);
                             log.info("알림 전송 성공 (After Commit): userId={}, type={}", userId, type);
                         } catch (Exception e) {
@@ -76,16 +79,6 @@ public class NotificationService {
     @Transactional(readOnly = true)
     public Long getMyUnreadCount(@NonNull Long userId) {
         ensureAuthenticatedUser(userId);
-        return Objects.requireNonNull(notificationRepository.countByUserIdAndIsReadFalse(userId));
-    }
-
-    // 읽지 않은 알림 개수 (userId 경로 호환용)
-    @Transactional(readOnly = true)
-    public Long getUnreadCountByUserId(@NonNull Long userId, @NonNull Long currentUserId) {
-        ensureAuthenticatedUser(currentUserId);
-        if (!currentUserId.equals(userId)) {
-            throw new UnauthorizedAccessException("본인 알림만 조회할 수 있습니다.");
-        }
         return Objects.requireNonNull(notificationRepository.countByUserIdAndIsReadFalse(userId));
     }
 
@@ -124,7 +117,7 @@ public class NotificationService {
 
     private void ensureAuthenticatedUser(Long userId) {
         if (userId == null || userId <= 0) {
-            throw new UnauthorizedAccessException("인증이 필요합니다.");
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
         }
     }
 }

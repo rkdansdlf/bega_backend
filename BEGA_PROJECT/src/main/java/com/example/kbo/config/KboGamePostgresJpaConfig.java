@@ -1,26 +1,44 @@
 package com.example.kbo.config;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import javax.sql.DataSource;
 
+import com.example.kbo.entity.GameEntity;
+import com.example.kbo.entity.GameInningScoreEntity;
+import com.example.kbo.entity.GameMetadataEntity;
+import com.example.kbo.entity.GameSummaryEntity;
+import com.example.kbo.entity.PlayerSeasonBattingEntity;
+import com.example.kbo.entity.PlayerSeasonPitchingEntity;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.orm.jpa.EntityManagerFactoryBuilder;
-import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.orm.jpa.persistenceunit.PersistenceManagedTypes;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 /**
  * KBO game-read stack(PostgreSQL) 전용 JPA 구성.
  *
- * 분리 대상은 GameRepository 계열(경기/메타/이닝/요약)만 우선 적용한다.
+ * 분리 대상은 GameRepository 계열(경기/메타/이닝/요약)과 player season read-model이다.
  * 기본 도메인(auth/prediction write 등)은 primary datasource 경로를 유지한다.
  */
+@Slf4j
 @Configuration
 @EnableTransactionManagement
+@ConditionalOnProperty(name = "kbo.game.db.enabled", havingValue = "true", matchIfMissing = true)
 @EnableJpaRepositories(
 		basePackages = "com.example.kbo.repository",
 		excludeFilters = @ComponentScan.Filter(
@@ -32,14 +50,70 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 )
 public class KboGamePostgresJpaConfig {
 
+	private static final String CURRENT_SCHEMA_SQL = "SELECT current_schema()";
+	private static final String GAME_TABLE = "game";
+	private static final String GAME_METADATA_TABLE = "game_metadata";
+	private static final String GAME_SUMMARY_TABLE = "game_summary";
+	private static final String GAME_INNING_SCORES_TABLE = "game_inning_scores";
+	private static final String IS_DUMMY_COLUMN = "is_dummy";
+	private static final String IS_EXTRA_COLUMN = "is_extra";
+
+	private static final String CHECK_TABLE_SQL = """
+			SELECT COUNT(*)
+			FROM information_schema.tables
+			WHERE table_schema = ?
+			  AND table_name = ?
+			""";
+
+	private static final String CHECK_COLUMN_SQL = """
+			SELECT COUNT(*)
+			FROM information_schema.columns
+			WHERE table_schema = ?
+			  AND table_name = ?
+			  AND column_name = ?
+			""";
+
+	private static final String FIND_COLUMN_TYPE_SQL = """
+			SELECT data_type
+			FROM information_schema.columns
+			WHERE table_schema = ?
+			  AND table_name = ?
+			  AND column_name = ?
+			""";
+
+	private static final String PUBLIC_SCHEMA = "public";
+
+	@Value("${kbo.schema-guard.strict:true}")
+	private boolean strictSchemaGuard;
+
 	@Bean
 	public LocalContainerEntityManagerFactoryBean kboGameEntityManagerFactory(
 			EntityManagerFactoryBuilder builder,
 			@Qualifier("stadiumDataSource") DataSource stadiumDataSource) {
+		String kboGameSchema = ensureKboGameSchema(stadiumDataSource);
+		Map<String, Object> jpaProperties = new HashMap<>();
+		jpaProperties.put("hibernate.default_schema", kboGameSchema);
+		jpaProperties.put("hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect");
+		jpaProperties.put("hibernate.boot.allow_jdbc_metadata_access", false);
+		jpaProperties.put("hibernate.temp.use_jdbc_metadata_defaults", false);
+		jpaProperties.put("hibernate.hbm2ddl.auto", "none");
+		PersistenceManagedTypes managedTypes = PersistenceManagedTypes.of(
+				List.of(
+						GameEntity.class.getName(),
+						GameMetadataEntity.class.getName(),
+						GameSummaryEntity.class.getName(),
+						GameInningScoreEntity.class.getName(),
+						PlayerSeasonBattingEntity.class.getName(),
+						PlayerSeasonPitchingEntity.class.getName()
+				),
+				List.of()
+		);
+
 		return builder
 				.dataSource(stadiumDataSource)
-				.packages("com.example.kbo.entity")
+				.managedTypes(managedTypes)
 				.persistenceUnit("kboGame")
+				.properties(jpaProperties)
 				.build();
 	}
 
@@ -47,5 +121,182 @@ public class KboGamePostgresJpaConfig {
 	public PlatformTransactionManager kboGameTransactionManager(
 			@Qualifier("kboGameEntityManagerFactory") LocalContainerEntityManagerFactoryBean kboGameEntityManagerFactory) {
 		return new JpaTransactionManager(kboGameEntityManagerFactory.getObject());
+	}
+
+	private String ensureKboGameSchema(DataSource stadiumDataSource) {
+		if (!strictSchemaGuard) {
+			JdbcTemplate jdbcTemplate = new JdbcTemplate(stadiumDataSource);
+			try {
+				String activeSchema = resolveActiveSchema(jdbcTemplate);
+				String schema = resolveRelaxedSchema(jdbcTemplate, activeSchema);
+				log.info(
+						"Schema guard strict mode is disabled. Skipping JDBC schema validation and using schema={} (active schema={})",
+						schema,
+						activeSchema);
+				return schema;
+			} catch (CannotGetJdbcConnectionException ex) {
+				log.warn(
+						"Schema guard strict mode is disabled, but active schema probe failed. Falling back to schema={}. reason={}",
+						PUBLIC_SCHEMA,
+						ex.getMostSpecificCause() == null ? ex.getMessage() : ex.getMostSpecificCause().getMessage());
+				return PUBLIC_SCHEMA;
+			}
+		}
+		JdbcTemplate jdbcTemplate = new JdbcTemplate(stadiumDataSource);
+		final int maxAttempts = 6;
+		for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+			try {
+				return ensureKboGameSchemaInternal(jdbcTemplate);
+			} catch (CannotGetJdbcConnectionException ex) {
+				if (attempt == maxAttempts) {
+					log.error(
+							"Schema guard could not obtain JDBC connection after {} attempts. Falling back to '{}' for startup continuity.",
+							maxAttempts,
+							PUBLIC_SCHEMA,
+							ex
+					);
+					return PUBLIC_SCHEMA;
+				}
+				long backoffMs = Math.min(3000L, attempt * 500L);
+				String rootMessage = ex.getMostSpecificCause() == null ? ex.getMessage() : ex.getMostSpecificCause().getMessage();
+				log.warn(
+						"Schema guard JDBC connection failed (attempt {}/{}). Retrying in {}ms. reason={}",
+						attempt,
+						maxAttempts,
+						backoffMs,
+						rootMessage
+				);
+				sleepQuietly(backoffMs);
+			}
+		}
+
+		return PUBLIC_SCHEMA;
+	}
+
+	String resolveRelaxedSchema(JdbcTemplate jdbcTemplate, String activeSchema) {
+		if (hasAllKboGameTables(jdbcTemplate, PUBLIC_SCHEMA)) {
+			if (!PUBLIC_SCHEMA.equals(activeSchema) && hasAllKboGameTables(jdbcTemplate, activeSchema)) {
+				log.warn(
+						"Schema guard relaxed mode: kboGame tables exist in both active schema ({}) and public; using public as canonical",
+						activeSchema
+				);
+			}
+			return PUBLIC_SCHEMA;
+		}
+		if (hasAllKboGameTables(jdbcTemplate, activeSchema)) {
+			return activeSchema;
+		}
+		if (countTable(jdbcTemplate, PUBLIC_SCHEMA, GAME_TABLE) > 0) {
+			log.warn(
+					"Schema guard relaxed mode: public has partial kboGame tables. Falling back to public for compatibility. active schema={}",
+					activeSchema
+			);
+			return PUBLIC_SCHEMA;
+		}
+		return activeSchema;
+	}
+
+	private String ensureKboGameSchemaInternal(JdbcTemplate jdbcTemplate) {
+		String activeSchema = resolveActiveSchema(jdbcTemplate);
+		if (!strictSchemaGuard) {
+			String schema = countTable(jdbcTemplate, PUBLIC_SCHEMA, GAME_TABLE) > 0 ? PUBLIC_SCHEMA : activeSchema;
+			log.info("Schema guard strict mode is disabled. Skipping kboGame schema validation/DDL; using schema={}", schema);
+			return schema;
+		}
+
+		String metadataSchema = resolveSchemaForTable(jdbcTemplate, activeSchema, GAME_METADATA_TABLE);
+		String summarySchema = resolveSchemaForTable(jdbcTemplate, activeSchema, GAME_SUMMARY_TABLE);
+		String gameSchema = resolveSchemaForTable(jdbcTemplate, activeSchema, GAME_TABLE);
+		String inningSchema = resolveSchemaForTable(jdbcTemplate, activeSchema, GAME_INNING_SCORES_TABLE);
+
+		if (!gameSchema.equals(metadataSchema) || !gameSchema.equals(summarySchema) || !gameSchema.equals(inningSchema)) {
+			throw new IllegalStateException(
+					"[Schema Guard] kboGame tables are split across schemas. game=%s, game_metadata=%s, game_summary=%s, game_inning_scores=%s"
+							.formatted(gameSchema, metadataSchema, summarySchema, inningSchema));
+		}
+
+		validateBooleanColumnType(jdbcTemplate, gameSchema, GAME_TABLE, IS_DUMMY_COLUMN);
+		validateBooleanColumnType(jdbcTemplate, gameSchema, GAME_INNING_SCORES_TABLE, IS_EXTRA_COLUMN);
+
+		return gameSchema;
+	}
+
+	private void sleepQuietly(long millis) {
+		try {
+			Thread.sleep(millis);
+		} catch (InterruptedException ex) {
+			Thread.currentThread().interrupt();
+		}
+	}
+
+	private String resolveActiveSchema(JdbcTemplate jdbcTemplate) {
+		String activeSchema = jdbcTemplate.queryForObject(CURRENT_SCHEMA_SQL, String.class);
+		if (activeSchema == null || activeSchema.isBlank()) {
+			return PUBLIC_SCHEMA;
+		}
+		return activeSchema;
+	}
+
+	private boolean hasAllKboGameTables(JdbcTemplate jdbcTemplate, String schema) {
+		return countTable(jdbcTemplate, schema, GAME_TABLE) > 0
+				&& countTable(jdbcTemplate, schema, GAME_METADATA_TABLE) > 0
+				&& countTable(jdbcTemplate, schema, GAME_SUMMARY_TABLE) > 0
+				&& countTable(jdbcTemplate, schema, GAME_INNING_SCORES_TABLE) > 0;
+	}
+
+	private String resolveSchemaForTable(JdbcTemplate jdbcTemplate, String activeSchema, String tableName) {
+		int publicCount = countTable(jdbcTemplate, PUBLIC_SCHEMA, tableName);
+		int activeCount = countTable(jdbcTemplate, activeSchema, tableName);
+
+		// 운영 표준은 public 스키마를 우선 사용한다.
+		if (publicCount > 0) {
+			if (!PUBLIC_SCHEMA.equals(activeSchema) && activeCount > 0) {
+				log.warn(
+						"Schema guard: {} exists in both active schema ({}) and public; using public as canonical",
+						tableName,
+						activeSchema
+				);
+			}
+			return PUBLIC_SCHEMA;
+		}
+		if (activeCount > 0) {
+			return activeSchema;
+		}
+		throw new IllegalStateException(
+				"[Schema Guard] %s table not found in both active schema(%s) and public"
+						.formatted(tableName, activeSchema));
+	}
+
+	private int countTable(JdbcTemplate jdbcTemplate, String schema, String tableName) {
+		Integer count = jdbcTemplate.queryForObject(CHECK_TABLE_SQL, Integer.class, schema, tableName);
+		return count == null ? 0 : count;
+	}
+
+	private int countColumn(JdbcTemplate jdbcTemplate, String schema, String tableName, String columnName) {
+		Integer count = jdbcTemplate.queryForObject(CHECK_COLUMN_SQL, Integer.class, schema, tableName, columnName);
+		return count == null ? 0 : count;
+	}
+
+	private void validateBooleanColumnType(
+			JdbcTemplate jdbcTemplate,
+			String schema,
+			String tableName,
+			String columnName
+	) {
+		if (countColumn(jdbcTemplate, schema, tableName, columnName) == 0) {
+			throw new IllegalStateException(
+					"[Schema Guard] missing column: %s.%s.%s".formatted(schema, tableName, columnName));
+		}
+
+		String dataType = jdbcTemplate.queryForObject(FIND_COLUMN_TYPE_SQL, String.class, schema, tableName, columnName);
+		if (dataType == null || dataType.isBlank()) {
+			throw new IllegalStateException(
+					"[Schema Guard] unable to resolve column type: %s.%s.%s".formatted(schema, tableName, columnName));
+		}
+		if (!"boolean".equalsIgnoreCase(dataType)) {
+			throw new IllegalStateException(
+					"[Schema Guard] invalid column type for %s.%s.%s. expected=boolean, actual=%s"
+							.formatted(schema, tableName, columnName, dataType));
+		}
 	}
 }

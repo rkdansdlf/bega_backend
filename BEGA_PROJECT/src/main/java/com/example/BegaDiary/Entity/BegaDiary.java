@@ -8,6 +8,7 @@ import java.util.List;
 import com.example.kbo.entity.GameEntity;
 import com.example.auth.entity.UserEntity;
 
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
@@ -108,6 +109,8 @@ public class BegaDiary {
 	private DiaryWinning winning;
 
 	@ElementCollection
+	@CollectionTable(name = "bega_diary_photo_urls", joinColumns = @JoinColumn(name = "bega_diary_id"))
+	@Column(name = "photo_urls", nullable = false, length = 2048)
 	private List<String> photoUrls = new ArrayList<>(); // 사진 URL 목록
 
 	@Column(name = "createdat", nullable = false, updatable = false)
@@ -116,6 +119,12 @@ public class BegaDiary {
 	@Column(name = "updatedat", nullable = false)
 	private LocalDateTime updatedAt;
 
+	@Column(name = "ticket_verified", nullable = false)
+	private boolean ticketVerified;
+
+	@Column(name = "ticket_verified_at")
+	private LocalDateTime ticketVerifiedAt;
+
 	// 좌석 정보 필드 추가
 	@Column(length = 50)
 	private String section; // 예: "블루석", "1루 내야"
@@ -123,17 +132,18 @@ public class BegaDiary {
 	@Column(length = 50)
 	private String block; // 예: "101구역", "A열"
 
-	@Column(name = "seatrow", length = 50)
+	@Column(name = "seat_row", length = 50)
 	private String seatRow; // "row"는 SQL 예약어일 가능성 있음
 
-	@Column(name = "seatnumber", length = 50)
+	@Column(name = "seat_number", length = 50)
 	private String seatNumber;
 
 	@Builder
 	public BegaDiary(LocalDate diaryDate, GameEntity game,
 			String memo, DiaryEmoji mood, DiaryType type, DiaryWinning winning,
 			List<String> photoUrls, UserEntity user, String team, String stadium,
-			String section, String block, String seatRow, String seatNumber) {
+			String section, String block, String seatRow, String seatNumber,
+			boolean ticketVerified, LocalDateTime ticketVerifiedAt) {
 		this.diaryDate = diaryDate;
 		this.game = game;
 		this.memo = memo;
@@ -148,17 +158,58 @@ public class BegaDiary {
 		this.block = block;
 		this.seatRow = seatRow;
 		this.seatNumber = seatNumber;
+		this.ticketVerified = ticketVerified;
+		this.ticketVerifiedAt = ticketVerifiedAt;
 		this.createdAt = LocalDateTime.now();
 		this.updatedAt = LocalDateTime.now();
 	}
 
 	// 다이어리 수정 메서드
-	public void updateDiary(String memo, DiaryEmoji mood, List<String> photoUrls) {
+	public void updateDiary(
+			String memo,
+			DiaryEmoji mood,
+			List<String> photoUrls,
+			GameEntity game,
+			String team,
+			String stadium,
+			DiaryWinning winning,
+			String section,
+			String block,
+			String seatRow,
+			String seatNumber) {
 		this.memo = memo;
 		this.mood = mood;
 		if (photoUrls != null) {
 			this.photoUrls = photoUrls;
 		}
+		if (game != null) {
+			this.game = game;
+		}
+		if (team != null) {
+			this.team = team;
+		}
+		if (stadium != null) {
+			this.stadium = stadium;
+		}
+		if (winning != null) {
+			this.winning = winning;
+		}
+		this.section = section;
+		this.block = block;
+		this.seatRow = seatRow;
+		this.seatNumber = seatNumber;
+		this.updatedAt = LocalDateTime.now();
+	}
+
+	public void markTicketVerified(LocalDateTime verifiedAt) {
+		this.ticketVerified = true;
+		this.ticketVerifiedAt = verifiedAt;
+		this.updatedAt = LocalDateTime.now();
+	}
+
+	public void clearTicketVerification() {
+		this.ticketVerified = false;
+		this.ticketVerifiedAt = null;
 		this.updatedAt = LocalDateTime.now();
 	}
 }

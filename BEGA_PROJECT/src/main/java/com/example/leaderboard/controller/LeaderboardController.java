@@ -4,6 +4,9 @@ import com.example.leaderboard.dto.*;
 import com.example.leaderboard.service.AchievementService;
 import com.example.leaderboard.service.LeaderboardService;
 import com.example.leaderboard.service.PowerupService;
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.exception.BadRequestBusinessException;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -20,6 +23,7 @@ import java.util.stream.Collectors;
  * 리더보드 API 컨트롤러
  * 레트로 게이미피케이션 리더보드 시스템의 REST API 엔드포인트
  */
+@Tag(name = "리더보드", description = "리더보드 조회, 파워업, 업적, 핫스트릭, 사용자 순위")
 @RestController
 @RequestMapping("/api/leaderboard")
 @RequiredArgsConstructor
@@ -45,10 +49,12 @@ public class LeaderboardController {
     public ResponseEntity<Page<LeaderboardEntryDto>> getLeaderboard(
             @RequestParam(defaultValue = "season") String type,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "20") int size,
+            Principal principal
     ) {
         log.debug("Get leaderboard: type={}, page={}, size={}", type, page, size);
-        Page<LeaderboardEntryDto> leaderboard = leaderboardService.getLeaderboard(type, page, size);
+        Page<LeaderboardEntryDto> leaderboard = leaderboardService.getLeaderboard(type, page, size,
+                extractOptionalUserId(principal));
         return ResponseEntity.ok(leaderboard);
     }
 
@@ -58,35 +64,26 @@ public class LeaderboardController {
     @GetMapping("/me")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<UserStatsDto> getMyStats(Principal principal) {
-        Long userId = extractUserId(principal);
-        if (userId == null) {
-            return ResponseEntity.status(401).build();
-        }
+        Long userId = requireUserId(principal);
 
         log.debug("Get my stats: userId={}", userId);
         UserStatsDto stats = leaderboardService.getUserStats(userId);
         return ResponseEntity.ok(stats);
     }
 
-    /**
-     * 사용자 통계 조회
-     */
-    @GetMapping("/user/{userId}")
+    @GetMapping("/profile/{handle}")
     @PreAuthorize("permitAll()")
-    public ResponseEntity<UserStatsDto> getUserStats(@PathVariable Long userId) {
-        log.debug("Get user stats: userId={}", userId);
-        UserStatsDto stats = leaderboardService.getUserStats(userId);
+    public ResponseEntity<UserStatsDto> getUserStatsByHandle(@PathVariable String handle, Principal principal) {
+        log.debug("Get user stats by handle: handle={}", handle);
+        UserStatsDto stats = leaderboardService.getUserStatsByHandle(handle, extractOptionalUserId(principal));
         return ResponseEntity.ok(stats);
     }
 
-    /**
-     * 사용자 랭킹 조회 (시즌 기준)
-     */
-    @GetMapping("/users/{userId}/rank")
+    @GetMapping("/profile/{handle}/rank")
     @PreAuthorize("permitAll()")
-    public ResponseEntity<UserRankDto> getUserRank(@PathVariable Long userId) {
-        log.debug("Get user rank: userId={}", userId);
-        UserRankDto rank = leaderboardService.getUserRank(userId);
+    public ResponseEntity<UserRankDto> getUserRankByHandle(@PathVariable String handle, Principal principal) {
+        log.debug("Get user rank by handle: handle={}", handle);
+        UserRankDto rank = leaderboardService.getUserRankByHandle(handle, extractOptionalUserId(principal));
         return ResponseEntity.ok(rank);
     }
 
@@ -101,10 +98,11 @@ public class LeaderboardController {
     @PreAuthorize("permitAll()")
     public ResponseEntity<List<HotStreakDto>> getHotStreaks(
             @RequestParam(defaultValue = "3") int minStreak,
-            @RequestParam(defaultValue = "10") int limit
+            @RequestParam(defaultValue = "10") int limit,
+            Principal principal
     ) {
         log.debug("Get hot streaks: minStreak={}, limit={}", minStreak, limit);
-        List<HotStreakDto> hotStreaks = leaderboardService.getHotStreaks(minStreak, limit);
+        List<HotStreakDto> hotStreaks = leaderboardService.getHotStreaks(minStreak, limit, extractOptionalUserId(principal));
         return ResponseEntity.ok(hotStreaks);
     }
 
@@ -114,10 +112,11 @@ public class LeaderboardController {
     @GetMapping("/recent-scores")
     @PreAuthorize("permitAll()")
     public ResponseEntity<List<RecentScoreDto>> getRecentScores(
-            @RequestParam(defaultValue = "20") int limit
+            @RequestParam(defaultValue = "20") int limit,
+            Principal principal
     ) {
         log.debug("Get recent scores: limit={}", limit);
-        List<RecentScoreDto> recentScores = leaderboardService.getRecentScores(limit);
+        List<RecentScoreDto> recentScores = leaderboardService.getRecentScores(limit, extractOptionalUserId(principal));
         return ResponseEntity.ok(recentScores);
     }
 
@@ -131,10 +130,7 @@ public class LeaderboardController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        Long userId = extractUserId(principal);
-        if (userId == null) {
-            return ResponseEntity.status(401).build();
-        }
+        Long userId = requireUserId(principal);
 
         log.debug("Get my score history: userId={}, page={}, size={}", userId, page, size);
         Page<RecentScoreDto> history = leaderboardService.getUserScoreHistory(userId, page, size);
@@ -151,10 +147,7 @@ public class LeaderboardController {
     @GetMapping("/powerups")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Map<String, Integer>> getPowerups(Principal principal) {
-        Long userId = extractUserId(principal);
-        if (userId == null) {
-            return ResponseEntity.status(401).build();
-        }
+        Long userId = requireUserId(principal);
 
         log.debug("Get powerups: userId={}", userId);
         List<PowerupInventoryDto> powerups = powerupService.getUserPowerups(userId);
@@ -169,10 +162,7 @@ public class LeaderboardController {
     @GetMapping("/powerups/active")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<ActivePowerupDto>> getActivePowerups(Principal principal) {
-        Long userId = extractUserId(principal);
-        if (userId == null) {
-            return ResponseEntity.status(401).build();
-        }
+        Long userId = requireUserId(principal);
 
         log.debug("Get active powerups: userId={}", userId);
         List<ActivePowerupDto> activePowerups = powerupService.getActivePowerups(userId);
@@ -190,10 +180,7 @@ public class LeaderboardController {
             @RequestParam(required = false) String gameId,
             @RequestBody(required = false) Map<String, Object> body
     ) {
-        Long userId = extractUserId(principal);
-        if (userId == null) {
-            return ResponseEntity.status(401).build();
-        }
+        Long userId = requireUserId(principal);
 
         String resolvedGameId = gameId;
         if (resolvedGameId == null && body != null) {
@@ -214,11 +201,9 @@ public class LeaderboardController {
                     .build());
         }
 
-        return ResponseEntity.badRequest().body(PowerupUseResultDto.builder()
-                .success(false)
-                .message("파워업 사용에 실패했습니다. 인벤토리를 확인해주세요.")
-                .remainingCount(0)
-                .build());
+        throw new BadRequestBusinessException(
+                "POWERUP_USE_FAILED",
+                "파워업 사용에 실패했습니다. 인벤토리를 확인해주세요.");
     }
 
     // ============================================
@@ -231,10 +216,7 @@ public class LeaderboardController {
     @GetMapping("/achievements")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<AchievementDto>> getAllAchievements(Principal principal) {
-        Long userId = extractUserId(principal);
-        if (userId == null) {
-            return ResponseEntity.status(401).build();
-        }
+        Long userId = requireUserId(principal);
 
         log.debug("Get all achievements: userId={}", userId);
         List<AchievementDto> achievements = achievementService.getUserAchievements(userId);
@@ -250,10 +232,7 @@ public class LeaderboardController {
             Principal principal,
             @RequestParam(defaultValue = "5") int limit
     ) {
-        Long userId = extractUserId(principal);
-        if (userId == null) {
-            return ResponseEntity.status(401).build();
-        }
+        Long userId = requireUserId(principal);
 
         log.debug("Get recent achievements: userId={}, limit={}", userId, limit);
         List<AchievementDto> achievements = achievementService.getRecentAchievements(userId, limit);
@@ -293,33 +272,13 @@ public class LeaderboardController {
     }
 
     // ============================================
-    // DEV/TEST ENDPOINTS
-    // ============================================
-
-    /**
-     * 테스트 데이터 시드 (개발/테스트 전용)
-     * 기존 점수가 없는 사용자에게 랜덤 점수 데이터를 생성합니다.
-     */
-    @PostMapping("/seed-test-data")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> seedTestData() {
-        log.info("Seeding test data for leaderboard");
-        int seededCount = leaderboardService.seedTestData();
-        return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "테스트 데이터가 생성되었습니다.",
-                "seededCount", seededCount
-        ));
-    }
-
-    // ============================================
     // HELPER METHODS
     // ============================================
 
     /**
      * Principal에서 사용자 ID 추출
      */
-    private Long extractUserId(Principal principal) {
+    private Long extractOptionalUserId(Principal principal) {
         if (principal == null) {
             return null;
         }
@@ -330,6 +289,19 @@ public class LeaderboardController {
         } catch (NumberFormatException e) {
             log.warn("Failed to parse userId from principal: {}", principal.getName());
             return null;
+        }
+    }
+
+    private Long requireUserId(Principal principal) {
+        if (principal == null) {
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
+        }
+
+        try {
+            return Long.valueOf(principal.getName());
+        } catch (NumberFormatException e) {
+            log.warn("Failed to parse authenticated userId from principal: {}", principal.getName());
+            throw new BadRequestBusinessException("INVALID_AUTH_PRINCIPAL", "인증 정보가 올바르지 않습니다.");
         }
     }
 }

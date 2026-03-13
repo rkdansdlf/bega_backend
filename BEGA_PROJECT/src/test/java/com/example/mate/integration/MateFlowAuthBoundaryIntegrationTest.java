@@ -3,6 +3,8 @@ package com.example.mate.integration;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.cheerboard.repo.CheerPostRepo;
+import com.example.cheerboard.repo.CheerReportRepo;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.repository.CheckInRecordRepository;
@@ -92,6 +94,12 @@ class MateFlowAuthBoundaryIntegrationTest {
 
     @MockitoBean
     private PaymentTransactionService paymentTransactionService;
+
+    @MockitoBean
+    private CheerPostRepo cheerPostRepo;
+
+    @MockitoBean
+    private CheerReportRepo cheerReportRepo;
 
     @BeforeEach
     void setUp() {

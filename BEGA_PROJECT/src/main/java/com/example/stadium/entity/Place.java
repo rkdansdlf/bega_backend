@@ -28,7 +28,7 @@ public class Place {
     @Column(nullable = false, length = 100)
     private String name;
 
-    @Column(columnDefinition = "text")
+    @Column
     private String description;
 
     @Column(nullable = false)

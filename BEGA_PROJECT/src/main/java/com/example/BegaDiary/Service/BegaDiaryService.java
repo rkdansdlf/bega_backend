@@ -1,6 +1,7 @@
 package com.example.BegaDiary.Service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -11,6 +12,7 @@ import java.util.stream.Collectors;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.example.BegaDiary.Entity.BegaDiary;
@@ -20,11 +22,13 @@ import com.example.BegaDiary.Entity.BegaDiary.DiaryWinning;
 import com.example.BegaDiary.Entity.DiaryRequestDto;
 import com.example.BegaDiary.Entity.DiaryResponseDto;
 import com.example.BegaDiary.Entity.DiaryStatisticsDto;
+import com.example.BegaDiary.Entity.SeatViewPhotoDto;
 import com.example.BegaDiary.Exception.DiaryAlreadyExistsException;
 import com.example.BegaDiary.Exception.DiaryNotFoundException;
 import com.example.BegaDiary.Exception.GameNotFoundException;
 import com.example.BegaDiary.Exception.ImageProcessingException;
 import com.example.BegaDiary.Exception.WinningNameNotFoundException;
+import org.springframework.security.access.AccessDeniedException;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Utils.BaseballConstants;
 import com.example.cheerboard.repo.CheerPostRepo;
@@ -33,6 +37,8 @@ import com.example.kbo.entity.GameEntity;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.mate.repository.PartyApplicationRepository;
+import com.example.kbo.dto.TicketInfo;
+import com.example.kbo.service.TicketVerificationTokenStore;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,6 +55,8 @@ public class BegaDiaryService {
     private final ImageService imageService;
     private final CheerPostRepo cheerPostRepository;
     private final PartyApplicationRepository partyApplicationRepository;
+    private final TicketVerificationTokenStore ticketVerificationTokenStore;
+    private final SeatViewService seatViewService;
 
     // 전체 다이어리 조회
     public List<DiaryResponseDto> getAllDiaries(Long userId) {
@@ -78,13 +86,26 @@ public class BegaDiaryService {
                 .collect(Collectors.collectingAndThen(Collectors.toList(), Objects::requireNonNull));
     }
 
+    // 특정 다이어리 엔티티 조회 (컨트롤러에서 리워드 처리 시 사용)
+    public BegaDiary getDiaryEntityById(Long id) {
+        if (id == null) {
+            throw new IllegalArgumentException("Diary ID cannot be null");
+        }
+        return this.diaryRepository.findById(id)
+                .orElseThrow(() -> new DiaryNotFoundException(id));
+    }
+
     // 특정 다이어리 조회
-    public DiaryResponseDto getDiaryById(Long id) {
+    public DiaryResponseDto getDiaryById(Long id, Long userId) {
         if (id == null) {
             throw new IllegalArgumentException("Diary ID cannot be null");
         }
         BegaDiary diary = this.diaryRepository.findById(id)
                 .orElseThrow(() -> new DiaryNotFoundException(id));
+
+        if (userId == null || diary.getUser() == null || !userId.equals(diary.getUser().getId())) {
+            throw new AccessDeniedException("본인의 일기만 조회할 수 있습니다.");
+        }
 
         List<String> signedUrls = null;
         if (diary.getPhotoUrls() != null && !diary.getPhotoUrls().isEmpty()) {
@@ -120,13 +141,7 @@ public class BegaDiaryService {
 
         // 3. Enum 변환
         DiaryEmoji mood = DiaryEmoji.fromKoreanName(requestDto.getEmojiName());
-        DiaryWinning winning = null;
-
-        try {
-            winning = DiaryWinning.valueOf(requestDto.getWinningName());
-        } catch (IllegalArgumentException e) {
-            throw new WinningNameNotFoundException();
-        }
+        DiaryWinning winning = resolveWinning(requestDto.getWinningName());
 
         // 4. 빌더로 엔티티 생성
         if (requestDto.getGameId() == null) {
@@ -134,10 +149,11 @@ public class BegaDiaryService {
         }
 
         GameEntity game = gameService.getGameById(requestDto.getGameId());
+        if (game == null) {
+            throw new GameNotFoundException();
+        }
 
-        String homeTeamKorean = BaseballConstants.getTeamKoreanName(game.getHomeTeam());
-        String awayTeamKorean = BaseballConstants.getTeamKoreanName(game.getAwayTeam());
-        String team = homeTeamKorean + " vs " + awayTeamKorean;
+        String team = buildTeamLabel(game);
 
         BegaDiary diary = BegaDiary.builder()
                 .diaryDate(diaryDate)
@@ -155,6 +171,8 @@ public class BegaDiaryService {
                 .seatRow(requestDto.getSeatRow())
                 .seatNumber(requestDto.getSeatNumber())
                 .build();
+
+        applyTicketVerification(diary, game, diaryDate, requestDto.getTicketVerificationToken());
 
         // 5. DB 저장
         return Objects.requireNonNull(diaryRepository.save(Objects.requireNonNull(diary)));
@@ -189,7 +207,18 @@ public class BegaDiaryService {
                 allPaths.addAll(diary.getPhotoUrls());
             }
             allPaths.addAll(uploadedPaths);
-            diary.updateDiary(diary.getMemo(), diary.getMood(), allPaths);
+            diary.updateDiary(
+                    diary.getMemo(),
+                    diary.getMood(),
+                    allPaths,
+                    diary.getGame(),
+                    diary.getTeam(),
+                    diary.getStadium(),
+                    diary.getWinning(),
+                    diary.getSection(),
+                    diary.getBlock(),
+                    diary.getSeatRow(),
+                    diary.getSeatNumber());
 
             diaryRepository.save(diary);
             log.info("✅ [Async] 다이어리 이미지 업로드 및 DB 업데이트 성공: diaryId={}, 총 경로 수={}", diaryId, allPaths.size());
@@ -203,31 +232,67 @@ public class BegaDiaryService {
 
     // 다이어리 수정
     @Transactional
-    public BegaDiary update(Long id, DiaryRequestDto requestDto) {
+    public BegaDiary update(Long id, Long userId, DiaryRequestDto requestDto) {
         if (id == null) {
             throw new IllegalArgumentException("Diary ID cannot be null");
         }
         BegaDiary diary = this.diaryRepository.findById(id)
                 .orElseThrow(() -> new DiaryNotFoundException(id));
 
+        if (!diary.getUser().getId().equals(userId)) {
+            throw new AccessDeniedException("본인의 일기만 수정할 수 있습니다.");
+        }
+
         DiaryEmoji mood = DiaryEmoji.fromKoreanName(requestDto.getEmojiName());
+        DiaryWinning winning = resolveWinning(requestDto.getWinningName());
+        GameEntity game = diary.getGame();
+        if (requestDto.getGameId() != null) {
+            game = gameService.getGameById(requestDto.getGameId());
+            if (game == null) {
+                throw new GameNotFoundException();
+            }
+        }
+
+        String updatedTeam = game != null ? buildTeamLabel(game) : diary.getTeam();
+        String updatedStadium = game != null ? game.getStadium() : diary.getStadium();
+        boolean identityChanged = hasTicketIdentityChanged(diary, game, updatedStadium);
 
         diary.updateDiary(
                 requestDto.getMemo(),
                 mood,
-                requestDto.getPhotos());
+                requestDto.getPhotos(),
+                game,
+                updatedTeam,
+                updatedStadium,
+                winning,
+                requestDto.getSection(),
+                requestDto.getBlock(),
+                requestDto.getSeatRow(),
+                requestDto.getSeatNumber());
+
+        if (StringUtils.hasText(requestDto.getTicketVerificationToken())) {
+            applyTicketVerification(diary, game, diary.getDiaryDate(), requestDto.getTicketVerificationToken());
+        } else if (identityChanged) {
+            diary.clearTicketVerification();
+        }
+
+        seatViewService.processDiaryRewardIfEligible(diary);
 
         return Objects.requireNonNull(diary);
     }
 
     // 다이어리 삭제
     @Transactional
-    public void delete(Long id) {
+    public void delete(Long id, Long userId) {
         if (id == null) {
             throw new IllegalArgumentException("Diary ID cannot be null");
         }
         BegaDiary diary = this.diaryRepository.findById(id)
                 .orElseThrow(() -> new DiaryNotFoundException(id));
+
+        if (!diary.getUser().getId().equals(userId)) {
+            throw new AccessDeniedException("본인의 일기만 삭제할 수 있습니다.");
+        }
 
         if (diary.getPhotoUrls() != null && !diary.getPhotoUrls().isEmpty()) {
             try {
@@ -237,6 +302,7 @@ public class BegaDiaryService {
             }
         }
 
+        seatViewService.deleteByDiaryId(id);
         this.diaryRepository.delete(diary);
     }
 
@@ -466,6 +532,65 @@ public class BegaDiaryService {
                 .luckyDay(luckyDay)
                 .earnedBadges(earnedBadges)
                 .build());
+    }
+
+    // 좌석 시야 사진 목록 조회 (공개 API용)
+    public List<SeatViewPhotoDto> getSeatViewPhotos(String stadium, String section, int limit) {
+        return seatViewService.getPublicSeatViews(stadium, section, limit);
+    }
+
+    private DiaryWinning resolveWinning(String winningName) {
+        try {
+            return DiaryWinning.valueOf(winningName);
+        } catch (IllegalArgumentException e) {
+            throw new WinningNameNotFoundException();
+        }
+    }
+
+    private String buildTeamLabel(GameEntity game) {
+        String homeTeamKorean = BaseballConstants.getTeamKoreanName(game.getHomeTeam());
+        String awayTeamKorean = BaseballConstants.getTeamKoreanName(game.getAwayTeam());
+        return homeTeamKorean + " vs " + awayTeamKorean;
+    }
+
+    private void applyTicketVerification(
+            BegaDiary diary,
+            GameEntity game,
+            LocalDate diaryDate,
+            String ticketVerificationToken) {
+        if (!StringUtils.hasText(ticketVerificationToken)) {
+            return;
+        }
+
+        TicketInfo ticketInfo = ticketVerificationTokenStore.peekToken(ticketVerificationToken);
+        if (ticketInfo == null) {
+            throw new IllegalArgumentException("유효한 티켓 인증 토큰이 없습니다.");
+        }
+
+        boolean gameMatches = Objects.equals(ticketInfo.getGameId(), game != null ? game.getId() : null);
+        boolean dateMatches = Objects.equals(ticketInfo.getDate(), diaryDate != null ? diaryDate.toString() : null);
+        boolean stadiumMatches = !StringUtils.hasText(ticketInfo.getStadium())
+                || Objects.equals(ticketInfo.getStadium(), game != null ? game.getStadium() : diary.getStadium());
+
+        if (!gameMatches || !dateMatches || !stadiumMatches) {
+            throw new IllegalArgumentException("티켓 인증 정보가 선택한 경기와 일치하지 않습니다.");
+        }
+
+        TicketInfo consumed = ticketVerificationTokenStore.consumeToken(ticketVerificationToken);
+        if (consumed == null) {
+            throw new IllegalArgumentException("이미 사용했거나 만료된 티켓 인증 토큰입니다.");
+        }
+
+        diary.markTicketVerified(LocalDateTime.now());
+    }
+
+    private boolean hasTicketIdentityChanged(BegaDiary existingDiary, GameEntity nextGame, String nextStadium) {
+        Long existingGameId = existingDiary.getGame() != null ? existingDiary.getGame().getId() : null;
+        Long nextGameId = nextGame != null ? nextGame.getId() : null;
+        if (!Objects.equals(existingGameId, nextGameId)) {
+            return true;
+        }
+        return !Objects.equals(existingDiary.getStadium(), nextStadium);
     }
 
     private String getDayOfWeekKorean(java.time.DayOfWeek dayOfWeek) {

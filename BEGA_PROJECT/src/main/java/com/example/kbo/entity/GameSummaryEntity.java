@@ -11,8 +11,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.OffsetDateTime;
-
 @Entity
 @Table(name = "game_summary")
 @Getter
@@ -41,8 +39,8 @@ public class GameSummaryEntity {
     private String detailText;
 
     @Column(name = "created_at")
-    private OffsetDateTime createdAt;
+    private java.time.LocalDateTime createdAt;
 
     @Column(name = "updated_at")
-    private OffsetDateTime updatedAt;
+    private java.time.LocalDateTime updatedAt;
 }
