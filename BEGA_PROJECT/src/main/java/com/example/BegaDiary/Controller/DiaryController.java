@@ -3,9 +3,11 @@ package com.example.BegaDiary.Controller;
 import java.security.Principal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,8 +19,7 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import org.springframework.security.access.AccessDeniedException;
-
+import com.example.BegaDiary.Exception.ImageProcessingException;
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.DiaryImageUploadResponse;
 import com.example.BegaDiary.Entity.DiaryRequestDto;
@@ -33,6 +34,9 @@ import com.example.BegaDiary.Service.BegaDiaryService;
 import com.example.BegaDiary.Service.BegaGameService;
 import com.example.BegaDiary.Service.SeatViewService;
 import com.example.cheerboard.storage.service.ImageService;
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.BusinessException;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -60,7 +64,7 @@ public class DiaryController {
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/entries")
     public ResponseEntity<List<DiaryResponseDto>> getDiary(Principal principal) {
-        Long userId = Long.valueOf(principal.getName());
+        Long userId = requireUserId(principal);
         List<DiaryResponseDto> diaries = this.diaryService.getAllDiaries(userId);
         return ResponseEntity.ok(diaries);
     }
@@ -70,13 +74,7 @@ public class DiaryController {
     public ResponseEntity<?> saveDiary(
             @RequestBody DiaryRequestDto requestDto,
             Principal principal) {
-
-        if (principal == null) {
-            log.error("❌ userDetails가 null입니다!");
-            return ResponseEntity.status(401).body("인증되지 않은 사용자");
-        }
-
-        Long userId = Long.valueOf(principal.getName());
+        Long userId = requireUserId(principal);
         BegaDiary savedDiary = this.diaryService.save(userId, requestDto);
         DiaryResponseDto response = DiaryResponseDto.from(savedDiary);
 
@@ -90,8 +88,7 @@ public class DiaryController {
             @RequestPart("images") List<MultipartFile> images,
             @RequestParam(value = "sourceTypes", required = false) List<String> sourceTypes,
             Principal principal) {
-
-        Long userId = Long.valueOf(principal.getName());
+        Long userId = requireUserId(principal);
 
         // 소유자 검증: 해당 일기가 현재 사용자 소유인지 확인
         BegaDiary ownerCheck = this.diaryService.getDiaryEntityById(diaryId);
@@ -99,20 +96,25 @@ public class DiaryController {
             throw new AccessDeniedException("본인의 일기에만 이미지를 업로드할 수 있습니다.");
         }
 
+        List<String> storagePaths;
         try {
-            List<String> storagePaths = imageService.uploadDiaryImages(userId, diaryId, images)
+            storagePaths = imageService.uploadDiaryImages(userId, diaryId, images)
                     .block();
+        } catch (RuntimeException ex) {
+            throw translateImageProcessingException(diaryId, ex);
+        }
 
-            if (storagePaths == null || storagePaths.isEmpty()) {
-                return ResponseEntity.ok().body(DiaryImageUploadResponse.builder()
-                        .message("업로드할 이미지가 없습니다.")
-                        .diaryId(diaryId)
-                        .photos(List.of())
-                        .candidates(List.of())
-                        .build());
-            }
+        if (storagePaths == null || storagePaths.isEmpty()) {
+            return ResponseEntity.ok().body(DiaryImageUploadResponse.builder()
+                    .message("업로드할 이미지가 없습니다.")
+                    .diaryId(diaryId)
+                    .photos(List.of())
+                    .candidates(List.of())
+                    .build());
+        }
 
-            List<SeatViewPhoto.SourceType> parsedSourceTypes = parseSourceTypes(sourceTypes);
+        List<SeatViewPhoto.SourceType> parsedSourceTypes = parseSourceTypes(sourceTypes);
+        try {
             List<SeatViewCandidateDto> candidates = seatViewService.createCandidates(
                     diaryId,
                     userId,
@@ -126,12 +128,8 @@ public class DiaryController {
                     .photos(storagePaths)
                     .candidates(candidates)
                     .build());
-
-        } catch (Exception ex) {
-            log.error("이미지 업로드/URL 생성 실패: diaryId={}", diaryId, ex);
-            return ResponseEntity.internalServerError().body(java.util.Map.of(
-                    "message", "이미지 처리 중 오류가 발생했습니다.",
-                    "error", ex.getMessage()));
+        } catch (RuntimeException ex) {
+            throw translateImageProcessingException(diaryId, ex);
         }
     }
 
@@ -141,7 +139,7 @@ public class DiaryController {
             @PathVariable("id") Long diaryId,
             @RequestBody SeatViewSelectionRequest request,
             Principal principal) {
-        Long userId = Long.valueOf(principal.getName());
+        Long userId = requireUserId(principal);
         var selected = seatViewService.submitSelections(
                 diaryId,
                 userId,
@@ -155,7 +153,7 @@ public class DiaryController {
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/{id}")
     public ResponseEntity<DiaryResponseDto> getDiary(@PathVariable("id") Long id, Principal principal) {
-        Long userId = Long.valueOf(principal.getName());
+        Long userId = requireUserId(principal);
         DiaryResponseDto diary = this.diaryService.getDiaryById(id, userId);
         return ResponseEntity.ok(diary);
     }
@@ -167,7 +165,7 @@ public class DiaryController {
             @PathVariable("id") Long id,
             @RequestBody DiaryRequestDto requestDto,
             Principal principal) {
-        Long userId = Long.valueOf(principal.getName());
+        Long userId = requireUserId(principal);
         BegaDiary updatedDiary = this.diaryService.update(id, userId, requestDto);
         DiaryResponseDto response = DiaryResponseDto.from(updatedDiary);
         return ResponseEntity.ok(response);
@@ -177,7 +175,7 @@ public class DiaryController {
     @PreAuthorize("isAuthenticated()")
     @PostMapping("/{id}/delete")
     public ResponseEntity<Void> deleteDiary(@PathVariable("id") Long id, Principal principal) {
-        Long userId = Long.valueOf(principal.getName());
+        Long userId = requireUserId(principal);
         this.diaryService.delete(id, userId);
         return ResponseEntity.noContent().build();
     }
@@ -196,7 +194,7 @@ public class DiaryController {
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/statistics")
     public ResponseEntity<DiaryStatisticsDto> showStatistics(Principal principal) {
-        Long userId = Long.valueOf(principal.getName());
+        Long userId = requireUserId(principal);
         DiaryStatisticsDto statistics = this.diaryService.getStatistics(userId);
         return ResponseEntity.ok(statistics);
     }
@@ -207,7 +205,57 @@ public class DiaryController {
         }
         return sourceTypes.stream()
                 .filter(Objects::nonNull)
-                .map(value -> SeatViewPhoto.SourceType.valueOf(value.trim().toUpperCase()))
+                .map(this::parseSourceType)
                 .toList();
+    }
+
+    private Long requireUserId(Principal principal) {
+        if (principal == null) {
+            log.warn("Diary request without authenticated principal");
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
+        }
+        return Long.valueOf(principal.getName());
+    }
+
+    private SeatViewPhoto.SourceType parseSourceType(String value) {
+        String normalized = value.trim();
+        try {
+            return SeatViewPhoto.SourceType.valueOf(normalized.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestBusinessException(
+                    "INVALID_SEAT_VIEW_SOURCE_TYPE",
+                    "sourceTypes 값이 올바르지 않습니다: " + normalized);
+        }
+    }
+
+    private RuntimeException translateImageProcessingException(Long diaryId, Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof BusinessException businessException) {
+                return businessException;
+            }
+            if (current instanceof IllegalArgumentException illegalArgumentException) {
+                return illegalArgumentException;
+            }
+            if (current instanceof AccessDeniedException accessDeniedException) {
+                return accessDeniedException;
+            }
+            current = current.getCause() == current ? null : current.getCause();
+        }
+
+        Throwable rootCause = resolveRootCause(throwable);
+        String detail = rootCause != null && rootCause.getMessage() != null && !rootCause.getMessage().isBlank()
+                ? rootCause.getMessage()
+                : "알 수 없는 오류";
+        log.error("Unexpected diary image processing failure: diaryId={}", diaryId, throwable);
+        return new ImageProcessingException(detail);
+    }
+
+    private Throwable resolveRootCause(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null && current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current;
     }
 }

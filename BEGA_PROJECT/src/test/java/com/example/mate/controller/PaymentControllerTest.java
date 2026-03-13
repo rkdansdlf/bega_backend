@@ -191,7 +191,9 @@ class PaymentControllerTest {
 
         assertThatThrownBy(() -> paymentController.confirmTossPayment(request, principal))
                 .isInstanceOf(TossPaymentException.class)
-                .hasMessageContaining("기존 결제 트랜잭션");
+                .hasMessageContaining("기존 결제 트랜잭션")
+                .extracting("code")
+                .isEqualTo("PAYMENT_TRANSACTION_FLOW_MISMATCH");
     }
 
     @Test
@@ -251,6 +253,8 @@ class PaymentControllerTest {
 
         assertThatThrownBy(() -> paymentController.prepareTossPayment(request, () -> "test@example.com"))
                 .isInstanceOf(TossPaymentException.class)
-                .hasMessageContaining("직거래 모드");
+                .hasMessageContaining("직거래 모드")
+                .extracting("code")
+                .isEqualTo("TOSS_PAYMENT_DISABLED");
     }
 }

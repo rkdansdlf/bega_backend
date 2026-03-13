@@ -19,14 +19,8 @@ public class CheckInRecordController {
     public ResponseEntity<?> checkIn(
             @RequestBody CheckInRecordDTO.Request request,
             java.security.Principal principal) {
-        try {
-            CheckInRecordDTO.Response response = checkInRecordService.checkIn(request, principal);
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        CheckInRecordDTO.Response response = checkInRecordService.checkIn(request, principal);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     // 체크인 QR 세션 발급
@@ -34,14 +28,8 @@ public class CheckInRecordController {
     public ResponseEntity<?> createQrSession(
             @RequestBody CheckInRecordDTO.QrSessionRequest request,
             java.security.Principal principal) {
-        try {
-            CheckInRecordDTO.QrSessionResponse response = checkInRecordService.createQrSession(request, principal);
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-        } catch (com.example.mate.exception.UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        CheckInRecordDTO.QrSessionResponse response = checkInRecordService.createQrSession(request, principal);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     // 파티별 체크인 기록 조회

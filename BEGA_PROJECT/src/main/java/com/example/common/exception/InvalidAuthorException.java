@@ -1,8 +1,7 @@
 package com.example.common.exception;
 
-public class InvalidAuthorException extends RuntimeException {
+public class InvalidAuthorException extends UnauthorizedBusinessException {
     public InvalidAuthorException(String message) {
-        super(message);
+        super("INVALID_AUTHOR", message);
     }
 }
-

@@ -1,9 +1,9 @@
 package com.example.mate.exception;
 
-// Force IDE re-index
+import com.example.common.exception.BadRequestBusinessException;
 
-public class InvalidReviewException extends RuntimeException {
+public class InvalidReviewException extends BadRequestBusinessException {
     public InvalidReviewException(String message) {
-        super(message);
+        super("INVALID_REVIEW", message);
     }
 }

@@ -1,5 +1,6 @@
 package com.example.mate.controller;
 
+import com.example.common.dto.ApiResponse;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.PaymentIntent;
@@ -7,7 +8,6 @@ import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.PaymentFlowType;
 import com.example.mate.entity.PaymentStatus;
 import com.example.mate.exception.TossPaymentException;
-import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.service.PartyApplicationService;
 import com.example.mate.service.PaymentMetricsService;
 import com.example.mate.service.PaymentIntentService;
@@ -100,14 +100,16 @@ public class PaymentController {
         PartyApplication.PaymentType requestedPaymentType = resolveRequestedPaymentType(request);
         if (requestedPaymentType != null && intent.getPaymentType() != null
                 && requestedPaymentType != intent.getPaymentType()) {
-            throw new TossPaymentException("요청한 결제 타입이 서버 계산값과 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("PAYMENT_TYPE_SERVER_MISMATCH", "요청한 결제 타입이 서버 계산값과 일치하지 않습니다.");
         }
 
         TossPaymentDTO.ConfirmResponse tossResponse;
         if (intent.getStatus() == PaymentIntent.IntentStatus.CONFIRMED) {
             if (intent.getPaymentKey() == null || intent.getPaymentKey().isBlank()) {
                 // CONFIRMED 상태인데 paymentKey가 없는 것은 데이터 불일치 상황
-                throw new TossPaymentException("이미 승인된 결제이지만 결제 키 정보를 찾을 수 없습니다. 고객센터에 문의해주세요.", HttpStatus.INTERNAL_SERVER_ERROR);
+                throw paymentInternalServer(
+                        "CONFIRMED_PAYMENT_KEY_MISSING",
+                        "이미 승인된 결제이지만 결제 키 정보를 찾을 수 없습니다. 고객센터에 문의해주세요.");
             }
             tossResponse = new TossPaymentDTO.ConfirmResponse(
                     intent.getPaymentKey(),
@@ -122,15 +124,15 @@ public class PaymentController {
                     intent.getExpectedAmount());
 
             if (tossResponse == null || tossResponse.getTotalAmount() == null) {
-                throw new TossPaymentException("결제 승인 응답이 올바르지 않습니다.", HttpStatus.BAD_GATEWAY);
+                throw paymentBadGateway("TOSS_CONFIRM_RESPONSE_INVALID", "결제 승인 응답이 올바르지 않습니다.");
             }
             if (!"DONE".equalsIgnoreCase(tossResponse.getStatus())) {
-                throw new TossPaymentException(
-                        "결제 승인이 완료되지 않았습니다: " + tossResponse.getStatus(),
-                        HttpStatus.BAD_REQUEST);
+                throw paymentBadRequest(
+                        "TOSS_CONFIRM_NOT_DONE",
+                        "결제 승인이 완료되지 않았습니다: " + tossResponse.getStatus());
             }
             if (!intent.getExpectedAmount().equals(tossResponse.getTotalAmount())) {
-                throw new TossPaymentException("결제 금액이 서버 계산값과 일치하지 않습니다.", HttpStatus.CONFLICT);
+                throw paymentConflict("TOSS_CONFIRM_AMOUNT_MISMATCH", "결제 금액이 서버 계산값과 일치하지 않습니다.");
             }
 
             paymentIntentService.markConfirmed(intent, tossResponse.getPaymentKey());
@@ -234,46 +236,46 @@ public class PaymentController {
         if (requestedPaymentType != null
                 && application.getPaymentType() != null
                 && requestedPaymentType != application.getPaymentType()) {
-            throw new TossPaymentException("요청한 결제 타입이 기존 신청과 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("EXISTING_APPLICATION_PAYMENT_TYPE_MISMATCH", "요청한 결제 타입이 기존 신청과 일치하지 않습니다.");
         }
 
         PaymentFlowType requestedFlowType = resolveRequestedFlowType(request);
         if (requestedFlowType != null
                 && requestedFlowType != resolveApplicationFlowType(application)) {
-            throw new TossPaymentException("요청한 결제 흐름이 기존 신청과 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("EXISTING_APPLICATION_FLOW_MISMATCH", "요청한 결제 흐름이 기존 신청과 일치하지 않습니다.");
         }
 
         if (request.getIntentId() != null && intent != null
                 && !request.getIntentId().equals(intent.getId())) {
-            throw new TossPaymentException("요청한 결제 의도와 기존 결제가 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("EXISTING_PAYMENT_INTENT_MISMATCH", "요청한 결제 의도와 기존 결제가 일치하지 않습니다.");
         }
 
         if (request.getOrderId() != null && intent != null
                 && !request.getOrderId().equals(intent.getOrderId())) {
-            throw new TossPaymentException("요청한 주문과 기존 결제 요청이 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("EXISTING_PAYMENT_ORDER_MISMATCH", "요청한 주문과 기존 결제 요청이 일치하지 않습니다.");
         }
 
         if (intent != null && intent.getPartyId() != null
                 && request.getPartyId() != null
                 && !request.getPartyId().equals(intent.getPartyId())) {
-            throw new TossPaymentException("요청한 파티와 기존 결제 요청이 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("EXISTING_PAYMENT_PARTY_MISMATCH", "요청한 파티와 기존 결제 요청이 일치하지 않습니다.");
         }
 
         if (intent != null && intent.getFlowType() != null
                 && requestedFlowType != null
                 && requestedFlowType != intent.getFlowType()) {
-            throw new TossPaymentException("요청한 결제 흐름이 결제 요청 정보와 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("PAYMENT_INTENT_FLOW_MISMATCH", "요청한 결제 흐름이 결제 요청 정보와 일치하지 않습니다.");
         }
 
         if (intent != null && intent.getPaymentType() != null
                 && requestedPaymentType != null
                 && requestedPaymentType != intent.getPaymentType()) {
-            throw new TossPaymentException("요청한 결제 타입이 결제 요청 정보와 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("PAYMENT_INTENT_TYPE_MISMATCH", "요청한 결제 타입이 결제 요청 정보와 일치하지 않습니다.");
         }
 
         if (request.getPartyId() != null && application.getPartyId() != null
                 && !request.getPartyId().equals(application.getPartyId())) {
-            throw new TossPaymentException("요청한 파티와 기존 신청이 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("EXISTING_APPLICATION_PARTY_MISMATCH", "요청한 파티와 기존 신청이 일치하지 않습니다.");
         }
     }
 
@@ -287,47 +289,47 @@ public class PaymentController {
         PaymentFlowType requestedFlowType = resolveRequestedFlowType(request);
         paymentTransactionService.findByOrderId(orderId).ifPresent(tx -> {
             if (requestedFlowType != null && tx.getFlowType() != requestedFlowType) {
-                throw new TossPaymentException("요청한 결제 흐름이 기존 결제 트랜잭션과 일치하지 않습니다.", HttpStatus.CONFLICT);
+                throw paymentConflict("PAYMENT_TRANSACTION_FLOW_MISMATCH", "요청한 결제 흐름이 기존 결제 트랜잭션과 일치하지 않습니다.");
             }
             if (tx.getPaymentStatus() == PaymentStatus.CANCELED
                     || tx.getPaymentStatus() == PaymentStatus.REFUND_FAILED) {
-                throw new TossPaymentException("기존 결제가 종료되어 재요청할 수 없습니다.", HttpStatus.CONFLICT);
+                throw paymentConflict("PAYMENT_TRANSACTION_ALREADY_CLOSED", "기존 결제가 종료되어 재요청할 수 없습니다.");
             }
         });
     }
 
     private void validateIntentAndRequestCompatibility(PaymentIntent intent, TossPaymentDTO.ClientConfirmRequest request) {
         if (request.getIntentId() != null && !request.getIntentId().equals(intent.getId())) {
-            throw new TossPaymentException("요청한 결제 의도와 준비 정보가 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("PREPARED_INTENT_ID_MISMATCH", "요청한 결제 의도와 준비 정보가 일치하지 않습니다.");
         }
 
         if (request.getOrderId() != null && !request.getOrderId().equals(intent.getOrderId())) {
-            throw new TossPaymentException("요청한 주문과 준비 정보가 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("PREPARED_ORDER_ID_MISMATCH", "요청한 주문과 준비 정보가 일치하지 않습니다.");
         }
 
         PaymentFlowType requestFlowType = resolveRequestedFlowType(request);
         if (requestFlowType != null
                 && intent.getFlowType() != null
                 && requestFlowType != intent.getFlowType()) {
-            throw new TossPaymentException("요청한 결제 흐름이 준비 정보와 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("PREPARED_FLOW_TYPE_MISMATCH", "요청한 결제 흐름이 준비 정보와 일치하지 않습니다.");
         }
 
         PartyApplication.PaymentType requestPaymentType = resolveRequestedPaymentType(request);
         if (requestPaymentType != null
                 && intent.getPaymentType() != null
                 && requestPaymentType != intent.getPaymentType()) {
-            throw new TossPaymentException("요청한 결제 타입이 준비 정보와 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("PREPARED_PAYMENT_TYPE_MISMATCH", "요청한 결제 타입이 준비 정보와 일치하지 않습니다.");
         }
 
         if (request.getPartyId() != null && !request.getPartyId().equals(intent.getPartyId())) {
-            throw new TossPaymentException("요청한 파티와 결제 준비 정보가 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("PREPARED_PARTY_MISMATCH", "요청한 파티와 결제 준비 정보가 일치하지 않습니다.");
         }
 
         if (intent.getStatus() == PaymentIntent.IntentStatus.CONFIRMED
                 && intent.getPaymentKey() != null
                 && request.getPaymentKey() != null
                 && !intent.getPaymentKey().equals(request.getPaymentKey())) {
-            throw new TossPaymentException("기존 승인된 결제 요청과 결제 키가 일치하지 않습니다.", HttpStatus.CONFLICT);
+            throw paymentConflict("CONFIRMED_PAYMENT_KEY_MISMATCH", "기존 승인된 결제 요청과 결제 키가 일치하지 않습니다.");
         }
     }
 
@@ -373,7 +375,7 @@ public class PaymentController {
      *   503 Service Unavailable - 직거래 모드에서 호출
      */
     @PostMapping("/toss/{intentId}/cancel")
-    public ResponseEntity<?> cancelTossPayment(
+    public ResponseEntity<ApiResponse> cancelTossPayment(
             @PathVariable Long intentId,
             @RequestBody(required = false) @Valid CancelIntentRequest request,
             Principal principal) {
@@ -384,29 +386,14 @@ public class PaymentController {
 
         log.info("[Payment] 결제 취소 요청: intentId={}, userId={}", intentId, userId);
 
-        try {
-            PaymentIntent.IntentStatus resultStatus =
-                    paymentIntentService.cancelPaymentIntent(intentId, userId, reason);
+        PaymentIntent.IntentStatus resultStatus =
+                paymentIntentService.cancelPaymentIntent(intentId, userId, reason);
 
-            return ResponseEntity.ok(Map.of(
-                    "intentId", intentId,
-                    "status", resultStatus.name(),
-                    "message", "결제가 취소되었습니다."));
-
-        } catch (UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("error", e.getMessage()));
-        } catch (TossPaymentException e) {
-            HttpStatus status = e.getStatusCode() instanceof HttpStatus httpStatus
-                    ? httpStatus
-                    : HttpStatus.BAD_REQUEST;
-            return ResponseEntity.status(status)
-                    .body(Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            log.error("[Payment] 결제 취소 처리 중 오류: intentId={}", intentId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "결제 취소 처리 중 오류가 발생했습니다."));
-        }
+        return ResponseEntity.ok(ApiResponse.success(
+                "결제가 취소되었습니다.",
+                Map.of(
+                        "intentId", intentId,
+                        "status", resultStatus.name())));
     }
 
     /** POST /api/payments/toss/{intentId}/cancel 요청 바디 */
@@ -419,9 +406,29 @@ public class PaymentController {
 
     private void ensureTossPaymentEnabled() {
         if (matePaymentModeService.isDirectTrade()) {
-            throw new TossPaymentException(
-                    "직거래 모드에서는 앱 내 Toss 결제를 지원하지 않습니다.",
-                    HttpStatus.SERVICE_UNAVAILABLE);
+            throw paymentServiceUnavailable(
+                    "TOSS_PAYMENT_DISABLED",
+                    "직거래 모드에서는 앱 내 Toss 결제를 지원하지 않습니다.");
         }
+    }
+
+    private TossPaymentException paymentBadRequest(String code, String message) {
+        return new TossPaymentException(code, message, HttpStatus.BAD_REQUEST);
+    }
+
+    private TossPaymentException paymentConflict(String code, String message) {
+        return new TossPaymentException(code, message, HttpStatus.CONFLICT);
+    }
+
+    private TossPaymentException paymentBadGateway(String code, String message) {
+        return new TossPaymentException(code, message, HttpStatus.BAD_GATEWAY);
+    }
+
+    private TossPaymentException paymentInternalServer(String code, String message) {
+        return new TossPaymentException(code, message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    private TossPaymentException paymentServiceUnavailable(String code, String message) {
+        return new TossPaymentException(code, message, HttpStatus.SERVICE_UNAVAILABLE);
     }
 }

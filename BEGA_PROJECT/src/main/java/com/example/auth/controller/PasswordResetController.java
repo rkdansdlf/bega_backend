@@ -40,14 +40,9 @@ public class PasswordResetController {
     @PostMapping("/confirm")
     public ResponseEntity<ApiResponse> confirmPasswordReset(
             @Valid @RequestBody PasswordResetConfirmDto request) {
-        try {
-            passwordResetService.confirmPasswordReset(request);
-            return ResponseEntity.ok(
-                ApiResponse.success("비밀번호가 성공적으로 변경되었습니다.", null)
-            );
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error(e.getMessage()));
-        }
+        passwordResetService.confirmPasswordReset(request);
+        return ResponseEntity.ok(
+            ApiResponse.success("비밀번호가 성공적으로 변경되었습니다.", null)
+        );
     }
 }

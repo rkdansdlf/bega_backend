@@ -188,7 +188,7 @@ class PartyApplicationVerificationTest {
                                         .build();
 
                         assertThatThrownBy(() -> service.createApplication(request))
-                                        .isInstanceOf(com.example.mate.exception.UnauthorizedAccessException.class)
+                                        .isInstanceOf(com.example.common.exception.AuthenticationRequiredException.class)
                                         .hasMessageContaining("인증 정보");
                 }
         }

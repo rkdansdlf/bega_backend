@@ -3,6 +3,8 @@ package com.example.mate.service;
 import com.example.mate.dto.CheckInRecordDTO;
 import com.example.mate.entity.CheckInRecord;
 import com.example.mate.entity.Party;
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.exception.BadRequestBusinessException;
 import com.example.mate.exception.DuplicateCheckInException;
 import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.exception.UnauthorizedAccessException;
@@ -72,7 +74,7 @@ public class CheckInRecordService {
     @Transactional
     public CheckInRecordDTO.Response checkIn(CheckInRecordDTO.Request request, Principal principal) {
         if (request == null || request.getPartyId() == null) {
-            throw new RuntimeException("partyId는 필수입니다.");
+            throw new BadRequestBusinessException("INVALID_CHECK_IN_REQUEST", "partyId는 필수입니다.");
         }
 
         Long userId = resolveUserId(principal);
@@ -121,7 +123,7 @@ public class CheckInRecordService {
     public CheckInRecordDTO.QrSessionResponse createQrSession(CheckInRecordDTO.QrSessionRequest request,
             Principal principal) {
         if (request == null || request.getPartyId() == null) {
-            throw new RuntimeException("partyId는 필수입니다.");
+            throw new BadRequestBusinessException("INVALID_CHECK_IN_REQUEST", "partyId는 필수입니다.");
         }
 
         Long userId = resolveUserId(principal);
@@ -152,7 +154,7 @@ public class CheckInRecordService {
                     QR_SESSION_TTL);
         } catch (JsonProcessingException e) {
             log.error("QR 세션 직렬화 실패: partyId={}, userId={}", request.getPartyId(), userId, e);
-            throw new RuntimeException("QR 세션 생성에 실패했습니다.");
+            throw new BadRequestBusinessException("QR_SESSION_CREATE_FAILED", "QR 세션 생성에 실패했습니다.");
         }
 
         String manualCode = String.format("%04d", SECURE_RANDOM.nextInt(10000));
@@ -257,7 +259,7 @@ public class CheckInRecordService {
 
     private Long resolveUserId(Principal principal) {
         if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
-            throw new UnauthorizedAccessException("로그인이 필요합니다.");
+            throw new AuthenticationRequiredException("로그인이 필요합니다.");
         }
         return userService.getUserIdByEmail(principal.getName());
     }
@@ -268,12 +270,14 @@ public class CheckInRecordService {
 
         if (!hasQrSessionId && !hasManualCode) {
             log.warn("credential_missing: partyId={}", partyId);
-            throw new RuntimeException("체크인 인증 정보(qrSessionId 또는 manualCode) 중 하나는 필수입니다.");
+            throw new BadRequestBusinessException(
+                    "INVALID_CHECK_IN_CREDENTIAL",
+                    "체크인 인증 정보(qrSessionId 또는 manualCode) 중 하나는 필수입니다.");
         }
 
         if (hasQrSessionId && hasManualCode) {
             log.warn("credential_conflict: partyId={}", partyId);
-            throw new RuntimeException("체크인 인증 정보는 하나만 제공해야 합니다.");
+            throw new BadRequestBusinessException("INVALID_CHECK_IN_CREDENTIAL", "체크인 인증 정보는 하나만 제공해야 합니다.");
         }
 
         return hasManualCode ? CheckInCredentialMode.MANUAL_CODE : CheckInCredentialMode.QR_SESSION;
@@ -281,12 +285,12 @@ public class CheckInRecordService {
 
     private void validateQrSession(Long partyId, String qrSessionId) {
         if (qrSessionId == null || qrSessionId.isBlank()) {
-            throw new RuntimeException("QR 세션 ID가 필요합니다.");
+            throw new BadRequestBusinessException("INVALID_QR_SESSION", "QR 세션 ID가 필요합니다.");
         }
 
         String serializedPayload = redisTemplate.opsForValue().get(QR_SESSION_PREFIX + qrSessionId);
         if (serializedPayload == null || serializedPayload.isBlank()) {
-            throw new RuntimeException("유효하지 않거나 만료된 QR 세션입니다.");
+            throw new BadRequestBusinessException("INVALID_QR_SESSION", "유효하지 않거나 만료된 QR 세션입니다.");
         }
 
         QrSessionPayload payload;
@@ -294,41 +298,41 @@ public class CheckInRecordService {
             payload = objectMapper.readValue(serializedPayload, QrSessionPayload.class);
         } catch (JsonProcessingException e) {
             log.error("QR 세션 역직렬화 실패: sessionId={}", qrSessionId, e);
-            throw new RuntimeException("QR 세션 정보를 읽지 못했습니다.");
+            throw new BadRequestBusinessException("INVALID_QR_SESSION", "QR 세션 정보를 읽지 못했습니다.");
         }
 
         Instant expiresAt = payload.getExpiresAt();
         if (expiresAt == null || expiresAt.isBefore(Instant.now())) {
             redisTemplate.delete(QR_SESSION_PREFIX + qrSessionId);
-            throw new RuntimeException("QR 세션이 만료되었습니다.");
+            throw new BadRequestBusinessException("INVALID_QR_SESSION", "QR 세션이 만료되었습니다.");
         }
 
         if (!Objects.equals(payload.getPartyId(), partyId)) {
-            throw new RuntimeException("QR 세션의 파티 정보가 일치하지 않습니다.");
+            throw new BadRequestBusinessException("INVALID_QR_SESSION", "QR 세션의 파티 정보가 일치하지 않습니다.");
         }
     }
 
     private void validateManualCode(Long partyId, String manualCode) {
         if (manualCode == null || manualCode.isBlank()) {
-            throw new RuntimeException("수동 체크인 코드를 입력해주세요.");
+            throw new BadRequestBusinessException("INVALID_MANUAL_CHECK_IN_CODE", "수동 체크인 코드를 입력해주세요.");
         }
         String activeSessionId = redisTemplate.opsForValue().get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + partyId);
         if (activeSessionId == null || activeSessionId.isBlank()) {
             log.warn("manual_code_invalid: reason=active_session_missing, partyId={}", partyId);
-            throw new RuntimeException("유효하지 않거나 만료된 수동 체크인 코드입니다.");
+            throw new BadRequestBusinessException("INVALID_MANUAL_CHECK_IN_CODE", "유효하지 않거나 만료된 수동 체크인 코드입니다.");
         }
 
         try {
             validateQrSession(partyId, activeSessionId);
-        } catch (RuntimeException e) {
+        } catch (BadRequestBusinessException e) {
             log.warn("manual_code_invalid: reason=session_invalid, partyId={}, sessionId={}", partyId, activeSessionId);
-            throw new RuntimeException("유효하지 않거나 만료된 수동 체크인 코드입니다.");
+            throw new BadRequestBusinessException("INVALID_MANUAL_CHECK_IN_CODE", "유효하지 않거나 만료된 수동 체크인 코드입니다.");
         }
 
         String storedCode = redisTemplate.opsForValue().get(MANUAL_CODE_PREFIX + activeSessionId);
         if (storedCode == null || !storedCode.equals(manualCode)) {
             log.warn("manual_code_invalid: reason=code_mismatch, partyId={}, sessionId={}", partyId, activeSessionId);
-            throw new RuntimeException("유효하지 않거나 만료된 수동 체크인 코드입니다.");
+            throw new BadRequestBusinessException("INVALID_MANUAL_CHECK_IN_CODE", "유효하지 않거나 만료된 수동 체크인 코드입니다.");
         }
     }
 

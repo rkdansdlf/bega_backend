@@ -29,7 +29,7 @@ class PasswordResetControllerTest {
 
     @Test
     void requestPasswordReset_returnsGenericSuccessMessage() {
-        PasswordResetRequestDto request = new PasswordResetRequestDto("user@example.com");
+        PasswordResetRequestDto request = new PasswordResetRequestDto("user@example.com", "/mypage");
 
         ResponseEntity<ApiResponse> response = controller.requestPasswordReset(request);
 

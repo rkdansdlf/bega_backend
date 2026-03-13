@@ -61,6 +61,7 @@ public class TossPaymentService {
 
             if (response == null || response.getPaymentKey() == null || response.getOrderId() == null) {
                 throw new TossPaymentException(
+                        "TOSS_CONFIRM_RESPONSE_INVALID",
                         "결제 승인 응답이 올바르지 않습니다.",
                         HttpStatus.BAD_GATEWAY);
             }
@@ -74,13 +75,18 @@ public class TossPaymentService {
             log.warn("[TossPayment] 결제 승인 실패: status={}, code={}, body={}",
                     e.getStatusCode(), tossErrorCode, e.getResponseBodyAsString());
             throw new TossPaymentException(
-                    "결제 승인에 실패했습니다: " + e.getStatusCode(), e.getStatusCode(), tossErrorCode);
+                    tossErrorCode != null ? tossErrorCode : "TOSS_CONFIRM_REQUEST_FAILED",
+                    "결제 승인에 실패했습니다: " + e.getStatusCode(),
+                    e.getStatusCode(),
+                    tossErrorCode);
         } catch (TossPaymentException e) {
             throw e;
         } catch (Exception e) {
             log.error("[TossPayment] 결제 승인 중 예기치 않은 오류 발생", e);
             throw new TossPaymentException(
-                    "결제 승인 중 오류가 발생했습니다.", HttpStatus.INTERNAL_SERVER_ERROR);
+                    "TOSS_CONFIRM_UNEXPECTED_ERROR",
+                    "결제 승인 중 오류가 발생했습니다.",
+                    HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -112,11 +118,16 @@ public class TossPaymentService {
             log.warn("[TossPayment] 결제 취소 실패: paymentKey={}, status={}, code={}, body={}",
                     paymentKey, e.getStatusCode(), tossErrorCode, e.getResponseBodyAsString());
             throw new TossPaymentException(
-                    "결제 취소에 실패했습니다: " + e.getStatusCode(), e.getStatusCode(), tossErrorCode);
+                    tossErrorCode != null ? tossErrorCode : "TOSS_CANCEL_REQUEST_FAILED",
+                    "결제 취소에 실패했습니다: " + e.getStatusCode(),
+                    e.getStatusCode(),
+                    tossErrorCode);
         } catch (Exception e) {
             log.error("[TossPayment] 결제 취소 중 예기치 않은 오류 발생", e);
             throw new TossPaymentException(
-                    "결제 취소 중 오류가 발생했습니다.", HttpStatus.INTERNAL_SERVER_ERROR);
+                    "TOSS_CANCEL_UNEXPECTED_ERROR",
+                    "결제 취소 중 오류가 발생했습니다.",
+                    HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -132,10 +143,15 @@ public class TossPaymentService {
         } catch (RestClientResponseException e) {
             String tossErrorCode = parseTossErrorCode(e.getResponseBodyAsString());
             throw new TossPaymentException(
-                    "결제 조회에 실패했습니다: " + e.getStatusCode(), e.getStatusCode(), tossErrorCode);
+                    tossErrorCode != null ? tossErrorCode : "TOSS_PAYMENT_LOOKUP_FAILED",
+                    "결제 조회에 실패했습니다: " + e.getStatusCode(),
+                    e.getStatusCode(),
+                    tossErrorCode);
         } catch (Exception e) {
             throw new TossPaymentException(
-                    "결제 조회 중 오류가 발생했습니다.", HttpStatus.INTERNAL_SERVER_ERROR);
+                    "TOSS_PAYMENT_LOOKUP_UNEXPECTED_ERROR",
+                    "결제 조회 중 오류가 발생했습니다.",
+                    HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -166,6 +182,7 @@ public class TossPaymentService {
     private void ensureTossModeEnabled() {
         if (matePaymentModeService.isDirectTrade()) {
             throw new TossPaymentException(
+                    "TOSS_PAYMENT_DISABLED",
                     "직거래 모드에서는 앱 내 Toss 결제를 지원하지 않습니다.",
                     HttpStatus.SERVICE_UNAVAILABLE);
         }

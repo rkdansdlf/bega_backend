@@ -1,8 +1,10 @@
 package com.example.mate.controller;
 
+import com.example.common.dto.ApiResponse;
+import com.example.common.exception.AuthenticationRequiredException;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
-import com.example.mate.exception.UnauthorizedAccessException;
+import com.example.mate.exception.InvalidPartyStatusException;
 import com.example.mate.service.PartyService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +20,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
 
 @Tag(name = "파티 매칭", description = "파티 생성, 조회, 신청, 체크인, 실시간 WebSocket 채팅")
@@ -31,14 +34,8 @@ public class PartyController {
     // 파티 생성
     @PostMapping
     public ResponseEntity<?> createParty(@RequestBody PartyDTO.Request request, java.security.Principal principal) {
-        try {
-            PartyDTO.Response response = partyService.createParty(request, principal);
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-        } catch (com.example.common.exception.IdentityVerificationRequiredException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(java.util.Map.of("error", e.getMessage()));
-        }
+        PartyDTO.Response response = partyService.createParty(request, principal);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     // 모든 파티 조회
@@ -54,14 +51,7 @@ public class PartyController {
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir,
             @AuthenticationPrincipal Long currentUserId) {
-        Party.PartyStatus parsedStatus = null;
-        if (status != null && !status.trim().isEmpty()) {
-            try {
-                parsedStatus = Party.PartyStatus.valueOf(status.trim().toUpperCase());
-            } catch (IllegalArgumentException e) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
-            }
-        }
+        Party.PartyStatus parsedStatus = parsePartyStatus(status);
 
         Sort.Direction direction = sortDir.equalsIgnoreCase("asc") ? Sort.Direction.ASC : Sort.Direction.DESC;
         Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
@@ -81,14 +71,8 @@ public class PartyController {
     public ResponseEntity<PartyDTO.PublicResponse> getPartyById(
             @PathVariable Long id,
             @AuthenticationPrincipal Long currentUserId) {
-        try {
-            PartyDTO.PublicResponse response = partyService.getPartyById(id, currentUserId);
-            return ResponseEntity.ok(response);
-        } catch (org.springframework.security.access.AccessDeniedException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(null);
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
-        }
+        PartyDTO.PublicResponse response = partyService.getPartyById(id, currentUserId);
+        return ResponseEntity.ok(response);
     }
 
     // 상태별 파티 조회
@@ -96,13 +80,9 @@ public class PartyController {
     public ResponseEntity<List<PartyDTO.PublicResponse>> getPartiesByStatus(
             @PathVariable String status,
             @AuthenticationPrincipal Long currentUserId) {
-        try {
-            Party.PartyStatus partyStatus = Party.PartyStatus.valueOf(status.toUpperCase());
-            List<PartyDTO.PublicResponse> parties = partyService.getPartiesByStatus(partyStatus, currentUserId);
-            return ResponseEntity.ok(parties);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null);
-        }
+        Party.PartyStatus partyStatus = requirePartyStatus(status);
+        List<PartyDTO.PublicResponse> parties = partyService.getPartiesByStatus(partyStatus, currentUserId);
+        return ResponseEntity.ok(parties);
     }
 
     // 호스트별 파티 조회
@@ -133,9 +113,9 @@ public class PartyController {
 
     // 내가 참여한 모든 파티 조회 (호스트 + 참여자) - Principal 기반
     @GetMapping("/my")
-    public ResponseEntity<List<PartyDTO.Response>> getMyParties(@AuthenticationPrincipal Long userId) {
+    public ResponseEntity<?> getMyParties(@AuthenticationPrincipal Long userId) {
         if (userId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
         }
 
         List<PartyDTO.Response> parties = partyService.getMyParties(userId);
@@ -148,14 +128,8 @@ public class PartyController {
             @PathVariable Long id,
             @RequestBody PartyDTO.UpdateRequest request,
             java.security.Principal principal) {
-        try {
-            PartyDTO.Response response = partyService.updateParty(id, request, principal);
-            return ResponseEntity.ok(response);
-        } catch (UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(java.util.Map.of("error", e.getMessage()));
-        }
+        PartyDTO.Response response = partyService.updateParty(id, request, principal);
+        return ResponseEntity.ok(response);
     }
 
     // 파티 삭제
@@ -163,13 +137,21 @@ public class PartyController {
     public ResponseEntity<?> deleteParty(
             @PathVariable Long id,
             java.security.Principal principal) {
-        try {
-            partyService.deleteParty(id, principal);
-            return ResponseEntity.noContent().build();
-        } catch (UnauthorizedAccessException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(java.util.Map.of("error", e.getMessage()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(java.util.Map.of("error", e.getMessage()));
+        partyService.deleteParty(id, principal);
+        return ResponseEntity.noContent().build();
+    }
+
+    private Party.PartyStatus parsePartyStatus(String status) {
+        if (status == null || status.trim().isEmpty()) {
+            return null;
         }
+        return requirePartyStatus(status);
+    }
+
+    private Party.PartyStatus requirePartyStatus(String status) {
+        return Arrays.stream(Party.PartyStatus.values())
+                .filter(candidate -> candidate.name().equalsIgnoreCase(status.trim()))
+                .findFirst()
+                .orElseThrow(() -> new InvalidPartyStatusException(status));
     }
 }

@@ -1,7 +1,9 @@
 package com.example.mate.exception;
 
-public class InvalidApplicationStatusException extends RuntimeException {
+import com.example.common.exception.BadRequestBusinessException;
+
+public class InvalidApplicationStatusException extends BadRequestBusinessException {
     public InvalidApplicationStatusException(String message) {
-        super(message);
+        super("INVALID_APPLICATION_STATUS", message);
     }
 }

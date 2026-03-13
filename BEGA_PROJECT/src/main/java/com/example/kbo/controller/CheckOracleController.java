@@ -17,6 +17,8 @@ import java.util.Map;
 @Slf4j
 public class CheckOracleController {
 
+    private static final String QUERY_FAILED = "QUERY_FAILED";
+
     private final JdbcTemplate jdbcTemplate;
 
     @GetMapping("/games-range")
@@ -31,7 +33,7 @@ public class CheckOracleController {
             result.put("count", games.size());
         } catch (Exception e) {
             log.warn("CheckOracleController games-range query failed. start={} end={}", start, end, e);
-            result.put("error", "QUERY_FAILED");
+            result.put("error", QUERY_FAILED);
         }
         return result;
     }
@@ -48,7 +50,7 @@ public class CheckOracleController {
                 counts.put(table, count);
             } catch (Exception e) {
                 log.warn("CheckOracleController counts query failed. table={}", table, e);
-                counts.put(table + "_error", "QUERY_FAILED");
+                counts.put(table + "_error", QUERY_FAILED);
             }
         }
         return counts;

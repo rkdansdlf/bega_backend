@@ -3,6 +3,9 @@ package com.example.auth.controller;
 import com.example.auth.dto.OAuth2StateData;
 import com.example.auth.dto.PolicyConsentSubmitDto;
 import com.example.auth.service.OAuth2StateService;
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 import com.example.common.dto.ApiResponse;
 import com.example.common.ratelimit.RateLimit;
 import com.example.auth.dto.LoginDto;
@@ -28,6 +31,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
@@ -93,19 +97,16 @@ public class APIController {
             @AuthenticationPrincipal Long userId,
             @Valid @RequestBody PolicyConsentSubmitDto consentSubmitDto,
             HttpServletRequest request) {
-        if (userId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.error("인증이 필요합니다."));
-        }
+        Long authenticatedUserId = requireAuthenticatedUserId(userId);
 
         policyConsentService.validateRequiredConsents(consentSubmitDto.getPolicyConsents());
         policyConsentService.recordRequiredConsents(
-                userId,
+                authenticatedUserId,
                 consentSubmitDto.getPolicyConsents(),
                 "policy_gate",
                 clientIpResolver.resolveOrUnknown(request),
                 request.getHeader("User-Agent"));
-        PolicyConsentService.PolicyConsentStatus policyStatus = policyConsentService.evaluatePolicyConsentStatus(userId);
+        PolicyConsentService.PolicyConsentStatus policyStatus = policyConsentService.evaluatePolicyConsentStatus(authenticatedUserId);
 
         return ResponseEntity.ok(ApiResponse.success(
                 "정책 동의가 저장되었습니다.",
@@ -157,27 +158,13 @@ public class APIController {
     public ResponseEntity<ApiResponse> checkName(
             @AuthenticationPrincipal Long userId,
             @RequestParam("name") String name) {
-        if (userId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.error("인증이 필요합니다.", Map.of("available", false)));
-        }
-
-        String normalizedName = name == null ? "" : name.trim();
-        if (normalizedName.isBlank()) {
-            return ResponseEntity.ok(ApiResponse.error("닉네임을 입력해 주세요.", Map.of("available", false)));
-        }
-
-        try {
-            boolean available = userService.isNameAvailable(userId, normalizedName);
-            Map<String, Object> response = Map.of("available", available);
-            if (available) {
-                return ResponseEntity.ok(ApiResponse.success("사용 가능한 닉네임입니다.", response));
-            }
-
-            return ResponseEntity.ok(ApiResponse.error("이미 사용 중인 닉네임입니다.", response));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.ok(ApiResponse.error(e.getMessage(), Map.of("available", false)));
-        }
+        Long authenticatedUserId = requireAuthenticatedUserId(userId);
+        String normalizedName = userService.ensureNameAvailable(authenticatedUserId, name);
+        return ResponseEntity.ok(ApiResponse.success(
+                "사용 가능한 닉네임입니다.",
+                Map.of(
+                        "available", true,
+                        "normalized", normalizedName)));
     }
 
     @PostMapping("/logout")
@@ -256,8 +243,7 @@ public class APIController {
     public ResponseEntity<?> consumeOAuth2State(@PathVariable String stateId) {
         OAuth2StateData data = oAuth2StateService.consumeState(stateId);
         if (data == null) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "State not found or already consumed"));
+            throw new NotFoundBusinessException("OAUTH2_STATE_NOT_FOUND", "State not found or already consumed");
         }
         return ResponseEntity.ok(data);
     }
@@ -277,41 +263,34 @@ public class APIController {
     @RateLimit(limit = 10, window = 600, key = "auth:link-token", failClosed = true)
     @GetMapping("/link-token")
     public ResponseEntity<?> generateLinkToken() {
-        try {
-            Long userId = null;
-            var authentication = org.springframework.security.core.context.SecurityContextHolder.getContext()
-                    .getAuthentication();
+        Long userId = resolveAuthenticatedUserIdFromContext();
 
-            if (authentication != null && authentication.getPrincipal() instanceof Long) {
-                userId = (Long) authentication.getPrincipal();
-            }
+        String linkToken = userService.getJWTUtil().createLinkToken(
+                userId,
+                5 * 60 * 1000L
+        );
 
-            if (userId == null) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(ApiResponse.error("로그인이 필요합니다."));
-            }
+        log.info("Link token generated for userId: {}", userId);
 
-            // [Security Fix] 5분 유효의 Link Token 생성 (token_type=link explicitly set)
-            String linkToken = userService.getJWTUtil().createLinkToken(
-                    userId, // userId
-                    5 * 60 * 1000L // 5분
-            );
+        return ResponseEntity.ok(Map.of(
+                "linkToken", linkToken,
+                "expiresIn", 300
+        ));
+    }
 
-            log.info("Link token generated for userId: {}", userId);
-
-            return ResponseEntity.ok(Map.of(
-                    "linkToken", linkToken,
-                    "expiresIn", 300 // 5분 (초)
-            ));
-
-        } catch (IllegalArgumentException e) {
-            log.warn("Link token request rejected: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiResponse.error("토큰 생성 요청이 올바르지 않습니다."));
-        } catch (Exception e) {
-            log.error("Failed to generate link token", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
+    private Long requireAuthenticatedUserId(Long userId) {
+        if (userId == null) {
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
         }
+        return userId;
+    }
+
+    private Long resolveAuthenticatedUserIdFromContext() {
+        Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext()
+                .getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof Long userId) {
+            return userId;
+        }
+        throw new AuthenticationRequiredException("로그인이 필요합니다.");
     }
 }
