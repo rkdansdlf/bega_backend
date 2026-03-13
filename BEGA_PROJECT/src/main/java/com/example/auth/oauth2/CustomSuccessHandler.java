@@ -23,6 +23,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+
 @Component
 @lombok.extern.slf4j.Slf4j
 public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
@@ -30,6 +33,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     private final JWTUtil jwtUtil;
     private final UserRepository userRepository;
     private final com.example.auth.service.UserService userService; // Inject UserService
+    private final com.example.auth.service.AccountSecurityService accountSecurityService;
     private final OAuth2StateService oAuth2StateService;
     private final AuthCookieUtil authCookieUtil;
 
@@ -38,11 +42,13 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
     public CustomSuccessHandler(JWTUtil jwtUtil, UserRepository userRepository,
             @org.springframework.context.annotation.Lazy com.example.auth.service.UserService userService,
+            com.example.auth.service.AccountSecurityService accountSecurityService,
             OAuth2StateService oAuth2StateService,
             AuthCookieUtil authCookieUtil) {
         this.jwtUtil = jwtUtil;
         this.userRepository = userRepository;
         this.userService = userService;
+        this.accountSecurityService = accountSecurityService;
         this.oAuth2StateService = oAuth2StateService;
         this.authCookieUtil = authCookieUtil;
     }
@@ -107,9 +113,17 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
             ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
             response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+            accountSecurityService.recordProviderLinked(userId, resolveProviderFromRequest(request));
 
-            // [Security Fix] State 데이터 저장 - userId만 Redis에 저장 (민감 정보 최소화)
-            String stateId = oAuth2StateService.saveState(userId);
+            String stateId;
+            try {
+                // [Security Fix] State 데이터 저장 - userId만 Redis에 저장 (민감 정보 최소화)
+                stateId = oAuth2StateService.saveState(userId);
+            } catch (OAuth2StateService.OAuth2StateStoreException e) {
+                log.error("Failed to save OAuth2 state in link mode", e);
+                redirectWithError(request, response, OAuth2StateService.ERROR_CODE_STATE_STORE_UNAVAILABLE);
+                return;
+            }
             String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId + "&status=linked";
             getRedirectStrategy().sendRedirect(request, response, redirectUrl);
             return;
@@ -129,6 +143,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         // Refresh Token DB 저장/갱신
         userService.saveOrUpdateRefreshToken(userEmail, refreshToken, request);
+        accountSecurityService.handleSuccessfulLogin(userEntity, request);
 
         // 쿠키에 토큰 저장
         int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);
@@ -143,8 +158,15 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             request.getSession(false).invalidate();
         }
 
-        // [Security Fix] 사용자 정보를 Redis에 저장 - userId만 저장 (민감 정보 최소화)
-        String stateId = oAuth2StateService.saveState(userId);
+        String stateId;
+        try {
+            // [Security Fix] 사용자 정보를 Redis에 저장 - userId만 저장 (민감 정보 최소화)
+            stateId = oAuth2StateService.saveState(userId);
+        } catch (OAuth2StateService.OAuth2StateStoreException e) {
+            log.error("Failed to save OAuth2 state in normal mode", e);
+            redirectWithError(request, response, OAuth2StateService.ERROR_CODE_STATE_STORE_UNAVAILABLE);
+            return;
+        }
         String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId;
         getRedirectStrategy().sendRedirect(request, response, redirectUrl);
 
@@ -160,5 +182,31 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             return false;
         }
         return state.contains("|");
+    }
+
+    private String resolveProviderFromRequest(HttpServletRequest request) {
+        if (request == null) {
+            return "social";
+        }
+
+        String uri = request.getRequestURI();
+        if (uri == null || uri.isBlank()) {
+            return "social";
+        }
+
+        int lastSlash = uri.lastIndexOf('/');
+        if (lastSlash < 0 || lastSlash + 1 >= uri.length()) {
+            return "social";
+        }
+
+        return uri.substring(lastSlash + 1);
+    }
+
+    private void redirectWithError(HttpServletRequest request, HttpServletResponse response, String errorCode)
+            throws IOException {
+        String encoded = URLEncoder.encode(
+                errorCode == null ? "oauth2_auth_failed" : errorCode,
+                StandardCharsets.UTF_8);
+        getRedirectStrategy().sendRedirect(request, response, frontendUrl + "/login?error=" + encoded);
     }
 }

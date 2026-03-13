@@ -149,4 +149,5 @@ public class GameEntity {
     public boolean isDummyGame() {
         return Boolean.TRUE.equals(isDummy);
     }
+
 }

@@ -3,6 +3,7 @@ package com.example.auth.controller;
 import com.example.auth.dto.PublicUserProfileDto;
 import com.example.auth.service.UserService;
 import com.example.common.dto.ApiResponse;
+import com.example.common.exception.ForbiddenBusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -12,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -26,7 +28,6 @@ class UserControllerTest {
     @Test
     void getPublicUserProfileByHandle_returnsProfileImageUrl() {
         PublicUserProfileDto profile = PublicUserProfileDto.builder()
-                .id(1L)
                 .name("test")
                 .handle("@user")
                 .favoriteTeam("SS")
@@ -35,9 +36,9 @@ class UserControllerTest {
                 .cheerPoints(12)
                 .build();
 
-        when(userService.getPublicUserProfileByHandle("@user")).thenReturn(profile);
+        when(userService.getPublicUserProfileByHandle("@user", null)).thenReturn(profile);
 
-        ResponseEntity<ApiResponse> result = userController.getPublicUserProfile("@user");
+        ResponseEntity<ApiResponse> result = userController.getPublicUserProfile("@user", null);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(result.getBody()).isInstanceOf(ApiResponse.class);
@@ -49,28 +50,21 @@ class UserControllerTest {
     }
 
     @Test
-    void getPublicUserProfileById_returnsProfileImageUrl() {
-        PublicUserProfileDto profile = PublicUserProfileDto.builder()
-                .id(2L)
-                .name("by-id")
-                .handle("@iduser")
-                .favoriteTeam("LG")
-                .profileImageUrl("https://cdn.example.com/avatar2.png?v=resolved")
-                .bio("hello")
-                .cheerPoints(4)
-                .build();
+    void checkSocialVerified_rejectsAnotherUsersStatusLookup() {
+        assertThatThrownBy(() -> userController.checkSocialVerified(2L, 1L))
+                .isInstanceOf(ForbiddenBusinessException.class)
+                .hasMessageContaining("본인의 소셜 연동 상태만 조회할 수 있습니다.");
+    }
 
-        when(userService.getPublicUserProfile(2L)).thenReturn(profile);
+    @Test
+    void checkSocialVerified_returnsOwnStatus() {
+        when(userService.isSocialVerified(2L)).thenReturn(true);
 
-        ResponseEntity<ApiResponse> result = userController.getPublicUserProfileById(2L);
+        ResponseEntity<ApiResponse> result = userController.checkSocialVerified(2L, 2L);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(result.getBody()).isInstanceOf(ApiResponse.class);
         assertThat(result.getBody().isSuccess()).isTrue();
-        assertThat(result.getBody().getMessage()).isEqualTo("사용자 프로필 조회 성공");
-        assertThat(result.getBody().getData()).isInstanceOf(PublicUserProfileDto.class);
-        PublicUserProfileDto actual = (PublicUserProfileDto) result.getBody().getData();
-        assertThat(actual.getProfileImageUrl()).isEqualTo("https://cdn.example.com/avatar2.png?v=resolved");
-        assertThat(actual.getId()).isEqualTo(2L);
+        assertThat(result.getBody().getData()).isEqualTo(true);
     }
 }

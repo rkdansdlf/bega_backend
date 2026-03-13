@@ -2,14 +2,21 @@ package com.example.mate.service;
 
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.entity.UserEntity;
+import com.example.auth.entity.UserProvider;
+import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
+import com.example.mate.entity.PartyApplication;
+import com.example.mate.exception.PartyFullException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
+import com.example.mate.repository.PartyReviewRepository;
 import com.example.notification.service.NotificationService;
 import com.example.profile.storage.service.ProfileImageService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -23,12 +30,16 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
+import java.security.Principal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -47,7 +58,13 @@ class PartyServiceTest {
         private PartyApplicationRepository applicationRepository;
 
         @Mock
+        private PartyReviewRepository partyReviewRepository;
+
+        @Mock
         private UserProviderRepository userProviderRepository;
+
+        @Mock
+        private PublicVisibilityVerifier publicVisibilityVerifier;
 
         @Mock
         private NotificationService notificationService;
@@ -58,6 +75,61 @@ class PartyServiceTest {
         @InjectMocks
         private PartyService partyService;
 
+        @BeforeEach
+        void setUp() {
+                lenient().when(publicVisibilityVerifier.canAccess(any(), any())).thenReturn(true);
+                lenient().when(partyReviewRepository.findRatingSummariesByRevieweeIds(any())).thenReturn(List.of());
+        }
+
+        @Test
+        @DisplayName("createParty derives host profile fields from authenticated user")
+        void createParty_derivesHostFieldsFromAuthenticatedUser() {
+                Long hostId = 77L;
+                Principal principal = () -> "host@example.com";
+                UserEntity host = UserEntity.builder()
+                                .id(hostId)
+                                .name("Real Host")
+                                .email("host@example.com")
+                                .role("ROLE_USER")
+                                .profileImageUrl("profiles/77/current.png")
+                                .build();
+
+                when(userRepository.findByEmail("host@example.com")).thenReturn(Optional.of(host));
+                when(userRepository.findById(hostId)).thenReturn(Optional.of(host));
+                when(userProviderRepository.findByUserId(hostId))
+                                .thenReturn(List.of(UserProvider.builder().provider("kakao").build()));
+                when(applicationRepository.countCheckedInPartiesByUserId(hostId)).thenReturn(0);
+                when(partyReviewRepository.findRatingSummariesByRevieweeIds(any()))
+                                .thenReturn(List.of(ratingSummary(hostId, 4.7, 3L)));
+                when(partyRepository.save(any(Party.class))).thenAnswer(inv -> {
+                        Party party = inv.getArgument(0);
+                        party.setId(500L);
+                        return party;
+                });
+
+                PartyDTO.Request request = PartyDTO.Request.builder()
+                                .teamId("KT")
+                                .gameDate(LocalDate.now().plusDays(1))
+                                .gameTime(LocalTime.of(18, 30))
+                                .stadium("수원")
+                                .homeTeam("KT")
+                                .awayTeam("KIA")
+                                .section("1루")
+                                .maxParticipants(4)
+                                .description("실제 사용자 프로필에서 생성해야 합니다.")
+                                .ticketPrice(12000)
+                                .build();
+
+                PartyDTO.Response response = partyService.createParty(request, principal);
+
+                assertThat(response.getHostId()).isEqualTo(hostId);
+                assertThat(response.getHostName()).isEqualTo("Real Host");
+                assertThat(response.getHostBadge()).isEqualTo(Party.BadgeType.VERIFIED);
+                assertThat(response.getHostAverageRating()).isEqualTo(4.7);
+                assertThat(response.getHostReviewCount()).isEqualTo(3L);
+                verify(partyRepository).save(any(Party.class));
+        }
+
         @Test
         @DisplayName("getAllParties normalizes null searchQuery to empty string")
         void getAllParties_normalizesNullSearchQuery() {
@@ -66,7 +138,7 @@ class PartyServiceTest {
                                 any(Pageable.class)))
                                 .thenReturn(Page.empty());
 
-                partyService.getAllParties(null, null, null, null, PageRequest.of(0, 10), null);
+                partyService.getAllParties(null, null, null, null, PageRequest.of(0, 10), null, null);
 
                 verify(partyRepository).findPartiesWithFilter(
                                 isNull(),
@@ -85,7 +157,7 @@ class PartyServiceTest {
                                 any(Pageable.class)))
                                 .thenReturn(Page.empty());
 
-                partyService.getAllParties(null, null, null, "  kt  ", PageRequest.of(0, 10), null);
+                partyService.getAllParties(null, null, null, "  kt  ", PageRequest.of(0, 10), null, null);
 
                 verify(partyRepository).findPartiesWithFilter(
                                 isNull(),
@@ -104,7 +176,7 @@ class PartyServiceTest {
                                 any(Pageable.class)))
                                 .thenReturn(Page.empty());
 
-                partyService.getAllParties(null, null, null, null, PageRequest.of(0, 10), Party.PartyStatus.MATCHED);
+                partyService.getAllParties(null, null, null, null, PageRequest.of(0, 10), Party.PartyStatus.MATCHED, null);
 
                 verify(partyRepository).findPartiesWithFilter(
                                 isNull(),
@@ -125,7 +197,7 @@ class PartyServiceTest {
                 when(profileImageService.getProfileImageUrl("https://zyofzvnkputevakepbdm.supabase.co/storage/v1/object/sign/profile-images/profiles/77/old.png"))
                                 .thenReturn("https://oci.example/profiles/77/latest.png");
 
-                PartyDTO.Response response = partyService.getPartyById(101L);
+                PartyDTO.PublicResponse response = partyService.getPartyById(101L, null);
 
                 assertThat(response.getHostProfileImageUrl()).isEqualTo("https://oci.example/profiles/77/latest.png");
                 verify(profileImageService).getProfileImageUrl(
@@ -141,7 +213,7 @@ class PartyServiceTest {
                 when(profileImageService.getProfileImageUrl("profiles/55/current.png"))
                                 .thenReturn("https://oci.example/profiles/55/current.png");
 
-                PartyDTO.Response response = partyService.getPartyById(102L);
+                PartyDTO.PublicResponse response = partyService.getPartyById(102L, null);
 
                 assertThat(response.getHostProfileImageUrl()).isEqualTo("https://oci.example/profiles/55/current.png");
                 verify(userRepository, never()).findProfileImageUrlById(55L);
@@ -157,11 +229,128 @@ class PartyServiceTest {
                 when(userRepository.findProfileImageUrlById(88L)).thenReturn(Optional.empty());
                 when(profileImageService.getProfileImageUrl(null)).thenReturn(null);
 
-                Page<PartyDTO.Response> result = partyService.getAllParties(null, null, null, "", PageRequest.of(0, 10),
-                                null);
+                Page<PartyDTO.PublicResponse> result = partyService.getAllParties(null, null, null, "", PageRequest.of(0, 10),
+                                null, null);
 
                 assertThat(result.getContent()).hasSize(1);
                 assertThat(result.getContent().get(0).getHostProfileImageUrl()).isNull();
+                assertThat(result.getContent().get(0).getHostAverageRating()).isNull();
+                assertThat(result.getContent().get(0).getHostReviewCount()).isZero();
+        }
+
+        @Test
+        @DisplayName("getAllParties includes review summary for consistent host rating display")
+        void getAllParties_includesReviewSummary() {
+                Party party = createParty(104L, 91L, null);
+                when(partyRepository.findPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                                any(Pageable.class)))
+                                .thenReturn(new PageImpl<>(List.of(party)));
+                when(profileImageService.getProfileImageUrl(null)).thenReturn(null);
+                when(partyReviewRepository.findRatingSummariesByRevieweeIds(any()))
+                                .thenReturn(List.of(ratingSummary(91L, 4.4, 2L)));
+
+                Page<PartyDTO.PublicResponse> result = partyService.getAllParties(
+                                null,
+                                null,
+                                null,
+                                "",
+                                PageRequest.of(0, 10),
+                                null,
+                                null);
+
+                assertThat(result.getContent()).hasSize(1);
+                assertThat(result.getContent().get(0).getHostAverageRating()).isEqualTo(4.4);
+                assertThat(result.getContent().get(0).getHostReviewCount()).isEqualTo(2L);
+        }
+
+        // ========== incrementParticipants() ==========
+
+        @Test
+        @DisplayName("incrementParticipants - 정원 도달 시 MATCHED로 자동 전환")
+        void incrementParticipants_autoTransitionsToMatchedWhenFull() {
+                Party party = createParty(1L, 10L, null);
+                party.setCurrentParticipants(3); // maxParticipants=4, one away from full
+
+                when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+                when(partyRepository.save(any(Party.class))).thenAnswer(inv -> inv.getArgument(0));
+
+                PartyDTO.Response response = partyService.incrementParticipants(1L);
+
+                assertThat(response.getStatus()).isEqualTo(Party.PartyStatus.MATCHED);
+                assertThat(response.getCurrentParticipants()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("incrementParticipants - 정원 초과 시 PartyFullException 발생")
+        void incrementParticipants_throwsPartyFullExceptionWhenAtCapacity() {
+                Party party = createParty(1L, 10L, null);
+                party.setCurrentParticipants(4); // already at max
+
+                when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+
+                assertThrows(PartyFullException.class, () -> partyService.incrementParticipants(1L));
+                verify(partyRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("getPartiesByHostHandle validates host visibility before returning public parties")
+        void getPartiesByHostHandle_validatesVisibility() {
+                UserEntity host = UserEntity.builder().id(77L).handle("@host").build();
+                Party party = createParty(500L, 77L, null);
+
+                when(userRepository.findByHandle("@host")).thenReturn(Optional.of(host));
+                when(partyRepository.findByHostId(77L)).thenReturn(List.of(party));
+
+                List<PartyDTO.PublicResponse> result = partyService.getPartiesByHostHandle("@host", 99L);
+
+                assertThat(result).hasSize(1);
+                verify(publicVisibilityVerifier).validate(host, 99L, "파티");
+        }
+
+        // ========== handleUserDeletion() ==========
+
+        @Test
+        @DisplayName("handleUserDeletion - 호스트 파티를 FAILED로 변경하고 save 호출")
+        void handleUserDeletion_setsHostedPartiesToFailed() {
+                Long userId = 99L;
+                Party hostedParty = createParty(1L, userId, null);
+
+                when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList()))
+                                .thenReturn(List.of(hostedParty));
+                when(applicationRepository.findByPartyIdAndIsApprovedTrue(1L))
+                                .thenReturn(List.of());
+                when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
+                                .thenReturn(List.of());
+
+                partyService.handleUserDeletion(userId);
+
+                assertThat(hostedParty.getStatus()).isEqualTo(Party.PartyStatus.FAILED);
+                verify(partyRepository).save(hostedParty);
+        }
+
+        @Test
+        @DisplayName("handleUserDeletion - 참여 중인 MATCHED 파티를 PENDING으로 되돌리고 신청 삭제")
+        void handleUserDeletion_revertsMatchedToPendingWhenParticipantLeaves() {
+                Long userId = 99L;
+                Party matchedParty = createParty(2L, 10L, null);
+                matchedParty.setStatus(Party.PartyStatus.MATCHED);
+                matchedParty.setCurrentParticipants(2);
+
+                PartyApplication application = mock(PartyApplication.class);
+                when(application.getPartyId()).thenReturn(2L);
+                when(application.getApplicantName()).thenReturn("DeletedUser");
+
+                when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList()))
+                                .thenReturn(List.of());
+                when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
+                                .thenReturn(List.of(application));
+                when(partyRepository.findById(2L)).thenReturn(Optional.of(matchedParty));
+
+                partyService.handleUserDeletion(userId);
+
+                assertThat(matchedParty.getStatus()).isEqualTo(Party.PartyStatus.PENDING);
+                assertThat(matchedParty.getCurrentParticipants()).isEqualTo(1);
+                verify(applicationRepository).delete(application);
         }
 
         private Party createParty(Long id, Long hostId, String hostProfileImageUrl) {
@@ -172,7 +361,6 @@ class PartyServiceTest {
                                 .hostProfileImageUrl(hostProfileImageUrl)
                                 .hostFavoriteTeam("KT")
                                 .hostBadge(Party.BadgeType.NEW)
-                                .hostRating(5.0)
                                 .teamId("KT")
                                 .gameDate(LocalDate.now().plusDays(1))
                                 .gameTime(LocalTime.of(18, 30))
@@ -186,5 +374,24 @@ class PartyServiceTest {
                                 .ticketVerified(false)
                                 .status(Party.PartyStatus.PENDING)
                                 .build();
+        }
+
+        private PartyReviewRepository.RevieweeRatingSummary ratingSummary(Long revieweeId, Double averageRating, Long reviewCount) {
+                return new PartyReviewRepository.RevieweeRatingSummary() {
+                        @Override
+                        public Long getRevieweeId() {
+                                return revieweeId;
+                        }
+
+                        @Override
+                        public Double getAverageRating() {
+                                return averageRating;
+                        }
+
+                        @Override
+                        public Long getReviewCount() {
+                                return reviewCount;
+                        }
+                };
         }
 }

@@ -31,6 +31,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class OAuth2StateServiceTest {
@@ -86,10 +87,22 @@ class OAuth2StateServiceTest {
                 });
 
         assertThatThrownBy(() -> failingService.saveState(1L))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage("Failed to serialize OAuth2 state data");
+                .isInstanceOf(OAuth2StateService.OAuth2StateStoreException.class)
+                .hasMessage(OAuth2StateService.ERROR_CODE_STATE_STORE_UNAVAILABLE);
 
         verify(valueOperations, never()).set(anyString(), anyString(), any(Duration.class));
+    }
+
+    @Test
+    @DisplayName("saveState: Redis 저장 실패 시 코드형 예외를 던진다")
+    void saveState_throwsWhenRedisWriteFails() {
+        doThrow(new RuntimeException("redis down"))
+                .when(valueOperations)
+                .set(anyString(), anyString(), any(Duration.class));
+
+        assertThatThrownBy(() -> service.saveState(1L))
+                .isInstanceOf(OAuth2StateService.OAuth2StateStoreException.class)
+                .hasMessage(OAuth2StateService.ERROR_CODE_STATE_STORE_UNAVAILABLE);
     }
 
     @Test
@@ -114,6 +127,17 @@ class OAuth2StateServiceTest {
 
         assertThat(result).isNull();
         verify(userRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("consumeState: Redis 조회 실패 시 null")
+    void consumeState_returnsNullWhenRedisReadFails() {
+        when(valueOperations.getAndDelete("oauth2:state:redis-error"))
+                .thenThrow(new RuntimeException("redis down"));
+
+        OAuth2StateData result = service.consumeState("redis-error");
+
+        assertThat(result).isNull();
     }
 
     @Test
@@ -229,5 +253,14 @@ class OAuth2StateServiceTest {
 
         assertThat(service.peekUserId("missing")).isNull();
         assertThat(service.peekUserId("invalid")).isNull();
+    }
+
+    @Test
+    @DisplayName("peekUserId: Redis 조회 실패면 null")
+    void peekUserId_returnsNullWhenRedisFails() {
+        when(valueOperations.get("oauth2:state:redis-error"))
+                .thenThrow(new RuntimeException("redis down"));
+
+        assertThat(service.peekUserId("redis-error")).isNull();
     }
 }

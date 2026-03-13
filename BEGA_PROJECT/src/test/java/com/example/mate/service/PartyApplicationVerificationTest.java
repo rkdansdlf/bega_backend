@@ -7,9 +7,9 @@ import com.example.kbo.service.TicketVerificationTokenStore;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
-import com.example.mate.exception.DuplicateApplicationException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
+import com.example.mate.repository.PartyReviewRepository;
 import com.example.notification.service.NotificationService;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +20,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.security.Principal;
 import java.time.LocalDate;
@@ -32,12 +34,15 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class PartyApplicationVerificationTest {
 
         @Mock
         private PartyApplicationRepository applicationRepository;
         @Mock
         private PartyRepository partyRepository;
+        @Mock
+        private PartyReviewRepository partyReviewRepository;
         @Mock
         private PartyService partyService;
         @Mock
@@ -48,6 +53,8 @@ class PartyApplicationVerificationTest {
         private TicketVerificationTokenStore ticketVerificationTokenStore;
         @Mock
         private PaymentTransactionService paymentTransactionService;
+        @Mock
+        private MatePaymentModeService matePaymentModeService;
 
         @InjectMocks
         private PartyApplicationService service;
@@ -57,12 +64,13 @@ class PartyApplicationVerificationTest {
 
         @BeforeEach
         void setUp() {
+                given(matePaymentModeService.isDirectTrade()).willReturn(false);
+
                 testParty = Party.builder()
                                 .id(1L)
                                 .hostId(100L)
                                 .hostName("Host")
                                 .hostBadge(Party.BadgeType.NEW)
-                                .hostRating(5.0)
                                 .teamId("LG")
                                 .gameDate(LocalDate.of(2024, 5, 5))
                                 .gameTime(LocalTime.of(18, 30))
@@ -84,7 +92,14 @@ class PartyApplicationVerificationTest {
                 given(userService.getUserIdByEmail("test@example.com")).willReturn(applicantId);
                 given(userService.findUserByEmail("test@example.com")).willReturn(
                                 UserDto.builder().name("TestUser").build());
+                given(userService.findUserById(applicantId)).willReturn(
+                                com.example.auth.entity.UserEntity.builder()
+                                                .id(applicantId)
+                                                .handle("@test-user")
+                                                .name("TestUser")
+                                                .build());
                 given(userService.isSocialVerified(applicantId)).willReturn(true);
+                given(partyReviewRepository.calculateAverageRating(applicantId)).willReturn(4.4);
                 given(applicationRepository.findByPartyIdAndApplicantId(1L, applicantId))
                                 .willReturn(Optional.empty());
                 given(applicationRepository.existsByPartyIdAndApplicantIdAndIsRejectedTrue(1L, applicantId))
@@ -98,14 +113,20 @@ class PartyApplicationVerificationTest {
                                         app.setId(99L);
                                         return app;
                                 });
+                given(applicationRepository.saveAndFlush(any(PartyApplication.class)))
+                                .willAnswer(inv -> {
+                                        PartyApplication app = inv.getArgument(0);
+                                        app.setId(99L);
+                                        return app;
+                                });
         }
 
         @Nested
-        @DisplayName("P1: applicantId Principal 기반 파생")
+        @DisplayName("P1: applicant identity/value는 Principal 및 서버 계산 기반")
         class ApplicantIdFromPrincipal {
 
                 @Test
-                @DisplayName("Principal에서 applicantId를 올바르게 파생해야 한다")
+                @DisplayName("Principal에서 applicantId와 이름, 평점을 올바르게 파생해야 한다")
                 void shouldResolveApplicantIdFromPrincipal() {
                         // given
                         Long realUserId = 42L;
@@ -114,8 +135,6 @@ class PartyApplicationVerificationTest {
 
                         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                                         .partyId(1L)
-                                        .applicantId(999L) // 위조된 ID — 무시되어야 함
-                                        .applicantName("Spoofed")
                                         .depositAmount(10000)
                                         .paymentType(PartyApplication.PaymentType.DEPOSIT)
                                         .build();
@@ -123,9 +142,11 @@ class PartyApplicationVerificationTest {
                         // when
                         PartyApplicationDTO.Response response = service.createApplication(request, testPrincipal);
 
-                        // then — 저장된 신청의 applicantId는 42L이어야 하고, name은 "TestUser"
-                        verify(applicationRepository).save(argThat(app -> app.getApplicantId().equals(42L) &&
-                                        app.getApplicantName().equals("TestUser")));
+                        // then — 저장된 신청의 applicantId/name/rating 은 서버 파생값이어야 한다
+                        verify(applicationRepository).saveAndFlush(argThat(app -> app.getApplicantId().equals(42L) &&
+                                        app.getApplicantName().equals("TestUser") &&
+                                        app.getApplicantRating().equals(4.4)));
+                        assertThat(response.getApplicantHandle()).isEqualTo("@test-user");
                 }
 
                 @Test
@@ -134,6 +155,12 @@ class PartyApplicationVerificationTest {
                         // given
                         Long userId = 101L;
                         given(userService.getUserIdByEmail("test@example.com")).willReturn(userId);
+                        given(userService.findUserById(userId)).willReturn(
+                                        com.example.auth.entity.UserEntity.builder()
+                                                        .id(userId)
+                                                        .handle("@test-user")
+                                                        .name("TestUser")
+                                                        .build());
 
                         PartyApplication app = PartyApplication.builder()
                                         .id(1L)
@@ -148,7 +175,21 @@ class PartyApplicationVerificationTest {
 
                         // then
                         assertThat(result).hasSize(1);
-                        assertThat(result.get(0).getApplicantId()).isEqualTo(userId);
+                        assertThat(result.get(0).getApplicantHandle()).isEqualTo("@test-user");
+                }
+
+                @Test
+                @DisplayName("principal 없는 신청 생성은 차단되어야 한다")
+                void shouldRejectCreateApplicationWithoutPrincipal() {
+                        PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
+                                        .partyId(1L)
+                                        .depositAmount(10000)
+                                        .paymentType(PartyApplication.PaymentType.DEPOSIT)
+                                        .build();
+
+                        assertThatThrownBy(() -> service.createApplication(request))
+                                        .isInstanceOf(com.example.common.exception.AuthenticationRequiredException.class)
+                                        .hasMessageContaining("인증 정보");
                 }
         }
 
@@ -180,20 +221,20 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.VERIFIED &&
-                                                        app.getTicketVerified()));
+                                        .saveAndFlush(argThat(
+                                                        app -> app.getApplicantBadge() == Party.BadgeType.VERIFIED &&
+                                                                        app.getTicketVerified()));
                 }
 
                 @Test
-                @DisplayName("클라이언트가 VERIFIED 배지를 보내도 서버가 무시 → NEW")
-                void shouldIgnoreClientVerifiedBadge() {
+                @DisplayName("검증 토큰과 실적이 없으면 NEW 배지를 부여한다")
+                void shouldAssignNewBadgeWithoutVerificationOrHistory() {
                         Long userId = 42L;
                         setupCommonMocks(userId);
                         given(applicationRepository.countByApplicantIdAndIsApprovedTrue(userId)).willReturn(0L);
 
                         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                                         .partyId(1L)
-                                        .applicantBadge(Party.BadgeType.VERIFIED) // 위조 시도
                                         .depositAmount(10000)
                                         .paymentType(PartyApplication.PaymentType.DEPOSIT)
                                         .build();
@@ -201,19 +242,18 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW));
+                                        .saveAndFlush(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW));
                 }
 
                 @Test
-                @DisplayName("클라이언트가 TRUSTED 배지를 보내도 서버가 무시 — 실적 3건 미만이면 NEW")
-                void shouldIgnoreClientTrustedBadgeWhenNotEligible() {
+                @DisplayName("실적 3건 미만이면 TRUSTED 대신 NEW 배지를 유지한다")
+                void shouldKeepNewBadgeWhenNotEligibleForTrusted() {
                         Long userId = 42L;
                         setupCommonMocks(userId);
                         given(applicationRepository.countByApplicantIdAndIsApprovedTrue(userId)).willReturn(2L);
 
                         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                                         .partyId(1L)
-                                        .applicantBadge(Party.BadgeType.TRUSTED) // 위조 시도
                                         .depositAmount(10000)
                                         .paymentType(PartyApplication.PaymentType.DEPOSIT)
                                         .build();
@@ -221,7 +261,7 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW));
+                                        .saveAndFlush(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW));
                 }
 
                 @Test
@@ -240,7 +280,8 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.TRUSTED));
+                                        .saveAndFlush(argThat(
+                                                        app -> app.getApplicantBadge() == Party.BadgeType.TRUSTED));
                 }
         }
 
@@ -272,8 +313,9 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.VERIFIED &&
-                                                        app.getTicketVerified()));
+                                        .saveAndFlush(argThat(
+                                                        app -> app.getApplicantBadge() == Party.BadgeType.VERIFIED &&
+                                                                        app.getTicketVerified()));
                 }
 
                 @Test
@@ -301,7 +343,7 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW &&
+                                        .saveAndFlush(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW &&
                                                         !app.getTicketVerified()));
                 }
 
@@ -323,7 +365,7 @@ class PartyApplicationVerificationTest {
                         service.createApplication(request, testPrincipal);
 
                         verify(applicationRepository)
-                                        .save(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW &&
+                                        .saveAndFlush(argThat(app -> app.getApplicantBadge() == Party.BadgeType.NEW &&
                                                         !app.getTicketVerified()));
                 }
         }
@@ -345,6 +387,12 @@ class PartyApplicationVerificationTest {
                                         .build();
 
                         given(userService.getUserIdByEmail("host@example.com")).willReturn(100L);
+                        given(userService.findUserById(42L)).willReturn(
+                                        com.example.auth.entity.UserEntity.builder()
+                                                        .id(42L)
+                                                        .handle("@applicant")
+                                                        .name("Applicant")
+                                                        .build());
                         given(partyRepository.findById(1L)).willReturn(Optional.of(testParty));
                         given(applicationRepository.findByPartyId(1L)).willReturn(java.util.List.of(application));
 
@@ -383,6 +431,12 @@ class PartyApplicationVerificationTest {
                                         .build();
 
                         given(userService.getUserIdByEmail("applicant@example.com")).willReturn(55L);
+                        given(userService.findUserById(55L)).willReturn(
+                                        com.example.auth.entity.UserEntity.builder()
+                                                        .id(55L)
+                                                        .handle("@applicant")
+                                                        .name("Applicant")
+                                                        .build());
                         given(applicationRepository.findByPartyIdAndApplicantId(1L, 55L))
                                         .willReturn(Optional.of(application));
                         given(applicationRepository.findByPartyIdAndApplicantId(2L, 55L))

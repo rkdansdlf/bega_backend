@@ -1,21 +1,28 @@
 package com.example.mypage.controller;
 
 import com.example.common.dto.ApiResponse;
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.ConflictBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
+import com.example.common.exception.UnauthorizedBusinessException;
+import com.example.common.exception.UserNotFoundException;
 import com.example.auth.entity.UserEntity;
 import com.example.mypage.dto.UserProfileDto;
 import com.example.mypage.dto.DeviceSessionDto;
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.repository.RefreshRepository;
+import com.example.auth.service.AccountSecurityService;
+import com.example.auth.service.PolicyConsentService;
 import com.example.auth.util.AuthCookieUtil;
 
 import com.example.auth.service.UserService;
 import com.example.auth.util.JWTUtil;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j; // Add Slf4j
+import lombok.extern.slf4j.Slf4j;
 import com.example.profile.storage.service.ProfileImageService;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -48,60 +55,48 @@ public class MypageController {
         private final ProfileImageService profileImageService;
         private final RefreshRepository refreshRepository;
         private final AuthCookieUtil authCookieUtil;
+        private final PolicyConsentService policyConsentService;
+        private final AccountSecurityService accountSecurityService;
 
         // 프로필 정보 조회 (GET /mypage) - 수정 없음
         @GetMapping("/mypage")
         public ResponseEntity<ApiResponse> getMyProfile(
                         @AuthenticationPrincipal Long userId) {
-                // 인증되지 않은 사용자인 경우 401 반환
-                if (userId == null) {
-                        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                                        .body(ApiResponse.error("인증이 필요합니다."));
-                }
+                UserEntity userEntity = requireAuthenticatedUser(userId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)");
+                PolicyConsentService.PolicyConsentStatus policyConsentStatus = policyConsentService
+                                .evaluatePolicyConsentStatus(userEntity.getId());
 
-                try {
-                        // JWT 토큰에서 ID (userId) 사용
-                        // UserService를 통해 실제 DB에서 사용자 정보 조회
-                        UserEntity userEntity = userService.findUserById(userId);
+                UserProfileDto profileDto = UserProfileDto.builder()
+                                .id(userEntity.getId())
+                                .name(userEntity.getName())
+                                .handle(userEntity.getHandle())
+                                .email(userEntity.getEmail())
+                                .favoriteTeam(userEntity.getFavoriteTeamId() != null
+                                                ? userEntity.getFavoriteTeamId()
+                                                : "없음")
+                                .profileImageUrl(profileImageService
+                                                .getProfileImageUrl(userEntity.getProfileImageUrl()))
+                                .createdAt(userEntity.getCreatedAt() != null
+                                                ? userEntity.getCreatedAt()
+                                                                .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                                                                .format(DateTimeFormatter.ISO_DATE_TIME)
+                                                : null)
+                                .role(userEntity.getRole())
+                                .bio(userEntity.getBio())
+                                .cheerPoints(userEntity.getCheerPoints())
+                                .provider(userEntity.getProvider())
+                                .providerId(userEntity.getProviderId())
+                                .hasPassword(userEntity.getPassword() != null)
+                                .policyConsentRequired(policyConsentStatus.policyConsentRequired())
+                                .policyConsentNoticeRequired(policyConsentStatus.policyConsentNoticeRequired())
+                                .missingPolicyTypes(policyConsentStatus.missingPolicyTypes())
+                                .policyConsentEffectiveDate(policyConsentStatus.effectiveDate())
+                                .policyConsentHardGateDate(policyConsentStatus.hardGateDate())
+                                .build();
 
-                        // Entity를 DTO로 변환
-                        UserProfileDto profileDto = UserProfileDto.builder()
-                                        .id(userEntity.getId())
-                                        .name(userEntity.getName())
-                                        .handle(userEntity.getHandle())
-                                        .email(userEntity.getEmail())
-                                        .favoriteTeam(userEntity.getFavoriteTeamId() != null
-                                                        ? userEntity.getFavoriteTeamId()
-                                                        : "없음")
-                                        .profileImageUrl(profileImageService
-                                                        .getProfileImageUrl(userEntity.getProfileImageUrl()))
-                                        .createdAt(userEntity.getCreatedAt() != null
-                                                        ? userEntity.getCreatedAt()
-                                                                        .atZone(java.time.ZoneId.of("Asia/Seoul"))
-                                                                        .format(DateTimeFormatter.ISO_DATE_TIME)
-                                                        : null)
-                                        .role(userEntity.getRole())
-                                        .bio(userEntity.getBio())
-                                        .cheerPoints(userEntity.getCheerPoints())
-                                        .provider(userEntity.getProvider())
-                                        .providerId(userEntity.getProviderId())
-                                        .hasPassword(userEntity.getPassword() != null)
-                                        .build();
-
-                        // 성공 응답 (HTTP 200 OK)
-                        log.info("getMyProfile - userId: {}, email: {}, points: {}", userId, userEntity.getEmail(),
-                                        userEntity.getCheerPoints());
-                        return ResponseEntity.ok(ApiResponse.success("프로필 조회 성공", profileDto));
-
-                } catch (RuntimeException e) {
-                        // 토큰은 유효하지만 DB에 유저가 없는 경우 (Zombie Session) -> 401로 응답하여 재로그인 유도
-                        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                                        .body(ApiResponse.error("요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)"));
-
-                } catch (Exception e) {
-                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                        .body(ApiResponse.error("프로필 정보를 불러오는 중 서버 오류가 발생했습니다."));
-                }
+                log.info("getMyProfile - userId: {}, email: {}, points: {}", userId, userEntity.getEmail(),
+                                userEntity.getCheerPoints());
+                return ResponseEntity.ok(ApiResponse.success("프로필 조회 성공", profileDto));
         }
 
         // 프로필 정보 수정 (PUT /mypage)
@@ -109,55 +104,36 @@ public class MypageController {
         public ResponseEntity<ApiResponse> updateMyProfile(
                         @AuthenticationPrincipal Long userId,
                         @Valid @RequestBody UserProfileDto updateDto) {
-                try {
-                        // DTO에서 이름 유효성 검증 (@Valid를 사용하므로 간소화)
-                        if (updateDto.getName() == null || updateDto.getName().trim().isEmpty()) {
-                                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                                                .body(ApiResponse.error("이름/닉네임은 필수 입력 항목입니다."));
-                        }
-
-                        // 서비스 메서드 호출 시, DTO 객체를 바로 전달
-                        UserEntity updatedEntity = userService.updateProfile(
-                                        userId,
-                                        updateDto);
-
-                        // 유저 정보가 수정되면 즉시 새로운 토큰 생성
-                        String newRoleKey = updatedEntity.getRole();
-                        String userEmail = updatedEntity.getEmail();
-                        Long currentUserId = userId;
-                        int tokenVersion = updatedEntity.getTokenVersion() == null ? 0 : updatedEntity.getTokenVersion();
-
-                        String newJwtToken = jwtUtil.createJwt(userEmail, newRoleKey, currentUserId,
-                                        ACCESS_TOKEN_EXPIRED_MS, tokenVersion);
-
-                        ResponseCookie cookie = authCookieUtil.buildAuthCookie(newJwtToken, ACCESS_TOKEN_EXPIRED_MS / 1000);
-
-                        // 프로필 정보만 응답 데이터로 전달합니다.
-                        Map<String, Object> responseMap = new HashMap<>();
-
-                        // 프론트엔드 MyPage.tsx의 handleSave에서 필요한 필드들
-                        responseMap.put("profileImageUrl",
-                                        profileImageService.getProfileImageUrl(updatedEntity.getProfileImageUrl()));
-                        responseMap.put("name", updatedEntity.getName());
-                        responseMap.put("handle", updatedEntity.getHandle());
-                        responseMap.put("email", updatedEntity.getEmail());
-                        responseMap.put("favoriteTeam",
-                                        updatedEntity.getFavoriteTeamId() != null ? updatedEntity.getFavoriteTeamId()
-                                                        : "없음");
-                        responseMap.put("bio", updatedEntity.getBio());
-
-                        return ResponseEntity.ok()
-                                        .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                                        .body(ApiResponse.success("프로필 수정 성공 및 JWT 쿠키 재설정 완료", responseMap));
-
-                } catch (RuntimeException e) {
-                        // 유효하지 않은 팀 ID 등 RuntimeException 처리
-                        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                                        .body(ApiResponse.error("프로필 수정 중 오류가 발생했습니다: " + e.getMessage()));
-                } catch (Exception e) {
-                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                        .body(ApiResponse.error("프로필 수정 중 서버 오류가 발생했습니다."));
+                Long authenticatedUserId = requireAuthenticatedUserId(userId);
+                if (updateDto.getName() == null || updateDto.getName().trim().isEmpty()) {
+                        throw new BadRequestBusinessException("PROFILE_NAME_REQUIRED", "이름/닉네임은 필수 입력 항목입니다.");
                 }
+
+                requireAuthenticatedUser(authenticatedUserId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)");
+                UserEntity updatedEntity = userService.updateProfile(authenticatedUserId, updateDto);
+
+                String newRoleKey = updatedEntity.getRole();
+                String userEmail = updatedEntity.getEmail();
+                int tokenVersion = updatedEntity.getTokenVersion() == null ? 0 : updatedEntity.getTokenVersion();
+
+                String newJwtToken = jwtUtil.createJwt(userEmail, newRoleKey, authenticatedUserId,
+                                ACCESS_TOKEN_EXPIRED_MS, tokenVersion);
+
+                ResponseCookie cookie = authCookieUtil.buildAuthCookie(newJwtToken, ACCESS_TOKEN_EXPIRED_MS / 1000);
+
+                Map<String, Object> responseMap = new HashMap<>();
+                responseMap.put("profileImageUrl",
+                                profileImageService.getProfileImageUrl(updatedEntity.getProfileImageUrl()));
+                responseMap.put("name", updatedEntity.getName());
+                responseMap.put("handle", updatedEntity.getHandle());
+                responseMap.put("email", updatedEntity.getEmail());
+                responseMap.put("favoriteTeam",
+                                updatedEntity.getFavoriteTeamId() != null ? updatedEntity.getFavoriteTeamId() : "없음");
+                responseMap.put("bio", updatedEntity.getBio());
+
+                return ResponseEntity.ok()
+                                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                                .body(ApiResponse.success("프로필 수정 성공 및 JWT 쿠키 재설정 완료", responseMap));
         }
 
         /**
@@ -167,27 +143,17 @@ public class MypageController {
         public ResponseEntity<ApiResponse> changePassword(
                         @AuthenticationPrincipal Long userId,
                         @Valid @RequestBody com.example.mypage.dto.ChangePasswordRequest request) {
-                try {
-                        // 새 비밀번호와 확인 일치 체크
-                        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
-                                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                                                .body(ApiResponse.error("새 비밀번호와 비밀번호 확인이 일치하지 않습니다."));
-                        }
+                Long authenticatedUserId = requireAuthenticatedUserId(userId);
+                requireAuthenticatedUser(authenticatedUserId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)");
+                userService.changePassword(authenticatedUserId, request.getCurrentPassword(), request.getNewPassword());
 
-                        userService.changePassword(userId, request.getCurrentPassword(), request.getNewPassword());
+                ResponseCookie expireAuthCookie = authCookieUtil.buildExpiredAuthCookie();
+                ResponseCookie expireRefreshCookie = authCookieUtil.buildExpiredRefreshCookie();
 
-                        return ResponseEntity.ok(ApiResponse.success("비밀번호가 성공적으로 변경되었습니다."));
-
-                } catch (IllegalStateException e) {
-                        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                                        .body(ApiResponse.error(e.getMessage()));
-                } catch (com.example.common.exception.InvalidCredentialsException e) {
-                        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                                        .body(ApiResponse.error("현재 비밀번호가 일치하지 않습니다."));
-                } catch (Exception e) {
-                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                        .body(ApiResponse.error("비밀번호 변경 중 오류가 발생했습니다."));
-                }
+                return ResponseEntity.ok()
+                                .header(HttpHeaders.SET_COOKIE, expireAuthCookie.toString())
+                                .header(HttpHeaders.SET_COOKIE, expireRefreshCookie.toString())
+                                .body(ApiResponse.success("비밀번호가 성공적으로 변경되었습니다."));
         }
 
         /**
@@ -197,31 +163,21 @@ public class MypageController {
         public ResponseEntity<ApiResponse> deleteAccount(
                         @AuthenticationPrincipal Long userId,
                         @RequestBody(required = false) com.example.mypage.dto.DeleteAccountRequest request) {
-                try {
-                        String password = request != null ? request.getPassword() : null;
+                Long authenticatedUserId = requireAuthenticatedUserId(userId);
+                requireAuthenticatedUser(authenticatedUserId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)");
 
-                        userService.deleteAccount(userId, password);
+                String password = request != null ? request.getPassword() : null;
+                LocalDateTime scheduledFor = userService.deleteAccount(authenticatedUserId, password);
 
-                        // 쿠키 삭제를 위한 빈 쿠키 생성
-                        ResponseCookie authCookie = authCookieUtil.buildExpiredAuthCookie();
+                ResponseCookie authCookie = authCookieUtil.buildExpiredAuthCookie();
+                ResponseCookie refreshCookie = authCookieUtil.buildExpiredRefreshCookie();
 
-                        ResponseCookie refreshCookie = authCookieUtil.buildExpiredRefreshCookie();
-
-                        return ResponseEntity.ok()
-                                        .header(HttpHeaders.SET_COOKIE, authCookie.toString())
-                                        .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
-                                        .body(ApiResponse.success("계정이 성공적으로 삭제되었습니다."));
-
-                } catch (IllegalArgumentException e) {
-                        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                                        .body(ApiResponse.error(e.getMessage()));
-                } catch (com.example.common.exception.InvalidCredentialsException e) {
-                        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                                        .body(ApiResponse.error("비밀번호가 일치하지 않습니다."));
-                } catch (Exception e) {
-                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                        .body(ApiResponse.error("계정 삭제 중 오류가 발생했습니다."));
-                }
+                return ResponseEntity.ok()
+                                .header(HttpHeaders.SET_COOKIE, authCookie.toString())
+                                .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
+                                .body(ApiResponse.success(
+                                                "계정 삭제가 예약되었습니다.",
+                                                Map.of("scheduledFor", scheduledFor == null ? null : scheduledFor.toString())));
         }
 
         /**
@@ -229,14 +185,11 @@ public class MypageController {
          */
         @GetMapping("/providers")
         public ResponseEntity<ApiResponse> getConnectedProviders(@AuthenticationPrincipal Long userId) {
-                try {
-                        java.util.List<com.example.mypage.dto.UserProviderDto> providers = userService
-                                        .getConnectedProviders(userId);
-                        return ResponseEntity.ok(ApiResponse.success("연동된 계정 목록 조회 성공", providers));
-                } catch (Exception e) {
-                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                        .body(ApiResponse.error("연동된 계정 목록을 불러오는 중 오류가 발생했습니다."));
-                }
+                Long authenticatedUserId = requireAuthenticatedUserId(userId);
+                requireAuthenticatedUser(authenticatedUserId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)");
+                java.util.List<com.example.mypage.dto.UserProviderDto> providers = userService
+                                .getConnectedProviders(authenticatedUserId);
+                return ResponseEntity.ok(ApiResponse.success("연동된 계정 목록 조회 성공", providers));
         }
 
         /**
@@ -246,16 +199,10 @@ public class MypageController {
         public ResponseEntity<ApiResponse> unlinkProvider(
                         @AuthenticationPrincipal Long userId,
                         @PathVariable String provider) {
-                try {
-                        userService.unlinkProvider(userId, provider);
-                        return ResponseEntity.ok(ApiResponse.success("계정 연동이 해제되었습니다."));
-                } catch (IllegalStateException e) {
-                        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                                        .body(ApiResponse.error(e.getMessage()));
-                } catch (Exception e) {
-                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                        .body(ApiResponse.error("계정 연동 해제 중 오류가 발생했습니다."));
-                }
+                Long authenticatedUserId = requireAuthenticatedUserId(userId);
+                requireAuthenticatedUser(authenticatedUserId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)");
+                userService.unlinkProvider(authenticatedUserId, provider);
+                return ResponseEntity.ok(ApiResponse.success("계정 연동이 해제되었습니다."));
         }
 
         /**
@@ -265,41 +212,35 @@ public class MypageController {
         public ResponseEntity<ApiResponse> getSessions(
                         @AuthenticationPrincipal Long userId,
                         HttpServletRequest request) {
-                try {
-                        if (userId == null) {
-                                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                                                .body(ApiResponse.error("인증이 필요합니다."));
-                        }
+                UserEntity user = requireAuthenticatedUser(userId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다.");
+                List<RefreshToken> refreshTokens = refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail());
+                String currentRefreshToken = resolveCookieValue(request, "Refresh");
+                String requestUserAgent = request.getHeader("User-Agent");
+                String requestIpAddress = resolveIpAddress(request);
 
-                        UserEntity user = userService.findUserById(userId);
-                        if (user == null) {
-                                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                                                .body(ApiResponse.error("요청한 사용자의 프로필 정보를 찾을 수 없습니다."));
-                        }
+                RefreshToken currentSessionToken = resolveCurrentSessionToken(
+                                refreshTokens,
+                                currentRefreshToken,
+                                requestUserAgent,
+                                requestIpAddress);
+                String currentSessionId = currentSessionToken != null && currentSessionToken.getId() != null
+                                ? String.valueOf(currentSessionToken.getId())
+                                : null;
 
-                        List<RefreshToken> refreshTokens = refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail());
-                        String currentRefreshToken = resolveCookieValue(request, "Refresh");
-                        String requestUserAgent = request.getHeader("User-Agent");
-                        String requestIpAddress = resolveIpAddress(request);
+                List<DeviceSessionDto> sessions = refreshTokens.stream()
+                                .map(token -> buildDeviceSessionDto(token, currentSessionId, requestUserAgent, requestIpAddress))
+                                .sorted((left, right) -> {
+                                        if (left.isCurrent() != right.isCurrent()) {
+                                                return left.isCurrent() ? -1 : 1;
+                                        }
 
-                        List<DeviceSessionDto> sessions = refreshTokens.stream()
-                                        .map(token -> buildDeviceSessionDto(token, currentRefreshToken, requestUserAgent, requestIpAddress))
-                                        .sorted((left, right) -> {
-                                                if (left.isCurrent() != right.isCurrent()) {
-                                                        return left.isCurrent() ? -1 : 1;
-                                                }
+                                        long leftActiveAt = parseSessionTime(left.getLastActiveAt());
+                                        long rightActiveAt = parseSessionTime(right.getLastActiveAt());
+                                        return Long.compare(rightActiveAt, leftActiveAt);
+                                })
+                                .toList();
 
-                                                long leftActiveAt = parseSessionTime(left.getLastActiveAt());
-                                                long rightActiveAt = parseSessionTime(right.getLastActiveAt());
-                                                return Long.compare(rightActiveAt, leftActiveAt);
-                                        })
-                                        .toList();
-
-                        return ResponseEntity.ok(ApiResponse.success("기기 목록 조회 성공", sessions));
-                } catch (Exception e) {
-                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                        .body(ApiResponse.error("기기 목록 조회에 실패했습니다."));
-                }
+                return ResponseEntity.ok(ApiResponse.success("기기 목록 조회 성공", sessions));
         }
 
         /**
@@ -310,88 +251,93 @@ public class MypageController {
                         @AuthenticationPrincipal Long userId,
                         @PathVariable("sessionId") String sessionId,
                         HttpServletRequest request) {
-                try {
-                        if (userId == null) {
-                                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                                                .body(ApiResponse.error("인증이 필요합니다."));
-                        }
+                UserEntity user = requireAuthenticatedUser(userId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다.");
 
-                        UserEntity user = userService.findUserById(userId);
-                        if (user == null) {
-                                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                                                .body(ApiResponse.error("요청한 사용자의 프로필 정보를 찾을 수 없습니다."));
-                        }
+                List<RefreshToken> refreshTokens = refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail());
+                String currentRefreshToken = resolveCookieValue(request, "Refresh");
+                RefreshToken currentSessionToken = resolveCurrentSessionToken(
+                                refreshTokens,
+                                currentRefreshToken,
+                                request.getHeader("User-Agent"),
+                                resolveIpAddress(request));
+                String currentSessionId = currentSessionToken != null && currentSessionToken.getId() != null
+                                ? String.valueOf(currentSessionToken.getId())
+                                : null;
+                RefreshToken targetToken = refreshTokens.stream()
+                                .filter(item -> item.getId() != null && String.valueOf(item.getId()).equals(sessionId))
+                                .findFirst()
+                                .orElse(null);
 
-                        List<RefreshToken> refreshTokens = refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail());
-                        String currentRefreshToken = resolveCookieValue(request, "Refresh");
-                        String currentSessionId = refreshTokens.stream()
-                                        .filter(item -> item.getToken() != null && item.getToken().equals(currentRefreshToken)
-                                                        && item.getId() != null)
-                                        .map(item -> String.valueOf(item.getId()))
-                                        .findFirst()
-                                        .orElse(null);
-                        RefreshToken targetToken = refreshTokens.stream()
-                                        .filter(item -> item.getId() != null && String.valueOf(item.getId()).equals(sessionId))
-                                        .findFirst()
-                                        .orElse(null);
-
-                        if (targetToken == null || targetToken.getId() == null) {
-                                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                                                .body(ApiResponse.error("종료할 세션 정보를 찾을 수 없습니다."));
-                        }
-
-                        if (Objects.equals(currentSessionId, sessionId) && currentRefreshToken != null) {
-                                return ResponseEntity.badRequest()
-                                                .body(ApiResponse.error("현재 사용 중인 세션은 직접 종료할 수 없습니다."));
-                        }
-
-                        refreshRepository.delete(targetToken);
-                        return ResponseEntity.ok(ApiResponse.success("선택한 세션을 종료했습니다."));
-                } catch (Exception e) {
-                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                        .body(ApiResponse.error("세션 종료에 실패했습니다."));
+                if (targetToken == null || targetToken.getId() == null) {
+                        throw new NotFoundBusinessException("SESSION_NOT_FOUND", "종료할 세션 정보를 찾을 수 없습니다.");
                 }
+
+                if (Objects.equals(currentSessionId, sessionId) && currentRefreshToken != null) {
+                        throw new BadRequestBusinessException(
+                                        "CURRENT_SESSION_REVOKE_NOT_ALLOWED",
+                                        "현재 사용 중인 세션은 직접 종료할 수 없습니다.");
+                }
+
+                refreshRepository.delete(targetToken);
+                accountSecurityService.recordSessionRevoked(user.getId(), targetToken);
+                return ResponseEntity.ok(ApiResponse.success("선택한 세션을 종료했습니다."));
         }
 
         /**
          * 현재 세션 제외 세션 정리
          */
         @DeleteMapping("/sessions")
-                        public ResponseEntity<ApiResponse> deleteSessions(
+        public ResponseEntity<ApiResponse> deleteSessions(
                         @AuthenticationPrincipal Long userId,
                         @RequestParam(name = "allExceptCurrent", defaultValue = "false") boolean allExceptCurrent,
                         HttpServletRequest request) {
-                try {
-                if (userId == null) {
-                                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                                                .body(ApiResponse.error("인증이 필요합니다."));
-                        }
-
-                        if (!allExceptCurrent) {
-                                return ResponseEntity.badRequest().body(ApiResponse.error("지원되지 않는 요청입니다."));
-                        }
-
-                UserEntity user = userService.findUserById(userId);
-                if (user == null) {
-                        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                                        .body(ApiResponse.error("요청한 사용자의 프로필 정보를 찾을 수 없습니다."));
+                UserEntity user = requireAuthenticatedUser(userId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다.");
+                if (!allExceptCurrent) {
+                        throw new BadRequestBusinessException("UNSUPPORTED_SESSION_CLEANUP_REQUEST", "지원되지 않는 요청입니다.");
                 }
 
                 List<RefreshToken> refreshTokens = refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail());
                 String currentRefreshToken = resolveCookieValue(request, "Refresh");
-                List<RefreshToken> targets = currentRefreshToken == null
-                                ? refreshTokens
-                                : refreshRepository.findAllByEmailAndTokenNot(user.getEmail(), currentRefreshToken);
+                RefreshToken currentSessionToken = resolveCurrentSessionToken(
+                                refreshTokens,
+                                currentRefreshToken,
+                                request.getHeader("User-Agent"),
+                                resolveIpAddress(request));
+
+                if (currentSessionToken == null || currentSessionToken.getId() == null) {
+                        throw new ConflictBusinessException(
+                                        "CURRENT_SESSION_NOT_RESOLVED",
+                                        "현재 세션을 확인하지 못해 다른 기기 로그아웃을 중단했습니다. 다시 로그인 후 시도해주세요.");
+                }
+
+                List<RefreshToken> targets = refreshTokens.stream()
+                                .filter(token -> token.getId() != null
+                                                && !Objects.equals(token.getId(), currentSessionToken.getId()))
+                                .toList();
 
                 if (targets.isEmpty()) {
                         return ResponseEntity.ok(ApiResponse.success("종료할 다른 세션이 없습니다."));
                 }
 
+                int revokedCount = targets.size();
                 refreshRepository.deleteAll(targets);
+                accountSecurityService.recordOtherSessionsRevoked(userId, revokedCount);
                 return ResponseEntity.ok(ApiResponse.success("현재 기기 제외 다른 기기 로그아웃이 완료되었습니다."));
-                } catch (Exception e) {
-                        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                .body(ApiResponse.error("세션 정리 요청에 실패했습니다."));
+        }
+
+        private Long requireAuthenticatedUserId(Long userId) {
+                if (userId == null) {
+                        throw new AuthenticationRequiredException("인증이 필요합니다.");
+                }
+                return userId;
+        }
+
+        private UserEntity requireAuthenticatedUser(Long userId, String notFoundMessage) {
+                Long authenticatedUserId = requireAuthenticatedUserId(userId);
+                try {
+                        return userService.findUserById(authenticatedUserId);
+                } catch (UserNotFoundException ex) {
+                        throw new UnauthorizedBusinessException("AUTHENTICATED_USER_NOT_FOUND", notFoundMessage);
                 }
         }
 
@@ -425,13 +371,12 @@ public class MypageController {
                 return remoteAddr != null ? remoteAddr : "unknown";
         }
 
-        private DeviceSessionDto buildDeviceSessionDto(RefreshToken refreshToken, String currentRefreshToken, String requestUserAgent,
+        private DeviceSessionDto buildDeviceSessionDto(RefreshToken refreshToken, String currentSessionId, String requestUserAgent,
                         String requestIpAddress) {
                 String userAgent = requestUserAgent;
-                boolean isExpired = refreshToken.getExpiryDate() == null
-                                || refreshToken.getExpiryDate().isBefore(LocalDateTime.now());
-                boolean isCurrentSession = refreshToken.getToken() != null && currentRefreshToken != null
-                                ? refreshToken.getToken().equals(currentRefreshToken) && !isExpired
+                boolean isExpired = isRefreshTokenExpired(refreshToken);
+                boolean isCurrentSession = refreshToken.getId() != null && currentSessionId != null
+                                ? String.valueOf(refreshToken.getId()).equals(currentSessionId) && !isExpired
                                 : false;
 
                 String sessionId = refreshToken.getId() != null
@@ -468,6 +413,58 @@ public class MypageController {
                                 .isRevoked(isExpired)
                                 .ip(ipAddress)
                                 .build();
+        }
+
+        private RefreshToken resolveCurrentSessionToken(
+                        List<RefreshToken> refreshTokens,
+                        String currentRefreshToken,
+                        String requestUserAgent,
+                        String requestIpAddress) {
+                if (refreshTokens == null || refreshTokens.isEmpty()) {
+                        return null;
+                }
+
+                RefreshToken cookieMatchedToken = refreshTokens.stream()
+                                .filter(token -> token.getId() != null
+                                                && token.getToken() != null
+                                                && currentRefreshToken != null
+                                                && token.getToken().equals(currentRefreshToken)
+                                                && !isRefreshTokenExpired(token))
+                                .findFirst()
+                                .orElse(null);
+                if (cookieMatchedToken != null) {
+                        return cookieMatchedToken;
+                }
+
+                String resolvedDeviceType = resolveDeviceType(requestUserAgent);
+                String resolvedDeviceLabel = resolveDeviceLabel(requestUserAgent, resolvedDeviceType);
+                String resolvedBrowser = resolveBrowser(requestUserAgent);
+                String resolvedOs = resolveOs(requestUserAgent);
+
+                return refreshTokens.stream()
+                                .filter(token -> token.getId() != null && !isRefreshTokenExpired(token))
+                                .filter(token -> isSameText(token.getDeviceType(), resolvedDeviceType))
+                                .filter(token -> isSameText(token.getDeviceLabel(), resolvedDeviceLabel))
+                                .filter(token -> isSameText(token.getBrowser(), resolvedBrowser))
+                                .filter(token -> isSameText(token.getOs(), resolvedOs))
+                                .filter(token -> token.getIp() == null || token.getIp().isBlank()
+                                                || requestIpAddress == null || requestIpAddress.isBlank()
+                                                || token.getIp().equals(requestIpAddress))
+                                .findFirst()
+                                .orElse(null);
+        }
+
+        private boolean isRefreshTokenExpired(RefreshToken refreshToken) {
+                return refreshToken.getExpiryDate() == null
+                                || refreshToken.getExpiryDate().isBefore(LocalDateTime.now());
+        }
+
+        private boolean isSameText(String left, String right) {
+                if (left == null || left.isBlank() || right == null || right.isBlank()) {
+                        return false;
+                }
+
+                return left.trim().equalsIgnoreCase(right.trim());
         }
 
         private String normalizeText(String value, String fallback) {

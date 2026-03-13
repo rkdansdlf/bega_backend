@@ -14,34 +14,35 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/auth/password/reset")
 @RequiredArgsConstructor
 public class PasswordResetController {
-    
+
+    private static final String PASSWORD_RESET_REQUEST_MESSAGE =
+            "입력한 이메일로 가입된 계정이 있다면 비밀번호 재설정 안내를 발송했습니다.";
+
     private final PasswordResetService passwordResetService;
-    
+
+    @com.example.common.ratelimit.RateLimit(
+            limit = 5,
+            window = 900,
+            key = "auth:password-reset-request",
+            failClosed = true)
     @PostMapping("/request")
     public ResponseEntity<ApiResponse> requestPasswordReset(
             @Valid @RequestBody PasswordResetRequestDto request) {
-        try {
-            passwordResetService.requestPasswordReset(request);
-            return ResponseEntity.ok(
-                ApiResponse.success("비밀번호 재설정 이메일이 발송되었습니다.", null)
-            );
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error(e.getMessage()));
-        }
+        passwordResetService.requestPasswordReset(request);
+        return ResponseEntity.ok(ApiResponse.success(PASSWORD_RESET_REQUEST_MESSAGE, null));
     }
-    
+
+    @com.example.common.ratelimit.RateLimit(
+            limit = 10,
+            window = 900,
+            key = "auth:password-reset-confirm",
+            failClosed = true)
     @PostMapping("/confirm")
     public ResponseEntity<ApiResponse> confirmPasswordReset(
             @Valid @RequestBody PasswordResetConfirmDto request) {
-        try {
-            passwordResetService.confirmPasswordReset(request);
-            return ResponseEntity.ok(
-                ApiResponse.success("비밀번호가 성공적으로 변경되었습니다.", null)
-            );
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error(e.getMessage()));
-        }
+        passwordResetService.confirmPasswordReset(request);
+        return ResponseEntity.ok(
+            ApiResponse.success("비밀번호가 성공적으로 변경되었습니다.", null)
+        );
     }
 }

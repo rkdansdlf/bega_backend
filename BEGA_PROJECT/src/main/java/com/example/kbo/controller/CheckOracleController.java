@@ -1,5 +1,6 @@
 package com.example.kbo.controller;
 
+import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -10,10 +11,13 @@ import java.util.HashMap;
 import java.util.Map;
 
 @RestController
+@Profile({ "dev", "local" })
 @RequestMapping("/api/test")
 @RequiredArgsConstructor
 @Slf4j
 public class CheckOracleController {
+
+    private static final String QUERY_FAILED = "QUERY_FAILED";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -28,7 +32,8 @@ public class CheckOracleController {
             result.put("games", games);
             result.put("count", games.size());
         } catch (Exception e) {
-            result.put("error", e.getMessage());
+            log.warn("CheckOracleController games-range query failed. start={} end={}", start, end, e);
+            result.put("error", QUERY_FAILED);
         }
         return result;
     }
@@ -44,7 +49,8 @@ public class CheckOracleController {
                 Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
                 counts.put(table, count);
             } catch (Exception e) {
-                counts.put(table + "_error", e.getMessage());
+                log.warn("CheckOracleController counts query failed. table={}", table, e);
+                counts.put(table + "_error", QUERY_FAILED);
             }
         }
         return counts;

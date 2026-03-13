@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.List;
 
@@ -157,16 +158,24 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
 
         // 200 OK 응답으로 REST API 호출을 종료합니다.
         response.setStatus(HttpServletResponse.SC_OK);
-        // 클라이언트에 성공 메시지 전송
         response.setContentType("application/json;charset=UTF-8");
+        response.setCharacterEncoding("UTF-8");
 
-        // JSON 응답 생성 (role 포함)
-        String jsonResponse = String.format(
-                "{\"success\": true, \"message\": null, \"data\": {\"name\": \"%s\", \"role\": \"%s\"}}",
-                email,
-                role);
+        Map<String, Object> responseData = new LinkedHashMap<>();
+        responseData.put("id", userId);
+        responseData.put("name", customUserDetails.getUserEntity().getName());
+        responseData.put("role", role);
+        responseData.put("handle", customUserDetails.getUserEntity().getHandle());
+        responseData.put("cheerPoints", customUserDetails.getUserEntity().getCheerPoints() == null
+                ? 0
+                : customUserDetails.getUserEntity().getCheerPoints());
 
-        response.getWriter().write(jsonResponse);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("success", true);
+        payload.put("message", "로그인 성공");
+        payload.put("data", responseData);
+
+        response.getWriter().write(objectMapper.writeValueAsString(payload));
         response.getWriter().flush();
 
     }
@@ -177,7 +186,14 @@ public class LoginFilter extends UsernamePasswordAuthenticationFilter {
         // 인증 실패 시 401 Unauthorized 응답
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write("{\"error\": \"Login Failed\", \"message\": \"" + failed.getMessage() + "\"}");
+        response.setCharacterEncoding("UTF-8");
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("success", false);
+        payload.put("message", failed.getMessage());
+        payload.put("data", null);
+
+        response.getWriter().write(objectMapper.writeValueAsString(payload));
         response.getWriter().flush();
     }
 

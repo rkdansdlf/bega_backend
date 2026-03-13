@@ -1,8 +1,10 @@
 package com.example.auth.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -10,19 +12,24 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.dto.PublicUserProfileDto;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.repository.UserBlockRepository;
+import com.example.auth.repository.UserFollowRepository;
 import com.example.auth.repository.RefreshRepository;
 import com.example.mypage.dto.UserProfileDto;
+import com.example.common.web.ClientIpResolver;
 import com.example.kbo.entity.TeamEntity;
 import com.example.kbo.repository.TeamRepository;
 import com.example.mate.service.PartyService;
 import com.example.profile.storage.service.ProfileImageService;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 @ExtendWith(MockitoExtension.class)
@@ -41,6 +48,12 @@ class UserServiceTest {
     private RefreshRepository refreshRepository;
 
     @Mock
+    private UserFollowRepository userFollowRepository;
+
+    @Mock
+    private UserBlockRepository userBlockRepository;
+
+    @Mock
     private UserProviderRepository userProviderRepository;
 
     @Mock
@@ -54,6 +67,15 @@ class UserServiceTest {
 
     @Mock
     private ProfileImageService profileImageService;
+
+    @Mock
+    private ClientIpResolver clientIpResolver;
+
+    @Mock
+    private AccountDeletionService accountDeletionService;
+
+    @Mock
+    private AccountSecurityService accountSecurityService;
 
     @Test
     void updateProfile_withNullProfileImageUrl_keepsExistingUrl() {
@@ -125,7 +147,7 @@ class UserServiceTest {
         when(profileImageService.getProfileImageUrl("https://cdn.example.com/old.png"))
                 .thenReturn("https://cdn.example.com/old.png?v=resolved");
 
-        PublicUserProfileDto result = userService.getPublicUserProfileByHandle("@user");
+        PublicUserProfileDto result = userService.getPublicUserProfileByHandle("@user", null);
 
         assertEquals("@user", result.getHandle());
         assertEquals("https://cdn.example.com/old.png?v=resolved", result.getProfileImageUrl());
@@ -133,28 +155,80 @@ class UserServiceTest {
     }
 
     @Test
-    void getPublicUserProfileById_resolvesProfileImageUrl() {
-        UserEntity user = baseUser("https://cdn.example.com/by-id.png");
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(profileImageService.getProfileImageUrl("https://cdn.example.com/by-id.png"))
-                .thenReturn("https://cdn.example.com/by-id.png?v=resolved");
-
-        PublicUserProfileDto result = userService.getPublicUserProfile(1L);
-
-        assertEquals(1L, result.getId());
-        assertEquals("https://cdn.example.com/by-id.png?v=resolved", result.getProfileImageUrl());
-        verify(profileImageService).getProfileImageUrl("https://cdn.example.com/by-id.png");
-    }
-
-    @Test
     void getPublicUserProfileByHandle_withMissingProfileImage_returnsNullWithoutResolver() {
         UserEntity user = baseUser(null);
         when(userRepository.findByHandle("@user")).thenReturn(Optional.of(user));
 
-        PublicUserProfileDto result = userService.getPublicUserProfileByHandle("@user");
+        PublicUserProfileDto result = userService.getPublicUserProfileByHandle("@user", null);
 
         assertEquals(null, result.getProfileImageUrl());
         verify(profileImageService, never()).getProfileImageUrl(any());
+    }
+
+    @Test
+    void getPublicUserProfileByHandle_privateAccountRequiresFollower() {
+        UserEntity user = baseUser("https://cdn.example.com/private.png");
+        user.setPrivateAccount(true);
+        when(userRepository.findByHandle("@user")).thenReturn(Optional.of(user));
+
+        assertThrows(AccessDeniedException.class, () -> userService.getPublicUserProfileByHandle("@user", null));
+    }
+
+    @Test
+    void getPublicUserProfileByHandle_privateAccountAllowsFollower() {
+        UserEntity user = baseUser("https://cdn.example.com/private.png");
+        user.setPrivateAccount(true);
+        when(userRepository.findByHandle("@user")).thenReturn(Optional.of(user));
+        when(userFollowRepository.existsById(any())).thenReturn(true);
+
+        PublicUserProfileDto result = userService.getPublicUserProfileByHandle("@user", 99L);
+
+        assertEquals("@user", result.getHandle());
+        verify(userFollowRepository).existsById(any());
+    }
+
+    @Test
+    void changePassword_invalidatesExistingSessions() {
+        UserEntity user = baseUser("https://cdn.example.com/old.png");
+        user.setPassword("encoded-old-password");
+        user.setTokenVersion(2);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("current-password", "encoded-old-password")).thenReturn(true);
+        when(bCryptPasswordEncoder.encode("new-password")).thenReturn("encoded-new-password");
+
+        userService.changePassword(1L, "current-password", "new-password");
+
+        assertEquals("encoded-new-password", user.getPassword());
+        assertEquals(3, user.getTokenVersion());
+        verify(userRepository).save(user);
+        verify(refreshRepository).deleteByEmail("user@example.com");
+    }
+
+    @Test
+    void checkAndApplyDailyLoginBonus_awardsPointsOnlyOncePerDay() {
+        UserEntity user = baseUser(null);
+        user.setCheerPoints(10);
+
+        int firstLoginPoints = userService.checkAndApplyDailyLoginBonus(user);
+        int secondLoginPoints = userService.checkAndApplyDailyLoginBonus(user);
+
+        assertEquals(15, firstLoginPoints);
+        assertEquals(15, secondLoginPoints);
+        assertEquals(LocalDate.now(), user.getLastBonusDate());
+        verify(userRepository, times(2)).save(user);
+    }
+
+    @Test
+    void checkAndApplyDailyLoginBonus_preservesExistingPointsWhenAlreadyAwardedToday() {
+        UserEntity user = baseUser(null);
+        user.setCheerPoints(7);
+        user.setLastBonusDate(LocalDate.now());
+
+        int currentPoints = userService.checkAndApplyDailyLoginBonus(user);
+
+        assertEquals(7, currentPoints);
+        assertEquals(LocalDate.now(), user.getLastBonusDate());
+        verify(userRepository).save(user);
     }
 
     private UserEntity baseUser(String profileImageUrl) {

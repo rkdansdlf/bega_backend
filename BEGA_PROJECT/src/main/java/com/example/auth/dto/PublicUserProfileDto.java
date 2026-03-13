@@ -12,7 +12,6 @@ import lombok.Setter;
 @AllArgsConstructor
 @Builder
 public class PublicUserProfileDto {
-    private Long id;
     private String name;
     private String handle;
     private String favoriteTeam;

@@ -8,8 +8,11 @@ import com.example.mate.entity.PaymentIntent;
 import com.example.mate.entity.PaymentStatus;
 import com.example.mate.entity.PaymentTransaction;
 import com.example.mate.entity.SettlementStatus;
+import com.example.mate.exception.TossPaymentException;
+import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PaymentTransactionRepository;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -18,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.Optional;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -36,7 +40,13 @@ class PaymentTransactionServiceTest {
     private PaymentTransactionRepository paymentTransactionRepository;
 
     @Mock
+    private PartyApplicationRepository partyApplicationRepository;
+
+    @Mock
     private PartyRepository partyRepository;
+
+    @Mock
+    private EntityManager entityManager;
 
     @Mock
     private TossPaymentService tossPaymentService;
@@ -49,6 +59,8 @@ class PaymentTransactionServiceTest {
 
     @Mock
     private PaymentMetricsService paymentMetricsService;
+    @Mock
+    private MatePaymentModeService matePaymentModeService;
 
     @InjectMocks
     private PaymentTransactionService paymentTransactionService;
@@ -238,6 +250,57 @@ class PaymentTransactionServiceTest {
     }
 
     @Test
+    void enrichResponse_usesApplicationIdWithoutExposingOrderId() {
+        PartyApplicationDTO.Response response = PartyApplicationDTO.Response.builder()
+                .id(777L)
+                .depositAmount(50000)
+                .build();
+
+        PaymentTransaction tx = PaymentTransaction.builder()
+                .applicationId(777L)
+                .feeAmount(1000)
+                .netAmount(49000)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.REQUESTED)
+                .build();
+
+        given(paymentTransactionRepository.findByApplicationId(777L)).willReturn(Optional.of(tx));
+
+        paymentTransactionService.enrichResponse(response);
+
+        assertThat(response.getFeeAmount()).isEqualTo(1000);
+        assertThat(response.getNetSettlementAmount()).isEqualTo(49000);
+        assertThat(response.getPaymentStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(response.getSettlementStatus()).isEqualTo(SettlementStatus.REQUESTED);
+        verify(paymentTransactionRepository).findByApplicationId(777L);
+        verify(paymentTransactionRepository, never()).findByOrderId(any());
+    }
+
+    @Test
+    void enrichResponses_usesApplicationIdsInBulk() {
+        PartyApplicationDTO.Response first = PartyApplicationDTO.Response.builder().id(1L).depositAmount(10000).build();
+        PartyApplicationDTO.Response second = PartyApplicationDTO.Response.builder().id(2L).depositAmount(20000).build();
+        PaymentTransaction tx = PaymentTransaction.builder()
+                .applicationId(2L)
+                .feeAmount(500)
+                .netAmount(19500)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.PENDING)
+                .build();
+
+        given(paymentTransactionRepository.findByApplicationIdIn(List.of(1L, 2L))).willReturn(List.of(tx));
+
+        paymentTransactionService.enrichResponses(List.of(first, second));
+
+        assertThat(first.getPaymentStatus()).isNull();
+        assertThat(second.getFeeAmount()).isEqualTo(500);
+        assertThat(second.getNetSettlementAmount()).isEqualTo(19500);
+        assertThat(second.getSettlementStatus()).isEqualTo(SettlementStatus.PENDING);
+        verify(paymentTransactionRepository).findByApplicationIdIn(List.of(1L, 2L));
+        verify(paymentTransactionRepository, never()).findByOrderIdIn(any());
+    }
+
+    @Test
     void requestSettlementOnApproval_marksFailedWhenPayoutFails() {
         PartyApplication application = PartyApplication.builder()
                 .id(99L)
@@ -297,6 +360,7 @@ class PaymentTransactionServiceTest {
         PartyApplication application = PartyApplication.builder()
                 .id(200L)
                 .orderId("ORDER-SETTLED-1")
+                .isPaid(true)
                 .build();
 
         PaymentTransaction tx = PaymentTransaction.builder()
@@ -332,6 +396,7 @@ class PaymentTransactionServiceTest {
         PartyApplication application = PartyApplication.builder()
                 .id(201L)
                 .orderId("ORDER-PENDING-1")
+                .isPaid(true)
                 .build();
 
         PaymentTransaction tx = PaymentTransaction.builder()
@@ -356,5 +421,37 @@ class PaymentTransactionServiceTest {
 
         assertThat(tx.getPaymentStatus()).isEqualTo(PaymentStatus.CANCELED);
         assertThat(tx.getSettlementStatus()).isEqualTo(SettlementStatus.SKIPPED);
+    }
+
+    @Test
+    void processCancellation_returnsNoPaymentWhenApplicationIsNotPaid() {
+        PartyApplication application = PartyApplication.builder()
+                .id(300L)
+                .orderId("ORDER-DIRECT-1")
+                .isPaid(false)
+                .build();
+
+        PartyApplicationDTO.CancelResponse response = paymentTransactionService.processCancellation(
+                application,
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.OTHER)
+                        .build());
+
+        assertThat(response.getApplicationId()).isEqualTo(300L);
+        assertThat(response.getRefundPolicyApplied()).isEqualTo("NO_PAYMENT");
+        assertThat(response.getRefundAmount()).isEqualTo(0);
+        assertThat(response.getFeeCharged()).isEqualTo(0);
+        assertThat(response.getPaymentStatus()).isNull();
+        assertThat(response.getSettlementStatus()).isNull();
+        verify(paymentTransactionRepository, never()).findByOrderId(any());
+        verify(tossPaymentService, never()).cancelPayment(any(), any(), any());
+    }
+
+    @Test
+    void requestManualPayout_directTradeMode_throwsServiceUnavailable() {
+        given(matePaymentModeService.isDirectTrade()).willReturn(true);
+
+        assertThrows(TossPaymentException.class, () -> paymentTransactionService.requestManualPayout(1L));
+        verify(paymentTransactionRepository, never()).findById(any());
     }
 }

@@ -26,7 +26,7 @@ public class UserEntity {
     private Long id;
 
     // 내부 보안 식별자 (무작위 UUID)
-    @Column(name = "unique_id", unique = true, nullable = false)
+    @Column(name = "unique_id", unique = true, nullable = false, length = 36)
     private UUID uniqueId;
 
     // 사용자 아이디 (@handle)
@@ -92,6 +92,19 @@ public class UserEntity {
     @Column(name = "enabled", nullable = false)
     @Builder.Default
     private boolean enabled = true;
+
+    /** 계정 삭제 유예 상태 여부 */
+    @Column(name = "pending_deletion", nullable = false)
+    @Builder.Default
+    private boolean pendingDeletion = false;
+
+    /** 계정 삭제 요청 시각 */
+    @Column(name = "deletion_requested_at")
+    private LocalDateTime deletionRequestedAt;
+
+    /** 계정 최종 삭제 예정 시각 */
+    @Column(name = "deletion_scheduled_for")
+    private LocalDateTime deletionScheduledFor;
 
     /** 계정 잠금 여부 (비밀번호 오류 횟수 초과 등) */
     @Column(name = "locked", nullable = false)
@@ -164,7 +177,7 @@ public class UserEntity {
 
     public UserDto toDto() {
         return UserDto.builder()
-                .id(this.id)
+            .id(this.id)
                 .name(this.name)
                 .handle(this.handle)
                 .email(this.email)

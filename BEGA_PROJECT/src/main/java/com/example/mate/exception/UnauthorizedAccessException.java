@@ -1,7 +1,9 @@
 package com.example.mate.exception;
 
-public class UnauthorizedAccessException extends RuntimeException {
+import com.example.common.exception.ForbiddenBusinessException;
+
+public class UnauthorizedAccessException extends ForbiddenBusinessException {
     public UnauthorizedAccessException(String message) {
-        super(message);
+        super("FORBIDDEN", message);
     }
 }

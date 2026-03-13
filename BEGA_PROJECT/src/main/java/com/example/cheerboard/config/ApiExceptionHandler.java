@@ -1,63 +1,50 @@
 package com.example.cheerboard.config;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
-import com.example.common.exception.InvalidAuthorException;
-import com.example.common.exception.RepostNotAllowedException;
-import com.example.common.exception.RepostSelfNotAllowedException;
-import com.example.common.exception.RepostTargetNotFoundException;
-import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.server.ResponseStatusException;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_CODE;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_ERROR;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_CODE;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_PRIVATE_CODE;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_ERROR;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_PRIVATE_ERROR;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_SELF_ERROR;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_SELF_NOT_ALLOWED_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CANCEL_NOT_ALLOWED_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CANCEL_NOT_ALLOWED_ERROR;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_QUOTE_NOT_ALLOWED_CODE;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_QUOTE_NOT_ALLOWED_ERROR;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_A_REPOST_CODE;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_A_REPOST_ERROR;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET_NOT_FOUND_CODE;
-import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET_NOT_FOUND_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CONFLICT_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CONFLICT_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_PRIVATE_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_PRIVATE_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_SELF_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_A_REPOST_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_A_REPOST_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_QUOTE_NOT_ALLOWED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_QUOTE_NOT_ALLOWED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_SELF_NOT_ALLOWED_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET_NOT_FOUND_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET_NOT_FOUND_ERROR;
 
-import java.time.Instant;
-import java.util.Map;
-import java.util.NoSuchElementException;
+import com.example.common.dto.ApiResponse;
+import com.example.common.exception.InvalidAuthorException;
+import com.example.common.exception.RepostNotAllowedException;
+import com.example.common.exception.RepostSelfNotAllowedException;
+import com.example.common.exception.RepostTargetNotFoundException;
 import java.util.Objects;
-
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
  * Cheerboard API 전용 예외 핸들러.
- *
- * <p>
- * 기존에는 서비스 계층에서 발생한 {@link AccessDeniedException} 이 컨트롤러까지
- * 전파되면서 500 응답이 내려가 프론트엔드에서 "서버 연결 실패"로 인식되었습니다.
- * 여기서는 인증/인가 오류를 401/403으로, 잘못된 입력이나 존재하지 않는 리소스는
- * 400/404로 매핑해 일관된 JSON 응답을 제공합니다.
- * </p>
  */
 @RestControllerAdvice(basePackages = "com.example.cheerboard")
 @Slf4j
 public class ApiExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<Map<String, Object>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+    public ResponseEntity<ApiResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         if (isDeletedAuthorReference(ex)) {
             return build(HttpStatus.UNAUTHORIZED, "INVALID_AUTHOR", "인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
         }
@@ -68,80 +55,38 @@ public class ApiExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "DATA_INTEGRITY_VIOLATION", "요청 데이터의 무결성 제약을 위반했습니다.");
     }
 
-    @ExceptionHandler({ RepostSelfNotAllowedException.class, RepostNotAllowedException.class })
-    public ResponseEntity<Map<String, Object>> handleRepostNotAllowed(Exception ex) {
+    @ExceptionHandler({RepostSelfNotAllowedException.class, RepostNotAllowedException.class})
+    public ResponseEntity<ApiResponse> handleRepostNotAllowed(Exception ex) {
         String code = ex instanceof RepostNotAllowedException repostEx && repostEx.getErrorCode() != null
                 ? repostEx.getErrorCode()
                 : REPOST_NOT_ALLOWED_CODE;
-
-        String message = resolveErrorMessage(code, ex.getMessage());
-
-        return build(HttpStatus.FORBIDDEN, code, message);
+        return build(HttpStatus.FORBIDDEN, code, resolveErrorMessage(code, ex.getMessage()));
     }
 
     @ExceptionHandler(RepostTargetNotFoundException.class)
-    public ResponseEntity<Map<String, Object>> handleRepostTargetNotFound(RepostTargetNotFoundException ex) {
+    public ResponseEntity<ApiResponse> handleRepostTargetNotFound(RepostTargetNotFoundException ex) {
         String code = ex.getErrorCode() != null ? ex.getErrorCode() : REPOST_TARGET_NOT_FOUND_CODE;
-        String message = resolveRepostMessage(code, ex.getMessage());
-        return build(HttpStatus.NOT_FOUND, code, message);
+        return build(HttpStatus.NOT_FOUND, code, resolveRepostMessage(code, ex.getMessage()));
     }
 
-
     @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
-    public ResponseEntity<Map<String, Object>> handleUnauthorized(AuthenticationCredentialsNotFoundException ex) {
-        return build(HttpStatus.UNAUTHORIZED, "INVALID_AUTHOR", ex.getMessage());
+    public ResponseEntity<ApiResponse> handleUnauthorized(AuthenticationCredentialsNotFoundException ex) {
+        return build(HttpStatus.UNAUTHORIZED, "AUTHENTICATION_REQUIRED", defaultIfBlank(ex.getMessage(), "인증이 필요합니다."));
     }
 
     @ExceptionHandler(InvalidAuthorException.class)
-    public ResponseEntity<Map<String, Object>> handleInvalidAuthor(InvalidAuthorException ex) {
+    public ResponseEntity<ApiResponse> handleInvalidAuthor(InvalidAuthorException ex) {
         return build(HttpStatus.UNAUTHORIZED, "INVALID_AUTHOR", ex.getMessage());
     }
 
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<Map<String, Object>> handleForbidden(AccessDeniedException ex) {
+    public ResponseEntity<ApiResponse> handleForbidden(AccessDeniedException ex) {
         return build(HttpStatus.FORBIDDEN, "FORBIDDEN", ex.getMessage());
     }
 
-    @ExceptionHandler({ IllegalArgumentException.class, MethodArgumentNotValidException.class, IllegalStateException.class })
-    public ResponseEntity<Map<String, Object>> handleBadRequest(Exception ex) {
-        String message = ex instanceof MethodArgumentNotValidException manv
-                ? manv.getBindingResult().getAllErrors().stream()
-                        .findFirst()
-                        .map(objectError -> objectError.getDefaultMessage())
-                        .orElse("잘못된 요청입니다.")
-                : ex.getMessage();
-        return build(HttpStatus.BAD_REQUEST, "BAD_REQUEST", message);
-    }
-
-    @ExceptionHandler(NoSuchElementException.class)
-    public ResponseEntity<Map<String, Object>> handleNotFound(NoSuchElementException ex) {
-        return build(HttpStatus.NOT_FOUND, "NOT_FOUND", ex.getMessage());
-    }
-
-    @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<Map<String, Object>> handleResponseStatus(ResponseStatusException ex) {
-        return build(ex.getStatusCode(), ex.getStatusCode().toString(), ex.getReason());
-    }
-
-    private ResponseEntity<Map<String, Object>> build(HttpStatus status, String code, String message) {
-        return build((HttpStatusCode) status, code, message);
-    }
-
-    private ResponseEntity<Map<String, Object>> build(HttpStatusCode status, String code, String message) {
-        String defaultMessage = message;
-        if (defaultMessage == null || defaultMessage.isBlank()) {
-            if (status instanceof HttpStatus httpStatus) {
-                defaultMessage = httpStatus.getReasonPhrase();
-            } else {
-                defaultMessage = status.toString();
-            }
-        }
-
-        return ResponseEntity.status(Objects.requireNonNull(status)).body(Map.of(
-                "timestamp", Instant.now().toString(),
-                "status", status.value(),
-                "code", code,
-                "message", defaultMessage));
+    private ResponseEntity<ApiResponse> build(HttpStatus status, String code, String message) {
+        return ResponseEntity.status(Objects.requireNonNull(status))
+                .body(ApiResponse.error(code, defaultIfBlank(message, status.getReasonPhrase())));
     }
 
     private boolean isRepostDuplicateViolation(DataIntegrityViolationException ex) {
@@ -208,37 +153,11 @@ public class ApiExceptionHandler {
         }
 
         String lower = message.toLowerCase();
-        if (!lower.contains("foreign key")) {
-            return false;
-        }
-
-        boolean isUserFkColumn =
-                lower.contains("author_id")
-                        || lower.contains("user_id")
-                        || lower.contains("reporter_id");
-
-        if (!isUserFkColumn) {
-            return false;
-        }
-
-        return lower.contains("cheer_post")
-                || lower.contains("cheer_comment")
-                || lower.contains("cheer_comment_like")
-                || lower.contains("cheer_post_like")
-                || lower.contains("cheer_post_bookmark")
-                || lower.contains("cheer_post_repost")
-                || lower.contains("cheer_post_reports");
+        return lower.contains("foreign key")
+                && lower.contains("author");
     }
 
-    /**
-     * Catch-all handler for unexpected exceptions.
-     */
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
-        log.error("Unhandled cheerboard exception", ex);
-        return build(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "INTERNAL_ERROR",
-                "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+    private String defaultIfBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 }

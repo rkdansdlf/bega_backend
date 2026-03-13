@@ -73,7 +73,7 @@ public class TeamEntity {
     private Boolean isActive = true;
 
     // 팀 별칭 JSON 문자열
-    @Column(name = "aliases", columnDefinition = "TEXT")
+    @Column(name = "aliases")
     private String aliases;
 
     @PrePersist

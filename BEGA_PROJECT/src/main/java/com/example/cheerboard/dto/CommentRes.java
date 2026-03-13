@@ -6,7 +6,6 @@ import java.util.List;
 public record CommentRes(
         Long id,
         String author,
-        String authorEmail,
         String authorTeamId,
         String authorProfileImageUrl,
         String authorHandle,

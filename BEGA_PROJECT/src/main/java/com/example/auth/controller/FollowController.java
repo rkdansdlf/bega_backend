@@ -20,53 +20,38 @@ public class FollowController {
 
     private final FollowService followService;
 
-    /**
-     * 팔로우 토글 (팔로우/언팔로우)
-     */
-    @RateLimit(limit = 30, window = 60) // 1분에 최대 30번
-    @PostMapping("/{userId}/follow")
+    @RateLimit(limit = 30, window = 60)
+    @PostMapping("/profile/{handle}/follow")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<FollowToggleResponse> toggleFollow(@PathVariable Long userId) {
-        return ResponseEntity.ok(followService.toggleFollow(userId));
+    public ResponseEntity<FollowToggleResponse> toggleFollowByHandle(@PathVariable String handle) {
+        return ResponseEntity.ok(followService.toggleFollowByHandle(handle));
     }
 
-    /**
-     * 알림 설정 변경
-     */
-    @PutMapping("/{userId}/follow/notify")
+    @PutMapping("/profile/{handle}/follow/notify")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<FollowToggleResponse> updateNotifySetting(
-            @PathVariable Long userId,
+    public ResponseEntity<FollowToggleResponse> updateNotifySettingByHandle(
+            @PathVariable String handle,
             @RequestParam boolean notify) {
-        return ResponseEntity.ok(followService.updateNotifySetting(userId, notify));
+        return ResponseEntity.ok(followService.updateNotifySettingByHandle(handle, notify));
     }
 
-    /**
-     * 팔로우 카운트 및 상태 조회
-     */
-    @GetMapping("/{userId}/follow-counts")
-    public ResponseEntity<FollowCountResponse> getFollowCounts(@PathVariable Long userId) {
-        return ResponseEntity.ok(followService.getFollowCounts(userId));
+    @GetMapping("/profile/{handle}/follow-counts")
+    public ResponseEntity<FollowCountResponse> getPublicFollowCounts(@PathVariable String handle) {
+        return ResponseEntity.ok(followService.getPublicFollowCounts(handle));
     }
 
-    /**
-     * 팔로워 목록 조회
-     */
-    @GetMapping("/{userId}/followers")
-    public ResponseEntity<Page<UserFollowSummaryDto>> getFollowers(
-            @PathVariable Long userId,
+    @GetMapping("/profile/{handle}/followers")
+    public ResponseEntity<Page<UserFollowSummaryDto>> getPublicFollowers(
+            @PathVariable String handle,
             @PageableDefault(size = 20) Pageable pageable) {
-        return ResponseEntity.ok(followService.getFollowers(userId, pageable));
+        return ResponseEntity.ok(followService.getPublicFollowers(handle, pageable));
     }
 
-    /**
-     * 팔로잉 목록 조회
-     */
-    @GetMapping("/{userId}/following")
-    public ResponseEntity<Page<UserFollowSummaryDto>> getFollowing(
-            @PathVariable Long userId,
+    @GetMapping("/profile/{handle}/following")
+    public ResponseEntity<Page<UserFollowSummaryDto>> getPublicFollowing(
+            @PathVariable String handle,
             @PageableDefault(size = 20) Pageable pageable) {
-        return ResponseEntity.ok(followService.getFollowing(userId, pageable));
+        return ResponseEntity.ok(followService.getPublicFollowing(handle, pageable));
     }
 
     /**

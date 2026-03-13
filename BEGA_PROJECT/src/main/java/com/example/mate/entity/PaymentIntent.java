@@ -56,7 +56,7 @@ public class PaymentIntent {
     private String cancelPolicyVersion;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(name = "pay_mode", nullable = false, length = 20)
     private IntentMode mode;
 
     @Enumerated(EnumType.STRING)

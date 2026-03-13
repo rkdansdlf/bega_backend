@@ -3,6 +3,7 @@ package com.example.cheerboard.service;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.BlockService;
+import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.CheerPostLike;
 import com.example.cheerboard.dto.LikeToggleResponse;
@@ -26,6 +27,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -56,6 +58,8 @@ class CheerInteractionServiceTest {
     @Mock
     private BlockService blockService;
     @Mock
+    private PublicVisibilityVerifier publicVisibilityVerifier;
+    @Mock
     private PermissionValidator permissionValidator;
     @Mock
     private EntityManager entityManager;
@@ -74,11 +78,13 @@ class CheerInteractionServiceTest {
 
         mockWriteEnabledAuthor(me);
         when(postService.findPostById(postId)).thenReturn(post);
+        doNothing().when(publicVisibilityVerifier).validate(author, userId, "게시글");
         when(blockService.hasBidirectionalBlock(userId, author.getId())).thenReturn(false);
-        when(userRepo.findByIdForWrite(author.getId())).thenReturn(Optional.of(author));
+        lenient().when(userRepo.findById(anyLong())).thenReturn(Optional.of(author));
 
         // Case: Not liked yet -> Like
         when(likeRepo.existsById(any(CheerPostLike.Id.class))).thenReturn(false);
+        when(postRepo.findLikeCountById(postId)).thenReturn(1);
 
         // When
         LikeToggleResponse res = interactionService.toggleLike(postId, me);
@@ -95,6 +101,7 @@ class CheerInteractionServiceTest {
         // Re-mock for unlike scenario
         post.setLikeCount(1);
         when(likeRepo.existsById(any(CheerPostLike.Id.class))).thenReturn(true);
+        when(postRepo.findLikeCountById(postId)).thenReturn(0);
 
         // When
         res = interactionService.toggleLike(postId, me);
@@ -103,6 +110,27 @@ class CheerInteractionServiceTest {
         assertThat(res.liked()).isFalse();
         assertThat(res.likes()).isEqualTo(0);
         verify(likeRepo).deleteById(any(CheerPostLike.Id.class));
+    }
+
+    @Test
+    @DisplayName("Toggle Like rejects inaccessible private posts")
+    void toggleLike_rejectsInaccessiblePrivatePost() {
+        Long postId = 1L;
+        Long userId = 100L;
+        UserEntity me = UserEntity.builder().id(userId).name("Me").build();
+        UserEntity author = UserEntity.builder().id(200L).name("Author").privateAccount(true).build();
+        CheerPost post = CheerPost.builder().id(postId).author(author).build();
+
+        mockWriteEnabledAuthor(me);
+        when(postService.findPostById(postId)).thenReturn(post);
+        doThrow(new org.springframework.security.access.AccessDeniedException("비공개 계정"))
+                .when(publicVisibilityVerifier).validate(author, userId, "게시글");
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                org.springframework.security.access.AccessDeniedException.class,
+                () -> interactionService.toggleLike(postId, me));
+
+        verify(likeRepo, never()).save(any());
     }
 
     private void mockWriteEnabledAuthor(UserEntity me) {

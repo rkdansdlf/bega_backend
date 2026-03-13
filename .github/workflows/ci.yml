@@ -43,6 +43,14 @@ jobs:
       - name: Grant execute permission
         working-directory: ./BEGA_PROJECT
         run: chmod +x gradlew
+
+      - name: Run API contract serialization tests
+        working-directory: ./BEGA_PROJECT
+        run: |
+          ./gradlew test \
+            --tests "*FollowDtoSerializationTest*" \
+            --tests "*BooleanIsFieldSerializationTest*" \
+            -Dwebp.strict=false
       
       - name: Run tests
         working-directory: ./BEGA_PROJECT

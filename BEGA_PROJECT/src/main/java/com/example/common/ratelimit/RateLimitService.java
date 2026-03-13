@@ -46,6 +46,10 @@ public class RateLimitService {
      * @return 허용 여부
      */
     public boolean isAllowed(String key, int limit, int window) {
+        return isAllowed(key, limit, window, false);
+    }
+
+    public boolean isAllowed(String key, int limit, int window, boolean failClosed) {
         long now = Instant.now().getEpochSecond();
         List<String> keys = Collections.singletonList(key);
 
@@ -59,8 +63,7 @@ public class RateLimitService {
             return result != null && result == 1L;
         } catch (Exception e) {
             log.error("Error executing rate limit script for key {}: {}", key, e.getMessage());
-            // Redis 에러 시 서비스 가용성을 위해 일단 허용 (Fail-open 전략)
-            return true;
+            return !failClosed;
         }
     }
 }

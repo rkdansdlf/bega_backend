@@ -5,8 +5,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.time.ZoneId;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -24,53 +25,78 @@ import com.example.kbo.entity.TeamEntity;
 import com.example.auth.entity.Role;
 import com.example.auth.util.JWTUtil;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.repository.UserBlockRepository;
+import com.example.auth.repository.UserFollowRepository;
 import com.example.kbo.repository.TeamRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.entity.RefreshToken;
 
 import com.example.common.exception.UserNotFoundException;
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.TeamNotFoundException;
 import com.example.common.exception.DuplicateEmailException;
+import com.example.common.exception.DuplicateNameException;
+import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.InvalidCredentialsException;
 import com.example.common.exception.SocialLoginRequiredException;
+import com.example.common.web.ClientIpResolver;
 
 import com.example.mate.service.PartyService;
 import com.example.profile.storage.service.ProfileImageService;
 
 import org.springframework.context.annotation.Lazy;
+import org.springframework.security.access.AccessDeniedException;
 
 @Service
 public class UserService {
 
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
     private static final long ACCESS_EXPIRATION_TIME = 1000L * 60 * 60;
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    private static final int DAILY_LOGIN_BONUS_POINTS = 5;
 
     private final UserRepository userRepository;
     private final TeamRepository teamRepository;
     private final RefreshRepository refreshRepository;
+    private final UserFollowRepository userFollowRepository;
+    private final UserBlockRepository userBlockRepository;
     private final com.example.auth.repository.UserProviderRepository userProviderRepository;
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final JWTUtil jwtUtil;
     private final PartyService partyService;
     private final ProfileImageService profileImageService;
+    private final ClientIpResolver clientIpResolver;
+    private final AccountDeletionService accountDeletionService;
+    private final AccountSecurityService accountSecurityService;
 
     public UserService(UserRepository userRepository,
             TeamRepository teamRepository,
             RefreshRepository refreshRepository,
+            UserFollowRepository userFollowRepository,
+            UserBlockRepository userBlockRepository,
             com.example.auth.repository.UserProviderRepository userProviderRepository,
             BCryptPasswordEncoder bCryptPasswordEncoder,
             JWTUtil jwtUtil,
             @Lazy PartyService partyService,
-            ProfileImageService profileImageService) {
+            ProfileImageService profileImageService,
+            ClientIpResolver clientIpResolver,
+            AccountDeletionService accountDeletionService,
+            AccountSecurityService accountSecurityService) {
         this.userRepository = userRepository;
         this.teamRepository = teamRepository;
         this.refreshRepository = refreshRepository;
+        this.userFollowRepository = userFollowRepository;
+        this.userBlockRepository = userBlockRepository;
         this.userProviderRepository = userProviderRepository;
         this.bCryptPasswordEncoder = bCryptPasswordEncoder;
         this.jwtUtil = jwtUtil;
         this.partyService = partyService;
         this.profileImageService = profileImageService;
+        this.clientIpResolver = clientIpResolver;
+        this.accountDeletionService = accountDeletionService;
+        this.accountSecurityService = accountSecurityService;
     }
 
     public JWTUtil getJWTUtil() {
@@ -231,10 +257,11 @@ public class UserService {
         String normalizedEmail = Optional.ofNullable(email).map(e -> e.trim().toLowerCase()).orElse(null);
         UserEntity user = findUserByEmailOrThrow(normalizedEmail);
 
+        validateAuthorForLogin(user);
         validatePassword(user, password);
 
         // 일일 출석 보너스 체크
-        checkAndApplyDailyLoginBonus(Objects.requireNonNull(user));
+        int currentCheerPoints = checkAndApplyDailyLoginBonus(Objects.requireNonNull(user));
 
         int tokenVersion = Optional.ofNullable(user.getTokenVersion()).orElse(0);
         String accessToken = jwtUtil.createJwt(
@@ -250,13 +277,14 @@ public class UserService {
 
         // Refresh Token DB 저장
         saveOrUpdateRefreshToken(user.getEmail(), refreshToken, request);
+        accountSecurityService.handleSuccessfulLogin(user, request);
 
         Map<String, Object> profileData = new HashMap<>();
         profileData.put("id", user.getId());
         profileData.put("name", user.getName());
         profileData.put("role", user.getRole());
         profileData.put("handle", user.getHandle());
-        profileData.put("cheerPoints", user.getCheerPoints());
+        profileData.put("cheerPoints", currentCheerPoints);
 
         return new LoginResult(
                 accessToken,
@@ -269,23 +297,29 @@ public class UserService {
      * 마지막 로그인 날짜(lastLoginDate)를 확인하여 오늘 첫 로그인인 경우 지급
      */
     @Transactional
-    public void checkAndApplyDailyLoginBonus(@NonNull UserEntity user) {
-        java.time.LocalDate today = java.time.LocalDate.now();
+    public int checkAndApplyDailyLoginBonus(@NonNull UserEntity user) {
+        LocalDate today = LocalDate.now(KST);
 
-        // lastLoginDate가 없거나(첫 로그인), 마지막 로그인 날짜가 오늘보다 이전인 경우
-        boolean shouldAward = Optional.ofNullable(user.getLastLoginDate())
-                .map(last -> last.atZone(ZoneId.of("Asia/Seoul")).toLocalDate().isBefore(today))
+        boolean shouldAward = Optional.ofNullable(user.getLastBonusDate())
+                .map(lastBonusDate -> lastBonusDate.isBefore(today))
                 .orElse(true);
 
+        int currentCheerPoints = Optional.ofNullable(user.getCheerPoints()).orElse(0);
+        LocalDateTime now = LocalDateTime.now();
         if (shouldAward) {
-            user.addCheerPoints(5);
+            currentCheerPoints += DAILY_LOGIN_BONUS_POINTS;
+            user.setCheerPoints(currentCheerPoints);
+            user.setLastBonusDate(today);
             log.info("Daily Login Bonus (5 points) awarded to user: {}. Current Points: {}", user.getEmail(),
-                    user.getCheerPoints());
+                    currentCheerPoints);
+        } else if (user.getCheerPoints() == null) {
+            user.setCheerPoints(currentCheerPoints);
         }
 
-        // 로그인 시간 갱신
-        user.setLastLoginDate(LocalDateTime.now());
+        user.setLastLoginDate(now);
         userRepository.save(user);
+
+        return currentCheerPoints;
     }
 
     /**
@@ -307,7 +341,7 @@ public class UserService {
     public void saveOrUpdateRefreshToken(String email, String token, HttpServletRequest request) {
         List<RefreshToken> tokens = refreshRepository.findAllByEmailOrderByIdDesc(email);
         String userAgent = request != null ? request.getHeader("User-Agent") : null;
-        String ipAddress = resolveIpAddress(request);
+        String ipAddress = clientIpResolver.resolve(request);
         String deviceType = resolveDeviceType(userAgent);
         String deviceLabel = resolveDeviceLabel(userAgent, deviceType);
         String browser = resolveBrowser(userAgent);
@@ -367,25 +401,6 @@ public class UserService {
 
     private String normalizeText(String value, String fallback) {
         return value != null && !value.isBlank() ? value : fallback;
-    }
-
-    private String resolveIpAddress(HttpServletRequest request) {
-        if (request == null) {
-            return null;
-        }
-
-        String xff = request.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isBlank()) {
-            return xff.split(",")[0].trim();
-        }
-
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) {
-            return realIp.trim();
-        }
-
-        String remoteAddr = request.getRemoteAddr();
-        return remoteAddr != null ? remoteAddr : null;
     }
 
     private String resolveDeviceType(String userAgent) {
@@ -546,7 +561,7 @@ public class UserService {
         // 현재 비밀번호가 설정되어 있는 경우에만 검증
         if (user.getPassword() != null) {
             if (currentPassword == null || currentPassword.isEmpty()) {
-                throw new IllegalArgumentException("현재 비밀번호를 입력해주세요.");
+                throw new BadRequestBusinessException("CURRENT_PASSWORD_REQUIRED", "현재 비밀번호를 입력해주세요.");
             }
             if (!bCryptPasswordEncoder.matches(currentPassword, user.getPassword())) {
                 throw new InvalidCredentialsException("현재 비밀번호가 일치하지 않습니다.");
@@ -555,7 +570,10 @@ public class UserService {
 
         // 새 비밀번호 암호화 및 저장
         user.setPassword(bCryptPasswordEncoder.encode(newPassword));
+        user.setTokenVersion(Optional.ofNullable(user.getTokenVersion()).orElse(0) + 1);
         userRepository.save(user);
+        refreshRepository.deleteByEmail(user.getEmail());
+        accountSecurityService.recordPasswordChanged(userId);
 
         log.info("Password changed/set for user ID: {}", userId);
     }
@@ -564,35 +582,8 @@ public class UserService {
      * 계정 삭제 (회원탈퇴)
      */
     @Transactional
-    public void deleteAccount(Long userId, String password) {
-        UserEntity user = findUserById(Objects.requireNonNull(userId));
-
-        // LOCAL 사용자는 비밀번호 확인 필요
-        if (!user.isOAuth2User()) {
-            if (password == null || password.isEmpty()) {
-                throw new IllegalArgumentException("비밀번호를 입력해주세요.");
-            }
-            if (user.getPassword() == null) {
-                throw new IllegalStateException("비밀번호가 설정되어 있지 않습니다.");
-            }
-
-            if (!bCryptPasswordEncoder.matches(password, user.getPassword())) {
-                throw new InvalidCredentialsException("비밀번호가 일치하지 않습니다.");
-            }
-        }
-
-        String userEmail = user.getEmail();
-        user.setEnabled(false);
-        user.setTokenVersion(Optional.ofNullable(user.getTokenVersion()).orElse(0) + 1);
-        userRepository.save(Objects.requireNonNull(user));
-
-        // Refresh Token 삭제
-        refreshRepository.deleteByEmail(userEmail);
-
-        // 메이트 관련 데이터 정리 (파티 취소, 참여 신청 처리, 알림 발송)
-        partyService.handleUserDeletion(userId);
-
-        log.info("Account deleted for user ID: {}, email: {}", userId, userEmail);
+    public LocalDateTime deleteAccount(Long userId, String password) {
+        return accountDeletionService.scheduleAccountDeletion(userId, password);
     }
 
     /**
@@ -630,10 +621,13 @@ public class UserService {
         long linkedCount = userProviderRepository.findByUserId(userId).size();
 
         if (!hasPassword && linkedCount <= 1) {
-            throw new IllegalStateException("최소 하나의 로그인 방식(비밀번호 또는 소셜 연동)이 존재해야 합니다.");
+            throw new BadRequestBusinessException(
+                    "LOGIN_METHOD_REQUIRED",
+                    "최소 하나의 로그인 방식(비밀번호 또는 소셜 연동)이 존재해야 합니다.");
         }
 
         userProviderRepository.deleteByUserIdAndProvider(userId, provider);
+        accountSecurityService.recordProviderUnlinked(userId, provider);
         log.info("Unlinked info for user ID: {}, provider: {}", userId, provider);
     }
 
@@ -709,23 +703,14 @@ public class UserService {
      * 공개 프로필 조회 (핸들 기준)
      */
     @Transactional(readOnly = true)
-    public com.example.auth.dto.PublicUserProfileDto getPublicUserProfileByHandle(String handle) {
-        // 1. First, try finding exactly as requested
-        java.util.Optional<UserEntity> userOpt = userRepository.findByHandle(handle);
+    public com.example.auth.dto.PublicUserProfileDto getPublicUserProfileByHandle(String handle, Long currentUserId) {
+        UserEntity user = findUserByHandleOrThrow(handle);
+        validatePublicProfileAccess(user, currentUserId);
+        return toPublicUserProfile(user);
+    }
 
-        // 2. If not found, try alternative format (with/without @)
-        if (userOpt.isEmpty()) {
-            if (handle.startsWith("@")) {
-                userOpt = userRepository.findByHandle(handle.substring(1));
-            } else {
-                userOpt = userRepository.findByHandle("@" + handle);
-            }
-        }
-
-        UserEntity user = userOpt.orElseThrow(() -> new UserNotFoundException("handle", handle));
-
+    private com.example.auth.dto.PublicUserProfileDto toPublicUserProfile(UserEntity user) {
         return com.example.auth.dto.PublicUserProfileDto.builder()
-                .id(user.getId())
                 .name(user.getName())
                 .handle(user.getHandle())
                 .favoriteTeam(user.getFavoriteTeamId())
@@ -735,21 +720,48 @@ public class UserService {
                 .build();
     }
 
-    /**
-     * 공개 프로필 조회
-     */
+    private UserEntity findUserByHandleOrThrow(String handle) {
+        String normalizedHandle = normalizeHandle(handle);
+        return userRepository.findByHandle(normalizedHandle)
+                .orElseThrow(() -> new UserNotFoundException("handle", handle));
+    }
+
     @Transactional(readOnly = true)
-    public com.example.auth.dto.PublicUserProfileDto getPublicUserProfile(Long userId) {
-        UserEntity user = findUserById(Objects.requireNonNull(userId));
-        return com.example.auth.dto.PublicUserProfileDto.builder()
-                .id(user.getId())
-                .name(user.getName())
-                .handle(user.getHandle())
-                .favoriteTeam(user.getFavoriteTeamId())
-                .profileImageUrl(resolvePublicProfileImageUrl(user.getProfileImageUrl()))
-                .bio(user.getBio())
-                .cheerPoints(user.getCheerPoints())
-                .build();
+    public Long getUserIdByHandle(String handle) {
+        return findUserByHandleOrThrow(handle).getId();
+    }
+
+    private String normalizeHandle(String handle) {
+        if (handle == null || handle.isBlank()) {
+            throw new UserNotFoundException("handle", String.valueOf(handle));
+        }
+        return handle.startsWith("@") ? handle : "@" + handle;
+    }
+
+    private void validatePublicProfileAccess(UserEntity target, Long currentUserId) {
+        Long targetUserId = target.getId();
+        if (targetUserId == null) {
+            throw new UserNotFoundException("userId", "null");
+        }
+
+        if (currentUserId != null && currentUserId.equals(targetUserId)) {
+            return;
+        }
+
+        if (currentUserId != null && userBlockRepository.existsBidirectionalBlock(currentUserId, targetUserId)) {
+            throw new AccessDeniedException("차단 관계인 사용자의 프로필은 조회할 수 없습니다.");
+        }
+
+        if (!target.isPrivateAccount()) {
+            return;
+        }
+
+        if (currentUserId != null
+                && userFollowRepository.existsById(new com.example.auth.entity.UserFollow.Id(currentUserId, targetUserId))) {
+            return;
+        }
+
+        throw new AccessDeniedException("비공개 계정의 프로필은 팔로워만 조회할 수 있습니다.");
     }
 
     private String resolvePublicProfileImageUrl(String profileImageUrl) {
@@ -782,6 +794,37 @@ public class UserService {
         if (!bCryptPasswordEncoder.matches(password, user.getPassword())) {
             throw new InvalidCredentialsException();
         }
+    }
+
+    /**
+     * 로그인 전 계정 상태 검증
+     * - 비활성 계정(enabled=false) 차단
+     * - 잠금 계정(locked=true) 차단, 단 잠금 만료 시 허용
+     */
+    private void validateAuthorForLogin(UserEntity user) {
+        if (user.isPendingDeletion()) {
+            throw new InvalidAuthorException("계정 삭제 예약 상태입니다. 이메일의 복구 링크를 확인해주세요.");
+        }
+
+        if (!user.isEnabled()) {
+            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+        }
+
+        if (!isAccountUsable(user)) {
+            throw new InvalidAuthorException("계정이 잠겨 있습니다. 잠시 후 다시 시도해 주세요.");
+        }
+    }
+
+    private boolean isAccountUsable(UserEntity user) {
+        if (!user.isLocked()) {
+            return true;
+        }
+
+        if (user.getLockExpiresAt() == null) {
+            return false;
+        }
+
+        return user.getLockExpiresAt().isBefore(LocalDateTime.now());
     }
 
     /**
@@ -852,24 +895,28 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
-    public boolean isNameAvailable(Long userId, String name) {
+    public String ensureNameAvailable(Long userId, String name) {
         if (userId == null) {
-            throw new IllegalArgumentException("인증이 필요합니다.");
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
         }
 
         String normalizedName = name == null ? "" : name.trim();
         if (normalizedName.isBlank()) {
-            throw new IllegalArgumentException("닉네임을 입력해 주세요.");
+            throw new BadRequestBusinessException("NAME_REQUIRED", "닉네임을 입력해 주세요.");
         }
         if (normalizedName.length() < 2) {
-            throw new IllegalArgumentException("닉네임은 최소 2자 이상이어야 합니다.");
+            throw new BadRequestBusinessException("NAME_TOO_SHORT", "닉네임은 최소 2자 이상이어야 합니다.");
         }
         if (normalizedName.length() > 20) {
-            throw new IllegalArgumentException("닉네임은 20자 이하여야 합니다.");
+            throw new BadRequestBusinessException("NAME_TOO_LONG", "닉네임은 20자 이하여야 합니다.");
         }
 
         UserEntity target = userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException(userId));
         Optional<UserEntity> existing = userRepository.findByNameIgnoreCase(normalizedName);
-        return existing.isEmpty() || existing.get().getId().equals(target.getId());
+        if (existing.isPresent() && !existing.get().getId().equals(target.getId())) {
+            throw new DuplicateNameException(normalizedName);
+        }
+
+        return normalizedName;
     }
 }

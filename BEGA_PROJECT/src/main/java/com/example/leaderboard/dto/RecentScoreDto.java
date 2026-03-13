@@ -17,7 +17,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class RecentScoreDto {
     private Long id;
-    private Long userId;
+    private String handle;
     private String userName;
     private String profileImageUrl;
     private String eventType;
@@ -29,16 +29,16 @@ public class RecentScoreDto {
     private String description;
     private LocalDateTime timestamp;
 
-    public static RecentScoreDto from(ScoreEvent event, String nickname, String profileImageUrl) {
+    public static RecentScoreDto from(ScoreEvent event, String handle, String nickname, String profileImageUrl) {
         return RecentScoreDto.builder()
                 .id(event.getId())
-                .userId(event.getUserId())
+                .handle(handle)
                 .userName(nickname)
                 .profileImageUrl(profileImageUrl)
                 .eventType(event.getEventType().name())
                 .eventTypeKo(event.getEventType().getKoreanName())
                 .baseScore(event.getBaseScore())
-                .multiplier(event.getMultiplier())
+                .multiplier(event.getMultiplier() == null ? null : event.getMultiplier().doubleValue())
                 .score(event.getFinalScore())
                 .streak(event.getStreakCount())
                 .description(event.getDescription())
