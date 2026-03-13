@@ -1,11 +1,12 @@
 package com.example.auth.controller;
 
 import com.example.common.dto.ApiResponse;
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.exception.ForbiddenBusinessException;
 import com.example.auth.dto.PublicUserProfileDto;
 import com.example.auth.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,12 +33,10 @@ public class UserController {
             @PathVariable Long userId,
             @AuthenticationPrincipal Long currentUserId) {
         if (currentUserId == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.error("인증이 필요합니다."));
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
         }
         if (!currentUserId.equals(userId)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("본인의 소셜 연동 상태만 조회할 수 있습니다."));
+            throw new ForbiddenBusinessException("FORBIDDEN", "본인의 소셜 연동 상태만 조회할 수 있습니다.");
         }
         boolean verified = userService.isSocialVerified(userId);
         return ResponseEntity.ok(ApiResponse.success("소셜 연동 상태 조회", verified));

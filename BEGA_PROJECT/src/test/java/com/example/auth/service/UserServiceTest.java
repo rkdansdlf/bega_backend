@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -22,6 +23,7 @@ import com.example.mate.service.PartyService;
 import com.example.profile.storage.service.ProfileImageService;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -200,6 +202,33 @@ class UserServiceTest {
         assertEquals(3, user.getTokenVersion());
         verify(userRepository).save(user);
         verify(refreshRepository).deleteByEmail("user@example.com");
+    }
+
+    @Test
+    void checkAndApplyDailyLoginBonus_awardsPointsOnlyOncePerDay() {
+        UserEntity user = baseUser(null);
+        user.setCheerPoints(10);
+
+        int firstLoginPoints = userService.checkAndApplyDailyLoginBonus(user);
+        int secondLoginPoints = userService.checkAndApplyDailyLoginBonus(user);
+
+        assertEquals(15, firstLoginPoints);
+        assertEquals(15, secondLoginPoints);
+        assertEquals(LocalDate.now(), user.getLastBonusDate());
+        verify(userRepository, times(2)).save(user);
+    }
+
+    @Test
+    void checkAndApplyDailyLoginBonus_preservesExistingPointsWhenAlreadyAwardedToday() {
+        UserEntity user = baseUser(null);
+        user.setCheerPoints(7);
+        user.setLastBonusDate(LocalDate.now());
+
+        int currentPoints = userService.checkAndApplyDailyLoginBonus(user);
+
+        assertEquals(7, currentPoints);
+        assertEquals(LocalDate.now(), user.getLastBonusDate());
+        verify(userRepository).save(user);
     }
 
     private UserEntity baseUser(String profileImageUrl) {

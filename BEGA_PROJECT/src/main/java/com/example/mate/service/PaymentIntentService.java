@@ -345,7 +345,10 @@ public class PaymentIntentService {
     @Transactional
     public PaymentIntent.IntentStatus cancelPaymentIntent(Long intentId, Long userId, String cancelReason) {
         PaymentIntent intent = paymentIntentRepository.findByIdForUpdate(intentId)
-                .orElseThrow(() -> new TossPaymentException("결제 요청을 찾을 수 없습니다: " + intentId, HttpStatus.NOT_FOUND));
+                .orElseThrow(() -> new TossPaymentException(
+                        "PAYMENT_INTENT_NOT_FOUND",
+                        "결제 요청을 찾을 수 없습니다: " + intentId,
+                        HttpStatus.NOT_FOUND));
 
         if (!intent.getApplicantId().equals(userId)) {
             throw new UnauthorizedAccessException("본인의 결제 요청만 취소할 수 있습니다.");
@@ -359,13 +362,16 @@ public class PaymentIntentService {
 
         // 취소 처리 중이거나 실패한 경우
         if (intent.getStatus() == PaymentIntent.IntentStatus.CANCEL_REQUESTED) {
-            throw new TossPaymentException("결제 취소가 이미 진행 중입니다.", HttpStatus.CONFLICT);
+            throw new TossPaymentException("PAYMENT_CANCEL_ALREADY_REQUESTED", "결제 취소가 이미 진행 중입니다.", HttpStatus.CONFLICT);
         }
         if (intent.getStatus() == PaymentIntent.IntentStatus.CANCEL_FAILED) {
-            throw new TossPaymentException("이전 결제 취소가 실패했습니다. 고객센터에 문의해주세요.", HttpStatus.CONFLICT);
+            throw new TossPaymentException(
+                    "PAYMENT_CANCEL_PREVIOUS_FAILURE",
+                    "이전 결제 취소가 실패했습니다. 고객센터에 문의해주세요.",
+                    HttpStatus.CONFLICT);
         }
         if (intent.getStatus() == PaymentIntent.IntentStatus.EXPIRED) {
-            throw new TossPaymentException("만료된 결제 요청입니다.", HttpStatus.CONFLICT);
+            throw new TossPaymentException("PAYMENT_INTENT_EXPIRED", "만료된 결제 요청입니다.", HttpStatus.CONFLICT);
         }
 
         String reason = (cancelReason != null && !cancelReason.isBlank())
@@ -386,6 +392,7 @@ public class PaymentIntentService {
         // CONFIRMED / APPLICATION_CREATED 상태: Toss API 취소 필요
         if (intent.getPaymentKey() == null || intent.getPaymentKey().isBlank()) {
             throw new TossPaymentException(
+                    "PAYMENT_KEY_MISSING",
                     "결제 키 정보를 찾을 수 없습니다. 고객센터에 문의해주세요.",
                     HttpStatus.INTERNAL_SERVER_ERROR);
         }

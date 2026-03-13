@@ -3,6 +3,8 @@ package com.example.kbo.controller;
 import java.util.List;
 import java.util.Map;
 
+import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -55,18 +57,12 @@ public class TeamHistoryController {
     public ResponseEntity<List<TeamHistoryEntity>> getSeasonTeams(@PathVariable Integer season) {
         log.info("GET /api/team-history/season/{} - Fetching teams for season", season);
 
-        // 시즌 유효성 검사
-        if (season < 1982 || season > 2030) {
-            return ResponseEntity.badRequest().build();
-        }
+        validateSeason(season);
 
-        List<TeamHistoryEntity> teams = historyService.getHistoryBySeason(season);
-
-        if (teams.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        return ResponseEntity.ok(teams);
+        return ResponseEntity.ok(requireNonEmpty(
+                historyService.getHistoryBySeason(season),
+                "TEAM_HISTORY_SEASON_NOT_FOUND",
+                "해당 시즌의 팀 역사 데이터를 찾을 수 없습니다."));
     }
 
     /**
@@ -81,18 +77,12 @@ public class TeamHistoryController {
     public ResponseEntity<List<TeamHistoryEntity>> getSeasonStandings(@PathVariable Integer season) {
         log.info("GET /api/team-history/season/{}/standings - Fetching standings", season);
 
-        // 시즌 유효성 검사
-        if (season < 1982 || season > 2030) {
-            return ResponseEntity.badRequest().build();
-        }
+        validateSeason(season);
 
-        List<TeamHistoryEntity> standings = historyService.getStandingsBySeason(season);
-
-        if (standings.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        return ResponseEntity.ok(standings);
+        return ResponseEntity.ok(requireNonEmpty(
+                historyService.getStandingsBySeason(season),
+                "TEAM_HISTORY_STANDINGS_NOT_FOUND",
+                "해당 시즌의 순위 데이터를 찾을 수 없습니다."));
     }
 
     /**
@@ -112,9 +102,13 @@ public class TeamHistoryController {
         log.info("GET /api/team-history/team/{}/season/{} - Fetching team season info",
             teamCode, season);
 
+        validateSeason(season);
+
         return historyService.getTeamInSeason(teamCode, season)
             .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
+            .orElseThrow(() -> new NotFoundBusinessException(
+                    "TEAM_HISTORY_TEAM_SEASON_NOT_FOUND",
+                    "해당 시즌의 팀 정보를 찾을 수 없습니다."));
     }
 
     /**
@@ -129,16 +123,16 @@ public class TeamHistoryController {
     public ResponseEntity<Map<String, Object>> getSeasonStatistics(@PathVariable Integer season) {
         log.info("GET /api/team-history/statistics/{} - Fetching season statistics", season);
 
-        // 시즌 유효성 검사
-        if (season < 1982 || season > 2030) {
-            return ResponseEntity.badRequest().build();
-        }
+        validateSeason(season);
 
         Map<String, Object> statistics = historyService.getSeasonStatistics(season);
 
-        // 데이터가 없으면 404
-        if ((int) statistics.getOrDefault("totalTeams", 0) == 0) {
-            return ResponseEntity.notFound().build();
+        Object totalTeams = statistics.getOrDefault("totalTeams", 0);
+        int totalTeamCount = totalTeams instanceof Number number ? number.intValue() : 0;
+        if (totalTeamCount == 0) {
+            throw new NotFoundBusinessException(
+                    "TEAM_HISTORY_STATISTICS_NOT_FOUND",
+                    "해당 시즌의 통계 데이터를 찾을 수 없습니다.");
         }
 
         return ResponseEntity.ok(statistics);
@@ -156,13 +150,10 @@ public class TeamHistoryController {
     public ResponseEntity<List<TeamHistoryEntity>> getTeamCodeHistory(@PathVariable String teamCode) {
         log.info("GET /api/team-history/team/{} - Fetching team code history", teamCode);
 
-        List<TeamHistoryEntity> history = historyService.getTeamCodeHistory(teamCode);
-
-        if (history.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        return ResponseEntity.ok(history);
+        return ResponseEntity.ok(requireNonEmpty(
+                historyService.getTeamCodeHistory(teamCode),
+                "TEAM_HISTORY_TEAM_NOT_FOUND",
+                "요청한 팀 역사 데이터를 찾을 수 없습니다."));
     }
 
     /**
@@ -182,10 +173,7 @@ public class TeamHistoryController {
         log.info("GET /api/team-history/range?start={}&end={} - Fetching history by range",
             startYear, endYear);
 
-        // 유효성 검사
-        if (startYear < 1982 || endYear > 2030 || startYear > endYear) {
-            return ResponseEntity.badRequest().build();
-        }
+        validateYearRange(startYear, endYear);
 
         List<TeamHistoryEntity> history = historyService.getHistoryByYearRange(startYear, endYear);
         return ResponseEntity.ok(history);
@@ -205,10 +193,7 @@ public class TeamHistoryController {
 
         log.info("GET /api/team-history/recent?limit={} - Fetching recent seasons", limit);
 
-        // 유효성 검사
-        if (limit < 1 || limit > 50) {
-            return ResponseEntity.badRequest().build();
-        }
+        validateRecentLimit(limit);
 
         List<TeamHistoryEntity> history = historyService.getRecentSeasons(limit);
         return ResponseEntity.ok(history);
@@ -226,12 +211,34 @@ public class TeamHistoryController {
     public ResponseEntity<List<TeamHistoryEntity>> getHistoryByStadium(@PathVariable String stadium) {
         log.info("GET /api/team-history/stadium/{} - Fetching history by stadium", stadium);
 
-        List<TeamHistoryEntity> history = historyService.getHistoryByStadium(stadium);
+        return ResponseEntity.ok(requireNonEmpty(
+                historyService.getHistoryByStadium(stadium),
+                "TEAM_HISTORY_STADIUM_NOT_FOUND",
+                "해당 구장의 팀 역사 데이터를 찾을 수 없습니다."));
+    }
 
-        if (history.isEmpty()) {
-            return ResponseEntity.notFound().build();
+    private void validateSeason(Integer season) {
+        if (season < 1982 || season > 2030) {
+            throw new BadRequestBusinessException("INVALID_SEASON", "season은 1982부터 2030 사이여야 합니다.");
         }
+    }
 
-        return ResponseEntity.ok(history);
+    private void validateYearRange(Integer startYear, Integer endYear) {
+        if (startYear < 1982 || endYear > 2030 || startYear > endYear) {
+            throw new BadRequestBusinessException("INVALID_YEAR_RANGE", "조회 연도 범위가 올바르지 않습니다.");
+        }
+    }
+
+    private void validateRecentLimit(int limit) {
+        if (limit < 1 || limit > 50) {
+            throw new BadRequestBusinessException("INVALID_RECENT_SEASONS_LIMIT", "limit는 1부터 50 사이여야 합니다.");
+        }
+    }
+
+    private <T> List<T> requireNonEmpty(List<T> values, String code, String message) {
+        if (values.isEmpty()) {
+            throw new NotFoundBusinessException(code, message);
+        }
+        return values;
     }
 }

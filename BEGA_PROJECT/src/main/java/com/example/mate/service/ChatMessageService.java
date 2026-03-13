@@ -2,6 +2,7 @@ package com.example.mate.service;
 
 import com.example.mate.dto.ChatMessageDTO;
 import com.example.mate.entity.ChatMessage;
+import com.example.common.exception.AuthenticationRequiredException;
 import com.example.mate.repository.ChatMessageRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -34,7 +35,7 @@ public class ChatMessageService {
     @Transactional
     public ChatMessageDTO.Response sendMessage(ChatMessageDTO.Request request, Principal principal) {
         if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
-            throw new UnauthorizedAccessException("로그인이 필요합니다.");
+            throw new AuthenticationRequiredException("로그인이 필요합니다.");
         }
         Long userId = userService.getUserIdByEmail(principal.getName());
 
@@ -86,7 +87,7 @@ public class ChatMessageService {
 
     private void assertPartyMember(Long partyId, Principal principal) {
         if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
-            throw new UnauthorizedAccessException("로그인이 필요합니다.");
+            throw new AuthenticationRequiredException("로그인이 필요합니다.");
         }
         Long userId = userService.getUserIdByEmail(principal.getName());
         if (partyId == null) {
@@ -110,7 +111,7 @@ public class ChatMessageService {
             throw new PartyNotFoundException(0L);
         }
         if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
-            throw new UnauthorizedAccessException("로그인이 필요합니다.");
+            throw new AuthenticationRequiredException("로그인이 필요합니다.");
         }
         Long userId = userService.getUserIdByEmail(principal.getName());
         var party = partyRepository.findById(partyId)

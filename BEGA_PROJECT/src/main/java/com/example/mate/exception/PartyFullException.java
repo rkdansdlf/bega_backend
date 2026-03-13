@@ -1,11 +1,13 @@
 package com.example.mate.exception;
 
-public class PartyFullException extends RuntimeException {
+import com.example.common.exception.BadRequestBusinessException;
+
+public class PartyFullException extends BadRequestBusinessException {
     public PartyFullException(Long partyId) {
-        super("파티가 이미 가득 찼습니다. ID: " + partyId);
+        super("PARTY_FULL", "파티가 이미 가득 찼습니다. ID: " + partyId);
     }
     
     public PartyFullException(String message) {
-        super(message);
+        super("PARTY_FULL", message);
     }
 }

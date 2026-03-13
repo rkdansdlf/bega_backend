@@ -6,6 +6,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.security.Principal;
 import java.util.List;
@@ -13,24 +16,38 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import com.example.common.exception.GlobalExceptionHandler;
 
 class PredictionControllerMyVotesTest {
 
     @Test
-    void nonLoginRequestShouldReturnUnauthorizedWithEmptyVotes() {
+    void nonLoginRequestShouldReturnUnauthorizedWithEmptyVotes() throws Exception {
         PredictionService predictionService = mock(PredictionService.class);
         PredictionRepository predictionRepository = mock(PredictionRepository.class);
         PredictionController controller =
                 new PredictionController(predictionService, predictionRepository);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
 
-        PredictionMyVotesRequestDto request = new PredictionMyVotesRequestDto();
-        request.setGameIds(List.of("GAME-1", "GAME-2"));
+        mockMvc.perform(post("/api/predictions/my-votes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "gameIds": ["GAME-1", "GAME-2"]
+                                }
+                                """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"))
+                .andExpect(jsonPath("$.message").value("로그인이 필요합니다."))
+                .andExpect(jsonPath("$.data.votes").isMap());
 
-        ResponseEntity<Map<String, Object>> response = controller.getMyVotesBulk(request, null);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(response.getBody()).containsEntry("votes", Map.of());
         verifyNoInteractions(predictionService, predictionRepository);
     }
 
@@ -45,10 +62,10 @@ class PredictionControllerMyVotesTest {
         PredictionMyVotesRequestDto request = new PredictionMyVotesRequestDto();
         request.setGameIds(List.of());
 
-        ResponseEntity<Map<String, Object>> response = controller.getMyVotesBulk(request, principal);
+        ResponseEntity<?> response = controller.getMyVotesBulk(request, principal);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).containsEntry("votes", Map.of());
+        assertThat(response.getBody()).isEqualTo(Map.of("votes", Map.of()));
         verifyNoInteractions(predictionRepository);
     }
 
@@ -63,10 +80,10 @@ class PredictionControllerMyVotesTest {
         PredictionMyVotesRequestDto request = new PredictionMyVotesRequestDto();
         request.setGameIds(null);
 
-        ResponseEntity<Map<String, Object>> response = controller.getMyVotesBulk(request, principal);
+        ResponseEntity<?> response = controller.getMyVotesBulk(request, principal);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).containsEntry("votes", Map.of());
+        assertThat(response.getBody()).isEqualTo(Map.of("votes", Map.of()));
         verifyNoInteractions(predictionRepository);
     }
 
@@ -81,7 +98,7 @@ class PredictionControllerMyVotesTest {
         PredictionMyVotesRequestDto request = new PredictionMyVotesRequestDto();
         request.setGameIds(List.of("GAME-10", "GAME-11"));
 
-        ResponseEntity<Map<String, Object>> response = controller.getMyVotesBulk(request, principal);
+        ResponseEntity<?> response = controller.getMyVotesBulk(request, principal);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, String> votes = extractVotes(response);
@@ -111,7 +128,7 @@ class PredictionControllerMyVotesTest {
                 )
         );
 
-        ResponseEntity<Map<String, Object>> response = controller.getMyVotesBulk(request, principal);
+        ResponseEntity<?> response = controller.getMyVotesBulk(request, principal);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, String> votes = extractVotes(response);
@@ -140,7 +157,7 @@ class PredictionControllerMyVotesTest {
                 List.of(new Prediction("GAME-40", 7L, "home"))
         );
 
-        ResponseEntity<Map<String, Object>> response = controller.getMyVotesBulk(request, principal);
+        ResponseEntity<?> response = controller.getMyVotesBulk(request, principal);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, String> votes = extractVotes(response);
@@ -152,8 +169,11 @@ class PredictionControllerMyVotesTest {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, String> extractVotes(ResponseEntity<Map<String, Object>> response) {
-        Map<String, Object> body = response.getBody();
+    private Map<String, String> extractVotes(ResponseEntity<?> response) {
+        Object bodyObject = response.getBody();
+        assertThat(bodyObject).isInstanceOf(Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> body = (Map<String, Object>) bodyObject;
         assertThat(body).isNotNull();
         assertThat(body).containsKey("votes");
         assertInstanceOf(Map.class, body.get("votes"));

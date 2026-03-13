@@ -138,7 +138,9 @@ public class SecurityConfig {
                         "/api/kbo/rankings/**",
                         "/api/kbo/offseason/**",
                         "/api/matches/**",
-                        "/api/diary/public/**"
+                        "/api/diary/public/**",
+                        "/api/client-errors",
+                        "/api/client-errors/feedback"
         };
 
         /** 공개 GET 요청 엔드포인트 */

@@ -10,6 +10,8 @@ import com.example.kbo.entity.GameEntity;
 import com.example.kbo.entity.GameInningScoreEntity;
 import com.example.kbo.entity.GameMetadataEntity;
 import com.example.kbo.entity.GameSummaryEntity;
+import com.example.kbo.entity.PlayerSeasonBattingEntity;
+import com.example.kbo.entity.PlayerSeasonPitchingEntity;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -30,7 +32,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 /**
  * KBO game-read stack(PostgreSQL) 전용 JPA 구성.
  *
- * 분리 대상은 GameRepository 계열(경기/메타/이닝/요약)만 우선 적용한다.
+ * 분리 대상은 GameRepository 계열(경기/메타/이닝/요약)과 player season read-model이다.
  * 기본 도메인(auth/prediction write 등)은 primary datasource 경로를 유지한다.
  */
 @Slf4j
@@ -100,7 +102,9 @@ public class KboGamePostgresJpaConfig {
 						GameEntity.class.getName(),
 						GameMetadataEntity.class.getName(),
 						GameSummaryEntity.class.getName(),
-						GameInningScoreEntity.class.getName()
+						GameInningScoreEntity.class.getName(),
+						PlayerSeasonBattingEntity.class.getName(),
+						PlayerSeasonPitchingEntity.class.getName()
 				),
 				List.of()
 		);

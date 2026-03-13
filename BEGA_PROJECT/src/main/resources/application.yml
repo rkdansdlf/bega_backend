@@ -146,7 +146,7 @@ kbo:
 # 애플리케이션 공통 설정
 app:
   mail:
-    enabled: ${APP_MAIL_ENABLED:true}
+    enabled: ${APP_MAIL_ENABLED:false}
   dev-data:
     enabled: false
   frontend:
@@ -161,7 +161,7 @@ app:
       public-in-dev: ${APP_AI_PROXY_PUBLIC_IN_DEV:false}
       request-timeout-seconds: ${APP_AI_PROXY_REQUEST_TIMEOUT_SECONDS:180}
   trusted-proxies: ${APP_TRUSTED_PROXIES:}
-  allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:5177,http://localhost:8080,http://host.docker.internal,http://host.docker.internal:3000,http://host.docker.internal:5173,http://host.docker.internal:5176,http://host.docker.internal:5177,http://host.docker.internal:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176,http://127.0.0.1:5177}
+  allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:5177,http://localhost:8080,http://host.docker.internal,http://host.docker.internal:3000,http://host.docker.internal:5173,http://host.docker.internal:5176,http://host.docker.internal:5177,http://host.docker.internal:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:4173,http://127.0.0.1:5173,http://127.0.0.1:5176,http://127.0.0.1:5177}
   cookie:
     secure: false  # 개발 환경 기본값 (HTTP), prod 프로필에서 true로 오버라이드
   policy:

@@ -39,6 +39,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -367,7 +368,8 @@ class MateFlowPolicyAbuseIntegrationTest {
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
                         .contentType("application/json")
                         .content(firstApplyBody))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DUPLICATE_APPLICATION"));
 
         mockMvc.perform(post("/api/applications/{id}/reject", firstApplicationId)
                         .with(MateTestTokenHelper.principalAs(HOST_EMAIL)))
@@ -377,7 +379,8 @@ class MateFlowPolicyAbuseIntegrationTest {
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
                         .contentType("application/json")
                         .content(firstApplyBody))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DUPLICATE_APPLICATION"));
 
         Party paidParty = partyRepository.save(MateTestFixtureFactory.pendingParty(
                 host.getId(), host.getName(), 3));
@@ -417,6 +420,7 @@ class MateFlowPolicyAbuseIntegrationTest {
                         .with(MateTestTokenHelper.principalAs(OUTSIDER_EMAIL))
                         .contentType("application/json")
                         .content(reuseConfirmBody))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_APPLICATION_STATUS"));
     }
 }

@@ -6,6 +6,7 @@ import com.example.mate.dto.PartyReviewDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.PartyReview;
+import com.example.common.exception.AuthenticationRequiredException;
 import com.example.mate.exception.DuplicateReviewException;
 import com.example.mate.exception.InvalidReviewException;
 import com.example.mate.exception.PartyNotFoundException;
@@ -37,7 +38,7 @@ public class PartyReviewService {
     @Transactional
     public PartyReviewDTO.Response createReview(PartyReviewDTO.Request request, Principal principal) {
         if (principal == null) {
-            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
+            throw new AuthenticationRequiredException("인증 정보가 없습니다.");
         }
         Long reviewerId = userService.getUserIdByEmail(principal.getName());
         Long revieweeId = resolveRevieweeId(request);

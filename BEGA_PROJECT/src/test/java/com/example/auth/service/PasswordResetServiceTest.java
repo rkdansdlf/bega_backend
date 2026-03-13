@@ -2,6 +2,7 @@ package com.example.auth.service;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -16,6 +17,7 @@ import com.example.auth.repository.UserRepository;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -52,12 +54,12 @@ class PasswordResetServiceTest {
         when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
 
         assertThatCode(() -> passwordResetService.requestPasswordReset(
-                new PasswordResetRequestDto("missing@example.com")))
+                new PasswordResetRequestDto("missing@example.com", null)))
                 .doesNotThrowAnyException();
 
         verify(authSecurityMonitoringService).recordPasswordResetSuppressed();
         verify(tokenRepository, never()).save(any());
-        verify(emailService, never()).sendPasswordResetEmail(any(), any());
+        verify(emailService, never()).sendPasswordResetEmail(any(), any(), any());
     }
 
     @Test
@@ -74,12 +76,38 @@ class PasswordResetServiceTest {
         when(userRepository.findByEmail("social@example.com")).thenReturn(Optional.of(socialUser));
 
         assertThatCode(() -> passwordResetService.requestPasswordReset(
-                new PasswordResetRequestDto("social@example.com")))
+                new PasswordResetRequestDto("social@example.com", null)))
                 .doesNotThrowAnyException();
 
         verify(authSecurityMonitoringService).recordPasswordResetSuppressed();
         verify(tokenRepository, never()).save(any());
-        verify(emailService, never()).sendPasswordResetEmail(any(), any());
+        verify(emailService, never()).sendPasswordResetEmail(any(), any(), any());
+    }
+
+    @Test
+    void requestPasswordReset_forwardsRedirectToEmailLink() {
+        UserEntity user = UserEntity.builder()
+                .id(12L)
+                .uniqueId(UUID.randomUUID())
+                .email("user@example.com")
+                .role("ROLE_USER")
+                .name("user")
+                .handle("@user")
+                .password("hashed-password")
+                .build();
+        ArgumentCaptor<PasswordResetToken> tokenCaptor = ArgumentCaptor.forClass(PasswordResetToken.class);
+
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+
+        passwordResetService.requestPasswordReset(
+                new PasswordResetRequestDto("user@example.com", "/mypage?view=accountSettings"));
+
+        verify(tokenRepository).deleteByUserId(12L);
+        verify(tokenRepository).save(tokenCaptor.capture());
+        verify(emailService).sendPasswordResetEmail(
+                eq("user@example.com"),
+                eq(tokenCaptor.getValue().getToken()),
+                eq("/mypage?view=accountSettings"));
     }
 
     @Test

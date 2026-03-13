@@ -1,7 +1,9 @@
 package com.example.mate.exception;
 
-public class PartyApplicationNotFoundException extends RuntimeException {
+import com.example.common.exception.NotFoundBusinessException;
+
+public class PartyApplicationNotFoundException extends NotFoundBusinessException {
     public PartyApplicationNotFoundException(Long applicationId) {
-        super("신청을 찾을 수 없습니다. ID: " + applicationId);
+        super("PARTY_APPLICATION_NOT_FOUND", "신청을 찾을 수 없습니다. ID: " + applicationId);
     }
 }
