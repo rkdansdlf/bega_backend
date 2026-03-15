@@ -1,4 +1,4 @@
--- V122: Add missing performance indexes for frequently queried columns
+-- V123: Add missing performance indexes for frequently queried columns
 
 -- 1. JWT filter: every request checks users(enabled, locked) for account status
 DO $$
