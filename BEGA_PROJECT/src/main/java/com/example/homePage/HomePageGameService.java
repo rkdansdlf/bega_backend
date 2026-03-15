@@ -73,6 +73,32 @@ public class HomePageGameService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
+    public List<HomePageScheduledGameDto> getScheduledGamesWindow(LocalDate startDate, LocalDate endDate) {
+        return gameRepository.findAllByDateRange(startDate, endDate).stream()
+                .map(game -> {
+                    HomePageGameDto baseDto = convertToDto(game);
+                    return HomePageScheduledGameDto.builder()
+                            .gameId(baseDto.getGameId())
+                            .time(baseDto.getTime())
+                            .stadium(baseDto.getStadium())
+                            .gameStatus(baseDto.getGameStatus())
+                            .gameStatusKr(baseDto.getGameStatusKr())
+                            .gameInfo(baseDto.getGameInfo())
+                            .leagueType(baseDto.getLeagueType())
+                            .homeTeam(baseDto.getHomeTeam())
+                            .homeTeamFull(baseDto.getHomeTeamFull())
+                            .awayTeam(baseDto.getAwayTeam())
+                            .awayTeamFull(baseDto.getAwayTeamFull())
+                            .homeScore(baseDto.getHomeScore())
+                            .awayScore(baseDto.getAwayScore())
+                            .sourceDate(game.getGameDate() == null ? null : game.getGameDate().toString())
+                            .leagueBadge(resolveLeagueBadge(baseDto.getLeagueType()))
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
     private HomePageGameDto convertToDto(GameEntity game) {
 		HomePageTeam homeTeam = getTeam(game.getHomeTeam());
 		HomePageTeam awayTeam = getTeam(game.getAwayTeam());
@@ -137,6 +163,21 @@ public class HomePageGameService {
             default:
                 return status;
         }
+    }
+
+    private String resolveLeagueBadge(String leagueType) {
+        if (leagueType == null) {
+            return "예정 일정";
+        }
+
+        return switch (leagueType) {
+            case "REGULAR" -> "정규시즌";
+            case "POSTSEASON" -> "포스트시즌";
+            case "KOREAN_SERIES" -> "한국시리즈";
+            case "PRE", "PRESEASON" -> "프리시즌";
+            case "OFFSEASON" -> "기타 일정";
+            default -> "예정 일정";
+        };
     }
 
 	private String determineLeagueType(GameEntity game) {

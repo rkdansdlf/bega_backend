@@ -1,6 +1,8 @@
 package com.example.bega.auth.service;
 
+import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.bega.auth.dto.OAuth2LinkStateData;
+import com.example.bega.auth.dto.OAuth2LinkTicketData;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,12 +26,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class OAuth2LinkStateServiceTest {
@@ -40,6 +42,9 @@ class OAuth2LinkStateServiceTest {
     @Mock
     private ValueOperations<String, String> valueOperations;
 
+    @Mock
+    private AuthSecurityMonitoringService securityMonitoringService;
+
     private ObjectMapper objectMapper;
     private OAuth2LinkStateService service;
     private Map<String, String> redisStorage;
@@ -48,12 +53,11 @@ class OAuth2LinkStateServiceTest {
     void setUp() {
         objectMapper = new ObjectMapper()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        service = new OAuth2LinkStateService(redisTemplate, objectMapper);
+        service = new OAuth2LinkStateService(redisTemplate, objectMapper, securityMonitoringService);
         redisStorage = new ConcurrentHashMap<>();
 
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
 
-        // 연동 state는 메모리 기반 Redis 동작으로 시뮬레이션한다.
         lenient().doAnswer(inv -> {
             String key = inv.getArgument(0);
             String value = inv.getArgument(1);
@@ -68,167 +72,117 @@ class OAuth2LinkStateServiceTest {
     }
 
     @Test
-    @DisplayName("saveLinkByState: 원본 state key로 5분 TTL 저장")
-    void saveLinkByState_storesWithFiveMinuteTtl() throws Exception {
-        String state = "raw-state-1";
-        OAuth2LinkStateData data = new OAuth2LinkStateData(
-                "link",
-                101L,
-                "http://localhost:5173/mypage",
-                System.currentTimeMillis(),
-                null);
-
-        service.saveLinkByState(state, data);
+    @DisplayName("issueLinkToken: 5분 TTL의 one-time opaque ticket 저장")
+    void issueLinkToken_storesOpaqueTicketWithTtl() throws Exception {
+        String ticket = service.issueLinkToken(101L);
 
         ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> jsonCaptor = ArgumentCaptor.forClass(String.class);
-        verify(valueOperations).set(keyCaptor.capture(), jsonCaptor.capture(), eq(5L), eq(TimeUnit.MINUTES));
+        verify(valueOperations).set(keyCaptor.capture(), jsonCaptor.capture(), eq(300_000L), eq(TimeUnit.MILLISECONDS));
 
-        assertThat(keyCaptor.getValue()).isEqualTo("oauth2:link:" + state);
-        OAuth2LinkStateData saved = objectMapper.readValue(jsonCaptor.getValue(), OAuth2LinkStateData.class);
-        assertThat(saved).isEqualTo(data);
+        assertThat(ticket).isNotBlank();
+        assertThat(keyCaptor.getValue()).startsWith("oauth2:link:ticket:");
+
+        OAuth2LinkTicketData stored = objectMapper.readValue(jsonCaptor.getValue(), OAuth2LinkTicketData.class);
+        assertThat(stored.userId()).isEqualTo(101L);
+        assertThat(stored.consumed()).isFalse();
     }
 
     @Test
-    @DisplayName("saveLinkByState: 직렬화 실패 시 RuntimeException")
-    void saveLinkByState_throwsWhenSerializationFails() throws Exception {
-        ObjectMapper failingMapper = mock(ObjectMapper.class);
-        OAuth2LinkStateService failingService = new OAuth2LinkStateService(redisTemplate, failingMapper);
-        when(failingMapper.writeValueAsString(any()))
-                .thenThrow(new JsonProcessingException("serialization failure") {
-                });
+    @DisplayName("consumeLinkToken: 최초 소비는 성공하고 이후 재사용은 replay로 차단")
+    void consumeLinkToken_detectsReplay() {
+        String ticket = service.issueLinkToken(300L);
 
-        OAuth2LinkStateData data = new OAuth2LinkStateData("link", 1L, null, System.currentTimeMillis(), null);
+        OAuth2LinkStateService.LinkTicketConsumeResult first = service.consumeLinkToken(ticket);
+        OAuth2LinkStateService.LinkTicketConsumeResult second = service.consumeLinkToken(ticket);
+        OAuth2LinkStateService.LinkTicketConsumeResult third = service.consumeLinkToken(ticket);
 
-        assertThatThrownBy(() -> failingService.saveLinkByState("state", data))
-                .isInstanceOf(OAuth2LinkStateService.OAuth2LinkStateStoreException.class)
-                .hasMessage(OAuth2LinkStateService.ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE);
-
-        verify(valueOperations, never()).set(anyString(), anyString(), eq(5L), eq(TimeUnit.MINUTES));
+        assertThat(first.userId()).isEqualTo(300L);
+        assertThat(first.failureReason()).isNull();
+        assertThat(second.failureReason()).isEqualTo(OAuth2LinkStateService.FAILURE_REPLAYED_LINK_TOKEN);
+        assertThat(third.failureReason()).isEqualTo(OAuth2LinkStateService.FAILURE_REPLAYED_LINK_TOKEN);
     }
 
     @Test
-    @DisplayName("saveLinkByState: Redis 저장 실패 시 코드형 예외를 던진다")
-    void saveLinkByState_throwsWhenRedisWriteFails() {
-        doThrow(new RuntimeException("redis down"))
-                .when(valueOperations)
-                .set(anyString(), anyString(), anyLong(), any(TimeUnit.class));
+    @DisplayName("consumeLinkToken: 빈 토큰이면 실패 코드 반환")
+    void consumeLinkToken_returnsFailureForBlankTicket() {
+        OAuth2LinkStateService.LinkTicketConsumeResult result = service.consumeLinkToken("");
 
-        OAuth2LinkStateData data = new OAuth2LinkStateData("link", 1L, null, System.currentTimeMillis(), null);
-
-        assertThatThrownBy(() -> service.saveLinkByState("state", data))
-                .isInstanceOf(OAuth2LinkStateService.OAuth2LinkStateStoreException.class)
-                .hasMessage(OAuth2LinkStateService.ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE);
-    }
-
-    @Test
-    @DisplayName("consumeLinkByState: 공백 state면 null")
-    void consumeLinkByState_returnsNullForBlankState() {
-        assertThat(service.consumeLinkByState("")).isNull();
-        assertThat(service.consumeLinkByState(null)).isNull();
+        assertThat(result.userId()).isNull();
+        assertThat(result.failureReason()).isEqualTo(OAuth2LinkStateService.FAILURE_MISSING_LINK_TOKEN);
         verify(valueOperations, never()).getAndDelete(anyString());
     }
 
     @Test
-    @DisplayName("consumeLinkByState: Redis 값이 없으면 null")
-    void consumeLinkByState_returnsNullWhenMissing() {
-        when(valueOperations.getAndDelete("oauth2:link:missing")).thenReturn(null);
+    @DisplayName("consumeLinkToken: 만료된 티켓이면 session expired로 거부")
+    void consumeLinkToken_returnsExpiredForExpiredTicket() throws Exception {
+        String ticket = service.issueLinkToken(7L);
+        String storedKey = redisStorage.keySet().iterator().next();
+        redisStorage.put(storedKey, objectMapper.writeValueAsString(
+                new OAuth2LinkTicketData(7L, System.currentTimeMillis() - (6 * 60 * 1000L), false)));
 
-        OAuth2LinkStateData result = service.consumeLinkByState("missing");
+        OAuth2LinkStateService.LinkTicketConsumeResult result = service.consumeLinkToken(ticket);
 
-        assertThat(result).isNull();
-        verify(valueOperations).getAndDelete("oauth2:link:missing");
+        assertThat(result.userId()).isNull();
+        assertThat(result.failureReason()).isEqualTo(OAuth2LinkStateService.FAILURE_EXPIRED_LINK_TOKEN);
     }
 
     @Test
-    @DisplayName("consumeLinkByState: 만료된 상태면 null")
-    void consumeLinkByState_returnsNullForExpiredData() throws Exception {
-        String state = "expired-state";
-        OAuth2LinkStateData expired = new OAuth2LinkStateData(
-                "link",
-                7L,
-                null,
-                System.currentTimeMillis() - (6 * 60 * 1000L),
-                null);
-        when(valueOperations.getAndDelete("oauth2:link:" + state))
-                .thenReturn(objectMapper.writeValueAsString(expired));
+    @DisplayName("saveLinkByState: state 키로 5분 TTL 저장")
+    void saveLinkByState_storesWithFiveMinuteTtl() throws Exception {
+        OAuth2LinkStateData data = new OAuth2LinkStateData(101L, System.currentTimeMillis(), null);
 
-        OAuth2LinkStateData result = service.consumeLinkByState(state);
+        service.saveLinkByState("raw-state-1", data);
 
-        assertThat(result).isNull();
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> jsonCaptor = ArgumentCaptor.forClass(String.class);
+        verify(valueOperations).set(keyCaptor.capture(), jsonCaptor.capture(), eq(300_000L), eq(TimeUnit.MILLISECONDS));
+
+        assertThat(keyCaptor.getAllValues()).anyMatch(value -> value.equals("oauth2:link:state:raw-state-1"));
+        OAuth2LinkStateData saved = objectMapper.readValue(jsonCaptor.getAllValues().get(jsonCaptor.getAllValues().size() - 1),
+                OAuth2LinkStateData.class);
+        assertThat(saved).isEqualTo(data);
     }
 
     @Test
-    @DisplayName("consumeLinkByState: 정상 데이터면 반환")
-    void consumeLinkByState_returnsDataForValidState() throws Exception {
-        String state = "ok-state";
-        OAuth2LinkStateData stored = new OAuth2LinkStateData(
-                "link",
-                33L,
-                "http://localhost:5173/mypage",
-                System.currentTimeMillis(),
-                null);
-        when(valueOperations.getAndDelete("oauth2:link:" + state))
-                .thenReturn(objectMapper.writeValueAsString(stored));
+    @DisplayName("saveLinkByState: 직렬화 실패 시 코드형 예외")
+    void saveLinkByState_throwsWhenSerializationFails() throws Exception {
+        ObjectMapper failingMapper = mock(ObjectMapper.class);
+        OAuth2LinkStateService failingService = new OAuth2LinkStateService(
+                redisTemplate,
+                failingMapper,
+                securityMonitoringService);
+        when(failingMapper.writeValueAsString(any()))
+                .thenThrow(new JsonProcessingException("serialization failure") {
+                });
 
-        OAuth2LinkStateData result = service.consumeLinkByState(state);
+        OAuth2LinkStateData data = new OAuth2LinkStateData(1L, System.currentTimeMillis(), null);
 
-        assertThat(result).isEqualTo(stored);
+        assertThatThrownBy(() -> failingService.saveLinkByState("state", data))
+                .isInstanceOf(OAuth2LinkStateService.OAuth2LinkStateStoreException.class)
+                .hasMessage(OAuth2LinkStateService.ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE);
     }
 
     @Test
-    @DisplayName("consumeLinkByState: 역직렬화 실패 시 null")
-    void consumeLinkByState_returnsNullWhenDeserializationFails() {
-        when(valueOperations.getAndDelete("oauth2:link:broken")).thenReturn("{not-json}");
+    @DisplayName("issueLinkToken: Redis 저장 실패 시 코드형 예외")
+    void issueLinkToken_throwsWhenRedisWriteFails() {
+        doThrow(new RuntimeException("redis down"))
+                .when(valueOperations)
+                .set(anyString(), anyString(), anyLong(), any(TimeUnit.class));
 
-        OAuth2LinkStateData result = service.consumeLinkByState("broken");
-
-        assertThat(result).isNull();
+        assertThatThrownBy(() -> service.issueLinkToken(1L))
+                .isInstanceOf(OAuth2LinkStateService.OAuth2LinkStateStoreException.class)
+                .hasMessage(OAuth2LinkStateService.ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE);
     }
 
     @Test
-    @DisplayName("consumeLinkByState: Redis 조회 실패 시 null")
-    void consumeLinkByState_returnsNullWhenRedisFails() {
-        when(valueOperations.getAndDelete("oauth2:link:redis-error"))
-                .thenThrow(new RuntimeException("redis down"));
-
-        OAuth2LinkStateData result = service.consumeLinkByState("redis-error");
-
-        assertThat(result).isNull();
-    }
-
-    @Test
-    @DisplayName("round-trip: 저장한 state는 동일한 링크 데이터로 소비된다")
-    void saveAndConsumeLinkByState_roundTrip() {
-        String state = "round-trip-state";
-        OAuth2LinkStateData original = new OAuth2LinkStateData(
-                "link",
-                300L,
-                "http://localhost:5173/mypage",
-                System.currentTimeMillis(),
-                null);
-
-        service.saveLinkByState(state, original);
-        OAuth2LinkStateData consumed = service.consumeLinkByState(state);
-
-        assertThat(consumed).isEqualTo(original);
-        assertThat(redisStorage).doesNotContainKey("oauth2:link:" + state);
-    }
-
-    @Test
-    @DisplayName("동일 state는 소비 후 두 번째 조회시 null")
+    @DisplayName("consumeLinkByState: 정상 데이터면 한 번만 반환")
     void consumeLinkByState_isOneTimeUse() {
-        String state = "one-time-state";
-        OAuth2LinkStateData original = new OAuth2LinkStateData(
-                "link",
-                301L,
-                null,
-                System.currentTimeMillis(),
-                null);
+        OAuth2LinkStateData original = new OAuth2LinkStateData(301L, System.currentTimeMillis(), null);
 
-        service.saveLinkByState(state, original);
-        OAuth2LinkStateData first = service.consumeLinkByState(state);
-        OAuth2LinkStateData second = service.consumeLinkByState(state);
+        service.saveLinkByState("one-time-state", original);
+        OAuth2LinkStateData first = service.consumeLinkByState("one-time-state");
+        OAuth2LinkStateData second = service.consumeLinkByState("one-time-state");
 
         assertThat(first).isEqualTo(original);
         assertThat(second).isNull();

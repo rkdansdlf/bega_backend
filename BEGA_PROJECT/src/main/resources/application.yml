@@ -147,6 +147,17 @@ kbo:
 app:
   mail:
     enabled: ${APP_MAIL_ENABLED:false}
+  client-error-monitoring:
+    retention-days: ${APP_CLIENT_ERROR_MONITORING_RETENTION_DAYS:30}
+    cleanup-cron: ${APP_CLIENT_ERROR_MONITORING_CLEANUP_CRON:0 15 3 * * *}
+    alerts:
+      enabled: ${APP_CLIENT_ERROR_MONITORING_ALERTS_ENABLED:false}
+      poll-interval-ms: ${APP_CLIENT_ERROR_MONITORING_ALERTS_POLL_INTERVAL_MS:60000}
+      runtime-threshold: ${APP_CLIENT_ERROR_MONITORING_RUNTIME_THRESHOLD:3}
+      api5xx-threshold: ${APP_CLIENT_ERROR_MONITORING_API5XX_THRESHOLD:5}
+      window-minutes: ${APP_CLIENT_ERROR_MONITORING_WINDOW_MINUTES:5}
+      cooldown-minutes: ${APP_CLIENT_ERROR_MONITORING_COOLDOWN_MINUTES:30}
+      slack-webhook-url: ${APP_CLIENT_ERROR_MONITORING_SLACK_WEBHOOK_URL:}
   dev-data:
     enabled: false
   frontend:
@@ -348,29 +359,19 @@ spring:
     activate:
       on-profile: prod
   datasource:
-    driver-class-name: oracle.jdbc.OracleDriver
+    driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:org.postgresql.Driver}
     url: ${SPRING_DATASOURCE_URL:?SPRING_DATASOURCE_URL is required in prod}
     username: ${SPRING_DATASOURCE_USERNAME:?SPRING_DATASOURCE_USERNAME is required in prod}
     password: ${SPRING_DATASOURCE_PASSWORD:?SPRING_DATASOURCE_PASSWORD is required in prod}
-    data-source-properties:
-      oracle.jdbc.defaultRowPrefetch: "100"
-      oracle.jdbc.implicitCachingEnabled: "true"
-      oracle.jdbc.maxStatementsLimit: "100"
-      oracle.jdbc.autoCommitSpecCompliant: "false"
-      oracle.jdbc.timezoneAsRegion: "false"
-      oracle.net.CONNECT_TIMEOUT: "10000"
-      oracle.net.READ_TIMEOUT: "30000"
     hikari:
       maximum-pool-size: 30
       minimum-idle: 10
       connection-timeout: 30000
       validation-timeout: 5000
-      initialization-fail-timeout: -1
       idle-timeout: 600000
       max-lifetime: 1800000
       keepalive-time: 45000
       leak-detection-threshold: 30000
-      pool-name: KBO-Prod-Pool
 
   jpa:
     show-sql: false # Production should not log SQL by default

@@ -49,10 +49,18 @@ BEGIN
 END;
 $$;
 
-UPDATE chat_messages
-SET created_at = COALESCE(created_at, NOW())
-WHERE created_at IS NULL;
+DO $$
+BEGIN
+    IF to_regclass('public.chat_messages') IS NULL THEN
+        RETURN;
+    END IF;
 
-ALTER TABLE chat_messages
-    ALTER COLUMN created_at SET DEFAULT NOW(),
-    ALTER COLUMN created_at SET NOT NULL;
+    UPDATE chat_messages
+    SET created_at = COALESCE(created_at, NOW())
+    WHERE created_at IS NULL;
+
+    ALTER TABLE chat_messages
+        ALTER COLUMN created_at SET DEFAULT NOW(),
+        ALTER COLUMN created_at SET NOT NULL;
+END;
+$$;

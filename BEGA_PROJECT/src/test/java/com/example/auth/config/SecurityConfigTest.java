@@ -90,7 +90,9 @@ class SecurityConfigTest {
     void publicApiEndpoints_excludeEmailToId() throws Exception {
         String[] publicApiEndpoints = getPrivateStaticStringArray("PUBLIC_API_ENDPOINTS");
 
-        assertThat(publicApiEndpoints).doesNotContain("/api/users/email-to-id");
+        assertThat(publicApiEndpoints)
+                .contains("/api/home/**")
+                .doesNotContain("/api/users/email-to-id");
     }
 
     @Test

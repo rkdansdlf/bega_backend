@@ -21,13 +21,15 @@ BEGIN
           AND column_name = 'created_at'
     ) INTO has_party_created_at;
 
-    EXECUTE format(
-        'UPDATE public.parties
-            SET host_last_read_chat_at = COALESCE(host_last_read_chat_at%s%s, NOW())
-          WHERE host_last_read_chat_at IS NULL',
-        CASE WHEN has_party_createdat THEN ', createdat' ELSE '' END,
-        CASE WHEN has_party_created_at THEN ', created_at' ELSE '' END
-    );
+    IF to_regclass('public.parties') IS NOT NULL THEN
+        EXECUTE format(
+            'UPDATE public.parties
+                SET host_last_read_chat_at = COALESCE(host_last_read_chat_at%s%s, NOW())
+              WHERE host_last_read_chat_at IS NULL',
+            CASE WHEN has_party_createdat THEN ', createdat' ELSE '' END,
+            CASE WHEN has_party_created_at THEN ', created_at' ELSE '' END
+        );
+    END IF;
 
     SELECT EXISTS (
         SELECT 1
@@ -45,12 +47,14 @@ BEGIN
           AND column_name = 'created_at'
     ) INTO has_application_created_at;
 
-    EXECUTE format(
-        'UPDATE public.party_applications
-            SET last_read_chat_at = COALESCE(last_read_chat_at%s%s, NOW())
-          WHERE last_read_chat_at IS NULL',
-        CASE WHEN has_application_created_at THEN ', created_at' ELSE '' END,
-        CASE WHEN has_application_createdat THEN ', createdat' ELSE '' END
-    );
+    IF to_regclass('public.party_applications') IS NOT NULL THEN
+        EXECUTE format(
+            'UPDATE public.party_applications
+                SET last_read_chat_at = COALESCE(last_read_chat_at%s%s, NOW())
+              WHERE last_read_chat_at IS NULL',
+            CASE WHEN has_application_created_at THEN ', created_at' ELSE '' END,
+            CASE WHEN has_application_createdat THEN ', createdat' ELSE '' END
+        );
+    END IF;
 END;
 $$;
