@@ -13,6 +13,7 @@ public class CustomOAuth2User implements OAuth2User {
     private final Map<String, Object> attributes;
     private final Collection<? extends GrantedAuthority> authorities;
     private final String nameAttributeKey;
+    private final boolean linkFlow;
 
     public CustomOAuth2User(UserDto userDto) {
         this.userDto = userDto;
@@ -23,10 +24,15 @@ public class CustomOAuth2User implements OAuth2User {
         // DTO의 Role을 기반으로 권한 설정
         this.authorities = List.of((GrantedAuthority) () -> userDto.getRole());
         this.nameAttributeKey = "username";
+        this.linkFlow = false;
     }
 
     // 2. OAuth2 Login Flow Constructor 
     public CustomOAuth2User(UserDto userDto, Map<String, Object> attributes) {
+        this(userDto, attributes, false);
+    }
+
+    public CustomOAuth2User(UserDto userDto, Map<String, Object> attributes, boolean linkFlow) {
         this.userDto = userDto;
         this.attributes = attributes;
         
@@ -34,7 +40,8 @@ public class CustomOAuth2User implements OAuth2User {
         this.authorities = List.of((GrantedAuthority) () -> userDto.getRole());
         
         // OAuth2 attributes에서 NameAttributeKey를 결정합니다.
-        this.nameAttributeKey = attributes.containsKey("sub") ? "sub" : "name"; 
+        this.nameAttributeKey = attributes.containsKey("sub") ? "sub" : "name";
+        this.linkFlow = linkFlow;
     }
     
     @Override
@@ -59,5 +66,9 @@ public class CustomOAuth2User implements OAuth2User {
     
     public UserDto getUserDto() {
         return userDto;
+    }
+
+    public boolean isLinkFlow() {
+        return linkFlow;
     }
 }

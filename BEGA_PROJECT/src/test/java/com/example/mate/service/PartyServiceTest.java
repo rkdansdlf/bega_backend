@@ -5,6 +5,7 @@ import com.example.auth.repository.UserRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.entity.UserProvider;
 import com.example.auth.service.PublicVisibilityVerifier;
+import com.example.homepage.FeaturedMateCardDto;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
@@ -263,6 +264,38 @@ class PartyServiceTest {
                 assertThat(result.getContent().get(0).getHostReviewCount()).isEqualTo(2L);
         }
 
+        @Test
+        @DisplayName("getFeaturedMateCards returns lightweight upcoming pending cards only")
+        void getFeaturedMateCards_returnsLightweightCardsOnly() {
+                LocalDate today = LocalDate.now();
+                List<Party> parties = List.of(
+                                createUpcomingPendingParty(201L, 1L, today.plusDays(1), LocalTime.of(18, 30)),
+                                createUpcomingPendingParty(202L, 2L, today.plusDays(2), LocalTime.of(18, 30)),
+                                createUpcomingPendingParty(203L, 3L, today.plusDays(3), LocalTime.of(18, 30)),
+                                createUpcomingPendingParty(204L, 4L, today.plusDays(4), LocalTime.of(18, 30)),
+                                createUpcomingPendingParty(205L, 5L, today.plusDays(5), LocalTime.of(18, 30)));
+
+                when(partyRepository.findByStatusAndGameDateGreaterThanEqual(
+                                eq(Party.PartyStatus.PENDING),
+                                eq(today),
+                                any(Pageable.class)))
+                                .thenReturn(new PageImpl<>(parties));
+                when(userRepository.findAllById(any())).thenReturn(List.of(
+                                UserEntity.builder().id(1L).build(),
+                                UserEntity.builder().id(2L).build(),
+                                UserEntity.builder().id(3L).build(),
+                                UserEntity.builder().id(4L).build(),
+                                UserEntity.builder().id(5L).build()));
+
+                List<FeaturedMateCardDto> result = partyService.getFeaturedMateCards(today, 4);
+
+                assertThat(result).hasSize(4);
+                assertThat(result).extracting(FeaturedMateCardDto::getId)
+                                .containsExactly(201L, 202L, 203L, 204L);
+                verify(profileImageService, never()).getProfileImageUrl(any());
+                verify(userRepository, never()).findById(any());
+        }
+
         // ========== incrementParticipants() ==========
 
         @Test
@@ -374,6 +407,14 @@ class PartyServiceTest {
                                 .ticketVerified(false)
                                 .status(Party.PartyStatus.PENDING)
                                 .build();
+        }
+
+        private Party createUpcomingPendingParty(Long id, Long hostId, LocalDate gameDate, LocalTime gameTime) {
+                Party party = createParty(id, hostId, null);
+                party.setGameDate(gameDate);
+                party.setGameTime(gameTime);
+                party.setStatus(Party.PartyStatus.PENDING);
+                return party;
         }
 
         private PartyReviewRepository.RevieweeRatingSummary ratingSummary(Long revieweeId, Double averageRating, Long reviewCount) {

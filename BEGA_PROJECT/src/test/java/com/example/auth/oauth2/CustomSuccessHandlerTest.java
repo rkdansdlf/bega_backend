@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -170,7 +171,47 @@ class CustomSuccessHandlerTest {
         verify(accountSecurityService, times(2)).handleSuccessfulLogin(eq(user), any());
     }
 
+    @Test
+    @DisplayName("명시적 linkFlow principal이면 linked 상태로 리다이렉트하고 provider linked 이벤트를 남긴다")
+    void onAuthenticationSuccess_usesPrincipalLinkFlow() throws ServletException, IOException {
+        UserEntity user = UserEntity.builder()
+                .id(1L)
+                .uniqueId(UUID.randomUUID())
+                .email("oauth-user@example.com")
+                .name("OAuth User")
+                .handle("@oauthuser")
+                .role("ROLE_USER")
+                .provider("GOOGLE")
+                .build();
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(refreshRepository.findAllByEmailOrderByIdDesc("oauth-user@example.com")).thenReturn(List.of());
+        when(refreshRepository.save(any(RefreshToken.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(clientIpResolver.resolve(any())).thenReturn("127.0.0.1");
+        when(jwtUtil.createJwt(anyString(), anyString(), anyLong(), anyLong(), any()))
+                .thenReturn("access-token");
+        when(jwtUtil.createRefreshToken(anyString(), anyString(), anyLong(), any()))
+                .thenReturn("refresh-token");
+        when(jwtUtil.getRefreshTokenExpirationTime()).thenReturn(604_800_000L);
+        when(oAuth2StateService.saveState(1L)).thenReturn("linked-state");
+
+        Authentication authentication = buildAuthentication(true);
+        MockHttpServletRequest request = buildRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        customSuccessHandler.onAuthenticationSuccess(request, response, authentication);
+
+        assertThat(response.getRedirectedUrl())
+                .isEqualTo("http://localhost:5173/oauth/callback?state=linked-state&status=linked");
+        verify(accountSecurityService).recordProviderLinked(1L, "google");
+        verify(accountSecurityService, never()).handleSuccessfulLogin(eq(user), any());
+    }
+
     private Authentication buildAuthentication() {
+        return buildAuthentication(false);
+    }
+
+    private Authentication buildAuthentication(boolean linkFlow) {
         UserDto userDto = UserDto.builder()
                 .id(1L)
                 .email("oauth-user@example.com")
@@ -178,7 +219,7 @@ class CustomSuccessHandlerTest {
                 .role("ROLE_USER")
                 .provider("GOOGLE")
                 .build();
-        CustomOAuth2User principal = new CustomOAuth2User(userDto, Map.of("sub", "oauth-user-sub"));
+        CustomOAuth2User principal = new CustomOAuth2User(userDto, Map.of("sub", "oauth-user-sub"), linkFlow);
         return new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
     }
 

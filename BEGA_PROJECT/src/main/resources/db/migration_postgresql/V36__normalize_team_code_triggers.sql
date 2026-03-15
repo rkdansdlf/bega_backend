@@ -11,7 +11,17 @@
 -- MBC -> LG
 -- LOT -> LT
 
+CREATE OR REPLACE FUNCTION __bega_exec_if_table_exists(target_table text, statement text)
+RETURNS void AS $$
+BEGIN
+    IF to_regclass(target_table) IS NOT NULL THEN
+        EXECUTE statement;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Backfill remaining tables
+SELECT __bega_exec_if_table_exists('game_batting_stats', $sql$
 UPDATE /*+ NO_PARALLEL */ game_batting_stats
 SET team_code = CASE team_code
     WHEN 'KIA' THEN 'HT'
@@ -24,8 +34,10 @@ SET team_code = CASE team_code
     WHEN 'MBC' THEN 'LG'
     WHEN 'LOT' THEN 'LT'
     ELSE team_code
-END;
+END
+$sql$);
 
+SELECT __bega_exec_if_table_exists('game_pitching_stats', $sql$
 UPDATE /*+ NO_PARALLEL */ game_pitching_stats
 SET team_code = CASE team_code
     WHEN 'KIA' THEN 'HT'
@@ -38,8 +50,10 @@ SET team_code = CASE team_code
     WHEN 'MBC' THEN 'LG'
     WHEN 'LOT' THEN 'LT'
     ELSE team_code
-END;
+END
+$sql$);
 
+SELECT __bega_exec_if_table_exists('game_lineups', $sql$
 UPDATE /*+ NO_PARALLEL */ game_lineups
 SET team_code = CASE team_code
     WHEN 'KIA' THEN 'HT'
@@ -52,8 +66,10 @@ SET team_code = CASE team_code
     WHEN 'MBC' THEN 'LG'
     WHEN 'LOT' THEN 'LT'
     ELSE team_code
-END;
+END
+$sql$);
 
+SELECT __bega_exec_if_table_exists('game_inning_scores', $sql$
 UPDATE /*+ NO_PARALLEL */ game_inning_scores
 SET team_code = CASE team_code
     WHEN 'KIA' THEN 'HT'
@@ -66,8 +82,10 @@ SET team_code = CASE team_code
     WHEN 'MBC' THEN 'LG'
     WHEN 'LOT' THEN 'LT'
     ELSE team_code
-END;
+END
+$sql$);
 
+SELECT __bega_exec_if_table_exists('player_movements', $sql$
 UPDATE /*+ NO_PARALLEL */ player_movements
 SET team_code = CASE team_code
     WHEN 'KIA' THEN 'HT'
@@ -80,8 +98,10 @@ SET team_code = CASE team_code
     WHEN 'MBC' THEN 'LG'
     WHEN 'LOT' THEN 'LT'
     ELSE team_code
-END;
+END
+$sql$);
 
+SELECT __bega_exec_if_table_exists('team_daily_roster', $sql$
 UPDATE /*+ NO_PARALLEL */ team_daily_roster
 SET team_code = CASE team_code
     WHEN 'KIA' THEN 'HT'
@@ -94,7 +114,8 @@ SET team_code = CASE team_code
     WHEN 'MBC' THEN 'LG'
     WHEN 'LOT' THEN 'LT'
     ELSE team_code
-END;
+END
+$sql$);
 
 DO $$
 BEGIN
@@ -121,6 +142,7 @@ BEGIN
 END;
 $$;
 
+SELECT __bega_exec_if_table_exists('cheer_battle_votes', $sql$
 UPDATE /*+ NO_PARALLEL */ cheer_battle_votes
 SET team_id = CASE team_id
     WHEN 'KIA' THEN 'HT'
@@ -133,7 +155,8 @@ SET team_id = CASE team_id
     WHEN 'MBC' THEN 'LG'
     WHEN 'LOT' THEN 'LT'
     ELSE team_id
-END;
+END
+$sql$);
 
 -- Normalize function
 CREATE OR REPLACE FUNCTION normalize_team_code(input_code text)
@@ -194,59 +217,77 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Triggers
+SELECT __bega_exec_if_table_exists('game', $sql$
 DROP TRIGGER IF EXISTS trg_normalize_game_team_codes ON game;
 CREATE TRIGGER trg_normalize_game_team_codes
 BEFORE INSERT OR UPDATE ON game
 FOR EACH ROW
 EXECUTE FUNCTION normalize_game_team_codes();
+$sql$);
 
+SELECT __bega_exec_if_table_exists('game_batting_stats', $sql$
 DROP TRIGGER IF EXISTS trg_normalize_game_batting_stats_team_code ON game_batting_stats;
 CREATE TRIGGER trg_normalize_game_batting_stats_team_code
 BEFORE INSERT OR UPDATE ON game_batting_stats
 FOR EACH ROW
 EXECUTE FUNCTION normalize_team_code_column();
+$sql$);
 
+SELECT __bega_exec_if_table_exists('game_pitching_stats', $sql$
 DROP TRIGGER IF EXISTS trg_normalize_game_pitching_stats_team_code ON game_pitching_stats;
 CREATE TRIGGER trg_normalize_game_pitching_stats_team_code
 BEFORE INSERT OR UPDATE ON game_pitching_stats
 FOR EACH ROW
 EXECUTE FUNCTION normalize_team_code_column();
+$sql$);
 
+SELECT __bega_exec_if_table_exists('game_lineups', $sql$
 DROP TRIGGER IF EXISTS trg_normalize_game_lineups_team_code ON game_lineups;
 CREATE TRIGGER trg_normalize_game_lineups_team_code
 BEFORE INSERT OR UPDATE ON game_lineups
 FOR EACH ROW
 EXECUTE FUNCTION normalize_team_code_column();
+$sql$);
 
+SELECT __bega_exec_if_table_exists('game_inning_scores', $sql$
 DROP TRIGGER IF EXISTS trg_normalize_game_inning_scores_team_code ON game_inning_scores;
 CREATE TRIGGER trg_normalize_game_inning_scores_team_code
 BEFORE INSERT OR UPDATE ON game_inning_scores
 FOR EACH ROW
 EXECUTE FUNCTION normalize_team_code_column();
+$sql$);
 
+SELECT __bega_exec_if_table_exists('player_movements', $sql$
 DROP TRIGGER IF EXISTS trg_normalize_player_movements_team_code ON player_movements;
 CREATE TRIGGER trg_normalize_player_movements_team_code
 BEFORE INSERT OR UPDATE ON player_movements
 FOR EACH ROW
 EXECUTE FUNCTION normalize_team_code_column();
+$sql$);
 
+SELECT __bega_exec_if_table_exists('team_daily_roster', $sql$
 DROP TRIGGER IF EXISTS trg_normalize_team_daily_roster_team_code ON team_daily_roster;
 CREATE TRIGGER trg_normalize_team_daily_roster_team_code
 BEFORE INSERT OR UPDATE ON team_daily_roster
 FOR EACH ROW
 EXECUTE FUNCTION normalize_team_code_column();
+$sql$);
 
+SELECT __bega_exec_if_table_exists('player_season_batting', $sql$
 DROP TRIGGER IF EXISTS trg_normalize_player_season_batting_team_code ON player_season_batting;
 CREATE TRIGGER trg_normalize_player_season_batting_team_code
 BEFORE INSERT OR UPDATE ON player_season_batting
 FOR EACH ROW
 EXECUTE FUNCTION normalize_team_code_column();
+$sql$);
 
+SELECT __bega_exec_if_table_exists('player_season_pitching', $sql$
 DROP TRIGGER IF EXISTS trg_normalize_player_season_pitching_team_code ON player_season_pitching;
 CREATE TRIGGER trg_normalize_player_season_pitching_team_code
 BEFORE INSERT OR UPDATE ON player_season_pitching
 FOR EACH ROW
 EXECUTE FUNCTION normalize_team_code_column();
+$sql$);
 
 DO $$
 BEGIN
@@ -265,26 +306,36 @@ BEGIN
 END;
 $$;
 
+SELECT __bega_exec_if_table_exists('team_profiles', $sql$
 DROP TRIGGER IF EXISTS trg_normalize_team_profiles_team_id ON team_profiles;
 CREATE TRIGGER trg_normalize_team_profiles_team_id
 BEFORE INSERT OR UPDATE ON team_profiles
 FOR EACH ROW
 EXECUTE FUNCTION normalize_team_id_column();
+$sql$);
 
+SELECT __bega_exec_if_table_exists('cheer_post', $sql$
 DROP TRIGGER IF EXISTS trg_normalize_cheer_post_team_id ON cheer_post;
 CREATE TRIGGER trg_normalize_cheer_post_team_id
 BEFORE INSERT OR UPDATE ON cheer_post
 FOR EACH ROW
 EXECUTE FUNCTION normalize_team_id_column();
+$sql$);
 
+SELECT __bega_exec_if_table_exists('cheer_battle_votes', $sql$
 DROP TRIGGER IF EXISTS trg_normalize_cheer_battle_votes_team_id ON cheer_battle_votes;
 CREATE TRIGGER trg_normalize_cheer_battle_votes_team_id
 BEFORE INSERT OR UPDATE ON cheer_battle_votes
 FOR EACH ROW
 EXECUTE FUNCTION normalize_team_id_column();
+$sql$);
 
+SELECT __bega_exec_if_table_exists('users', $sql$
 DROP TRIGGER IF EXISTS trg_normalize_users_favorite_team ON users;
 CREATE TRIGGER trg_normalize_users_favorite_team
 BEFORE INSERT OR UPDATE ON users
 FOR EACH ROW
 EXECUTE FUNCTION normalize_favorite_team_column();
+$sql$);
+
+DROP FUNCTION IF EXISTS __bega_exec_if_table_exists(text, text);

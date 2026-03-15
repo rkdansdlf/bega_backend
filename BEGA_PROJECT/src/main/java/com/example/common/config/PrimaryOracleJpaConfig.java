@@ -109,13 +109,14 @@ public class PrimaryOracleJpaConfig {
 			@Qualifier("primaryDataSourceProperties") DataSourceProperties primaryProperties) {
 		Map<String, Object> jpaProperties = new LinkedHashMap<>();
 			jpaProperties.put("hibernate.hbm2ddl.schema_filter_provider", PrimarySchemaFilterProvider.class.getName());
+			// Disable JDBC metadata access for all DB types to prevent connection issues during bootstrapping
+			jpaProperties.put("hibernate.boot.allow_jdbc_metadata_access", false);
+			jpaProperties.put("hibernate.temp.use_jdbc_metadata_defaults", false);
 			if (isOracleJdbcUrl(primaryProperties.getUrl())) {
 				jpaProperties.put("hibernate.type.preferred_boolean_jdbc_type", Types.INTEGER);
 				jpaProperties.put("hibernate.type.preferred_json_jdbc_type", Types.CLOB);
 				jpaProperties.put("hibernate.type.preferred_uuid_jdbc_type", Types.VARCHAR);
 				jpaProperties.put("hibernate.dialect", "org.hibernate.dialect.OracleDialect");
-				jpaProperties.put("hibernate.boot.allow_jdbc_metadata_access", false);
-				jpaProperties.put("hibernate.temp.use_jdbc_metadata_defaults", false);
 			}
 
 		return builder

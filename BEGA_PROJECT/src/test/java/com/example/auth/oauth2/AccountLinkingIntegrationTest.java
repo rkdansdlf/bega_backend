@@ -4,6 +4,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.entity.UserProvider;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.common.ratelimit.RateLimitService;
 import com.example.bega.auth.dto.OAuth2LinkStateData;
 import com.example.bega.auth.service.OAuth2LinkStateService;
@@ -16,24 +17,35 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -93,6 +105,9 @@ class AccountLinkingIntegrationTest {
         @Autowired
         private ObjectMapper objectMapper;
 
+        @Autowired
+        private PlatformTransactionManager transactionManager;
+
         @MockitoBean
         private StringRedisTemplate redisTemplate;
 
@@ -111,8 +126,6 @@ class AccountLinkingIntegrationTest {
                 lenient().when(rateLimitService.isAllowed(anyString(), anyInt(), anyInt(), anyBoolean()))
                                 .thenReturn(true);
 
-                // Simulate minimal Redis set/getAndDelete operations
-                // Simulate minimal Redis set/getAndDelete operations
                 lenient().doAnswer(invocation -> {
                         String key = invocation.getArgument(0);
                         String value = invocation.getArgument(1);
@@ -128,18 +141,9 @@ class AccountLinkingIntegrationTest {
         }
 
         @Test
-        @DisplayName("OAuth2 계정 연동 전체 흐름: linkToken 발급 -> state 저장/소비 -> UserProvider 생성")
+        @DisplayName("OAuth2 계정 연동 전체 흐름: one-time linkToken 발급 -> state 저장/소비 -> UserProvider 생성")
         void accountLinkingFlow_saveLinkStateAndProcessLink() throws Exception {
-                UserEntity user = UserEntity.builder()
-                                .uniqueId(UUID.randomUUID())
-                                .email("link-" + UUID.randomUUID().toString().replace("-", "") + "@example.com")
-                                .name("연동테스트유저")
-                                .handle("user" + UUID.randomUUID().toString().replace("-", "").substring(0, 8))
-                                .password("pwd-hash")
-                                .role("ROLE_USER")
-                                .provider("LOCAL")
-                                .build();
-                user = userRepository.save(user);
+                UserEntity user = localUser("link");
 
                 String mvcResponse = mockMvc.perform(
                                 get("/api/auth/link-token")
@@ -155,11 +159,9 @@ class AccountLinkingIntegrationTest {
                 String linkToken = body.get("linkToken").asText();
 
                 String state = "state-" + UUID.randomUUID();
-                String redirectUri = "http://localhost:5173/mypage";
                 MockHttpServletRequest saveReq = new MockHttpServletRequest();
                 saveReq.setParameter("mode", "link");
                 saveReq.setParameter("linkToken", linkToken);
-                saveReq.setParameter("redirect_uri", redirectUri);
 
                 OAuth2AuthorizationRequest authorizationRequest = createAuthorizationRequest(state);
                 MockHttpServletResponse saveRes = new MockHttpServletResponse();
@@ -169,14 +171,12 @@ class AccountLinkingIntegrationTest {
                 String oauth2AuthCookie = extractCookieValue(saveRes,
                                 CookieAuthorizationRequestRepository.OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME);
 
-                String redisKey = "oauth2:link:" + state;
-                assertThat(redisStorage).containsKey(redisKey);
-                OAuth2LinkStateData savedData = objectMapper.readValue(redisStorage.get(redisKey),
+                assertThat(redisStorage.keySet()).anyMatch(key -> key.equals("oauth2:link:state:" + state));
+
+                OAuth2LinkStateData savedData = objectMapper.readValue(redisStorage.get("oauth2:link:state:" + state),
                                 OAuth2LinkStateData.class);
                 assertThat(savedData.userId()).isEqualTo(user.getId());
-                assertThat(savedData.mode()).isEqualTo("link");
                 assertThat(savedData.failureReason()).isNull();
-                assertThat(savedData.redirectUri()).isEqualTo(redirectUri);
 
                 MockHttpServletRequest callbackRequest = new MockHttpServletRequest();
                 callbackRequest.setMethod("GET");
@@ -190,18 +190,17 @@ class AccountLinkingIntegrationTest {
                                 userProviderRepository,
                                 callbackRequest,
                                 oAuth2LinkStateService,
-                                cookieAuthorizationRequestRepository);
+                                cookieAuthorizationRequestRepository,
+                                mock(AuthSecurityMonitoringService.class));
 
                 OAuth2LinkStateData linkData = ReflectionTestUtils.invokeMethod(service, "extractLinkDataFromState");
 
                 assertThat(linkData).isNotNull();
                 assertThat(linkData.userId()).isEqualTo(user.getId());
-                assertThat(linkData.mode()).isEqualTo("link");
                 assertThat(linkData.failureReason()).isNull();
 
-                UserEntity linkedUser = ReflectionTestUtils.invokeMethod(
+                UserEntity linkedUser = invokeProcessAccountLink(
                                 service,
-                                "processAccountLink",
                                 linkData,
                                 "google",
                                 "google-provider-id",
@@ -217,7 +216,109 @@ class AccountLinkingIntegrationTest {
 
                 OAuth2LinkStateData consumedAgain = oAuth2LinkStateService.consumeLinkByState(state);
                 assertThat(consumedAgain).isNull();
-                assertThat(redisStorage).doesNotContainKey(redisKey);
+        }
+
+        @Test
+        @DisplayName("동일 providerId에 대한 동시 연동 시도는 정확히 한 건만 성공한다")
+        void processAccountLink_allowsOnlyOneWinnerUnderConcurrency() throws Exception {
+                UserEntity firstUser = localUser("first");
+                UserEntity secondUser = localUser("second");
+
+                CountDownLatch ready = new CountDownLatch(2);
+                CountDownLatch start = new CountDownLatch(1);
+                ExecutorService executor = Executors.newFixedThreadPool(2);
+
+                Future<String> firstResult = executor.submit(() -> invokeConcurrentLink(firstUser, ready, start));
+                Future<String> secondResult = executor.submit(() -> invokeConcurrentLink(secondUser, ready, start));
+
+                ready.await();
+                start.countDown();
+
+                String resultA = firstResult.get();
+                String resultB = secondResult.get();
+                executor.shutdownNow();
+
+                assertThat(List.of(resultA, resultB)).anyMatch(result -> result.startsWith("success:"));
+                assertThat(List.of(resultA, resultB)).anyMatch(result -> result.equals("oauth2_link_conflict"));
+
+                UserProvider provider = userProviderRepository.findByProviderAndProviderId("google", "shared-provider-id")
+                                .orElseThrow(() -> new IllegalStateException("연동 결과가 저장되지 않았습니다."));
+                assertThat(List.of(firstUser.getId(), secondUser.getId())).contains(provider.getUser().getId());
+        }
+
+        @Test
+        @DisplayName("동일 이메일의 기존 계정은 모든 provider에서 manual link를 요구한다")
+        void processNormalLogin_requiresManualLinkForExistingEmailAcrossProviders() {
+                UserEntity existing = localUser("manual");
+
+                for (String provider : List.of("google", "kakao", "naver")) {
+                        CustomOAuth2UserService service = new CustomOAuth2UserService(
+                                        userRepository,
+                                        userProviderRepository,
+                                        new MockHttpServletRequest(),
+                                        oAuth2LinkStateService,
+                                        cookieAuthorizationRequestRepository,
+                                        mock(AuthSecurityMonitoringService.class));
+
+                        assertThat(invokeProcessNormalLoginCode(
+                                        service,
+                                        Optional.empty(),
+                                        existing.getEmail(),
+                                        "기존유저",
+                                        provider,
+                                        provider + "-provider-id",
+                                        null))
+                                        .isEqualTo("manual_link_required");
+                }
+
+                assertThat(userProviderRepository.findByUserId(existing.getId())).isEmpty();
+        }
+
+        private String invokeConcurrentLink(UserEntity user, CountDownLatch ready, CountDownLatch start) throws Exception {
+                ready.countDown();
+                start.await();
+
+                TransactionTemplate tx = new TransactionTemplate(transactionManager);
+                tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+                return tx.execute(status -> {
+                        try {
+                                CustomOAuth2UserService service = new CustomOAuth2UserService(
+                                                userRepository,
+                                                userProviderRepository,
+                                                new MockHttpServletRequest(),
+                                                oAuth2LinkStateService,
+                                                cookieAuthorizationRequestRepository,
+                                                mock(AuthSecurityMonitoringService.class));
+                                invokeProcessAccountLink(
+                                                service,
+                                                new OAuth2LinkStateData(user.getId(), System.currentTimeMillis(), null),
+                                                "google",
+                                                "shared-provider-id",
+                                                user.getEmail());
+                                return "success:" + user.getId();
+                        } catch (OAuth2AuthenticationException e) {
+                                return e.getError().getErrorCode();
+                        } catch (RuntimeException e) {
+                                throw e;
+                        } catch (Exception e) {
+                                throw new RuntimeException(e);
+                        }
+                });
+        }
+
+        private UserEntity localUser(String prefix) {
+                TransactionTemplate tx = new TransactionTemplate(transactionManager);
+                tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+                return tx.execute(status -> userRepository.saveAndFlush(UserEntity.builder()
+                                .uniqueId(UUID.randomUUID())
+                                .email(prefix + "-" + UUID.randomUUID().toString().replace("-", "") + "@example.com")
+                                .name(prefix + "-user")
+                                .handle("u" + UUID.randomUUID().toString().replace("-", "").substring(0, 12))
+                                .password("pwd-hash")
+                                .role("ROLE_USER")
+                                .provider("LOCAL")
+                                .build()));
         }
 
         private OAuth2AuthorizationRequest createAuthorizationRequest(String state) {
@@ -243,5 +344,59 @@ class AccountLinkingIntegrationTest {
                                         return end > start ? header.substring(start, end) : header.substring(start);
                                 })
                                 .orElseThrow(() -> new IllegalStateException("쿠키가 존재하지 않습니다: " + cookieName));
+        }
+
+        private UserEntity invokeProcessAccountLink(
+                        CustomOAuth2UserService service,
+                        OAuth2LinkStateData linkData,
+                        String provider,
+                        String providerId,
+                        String email) throws Exception {
+                Method method = CustomOAuth2UserService.class.getDeclaredMethod(
+                                "processAccountLink",
+                                OAuth2LinkStateData.class,
+                                String.class,
+                                String.class,
+                                String.class);
+                method.setAccessible(true);
+
+                try {
+                        return (UserEntity) method.invoke(service, linkData, provider, providerId, email);
+                } catch (InvocationTargetException e) {
+                        if (e.getCause() instanceof Exception exception) {
+                                throw exception;
+                        }
+                        throw e;
+                }
+        }
+
+        private String invokeProcessNormalLoginCode(
+                        CustomOAuth2UserService service,
+                        Optional<UserProvider> userProviderOpt,
+                        String email,
+                        String userName,
+                        String provider,
+                        String providerId,
+                        String profileImageUrl) {
+                try {
+                        Method method = CustomOAuth2UserService.class.getDeclaredMethod(
+                                        "processNormalLogin",
+                                        Optional.class,
+                                        String.class,
+                                        String.class,
+                                        String.class,
+                                        String.class,
+                                        String.class);
+                        method.setAccessible(true);
+                        method.invoke(service, userProviderOpt, email, userName, provider, providerId, profileImageUrl);
+                        return "success";
+                } catch (InvocationTargetException e) {
+                        if (e.getCause() instanceof OAuth2AuthenticationException authException) {
+                                return authException.getError().getErrorCode();
+                        }
+                        throw new RuntimeException(e.getCause());
+                } catch (ReflectiveOperationException e) {
+                        throw new RuntimeException(e);
+                }
         }
 }

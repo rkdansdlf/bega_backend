@@ -27,7 +27,7 @@ public class AiIntegrationService {
      */
     @Job(name = "Trigger RAG Pipeline Ingestion")
     public void triggerRagIngestion() {
-        String ingestUrl = aiServiceSettings.buildUrl("/ingest/run");
+        String ingestUrl = aiServiceSettings.buildUrl("/ai/ingest/run");
         String aiInternalToken = aiServiceSettings.getResolvedInternalToken();
 
         if (ingestUrl.isBlank()) {

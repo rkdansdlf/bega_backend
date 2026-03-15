@@ -8,6 +8,7 @@ import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.UserNotFoundException;
+import com.example.homepage.FeaturedMateCardDto;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
@@ -20,7 +21,9 @@ import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PartyReviewRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -185,6 +188,27 @@ public class PartyService {
                 partyRepository.findByGameDateAfterOrderByGameDateAsc(today),
                 currentUserId);
         return convertToPublicResponses(visibleParties);
+    }
+
+    @Transactional(readOnly = true)
+    public List<FeaturedMateCardDto> getFeaturedMateCards(LocalDate baseDate, int limit) {
+        int targetLimit = Math.max(1, limit);
+        Pageable pageable = PageRequest.of(
+                0,
+                Math.max(targetLimit * 3, targetLimit),
+                Sort.by(Sort.Direction.ASC, "gameDate")
+                        .and(Sort.by(Sort.Direction.ASC, "gameTime"))
+                        .and(Sort.by(Sort.Direction.DESC, "createdAt")));
+
+        Page<Party> candidatePage = partyRepository.findByStatusAndGameDateGreaterThanEqual(
+                Party.PartyStatus.PENDING,
+                baseDate,
+                pageable);
+
+        return filterVisiblePublicParties(candidatePage.getContent(), null).stream()
+                .limit(targetLimit)
+                .map(this::convertToFeaturedMateCard)
+                .toList();
     }
 
     // 파티 업데이트
@@ -647,6 +671,20 @@ public class PartyService {
         }
         response.setHostAverageRating(metrics.reviewCount() > 0 ? metrics.averageRating() : null);
         response.setHostReviewCount(metrics.reviewCount());
+    }
+
+    private FeaturedMateCardDto convertToFeaturedMateCard(Party party) {
+        return FeaturedMateCardDto.builder()
+                .id(party.getId())
+                .gameDate(party.getGameDate() == null ? null : party.getGameDate().toString())
+                .gameTime(party.getGameTime() == null ? null : party.getGameTime().toString())
+                .homeTeam(party.getHomeTeam())
+                .awayTeam(party.getAwayTeam())
+                .currentParticipants(party.getCurrentParticipants())
+                .maxParticipants(party.getMaxParticipants())
+                .ticketPrice(party.getTicketPrice())
+                .status(party.getStatus())
+                .build();
     }
 
     private String normalizeSearchQuery(String searchQuery) {
