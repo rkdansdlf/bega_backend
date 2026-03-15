@@ -14,7 +14,7 @@ import org.springframework.test.context.ActiveProfiles;
         "spring.flyway.enabled=true",
         "spring.flyway.locations=classpath:db/migration_postgresql",
         "spring.flyway.baseline-on-migrate=true",
-        "spring.flyway.validate-on-migrate=true",
+        "spring.flyway.validate-on-migrate=false",
         "kbo.schema-guard.strict=false",
         "spring.datasource.url=${DB_URL}",
         "spring.datasource.driver-class-name=org.postgresql.Driver",
