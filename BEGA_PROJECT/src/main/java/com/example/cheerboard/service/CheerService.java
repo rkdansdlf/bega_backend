@@ -85,6 +85,11 @@ public class CheerService {
     }
 
     @Transactional(readOnly = true)
+    public Page<PostSummaryRes> getHotPostsPublic(Pageable pageable, String algorithmRaw) {
+        return feedService.getHotPosts(pageable, algorithmRaw, null);
+    }
+
+    @Transactional(readOnly = true)
     public PostChangesResponse checkPostChanges(Long sinceId, String teamId) {
         UserEntity me = current.getOrNull();
         return feedService.checkPostChanges(sinceId, teamId, me);

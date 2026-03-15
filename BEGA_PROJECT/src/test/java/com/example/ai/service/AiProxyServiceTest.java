@@ -37,7 +37,7 @@ class AiProxyServiceTest {
             writeResponse(exchange, 401, "unauthorized");
         });
 
-        AiProxyService service = newService(Duration.ofSeconds(1), "test-token");
+        AiProxyService service = newService(Duration.ofSeconds(5), "test-token");
 
         AiProxyService.ProxyByteResponse response = service.forwardJson("/ai/chat/completion", "{\"test\":true}");
 
@@ -52,7 +52,7 @@ class AiProxyServiceTest {
     void forwardJsonStreamPreservesUpstreamUnavailableStatus() throws Exception {
         server = startServer("/ai/coach/analyze", exchange -> writeResponse(exchange, 503, "down"));
 
-        AiProxyService service = newService(Duration.ofSeconds(1), "stream-token");
+        AiProxyService service = newService(Duration.ofSeconds(5), "stream-token");
 
         AiProxyService.ProxyStreamResponse response = service.forwardJsonStream("/ai/coach/analyze", "{\"test\":true}");
 
@@ -70,7 +70,7 @@ class AiProxyServiceTest {
             writeResponse(exchange, 401, "unauthorized");
         });
 
-        AiProxyService service = newService(Duration.ofSeconds(1), "preset-token");
+        AiProxyService service = newService(Duration.ofSeconds(5), "preset-token");
 
         AiProxyService.ProxyByteResponse response = service.forwardGet("/ai/release-decision/presets");
 

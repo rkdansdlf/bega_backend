@@ -2,6 +2,10 @@
 
 DO $$
 BEGIN
+    IF to_regclass('public.player_movements') IS NULL THEN
+        RETURN;
+    END IF;
+
     IF EXISTS (
         SELECT 1
         FROM information_schema.columns
@@ -20,12 +24,33 @@ BEGIN
 END;
 $$;
 
-ALTER TABLE player_movements
-    ADD COLUMN IF NOT EXISTS movement_date DATE;
+DO $$
+BEGIN
+    IF to_regclass('public.player_movements') IS NULL THEN
+        RETURN;
+    END IF;
 
-UPDATE player_movements
-SET movement_date = COALESCE(movement_date, CURRENT_DATE)
-WHERE movement_date IS NULL;
+    ALTER TABLE player_movements
+        ADD COLUMN IF NOT EXISTS movement_date DATE;
+END $$;
 
-ALTER TABLE player_movements
-    ALTER COLUMN movement_date SET NOT NULL;
+DO $$
+BEGIN
+    IF to_regclass('public.player_movements') IS NULL THEN
+        RETURN;
+    END IF;
+
+    UPDATE player_movements
+    SET movement_date = COALESCE(movement_date, CURRENT_DATE)
+    WHERE movement_date IS NULL;
+END $$;
+
+DO $$
+BEGIN
+    IF to_regclass('public.player_movements') IS NULL THEN
+        RETURN;
+    END IF;
+
+    ALTER TABLE player_movements
+        ALTER COLUMN movement_date SET NOT NULL;
+END $$;
