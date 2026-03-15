@@ -89,9 +89,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             favoriteTeamId = "없음";
         }
 
-        // --- 계정 연동 모드 체크 ---
-        // state 파라미터에서 연동 모드 확인 (| 포함 여부)
-        boolean isLinkMode = checkLinkModeFromState(request);
+        boolean isLinkMode = principal.isLinkFlow();
 
         if (isLinkMode) {
             // [Security Fix] 연동 모드일 경우에도 새 토큰 발급 (보안 강화)
@@ -170,18 +168,6 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId;
         getRedirectStrategy().sendRedirect(request, response, redirectUrl);
 
-    }
-
-    /**
-     * state 파라미터에서 연동 모드 여부 확인
-     * state에 | 가 포함되어 있으면 연동 모드
-     */
-    private boolean checkLinkModeFromState(HttpServletRequest request) {
-        String state = request.getParameter("state");
-        if (state == null) {
-            return false;
-        }
-        return state.contains("|");
     }
 
     private String resolveProviderFromRequest(HttpServletRequest request) {

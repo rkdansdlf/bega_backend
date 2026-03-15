@@ -4,6 +4,8 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.entity.UserProvider;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.service.AuthSecurityMonitoringService;
+import com.example.bega.auth.dto.OAuth2LinkStateData;
 import com.example.bega.auth.service.OAuth2LinkStateService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,9 +23,10 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -43,6 +46,9 @@ class CustomOAuth2UserServiceTest {
 
     @Mock
     private CookieAuthorizationRequestRepository cookieAuthorizationRequestRepository;
+
+    @Mock
+    private AuthSecurityMonitoringService securityMonitoringService;
 
     @InjectMocks
     private CustomOAuth2UserService customOAuth2UserService;
@@ -90,67 +96,102 @@ class CustomOAuth2UserServiceTest {
     }
 
     @Test
-    @DisplayName("authoritative provider email should auto-link existing OAuth-only account")
-    void processNormalLogin_allowsAuthoritativeAutoLink() throws Exception {
+    @DisplayName("동일 이메일 기존 계정은 provider와 무관하게 manual link를 요구한다")
+    void processNormalLogin_requiresManualLinkForAnyExistingAccount() {
         UserEntity existingUser = oauthOnlyUser(10L, "social@example.com");
-        when(userRepository.findByEmail("social@example.com")).thenReturn(Optional.of(existingUser));
-        when(userProviderRepository.findByUserIdAndProvider(existingUser.getId(), "google")).thenReturn(Optional.empty());
-
-        UserEntity result = invokeProcessNormalLogin(
-                Optional.empty(),
-                "social@example.com",
-                "소셜유저",
-                "google",
-                "google-provider-id",
-                null,
-                true);
-
-        assertThat(result).isSameAs(existingUser);
-        verify(userProviderRepository).save(org.mockito.ArgumentMatchers.any(UserProvider.class));
-    }
-
-    @Test
-    @DisplayName("non-authoritative provider email should require manual link for existing OAuth-only account")
-    void processNormalLogin_requiresManualLinkWhenProviderEmailNotAuthoritative() {
-        UserEntity existingUser = oauthOnlyUser(11L, "social@example.com");
         when(userRepository.findByEmail("social@example.com")).thenReturn(Optional.of(existingUser));
 
         assertThatThrownBy(() -> invokeProcessNormalLogin(
                 Optional.empty(),
                 "social@example.com",
                 "소셜유저",
-                "naver",
-                "naver-provider-id",
-                null,
-                false))
+                "google",
+                "google-provider-id",
+                null))
                 .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
                         assertThat(exception.getError().getErrorCode()).isEqualTo("manual_link_required"));
     }
 
     @Test
-    @DisplayName("password-protected account should remain blocked from social auto-link")
-    void processNormalLogin_blocksPasswordProtectedAccount() {
-        UserEntity existingUser = UserEntity.builder()
-                .id(12L)
-                .uniqueId(UUID.randomUUID())
-                .handle("handle12")
-                .name("기존유저")
-                .email("local@example.com")
-                .password("hashed-password")
-                .role("ROLE_USER")
+    @DisplayName("같은 provider 슬롯에 다른 providerId를 연결하려면 unlink가 선행되어야 한다")
+    void processAccountLink_requiresUnlinkWhenProviderSlotAlreadyUsed() {
+        UserEntity targetUser = oauthOnlyUser(11L, "social@example.com");
+        UserProvider currentProvider = UserProvider.builder()
+                .id(1L)
+                .user(targetUser)
+                .provider("google")
+                .providerId("old-provider-id")
+                .email("social@example.com")
                 .build();
-        when(userRepository.findByEmail("local@example.com")).thenReturn(Optional.of(existingUser));
 
-        assertThatThrownBy(() -> invokeProcessNormalLogin(
-                Optional.empty(),
-                "local@example.com",
-                "로컬유저",
+        when(userRepository.findByIdForWrite(11L)).thenReturn(Optional.of(targetUser));
+        when(userProviderRepository.findByUserIdAndProviderForUpdate(11L, "google"))
+                .thenReturn(Optional.of(currentProvider));
+
+        assertThatThrownBy(() -> invokeProcessAccountLink(
+                new OAuth2LinkStateData(11L, System.currentTimeMillis(), null),
                 "google",
-                "google-provider-id",
-                null,
-                true))
+                "new-provider-id",
+                "social@example.com"))
                 .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
-                        assertThat(exception.getError().getErrorCode()).contains("ACCOUNT_EXISTS_WITH_PASSWORD"));
+                        assertThat(exception.getError().getErrorCode()).isEqualTo("oauth2_link_requires_unlink"));
+
+        verify(securityMonitoringService).recordOAuth2LinkConflict();
+    }
+
+    @Test
+    @DisplayName("이미 다른 사용자에 연동된 social account는 이전하지 않고 conflict로 차단한다")
+    void processAccountLink_rejectsConflictingProviderOwner() {
+        UserEntity targetUser = oauthOnlyUser(12L, "target@example.com");
+        UserEntity ownerUser = oauthOnlyUser(13L, "owner@example.com");
+        UserProvider existingProvider = UserProvider.builder()
+                .id(2L)
+                .user(ownerUser)
+                .provider("google")
+                .providerId("provider-id")
+                .email("owner@example.com")
+                .build();
+
+        when(userRepository.findByIdForWrite(12L)).thenReturn(Optional.of(targetUser));
+        when(userProviderRepository.findByUserIdAndProviderForUpdate(12L, "google"))
+                .thenReturn(Optional.empty());
+        when(userProviderRepository.findByProviderAndProviderIdForUpdate("google", "provider-id"))
+                .thenReturn(Optional.of(existingProvider));
+
+        assertThatThrownBy(() -> invokeProcessAccountLink(
+                new OAuth2LinkStateData(12L, System.currentTimeMillis(), null),
+                "google",
+                "provider-id",
+                "target@example.com"))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                        assertThat(exception.getError().getErrorCode()).isEqualTo("oauth2_link_conflict"));
+    }
+
+    @Test
+    @DisplayName("같은 user, 같은 provider, 같은 providerId면 idempotent success")
+    void processAccountLink_isIdempotentForSameProviderId() {
+        UserEntity targetUser = oauthOnlyUser(14L, "target@example.com");
+        UserProvider currentProvider = UserProvider.builder()
+                .id(3L)
+                .user(targetUser)
+                .provider("google")
+                .providerId("provider-id")
+                .email("old@example.com")
+                .build();
+
+        when(userRepository.findByIdForWrite(14L)).thenReturn(Optional.of(targetUser));
+        when(userProviderRepository.findByUserIdAndProviderForUpdate(14L, "google"))
+                .thenReturn(Optional.of(currentProvider));
+
+        UserEntity result = invokeProcessAccountLink(
+                new OAuth2LinkStateData(14L, System.currentTimeMillis(), null),
+                "google",
+                "provider-id",
+                "new@example.com");
+
+        assertThat(result).isSameAs(targetUser);
+        assertThat(currentProvider.getEmail()).isEqualTo("new@example.com");
+        verify(userProviderRepository).save(currentProvider);
     }
 
     private void invokeApplyProfileImage(UserEntity user, String profileImageUrl) throws Exception {
@@ -166,20 +207,17 @@ class CustomOAuth2UserServiceTest {
             String userName,
             String provider,
             String providerId,
-            String profileImageUrl,
-            boolean authoritativeForAutoLink) throws Exception {
-        Method method = CustomOAuth2UserService.class.getDeclaredMethod(
-                "processNormalLogin",
-                Optional.class,
-                String.class,
-                String.class,
-                String.class,
-                String.class,
-                String.class,
-                boolean.class);
-        method.setAccessible(true);
-
+            String profileImageUrl) {
         try {
+            Method method = CustomOAuth2UserService.class.getDeclaredMethod(
+                    "processNormalLogin",
+                    Optional.class,
+                    String.class,
+                    String.class,
+                    String.class,
+                    String.class,
+                    String.class);
+            method.setAccessible(true);
             return (UserEntity) method.invoke(
                     customOAuth2UserService,
                     userProviderOpt,
@@ -187,13 +225,38 @@ class CustomOAuth2UserServiceTest {
                     userName,
                     provider,
                     providerId,
-                    profileImageUrl,
-                    authoritativeForAutoLink);
+                    profileImageUrl);
         } catch (java.lang.reflect.InvocationTargetException e) {
             if (e.getCause() instanceof RuntimeException runtimeException) {
                 throw runtimeException;
             }
-            throw e;
+            throw new RuntimeException(e);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private UserEntity invokeProcessAccountLink(
+            OAuth2LinkStateData linkData,
+            String provider,
+            String providerId,
+            String email) {
+        try {
+            Method method = CustomOAuth2UserService.class.getDeclaredMethod(
+                    "processAccountLink",
+                    OAuth2LinkStateData.class,
+                    String.class,
+                    String.class,
+                    String.class);
+            method.setAccessible(true);
+            return (UserEntity) method.invoke(customOAuth2UserService, linkData, provider, providerId, email);
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            if (e.getCause() instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new RuntimeException(e);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
         }
     }
 

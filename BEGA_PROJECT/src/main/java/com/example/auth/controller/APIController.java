@@ -5,6 +5,7 @@ import com.example.auth.dto.PolicyConsentSubmitDto;
 import com.example.auth.service.OAuth2StateService;
 import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.InternalServerBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
 import com.example.common.dto.ApiResponse;
 import com.example.common.ratelimit.RateLimit;
@@ -47,6 +48,7 @@ public class APIController {
     private final AuthRegistrationService authRegistrationService;
     private final PolicyConsentService policyConsentService;
     private final OAuth2StateService oAuth2StateService;
+    private final com.example.bega.auth.service.OAuth2LinkStateService oAuth2LinkStateService;
     private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
     private final RefreshRepository refreshRepository;
     private final AuthCookieUtil authCookieUtil;
@@ -56,6 +58,7 @@ public class APIController {
             AuthRegistrationService authRegistrationService,
             PolicyConsentService policyConsentService,
             OAuth2StateService oAuth2StateService,
+            com.example.bega.auth.service.OAuth2LinkStateService oAuth2LinkStateService,
             com.example.auth.service.TokenBlacklistService tokenBlacklistService,
             RefreshRepository refreshRepository,
             AuthCookieUtil authCookieUtil,
@@ -64,6 +67,7 @@ public class APIController {
         this.authRegistrationService = authRegistrationService;
         this.policyConsentService = policyConsentService;
         this.oAuth2StateService = oAuth2StateService;
+        this.oAuth2LinkStateService = oAuth2LinkStateService;
         this.tokenBlacklistService = tokenBlacklistService;
         this.refreshRepository = refreshRepository;
         this.authCookieUtil = authCookieUtil;
@@ -265,10 +269,14 @@ public class APIController {
     public ResponseEntity<?> generateLinkToken() {
         Long userId = resolveAuthenticatedUserIdFromContext();
 
-        String linkToken = userService.getJWTUtil().createLinkToken(
-                userId,
-                5 * 60 * 1000L
-        );
+        String linkToken;
+        try {
+            linkToken = oAuth2LinkStateService.issueLinkToken(userId);
+        } catch (com.example.bega.auth.service.OAuth2LinkStateService.OAuth2LinkStateStoreException e) {
+            throw new InternalServerBusinessException(
+                    com.example.bega.auth.service.OAuth2LinkStateService.ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE,
+                    "계정 연동 토큰을 발급할 수 없습니다. 잠시 후 다시 시도해주세요.");
+        }
 
         log.info("Link token generated for userId: {}", userId);
 

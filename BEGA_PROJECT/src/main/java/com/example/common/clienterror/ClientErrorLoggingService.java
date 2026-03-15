@@ -1,10 +1,8 @@
 package com.example.common.clienterror;
 
-import java.util.Locale;
-import java.util.regex.Pattern;
-
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.example.auth.service.CustomUserDetails;
 import com.example.common.clienterror.dto.ClientErrorEventRequest;
@@ -20,57 +18,98 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class ClientErrorLoggingService {
 
-    private static final int STACK_LOG_LIMIT = 4000;
-    private static final int MESSAGE_LOG_LIMIT = 1000;
-    private static final int ROUTE_LOG_LIMIT = 500;
-    private static final int ENDPOINT_LOG_LIMIT = 500;
-    private static final int COMMENT_LOG_LIMIT = 2000;
-    private static final int METRIC_TAG_LIMIT = 120;
-    private static final Pattern UUID_PATH_SEGMENT = Pattern.compile(
-            "(?i)(?<=/)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=/|$)");
-    private static final Pattern NUMERIC_PATH_SEGMENT = Pattern.compile("(?<=/)\\d+(?=/|$)");
-
     private final MeterRegistry meterRegistry;
+    private final ClientErrorEventRepository eventRepository;
+    private final ClientErrorFeedbackRepository feedbackRepository;
 
+    @Transactional
     public void logClientError(ClientErrorEventRequest request, Authentication authentication) {
         Long authenticatedUserId = extractUserId(authentication);
+        ClientErrorSource source = ClientErrorSource.fromCategory(request.category());
+        ClientErrorBucket bucket = source.getBucket();
+        String sanitizedMessage = ClientErrorSupport.sanitize(request.message(), ClientErrorSupport.MESSAGE_LOG_LIMIT);
+        String sanitizedRoute = ClientErrorSupport.sanitize(request.route(), ClientErrorSupport.ROUTE_LOG_LIMIT);
+        String sanitizedEndpoint = ClientErrorSupport.sanitize(request.endpoint(), ClientErrorSupport.ENDPOINT_LOG_LIMIT);
+        String normalizedRoute = ClientErrorSupport.normalizeRoute(request.route());
+        String normalizedEndpoint = ClientErrorSupport.normalizeEndpoint(request.endpoint());
+        String statusGroup = ClientErrorSupport.normalizeStatusGroup(request.statusCode());
+        String fingerprint = ClientErrorSupport.buildFingerprint(
+                bucket,
+                sanitizedMessage,
+                normalizedRoute,
+                request.statusCode(),
+                ClientErrorSupport.sanitize(request.method(), 16),
+                normalizedEndpoint);
 
         recordClientErrorMetric(request);
 
+        if (!eventRepository.existsByEventId(request.eventId())) {
+            eventRepository.save(ClientErrorEventEntity.builder()
+                    .eventId(ClientErrorSupport.sanitize(request.eventId(), 64))
+                    .bucket(bucket)
+                    .source(source)
+                    .message(sanitizedMessage)
+                    .stack(ClientErrorSupport.sanitize(request.stack(), ClientErrorSupport.STACK_LOG_LIMIT))
+                    .componentStack(ClientErrorSupport.sanitize(request.componentStack(), ClientErrorSupport.STACK_LOG_LIMIT))
+                    .route(sanitizedRoute == null ? "/" : sanitizedRoute)
+                    .normalizedRoute(normalizedRoute)
+                    .statusCode(request.statusCode())
+                    .statusGroup(statusGroup)
+                    .responseCode(ClientErrorSupport.sanitize(request.responseCode(), 64))
+                    .method(ClientErrorSupport.sanitize(request.method(), 16))
+                    .endpoint(sanitizedEndpoint)
+                    .normalizedEndpoint(normalizedEndpoint)
+                    .occurredAt(ClientErrorSupport.parseOccurredAt(request.timestamp()))
+                    .sessionId(ClientErrorSupport.sanitize(request.sessionId(), 128))
+                    .userId(authenticatedUserId != null ? authenticatedUserId : request.userId())
+                    .fingerprint(fingerprint)
+                    .feedbackCount(0)
+                    .build());
+        }
+
         log.info(
                 "event=frontend_client_error eventId={} category={} route={} statusCode={} responseCode={} method={} endpoint={} userId={} sessionId={} message={}",
-                sanitize(request.eventId(), 64),
-                sanitize(request.category(), 64),
-                sanitize(request.route(), ROUTE_LOG_LIMIT),
+                ClientErrorSupport.sanitize(request.eventId(), 64),
+                ClientErrorSupport.sanitize(request.category(), 64),
+                sanitizedRoute,
                 request.statusCode(),
-                sanitize(request.responseCode(), 64),
-                sanitize(request.method(), 16),
-                sanitize(request.endpoint(), ENDPOINT_LOG_LIMIT),
+                ClientErrorSupport.sanitize(request.responseCode(), 64),
+                ClientErrorSupport.sanitize(request.method(), 16),
+                sanitizedEndpoint,
                 authenticatedUserId,
-                sanitize(request.sessionId(), 128),
-                sanitize(request.message(), MESSAGE_LOG_LIMIT));
+                ClientErrorSupport.sanitize(request.sessionId(), 128),
+                sanitizedMessage);
 
         if (request.stack() != null || request.componentStack() != null) {
             log.info(
                     "event=frontend_client_error_stack eventId={} stack={} componentStack={}",
-                    sanitize(request.eventId(), 64),
-                    sanitize(request.stack(), STACK_LOG_LIMIT),
-                    sanitize(request.componentStack(), STACK_LOG_LIMIT));
+                    ClientErrorSupport.sanitize(request.eventId(), 64),
+                    ClientErrorSupport.sanitize(request.stack(), ClientErrorSupport.STACK_LOG_LIMIT),
+                    ClientErrorSupport.sanitize(request.componentStack(), ClientErrorSupport.STACK_LOG_LIMIT));
         }
     }
 
+    @Transactional
     public void logClientFeedback(ClientErrorFeedbackRequest request, Authentication authentication) {
         Long authenticatedUserId = extractUserId(authentication);
 
         recordClientFeedbackMetric(request);
+        feedbackRepository.save(ClientErrorFeedbackEntity.builder()
+                .eventId(ClientErrorSupport.sanitize(request.eventId(), 64))
+                .comment(ClientErrorSupport.sanitize(request.comment(), ClientErrorSupport.COMMENT_LOG_LIMIT))
+                .actionTaken(ClientErrorSupport.sanitize(request.actionTaken(), 64))
+                .route(ClientErrorSupport.sanitize(request.route(), ClientErrorSupport.ROUTE_LOG_LIMIT))
+                .occurredAt(ClientErrorSupport.parseOccurredAt(request.timestamp()))
+                .build());
+        eventRepository.incrementFeedbackCount(request.eventId());
 
         log.info(
                 "event=frontend_client_feedback eventId={} actionTaken={} route={} userId={} comment={}",
-                sanitize(request.eventId(), 64),
-                sanitize(request.actionTaken(), 64),
-                sanitize(request.route(), ROUTE_LOG_LIMIT),
+                ClientErrorSupport.sanitize(request.eventId(), 64),
+                ClientErrorSupport.sanitize(request.actionTaken(), 64),
+                ClientErrorSupport.sanitize(request.route(), ClientErrorSupport.ROUTE_LOG_LIMIT),
                 authenticatedUserId,
-                sanitize(request.comment(), COMMENT_LOG_LIMIT));
+                ClientErrorSupport.sanitize(request.comment(), ClientErrorSupport.COMMENT_LOG_LIMIT));
     }
 
     private Long extractUserId(Authentication authentication) {
@@ -89,9 +128,9 @@ public class ClientErrorLoggingService {
     private void recordClientErrorMetric(ClientErrorEventRequest request) {
         Counter.builder("frontend_client_errors_total")
                 .description("Browser-reported frontend client error events")
-                .tag("category", normalizeTag(request.category(), "unknown"))
-                .tag("route", normalizeRouteTag(request.route()))
-                .tag("status_group", normalizeStatusGroup(request.statusCode()))
+                .tag("category", ClientErrorSupport.normalizeTag(request.category(), "unknown"))
+                .tag("route", ClientErrorSupport.normalizeRoute(request.route()))
+                .tag("status_group", ClientErrorSupport.normalizeStatusGroup(request.statusCode()))
                 .register(meterRegistry)
                 .increment();
     }
@@ -99,98 +138,9 @@ public class ClientErrorLoggingService {
     private void recordClientFeedbackMetric(ClientErrorFeedbackRequest request) {
         Counter.builder("frontend_client_feedback_total")
                 .description("Browser-submitted frontend error feedback events")
-                .tag("route", normalizeRouteTag(request.route()))
-                .tag("action_taken", normalizeTag(request.actionTaken(), "unknown"))
+                .tag("route", ClientErrorSupport.normalizeRoute(request.route()))
+                .tag("action_taken", ClientErrorSupport.normalizeTag(request.actionTaken(), "unknown"))
                 .register(meterRegistry)
                 .increment();
-    }
-
-    private String normalizeRouteTag(String route) {
-        if (route == null || route.isBlank()) {
-            return "unknown";
-        }
-
-        String normalized = route.trim();
-        int queryIndex = normalized.indexOf('?');
-        if (queryIndex >= 0) {
-            normalized = normalized.substring(0, queryIndex);
-        }
-
-        int hashIndex = normalized.indexOf('#');
-        if (hashIndex >= 0) {
-            normalized = normalized.substring(0, hashIndex);
-        }
-
-        if (normalized.isBlank()) {
-            return "/";
-        }
-
-        normalized = normalized.replaceAll("/{2,}", "/");
-        if (!normalized.startsWith("/")) {
-            normalized = "/" + normalized;
-        }
-        normalized = UUID_PATH_SEGMENT.matcher(normalized).replaceAll(":uuid");
-        normalized = NUMERIC_PATH_SEGMENT.matcher(normalized).replaceAll(":id");
-        if (normalized.length() > 1 && normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-
-        return normalizeTag(normalized, "/", true);
-    }
-
-    private String normalizeStatusGroup(Integer statusCode) {
-        if (statusCode == null) {
-            return "none";
-        }
-
-        int family = statusCode / 100;
-        return switch (family) {
-            case 1, 2, 3, 4, 5 -> family + "xx";
-            default -> "other";
-        };
-    }
-
-    private String normalizeTag(String value, String fallback) {
-        return normalizeTag(value, fallback, false);
-    }
-
-    private String normalizeTag(String value, String fallback, boolean allowRouteChars) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-
-        String normalized = value.trim().toLowerCase(Locale.ROOT);
-        normalized = allowRouteChars
-                ? normalized.replaceAll("[^a-z0-9_:/-]", "_")
-                : normalized.replaceAll("[^a-z0-9_-]", "_");
-        normalized = normalized.replaceAll("_+", "_");
-
-        if (normalized.isBlank()) {
-            return fallback;
-        }
-
-        if (normalized.length() > METRIC_TAG_LIMIT) {
-            return normalized.substring(0, METRIC_TAG_LIMIT);
-        }
-
-        return normalized;
-    }
-
-    private String sanitize(String value, int maxLength) {
-        if (value == null) {
-            return null;
-        }
-
-        String normalized = value
-                .replace("\\", "\\\\")
-                .replace("\r", "\\r")
-                .replace("\n", "\\n")
-                .trim();
-
-        if (normalized.length() <= maxLength) {
-            return normalized;
-        }
-
-        return normalized.substring(0, Math.max(0, maxLength - 3)) + "...";
     }
 }

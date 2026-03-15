@@ -43,4 +43,10 @@ USER appuser
 EXPOSE 8080
 
 # 컨테이너 실행 시 JAR 파일을 실행합니다.
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# G1GC: 짧은 GC 중단 목표(200ms), heap 768m(1G 컨테이너 내 최적값)
+ENTRYPOINT ["java", \
+  "-server", \
+  "-XX:+UseG1GC", \
+  "-XX:MaxGCPauseMillis=200", \
+  "-Xmx768m", "-Xms512m", \
+  "-jar", "app.jar"]

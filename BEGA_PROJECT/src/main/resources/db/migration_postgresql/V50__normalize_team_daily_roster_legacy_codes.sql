@@ -10,6 +10,17 @@
 -- KW -> KH
 -- SK -> SSG
 -- SL -> SSG
+
+CREATE OR REPLACE FUNCTION __bega_exec_if_table_exists(target_table text, statement text)
+RETURNS void AS $$
+BEGIN
+    IF to_regclass(target_table) IS NOT NULL THEN
+        EXECUTE statement;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT __bega_exec_if_table_exists('team_daily_roster', $sql$
 UPDATE team_daily_roster
 SET team_code = CASE team_code
     WHEN 'HT' THEN 'KIA'
@@ -26,4 +37,7 @@ SET team_code = CASE team_code
     WHEN 'LOT' THEN 'LT'
     ELSE team_code
 END
-WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL', 'BE', 'MBC', 'LOT');
+WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL', 'BE', 'MBC', 'LOT')
+$sql$);
+
+DROP FUNCTION IF EXISTS __bega_exec_if_table_exists(text, text);

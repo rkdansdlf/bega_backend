@@ -8,5 +8,50 @@
     "name": "spring.jwt.refresh-expiration",
     "type": "java.lang.String",
     "description": "A description for 'spring.jwt.refresh-expiration'"
+  },
+  {
+    "name": "app.client-error-monitoring.retention-days",
+    "type": "java.lang.Integer",
+    "description": "Number of days to retain client error monitoring data."
+  },
+  {
+    "name": "app.client-error-monitoring.cleanup-cron",
+    "type": "java.lang.String",
+    "description": "Cron expression for cleaning up expired client error monitoring data."
+  },
+  {
+    "name": "app.client-error-monitoring.alerts.enabled",
+    "type": "java.lang.Boolean",
+    "description": "Whether backend-driven client error Slack alerting is enabled."
+  },
+  {
+    "name": "app.client-error-monitoring.alerts.poll-interval-ms",
+    "type": "java.lang.Long",
+    "description": "Polling interval in milliseconds for evaluating client error alert thresholds."
+  },
+  {
+    "name": "app.client-error-monitoring.alerts.runtime-threshold",
+    "type": "java.lang.Integer",
+    "description": "Runtime fingerprint count threshold within the configured window."
+  },
+  {
+    "name": "app.client-error-monitoring.alerts.api5xx-threshold",
+    "type": "java.lang.Integer",
+    "description": "API 5xx fingerprint count threshold within the configured window."
+  },
+  {
+    "name": "app.client-error-monitoring.alerts.window-minutes",
+    "type": "java.lang.Integer",
+    "description": "Rolling window size in minutes for client error threshold evaluation."
+  },
+  {
+    "name": "app.client-error-monitoring.alerts.cooldown-minutes",
+    "type": "java.lang.Integer",
+    "description": "Cooldown period in minutes before the same fingerprint can alert again."
+  },
+  {
+    "name": "app.client-error-monitoring.alerts.slack-webhook-url",
+    "type": "java.lang.String",
+    "description": "Slack webhook URL used for backend-driven client error alerts."
   }
 ]}

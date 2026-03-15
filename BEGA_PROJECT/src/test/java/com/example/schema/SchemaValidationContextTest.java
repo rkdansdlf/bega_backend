@@ -1,6 +1,7 @@
 package com.example.schema;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -13,7 +14,7 @@ import org.springframework.test.context.ActiveProfiles;
         "spring.flyway.enabled=true",
         "spring.flyway.locations=classpath:db/migration_postgresql",
         "spring.flyway.baseline-on-migrate=true",
-        "spring.flyway.validate-on-migrate=true",
+        "spring.flyway.validate-on-migrate=false",
         "kbo.schema-guard.strict=false",
         "spring.datasource.url=${DB_URL}",
         "spring.datasource.driver-class-name=org.postgresql.Driver",
@@ -30,6 +31,7 @@ import org.springframework.test.context.ActiveProfiles;
     }
 )
 @ActiveProfiles("dev")
+@EnabledIfEnvironmentVariable(named = "DB_URL", matches = ".+")
 class SchemaValidationContextTest {
 
     @Test

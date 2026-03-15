@@ -7,6 +7,7 @@ import com.example.auth.dto.KaKaoResponse;
 import com.example.auth.dto.NaverResponse;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
@@ -14,6 +15,7 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -33,6 +35,10 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     private static final String GOOGLE_HIGH_RES_SIZE = "640";
     private static final String PROFILE_SIZE_SUFFIX = "640x640";
     private static final String MANUAL_LINK_REQUIRED = "manual_link_required";
+    private static final String OAUTH2_LINK_CONFLICT = "oauth2_link_conflict";
+    private static final String OAUTH2_LINK_REQUIRES_UNLINK = "oauth2_link_requires_unlink";
+    private static final String OAUTH2_LINK_SESSION_EXPIRED = "oauth2_link_session_expired";
+    private static final String OAUTH2_LINK_FAILED = "oauth2_link_failed";
 
     private final UserRepository userRepository;
     private final com.example.auth.repository.UserProviderRepository userProviderRepository;
@@ -40,17 +46,20 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     private final com.example.bega.auth.service.OAuth2LinkStateService oAuth2LinkStateService;
     private final CookieAuthorizationRequestRepository cookieAuthorizationRequestRepository; // [Strict Mode] Check
                                                                                              // cookie
+    private final com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService;
 
     public CustomOAuth2UserService(UserRepository userRepository,
             com.example.auth.repository.UserProviderRepository userProviderRepository,
             jakarta.servlet.http.HttpServletRequest request,
             com.example.bega.auth.service.OAuth2LinkStateService oAuth2LinkStateService,
-            CookieAuthorizationRequestRepository cookieAuthorizationRequestRepository) {
+            CookieAuthorizationRequestRepository cookieAuthorizationRequestRepository,
+            com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService) {
         this.userRepository = userRepository;
         this.userProviderRepository = userProviderRepository;
         this.request = request;
         this.oAuth2LinkStateService = oAuth2LinkStateService;
         this.cookieAuthorizationRequestRepository = cookieAuthorizationRequestRepository;
+        this.securityMonitoringService = securityMonitoringService;
     }
 
     @Override
@@ -114,13 +123,13 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         log.info("RegistrationId: {}", registrationId);
         log.info("Email: {}", email);
         log.info("LinkData: {}",
-                linkData != null ? "mode=" + linkData.mode() + ", userId=" + linkData.userId() : "null");
+                linkData != null ? "userId=" + linkData.userId() + ", failureReason=" + linkData.failureReason() : "null");
 
         // [Security Fix] 연동 요청이었으나 토큰/상태 오류로 실패한 경우 즉시 에러 처리
         // (일반 로그인으로 넘어가지 않도록 방지)
         if (linkData != null && linkData.failureReason() != null) {
             log.warn("Aborting OAuth2 flow due to link failure: {}", linkData.failureReason());
-            throw new OAuth2AuthenticationException("계정 연동 실패: " + translateLinkError(linkData.failureReason()));
+            throw new OAuth2AuthenticationException(linkData.failureReason());
         }
 
         // [Strict Mode Fix] 쿠키에서 원래 요청의 mode 확인 (Redis state가 만료되었을 경우 대비)
@@ -134,7 +143,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
             if (isLinkModeRequest && linkData == null) {
                 log.warn("Strict Link Mode: Session expired or invalid state. Aborting flow to prevent auto-login.");
-                throw new OAuth2AuthenticationException("계정 연동 세션이 만료되었습니다. 마이페이지에서 다시 시도해주세요.");
+                throw new OAuth2AuthenticationException(OAUTH2_LINK_SESSION_EXPIRED);
             }
         } catch (Exception e) {
             // Error reading cookie should not block normal flow unless explicit error
@@ -155,8 +164,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                     userName,
                     provider,
                     providerId,
-                    profileImageUrl,
-                    oAuth2Response.isAuthoritativeForAutoLink());
+                    profileImageUrl);
         }
         applyProfileImageFromOAuth(userEntity, profileImageUrl, provider);
 
@@ -170,7 +178,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         }
 
         // 6. CustomOAuth2User 객체 반환
-        return new CustomOAuth2User(userEntity.toDto(), oAuth2User.getAttributes());
+        return new CustomOAuth2User(userEntity.toDto(), oAuth2User.getAttributes(), linkData != null && linkData.isLinkMode());
     }
 
     private UserEntity saveNewUser(String email, String name, String provider, String providerId,
@@ -337,49 +345,74 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         Long userId = linkData.userId();
         log.info("Processing Account Link for UserID: {}", userId);
 
-        Optional<UserEntity> targetUserOpt = userRepository.findById(userId);
+        Optional<UserEntity> targetUserOpt = userRepository.findByIdForWrite(userId);
 
         if (targetUserOpt.isEmpty()) {
             log.error("Target User Not Found for ID: {}", userId);
-            throw new OAuth2AuthenticationException("연동할 대상 사용자를 찾을 수 없습니다.");
+            throw new OAuth2AuthenticationException(OAUTH2_LINK_FAILED);
         }
 
         UserEntity userEntity = targetUserOpt.get();
+        Optional<com.example.auth.entity.UserProvider> currentProviderLink = userProviderRepository
+                .findByUserIdAndProviderForUpdate(userId, provider);
 
-        // [중복 연동 방지 및 소유권 이전 로직]
-        // 1. 해당 provider + providerId로 이미 연동된 정보가 있는지 전역 조회
+        if (currentProviderLink.isPresent()) {
+            com.example.auth.entity.UserProvider currentLink = currentProviderLink.get();
+            if (Objects.equals(currentLink.getProviderId(), providerId)) {
+                if (email != null && !email.equals(currentLink.getEmail())) {
+                    currentLink.setEmail(email);
+                    userProviderRepository.save(currentLink);
+                }
+                log.info("Provider already linked to target user.");
+                return userEntity;
+            }
+
+            securityMonitoringService.recordOAuth2LinkConflict();
+            log.warn("Rejected provider relink without unlink first: userId={}, provider={}", userId, provider);
+            throw new OAuth2AuthenticationException(OAUTH2_LINK_REQUIRES_UNLINK);
+        }
+
         Optional<com.example.auth.entity.UserProvider> existingProviderOpt = userProviderRepository
-                .findByProviderAndProviderId(provider, providerId);
+                .findByProviderAndProviderIdForUpdate(provider, providerId);
 
         if (existingProviderOpt.isPresent()) {
             com.example.auth.entity.UserProvider existingProvider = existingProviderOpt.get();
             if (!existingProvider.getUser().getId().equals(userId)) {
-                // 다른 사용자에게 이미 연동되어 있음 -> 소유권 이전 (기존 버그로 생성된 껍데기 계정 등)
-                log.warn("Conflict Detected: Social Account already linked to User ID {}",
-                        existingProvider.getUser().getId());
-                log.info("Moving Linkage to Target User ID {}", userId);
-
-                existingProvider.setUser(userEntity); // 소유자 변경
-                userProviderRepository.saveAndFlush(existingProvider); // 즉시 반영
-            } else {
-                // 이미 내 계정에 연동되어 있음 (정상)
-                log.info("Already linked to correct user.");
+                securityMonitoringService.recordOAuth2LinkConflict();
+                log.warn("Rejected conflicting provider link attempt: provider={}, providerId={}, ownerUserId={}, targetUserId={}",
+                        provider, providerId, existingProvider.getUser().getId(), userId);
+                throw new OAuth2AuthenticationException(OAUTH2_LINK_CONFLICT);
             }
-        } else {
-            // 2. 연동된 정보가 없으면 신규 연동 생성
-            linkAccount(userEntity, provider, providerId, email);
+
+            if (email != null && !email.equals(existingProvider.getEmail())) {
+                existingProvider.setEmail(email);
+                userProviderRepository.save(existingProvider);
+            }
+            log.info("Provider link already exists for target user.");
+            return userEntity;
         }
 
-        log.info("Account Linked/Moved Successfully for User: {}", userEntity.getEmail());
-        return userEntity;
+        try {
+            userProviderRepository.saveAndFlush(com.example.auth.entity.UserProvider.builder()
+                    .user(userEntity)
+                    .provider(provider)
+                    .providerId(providerId)
+                    .email(email)
+                    .build());
+            log.info("Account linked successfully for userId={}, provider={}", userId, provider);
+            return userEntity;
+        } catch (DataIntegrityViolationException e) {
+            securityMonitoringService.recordOAuth2LinkConflict();
+            log.warn("Provider link save conflicted for userId={}, provider={}", userId, provider, e);
+            throw new OAuth2AuthenticationException(OAUTH2_LINK_CONFLICT);
+        }
     }
 
     /**
      * 일반 로그인 처리
      */
     private UserEntity processNormalLogin(Optional<com.example.auth.entity.UserProvider> userProviderOpt,
-            String email, String userName, String provider, String providerId, String profileImageUrl,
-            boolean authoritativeForAutoLink) {
+            String email, String userName, String provider, String providerId, String profileImageUrl) {
         if (userProviderOpt.isPresent()) {
             // [일반 로그인] 이미 연동된 계정이 있는 경우 -> 해당 사용자 반환
             log.info("Existing Provider Found. Logging in.");
@@ -393,44 +426,13 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             Optional<UserEntity> existingUserOpt = userRepository.findByEmail(email);
 
             if (existingUserOpt.isPresent()) {
-                UserEntity existingUser = existingUserOpt.get();
-
-                // [Security Fix] 비밀번호가 있는 계정(일반 회원가입)에 대한 자동 연동 차단
-                // 비밀번호 계정에 소셜 계정을 자동 연동하면 계정 탈취 위험이 있음
-                if (existingUser.getPassword() != null && !existingUser.getPassword().isEmpty()) {
-                    log.warn("Auto-link blocked for password-protected account: {}", email);
-                    throw new OAuth2AuthenticationException(
-                            "ACCOUNT_EXISTS_WITH_PASSWORD:이 이메일은 이미 일반 회원가입으로 등록되어 있습니다. " +
-                                    "기존 계정으로 로그인 후 마이페이지에서 소셜 계정을 연동해주세요.");
-                }
-
-                if (!authoritativeForAutoLink) {
-                    log.warn("Auto-link requires manual confirmation: provider={} email={}", provider, email);
-                    throw new OAuth2AuthenticationException(MANUAL_LINK_REQUIRED);
-                }
-
-                log.info("Existing OAuth2 Email Found. Auto-linking.");
-                linkAccount(existingUser, provider, providerId, email);
-                // 이름 강제 업데이트 방지
-                updateUser(existingUser, userName);
-                return existingUser;
+                log.warn("Existing account found by email, requiring manual link: provider={} email={}", provider, email);
+                throw new OAuth2AuthenticationException(MANUAL_LINK_REQUIRED);
             } else {
                 // 신규 사용자 -> 회원가입 + 연동 정보 생성
                 log.info("New User Required. Creating Account.");
                 return saveNewUser(email, userName, provider, providerId, profileImageUrl);
             }
         }
-    }
-
-    private String translateLinkError(String failureReason) {
-        if (failureReason == null)
-            return "알 수 없는 오류";
-        return switch (failureReason) {
-            case "LINK_TOKEN_EXPIRED" -> "연동 유효 시간(5분)이 만료되었습니다. 마이페이지에서 다시 시도해주세요.";
-            case "INVALID_LINK_TOKEN_TYPE" -> "유효하지 않은 연동 토큰입니다.";
-            case "INVALID_LINK_TOKEN" -> "손상된 연동 토큰입니다.";
-            case "MISSING_LINK_TOKEN" -> "연동 토큰이 누락되었습니다.";
-            default -> "연동 처리 중 오류가 발생했습니다 (" + failureReason + ")";
-        };
     }
 }

@@ -109,13 +109,17 @@ public class PrimaryOracleJpaConfig {
 			@Qualifier("primaryDataSourceProperties") DataSourceProperties primaryProperties) {
 		Map<String, Object> jpaProperties = new LinkedHashMap<>();
 			jpaProperties.put("hibernate.hbm2ddl.schema_filter_provider", PrimarySchemaFilterProvider.class.getName());
+			// Disable JDBC metadata access for all DB types to prevent connection issues during bootstrapping
+			jpaProperties.put("hibernate.boot.allow_jdbc_metadata_access", false);
+			jpaProperties.put("hibernate.temp.use_jdbc_metadata_defaults", false);
 			if (isOracleJdbcUrl(primaryProperties.getUrl())) {
 				jpaProperties.put("hibernate.type.preferred_boolean_jdbc_type", Types.INTEGER);
 				jpaProperties.put("hibernate.type.preferred_json_jdbc_type", Types.CLOB);
 				jpaProperties.put("hibernate.type.preferred_uuid_jdbc_type", Types.VARCHAR);
-				jpaProperties.put("hibernate.dialect", "org.hibernate.dialect.OracleDialect");
-				jpaProperties.put("hibernate.boot.allow_jdbc_metadata_access", false);
-				jpaProperties.put("hibernate.temp.use_jdbc_metadata_defaults", false);
+			}
+			String hibernateDialect = resolveHibernateDialect(primaryProperties.getUrl());
+			if (!isBlank(hibernateDialect)) {
+				jpaProperties.put("hibernate.dialect", hibernateDialect);
 			}
 
 		return builder
@@ -224,5 +228,26 @@ public class PrimaryOracleJpaConfig {
 
 	private boolean isOracleJdbcUrl(String datasourceUrl) {
 		return datasourceUrl != null && datasourceUrl.toLowerCase().startsWith("jdbc:oracle:");
+	}
+
+	private String resolveHibernateDialect(String datasourceUrl) {
+		if (isOracleJdbcUrl(datasourceUrl)) {
+			return "org.hibernate.dialect.OracleDialect";
+		}
+		if (isPostgreSqlJdbcUrl(datasourceUrl)) {
+			return "org.hibernate.dialect.PostgreSQLDialect";
+		}
+		if (isH2JdbcUrl(datasourceUrl)) {
+			return "org.hibernate.dialect.H2Dialect";
+		}
+		return "";
+	}
+
+	private boolean isPostgreSqlJdbcUrl(String datasourceUrl) {
+		return datasourceUrl != null && datasourceUrl.toLowerCase().startsWith("jdbc:postgresql:");
+	}
+
+	private boolean isH2JdbcUrl(String datasourceUrl) {
+		return datasourceUrl != null && datasourceUrl.toLowerCase().startsWith("jdbc:h2:");
 	}
 }
