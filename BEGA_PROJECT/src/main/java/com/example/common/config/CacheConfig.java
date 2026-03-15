@@ -43,6 +43,8 @@ public class CacheConfig {
         public static final String STADIUMS = "stadiums";
         public static final String TEAM_DATA = "teamData";
         public static final String GAME_SCHEDULE = "gameSchedule";
+        public static final String HOME_BOOTSTRAP = "homeBootstrap";
+        public static final String HOME_WIDGETS = "homeWidgets";
         public static final String POST_IMAGE_URLS = "postImageUrls";
 
         // L2 전용 캐시 (Redis only) - 라이브 데이터 (추후 확장용)
@@ -119,6 +121,10 @@ public class CacheConfig {
                 cacheConfigs.put(STADIUMS, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofHours(1))));
                 cacheConfigs.put(LEAGUE_DATES, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofHours(1))));
                 cacheConfigs.put(TEAM_DATA, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(30))));
+                cacheConfigs.put(HOME_BOOTSTRAP,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(60))));
+                cacheConfigs.put(HOME_WIDGETS,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(45))));
                 cacheConfigs.put(POST_IMAGE_URLS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(50))));
 

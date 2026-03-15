@@ -49,6 +49,8 @@ public interface PartyRepository extends JpaRepository<Party, Long> {
         // 경기 날짜 이후 파티 조회
         List<Party> findByGameDateAfterOrderByGameDateAsc(LocalDate date);
 
+        Page<Party> findByStatusAndGameDateGreaterThanEqual(PartyStatus status, LocalDate gameDate, Pageable pageable);
+
         // 통합 검색 및 필터링 (팀, 구장, 날짜, 검색어, 상태 제외) - Updated for IDE sync
         @Query("SELECT p FROM Party p WHERE " +
                         "(:teamId IS NULL OR p.teamId = :teamId) AND " +

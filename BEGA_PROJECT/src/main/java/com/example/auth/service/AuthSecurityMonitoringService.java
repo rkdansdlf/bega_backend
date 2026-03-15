@@ -11,6 +11,8 @@ public class AuthSecurityMonitoringService {
     private final Counter tokenRejectTotal;
     private final Counter unsignedOauth2CookieTotal;
     private final Counter oauth2StateRejectTotal;
+    private final Counter oauth2LinkRejectTotal;
+    private final Counter oauth2LinkConflictTotal;
     private final Counter authRateLimitRejectTotal;
     private final Counter passwordResetSuppressedTotal;
 
@@ -33,6 +35,16 @@ public class AuthSecurityMonitoringService {
         this.oauth2StateRejectTotal = Counter.builder("auth_security_events_total")
                 .description("OAuth2 state lookup or payload rejection")
                 .tag("event", "OAUTH2_STATE_REJECT")
+                .register(meterRegistry);
+
+        this.oauth2LinkRejectTotal = Counter.builder("auth_security_events_total")
+                .description("OAuth2 link ticket or link state rejection")
+                .tag("event", "OAUTH2_LINK_REJECT")
+                .register(meterRegistry);
+
+        this.oauth2LinkConflictTotal = Counter.builder("auth_security_events_total")
+                .description("OAuth2 link conflict attempts")
+                .tag("event", "OAUTH2_LINK_CONFLICT")
                 .register(meterRegistry);
 
         this.authRateLimitRejectTotal = Counter.builder("auth_security_events_total")
@@ -60,6 +72,14 @@ public class AuthSecurityMonitoringService {
 
     public void recordOAuth2StateReject() {
         oauth2StateRejectTotal.increment();
+    }
+
+    public void recordOAuth2LinkReject() {
+        oauth2LinkRejectTotal.increment();
+    }
+
+    public void recordOAuth2LinkConflict() {
+        oauth2LinkConflictTotal.increment();
     }
 
     public void recordAuthRateLimitReject() {

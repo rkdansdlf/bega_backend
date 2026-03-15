@@ -1,11 +1,11 @@
 -- Align PostgreSQL schema with current JPA mappings for Mate ticket/application features.
 
 -- parties: reservation number is expected by the entity.
-ALTER TABLE parties
+ALTER TABLE IF EXISTS parties
     ADD COLUMN IF NOT EXISTS reservation_number VARCHAR(50);
 
 -- party_applications: snake_case columns expected by PartyApplication entity.
-ALTER TABLE party_applications
+ALTER TABLE IF EXISTS party_applications
     ADD COLUMN IF NOT EXISTS applicant_name VARCHAR(50),
     ADD COLUMN IF NOT EXISTS applicant_badge VARCHAR(20),
     ADD COLUMN IF NOT EXISTS applicant_rating DOUBLE PRECISION,
@@ -179,27 +179,35 @@ BEGIN
 END;
 $$;
 
-UPDATE party_applications
-SET applicant_name = COALESCE(applicant_name, 'UNKNOWN'),
-    applicant_badge = COALESCE(applicant_badge, 'NEW'),
-    applicant_rating = COALESCE(applicant_rating, 5.0),
-    deposit_amount = COALESCE(deposit_amount, 0),
-    is_paid = COALESCE(is_paid, FALSE),
-    is_approved = COALESCE(is_approved, FALSE),
-    is_rejected = COALESCE(is_rejected, FALSE),
-    payment_type = COALESCE(payment_type, 'DEPOSIT'),
-    created_at = COALESCE(created_at, NOW());
+DO $$
+BEGIN
+    IF to_regclass('public.party_applications') IS NULL THEN
+        RETURN;
+    END IF;
 
-ALTER TABLE party_applications
-    ALTER COLUMN applicant_name SET NOT NULL,
-    ALTER COLUMN applicant_badge SET NOT NULL,
-    ALTER COLUMN applicant_rating SET NOT NULL,
-    ALTER COLUMN deposit_amount SET NOT NULL,
-    ALTER COLUMN is_paid SET NOT NULL,
-    ALTER COLUMN is_approved SET NOT NULL,
-    ALTER COLUMN is_rejected SET NOT NULL,
-    ALTER COLUMN payment_type SET NOT NULL,
-    ALTER COLUMN created_at SET NOT NULL;
+    UPDATE party_applications
+    SET applicant_name = COALESCE(applicant_name, 'UNKNOWN'),
+        applicant_badge = COALESCE(applicant_badge, 'NEW'),
+        applicant_rating = COALESCE(applicant_rating, 5.0),
+        deposit_amount = COALESCE(deposit_amount, 0),
+        is_paid = COALESCE(is_paid, FALSE),
+        is_approved = COALESCE(is_approved, FALSE),
+        is_rejected = COALESCE(is_rejected, FALSE),
+        payment_type = COALESCE(payment_type, 'DEPOSIT'),
+        created_at = COALESCE(created_at, NOW());
+
+    ALTER TABLE party_applications
+        ALTER COLUMN applicant_name SET NOT NULL,
+        ALTER COLUMN applicant_badge SET NOT NULL,
+        ALTER COLUMN applicant_rating SET NOT NULL,
+        ALTER COLUMN deposit_amount SET NOT NULL,
+        ALTER COLUMN is_paid SET NOT NULL,
+        ALTER COLUMN is_approved SET NOT NULL,
+        ALTER COLUMN is_rejected SET NOT NULL,
+        ALTER COLUMN payment_type SET NOT NULL,
+        ALTER COLUMN created_at SET NOT NULL;
+END;
+$$;
 
 -- ticket_verifications: ensure table exists and consumed type matches entity (Boolean).
 CREATE TABLE IF NOT EXISTS ticket_verifications (
