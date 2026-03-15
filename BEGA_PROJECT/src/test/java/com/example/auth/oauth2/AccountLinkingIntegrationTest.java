@@ -281,30 +281,33 @@ class AccountLinkingIntegrationTest {
                 TransactionTemplate tx = new TransactionTemplate(transactionManager);
                 tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
 
-                return tx.execute(status -> {
-                        try {
-                                CustomOAuth2UserService service = new CustomOAuth2UserService(
-                                                userRepository,
-                                                userProviderRepository,
-                                                new MockHttpServletRequest(),
-                                                oAuth2LinkStateService,
-                                                cookieAuthorizationRequestRepository,
-                                                mock(AuthSecurityMonitoringService.class));
-                                invokeProcessAccountLink(
-                                                service,
-                                                new OAuth2LinkStateData(user.getId(), System.currentTimeMillis(), null),
-                                                "google",
-                                                "shared-provider-id",
-                                                user.getEmail());
-                                return "success:" + user.getId();
-                        } catch (OAuth2AuthenticationException e) {
-                                return e.getError().getErrorCode();
-                        } catch (RuntimeException e) {
-                                throw e;
-                        } catch (Exception e) {
-                                throw new RuntimeException(e);
+                try {
+                        return tx.execute(status -> {
+                                try {
+                                        CustomOAuth2UserService service = new CustomOAuth2UserService(
+                                                        userRepository,
+                                                        userProviderRepository,
+                                                        new MockHttpServletRequest(),
+                                                        oAuth2LinkStateService,
+                                                        cookieAuthorizationRequestRepository,
+                                                        mock(AuthSecurityMonitoringService.class));
+                                        invokeProcessAccountLink(
+                                                        service,
+                                                        new OAuth2LinkStateData(user.getId(), System.currentTimeMillis(), null),
+                                                        "google",
+                                                        "shared-provider-id",
+                                                        user.getEmail());
+                                        return "success:" + user.getId();
+                                } catch (Exception e) {
+                                        throw new ConcurrentLinkAttemptException(e);
+                                }
+                        });
+                } catch (ConcurrentLinkAttemptException e) {
+                        if (e.getCause() instanceof OAuth2AuthenticationException authException) {
+                                return authException.getError().getErrorCode();
                         }
-                });
+                        throw e;
+                }
         }
 
         private UserEntity localUser(String prefix) {
@@ -397,6 +400,12 @@ class AccountLinkingIntegrationTest {
                         throw new RuntimeException(e.getCause());
                 } catch (ReflectiveOperationException e) {
                         throw new RuntimeException(e);
+                }
+        }
+
+        private static final class ConcurrentLinkAttemptException extends RuntimeException {
+                private ConcurrentLinkAttemptException(Exception cause) {
+                        super(cause);
                 }
         }
 }
