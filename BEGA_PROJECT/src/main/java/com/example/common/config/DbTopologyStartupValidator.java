@@ -50,7 +50,7 @@ public class DbTopologyStartupValidator {
         String baseballUsername = normalize(baseballDataSourceProperties.getUsername());
         String baseballPassword = normalize(baseballDataSourceProperties.getPassword());
 
-        if (!primaryDriver.contains("oracle")) {
+        if (!primaryDriver.contains("oracle") && !primaryDriver.contains("postgresql")) {
             failures.add("primary datasource driver must be Oracle, but was: " + safe(primaryDriver));
         }
 

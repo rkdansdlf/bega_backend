@@ -7,6 +7,10 @@ DO $$
 DECLARE
     v_duplicate_count BIGINT;
 BEGIN
+    IF to_regclass('public.cheer_post') IS NULL THEN
+        RETURN;
+    END IF;
+
     SELECT COUNT(*)
     INTO v_duplicate_count
     FROM (
@@ -22,8 +26,8 @@ BEGIN
     IF v_duplicate_count > 0 THEN
         RAISE EXCEPTION 'Cannot apply V58: duplicate SIMPLE repost rows already exist.';
     END IF;
-END $$;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_cheer_post_simple_repost
-ON cheer_post (author_id, repost_of_id)
-WHERE repost_type = 'SIMPLE' AND repost_of_id IS NOT NULL AND deleted = FALSE;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_cheer_post_simple_repost
+    ON cheer_post (author_id, repost_of_id)
+    WHERE repost_type = 'SIMPLE' AND repost_of_id IS NOT NULL AND deleted = FALSE;
+END $$;

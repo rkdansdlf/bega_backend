@@ -15,6 +15,16 @@
 -- MBC -> LG
 -- LOT -> LT
 
+CREATE OR REPLACE FUNCTION __bega_exec_if_table_exists(target_table text, statement text)
+RETURNS void AS $$
+BEGIN
+    IF to_regclass(target_table) IS NOT NULL THEN
+        EXECUTE statement;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT __bega_exec_if_table_exists('game', $sql$
 UPDATE game
 SET home_team = CASE home_team
     WHEN 'HT' THEN 'KIA'
@@ -28,8 +38,10 @@ SET home_team = CASE home_team
     WHEN 'SL' THEN 'SSG'
     ELSE home_team
 END
-WHERE home_team IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE home_team IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
+SELECT __bega_exec_if_table_exists('game', $sql$
 UPDATE game
 SET away_team = CASE away_team
     WHEN 'HT' THEN 'KIA'
@@ -43,8 +55,10 @@ SET away_team = CASE away_team
     WHEN 'SL' THEN 'SSG'
     ELSE away_team
 END
-WHERE away_team IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE away_team IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
+SELECT __bega_exec_if_table_exists('game', $sql$
 UPDATE game
 SET winning_team = CASE winning_team
     WHEN 'HT' THEN 'KIA'
@@ -58,8 +72,10 @@ SET winning_team = CASE winning_team
     WHEN 'SL' THEN 'SSG'
     ELSE winning_team
 END
-WHERE winning_team IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE winning_team IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
+SELECT __bega_exec_if_table_exists('game_batting_stats', $sql$
 UPDATE game_batting_stats
 SET team_code = CASE team_code
     WHEN 'HT' THEN 'KIA'
@@ -73,8 +89,10 @@ SET team_code = CASE team_code
     WHEN 'SL' THEN 'SSG'
     ELSE team_code
 END
-WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
+SELECT __bega_exec_if_table_exists('game_pitching_stats', $sql$
 UPDATE game_pitching_stats
 SET team_code = CASE team_code
     WHEN 'HT' THEN 'KIA'
@@ -88,8 +106,10 @@ SET team_code = CASE team_code
     WHEN 'SL' THEN 'SSG'
     ELSE team_code
 END
-WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
+SELECT __bega_exec_if_table_exists('game_lineups', $sql$
 UPDATE game_lineups
 SET team_code = CASE team_code
     WHEN 'HT' THEN 'KIA'
@@ -103,8 +123,10 @@ SET team_code = CASE team_code
     WHEN 'SL' THEN 'SSG'
     ELSE team_code
 END
-WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
+SELECT __bega_exec_if_table_exists('game_inning_scores', $sql$
 UPDATE game_inning_scores
 SET team_code = CASE team_code
     WHEN 'HT' THEN 'KIA'
@@ -118,8 +140,10 @@ SET team_code = CASE team_code
     WHEN 'SL' THEN 'SSG'
     ELSE team_code
 END
-WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
+SELECT __bega_exec_if_table_exists('player_movements', $sql$
 UPDATE player_movements
 SET team_code = CASE team_code
     WHEN 'HT' THEN 'KIA'
@@ -133,8 +157,10 @@ SET team_code = CASE team_code
     WHEN 'SL' THEN 'SSG'
     ELSE team_code
 END
-WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
+SELECT __bega_exec_if_table_exists('team_daily_roster', $sql$
 UPDATE team_daily_roster
 SET team_code = CASE team_code
     WHEN 'HT' THEN 'KIA'
@@ -148,7 +174,8 @@ SET team_code = CASE team_code
     WHEN 'SL' THEN 'SSG'
     ELSE team_code
 END
-WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
 DO $$
 BEGIN
@@ -176,6 +203,7 @@ BEGIN
 END;
 $$;
 
+SELECT __bega_exec_if_table_exists('player_season_batting', $sql$
 UPDATE player_season_batting
 SET team_code = CASE team_code
     WHEN 'HT' THEN 'KIA'
@@ -189,8 +217,10 @@ SET team_code = CASE team_code
     WHEN 'SL' THEN 'SSG'
     ELSE team_code
 END
-WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
+SELECT __bega_exec_if_table_exists('player_season_pitching', $sql$
 UPDATE player_season_pitching
 SET team_code = CASE team_code
     WHEN 'HT' THEN 'KIA'
@@ -204,8 +234,10 @@ SET team_code = CASE team_code
     WHEN 'SL' THEN 'SSG'
     ELSE team_code
 END
-WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE team_code IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
+SELECT __bega_exec_if_table_exists('cheer_post', $sql$
 UPDATE cheer_post
 SET team_id = CASE team_id
     WHEN 'HT' THEN 'KIA'
@@ -219,8 +251,10 @@ SET team_id = CASE team_id
     WHEN 'SL' THEN 'SSG'
     ELSE team_id
 END
-WHERE team_id IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE team_id IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
+SELECT __bega_exec_if_table_exists('team_profiles', $sql$
 UPDATE team_profiles
 SET team_id = CASE team_id
     WHEN 'HT' THEN 'KIA'
@@ -234,8 +268,10 @@ SET team_id = CASE team_id
     WHEN 'SL' THEN 'SSG'
     ELSE team_id
 END
-WHERE team_id IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE team_id IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
+SELECT __bega_exec_if_table_exists('cheer_battle_votes', $sql$
 UPDATE cheer_battle_votes
 SET team_id = CASE team_id
     WHEN 'HT' THEN 'KIA'
@@ -249,8 +285,10 @@ SET team_id = CASE team_id
     WHEN 'SL' THEN 'SSG'
     ELSE team_id
 END
-WHERE team_id IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE team_id IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
+SELECT __bega_exec_if_table_exists('users', $sql$
 UPDATE users
 SET favorite_team = CASE favorite_team
     WHEN 'HT' THEN 'KIA'
@@ -264,7 +302,8 @@ SET favorite_team = CASE favorite_team
     WHEN 'SL' THEN 'SSG'
     ELSE favorite_team
 END
-WHERE favorite_team IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL');
+WHERE favorite_team IN ('HT', 'DO', 'OB', 'KI', 'NX', 'WO', 'KW', 'SK', 'SL')
+$sql$);
 
 CREATE OR REPLACE FUNCTION normalize_team_code(input_code text)
 RETURNS text AS $$
@@ -290,3 +329,5 @@ BEGIN
     END CASE;
 END;
 $$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS __bega_exec_if_table_exists(text, text);

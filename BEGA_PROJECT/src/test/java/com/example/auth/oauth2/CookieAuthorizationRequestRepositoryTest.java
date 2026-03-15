@@ -1,8 +1,7 @@
 package com.example.auth.oauth2;
 
-import com.example.auth.util.JWTUtil;
-import com.example.bega.auth.dto.OAuth2LinkStateData;
 import com.example.auth.service.AuthSecurityMonitoringService;
+import com.example.bega.auth.dto.OAuth2LinkStateData;
 import com.example.bega.auth.service.OAuth2LinkStateService;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,7 +20,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -35,9 +33,6 @@ class CookieAuthorizationRequestRepositoryTest {
     private OAuth2LinkStateService oAuth2LinkStateService;
 
     @Mock
-    private JWTUtil jwtUtil;
-
-    @Mock
     private AuthSecurityMonitoringService securityMonitoringService;
 
     private CookieAuthorizationRequestRepository repository;
@@ -46,26 +41,23 @@ class CookieAuthorizationRequestRepositoryTest {
     void setUp() {
         repository = new CookieAuthorizationRequestRepository(
                 oAuth2LinkStateService,
-                jwtUtil,
                 "test-cookie-secret",
                 false,
                 securityMonitoringService);
     }
 
     @Test
-    @DisplayName("link 모드 + 유효한 linkToken이면 원본 state 키로 연동 데이터 저장")
-    void saveAuthorizationRequest_savesLinkStateForValidLinkToken() {
+    @DisplayName("link 모드 + 유효한 one-time ticket이면 원본 state 키로 연동 데이터 저장")
+    void saveAuthorizationRequest_savesLinkStateForValidLinkTicket() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setParameter("mode", "link");
-        request.setParameter("linkToken", "valid-link-token");
-        request.setParameter("redirect_uri", "http://localhost:5173/mypage");
+        request.setParameter("linkToken", "valid-link-ticket");
 
         MockHttpServletResponse response = new MockHttpServletResponse();
         OAuth2AuthorizationRequest authRequest = createAuthorizationRequest("raw-state-1");
 
-        when(jwtUtil.isExpired("valid-link-token")).thenReturn(false);
-        when(jwtUtil.getTokenType("valid-link-token")).thenReturn("link");
-        when(jwtUtil.getUserId("valid-link-token")).thenReturn(42L);
+        when(oAuth2LinkStateService.consumeLinkToken("valid-link-ticket"))
+                .thenReturn(OAuth2LinkStateService.LinkTicketConsumeResult.success(42L));
 
         repository.saveAuthorizationRequest(authRequest, request, response);
 
@@ -73,24 +65,26 @@ class CookieAuthorizationRequestRepositoryTest {
         verify(oAuth2LinkStateService).saveLinkByState(eq("raw-state-1"), dataCaptor.capture());
 
         OAuth2LinkStateData saved = dataCaptor.getValue();
-        assertThat(saved.mode()).isEqualTo("link");
         assertThat(saved.userId()).isEqualTo(42L);
-        assertThat(saved.redirectUri()).isEqualTo("http://localhost:5173/mypage");
         assertThat(saved.failureReason()).isNull();
 
         List<String> setCookies = response.getHeaders(HttpHeaders.SET_COOKIE);
         assertThat(setCookies).anyMatch(header -> header.startsWith("oauth2_auth_request="));
-        assertThat(setCookies).anyMatch(header -> header.startsWith("redirect_uri="));
+        assertThat(setCookies).noneMatch(header -> header.startsWith("redirect_uri="));
     }
 
     @Test
-    @DisplayName("link 모드 + linkToken 누락이면 실패 사유를 저장")
-    void saveAuthorizationRequest_recordsFailureWhenLinkTokenMissing() {
+    @DisplayName("link 모드 + 재사용 ticket이면 replay 실패 사유를 저장")
+    void saveAuthorizationRequest_recordsReplayFailure() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setParameter("mode", "link");
+        request.setParameter("linkToken", "replayed-ticket");
 
         MockHttpServletResponse response = new MockHttpServletResponse();
         OAuth2AuthorizationRequest authRequest = createAuthorizationRequest("raw-state-2");
+
+        when(oAuth2LinkStateService.consumeLinkToken("replayed-ticket"))
+                .thenReturn(OAuth2LinkStateService.LinkTicketConsumeResult.failure("oauth2_link_replayed"));
 
         repository.saveAuthorizationRequest(authRequest, request, response);
 
@@ -99,54 +93,7 @@ class CookieAuthorizationRequestRepositoryTest {
 
         OAuth2LinkStateData saved = dataCaptor.getValue();
         assertThat(saved.userId()).isNull();
-        assertThat(saved.failureReason()).isEqualTo("MISSING_LINK_TOKEN");
-    }
-
-    @Test
-    @DisplayName("link 모드 + 토큰 타입 오류면 INVALID_LINK_TOKEN_TYPE 저장")
-    void saveAuthorizationRequest_recordsFailureForInvalidTokenType() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setParameter("mode", "link");
-        request.setParameter("linkToken", "wrong-type-token");
-
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        OAuth2AuthorizationRequest authRequest = createAuthorizationRequest("raw-state-3");
-
-        when(jwtUtil.isExpired("wrong-type-token")).thenReturn(false);
-        when(jwtUtil.getTokenType("wrong-type-token")).thenReturn("access");
-        when(jwtUtil.getEmail("wrong-type-token")).thenReturn("normal-user@example.com");
-
-        repository.saveAuthorizationRequest(authRequest, request, response);
-
-        ArgumentCaptor<OAuth2LinkStateData> dataCaptor = ArgumentCaptor.forClass(OAuth2LinkStateData.class);
-        verify(oAuth2LinkStateService).saveLinkByState(eq("raw-state-3"), dataCaptor.capture());
-
-        OAuth2LinkStateData saved = dataCaptor.getValue();
-        assertThat(saved.failureReason()).isEqualTo("INVALID_LINK_TOKEN_TYPE");
-        verify(jwtUtil, never()).getUserId(anyString());
-    }
-
-    @Test
-    @DisplayName("link 모드 + 만료된 linkToken이면 LINK_TOKEN_EXPIRED 저장")
-    void saveAuthorizationRequest_recordsFailureForExpiredLinkToken() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setParameter("mode", "link");
-        request.setParameter("linkToken", "expired-link-token");
-
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        OAuth2AuthorizationRequest authRequest = createAuthorizationRequest("raw-state-expired");
-
-        when(jwtUtil.isExpired("expired-link-token")).thenReturn(true);
-
-        repository.saveAuthorizationRequest(authRequest, request, response);
-
-        ArgumentCaptor<OAuth2LinkStateData> dataCaptor = ArgumentCaptor.forClass(OAuth2LinkStateData.class);
-        verify(oAuth2LinkStateService).saveLinkByState(eq("raw-state-expired"), dataCaptor.capture());
-
-        OAuth2LinkStateData saved = dataCaptor.getValue();
-        assertThat(saved.userId()).isNull();
-        assertThat(saved.failureReason()).isEqualTo("LINK_TOKEN_EXPIRED");
-        verify(jwtUtil, never()).getUserId(anyString());
+        assertThat(saved.failureReason()).isEqualTo("oauth2_link_replayed");
     }
 
     @Test
@@ -168,14 +115,13 @@ class CookieAuthorizationRequestRepositoryTest {
     void saveAuthorizationRequest_preservesLinkModeInCookieAttributes() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setParameter("mode", "link");
-        request.setParameter("linkToken", "valid-token");
+        request.setParameter("linkToken", "valid-ticket");
 
         MockHttpServletResponse response = new MockHttpServletResponse();
         OAuth2AuthorizationRequest authRequest = createAuthorizationRequest("raw-state-4");
 
-        when(jwtUtil.isExpired("valid-token")).thenReturn(false);
-        when(jwtUtil.getTokenType("valid-token")).thenReturn("link");
-        when(jwtUtil.getUserId("valid-token")).thenReturn(7L);
+        when(oAuth2LinkStateService.consumeLinkToken("valid-ticket"))
+                .thenReturn(OAuth2LinkStateService.LinkTicketConsumeResult.success(7L));
 
         repository.saveAuthorizationRequest(authRequest, request, response);
 
@@ -216,15 +162,35 @@ class CookieAuthorizationRequestRepositoryTest {
     }
 
     @Test
-    @DisplayName("잘못된 oauth2_auth_request 쿠키는 역직렬화 예외 발생")
-    void loadAuthorizationRequest_throwsForBrokenCookiePayload() {
+    @DisplayName("잘못된 oauth2_auth_request 쿠키는 null 처리")
+    void loadAuthorizationRequest_returnsNullForBrokenCookiePayload() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setCookies(new Cookie(CookieAuthorizationRequestRepository.OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME, "not-base64"));
+        request.setCookies(new Cookie(
+                CookieAuthorizationRequestRepository.OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME,
+                "not-a-valid-cookie"));
 
         assertThat(repository.loadAuthorizationRequest(request)).isNull();
-        assertThat(request.getAttribute(CookieAuthorizationRequestRepository.OAUTH2_COOKIE_ERROR_ATTRIBUTE))
-                .isEqualTo("invalid_oauth2_request_cookie");
         verify(securityMonitoringService).recordUnsignedOauth2Cookie();
+    }
+
+    @Test
+    @DisplayName("link ticket 없이 link 모드면 저장 실패 사유를 남긴다")
+    void saveAuthorizationRequest_recordsFailureWhenLinkTicketMissing() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setParameter("mode", "link");
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        OAuth2AuthorizationRequest authRequest = createAuthorizationRequest("raw-state-5");
+
+        when(oAuth2LinkStateService.consumeLinkToken(null))
+                .thenReturn(OAuth2LinkStateService.LinkTicketConsumeResult.failure("oauth2_link_failed"));
+
+        repository.saveAuthorizationRequest(authRequest, request, response);
+
+        ArgumentCaptor<OAuth2LinkStateData> dataCaptor = ArgumentCaptor.forClass(OAuth2LinkStateData.class);
+        verify(oAuth2LinkStateService).saveLinkByState(eq("raw-state-5"), dataCaptor.capture());
+        assertThat(dataCaptor.getValue().failureReason()).isEqualTo("oauth2_link_failed");
+        verify(oAuth2LinkStateService, never()).consumeLinkByState("raw-state-5");
     }
 
     private OAuth2AuthorizationRequest createAuthorizationRequest(String state) {
@@ -247,6 +213,6 @@ class CookieAuthorizationRequestRepositoryTest {
                     int end = header.indexOf(';');
                     return end > start ? header.substring(start, end) : header.substring(start);
                 })
-                .orElseThrow(() -> new IllegalStateException("Cookie not found: " + cookieName));
+                .orElseThrow(() -> new IllegalStateException("쿠키가 존재하지 않습니다: " + cookieName));
     }
 }

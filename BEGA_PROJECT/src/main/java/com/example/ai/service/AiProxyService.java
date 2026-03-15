@@ -206,7 +206,7 @@ public class AiProxyService {
             log.error("ai.internal-token is not configured.");
             throw new AiProxyException(
                     HttpStatus.SERVICE_UNAVAILABLE,
-                    "AI_INTERNAL_AUTH_NOT_CONFIGURED",
+                    "AI_INTERNAL_AUTH_MISCONFIGURED",
                     "AI 내부 인증 설정이 누락되었습니다.");
         }
         headers.set("X-Internal-Api-Key", aiInternalToken);

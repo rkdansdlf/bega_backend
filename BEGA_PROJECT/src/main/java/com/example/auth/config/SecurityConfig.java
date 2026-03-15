@@ -137,6 +137,7 @@ public class SecurityConfig {
                         "/api/kbo/schedule/**",
                         "/api/kbo/rankings/**",
                         "/api/kbo/offseason/**",
+                        "/api/home/**",
                         "/api/matches/**",
                         "/api/diary/public/**",
                         "/api/client-errors",
@@ -546,6 +547,13 @@ public class SecurityConfig {
                         return message;
                 }
                 if ("manual_link_required".equals(message)) {
+                        return message;
+                }
+                if ("oauth2_link_conflict".equals(message)
+                                || "oauth2_link_requires_unlink".equals(message)
+                                || "oauth2_link_replayed".equals(message)
+                                || "oauth2_link_session_expired".equals(message)
+                                || "oauth2_link_failed".equals(message)) {
                         return message;
                 }
                 if (message.contains("계정 연동 세션이 만료")) {
