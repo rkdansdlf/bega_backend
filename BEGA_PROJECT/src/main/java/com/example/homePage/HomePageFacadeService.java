@@ -45,14 +45,14 @@ public class HomePageFacadeService {
     @Cacheable(value = HOME_WIDGETS, key = "#date.toString()")
     @Transactional(readOnly = true)
     public HomeWidgetsResponseDto getWidgets(LocalDate date) {
-        LocalDate upcomingBaseDate = LocalDate.now();
+        LocalDate selectedDate = date;
         List<PostSummaryRes> hotPosts = cheerService
                 .getHotPostsPublic(PageRequest.of(0, 3), "HYBRID")
                 .getContent();
 
         return HomeWidgetsResponseDto.builder()
                 .hotCheerPosts(hotPosts)
-                .featuredMates(partyService.getFeaturedMateCards(upcomingBaseDate, 4))
+                .featuredMates(partyService.getFeaturedMateCards(selectedDate, 4))
                 .build();
     }
 

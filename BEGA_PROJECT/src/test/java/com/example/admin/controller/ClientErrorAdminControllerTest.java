@@ -1,6 +1,7 @@
 package com.example.admin.controller;
 
 import com.example.common.clienterror.ClientErrorAdminService;
+import com.example.common.clienterror.dto.ClientErrorAlertNotificationDto;
 import com.example.common.clienterror.dto.ClientErrorDashboardDto;
 import com.example.common.clienterror.dto.ClientErrorDashboardTotalsDto;
 import com.example.common.clienterror.dto.ClientErrorEventDetailDto;
@@ -55,7 +56,23 @@ class ClientErrorAdminControllerTest {
                         0)),
                 List.of(),
                 List.of(),
-                List.of());
+                List.of(new ClientErrorAlertNotificationDto(
+                        1L,
+                        "fp-runtime",
+                        "runtime",
+                        "runtime",
+                        "telegram",
+                        "/mypage",
+                        "none",
+                        3,
+                        3,
+                        5,
+                        "evt-3",
+                        "render failed",
+                        OffsetDateTime.parse("2026-03-13T11:00:00Z"),
+                        OffsetDateTime.parse("2026-03-13T11:01:00Z"),
+                        "SENT",
+                        null)));
 
         given(clientErrorAdminService.getDashboard(any(), any())).willReturn(dashboard);
 
@@ -64,7 +81,8 @@ class ClientErrorAdminControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.totals.api").value(4))
-                .andExpect(jsonPath("$.data.granularity").value("hour"));
+                .andExpect(jsonPath("$.data.granularity").value("hour"))
+                .andExpect(jsonPath("$.data.recentAlerts[0].channel").value("telegram"));
     }
 
     @Test

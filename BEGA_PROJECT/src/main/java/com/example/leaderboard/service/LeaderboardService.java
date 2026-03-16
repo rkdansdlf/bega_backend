@@ -9,8 +9,10 @@ import com.example.leaderboard.entity.ScoreEvent;
 import com.example.leaderboard.entity.UserScore;
 import com.example.leaderboard.repository.ScoreEventRepository;
 import com.example.leaderboard.repository.UserScoreRepository;
+import com.example.common.config.CacheConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -75,7 +77,9 @@ public class LeaderboardService {
 
     /**
      * 현재 사용자 통계 조회
+     * 4x COUNT(*) rank 쿼리를 포함하므로 5분 캐시. 점수 변경 시 ScoringService 에서 @CacheEvict 로 무효화.
      */
+    @Cacheable(value = CacheConfig.USER_STATS, key = "#userId", unless = "#result == null")
     public UserStatsDto getUserStats(Long userId) {
         UserScore userScore = userScoreRepository.findByUserId(userId)
                 .orElseGet(() -> UserScore.createForUser(userId));
@@ -105,7 +109,10 @@ public class LeaderboardService {
 
     /**
      * 특정 사용자 랭킹 조회 (시즌 기준)
+     * findSeasonRankByScore 는 전체 유저 대상 COUNT(*) 이므로 캐싱으로 DB 부하 감소.
+     * 점수 변경 시 ScoringService 의 @CacheEvict 로 즉시 무효화됨.
      */
+    @Cacheable(value = CacheConfig.USER_RANK, key = "#userId", unless = "#result == null")
     public UserRankDto getUserRank(Long userId) {
         UserScore userScore = userScoreRepository.findByUserId(userId)
                 .orElseGet(() -> UserScore.createForUser(userId));

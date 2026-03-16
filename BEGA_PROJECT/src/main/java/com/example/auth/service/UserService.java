@@ -54,7 +54,7 @@ public class UserService {
 
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
     private static final long ACCESS_EXPIRATION_TIME = 1000L * 60 * 60;
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    static final ZoneId DAILY_BONUS_ZONE = ZoneId.of("Asia/Seoul");
     private static final int DAILY_LOGIN_BONUS_POINTS = 5;
 
     private final UserRepository userRepository;
@@ -298,7 +298,7 @@ public class UserService {
      */
     @Transactional
     public int checkAndApplyDailyLoginBonus(@NonNull UserEntity user) {
-        LocalDate today = LocalDate.now(KST);
+        LocalDate today = LocalDate.now(DAILY_BONUS_ZONE);
 
         boolean shouldAward = Optional.ofNullable(user.getLastBonusDate())
                 .map(lastBonusDate -> lastBonusDate.isBefore(today))
