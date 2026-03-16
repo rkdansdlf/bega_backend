@@ -70,7 +70,7 @@ class SecurityConfigTest {
         SecurityConfig securityConfig = newSecurityConfig("prod");
 
         assertThat(securityConfig.publicSystemEndpoints())
-                .contains("/actuator/health")
+                .contains("/actuator/health", "/actuator/health/**")
                 .doesNotContain("/api/test/**", "/actuator/prometheus", "/swagger-ui.html", "/v3/api-docs/**", "/ws",
                         "/ws/**");
     }
@@ -81,7 +81,7 @@ class SecurityConfigTest {
         SecurityConfig securityConfig = newSecurityConfig("dev");
 
         assertThat(securityConfig.publicSystemEndpoints())
-                .contains("/actuator/health", "/api/test/**", "/actuator/prometheus", "/swagger-ui.html", "/v3/api-docs/**")
+                .contains("/actuator/health", "/actuator/health/**", "/api/test/**", "/actuator/prometheus", "/swagger-ui.html", "/v3/api-docs/**")
                 .doesNotContain("/ws", "/ws/**");
     }
 

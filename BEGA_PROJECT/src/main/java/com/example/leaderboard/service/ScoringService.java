@@ -5,8 +5,11 @@ import com.example.leaderboard.dto.ScoreResultDto;
 import com.example.leaderboard.dto.SeatViewRewardDto;
 import com.example.leaderboard.entity.*;
 import com.example.leaderboard.repository.*;
+import com.example.common.config.CacheConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,6 +48,10 @@ public class ScoringService {
      * @return 점수 결과 DTO
      */
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(value = CacheConfig.USER_RANK,  key = "#userId"),
+        @CacheEvict(value = CacheConfig.USER_STATS, key = "#userId")
+    })
     public ScoreResultDto processPredictionResult(Long userId, Long predictionId, String gameId,
             boolean isCorrect, boolean isUpset) {
         // 사용자 점수 조회 또는 생성
@@ -192,6 +199,10 @@ public class ScoringService {
      * 하루의 모든 경기를 맞힌 경우 호출
      */
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(value = CacheConfig.USER_RANK,  key = "#userId"),
+        @CacheEvict(value = CacheConfig.USER_STATS, key = "#userId")
+    })
     public void processPerfectDay(Long userId, int gamesWon) {
         UserScore userScore = userScoreRepository.findByUserId(userId)
                 .orElseGet(() -> userScoreRepository.save(UserScore.createForUser(userId)));
@@ -224,6 +235,10 @@ public class ScoringService {
      * @return 리워드 결과 DTO (중복 기여 시 null)
      */
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(value = CacheConfig.USER_RANK,  key = "#userId"),
+        @CacheEvict(value = CacheConfig.USER_STATS, key = "#userId")
+    })
     public SeatViewRewardDto processSeatViewReward(Long userId, Long diaryId, String stadium) {
         // 중복 처리 방지
         if (scoreEventRepository.existsByDiaryIdAndUserId(diaryId, userId)) {
