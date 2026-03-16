@@ -214,7 +214,7 @@ class UserServiceTest {
 
         assertEquals(15, firstLoginPoints);
         assertEquals(15, secondLoginPoints);
-        assertEquals(LocalDate.now(), user.getLastBonusDate());
+        assertEquals(LocalDate.now(UserService.DAILY_BONUS_ZONE), user.getLastBonusDate());
         verify(userRepository, times(2)).save(user);
     }
 
@@ -222,12 +222,12 @@ class UserServiceTest {
     void checkAndApplyDailyLoginBonus_preservesExistingPointsWhenAlreadyAwardedToday() {
         UserEntity user = baseUser(null);
         user.setCheerPoints(7);
-        user.setLastBonusDate(LocalDate.now());
+        user.setLastBonusDate(LocalDate.now(UserService.DAILY_BONUS_ZONE));
 
         int currentPoints = userService.checkAndApplyDailyLoginBonus(user);
 
         assertEquals(7, currentPoints);
-        assertEquals(LocalDate.now(), user.getLastBonusDate());
+        assertEquals(LocalDate.now(UserService.DAILY_BONUS_ZONE), user.getLastBonusDate());
         verify(userRepository).save(user);
     }
 
