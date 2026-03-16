@@ -1,5 +1,6 @@
 package com.example.common.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -17,7 +18,18 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 public class RedisConfig {
 
     @Bean
-    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory) {
+    public GenericJackson2JsonRedisSerializer redisValueSerializer(ObjectMapper objectMapper) {
+        return GenericJackson2JsonRedisSerializer.builder()
+            .objectMapper(objectMapper.copy())
+            .defaultTyping(true)
+            .build();
+    }
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(
+        RedisConnectionFactory connectionFactory,
+        GenericJackson2JsonRedisSerializer redisValueSerializer
+    ) {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
 
@@ -26,9 +38,8 @@ public class RedisConfig {
         template.setHashKeySerializer(new StringRedisSerializer());
 
         // 값은 JSON으로 직렬화
-        GenericJackson2JsonRedisSerializer jsonSerializer = new GenericJackson2JsonRedisSerializer();
-        template.setValueSerializer(jsonSerializer);
-        template.setHashValueSerializer(jsonSerializer);
+        template.setValueSerializer(redisValueSerializer);
+        template.setHashValueSerializer(redisValueSerializer);
 
         template.afterPropertiesSet();
         return template;

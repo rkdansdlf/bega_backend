@@ -44,6 +44,10 @@ public class ClientErrorAlertNotificationEntity {
     @Column(nullable = false, length = 40)
     private ClientErrorSource source;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "delivery_channel", nullable = false, length = 20)
+    private ClientErrorAlertChannel channel;
+
     @Column(nullable = false, length = 500)
     private String route;
 

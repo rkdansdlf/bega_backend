@@ -38,7 +38,8 @@ public class ClientErrorMonitoringProperties {
         private int api5xxThreshold = 5;
         private int windowMinutes = 5;
         private int cooldownMinutes = 30;
-        private String slackWebhookUrl = "";
+        private ClientErrorAlertChannel channel = ClientErrorAlertChannel.TELEGRAM;
+        private final Telegram telegram = new Telegram();
 
         public boolean isEnabled() {
             return enabled;
@@ -88,12 +89,37 @@ public class ClientErrorMonitoringProperties {
             this.cooldownMinutes = cooldownMinutes;
         }
 
-        public String getSlackWebhookUrl() {
-            return slackWebhookUrl;
+        public ClientErrorAlertChannel getChannel() {
+            return channel;
         }
 
-        public void setSlackWebhookUrl(String slackWebhookUrl) {
-            this.slackWebhookUrl = slackWebhookUrl;
+        public void setChannel(ClientErrorAlertChannel channel) {
+            this.channel = channel;
+        }
+
+        public Telegram getTelegram() {
+            return telegram;
+        }
+    }
+
+    public static class Telegram {
+        private String botToken = "";
+        private String chatId = "";
+
+        public String getBotToken() {
+            return botToken;
+        }
+
+        public void setBotToken(String botToken) {
+            this.botToken = botToken;
+        }
+
+        public String getChatId() {
+            return chatId;
+        }
+
+        public void setChatId(String chatId) {
+            this.chatId = chatId;
         }
     }
 }

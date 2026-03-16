@@ -189,16 +189,18 @@ class JWTFilterTokenTypeTest {
     }
 
     @Test
-    @DisplayName("블랙리스트 조회 실패 시 요청을 401로 차단한다")
-    void blacklistLookupFailure_rejectsRequestWith401() throws Exception {
+    @DisplayName("블랙리스트 조회 실패 시 변경 요청은 401로 차단한다")
+    void blacklistLookupFailure_rejectsMutableRequestWith401() throws Exception {
         String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
         when(tokenBlacklistService.isBlacklisted(anyString())).thenThrow(
                 new TokenBlacklistService.TokenBlacklistUnavailableException(
                         TokenBlacklistService.ERROR_CODE_BLACKLIST_UNAVAILABLE,
                         new RuntimeException("redis unavailable")));
 
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/protected/resource");
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/protected/resource");
         request.addHeader("Authorization", "Bearer " + accessToken);
+        request.addHeader("Origin", "http://localhost:5173");
+        request.addHeader("Referer", "http://localhost:5173/protected/resource");
         MockHttpServletResponse response = new MockHttpServletResponse();
         DummyFilterChain chain = new DummyFilterChain();
 
@@ -207,6 +209,28 @@ class JWTFilterTokenTypeTest {
         assertThat(chain.invoked).isFalse();
         assertThat(response.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED.value());
         assertThat(response.getContentAsString()).contains("\"code\":\"INVALID_AUTHOR\"");
+    }
+
+    @Test
+    @DisplayName("블랙리스트 조회 실패 시 읽기 요청은 익명으로 계속 진행한다")
+    void blacklistLookupFailure_allowsReadRequestToProceedUnauthenticated() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        when(tokenBlacklistService.isBlacklisted(anyString())).thenThrow(
+                new TokenBlacklistService.TokenBlacklistUnavailableException(
+                        TokenBlacklistService.ERROR_CODE_BLACKLIST_UNAVAILABLE,
+                        new RuntimeException("redis unavailable")));
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/home/bootstrap");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DummyFilterChain chain = new DummyFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isTrue();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        assertThat(response.getStatus()).isNotEqualTo(HttpStatus.UNAUTHORIZED.value());
+        assertThat(request.getAttribute("INVALID_AUTHOR")).isEqualTo(true);
     }
 
     private void executeFilter(String token) throws Exception {
