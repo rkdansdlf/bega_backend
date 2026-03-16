@@ -1,7 +1,6 @@
 package com.example.common.clienterror;
 
 import java.time.LocalDateTime;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -11,8 +10,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClient;
 
 @Service
 @RequiredArgsConstructor
@@ -23,7 +20,7 @@ public class ClientErrorAlertingService {
     private final ClientErrorFeedbackRepository feedbackRepository;
     private final ClientErrorAlertNotificationRepository alertNotificationRepository;
     private final ClientErrorMonitoringProperties monitoringProperties;
-    private final RestClient.Builder restClientBuilder;
+    private final List<ClientErrorAlertSender> alertSenders;
 
     @Value("${app.frontend.url:http://localhost:3000}")
     private String frontendUrl;
@@ -32,7 +29,12 @@ public class ClientErrorAlertingService {
     @Transactional
     public void evaluateAlerts() {
         ClientErrorMonitoringProperties.Alerts alerts = monitoringProperties.getAlerts();
-        if (!alerts.isEnabled() || !StringUtils.hasText(alerts.getSlackWebhookUrl())) {
+        if (!alerts.isEnabled()) {
+            return;
+        }
+
+        ClientErrorAlertSender sender = resolveSender(alerts);
+        if (sender == null || !sender.isConfigured(alerts)) {
             return;
         }
 
@@ -51,11 +53,14 @@ public class ClientErrorAlertingService {
                 continue;
             }
 
-            DeliveryResult delivery = deliverSlack(candidate, alerts.getSlackWebhookUrl(), alerts.getWindowMinutes());
+            ClientErrorAlertDeliveryResult delivery = sender.send(
+                    buildAlertPayload(candidate, alerts.getWindowMinutes()),
+                    alerts);
             alertNotificationRepository.save(ClientErrorAlertNotificationEntity.builder()
                     .fingerprint(candidate.fingerprint())
                     .bucket(candidate.bucket())
                     .source(candidate.source())
+                    .channel(sender.channel())
                     .route(candidate.route())
                     .statusGroup(candidate.statusGroup())
                     .observedCount(candidate.count())
@@ -98,41 +103,34 @@ public class ClientErrorAlertingService {
         return candidates;
     }
 
-    private DeliveryResult deliverSlack(AlertCandidate candidate, String webhookUrl, int windowMinutes) {
-        String alertText = buildSlackText(candidate, windowMinutes);
-        try {
-            restClientBuilder.build()
-                    .post()
-                    .uri(webhookUrl)
-                    .body(Map.of("text", alertText))
-                    .retrieve()
-                    .toBodilessEntity();
-            return new DeliveryResult(ClientErrorAlertDeliveryStatus.SENT, null);
-        } catch (Exception e) {
-            log.warn("Client error Slack alert delivery failed fingerprint={}", candidate.fingerprint(), e);
-            return new DeliveryResult(
-                    ClientErrorAlertDeliveryStatus.FAILED,
-                    ClientErrorSupport.sanitize(e.getMessage(), ClientErrorSupport.MESSAGE_LOG_LIMIT));
-        }
-    }
-
-    private String buildSlackText(AlertCandidate candidate, int windowMinutes) {
+    private ClientErrorAlertPayload buildAlertPayload(AlertCandidate candidate, int windowMinutes) {
         String adminUrl = frontendUrl.endsWith("/") ? frontendUrl + "admin" : frontendUrl + "/admin";
-        StringBuilder builder = new StringBuilder();
-        builder.append("[BEGA Client Error Alert]\n");
-        builder.append("bucket=").append(candidate.bucket().getValue()).append('\n');
-        builder.append("source=").append(candidate.source().getValue()).append('\n');
-        builder.append("count=").append(candidate.count()).append(" in last ").append(windowMinutes).append("m\n");
-        builder.append("route=").append(candidate.route()).append('\n');
-        builder.append("statusGroup=").append(candidate.statusGroup()).append('\n');
-        builder.append("eventId=").append(candidate.latestEventId()).append('\n');
-        builder.append("fingerprint=").append(candidate.fingerprint()).append('\n');
-        builder.append("message=").append(candidate.latestMessage()).append('\n');
-        builder.append("adminUrl=").append(adminUrl);
-        return builder.toString();
+        return new ClientErrorAlertPayload(
+                candidate.bucket(),
+                candidate.source(),
+                candidate.count(),
+                windowMinutes,
+                candidate.route(),
+                candidate.statusGroup(),
+                candidate.latestEventId(),
+                candidate.fingerprint(),
+                candidate.latestMessage(),
+                adminUrl);
     }
 
-    private record DeliveryResult(ClientErrorAlertDeliveryStatus status, String failureReason) {
+    private ClientErrorAlertSender resolveSender(ClientErrorMonitoringProperties.Alerts alerts) {
+        ClientErrorAlertChannel configuredChannel = alerts.getChannel() != null
+                ? alerts.getChannel()
+                : ClientErrorAlertChannel.TELEGRAM;
+
+        for (ClientErrorAlertSender sender : alertSenders) {
+            if (sender.channel() == configuredChannel) {
+                return sender;
+            }
+        }
+
+        log.warn("No client error alert sender is registered for channel={}", configuredChannel);
+        return null;
     }
 
     private static final class AlertCandidate {

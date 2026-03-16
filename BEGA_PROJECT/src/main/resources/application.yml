@@ -108,6 +108,7 @@ org:
       worker-count: 4 # DB 부하 방지를 위해 보수적 설정
     dashboard:
       enabled: true # /dashboard
+      port: ${JOBRUNR_DASHBOARD_PORT:8000}
     jobs:
       default-number-of-retries: 2
     database:
@@ -132,8 +133,8 @@ baseball:
     username: ${BASEBALL_DB_USERNAME:${DB_USERNAME}}
     password: ${BASEBALL_DB_PASSWORD:${DB_PASSWORD}}
     hikari:
-      maximum-pool-size: 5
-      minimum-idle: 1
+      maximum-pool-size: 15
+      minimum-idle: 3
       connection-timeout: 30000
       validation-timeout: 5000
       idle-timeout: 300000
@@ -157,7 +158,10 @@ app:
       api5xx-threshold: ${APP_CLIENT_ERROR_MONITORING_API5XX_THRESHOLD:5}
       window-minutes: ${APP_CLIENT_ERROR_MONITORING_WINDOW_MINUTES:5}
       cooldown-minutes: ${APP_CLIENT_ERROR_MONITORING_COOLDOWN_MINUTES:30}
-      slack-webhook-url: ${APP_CLIENT_ERROR_MONITORING_SLACK_WEBHOOK_URL:}
+      channel: ${APP_CLIENT_ERROR_MONITORING_ALERTS_CHANNEL:telegram}
+      telegram:
+        bot-token: ${APP_CLIENT_ERROR_MONITORING_ALERTS_TELEGRAM_BOT_TOKEN:}
+        chat-id: ${APP_CLIENT_ERROR_MONITORING_ALERTS_TELEGRAM_CHAT_ID:}
   dev-data:
     enabled: false
   frontend:
@@ -275,6 +279,7 @@ spring:
     locations: classpath:db/migration_postgresql/
     baseline-on-migrate: true
     validate-on-migrate: true
+    out-of-order: true       # dev DB가 뒤늦게 추가된 migration을 흡수할 수 있게 허용
     connect-retries: 5            # DB 일시 불가 시 재시도 횟수
     connect-retries-interval: 10  # 재시도 간격(초)
   security:
@@ -319,7 +324,7 @@ spring:
   jpa:
     generate-ddl: true
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate       # 공유 PostgreSQL + 뷰 환경에서는 Hibernate 스키마 변경 대신 검증만 수행
     properties:
       hibernate:
         default_schema: public
@@ -345,12 +350,22 @@ app:
   dev-data:
     enabled: true
 
+org:
+  jobrunr:
+    dashboard:
+      port: ${JOBRUNR_DASHBOARD_PORT:0} # dev/local 동시 기동 시 빈 포트를 자동 할당
+
 ai:
   internal-token: ${AI_INTERNAL_TOKEN:local-dev-ai-internal-token}
 
 kbo:
   schema-guard:
     strict: false  # dev에서 baseball DB 테이블 부재/스키마 불일치 시 기동 차단 방지
+
+management:
+  health:
+    jobrunr:
+      enabled: false  # dev/local health는 요청 처리 핵심 경로 위주로 본다
 
 ---
 # 'prod' 프로필: 배포 환경 (Oracle Autonomous DB 사용)
@@ -476,3 +491,13 @@ app:
     enabled: ${APP_MAIL_ENABLED:false}
   dev-data:
     enabled: true
+
+org:
+  jobrunr:
+    dashboard:
+      port: ${JOBRUNR_DASHBOARD_PORT:0}
+
+management:
+  health:
+    jobrunr:
+      enabled: false

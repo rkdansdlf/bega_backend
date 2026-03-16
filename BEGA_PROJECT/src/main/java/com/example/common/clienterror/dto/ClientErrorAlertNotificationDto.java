@@ -7,6 +7,7 @@ public record ClientErrorAlertNotificationDto(
         String fingerprint,
         String bucket,
         String source,
+        String channel,
         String route,
         String statusGroup,
         long observedCount,

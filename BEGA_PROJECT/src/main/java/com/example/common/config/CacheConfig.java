@@ -46,6 +46,8 @@ public class CacheConfig {
         public static final String HOME_BOOTSTRAP = "homeBootstrap";
         public static final String HOME_WIDGETS = "homeWidgets";
         public static final String POST_IMAGE_URLS = "postImageUrls";
+        public static final String USER_RANK = "userRank";           // 리더보드 랭킹 (per-user, season rank only)
+        public static final String USER_STATS = "userStats";          // 리더보드 전체 통계 (per-user, 4x rank counts)
 
         // L2 전용 캐시 (Redis only) - 라이브 데이터 (추후 확장용)
         public static final String LIVE_GAME_SCORE = "liveGameScore";
@@ -92,7 +94,9 @@ public class CacheConfig {
                                 STADIUMS,
                                 TEAM_DATA,
                                 GAME_SCHEDULE,
-                                POST_IMAGE_URLS));
+                                POST_IMAGE_URLS,
+                                USER_RANK,
+                                USER_STATS));
 
                 return manager;
         }
@@ -104,12 +108,14 @@ public class CacheConfig {
          * - 캐시별 TTL 개별 설정
          */
         @Bean
-        public CacheManager redisCacheManager(RedisConnectionFactory connectionFactory) {
+        public CacheManager redisCacheManager(
+                        RedisConnectionFactory connectionFactory,
+                        GenericJackson2JsonRedisSerializer redisValueSerializer) {
                 // 기본 Redis 캐시 설정
                 RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
                                 .entryTtl(Objects.requireNonNull(Duration.ofMinutes(5)))
                                 .serializeValuesWith(RedisSerializationContext.SerializationPair
-                                                .fromSerializer(new GenericJackson2JsonRedisSerializer()))
+                                                .fromSerializer(redisValueSerializer))
                                 .disableCachingNullValues();
 
                 // 캐시별 개별 TTL 설정
@@ -127,6 +133,8 @@ public class CacheConfig {
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(45))));
                 cacheConfigs.put(POST_IMAGE_URLS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(50))));
+                cacheConfigs.put(USER_STATS,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
 
                 // L2 전용 캐시 - 라이브 데이터 (짧은 TTL)
                 cacheConfigs.put(LIVE_GAME_SCORE,

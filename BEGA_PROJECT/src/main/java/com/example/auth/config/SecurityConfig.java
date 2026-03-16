@@ -115,7 +115,8 @@ public class SecurityConfig {
 
         /** 테스트 및 시스템 엔드포인트 */
         private static final String[] PUBLIC_SYSTEM_ENDPOINTS = {
-                        "/actuator/health"
+                        "/actuator/health",
+                        "/actuator/health/**"
         };
 
         /** 개발/로컬에서만 공개되는 시스템 엔드포인트 */

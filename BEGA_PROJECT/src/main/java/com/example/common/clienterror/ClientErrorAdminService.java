@@ -64,22 +64,26 @@ public class ClientErrorAdminService {
                 eventRepository.countDistinctRoutes(window.from(), window.to()));
 
         List<ClientErrorTopFingerprintDto> topFingerprints = buildTopFingerprints(events);
-        Map<String, OffsetDateTime> latestAlertByFingerprint = latestAlertByFingerprint(topFingerprints);
+        Map<String, LatestAlertInfo> latestAlertByFingerprint = latestAlertByFingerprint(topFingerprints);
         List<ClientErrorTopFingerprintDto> topFingerprintsWithAlerts = topFingerprints.stream()
-                .map(item -> new ClientErrorTopFingerprintDto(
-                        item.fingerprint(),
-                        item.bucket(),
-                        item.source(),
-                        item.message(),
-                        item.route(),
-                        item.endpoint(),
-                        item.statusGroup(),
-                        item.method(),
-                        item.count(),
-                        item.uniqueSessions(),
-                        item.latestEventId(),
-                        item.latestOccurredAt(),
-                        latestAlertByFingerprint.get(item.fingerprint())))
+                .map(item -> {
+                    LatestAlertInfo latestAlertInfo = latestAlertByFingerprint.get(item.fingerprint());
+                    return new ClientErrorTopFingerprintDto(
+                            item.fingerprint(),
+                            item.bucket(),
+                            item.source(),
+                            item.message(),
+                            item.route(),
+                            item.endpoint(),
+                            item.statusGroup(),
+                            item.method(),
+                            item.count(),
+                            item.uniqueSessions(),
+                            item.latestEventId(),
+                            item.latestOccurredAt(),
+                            latestAlertInfo != null ? latestAlertInfo.notifiedAt() : null,
+                            latestAlertInfo != null ? latestAlertInfo.channel() : null);
+                })
                 .toList();
 
         return new ClientErrorDashboardDto(
@@ -153,7 +157,7 @@ public class ClientErrorAdminService {
                 sameFingerprintRecentEvents);
     }
 
-    private Map<String, OffsetDateTime> latestAlertByFingerprint(List<ClientErrorTopFingerprintDto> topFingerprints) {
+    private Map<String, LatestAlertInfo> latestAlertByFingerprint(List<ClientErrorTopFingerprintDto> topFingerprints) {
         Set<String> fingerprints = topFingerprints.stream()
                 .map(ClientErrorTopFingerprintDto::fingerprint)
                 .filter(Objects::nonNull)
@@ -162,10 +166,14 @@ public class ClientErrorAdminService {
             return Map.of();
         }
 
-        Map<String, OffsetDateTime> result = new HashMap<>();
+        Map<String, LatestAlertInfo> result = new HashMap<>();
         for (ClientErrorAlertNotificationEntity notification : alertNotificationRepository
                 .findByFingerprintInOrderByNotifiedAtDesc(fingerprints)) {
-            result.putIfAbsent(notification.getFingerprint(), ClientErrorSupport.toOffsetDateTime(notification.getNotifiedAt()));
+            result.putIfAbsent(
+                    notification.getFingerprint(),
+                    new LatestAlertInfo(
+                            ClientErrorSupport.toOffsetDateTime(notification.getNotifiedAt()),
+                            notification.getChannel().getValue()));
         }
         return result;
     }
@@ -324,6 +332,7 @@ public class ClientErrorAdminService {
                 notification.getFingerprint(),
                 notification.getBucket().getValue(),
                 notification.getSource().getValue(),
+                notification.getChannel().getValue(),
                 notification.getRoute(),
                 notification.getStatusGroup(),
                 notification.getObservedCount(),
@@ -428,7 +437,11 @@ public class ClientErrorAdminService {
                     sessionIds.size(),
                     latestEventId,
                     ClientErrorSupport.toOffsetDateTime(latestOccurredAt),
+                    null,
                     null);
         }
+    }
+
+    private record LatestAlertInfo(OffsetDateTime notifiedAt, String channel) {
     }
 }
