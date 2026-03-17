@@ -17,8 +17,7 @@ public class CustomUserDetailsService implements UserDetailsService {
         this.userRepository = userRepository;
     }
 
-    // LoginFilter에서 받은 이메일로 사용자 정보 가져오기
-    // loadUserByUsername 메서드의 파라미터는 'username', 하지만 실제론 이메일로 처리
+    // Spring Security의 username 파라미터를 이메일로 해석한다.
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
 

@@ -2,6 +2,8 @@ package com.example.auth.controller;
 
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.entity.UserEntity;
+import com.example.auth.service.AuthSessionMetadataResolver;
+import com.example.auth.service.AuthSessionService;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.RefreshRepository;
@@ -49,6 +51,7 @@ class ReissueControllerTokenTypeTest {
     @Mock
     private ClientIpResolver clientIpResolver;
 
+    private AuthSessionService authSessionService;
     private ReissueController reissueController;
     private MockMvc mockMvc;
 
@@ -56,12 +59,16 @@ class ReissueControllerTokenTypeTest {
 
     @BeforeEach
     void setUp() {
+        authSessionService = new AuthSessionService(
+                refreshRepository,
+                jwtUtil,
+                new AuthSessionMetadataResolver(clientIpResolver));
         reissueController = new ReissueController(
                 jwtUtil,
                 refreshRepository,
                 userRepository,
                 authCookieUtil,
-                clientIpResolver);
+                authSessionService);
         mockMvc = MockMvcBuilders.standaloneSetup(reissueController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -107,6 +114,7 @@ class ReissueControllerTokenTypeTest {
         RefreshToken stored = new RefreshToken();
         stored.setEmail("user@test.com");
         stored.setToken("refresh-token");
+        stored.setSessionId("session-1");
         UserEntity user = UserEntity.builder()
                 .id(1L)
                 .enabled(true)
@@ -122,10 +130,11 @@ class ReissueControllerTokenTypeTest {
         when(jwtUtil.getRole("refresh-token")).thenReturn("ROLE_USER");
         when(jwtUtil.getUserId("refresh-token")).thenReturn(1L);
         when(jwtUtil.getTokenVersion("refresh-token")).thenReturn(0);
+        when(jwtUtil.getAccessTokenExpirationTime()).thenReturn(1000L * 60 * 60 * 2);
         when(userRepository.findById(1L)).thenReturn(java.util.Optional.of(user));
         when(jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 1000L * 60 * 60 * 2, 0))
                 .thenReturn("new-access-token");
-        when(jwtUtil.createRefreshToken("user@test.com", "ROLE_USER", 1L, 0))
+        when(jwtUtil.createRefreshToken("user@test.com", "ROLE_USER", 1L, 0, "session-1"))
                 .thenReturn("new-refresh-token");
         when(jwtUtil.getRefreshTokenExpirationTime()).thenReturn(1000L * 60 * 60 * 24 * 7);
         when(clientIpResolver.resolveOrUnknown(request)).thenReturn("127.0.0.1");
