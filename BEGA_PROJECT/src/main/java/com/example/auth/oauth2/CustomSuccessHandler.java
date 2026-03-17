@@ -1,6 +1,7 @@
 package com.example.auth.oauth2;
 
 import com.example.auth.dto.CustomOAuth2User;
+import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.OAuth2StateService;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.util.JWTUtil;
@@ -36,6 +37,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     private final com.example.auth.service.AccountSecurityService accountSecurityService;
     private final OAuth2StateService oAuth2StateService;
     private final AuthCookieUtil authCookieUtil;
+    private final AuthSessionService authSessionService;
 
     @Value("${app.frontend.url:http://localhost:3000}")
     private String frontendUrl;
@@ -44,13 +46,15 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             @org.springframework.context.annotation.Lazy com.example.auth.service.UserService userService,
             com.example.auth.service.AccountSecurityService accountSecurityService,
             OAuth2StateService oAuth2StateService,
-            AuthCookieUtil authCookieUtil) {
+            AuthCookieUtil authCookieUtil,
+            AuthSessionService authSessionService) {
         this.jwtUtil = jwtUtil;
         this.userRepository = userRepository;
         this.userService = userService;
         this.accountSecurityService = accountSecurityService;
         this.oAuth2StateService = oAuth2StateService;
         this.authCookieUtil = authCookieUtil;
+        this.authSessionService = authSessionService;
     }
 
     @Override
@@ -97,12 +101,10 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             log.info("Processing Account Link Success (Refreshing Tokens)");
 
             // 새 토큰 발급
-            long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; // 2시간
+            long accessTokenExpiredMs = jwtUtil.getAccessTokenExpirationTime();
             int tokenVersion = userEntity.getTokenVersion() == null ? 0 : userEntity.getTokenVersion();
             String accessToken = jwtUtil.createJwt(userEmail, role, userId, accessTokenExpiredMs, tokenVersion);
-            String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId, tokenVersion);
-
-            userService.saveOrUpdateRefreshToken(userEmail, refreshToken, request);
+            String refreshToken = authSessionService.issueRefreshToken(userEmail, role, userId, tokenVersion, request);
 
             // 쿠키에 토큰 저장
             int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);
@@ -132,15 +134,12 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         userService.checkAndApplyDailyLoginBonus(userEntity);
 
         // Access Token 생성
-        long accessTokenExpiredMs = 1000 * 60 * 60 * 2L; // 2시간
+        long accessTokenExpiredMs = jwtUtil.getAccessTokenExpirationTime();
         int tokenVersion = userEntity.getTokenVersion() == null ? 0 : userEntity.getTokenVersion();
         String accessToken = jwtUtil.createJwt(userEmail, role, userId, accessTokenExpiredMs, tokenVersion);
 
         // Refresh Token 생성
-        String refreshToken = jwtUtil.createRefreshToken(userEmail, role, userId, tokenVersion);
-
-        // Refresh Token DB 저장/갱신
-        userService.saveOrUpdateRefreshToken(userEmail, refreshToken, request);
+        String refreshToken = authSessionService.issueRefreshToken(userEmail, role, userId, tokenVersion, request);
         accountSecurityService.handleSuccessfulLogin(userEntity, request);
 
         // 쿠키에 토큰 저장

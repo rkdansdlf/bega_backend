@@ -2,7 +2,9 @@ package com.example.mypage.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyIterable;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -11,12 +13,15 @@ import com.example.auth.entity.RefreshToken;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.service.AccountSecurityService;
+import com.example.auth.service.AuthSessionMetadataResolver;
+import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.PolicyConsentService;
 import com.example.auth.service.UserService;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.util.JWTUtil;
 import com.example.common.dto.ApiResponse;
 import com.example.common.exception.ConflictBusinessException;
+import com.example.common.web.ClientIpResolver;
 import com.example.mypage.dto.ChangePasswordRequest;
 import com.example.profile.storage.service.ProfileImageService;
 import jakarta.servlet.http.Cookie;
@@ -61,18 +66,30 @@ class MypageControllerTest {
     @Mock
     private AccountSecurityService accountSecurityService;
 
+    @Mock
+    private ClientIpResolver clientIpResolver;
+
+    private AuthSessionService authSessionService;
     private MypageController controller;
 
     @BeforeEach
     void setUp() {
+        authSessionService = new AuthSessionService(
+                refreshRepository,
+                jwtUtil,
+                new AuthSessionMetadataResolver(clientIpResolver));
+        lenient().when(clientIpResolver.resolveOrUnknown(any())).thenAnswer(invocation -> {
+            MockHttpServletRequest request = (MockHttpServletRequest) invocation.getArgument(0);
+            return request.getRemoteAddr() == null ? "unknown" : request.getRemoteAddr();
+        });
         controller = new MypageController(
                 userService,
                 jwtUtil,
                 profileImageService,
-                refreshRepository,
                 new AuthCookieUtil(false),
                 policyConsentService,
-                accountSecurityService);
+                accountSecurityService,
+                authSessionService);
     }
 
     @Test
@@ -93,10 +110,11 @@ class MypageControllerTest {
     }
 
     @Test
-    void getSessions_marksCurrentSessionUsingRequestContextFallbackWhenRefreshCookieDoesNotMatch() throws Exception {
+    void getSessions_marksCurrentSessionUsingStableSessionIdWhenRefreshCookieIsStale() throws Exception {
         UserEntity user = createUser(1L, "user@example.com");
         RefreshToken currentSession = createRefreshToken(
                 101L,
+                "session-current",
                 user.getEmail(),
                 "db-refresh-current",
                 "desktop",
@@ -106,6 +124,7 @@ class MypageControllerTest {
                 "127.0.0.1");
         RefreshToken otherSession = createRefreshToken(
                 100L,
+                "session-other",
                 user.getEmail(),
                 "db-refresh-other",
                 "mobile",
@@ -118,6 +137,7 @@ class MypageControllerTest {
         when(userService.findUserById(1L)).thenReturn(user);
         when(refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail()))
                 .thenReturn(List.of(otherSession, currentSession));
+        when(jwtUtil.getSessionId("stale-cookie")).thenReturn("session-current");
 
         ResponseEntity<ApiResponse> response = controller.getSessions(1L, request);
 
@@ -128,14 +148,15 @@ class MypageControllerTest {
         List<?> sessions = (List<?>) response.getBody().getData();
         assertThat(sessions).hasSize(2);
         assertThat(readBooleanProperty(sessions.get(0), "isCurrent")).isTrue();
-        assertThat(readStringProperty(sessions.get(0), "getId")).isEqualTo("101");
+        assertThat(readStringProperty(sessions.get(0), "getId")).isEqualTo("session-current");
     }
 
     @Test
-    void deleteSessions_deletesOnlyOtherSessionsWhenCurrentResolvedByRequestContextFallback() {
+    void deleteSessions_deletesOnlyOtherSessionsWhenCurrentResolvedByStableSessionId() {
         UserEntity user = createUser(1L, "user@example.com");
         RefreshToken currentSession = createRefreshToken(
                 101L,
+                "session-current",
                 user.getEmail(),
                 "db-refresh-current",
                 "desktop",
@@ -145,6 +166,7 @@ class MypageControllerTest {
                 "127.0.0.1");
         RefreshToken otherSession = createRefreshToken(
                 200L,
+                "session-other",
                 user.getEmail(),
                 "db-refresh-other",
                 "mobile",
@@ -157,6 +179,7 @@ class MypageControllerTest {
         when(userService.findUserById(1L)).thenReturn(user);
         when(refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail()))
                 .thenReturn(List.of(otherSession, currentSession));
+        when(jwtUtil.getSessionId("stale-cookie")).thenReturn("session-current");
 
         ResponseEntity<ApiResponse> response = controller.deleteSessions(1L, true, request);
 
@@ -176,6 +199,7 @@ class MypageControllerTest {
         UserEntity user = createUser(1L, "user@example.com");
         RefreshToken macSession = createRefreshToken(
                 101L,
+                "session-current",
                 user.getEmail(),
                 "db-refresh-current",
                 "desktop",
@@ -185,6 +209,7 @@ class MypageControllerTest {
                 "127.0.0.1");
         RefreshToken phoneSession = createRefreshToken(
                 200L,
+                "session-other",
                 user.getEmail(),
                 "db-refresh-other",
                 "mobile",
@@ -197,6 +222,7 @@ class MypageControllerTest {
         when(userService.findUserById(1L)).thenReturn(user);
         when(refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail()))
                 .thenReturn(List.of(phoneSession, macSession));
+        when(jwtUtil.getSessionId("stale-cookie")).thenReturn("missing-session");
 
         assertThatThrownBy(() -> controller.deleteSessions(1L, true, request))
                 .isInstanceOf(ConflictBusinessException.class)
@@ -213,6 +239,7 @@ class MypageControllerTest {
 
     private RefreshToken createRefreshToken(
             Long id,
+            String sessionId,
             String email,
             String token,
             String deviceType,
@@ -222,6 +249,7 @@ class MypageControllerTest {
             String ip) {
         RefreshToken refreshToken = new RefreshToken();
         refreshToken.setId(id);
+        refreshToken.setSessionId(sessionId);
         refreshToken.setEmail(email);
         refreshToken.setToken(token);
         refreshToken.setDeviceType(deviceType);

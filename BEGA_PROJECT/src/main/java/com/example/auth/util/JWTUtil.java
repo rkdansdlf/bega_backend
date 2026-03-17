@@ -22,12 +22,15 @@ public class JWTUtil {
 
     private static final String TOKEN_TYPE_CLAIM = "token_type";
     private static final String TOKEN_VERSION_CLAIM = "token_version";
+    private static final String SESSION_ID_CLAIM = "session_id";
     private static final String TYPE_ACCESS = "access";
     private static final String TYPE_LINK = "link";
 
     private final String secret;
     private final SecretKey secretKey;
     private final long refreshExpirationTime;
+    @Value("${spring.jwt.access-expiration:7200000}")
+    private long accessExpirationTime;
 
     public JWTUtil(@Value("${spring.jwt.secret}") String secret,
             @Value("${spring.jwt.refresh-expiration}") long refreshExpirationTime) {
@@ -41,6 +44,9 @@ public class JWTUtil {
         if (secret == null || secret.isBlank() || secret.length() < 32) {
             throw new IllegalStateException(
                     "JWT secret is not configured properly. It must be at least 32 characters long.");
+        }
+        if (accessExpirationTime <= 0) {
+            throw new IllegalStateException("JWT access expiration must be a positive value.");
         }
     }
 
@@ -82,14 +88,24 @@ public class JWTUtil {
     }
 
     public String createRefreshToken(String email, String role, Long userId, Integer tokenVersion) {
-        return Jwts.builder()
+        return createRefreshToken(email, role, userId, tokenVersion, null);
+    }
+
+    public String createRefreshToken(String email, String role, Long userId, Integer tokenVersion, String sessionId) {
+        io.jsonwebtoken.JwtBuilder builder = Jwts.builder()
                 .claim(TOKEN_TYPE_CLAIM, "refresh")
                 .claim("email", email)
                 .claim("role", role)
                 .claim("user_id", userId)
                 .claim(TOKEN_VERSION_CLAIM, tokenVersion == null ? 0 : tokenVersion)
                 .issuedAt(new Date(System.currentTimeMillis()))
-                .expiration(new Date(System.currentTimeMillis() + refreshExpirationTime))
+                .expiration(new Date(System.currentTimeMillis() + refreshExpirationTime));
+
+        if (sessionId != null && !sessionId.isBlank()) {
+            builder.claim(SESSION_ID_CLAIM, sessionId.trim());
+        }
+
+        return builder
                 .signWith(secretKey)
                 .compact();
     }
@@ -173,6 +189,15 @@ public class JWTUtil {
         return null;
     }
 
+    public String getSessionId(String token) {
+        String sessionId = getClaims(token).get(SESSION_ID_CLAIM, String.class);
+        if (sessionId == null || sessionId.isBlank()) {
+            return null;
+        }
+
+        return sessionId.trim();
+    }
+
     // Role 추출 (캐싱 적용)
     public String getRole(String token) {
         return getClaims(token).get("role", String.class);
@@ -200,6 +225,10 @@ public class JWTUtil {
     // Refresh Token 만료 시간을 외부에 노출
     public long getRefreshTokenExpirationTime() {
         return refreshExpirationTime;
+    }
+
+    public long getAccessTokenExpirationTime() {
+        return accessExpirationTime;
     }
 
     /**
