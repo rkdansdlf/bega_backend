@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 
 import com.example.auth.util.AuthCookieUtil;
+import com.example.auth.service.AuthSessionService;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InvalidAuthorException;
 import org.springframework.http.HttpStatus;
@@ -22,9 +23,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.util.JWTUtil;
 import com.example.auth.repository.RefreshRepository;
-import com.example.common.web.ClientIpResolver;
 
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -37,22 +36,22 @@ public class ReissueController {
     private final RefreshRepository refreshRepository;
     private final UserRepository userRepository;
     private final AuthCookieUtil authCookieUtil;
-    private final ClientIpResolver clientIpResolver;
+    private final AuthSessionService authSessionService;
 
     public ReissueController(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository,
-            AuthCookieUtil authCookieUtil, ClientIpResolver clientIpResolver) {
+            AuthCookieUtil authCookieUtil, AuthSessionService authSessionService) {
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
         this.userRepository = userRepository;
         this.authCookieUtil = authCookieUtil;
-        this.clientIpResolver = clientIpResolver;
+        this.authSessionService = authSessionService;
     }
 
     @PostMapping("/reissue")
     public ResponseEntity<ApiResponse> reissue(HttpServletRequest request, HttpServletResponse response) {
 
         // Refresh Token 추출
-        String refreshToken = extractRefreshToken(request);
+        String refreshToken = authSessionService.extractRefreshToken(request);
 
         // Refresh Token이 없으면 권한 없음 처리
         if (refreshToken == null) {
@@ -117,27 +116,22 @@ public class ReissueController {
         }
 
         // Access Token 만료 시간 (2시간)
-        long accessTokenExpiredMs = 1000 * 60 * 60 * 2L;
+        long accessTokenExpiredMs = jwtUtil.getAccessTokenExpirationTime();
 
         // userId와 role의 순서를 교정함 (email, userId, role, expiredMs)
         int tokenVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
         String newAccessToken = jwtUtil.createJwt(email, role, userId, accessTokenExpiredMs, tokenVersion);
 
         // userId와 role의 순서를 교정함 (email, userId, role)
-        String newRefreshToken = jwtUtil.createRefreshToken(email, role, userId, tokenVersion);
-
-        // DB 정보 저장
-        existToken.setToken(newRefreshToken);
-        existToken.setExpiryDate(LocalDateTime.now().plusWeeks(1));
-        existToken.setLastSeenAt(LocalDateTime.now());
-        String userAgent = request.getHeader("User-Agent");
-        String deviceType = resolveDeviceType(userAgent);
-        existToken.setDeviceType(deviceType);
-        existToken.setDeviceLabel(resolveDeviceLabel(userAgent, deviceType));
-        existToken.setBrowser(resolveBrowser(userAgent));
-        existToken.setOs(resolveOs(userAgent));
-        existToken.setIp(clientIpResolver.resolveOrUnknown(request));
-        refreshRepository.save(existToken);
+        AuthSessionService.IssuedRefreshSession issuedRefreshSession = authSessionService.rotateRefreshSession(
+                existToken,
+                email,
+                role,
+                userId,
+                tokenVersion,
+                request,
+                jwtUtil.getSessionId(refreshToken));
+        String newRefreshToken = issuedRefreshSession.token();
 
         // Access Token 쿠키
         ResponseCookie accessCookie = authCookieUtil.buildAuthCookie(newAccessToken, accessTokenExpiredMs / 1000);
@@ -150,22 +144,6 @@ public class ReissueController {
 
         return ResponseEntity.ok(ApiResponse.success("토큰이 성공적으로 재발급되었습니다."));
     }
-
-    private String extractRefreshToken(HttpServletRequest request) {
-        Cookie[] cookies = request.getCookies();
-        if (cookies == null) {
-            return null;
-        }
-
-        for (Cookie cookie : cookies) {
-            if ("Refresh".equals(cookie.getName())) {
-                return cookie.getValue();
-            }
-        }
-
-        return null;
-    }
-
     private boolean isAuthoritativeRefreshUser(UserEntity user, Long userId, Integer tokenVersionInToken) {
         if (user == null || user.getId() == null || !user.getId().equals(userId)) {
             return false;
@@ -193,100 +171,6 @@ public class ReissueController {
         }
 
         return user.getLockExpiresAt().isBefore(LocalDateTime.now());
-    }
-
-    private String resolveDeviceType(String userAgent) {
-        if (userAgent == null) {
-            return "desktop";
-        }
-
-        String ua = userAgent.toLowerCase();
-        if (ua.contains("mobile") || ua.contains("iphone") || ua.contains("android")) {
-            return "mobile";
-        }
-        if (ua.contains("ipad") || ua.contains("tablet")) {
-            return "tablet";
-        }
-
-        return "desktop";
-    }
-
-    private String resolveDeviceLabel(String userAgent, String deviceType) {
-        if (userAgent == null || userAgent.isBlank()) {
-            return "알 수 없는 기기";
-        }
-
-        String ua = userAgent.toLowerCase();
-        if (ua.contains("iphone")) {
-            return "iPhone";
-        }
-        if (ua.contains("ipad")) {
-            return "iPad";
-        }
-        if (ua.contains("android")) {
-            return "Android";
-        }
-        if (ua.contains("windows")) {
-            return "Windows PC";
-        }
-        if (ua.contains("macintosh") || ua.contains("mac os")) {
-            return "Mac";
-        }
-        if (ua.contains("linux")) {
-            return "Linux PC";
-        }
-
-        return "desktop".equals(deviceType) ? "데스크톱" : "모바일 기기";
-    }
-
-    private String resolveBrowser(String userAgent) {
-        if (userAgent == null) {
-            return "Unknown";
-        }
-
-        String ua = userAgent.toLowerCase();
-        if (ua.contains("edg/") || ua.contains("edge/")) {
-            return "Microsoft Edge";
-        }
-        if (ua.contains("chrome/")) {
-            return "Chrome";
-        }
-        if (ua.contains("safari/") && !ua.contains("chrome")) {
-            return "Safari";
-        }
-        if (ua.contains("firefox/")) {
-            return "Firefox";
-        }
-
-        return "Unknown";
-    }
-
-    private String resolveOs(String userAgent) {
-        if (userAgent == null) {
-            return "Unknown";
-        }
-
-        String ua = userAgent.toLowerCase();
-        if (ua.contains("iphone")) {
-            return "iOS";
-        }
-        if (ua.contains("ipad")) {
-            return "iPadOS";
-        }
-        if (ua.contains("android")) {
-            return "Android";
-        }
-        if (ua.contains("windows")) {
-            return "Windows";
-        }
-        if (ua.contains("macintosh") || ua.contains("mac os")) {
-            return "macOS";
-        }
-        if (ua.contains("linux")) {
-            return "Linux";
-        }
-
-        return "Unknown";
     }
 
 }

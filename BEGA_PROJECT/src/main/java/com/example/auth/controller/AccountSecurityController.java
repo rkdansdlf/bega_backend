@@ -46,7 +46,7 @@ public class AccountSecurityController {
             @AuthenticationPrincipal Long userId,
             @PathVariable Long deviceId) {
         accountSecurityService.revokeTrustedDevice(requireAuthenticatedUserId(userId), deviceId);
-        return ResponseEntity.ok(ApiResponse.success("신뢰 기기가 해제되었습니다."));
+        return ResponseEntity.ok(ApiResponse.success("신뢰 기기가 해제되었습니다. 현재 로그인 세션은 유지됩니다."));
     }
 
     @GetMapping("/account/deletion/recovery")

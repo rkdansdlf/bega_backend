@@ -208,6 +208,8 @@ public class SecurityConfig {
         private final AiServiceSettings aiServiceSettings;
         @org.springframework.beans.factory.annotation.Value("${app.ai.proxy.public-in-dev:false}")
         private boolean publicAiProxyInDevEnabled;
+        @org.springframework.beans.factory.annotation.Value("${app.frontend.url:http://localhost:3000}")
+        private String frontendUrl;
 
         @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:5177,http://localhost:8080,http://host.docker.internal,http://host.docker.internal:3000,http://host.docker.internal:5173,http://host.docker.internal:5176,http://host.docker.internal:5177,http://host.docker.internal:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176,http://127.0.0.1:5177,https://www.begabaseball.xyz,https://begabaseball.xyz,https://*.frontend-dfl.pages.dev}")
         private String allowedOriginsStr;
@@ -411,22 +413,16 @@ public class SecurityConfig {
                                                 .failureHandler((request, response, exception) -> {
                                                         Object oauth2CookieError = request.getAttribute(
                                                                         CookieAuthorizationRequestRepository.OAUTH2_COOKIE_ERROR_ATTRIBUTE);
+                                                        cookieauthorizationrequestRepository
+                                                                        .removeAuthorizationRequestCookies(
+                                                                                        request, response);
                                                         if (oauth2CookieError instanceof String) {
-                                                                cookieauthorizationrequestRepository
-                                                                                .removeAuthorizationRequestCookies(
-                                                                                                request, response);
-                                                                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-                                                                response.setContentType(
-                                                                                "application/json;charset=UTF-8");
-                                                                response.getWriter().write(
-                                                                                "{\"error\":\"invalid_oauth2_request\",\"message\":\"OAuth2 인증 요청이 유효하지 않습니다.\"}");
+                                                                redirectToFrontendLogin(response, "invalid_oauth2_request");
                                                                 return;
                                                         }
 
                                                         String errorMessage = sanitizeOAuth2FailureCode(exception);
-                                                        response.sendRedirect("/login?error="
-                                                                        + URLEncoder.encode(errorMessage,
-                                                                                        StandardCharsets.UTF_8));
+                                                        redirectToFrontendLogin(response, errorMessage);
                                                 })
                                                 .authorizationEndpoint(authorization -> authorization
                                                                 .authorizationRequestRepository(
@@ -527,6 +523,13 @@ public class SecurityConfig {
                                                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS));
 
                 return http.build();
+        }
+
+        private void redirectToFrontendLogin(HttpServletResponse response, String errorCode) throws java.io.IOException {
+                String encoded = URLEncoder.encode(
+                                errorCode == null ? "oauth2_auth_failed" : errorCode,
+                                StandardCharsets.UTF_8);
+                response.sendRedirect(frontendUrl + "/login?error=" + encoded);
         }
 
         private String sanitizeOAuth2FailureCode(Exception exception) {

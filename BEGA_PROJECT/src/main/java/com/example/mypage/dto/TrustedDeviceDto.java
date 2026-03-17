@@ -6,6 +6,10 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
@@ -28,10 +32,19 @@ public class TrustedDeviceDto {
                 .deviceType(device.getDeviceType())
                 .browser(device.getBrowser())
                 .os(device.getOs())
-                .firstSeenAt(device.getFirstSeenAt() == null ? null : device.getFirstSeenAt().toString())
-                .lastSeenAt(device.getLastSeenAt() == null ? null : device.getLastSeenAt().toString())
-                .lastLoginAt(device.getLastLoginAt() == null ? null : device.getLastLoginAt().toString())
+                .firstSeenAt(formatDateTime(device.getFirstSeenAt()))
+                .lastSeenAt(formatDateTime(device.getLastSeenAt()))
+                .lastLoginAt(formatDateTime(device.getLastLoginAt()))
                 .lastIp(device.getLastIp())
                 .build();
+    }
+
+    private static String formatDateTime(LocalDateTime value) {
+        if (value == null) {
+            return null;
+        }
+
+        return value.atZone(ZoneId.systemDefault())
+                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
     }
 }
