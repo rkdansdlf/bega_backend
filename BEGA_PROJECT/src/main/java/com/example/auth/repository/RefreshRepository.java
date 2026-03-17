@@ -15,6 +15,7 @@ public interface RefreshRepository extends JpaRepository<RefreshToken, Long> {
     List<RefreshToken> findAllByEmailOrderByIdDesc(String email);
 
     List<RefreshToken> findAllByEmail(String email);
+
     List<RefreshToken> findAllByEmailAndTokenNot(String email, String token);
 
     List<RefreshToken> findAllByToken(String token);

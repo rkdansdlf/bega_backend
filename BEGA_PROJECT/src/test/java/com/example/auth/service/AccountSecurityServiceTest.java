@@ -58,7 +58,7 @@ class AccountSecurityServiceTest {
                 trustedDeviceRepository,
                 notificationService,
                 emailService,
-                clientIpResolver);
+                new AuthSessionMetadataResolver(clientIpResolver));
     }
 
     @Test

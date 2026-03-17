@@ -27,6 +27,9 @@ public class RefreshToken {
     @jakarta.persistence.Column(length = 1024)
     private String token;
 
+    @Column(name = "session_id", length = 64)
+    private String sessionId;
+
     // 만료 시간
     @jakarta.persistence.Column(name = "expirydate")
     private LocalDateTime expiryDate;

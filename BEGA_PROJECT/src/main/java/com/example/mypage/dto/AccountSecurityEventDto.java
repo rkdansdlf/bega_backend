@@ -6,6 +6,10 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
@@ -25,7 +29,7 @@ public class AccountSecurityEventDto {
         return AccountSecurityEventDto.builder()
                 .id(event.getId())
                 .eventType(event.getEventType().name())
-                .occurredAt(event.getOccurredAt() == null ? null : event.getOccurredAt().toString())
+                .occurredAt(formatDateTime(event.getOccurredAt()))
                 .deviceLabel(event.getDeviceLabel())
                 .deviceType(event.getDeviceType())
                 .browser(event.getBrowser())
@@ -33,5 +37,14 @@ public class AccountSecurityEventDto {
                 .ip(event.getIp())
                 .message(event.getMessage())
                 .build();
+    }
+
+    private static String formatDateTime(LocalDateTime value) {
+        if (value == null) {
+            return null;
+        }
+
+        return value.atZone(ZoneId.systemDefault())
+                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
     }
 }

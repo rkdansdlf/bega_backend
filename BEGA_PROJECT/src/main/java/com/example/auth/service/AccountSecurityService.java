@@ -7,7 +7,6 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.AccountSecurityEventRepository;
 import com.example.auth.repository.TrustedDeviceRepository;
 import com.example.common.exception.NotFoundBusinessException;
-import com.example.common.web.ClientIpResolver;
 import com.example.mypage.dto.AccountSecurityEventDto;
 import com.example.mypage.dto.TrustedDeviceDto;
 import com.example.notification.entity.Notification;
@@ -36,7 +35,7 @@ public class AccountSecurityService {
     private final TrustedDeviceRepository trustedDeviceRepository;
     private final NotificationService notificationService;
     private final EmailService emailService;
-    private final ClientIpResolver clientIpResolver;
+    private final AuthSessionMetadataResolver authSessionMetadataResolver;
 
     @Transactional
     public void handleSuccessfulLogin(UserEntity user, HttpServletRequest request) {
@@ -245,21 +244,15 @@ public class AccountSecurityService {
     }
 
     private DeviceMetadata resolveDeviceMetadata(HttpServletRequest request) {
-        String userAgent = request.getHeader("User-Agent");
-        String deviceType = resolveDeviceType(userAgent);
-        String deviceLabel = resolveDeviceLabel(userAgent, deviceType);
-        String browser = resolveBrowser(userAgent);
-        String os = resolveOs(userAgent);
-        String ip = clientIpResolver.resolveOrUnknown(request);
-        LocalDateTime now = LocalDateTime.now();
+        AuthSessionMetadataResolver.SessionMetadata metadata = authSessionMetadataResolver.resolve(request);
         return new DeviceMetadata(
-                fingerprintOf(deviceType, deviceLabel, browser, os),
-                deviceType,
-                deviceLabel,
-                browser,
-                os,
-                ip,
-                now);
+                fingerprintOf(metadata.deviceType(), metadata.deviceLabel(), metadata.browser(), metadata.os()),
+                metadata.deviceType(),
+                metadata.deviceLabel(),
+                metadata.browser(),
+                metadata.os(),
+                metadata.ip(),
+                metadata.now());
     }
 
     private DeviceMetadata toMetadata(TrustedDevice trustedDevice, LocalDateTime now) {
@@ -307,104 +300,6 @@ public class AccountSecurityService {
             case "naver" -> "Naver";
             default -> normalized;
         };
-    }
-
-    private String resolveDeviceType(String userAgent) {
-        if (userAgent == null) {
-            return "desktop";
-        }
-
-        String ua = userAgent.toLowerCase(Locale.ROOT);
-        if (ua.contains("ipad") || ua.contains("tablet")) {
-            return "tablet";
-        }
-        if (ua.contains("mobile") || ua.contains("iphone") || ua.contains("android")) {
-            return "mobile";
-        }
-        return "desktop";
-    }
-
-    private String resolveDeviceLabel(String userAgent, String deviceType) {
-        if (userAgent == null || userAgent.isBlank()) {
-            return switch (deviceType) {
-                case "mobile" -> "모바일 기기";
-                case "tablet" -> "태블릿";
-                default -> "데스크톱";
-            };
-        }
-
-        String ua = userAgent.toLowerCase(Locale.ROOT);
-        if (ua.contains("iphone")) {
-            return "iPhone";
-        }
-        if (ua.contains("ipad")) {
-            return "iPad";
-        }
-        if (ua.contains("android")) {
-            return deviceType.equals("tablet") ? "Android 태블릿" : "Android 기기";
-        }
-        if (ua.contains("mac os x") || ua.contains("macintosh")) {
-            return "Mac";
-        }
-        if (ua.contains("windows")) {
-            return "Windows PC";
-        }
-        if (ua.contains("linux")) {
-            return "Linux PC";
-        }
-        return switch (deviceType) {
-            case "mobile" -> "모바일 기기";
-            case "tablet" -> "태블릿";
-            default -> "데스크톱";
-        };
-    }
-
-    private String resolveBrowser(String userAgent) {
-        if (userAgent == null || userAgent.isBlank()) {
-            return "Unknown";
-        }
-
-        String ua = userAgent.toLowerCase(Locale.ROOT);
-        if (ua.contains("edg/")) {
-            return "Edge";
-        }
-        if (ua.contains("whale/")) {
-            return "Whale";
-        }
-        if (ua.contains("chrome/") && !ua.contains("edg/")) {
-            return "Chrome";
-        }
-        if (ua.contains("safari/") && !ua.contains("chrome/")) {
-            return "Safari";
-        }
-        if (ua.contains("firefox/")) {
-            return "Firefox";
-        }
-        return "Unknown";
-    }
-
-    private String resolveOs(String userAgent) {
-        if (userAgent == null || userAgent.isBlank()) {
-            return "Unknown";
-        }
-
-        String ua = userAgent.toLowerCase(Locale.ROOT);
-        if (ua.contains("iphone") || ua.contains("ipad") || ua.contains("ios")) {
-            return "iOS";
-        }
-        if (ua.contains("android")) {
-            return "Android";
-        }
-        if (ua.contains("windows")) {
-            return "Windows";
-        }
-        if (ua.contains("mac os x") || ua.contains("macintosh")) {
-            return "macOS";
-        }
-        if (ua.contains("linux")) {
-            return "Linux";
-        }
-        return "Unknown";
     }
 
     private String normalizeText(String value, String fallback) {

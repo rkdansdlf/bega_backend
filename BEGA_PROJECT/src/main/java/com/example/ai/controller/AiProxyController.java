@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 @RequestMapping("/api/ai")
@@ -29,9 +30,21 @@ public class AiProxyController {
     }
 
     @PostMapping("/chat/stream")
-    public ResponseEntity<byte[]> chatStream(@RequestBody String payload) {
-        ProxyByteResponse proxyResponse = aiProxyService.forwardJson("/ai/chat/stream", payload);
-        return toByteResponse(proxyResponse);
+    public ResponseEntity<StreamingResponseBody> chatStream(@RequestBody String payload) {
+        AiProxyService.ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/chat/stream", payload);
+        HttpHeaders headers = new HttpHeaders();
+        headers.putAll(proxyResponse.headers());
+
+        StreamingResponseBody responseBody;
+        if (!proxyResponse.status().is2xxSuccessful()) {
+            byte[] errorBody = proxyResponse.errorBody() != null ? proxyResponse.errorBody() : new byte[0];
+            responseBody = outputStream -> outputStream.write(errorBody);
+        } else {
+            responseBody = outputStream -> aiProxyService.writeStream(proxyResponse.bodyFlux(), outputStream);
+        }
+        return ResponseEntity.status(proxyResponse.status())
+                .headers(headers)
+                .body(responseBody);
     }
 
     @PostMapping("/chat/voice")
