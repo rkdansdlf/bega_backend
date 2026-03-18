@@ -109,6 +109,14 @@ def _normalize_db_url(raw: str) -> str:
     return candidate
 
 
+def _first_non_empty_env(*names: str) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value and value.strip():
+            return value
+    return None
+
+
 def _append_missing_credentials(dsn: str) -> str:
     try:
         parsed = urlsplit(dsn)
@@ -118,8 +126,16 @@ def _append_missing_credentials(dsn: str) -> str:
     if not parsed.hostname:
         return dsn
 
-    auth_password = os.getenv("CANONICAL_GUARD_DB_PASSWORD") or os.getenv("SPRING_DATASOURCE_PASSWORD") or os.getenv("DB_PASSWORD")
-    auth_username = os.getenv("CANONICAL_GUARD_DB_USERNAME") or os.getenv("SPRING_DATASOURCE_USERNAME") or os.getenv("DB_USERNAME")
+    auth_password = _first_non_empty_env(
+        "CANONICAL_GUARD_DB_PASSWORD",
+        "BASEBALL_DB_PASSWORD",
+        "DB_PASSWORD",
+    )
+    auth_username = _first_non_empty_env(
+        "CANONICAL_GUARD_DB_USERNAME",
+        "BASEBALL_DB_USERNAME",
+        "DB_USERNAME",
+    )
 
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     has_password_in_dsn = bool(parsed.password or query.get("password"))
@@ -245,7 +261,11 @@ def _build_step_summary(output: Dict[str, object]) -> list[str]:
 
 
 def _resolve_db_url(env_name: str) -> str:
-    for candidate_env in (env_name, "POSTGRES_DB_URL", "DB_URL"):
+    seen: set[str] = set()
+    for candidate_env in (env_name, "BASEBALL_DB_URL", "DB_URL"):
+        if candidate_env in seen:
+            continue
+        seen.add(candidate_env)
         value = os.getenv(candidate_env)
         if not value:
             continue
@@ -277,7 +297,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--db-url-env",
         default="CANONICAL_GUARD_DB_URL_RO",
-        help="Environment variable name containing the DB URL.",
+        help="Environment variable name containing the preferred DB URL. Falls back to BASEBALL_DB_URL, then DB_URL.",
     )
     parser.add_argument(
         "--strict-legacy-residual",

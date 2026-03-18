@@ -20,9 +20,9 @@
 3. Verify target DB Flyway/data baseline:
    ```bash
    cd /Users/mac/project/KBO_platform/bega_backend
-   DB_URL="jdbc:postgresql://<db-host>:5432/<db-name>" \
-   DB_USERNAME="<db-user>" \
-   DB_PASSWORD="<db-pass>" \
+   BASEBALL_DB_URL="jdbc:postgresql://<db-host>:5432/<db-name>" \
+   BASEBALL_DB_USERNAME="<db-user>" \
+   BASEBALL_DB_PASSWORD="<db-pass>" \
    ./scripts/verify_delivery_pickup_seed.sh
    ```
 
@@ -42,15 +42,16 @@
    ```bash
    cd /Users/mac/project/KBO_platform/bega_backend
    BACKEND_BASE_URL="https://<prod-backend-host>" \
-   DB_URL="jdbc:postgresql://<db-host>:5432/<db-name>" \
-   DB_USERNAME="<db-user>" \
-   DB_PASSWORD="<db-pass>" \
+   BASEBALL_DB_URL="jdbc:postgresql://<db-host>:5432/<db-name>" \
+   BASEBALL_DB_USERNAME="<db-user>" \
+   BASEBALL_DB_PASSWORD="<db-pass>" \
    ./scripts/delivery_pickup_smoke.sh
    ```
 
 3. DB-only verification:
    ```bash
    cd /Users/mac/project/KBO_platform/bega_backend
+   # .env.prod or .env already has BASEBALL_DB_* configured, or pass them inline.
    ./scripts/verify_delivery_pickup_seed.sh
    ```
 

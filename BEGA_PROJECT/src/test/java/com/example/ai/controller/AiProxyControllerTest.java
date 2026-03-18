@@ -239,6 +239,69 @@ class AiProxyControllerTest {
     }
 
     @Test
+    @DisplayName("coach analyze 프록시 성공 시 SSE를 스트리밍한다")
+    void coachAnalyzeSuccess() throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_EVENT_STREAM);
+        headers.add("X-Accel-Buffering", "no");
+        String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\"}";
+        DefaultDataBufferFactory bufferFactory = new DefaultDataBufferFactory();
+
+        given(aiProxyService.forwardJsonStream(eq("/ai/coach/analyze"), eq(payload)))
+                .willReturn(new ProxyStreamResponse(
+                        HttpStatus.OK,
+                        headers,
+                        Flux.just(
+                                bufferFactory.wrap("event: meta\ndata: {\"request_mode\":\"manual_detail\"}\n\n".getBytes(StandardCharsets.UTF_8)),
+                                bufferFactory.wrap("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8))),
+                        null));
+        willAnswer(invocation -> {
+            OutputStream outputStream = invocation.getArgument(1);
+            outputStream.write("event: meta\ndata: {\"request_mode\":\"manual_detail\"}\n\ndata: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
+            return null;
+        }).given(aiProxyService).writeStream(any(), any());
+
+        MvcResult result = mockMvc.perform(post("/api/ai/coach/analyze")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(header().string("X-Accel-Buffering", "no"))
+                .andExpect(content().string(containsString("event: meta")))
+                .andExpect(content().string(containsString("data: [DONE]")));
+    }
+
+    @Test
+    @DisplayName("coach analyze upstream 오류는 표준 JSON 에러 응답으로 변환된다")
+    void coachAnalyzeUpstreamFailureReturnsStandardizedErrorResponse() throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\"}";
+        String responseBody = "{\"success\":false,\"code\":\"AI_UPSTREAM_UNAVAILABLE\",\"message\":\"AI 서비스가 현재 사용할 수 없습니다.\"}";
+
+        given(aiProxyService.forwardJsonStream(eq("/ai/coach/analyze"), eq(payload)))
+                .willReturn(new ProxyStreamResponse(
+                        HttpStatus.SERVICE_UNAVAILABLE,
+                        headers,
+                        Flux.empty(),
+                        responseBody.getBytes(StandardCharsets.UTF_8)));
+
+        MvcResult result = mockMvc.perform(post("/api/ai/coach/analyze")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().json(responseBody));
+    }
+
+    @Test
     @DisplayName("AI 프록시 예외는 표준 에러 응답으로 변환된다")
     void chatCompletionProxyFailureReturnsStandardizedErrorResponse() throws Exception {
         String payload = "{\"question\":\"테스트\"}";

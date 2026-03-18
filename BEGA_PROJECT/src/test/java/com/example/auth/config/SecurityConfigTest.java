@@ -1,6 +1,7 @@
 package com.example.auth.config;
 
 import com.example.ai.config.AiServiceSettings;
+import com.example.common.config.AllowedOriginResolver;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
@@ -219,6 +220,7 @@ class SecurityConfigTest {
                 mock(com.example.auth.repository.UserRepository.class),
                 mock(com.example.auth.service.AuthSecurityMonitoringService.class),
                 environment,
-                aiServiceSettings);
+                aiServiceSettings,
+                new AllowedOriginResolver(environment, ""));
     }
 }
