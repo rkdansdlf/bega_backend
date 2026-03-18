@@ -16,12 +16,14 @@ import org.springframework.test.context.ActiveProfiles;
         "spring.flyway.baseline-on-migrate=true",
         "spring.flyway.validate-on-migrate=false",
         "kbo.schema-guard.strict=false",
+        // This test boots the dev profile, so the primary datasource intentionally stays on DB_*.
         "spring.datasource.url=${DB_URL}",
         "spring.datasource.driver-class-name=org.postgresql.Driver",
         "spring.datasource.username=${DB_USERNAME}",
         "spring.datasource.password=${DB_PASSWORD}",
         "spring.datasource.data-source-properties.currentSchema=public",
         "spring.datasource.hikari.schema=public",
+        // The secondary baseball datasource still prefers BASEBALL_DB_* with DB_* fallback.
         "baseball.datasource.url=${BASEBALL_DB_URL:${DB_URL}}",
         "baseball.datasource.driver-class-name=org.postgresql.Driver",
         "baseball.datasource.username=${BASEBALL_DB_USERNAME:${DB_USERNAME}}",
@@ -31,6 +33,7 @@ import org.springframework.test.context.ActiveProfiles;
     }
 )
 @ActiveProfiles("dev")
+// The test is meaningful only when the dev primary PostgreSQL datasource is available.
 @EnabledIfEnvironmentVariable(named = "DB_URL", matches = ".+")
 class SchemaValidationContextTest {
 
