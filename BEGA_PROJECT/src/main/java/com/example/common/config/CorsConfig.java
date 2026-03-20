@@ -1,53 +1,22 @@
 package com.example.common.config;
 
-import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.List;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import lombok.RequiredArgsConstructor;
+
 @Configuration
+@RequiredArgsConstructor
 public class CorsConfig implements WebMvcConfigurer {
 
-    private static final List<String> DEFAULT_ALLOWED_ORIGINS = List.of(
-            "http://localhost",
-            "http://localhost:3000",
-            "http://localhost:5173",
-            "http://localhost:5176",
-            "http://localhost:8080",
-            "http://127.0.0.1",
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:5173",
-            "http://127.0.0.1:5176",
-            "https://www.begabaseball.xyz",
-            "https://begabaseball.xyz",
-            "https://*.frontend-dfl.pages.dev");
-
-    @Value("${app.allowed-origins:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176,https://www.begabaseball.xyz,https://begabaseball.xyz,https://*.frontend-dfl.pages.dev}")
-    private String allowedOriginsStr;
-
-    private List<String> parseAllowedOrigins() {
-        List<String> parsed = Arrays.stream(allowedOriginsStr == null ? new String[0] : allowedOriginsStr.split(","))
-                .map(String::trim)
-                .filter(origin -> !origin.isEmpty())
-                .filter(origin -> !origin.equals("*"))
-                .toList();
-
-        if (parsed.isEmpty()) {
-            return DEFAULT_ALLOWED_ORIGINS;
-        }
-
-        LinkedHashSet<String> merged = new LinkedHashSet<>(DEFAULT_ALLOWED_ORIGINS);
-        merged.addAll(parsed);
-        return List.copyOf(merged);
-    }
+    private final AllowedOriginResolver allowedOriginResolver;
 
     @Override
     public void addCorsMappings(@org.springframework.lang.NonNull CorsRegistry registry) {
-        List<String> allowedOrigins = parseAllowedOrigins();
+        List<String> allowedOrigins = allowedOriginResolver.resolve();
 
         registry.addMapping("/**")
                 .allowedOrigins()

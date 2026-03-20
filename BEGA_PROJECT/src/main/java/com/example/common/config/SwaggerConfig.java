@@ -22,7 +22,7 @@ public class SwaggerConfig {
                                 "JWT 인증이 필요한 엔드포인트는 우측 상단 Authorize 버튼에서 Bearer 토큰을 입력하세요.")
                         .contact(new Contact()
                                 .name("BEGA Team")
-                                .url("https://begabaseball.xyz")))
+                                .url("https://www.begabaseball.xyz")))
                 .addSecurityItem(new SecurityRequirement().addList("bearerAuth"))
                 .components(new Components()
                         .addSecuritySchemes("bearerAuth",

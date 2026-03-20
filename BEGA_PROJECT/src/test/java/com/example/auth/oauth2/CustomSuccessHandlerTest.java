@@ -12,7 +12,6 @@ import static org.mockito.Mockito.when;
 
 import com.example.auth.dto.CustomOAuth2User;
 import com.example.auth.dto.UserDto;
-import com.example.auth.entity.RefreshToken;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserBlockRepository;
@@ -21,11 +20,11 @@ import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.AccountDeletionService;
 import com.example.auth.service.AccountSecurityService;
+import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.OAuth2StateService;
 import com.example.auth.service.UserService;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.util.JWTUtil;
-import com.example.common.web.ClientIpResolver;
 import com.example.kbo.repository.TeamRepository;
 import com.example.mate.service.PartyService;
 import com.example.profile.storage.service.ProfileImageService;
@@ -34,7 +33,6 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -90,13 +88,13 @@ class CustomSuccessHandlerTest {
     private ProfileImageService profileImageService;
 
     @Mock
-    private ClientIpResolver clientIpResolver;
-
-    @Mock
     private AccountDeletionService accountDeletionService;
 
     @Mock
     private AccountSecurityService accountSecurityService;
+
+    @Mock
+    private AuthSessionService authSessionService;
 
     @Mock
     private OAuth2StateService oAuth2StateService;
@@ -111,7 +109,8 @@ class CustomSuccessHandlerTest {
                 userService,
                 accountSecurityService,
                 oAuth2StateService,
-                new AuthCookieUtil(false));
+                new AuthCookieUtil(false),
+                authSessionService);
         ReflectionTestUtils.setField(customSuccessHandler, "frontendUrl", "http://localhost:5173");
     }
 
@@ -131,12 +130,9 @@ class CustomSuccessHandlerTest {
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(refreshRepository.findAllByEmailOrderByIdDesc("oauth-user@example.com")).thenReturn(List.of());
-        when(refreshRepository.save(any(RefreshToken.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(clientIpResolver.resolve(any())).thenReturn("127.0.0.1");
         when(jwtUtil.createJwt(anyString(), anyString(), anyLong(), anyLong(), any()))
                 .thenReturn("access-token-1", "access-token-2");
-        when(jwtUtil.createRefreshToken(anyString(), anyString(), anyLong(), any()))
+        when(authSessionService.issueRefreshToken(anyString(), anyString(), anyLong(), any(), any()))
                 .thenReturn("refresh-token-1", "refresh-token-2");
         when(jwtUtil.getRefreshTokenExpirationTime()).thenReturn(604_800_000L);
         when(oAuth2StateService.saveState(1L)).thenReturn("state-one", "state-two");
@@ -185,12 +181,9 @@ class CustomSuccessHandlerTest {
                 .build();
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(refreshRepository.findAllByEmailOrderByIdDesc("oauth-user@example.com")).thenReturn(List.of());
-        when(refreshRepository.save(any(RefreshToken.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(clientIpResolver.resolve(any())).thenReturn("127.0.0.1");
         when(jwtUtil.createJwt(anyString(), anyString(), anyLong(), anyLong(), any()))
                 .thenReturn("access-token");
-        when(jwtUtil.createRefreshToken(anyString(), anyString(), anyLong(), any()))
+        when(authSessionService.issueRefreshToken(anyString(), anyString(), anyLong(), any(), any()))
                 .thenReturn("refresh-token");
         when(jwtUtil.getRefreshTokenExpirationTime()).thenReturn(604_800_000L);
         when(oAuth2StateService.saveState(1L)).thenReturn("linked-state");

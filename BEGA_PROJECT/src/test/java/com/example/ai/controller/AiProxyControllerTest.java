@@ -3,22 +3,34 @@ package com.example.ai.controller;
 import com.example.ai.exception.AiProxyException;
 import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
+import com.example.ai.service.AiProxyService.ProxyStreamResponse;
 import com.example.common.exception.GlobalExceptionHandler;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import reactor.core.publisher.Flux;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.Mockito.mock;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -160,6 +172,132 @@ class AiProxyControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isOk())
+                .andExpect(content().json(responseBody));
+    }
+
+    @Test
+    @DisplayName("chat stream 프록시 성공 시 SSE를 스트리밍한다")
+    void chatStreamSuccess() throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_EVENT_STREAM);
+        headers.add("X-Accel-Buffering", "no");
+        String payload = "{\"question\":\"테스트\"}";
+        DefaultDataBufferFactory bufferFactory = new DefaultDataBufferFactory();
+
+        given(aiProxyService.forwardJsonStream(eq("/ai/chat/stream"), eq(payload)))
+                .willReturn(new ProxyStreamResponse(
+                        HttpStatus.OK,
+                        headers,
+                        Flux.just(
+                                bufferFactory.wrap("event: message\ndata: {\"delta\":\"안녕\"}\n\n".getBytes(StandardCharsets.UTF_8)),
+                                bufferFactory.wrap("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8))),
+                        null));
+        willAnswer(invocation -> {
+            OutputStream outputStream = invocation.getArgument(1);
+            outputStream.write("event: message\ndata: {\"delta\":\"안녕\"}\n\ndata: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
+            return null;
+        }).given(aiProxyService).writeStream(any(), any());
+
+        MvcResult result = mockMvc.perform(post("/api/ai/chat/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(header().string("X-Accel-Buffering", "no"))
+                .andExpect(content().string(containsString("event: message")))
+                .andExpect(content().string(containsString("data: [DONE]")));
+    }
+
+    @Test
+    @DisplayName("chat stream upstream 오류는 표준 JSON 에러 응답으로 변환된다")
+    void chatStreamUpstreamFailureReturnsStandardizedErrorResponse() throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String payload = "{\"question\":\"테스트\"}";
+        String responseBody = "{\"success\":false,\"code\":\"AI_UPSTREAM_UNAVAILABLE\",\"message\":\"AI 서비스가 현재 사용할 수 없습니다.\"}";
+
+        given(aiProxyService.forwardJsonStream(eq("/ai/chat/stream"), eq(payload)))
+                .willReturn(new ProxyStreamResponse(
+                        HttpStatus.SERVICE_UNAVAILABLE,
+                        headers,
+                        Flux.empty(),
+                        responseBody.getBytes(StandardCharsets.UTF_8)));
+
+        MvcResult result = mockMvc.perform(post("/api/ai/chat/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().json(responseBody));
+    }
+
+    @Test
+    @DisplayName("coach analyze 프록시 성공 시 SSE를 스트리밍한다")
+    void coachAnalyzeSuccess() throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_EVENT_STREAM);
+        headers.add("X-Accel-Buffering", "no");
+        String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\"}";
+        DefaultDataBufferFactory bufferFactory = new DefaultDataBufferFactory();
+
+        given(aiProxyService.forwardJsonStream(eq("/ai/coach/analyze"), eq(payload)))
+                .willReturn(new ProxyStreamResponse(
+                        HttpStatus.OK,
+                        headers,
+                        Flux.just(
+                                bufferFactory.wrap("event: meta\ndata: {\"request_mode\":\"manual_detail\"}\n\n".getBytes(StandardCharsets.UTF_8)),
+                                bufferFactory.wrap("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8))),
+                        null));
+        willAnswer(invocation -> {
+            OutputStream outputStream = invocation.getArgument(1);
+            outputStream.write("event: meta\ndata: {\"request_mode\":\"manual_detail\"}\n\ndata: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
+            return null;
+        }).given(aiProxyService).writeStream(any(), any());
+
+        MvcResult result = mockMvc.perform(post("/api/ai/coach/analyze")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(header().string("X-Accel-Buffering", "no"))
+                .andExpect(content().string(containsString("event: meta")))
+                .andExpect(content().string(containsString("data: [DONE]")));
+    }
+
+    @Test
+    @DisplayName("coach analyze upstream 오류는 표준 JSON 에러 응답으로 변환된다")
+    void coachAnalyzeUpstreamFailureReturnsStandardizedErrorResponse() throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\"}";
+        String responseBody = "{\"success\":false,\"code\":\"AI_UPSTREAM_UNAVAILABLE\",\"message\":\"AI 서비스가 현재 사용할 수 없습니다.\"}";
+
+        given(aiProxyService.forwardJsonStream(eq("/ai/coach/analyze"), eq(payload)))
+                .willReturn(new ProxyStreamResponse(
+                        HttpStatus.SERVICE_UNAVAILABLE,
+                        headers,
+                        Flux.empty(),
+                        responseBody.getBytes(StandardCharsets.UTF_8)));
+
+        MvcResult result = mockMvc.perform(post("/api/ai/coach/analyze")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isServiceUnavailable())
                 .andExpect(content().json(responseBody));
     }
 

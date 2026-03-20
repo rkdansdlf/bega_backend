@@ -15,6 +15,7 @@ import org.springframework.data.domain.PageRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -82,7 +83,7 @@ class HomePageFacadeServiceTest {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
         when(cheerService.getHotPostsPublic(PageRequest.of(0, 3), "HYBRID"))
                 .thenReturn(new PageImpl<>(List.of()));
-        when(partyService.getFeaturedMateCards(LocalDate.now(), 4)).thenReturn(List.of(
+        when(partyService.getFeaturedMateCards(selectedDate, 4)).thenReturn(List.of(
                 FeaturedMateCardDto.builder()
                         .id(99L)
                         .gameDate("2026-03-16")
@@ -98,5 +99,6 @@ class HomePageFacadeServiceTest {
         assertThat(response.getHotCheerPosts()).isEmpty();
         assertThat(response.getFeaturedMates()).hasSize(1);
         assertThat(response.getFeaturedMates().get(0).getId()).isEqualTo(99L);
+        verify(partyService).getFeaturedMateCards(selectedDate, 4);
     }
 }

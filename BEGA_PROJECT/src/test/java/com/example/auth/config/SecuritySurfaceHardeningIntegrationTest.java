@@ -2,11 +2,14 @@ package com.example.auth.config;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +17,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -44,6 +48,7 @@ import org.springframework.web.bind.annotation.RestController;
         "oci.s3.secret-key=test-secret-key",
         "oci.s3.bucket=test-bucket",
         "oci.s3.region=ap-seoul-1",
+        "app.allowed-origins=https://www.begabaseball.xyz",
         "spring.autoconfigure.exclude=io.awspring.cloud.autoconfigure.s3.S3AutoConfiguration"
 })
 @DisplayName("Security surface hardening integration tests")
@@ -51,6 +56,28 @@ class SecuritySurfaceHardeningIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Test
+    @DisplayName("mypage preflight should allow configured production frontend origin")
+    void mypagePreflight_allowsConfiguredProductionFrontendOrigin() throws Exception {
+        mockMvc.perform(options("/api/auth/mypage")
+                        .header(HttpHeaders.ORIGIN, "https://www.begabaseball.xyz")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://www.begabaseball.xyz"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, Matchers.containsString("GET")));
+    }
+
+    @Test
+    @DisplayName("unauthenticated mypage should still include CORS headers for configured production frontend origin")
+    void mypageUnauthorized_includesCorsHeadersForConfiguredProductionFrontendOrigin() throws Exception {
+        mockMvc.perform(get("/api/auth/mypage")
+                        .header(HttpHeaders.ORIGIN, "https://www.begabaseball.xyz"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://www.begabaseball.xyz"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+    }
 
     @Test
     @DisplayName("check-email should no longer be publicly accessible")

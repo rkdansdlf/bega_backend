@@ -1,6 +1,5 @@
 package com.example.auth.service;
 
-import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -30,7 +29,6 @@ import com.example.auth.repository.UserFollowRepository;
 import com.example.kbo.repository.TeamRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
 import com.example.auth.repository.RefreshRepository;
-import com.example.auth.entity.RefreshToken;
 
 import com.example.common.exception.UserNotFoundException;
 import com.example.common.exception.AuthenticationRequiredException;
@@ -41,7 +39,6 @@ import com.example.common.exception.DuplicateNameException;
 import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.InvalidCredentialsException;
 import com.example.common.exception.SocialLoginRequiredException;
-import com.example.common.web.ClientIpResolver;
 
 import com.example.mate.service.PartyService;
 import com.example.profile.storage.service.ProfileImageService;
@@ -53,8 +50,7 @@ import org.springframework.security.access.AccessDeniedException;
 public class UserService {
 
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
-    private static final long ACCESS_EXPIRATION_TIME = 1000L * 60 * 60;
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    static final ZoneId DAILY_BONUS_ZONE = ZoneId.of("Asia/Seoul");
     private static final int DAILY_LOGIN_BONUS_POINTS = 5;
 
     private final UserRepository userRepository;
@@ -67,9 +63,9 @@ public class UserService {
     private final JWTUtil jwtUtil;
     private final PartyService partyService;
     private final ProfileImageService profileImageService;
-    private final ClientIpResolver clientIpResolver;
     private final AccountDeletionService accountDeletionService;
     private final AccountSecurityService accountSecurityService;
+    private final AuthSessionService authSessionService;
 
     public UserService(UserRepository userRepository,
             TeamRepository teamRepository,
@@ -81,9 +77,9 @@ public class UserService {
             JWTUtil jwtUtil,
             @Lazy PartyService partyService,
             ProfileImageService profileImageService,
-            ClientIpResolver clientIpResolver,
             AccountDeletionService accountDeletionService,
-            AccountSecurityService accountSecurityService) {
+            AccountSecurityService accountSecurityService,
+            AuthSessionService authSessionService) {
         this.userRepository = userRepository;
         this.teamRepository = teamRepository;
         this.refreshRepository = refreshRepository;
@@ -94,9 +90,9 @@ public class UserService {
         this.jwtUtil = jwtUtil;
         this.partyService = partyService;
         this.profileImageService = profileImageService;
-        this.clientIpResolver = clientIpResolver;
         this.accountDeletionService = accountDeletionService;
         this.accountSecurityService = accountSecurityService;
+        this.authSessionService = authSessionService;
     }
 
     public JWTUtil getJWTUtil() {
@@ -268,15 +264,16 @@ public class UserService {
                 user.getEmail(),
                 user.getRole(),
                 user.getId(),
-                ACCESS_EXPIRATION_TIME,
+                jwtUtil.getAccessTokenExpirationTime(),
                 tokenVersion);
 
         // Refresh Token 생성
-        String refreshToken = jwtUtil.createRefreshToken(user.getEmail(), user.getRole(), user.getId(),
-                tokenVersion);
-
-        // Refresh Token DB 저장
-        saveOrUpdateRefreshToken(user.getEmail(), refreshToken, request);
+        String refreshToken = authSessionService.issueRefreshToken(
+                user.getEmail(),
+                user.getRole(),
+                user.getId(),
+                tokenVersion,
+                request);
         accountSecurityService.handleSuccessfulLogin(user, request);
 
         Map<String, Object> profileData = new HashMap<>();
@@ -298,7 +295,7 @@ public class UserService {
      */
     @Transactional
     public int checkAndApplyDailyLoginBonus(@NonNull UserEntity user) {
-        LocalDate today = LocalDate.now(KST);
+        LocalDate today = LocalDate.now(DAILY_BONUS_ZONE);
 
         boolean shouldAward = Optional.ofNullable(user.getLastBonusDate())
                 .map(lastBonusDate -> lastBonusDate.isBefore(today))
@@ -322,179 +319,9 @@ public class UserService {
         return currentCheerPoints;
     }
 
-    /**
-     * 리프레시 토큰 저장 또는 업데이트
-     */
     @Transactional
     public void deleteRefreshTokenByEmail(String email) {
-        if (email == null || email.isBlank()) {
-            return;
-        }
-
-        refreshRepository.deleteByEmail(email);
-    }
-
-    /**
-     * 리프레시 토큰 저장 또는 업데이트
-     */
-    @Transactional
-    public void saveOrUpdateRefreshToken(String email, String token, HttpServletRequest request) {
-        List<RefreshToken> tokens = refreshRepository.findAllByEmailOrderByIdDesc(email);
-        String userAgent = request != null ? request.getHeader("User-Agent") : null;
-        String ipAddress = clientIpResolver.resolve(request);
-        String deviceType = resolveDeviceType(userAgent);
-        String deviceLabel = resolveDeviceLabel(userAgent, deviceType);
-        String browser = resolveBrowser(userAgent);
-        String os = resolveOs(userAgent);
-
-        RefreshToken matchedToken = tokens.stream()
-                .filter(item -> isSameSessionContext(item, deviceType, deviceLabel, browser, os, ipAddress))
-                .findFirst()
-                .orElseGet(() -> {
-                    RefreshToken nt = new RefreshToken();
-                    nt.setEmail(email);
-                    return nt;
-                });
-
-        LocalDateTime now = LocalDateTime.now();
-        matchedToken.setToken(token);
-        matchedToken.setExpiryDate(now.plusWeeks(1));
-        matchedToken.setDeviceType(deviceType);
-        matchedToken.setDeviceLabel(deviceLabel);
-        matchedToken.setBrowser(browser);
-        matchedToken.setOs(os);
-        matchedToken.setIp(ipAddress);
-        matchedToken.setLastSeenAt(now);
-        refreshRepository.save(matchedToken);
-    }
-
-    private boolean isSameSessionContext(RefreshToken token, String deviceType, String deviceLabel, String browser,
-            String os,
-            String ipAddress) {
-        if (token == null) {
-            return false;
-        }
-        String tokenDeviceType = normalizeText(token.getDeviceType(), "desktop");
-        String tokenDeviceLabel = normalizeText(token.getDeviceLabel(), "알 수 없는 기기");
-        String tokenBrowser = normalizeText(token.getBrowser(), "Unknown");
-        String tokenOs = normalizeText(token.getOs(), "Unknown");
-        String tokenIp = normalizeText(token.getIp(), "unknown");
-
-        if (!tokenDeviceType.equals(deviceType)) {
-            return false;
-        }
-        if (!tokenDeviceLabel.equals(deviceLabel)) {
-            return false;
-        }
-        if (!tokenBrowser.equals(browser)) {
-            return false;
-        }
-        if (!tokenOs.equals(os)) {
-            return false;
-        }
-        if (ipAddress == null || ipAddress.isBlank()) {
-            return tokenIp == null || "unknown".equals(tokenIp);
-        }
-
-        return tokenIp.equals(ipAddress);
-    }
-
-    private String normalizeText(String value, String fallback) {
-        return value != null && !value.isBlank() ? value : fallback;
-    }
-
-    private String resolveDeviceType(String userAgent) {
-        if (userAgent == null) {
-            return "desktop";
-        }
-
-        String ua = userAgent.toLowerCase();
-        if (ua.contains("mobile") || ua.contains("iphone") || ua.contains("android")) {
-            return "mobile";
-        }
-        if (ua.contains("ipad") || ua.contains("tablet")) {
-            return "tablet";
-        }
-
-        return "desktop";
-    }
-
-    private String resolveDeviceLabel(String userAgent, String deviceType) {
-        if (userAgent == null || userAgent.isBlank()) {
-            return "알 수 없는 기기";
-        }
-
-        String ua = userAgent.toLowerCase();
-        if (ua.contains("iphone")) {
-            return "iPhone";
-        }
-        if (ua.contains("ipad")) {
-            return "iPad";
-        }
-        if (ua.contains("android")) {
-            return "Android";
-        }
-        if (ua.contains("windows")) {
-            return "Windows PC";
-        }
-        if (ua.contains("macintosh") || ua.contains("mac os")) {
-            return "Mac";
-        }
-        if (ua.contains("linux")) {
-            return "Linux PC";
-        }
-
-        return "desktop".equals(deviceType) ? "데스크톱" : "모바일 기기";
-    }
-
-    private String resolveBrowser(String userAgent) {
-        if (userAgent == null) {
-            return "Unknown";
-        }
-
-        String ua = userAgent.toLowerCase();
-        if (ua.contains("edg/") || ua.contains("edge/")) {
-            return "Microsoft Edge";
-        }
-        if (ua.contains("chrome/")) {
-            return "Chrome";
-        }
-        if (ua.contains("safari/") && !ua.contains("chrome")) {
-            return "Safari";
-        }
-        if (ua.contains("firefox/")) {
-            return "Firefox";
-        }
-
-        return "Unknown";
-    }
-
-    private String resolveOs(String userAgent) {
-        if (userAgent == null) {
-            return "Unknown";
-        }
-
-        String ua = userAgent.toLowerCase();
-        if (ua.contains("iphone")) {
-            return "iOS";
-        }
-        if (ua.contains("ipad")) {
-            return "iPadOS";
-        }
-        if (ua.contains("android")) {
-            return "Android";
-        }
-        if (ua.contains("windows")) {
-            return "Windows";
-        }
-        if (ua.contains("macintosh") || ua.contains("mac os")) {
-            return "macOS";
-        }
-        if (ua.contains("linux")) {
-            return "Linux";
-        }
-
-        return "Unknown";
+        authSessionService.deleteRefreshTokenByEmail(email);
     }
 
     /**

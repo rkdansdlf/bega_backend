@@ -4,6 +4,7 @@ import com.example.cheerboard.domain.CheerComment;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.dto.CommentRes;
 import com.example.cheerboard.dto.CreateCommentReq;
+import com.example.cheerboard.exception.DuplicateCommentException;
 import com.example.cheerboard.repo.CheerCommentLikeRepo;
 import com.example.cheerboard.repo.CheerCommentRepo;
 import com.example.cheerboard.repo.CheerPostRepo;
@@ -22,12 +23,17 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.DigestUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -35,10 +41,15 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+import static com.example.cheerboard.service.CheerServiceConstants.DUPLICATE_COMMENT_ERROR;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CheerCommentService {
+
+    private static final Duration COMMENT_DUPLICATE_TTL = Duration.ofSeconds(3);
+    private static final String COMMENT_DUPLICATE_GUARD_PREFIX = "cheer:comment:dedupe:";
 
     private final CheerCommentRepo commentRepo;
     private final CheerCommentLikeRepo commentLikeRepo;
@@ -56,6 +67,7 @@ public class CheerCommentService {
     private final AIModerationService moderationService;
     private final CommentDtoMapper commentDtoMapper;
     private final EntityManager entityManager;
+    private final StringRedisTemplate stringRedisTemplate;
 
     @Transactional(readOnly = true)
     public Page<CommentRes> listComments(Long postId, Pageable pageable, UserEntity me) {
@@ -258,6 +270,8 @@ public class CheerCommentService {
             Long actualCount = commentRepo.countByPostId(Objects.requireNonNull(post.getId()).longValue());
             int newCount = actualCount != null ? actualCount.intValue() : 0;
             postRepo.setExactCommentCount(post.getId(), newCount);
+            post.setCommentCount(newCount);
+            postService.updateHotScore(post);
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(author);
@@ -290,20 +304,49 @@ public class CheerCommentService {
     }
 
     private void checkDuplicateComment(Long postId, Long authorId, String content, Long parentCommentId) {
-        java.time.Instant threeSecondsAgo = java.time.Instant.now().minusSeconds(3);
-        boolean isDuplicate;
-
-        if (parentCommentId == null) {
-            isDuplicate = commentRepo.existsByPostIdAndAuthorIdAndContentAndParentCommentIsNullAndCreatedAtAfter(
-                    postId, authorId, content, threeSecondsAgo);
-        } else {
-            isDuplicate = commentRepo.existsByPostIdAndAuthorIdAndContentAndParentCommentIdAndCreatedAtAfter(
-                    postId, authorId, content, parentCommentId, threeSecondsAgo);
+        String normalizedContent = normalizeCommentContent(content);
+        if (!acquireDuplicateCommentGuard(postId, authorId, parentCommentId, normalizedContent)) {
+            throw new DuplicateCommentException(DUPLICATE_COMMENT_ERROR);
         }
+
+        Instant threeSecondsAgo = Instant.now().minus(COMMENT_DUPLICATE_TTL);
+        List<String> recentContents = parentCommentId == null
+                ? commentRepo.findRecentTopLevelContentsByPostIdAndAuthorIdAndCreatedAtAfter(
+                        postId, authorId, threeSecondsAgo)
+                : commentRepo.findRecentReplyContentsByPostIdAndAuthorIdAndParentCommentIdAndCreatedAtAfter(
+                        postId, authorId, parentCommentId, threeSecondsAgo);
+
+        boolean isDuplicate = recentContents.stream()
+                .map(this::normalizeCommentContent)
+                .anyMatch(normalizedContent::equals);
 
         if (isDuplicate) {
-            throw new IllegalStateException("중복된 댓글입니다. 잠시 후 다시 시도해주세요.");
+            throw new DuplicateCommentException(DUPLICATE_COMMENT_ERROR);
         }
+    }
+
+    private boolean acquireDuplicateCommentGuard(Long postId, Long authorId, Long parentCommentId, String normalizedContent) {
+        try {
+            String key = COMMENT_DUPLICATE_GUARD_PREFIX + postId + ":" + authorId + ":"
+                    + (parentCommentId != null ? parentCommentId : "root") + ":"
+                    + DigestUtils.md5DigestAsHex(normalizedContent.getBytes(StandardCharsets.UTF_8));
+            Boolean acquired = stringRedisTemplate.opsForValue().setIfAbsent(key, "1", COMMENT_DUPLICATE_TTL);
+            return !Boolean.FALSE.equals(acquired);
+        } catch (Exception e) {
+            log.warn("Comment duplicate guard unavailable. postId={}, authorId={}", postId, authorId, e);
+            return true;
+        }
+    }
+
+    private String normalizeCommentContent(String content) {
+        if (content == null) {
+            return "";
+        }
+        String trimmed = content.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        return trimmed.replaceAll("\\s+", " ");
     }
 
     private CheerPost resolveActionTargetPost(CheerPost post) {

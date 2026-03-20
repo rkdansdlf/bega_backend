@@ -1,6 +1,8 @@
 package com.example.cheerboard.service;
 
 import com.example.auth.entity.UserEntity;
+import com.example.auth.service.BlockService;
+import com.example.auth.service.FollowService;
 import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.auth.service.UserService;
 import com.example.cheerboard.domain.CheerPost;
@@ -27,6 +29,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,10 +55,19 @@ class CheerFeedServiceTest {
     private PublicVisibilityVerifier publicVisibilityVerifier;
     @Mock
     private UserService userService;
+    @Mock
+    private FollowService followService;
+    @Mock
+    private BlockService blockService;
+    @Mock
+    private PermissionValidator permissionValidator;
+    @Mock
+    private PopularFeedScoringService popularFeedScoringService;
 
     @BeforeEach
     void setUp() {
         lenient().when(publicVisibilityVerifier.canAccess(any(), any())).thenReturn(true);
+        lenient().when(popularFeedScoringService.isHotEligible(any(CheerPost.class), anyInt(), any())).thenReturn(true);
     }
 
     @Test
@@ -157,6 +170,18 @@ class CheerFeedServiceTest {
 
         assertThat(response.newCount()).isEqualTo(1);
         assertThat(response.latestId()).isEqualTo(12L);
+    }
+
+    @Test
+    @DisplayName("checkPostChanges treats all teamId as public filter")
+    void checkPostChanges_allTeamIdBehavesAsPublicFilter() {
+        when(postRepo.findNewPostsSinceOrderByIdDesc(10L, null)).thenReturn(List.of());
+
+        PostChangesResponse response = feedService.checkPostChanges(10L, "all", null);
+
+        assertThat(response.newCount()).isEqualTo(0);
+        assertThat(response.latestId()).isEqualTo(10L);
+        verify(permissionValidator, never()).validateTeamAccess(any(), anyString(), anyString());
     }
 
     private CheerPost createSimplePost(Long postId, Long authorId) {

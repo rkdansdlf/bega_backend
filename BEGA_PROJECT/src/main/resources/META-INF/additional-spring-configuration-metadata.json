@@ -22,7 +22,7 @@
   {
     "name": "app.client-error-monitoring.alerts.enabled",
     "type": "java.lang.Boolean",
-    "description": "Whether backend-driven client error Slack alerting is enabled."
+    "description": "Whether backend-driven client error alert delivery is enabled."
   },
   {
     "name": "app.client-error-monitoring.alerts.poll-interval-ms",
@@ -50,8 +50,18 @@
     "description": "Cooldown period in minutes before the same fingerprint can alert again."
   },
   {
-    "name": "app.client-error-monitoring.alerts.slack-webhook-url",
+    "name": "app.client-error-monitoring.alerts.channel",
+    "type": "com.example.common.clienterror.ClientErrorAlertChannel",
+    "description": "Alert delivery channel used for backend-driven client error alerts."
+  },
+  {
+    "name": "app.client-error-monitoring.alerts.telegram.bot-token",
     "type": "java.lang.String",
-    "description": "Slack webhook URL used for backend-driven client error alerts."
+    "description": "Telegram bot token used for backend-driven client error alerts."
+  },
+  {
+    "name": "app.client-error-monitoring.alerts.telegram.chat-id",
+    "type": "java.lang.String",
+    "description": "Telegram chat id used for backend-driven client error alerts."
   }
 ]}

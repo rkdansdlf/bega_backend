@@ -11,8 +11,9 @@ import com.example.auth.entity.UserEntity;
 import com.example.mypage.dto.UserProfileDto;
 import com.example.mypage.dto.DeviceSessionDto;
 import com.example.auth.entity.RefreshToken;
-import com.example.auth.repository.RefreshRepository;
 import com.example.auth.service.AccountSecurityService;
+import com.example.auth.service.AuthSessionService;
+import com.example.auth.service.AuthSessionMetadataResolver;
 import com.example.auth.service.PolicyConsentService;
 import com.example.auth.util.AuthCookieUtil;
 
@@ -39,7 +40,6 @@ import java.util.Map;
 import java.util.List;
 import java.util.Objects;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.Cookie;
 import jakarta.validation.Valid;
 
 //마이페이지 기능을 위한 컨트롤러입니다.
@@ -48,15 +48,13 @@ import jakarta.validation.Valid;
 @RequiredArgsConstructor
 @Slf4j
 public class MypageController {
-
-    private static final long ACCESS_TOKEN_EXPIRED_MS = 1000 * 60 * 30; // 30분 (ms 단위)
         private final UserService userService;
         private final JWTUtil jwtUtil;
         private final ProfileImageService profileImageService;
-        private final RefreshRepository refreshRepository;
         private final AuthCookieUtil authCookieUtil;
         private final PolicyConsentService policyConsentService;
         private final AccountSecurityService accountSecurityService;
+        private final AuthSessionService authSessionService;
 
         // 프로필 정보 조회 (GET /mypage) - 수정 없음
         @GetMapping("/mypage")
@@ -115,11 +113,12 @@ public class MypageController {
                 String newRoleKey = updatedEntity.getRole();
                 String userEmail = updatedEntity.getEmail();
                 int tokenVersion = updatedEntity.getTokenVersion() == null ? 0 : updatedEntity.getTokenVersion();
+                long accessTokenExpiredMs = jwtUtil.getAccessTokenExpirationTime();
 
                 String newJwtToken = jwtUtil.createJwt(userEmail, newRoleKey, authenticatedUserId,
-                                ACCESS_TOKEN_EXPIRED_MS, tokenVersion);
+                                accessTokenExpiredMs, tokenVersion);
 
-                ResponseCookie cookie = authCookieUtil.buildAuthCookie(newJwtToken, ACCESS_TOKEN_EXPIRED_MS / 1000);
+                ResponseCookie cookie = authCookieUtil.buildAuthCookie(newJwtToken, accessTokenExpiredMs / 1000);
 
                 Map<String, Object> responseMap = new HashMap<>();
                 responseMap.put("profileImageUrl",
@@ -213,22 +212,13 @@ public class MypageController {
                         @AuthenticationPrincipal Long userId,
                         HttpServletRequest request) {
                 UserEntity user = requireAuthenticatedUser(userId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다.");
-                List<RefreshToken> refreshTokens = refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail());
-                String currentRefreshToken = resolveCookieValue(request, "Refresh");
-                String requestUserAgent = request.getHeader("User-Agent");
-                String requestIpAddress = resolveIpAddress(request);
-
-                RefreshToken currentSessionToken = resolveCurrentSessionToken(
-                                refreshTokens,
-                                currentRefreshToken,
-                                requestUserAgent,
-                                requestIpAddress);
-                String currentSessionId = currentSessionToken != null && currentSessionToken.getId() != null
-                                ? String.valueOf(currentSessionToken.getId())
-                                : null;
+                List<RefreshToken> refreshTokens = authSessionService.findRefreshTokensByEmail(user.getEmail());
+                RefreshToken currentSessionToken = authSessionService.resolveCurrentSessionToken(refreshTokens, request);
+                String currentSessionId = authSessionService.resolveSessionIdentifier(currentSessionToken);
+                AuthSessionMetadataResolver.SessionMetadata requestMetadata = authSessionService.resolveRequestMetadata(request);
 
                 List<DeviceSessionDto> sessions = refreshTokens.stream()
-                                .map(token -> buildDeviceSessionDto(token, currentSessionId, requestUserAgent, requestIpAddress))
+                                .map(token -> buildDeviceSessionDto(token, currentSessionId, requestMetadata))
                                 .sorted((left, right) -> {
                                         if (left.isCurrent() != right.isCurrent()) {
                                                 return left.isCurrent() ? -1 : 1;
@@ -253,32 +243,26 @@ public class MypageController {
                         HttpServletRequest request) {
                 UserEntity user = requireAuthenticatedUser(userId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다.");
 
-                List<RefreshToken> refreshTokens = refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail());
-                String currentRefreshToken = resolveCookieValue(request, "Refresh");
-                RefreshToken currentSessionToken = resolveCurrentSessionToken(
-                                refreshTokens,
-                                currentRefreshToken,
-                                request.getHeader("User-Agent"),
-                                resolveIpAddress(request));
-                String currentSessionId = currentSessionToken != null && currentSessionToken.getId() != null
-                                ? String.valueOf(currentSessionToken.getId())
-                                : null;
+                List<RefreshToken> refreshTokens = authSessionService.findRefreshTokensByEmail(user.getEmail());
+                RefreshToken currentSessionToken = authSessionService.resolveCurrentSessionToken(refreshTokens, request);
+                String currentSessionId = authSessionService.resolveSessionIdentifier(currentSessionToken);
                 RefreshToken targetToken = refreshTokens.stream()
-                                .filter(item -> item.getId() != null && String.valueOf(item.getId()).equals(sessionId))
+                                .filter(item -> sessionId.equals(authSessionService.resolveSessionIdentifier(item)))
                                 .findFirst()
                                 .orElse(null);
 
-                if (targetToken == null || targetToken.getId() == null) {
+                if (targetToken == null) {
                         throw new NotFoundBusinessException("SESSION_NOT_FOUND", "종료할 세션 정보를 찾을 수 없습니다.");
                 }
 
-                if (Objects.equals(currentSessionId, sessionId) && currentRefreshToken != null) {
+                if (Objects.equals(currentSessionId, sessionId)
+                                && authSessionService.extractCookieValue(request, "Refresh") != null) {
                         throw new BadRequestBusinessException(
                                         "CURRENT_SESSION_REVOKE_NOT_ALLOWED",
                                         "현재 사용 중인 세션은 직접 종료할 수 없습니다.");
                 }
 
-                refreshRepository.delete(targetToken);
+                authSessionService.deleteRefreshToken(targetToken);
                 accountSecurityService.recordSessionRevoked(user.getId(), targetToken);
                 return ResponseEntity.ok(ApiResponse.success("선택한 세션을 종료했습니다."));
         }
@@ -296,23 +280,19 @@ public class MypageController {
                         throw new BadRequestBusinessException("UNSUPPORTED_SESSION_CLEANUP_REQUEST", "지원되지 않는 요청입니다.");
                 }
 
-                List<RefreshToken> refreshTokens = refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail());
-                String currentRefreshToken = resolveCookieValue(request, "Refresh");
-                RefreshToken currentSessionToken = resolveCurrentSessionToken(
-                                refreshTokens,
-                                currentRefreshToken,
-                                request.getHeader("User-Agent"),
-                                resolveIpAddress(request));
+                List<RefreshToken> refreshTokens = authSessionService.findRefreshTokensByEmail(user.getEmail());
+                RefreshToken currentSessionToken = authSessionService.resolveCurrentSessionToken(refreshTokens, request);
 
-                if (currentSessionToken == null || currentSessionToken.getId() == null) {
+                if (currentSessionToken == null) {
                         throw new ConflictBusinessException(
                                         "CURRENT_SESSION_NOT_RESOLVED",
                                         "현재 세션을 확인하지 못해 다른 기기 로그아웃을 중단했습니다. 다시 로그인 후 시도해주세요.");
                 }
 
                 List<RefreshToken> targets = refreshTokens.stream()
-                                .filter(token -> token.getId() != null
-                                                && !Objects.equals(token.getId(), currentSessionToken.getId()))
+                                .filter(token -> !Objects.equals(
+                                                authSessionService.resolveSessionIdentifier(token),
+                                                authSessionService.resolveSessionIdentifier(currentSessionToken)))
                                 .toList();
 
                 if (targets.isEmpty()) {
@@ -320,7 +300,7 @@ public class MypageController {
                 }
 
                 int revokedCount = targets.size();
-                refreshRepository.deleteAll(targets);
+                authSessionService.deleteRefreshTokens(targets);
                 accountSecurityService.recordOtherSessionsRevoked(userId, revokedCount);
                 return ResponseEntity.ok(ApiResponse.success("현재 기기 제외 다른 기기 로그아웃이 완료되었습니다."));
         }
@@ -341,57 +321,30 @@ public class MypageController {
                 }
         }
 
-        private String resolveCookieValue(HttpServletRequest request, String cookieName) {
-                Cookie[] cookies = request.getCookies();
-                if (cookies == null || cookieName == null) {
-                        return null;
-                }
-
-                for (Cookie cookie : cookies) {
-                        if (cookieName.equals(cookie.getName())) {
-                                return cookie.getValue();
-                        }
-                }
-
-                return null;
-        }
-
-        private String resolveIpAddress(HttpServletRequest request) {
-                String xff = request.getHeader("X-Forwarded-For");
-                if (xff != null && !xff.isBlank()) {
-                        return xff.split(",")[0].trim();
-                }
-
-                String realIp = request.getHeader("X-Real-IP");
-                if (realIp != null && !realIp.isBlank()) {
-                        return realIp.trim();
-                }
-
-                String remoteAddr = request.getRemoteAddr();
-                return remoteAddr != null ? remoteAddr : "unknown";
-        }
-
-        private DeviceSessionDto buildDeviceSessionDto(RefreshToken refreshToken, String currentSessionId, String requestUserAgent,
-                        String requestIpAddress) {
-                String userAgent = requestUserAgent;
-                boolean isExpired = isRefreshTokenExpired(refreshToken);
-                boolean isCurrentSession = refreshToken.getId() != null && currentSessionId != null
-                                ? String.valueOf(refreshToken.getId()).equals(currentSessionId) && !isExpired
+        private DeviceSessionDto buildDeviceSessionDto(RefreshToken refreshToken, String currentSessionId,
+                        AuthSessionMetadataResolver.SessionMetadata requestMetadata) {
+                boolean isExpired = authSessionService.isRefreshTokenExpired(refreshToken);
+                String sessionId = authSessionService.resolveSessionIdentifier(refreshToken);
+                boolean isCurrentSession = sessionId != null && currentSessionId != null
+                                ? sessionId.equals(currentSessionId) && !isExpired
                                 : false;
 
-                String sessionId = refreshToken.getId() != null
-                                ? refreshToken.getId().toString()
-                                : String.valueOf(Math.abs(Objects.hash(refreshToken.getEmail(), refreshToken.getToken())));
-
-                String deviceType = normalizeText(refreshToken.getDeviceType(), "desktop");
-                String deviceLabel = normalizeText(refreshToken.getDeviceLabel(), (isCurrentSession ? resolveDeviceLabel(userAgent, deviceType)
-                                : null));
-                String browser = normalizeText(refreshToken.getBrowser(), (isCurrentSession ? resolveBrowser(userAgent) : "Unknown"));
-                String os = normalizeText(refreshToken.getOs(), (isCurrentSession ? resolveOs(userAgent) : "Unknown"));
-                String ipAddress = normalizeText(refreshToken.getIp(), (isCurrentSession ? requestIpAddress : null));
+                String deviceType = authSessionService.normalizeText(refreshToken.getDeviceType(), "desktop");
+                String deviceLabel = authSessionService.normalizeText(
+                                refreshToken.getDeviceLabel(),
+                                isCurrentSession ? requestMetadata.deviceLabel() : null);
+                String browser = authSessionService.normalizeText(
+                                refreshToken.getBrowser(),
+                                isCurrentSession ? requestMetadata.browser() : "Unknown");
+                String os = authSessionService.normalizeText(
+                                refreshToken.getOs(),
+                                isCurrentSession ? requestMetadata.os() : "Unknown");
+                String ipAddress = authSessionService.normalizeText(
+                                refreshToken.getIp(),
+                                isCurrentSession ? requestMetadata.ip() : null);
 
                 if (deviceLabel == null) {
-                        deviceLabel = isCurrentSession ? resolveDeviceLabel(userAgent, deviceType) : "알 수 없는 기기";
+                        deviceLabel = isCurrentSession ? requestMetadata.deviceLabel() : "알 수 없는 기기";
                 }
 
                 String lastSeenAt = formatSessionTime(refreshToken.getLastSeenAt());
@@ -413,62 +366,6 @@ public class MypageController {
                                 .isRevoked(isExpired)
                                 .ip(ipAddress)
                                 .build();
-        }
-
-        private RefreshToken resolveCurrentSessionToken(
-                        List<RefreshToken> refreshTokens,
-                        String currentRefreshToken,
-                        String requestUserAgent,
-                        String requestIpAddress) {
-                if (refreshTokens == null || refreshTokens.isEmpty()) {
-                        return null;
-                }
-
-                RefreshToken cookieMatchedToken = refreshTokens.stream()
-                                .filter(token -> token.getId() != null
-                                                && token.getToken() != null
-                                                && currentRefreshToken != null
-                                                && token.getToken().equals(currentRefreshToken)
-                                                && !isRefreshTokenExpired(token))
-                                .findFirst()
-                                .orElse(null);
-                if (cookieMatchedToken != null) {
-                        return cookieMatchedToken;
-                }
-
-                String resolvedDeviceType = resolveDeviceType(requestUserAgent);
-                String resolvedDeviceLabel = resolveDeviceLabel(requestUserAgent, resolvedDeviceType);
-                String resolvedBrowser = resolveBrowser(requestUserAgent);
-                String resolvedOs = resolveOs(requestUserAgent);
-
-                return refreshTokens.stream()
-                                .filter(token -> token.getId() != null && !isRefreshTokenExpired(token))
-                                .filter(token -> isSameText(token.getDeviceType(), resolvedDeviceType))
-                                .filter(token -> isSameText(token.getDeviceLabel(), resolvedDeviceLabel))
-                                .filter(token -> isSameText(token.getBrowser(), resolvedBrowser))
-                                .filter(token -> isSameText(token.getOs(), resolvedOs))
-                                .filter(token -> token.getIp() == null || token.getIp().isBlank()
-                                                || requestIpAddress == null || requestIpAddress.isBlank()
-                                                || token.getIp().equals(requestIpAddress))
-                                .findFirst()
-                                .orElse(null);
-        }
-
-        private boolean isRefreshTokenExpired(RefreshToken refreshToken) {
-                return refreshToken.getExpiryDate() == null
-                                || refreshToken.getExpiryDate().isBefore(LocalDateTime.now());
-        }
-
-        private boolean isSameText(String left, String right) {
-                if (left == null || left.isBlank() || right == null || right.isBlank()) {
-                        return false;
-                }
-
-                return left.trim().equalsIgnoreCase(right.trim());
-        }
-
-        private String normalizeText(String value, String fallback) {
-                return (value != null && !value.isBlank()) ? value : fallback;
         }
 
         private String formatSessionTime(LocalDateTime value) {
@@ -499,100 +396,6 @@ public class MypageController {
                                 }
                         }
                 }
-        }
-
-        private String resolveDeviceType(String userAgent) {
-                if (userAgent == null) {
-                        return "desktop";
-                }
-
-                String ua = userAgent.toLowerCase();
-                if (ua.contains("mobile") || ua.contains("iphone") || ua.contains("android")) {
-                        return "mobile";
-                }
-                if (ua.contains("ipad") || ua.contains("tablet")) {
-                        return "tablet";
-                }
-
-                return "desktop";
-        }
-
-        private String resolveDeviceLabel(String userAgent, String deviceType) {
-                if (userAgent == null || userAgent.isBlank()) {
-                        return "알 수 없는 기기";
-                }
-
-                String ua = userAgent.toLowerCase();
-                if (ua.contains("iphone")) {
-                        return "iPhone";
-                }
-                if (ua.contains("ipad")) {
-                        return "iPad";
-                }
-                if (ua.contains("android")) {
-                        return "Android";
-                }
-                if (ua.contains("windows")) {
-                        return "Windows PC";
-                }
-                if (ua.contains("macintosh") || ua.contains("mac os")) {
-                        return "Mac";
-                }
-                if (ua.contains("linux")) {
-                        return "Linux PC";
-                }
-
-                return deviceType.equals("mobile") ? "모바일 기기" : "데스크톱";
-        }
-
-        private String resolveBrowser(String userAgent) {
-                if (userAgent == null) {
-                        return "Unknown";
-                }
-
-                String ua = userAgent.toLowerCase();
-                if (ua.contains("edg/") || ua.contains("edge/")) {
-                        return "Microsoft Edge";
-                }
-                if (ua.contains("chrome/")) {
-                        return "Chrome";
-                }
-                if (ua.contains("firefox/")) {
-                        return "Firefox";
-                }
-                if (ua.contains("safari/") && !ua.contains("chrome/")) {
-                        return "Safari";
-                }
-                if (ua.contains("opera/") || ua.contains("opr/")) {
-                        return "Opera";
-                }
-
-                return "Unknown";
-        }
-
-        private String resolveOs(String userAgent) {
-                if (userAgent == null) {
-                        return "Unknown";
-                }
-
-                String ua = userAgent.toLowerCase();
-                if (ua.contains("windows")) {
-                        return "Windows";
-                }
-                if (ua.contains("mac os") || ua.contains("macintosh")) {
-                        return "macOS";
-                }
-                if (ua.contains("android")) {
-                        return "Android";
-                }
-                if (ua.contains("iphone") || ua.contains("ipad") || ua.contains("ipod")) {
-                        return "iOS";
-                }
-                if (ua.contains("linux")) {
-                        return "Linux";
-                }
-
-                return "Unknown";
         }
 
 }

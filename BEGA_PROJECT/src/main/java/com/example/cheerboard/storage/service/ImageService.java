@@ -71,7 +71,7 @@ public class ImageService {
         int fileCount = files == null ? 0 : files.size();
         log.info("이미지 업로드 시작 (Parallel): postId={}, 파일 수={}", postId, fileCount);
         UserEntity me = currentUser.get();
-        CheerPost post = findPostById(postId);
+        CheerPost post = findPostByIdForImageWrite(postId);
 
         // 권한 체크: 작성자 또는 관리자만
         permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "이미지 업로드");
@@ -144,25 +144,30 @@ public class ImageService {
         // 3. DB Save (Single Batch Transaction)
         List<UploadResult> results = futures.stream().map(CompletableFuture::join).toList();
 
-        for (UploadResult res : results) {
-            PostImage image = PostImage.builder()
-                    .post(post)
-                    .storagePath(res.path())
-                    .mimeType(res.info().getContentType())
-                    .bytes(res.info().getSize())
-                    .isThumbnail(false)
-                    .build();
+        try {
+            for (UploadResult res : results) {
+                PostImage image = PostImage.builder()
+                        .post(post)
+                        .storagePath(res.path())
+                        .mimeType(res.info().getContentType())
+                        .bytes(res.info().getSize())
+                        .isThumbnail(false)
+                        .build();
 
-            postImageRepo.save(Objects.requireNonNull(image));
-            log.info("DB 저장 성공: imageId={}, path={}", image.getId(), res.path());
+                postImageRepo.save(Objects.requireNonNull(image));
+                log.info("DB 저장 성공: imageId={}, path={}", image.getId(), res.path());
 
-            uploadedImages.add(new PostImageDto(
-                    image.getId(),
-                    image.getStoragePath(),
-                    image.getMimeType(),
-                    image.getBytes(),
-                    image.getIsThumbnail(),
-                    generateSignedUrl(image.getStoragePath())));
+                uploadedImages.add(new PostImageDto(
+                        image.getId(),
+                        image.getStoragePath(),
+                        image.getMimeType(),
+                        image.getBytes(),
+                        image.getIsThumbnail(),
+                        generateSignedUrl(image.getStoragePath())));
+            }
+        } catch (RuntimeException e) {
+            compensateUploadFailure(results.stream().map(UploadResult::path).toList());
+            throw new InternalServerBusinessException("POST_IMAGE_UPLOAD_FAILED", "이미지 업로드 중 오류가 발생했습니다.");
         }
 
         log.info("이미지 업로드 완료: postId={}, 성공 {}개", postId, uploadedImages.size());
@@ -504,6 +509,11 @@ public class ImageService {
 
     private CheerPost findPostById(Long postId) {
         return postRepo.findById(Objects.requireNonNull(postId))
+                .orElseThrow(() -> new NotFoundBusinessException("CHEER_POST_NOT_FOUND", "게시글을 찾을 수 없습니다."));
+    }
+
+    private CheerPost findPostByIdForImageWrite(Long postId) {
+        return postRepo.findByIdForImageWrite(Objects.requireNonNull(postId))
                 .orElseThrow(() -> new NotFoundBusinessException("CHEER_POST_NOT_FOUND", "게시글을 찾을 수 없습니다."));
     }
 
