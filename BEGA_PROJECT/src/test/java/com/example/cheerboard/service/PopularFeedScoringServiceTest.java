@@ -151,4 +151,21 @@ class PopularFeedScoringServiceTest {
 
         assertThat(hybridB).isGreaterThan(hybridA);
     }
+
+    @Test
+    @DisplayName("글로벌 HOT base score가 임계값을 넘으면 HOT eligible 이다")
+    void calculateGlobalHotBaseScore_marksEligiblePost() {
+        Instant now = Instant.parse("2026-03-01T00:00:00Z");
+        CheerPost post = CheerPost.builder()
+                .likeCount(5)
+                .commentCount(3)
+                .repostCount(1)
+                .createdAt(now)
+                .build();
+
+        double baseScore = scoringService.calculateGlobalHotBaseScore(post, 20, now);
+
+        assertThat(baseScore).isGreaterThanOrEqualTo(CheerServiceConstants.HOT_BADGE_THRESHOLD);
+        assertThat(scoringService.isHotEligible(baseScore)).isTrue();
+    }
 }

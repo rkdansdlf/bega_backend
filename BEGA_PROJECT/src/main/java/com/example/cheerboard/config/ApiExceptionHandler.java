@@ -6,6 +6,8 @@ import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CONFLI
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CONFLICT_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.DUPLICATE_COMMENT_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.DUPLICATE_COMMENT_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_BLOCKED_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_CODE;
@@ -21,6 +23,7 @@ import static com.example.cheerboard.service.CheerServiceConstants.REPOST_SELF_N
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET_NOT_FOUND_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET_NOT_FOUND_ERROR;
 
+import com.example.cheerboard.exception.DuplicateCommentException;
 import com.example.common.dto.ApiResponse;
 import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.RepostNotAllowedException;
@@ -82,6 +85,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiResponse> handleForbidden(AccessDeniedException ex) {
         return build(HttpStatus.FORBIDDEN, "FORBIDDEN", ex.getMessage());
+    }
+
+    @ExceptionHandler(DuplicateCommentException.class)
+    public ResponseEntity<ApiResponse> handleDuplicateComment(DuplicateCommentException ex) {
+        return build(HttpStatus.CONFLICT, DUPLICATE_COMMENT_CODE, defaultIfBlank(ex.getMessage(), DUPLICATE_COMMENT_ERROR));
     }
 
     private ResponseEntity<ApiResponse> build(HttpStatus status, String code, String message) {
