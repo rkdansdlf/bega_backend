@@ -10,10 +10,10 @@ import java.io.OutputStream;
 import java.time.Duration;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -150,6 +150,12 @@ public class AiProxyService {
                 dataBuffer.read(chunk);
                 outputStream.write(chunk);
                 outputStream.flush();
+            } catch (IOException e) {
+                if (isClientDisconnect(e)) {
+                    log.debug("Downstream client disconnected while streaming AI response.");
+                    return;
+                }
+                throw e;
             } finally {
                 DataBufferUtils.release(dataBuffer);
             }
@@ -240,6 +246,28 @@ public class AiProxyService {
             if (allowedHeader.equalsIgnoreCase(headerName)) {
                 return true;
             }
+        }
+        return false;
+    }
+
+    private boolean isClientDisconnect(IOException exception) {
+        Throwable current = exception;
+        while (current != null) {
+            String className = current.getClass().getName();
+            String message = current.getMessage();
+            if ("org.apache.catalina.connector.ClientAbortException".equals(className)
+                    || "org.apache.coyote.ClientAbortException".equals(className)) {
+                return true;
+            }
+            if (message != null) {
+                String normalized = message.toLowerCase();
+                if (normalized.contains("broken pipe")
+                        || normalized.contains("connection reset by peer")
+                        || normalized.contains("connection reset")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
         }
         return false;
     }

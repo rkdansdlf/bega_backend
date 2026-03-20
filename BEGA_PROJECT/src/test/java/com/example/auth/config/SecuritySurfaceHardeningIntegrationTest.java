@@ -48,6 +48,7 @@ import org.springframework.web.bind.annotation.RestController;
         "oci.s3.secret-key=test-secret-key",
         "oci.s3.bucket=test-bucket",
         "oci.s3.region=ap-seoul-1",
+        "app.allowed-origins=https://www.begabaseball.xyz",
         "spring.autoconfigure.exclude=io.awspring.cloud.autoconfigure.s3.S3AutoConfiguration"
 })
 @DisplayName("Security surface hardening integration tests")

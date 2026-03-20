@@ -238,6 +238,8 @@ public class CheerPostService {
 
         post.setDeleted(true);
         postRepo.save(post);
+        redisPostService.cacheHotStatus(id, false);
+        redisPostService.removeFromHotList(id);
 
         boolean storageClean = imageService.deleteImagesByPostId(post.getId());
 
@@ -347,6 +349,9 @@ public class CheerPostService {
                     repostRepo.deleteByPostIdAndUserId(original.getId(), author.getId());
                 }
                 postRepo.decrementRepostCount(original.getId());
+                int updatedRepostCount = readRepostCount(original.getId());
+                original.setRepostCount(updatedRepostCount);
+                updateHotScore(original);
             }
 
             return new RepostToggleResponse(false, original == null ? 0 : readRepostCount(original.getId()));
@@ -359,13 +364,8 @@ public class CheerPostService {
     }
 
     @Transactional
-    public List<String> uploadImages(Long postId, List<MultipartFile> files) {
-        var imageDtos = imageService.uploadPostImages(postId, files);
-        return imageDtos.stream()
-                .map(PostImageDto::url)
-                .filter(Objects::nonNull)
-                .map(Objects::requireNonNull)
-                .toList();
+    public List<PostImageDto> uploadImages(Long postId, List<MultipartFile> files) {
+        return imageService.uploadPostImages(postId, files);
     }
 
     @Transactional(readOnly = true)
@@ -799,10 +799,17 @@ public class CheerPostService {
     }
 
     public void updateHotScore(CheerPost post) {
-        int combinedViews = post.getViews()
-                + (redisPostService.getViewCount(post.getId()) != null ? redisPostService.getViewCount(post.getId())
-                        : 0);
+        Integer redisViewCount = redisPostService.getViewCount(post.getId());
+        int combinedViews = post.getViews() + (redisViewCount != null ? redisViewCount : 0);
         java.time.Instant now = java.time.Instant.now();
+        double baseScore = popularFeedScoringService.calculateGlobalHotBaseScore(post, combinedViews, now);
+        boolean hotEligible = popularFeedScoringService.isHotEligible(baseScore);
+
+        redisPostService.cacheHotStatus(post.getId(), hotEligible);
+        if (!hotEligible) {
+            redisPostService.removeFromHotList(post.getId());
+            return;
+        }
 
         double timeDecayScore = popularFeedScoringService.calculateTimeDecayScore(post, combinedViews, now);
         double engagementRateScore = popularFeedScoringService.calculateEngagementRateScore(post, combinedViews);
