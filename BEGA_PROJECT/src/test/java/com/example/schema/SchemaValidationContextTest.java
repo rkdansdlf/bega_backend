@@ -16,6 +16,7 @@ import org.springframework.test.context.ActiveProfiles;
         "spring.flyway.baseline-on-migrate=true",
         "spring.flyway.validate-on-migrate=false",
         "kbo.schema-guard.strict=false",
+        "app.oauth2.cookie-secret=test-oauth2-cookie-secret",
         // This test boots the dev profile, so the primary datasource intentionally stays on DB_*.
         "spring.datasource.url=${DB_URL}",
         "spring.datasource.driver-class-name=org.postgresql.Driver",

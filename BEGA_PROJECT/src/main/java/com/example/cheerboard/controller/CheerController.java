@@ -86,10 +86,10 @@ public class CheerController {
 
     @PostMapping(value = "/posts/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("isAuthenticated()")
-    public java.util.List<String> uploadImages(
+    public ResponseEntity<java.util.List<com.example.cheerboard.storage.dto.PostImageDto>> uploadImages(
             @PathVariable Long id,
             @RequestPart("files") java.util.List<org.springframework.web.multipart.MultipartFile> images) {
-        return svc.uploadImages(id, images);
+        return ResponseEntity.status(HttpStatus.CREATED).body(svc.uploadImages(id, images));
     }
 
     @GetMapping("/posts/{id}/images")

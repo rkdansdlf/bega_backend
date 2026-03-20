@@ -25,6 +25,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
 import javax.crypto.SecretKey;
@@ -58,6 +59,7 @@ class JWTFilterTokenTypeTest {
     @BeforeEach
     void setUp() {
         jwtUtil = new JWTUtil(SECRET, 1000L * 60 * 60 * 24 * 7);
+        ReflectionTestUtils.setField(jwtUtil, "accessExpirationTime", 7_200_000L);
         jwtUtil.validateSecret();
         jwtFilter = new JWTFilter(jwtUtil, false, List.of("http://localhost:5173"), tokenBlacklistService,
                 userRepository, securityMonitoringService);
