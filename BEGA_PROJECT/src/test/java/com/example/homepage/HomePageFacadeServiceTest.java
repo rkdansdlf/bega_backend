@@ -2,6 +2,7 @@ package com.example.homepage;
 
 import com.example.cheerboard.service.CheerService;
 import com.example.mate.service.PartyService;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -100,5 +101,43 @@ class HomePageFacadeServiceTest {
         assertThat(response.getFeaturedMates()).hasSize(1);
         assertThat(response.getFeaturedMates().get(0).getId()).isEqualTo(99L);
         verify(partyService).getFeaturedMateCards(selectedDate, 4);
+    }
+
+    @Test
+    @DisplayName("bootstrap은 특정 섹션이 timeout되어도 기본값으로 응답한다")
+    void getBootstrapFallsBackWhenSectionTimesOut() throws Exception {
+        HomePageFacadeService timeoutAwareService =
+                new HomePageFacadeService(homePageGameService, cheerService, partyService, Duration.ofMillis(20));
+        LocalDate selectedDate = LocalDate.of(2026, 3, 15);
+
+        when(homePageGameService.getLeagueStartDates()).thenAnswer(invocation -> {
+            Thread.sleep(80);
+            return LeagueStartDatesDto.builder()
+                    .regularSeasonStart("2026-03-22")
+                    .postseasonStart("2026-10-06")
+                    .koreanSeriesStart("2026-10-26")
+                    .build();
+        });
+        when(homePageGameService.getScheduleNavigation(selectedDate)).thenReturn(ScheduleNavigationDto.builder()
+                .prevGameDate(LocalDate.of(2026, 3, 14))
+                .nextGameDate(LocalDate.of(2026, 3, 16))
+                .hasPrev(true)
+                .hasNext(true)
+                .build());
+        when(homePageGameService.getGamesByDate(selectedDate)).thenReturn(List.of());
+        when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
+                .thenReturn(List.of());
+
+        long startedAt = System.nanoTime();
+        HomeBootstrapResponseDto response = timeoutAwareService.getBootstrap(selectedDate);
+        long elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
+
+        assertThat(response.getLeagueStartDates().getRegularSeasonStart()).isEqualTo("2026-03-15");
+        assertThat(response.getNavigation().isHasPrev()).isTrue();
+        assertThat(response.getNavigation().isHasNext()).isTrue();
+        assertThat(response.getGames()).isEmpty();
+        assertThat(response.getScheduledGamesWindow()).isEmpty();
+        assertThat(response.getRankings()).isEmpty();
+        assertThat(elapsedMs).isLessThan(250L);
     }
 }
