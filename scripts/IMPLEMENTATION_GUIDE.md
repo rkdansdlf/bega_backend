@@ -12,18 +12,18 @@
 # Export teams table before any changes
 cd /Users/mac/project/KBO_platform/bega_backend/scripts
 
-# Using psql (requires .env credentials)
-psql $DB_URL -c "\COPY teams TO 'backup_teams_$(date +%Y%m%d_%H%M%S).csv' WITH CSV HEADER"
+# Using psql (prefer BASEBALL_DB_URL; DB_URL remains fallback)
+psql "${BASEBALL_DB_URL:-$DB_URL}" -c "\COPY teams TO 'backup_teams_$(date +%Y%m%d_%H%M%S).csv' WITH CSV HEADER"
 
 # Or create full database backup
-pg_dump $DB_URL > backup_$(date +%Y%m%d_%H%M%S).sql
+pg_dump "${BASEBALL_DB_URL:-$DB_URL}" > backup_$(date +%Y%m%d_%H%M%S).sql
 ```
 
 ### Step 2: Run Analysis Script
 
 ```bash
 # Connect to database and run analysis
-psql $DB_URL -f analyze_team_data.sql > analysis_results.txt
+psql "${BASEBALL_DB_URL:-$DB_URL}" -f analyze_team_data.sql > analysis_results.txt
 
 # Review the output
 less analysis_results.txt
@@ -39,7 +39,7 @@ less analysis_results.txt
 
 ```bash
 # Run the fix script
-psql $DB_URL -f fix_01_is_active_flags.sql
+psql "${BASEBALL_DB_URL:-$DB_URL}" -f fix_01_is_active_flags.sql
 
 # Verify results:
 # - Active teams should be 10
@@ -139,17 +139,17 @@ Only if you implemented alias functionality:
 
 ```bash
 # Run alias population script
-psql $DB_URL -f fix_02_populate_aliases.sql
+psql "${BASEBALL_DB_URL:-$DB_URL}" -f fix_02_populate_aliases.sql
 
 # Verify aliases are populated
-psql $DB_URL -c "SELECT team_id, team_name, aliases FROM teams WHERE franchise_id IS NOT NULL LIMIT 20"
+psql "${BASEBALL_DB_URL:-$DB_URL}" -c "SELECT team_id, team_name, aliases FROM teams WHERE franchise_id IS NOT NULL LIMIT 20"
 ```
 
 ### Step 8: Handle Edge Cases (OPTIONAL)
 
 ```bash
 # Run edge case investigation
-psql $DB_URL -f fix_03_edge_cases.sql
+psql "${BASEBALL_DB_URL:-$DB_URL}" -f fix_03_edge_cases.sql
 
 # Review results and decide:
 # - LOT vs LT: Check which exists, fix if needed
@@ -233,7 +233,7 @@ If something goes wrong:
 
 ```bash
 # Database rollback
-psql $DB_URL -f rollback_fixes.sql
+psql "${BASEBALL_DB_URL:-$DB_URL}" -f rollback_fixes.sql
 
 # Code rollback
 cd /Users/mac/project/KBO_platform/bega_backend/BEGA_PROJECT
@@ -247,8 +247,8 @@ git checkout src/main/java/com/example/demo/repo/TeamRepository.java
 Or restore from backup:
 ```bash
 # Restore teams table from CSV backup
-psql $DB_URL -c "TRUNCATE teams CASCADE"
-psql $DB_URL -c "\COPY teams FROM 'backup_teams_20260112.csv' WITH CSV HEADER"
+psql "${BASEBALL_DB_URL:-$DB_URL}" -c "TRUNCATE teams CASCADE"
+psql "${BASEBALL_DB_URL:-$DB_URL}" -c "\COPY teams FROM 'backup_teams_20260112.csv' WITH CSV HEADER"
 ```
 
 ---
@@ -415,7 +415,7 @@ If you encounter issues:
 
 1. Check the logs: `./gradlew bootRun` output
 2. Verify database state: Run `analyze_team_data.sql`
-3. Test database connection: `psql $DB_URL -c "SELECT COUNT(*) FROM teams"`
+3. Test database connection: `psql "${BASEBALL_DB_URL:-$DB_URL}" -c "SELECT COUNT(*) FROM teams"`
 4. Review entity mappings: Ensure column names match exactly
 5. Rollback if needed: Use `rollback_fixes.sql` and git checkout
 

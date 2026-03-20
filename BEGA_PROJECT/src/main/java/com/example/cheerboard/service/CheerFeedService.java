@@ -67,7 +67,7 @@ public class CheerFeedService {
 
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> list(String teamId, String postTypeStr, Pageable pageable, UserEntity me) {
-        String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
+        String normalizedTeamId = resolveTeamFilter(teamId);
 
         if (normalizedTeamId != null && !normalizedTeamId.isBlank()) {
             if (me == null) {
@@ -110,7 +110,7 @@ public class CheerFeedService {
 
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> search(String q, String teamId, Pageable pageable, UserEntity me) {
-        String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
+        String normalizedTeamId = resolveTeamFilter(teamId);
         java.util.Set<Long> excludedIds = getExcludedUserIds(me);
         Page<CheerPost> page = excludedIds.isEmpty()
                 ? postRepo.searchNoExcluded(q, normalizedTeamId, pageable)
@@ -122,7 +122,7 @@ public class CheerFeedService {
     @Transactional(readOnly = true)
     public Page<PostLightweightSummaryRes> listLightweight(String teamId, String postTypeStr, Pageable pageable,
             UserEntity me) {
-        String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
+        String normalizedTeamId = resolveTeamFilter(teamId);
         if (normalizedTeamId != null && !normalizedTeamId.isBlank()) {
             if (me == null) {
                 throw new AuthenticationCredentialsNotFoundException("로그인 후 마이팀 게시판을 이용할 수 있습니다.");
@@ -193,7 +193,7 @@ public class CheerFeedService {
 
     @Transactional(readOnly = true)
     public PostChangesResponse checkPostChanges(Long sinceId, String teamId, UserEntity me) {
-        String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
+        String normalizedTeamId = resolveTeamFilter(teamId);
         if (normalizedTeamId != null && !normalizedTeamId.isBlank()) {
             if (me == null) {
                 throw new AuthenticationCredentialsNotFoundException("로그인 후 마이팀 게시판을 이용할 수 있습니다.");
@@ -212,6 +212,17 @@ public class CheerFeedService {
                 .orElse(sinceId);
 
         return new PostChangesResponse(newCount, latestId);
+    }
+
+    private String resolveTeamFilter(String teamId) {
+        String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
+        if (normalizedTeamId == null || normalizedTeamId.isBlank()) {
+            return null;
+        }
+        if ("ALL".equalsIgnoreCase(normalizedTeamId)) {
+            return null;
+        }
+        return normalizedTeamId;
     }
 
     @Transactional(readOnly = true)
@@ -279,7 +290,16 @@ public class CheerFeedService {
                 .filter(post -> !excludedIds.contains(post.getAuthor().getId()))
                 .toList();
 
-        List<PostSummaryRes> content = toHotPostSummary(sortedPosts, me);
+        Map<Long, Integer> viewCountMap = safeGetViewCounts(sortedPosts.stream().map(CheerPost::getId).toList());
+        java.time.Instant now = java.time.Instant.now();
+        List<CheerPost> eligiblePosts = sortedPosts.stream()
+                .filter(post -> popularFeedScoringService.isHotEligible(
+                        post,
+                        post.getViews() + viewCountMap.getOrDefault(post.getId(), 0),
+                        now))
+                .toList();
+
+        List<PostSummaryRes> content = toHotPostSummary(eligiblePosts, me);
         return new PageImpl<>(Objects.requireNonNull(content), pageable, redisPostService.getHotListSize(algorithm));
     }
 
@@ -315,8 +335,14 @@ public class CheerFeedService {
                 ? new HashSet<>(followService.getFollowingIds(me.getId()))
                 : Collections.emptySet();
         java.time.Instant now = java.time.Instant.now();
+        List<CheerPost> eligibleCandidates = candidatePosts.stream()
+                .filter(post -> popularFeedScoringService.isHotEligible(
+                        post,
+                        post.getViews() + viewCountMap.getOrDefault(post.getId(), 0),
+                        now))
+                .toList();
 
-        List<ScoredHotPost> scoredPosts = candidatePosts.stream()
+        List<ScoredHotPost> scoredPosts = eligibleCandidates.stream()
                 .map(post -> {
                     int combinedViews = post.getViews() + viewCountMap.getOrDefault(post.getId(), 0);
                     double globalScore = popularFeedScoringService.calculateTimeDecayScore(post, combinedViews, now);

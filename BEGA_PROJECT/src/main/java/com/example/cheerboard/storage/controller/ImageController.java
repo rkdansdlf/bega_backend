@@ -6,7 +6,9 @@ import com.example.cheerboard.storage.service.ImageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -31,7 +33,8 @@ public class ImageController {
     /**
      * 게시글 이미지 업로드
      */
-    @PostMapping("/posts/{postId}/images")
+    @PostMapping(value = "/posts/{postId}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<PostImageDto>> uploadPostImages(
         @PathVariable Long postId,
         @RequestParam("files") List<MultipartFile> files
@@ -55,6 +58,7 @@ public class ImageController {
      * 서명 URL 갱신
      */
     @PostMapping("/images/{imageId}/signed-url")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<SignedUrlDto> renewSignedUrl(@PathVariable Long imageId) {
         SignedUrlDto result = imageService.renewSignedUrl(imageId);
         return ResponseEntity.ok(result);
@@ -64,6 +68,7 @@ public class ImageController {
      * 썸네일로 지정
      */
     @PostMapping("/images/{imageId}/thumbnail")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<PostImageDto> markAsThumbnail(@PathVariable Long imageId) {
         PostImageDto result = imageService.markAsThumbnail(imageId);
         return ResponseEntity.ok(result);
@@ -73,6 +78,7 @@ public class ImageController {
      * 이미지 삭제
      */
     @DeleteMapping("/images/{imageId}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Void> deleteImage(@PathVariable Long imageId) {
         imageService.deleteImage(imageId);
         return ResponseEntity.noContent().build();

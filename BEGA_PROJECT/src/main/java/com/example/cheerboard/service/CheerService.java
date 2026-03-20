@@ -225,7 +225,7 @@ public class CheerService {
     // --- Image ---
 
     @Transactional
-    public List<String> uploadImages(Long postId, List<MultipartFile> files) {
+    public List<PostImageDto> uploadImages(Long postId, List<MultipartFile> files) {
         return postService.uploadImages(postId, files);
     }
 

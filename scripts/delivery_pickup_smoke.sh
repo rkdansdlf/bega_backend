@@ -9,17 +9,18 @@ Required:
   BACKEND_BASE_URL   Backend base URL (default: http://localhost:8080)
 
 Optional DB verification:
-  DB_URL             jdbc:postgresql://... format
-  DB_USERNAME
-  DB_PASSWORD
+  BASEBALL_DB_URL      Preferred jdbc:postgresql://... format
+  BASEBALL_DB_USERNAME Preferred DB username
+  BASEBALL_DB_PASSWORD Preferred DB password
+  DB_URL/DB_USERNAME/DB_PASSWORD remain supported as fallback
 
 Examples:
   BACKEND_BASE_URL=https://api.example.com \
   ./scripts/delivery_pickup_smoke.sh
 
   BACKEND_BASE_URL=https://api.example.com \
-  DB_URL=jdbc:postgresql://db-host:5432/bega_backend \
-  DB_USERNAME=user DB_PASSWORD=pass \
+  BASEBALL_DB_URL=jdbc:postgresql://db-host:5432/bega_backend \
+  BASEBALL_DB_USERNAME=user BASEBALL_DB_PASSWORD=pass \
   ./scripts/delivery_pickup_smoke.sh
 EOF
   exit 0
@@ -68,15 +69,19 @@ curl -fsS "${BACKEND_BASE_URL}/api/stadiums/JAMSIL/places?category=delivery" | j
 curl -fsS "${BACKEND_BASE_URL}/api/stadiums/GOCHEOK/places?category=delivery" | jq '.[0] | {name, lat, lng, address}'
 
 echo "[4/4] Optional DB checks"
-if [[ -n "${DB_URL:-}" && -n "${DB_USERNAME:-}" && -n "${DB_PASSWORD:-}" ]]; then
+db_url="${BASEBALL_DB_URL:-${DB_URL:-}}"
+db_username="${BASEBALL_DB_USERNAME:-${DB_USERNAME:-}}"
+db_password="${BASEBALL_DB_PASSWORD:-${DB_PASSWORD:-}}"
+
+if [[ -n "${db_url}" && -n "${db_username}" && -n "${db_password}" ]]; then
   require_cmd psql
-  psql_url="${DB_URL#jdbc:}"
-  PGPASSWORD="${DB_PASSWORD}" psql "${psql_url}" -U "${DB_USERNAME}" -Atc \
+  psql_url="${db_url#jdbc:}"
+  PGPASSWORD="${db_password}" psql "${psql_url}" -U "${db_username}" -Atc \
     "select distinct version || '|' || success from public.flyway_schema_history where version in ('102','103','104') order by 1;"
-  PGPASSWORD="${DB_PASSWORD}" psql "${psql_url}" -U "${DB_USERNAME}" -Atc \
+  PGPASSWORD="${db_password}" psql "${psql_url}" -U "${db_username}" -Atc \
     "select category || '|' || count(*) from public.places group by category order by category;"
 else
-  echo "DB credentials not provided; skipping DB checks."
+  echo "BASEBALL_DB_* or DB_* credentials not provided; skipping DB checks."
 fi
 
 echo "[DONE] Delivery pickup smoke passed."

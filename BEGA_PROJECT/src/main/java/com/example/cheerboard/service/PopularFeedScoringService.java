@@ -7,6 +7,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
 
+import static com.example.cheerboard.service.CheerServiceConstants.HOT_BADGE_THRESHOLD;
+
 /**
  * 인기 피드 점수 계산기.
  */
@@ -46,6 +48,11 @@ public class PopularFeedScoringService {
         double ageHours = ageSeconds / 3600.0;
         double decay = Math.pow(0.5, ageHours / TIME_DECAY_HALF_LIFE_HOURS);
         return baseScore * decay;
+    }
+
+    public double calculateGlobalHotBaseScore(CheerPost post, int combinedViews, Instant now) {
+        double timeDecayScore = calculateTimeDecayScore(post, combinedViews, now);
+        return normalizeGlobalHotScore(timeDecayScore);
     }
 
     public double calculateEngagementRateScore(CheerPost post, int combinedViews) {
@@ -103,5 +110,13 @@ public class PopularFeedScoringService {
             return FRESHNESS_MAX_BOOST - ((FRESHNESS_MAX_BOOST - 1.0) * ageMinutes / FRESHNESS_WINDOW_MINUTES);
         }
         return 1.0;
+    }
+
+    public boolean isHotEligible(CheerPost post, int combinedViews, Instant now) {
+        return calculateGlobalHotBaseScore(post, combinedViews, now) >= HOT_BADGE_THRESHOLD;
+    }
+
+    public boolean isHotEligible(double baseScore) {
+        return baseScore >= HOT_BADGE_THRESHOLD;
     }
 }

@@ -10,6 +10,7 @@ public final class CheerServiceConstants {
     public static final int HOT_VIEW_THRESHOLD = 20;
     public static final int HOT_LIKE_WITH_COMMENT_THRESHOLD = 5;
     public static final int HOT_COMMENT_THRESHOLD = 3;
+    public static final double HOT_BADGE_THRESHOLD = 0.06d;
     
     // 권한 관련
     public static final String ADMIN_ROLE = "ROLE_ADMIN";
@@ -42,6 +43,8 @@ public final class CheerServiceConstants {
     public static final String REPOST_NOT_A_REPOST_ERROR = "리포스트가 아닌 게시글입니다.";
     public static final String REPOST_TARGET_NOT_FOUND_ERROR = "요청한 리포스트 대상 게시글을 찾을 수 없습니다.";
     public static final String REPOST_CONFLICT_ERROR = "동일한 리포스트 요청이 중복 처리되었습니다.";
+    public static final String DUPLICATE_COMMENT_CODE = "DUPLICATE_COMMENT";
+    public static final String DUPLICATE_COMMENT_ERROR = "중복된 댓글입니다. 잠시 후 다시 시도해주세요.";
 
     public static final String GLOBAL_TEAM_ID = "ALLSTAR1";
     

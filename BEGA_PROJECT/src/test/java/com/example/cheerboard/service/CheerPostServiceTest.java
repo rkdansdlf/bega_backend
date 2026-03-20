@@ -101,6 +101,9 @@ class CheerPostServiceTest {
                                 .build();
 
                 when(redisPostService.getViewCount(postId)).thenReturn(3);
+                when(popularFeedScoringService.calculateGlobalHotBaseScore(eq(post), eq(10), any()))
+                                .thenReturn(0.2);
+                when(popularFeedScoringService.isHotEligible(0.2)).thenReturn(true);
                 when(popularFeedScoringService.calculateTimeDecayScore(eq(post), eq(10), any()))
                                 .thenReturn(7.5);
                 when(popularFeedScoringService.calculateEngagementRateScore(eq(post), eq(10)))
@@ -110,8 +113,34 @@ class CheerPostServiceTest {
                 postService.updateHotScore(post);
 
                 // Then
+                verify(redisPostService).cacheHotStatus(postId, true);
                 verify(redisPostService).updateHotScore(postId, 7.5, PopularFeedAlgorithm.TIME_DECAY);
                 verify(redisPostService).updateHotScore(postId, 0.42, PopularFeedAlgorithm.ENGAGEMENT_RATE);
+        }
+
+        @Test
+        @DisplayName("HOT 기준 미달이면 목록에서 제거하고 점수를 갱신하지 않는다")
+        void updateHotScore_removesIneligiblePost() {
+                Long postId = 10L;
+                UserEntity author = UserEntity.builder().id(200L).name("Author").build();
+                CheerPost post = CheerPost.builder()
+                                .id(postId)
+                                .author(author)
+                                .likeCount(0)
+                                .commentCount(0)
+                                .views(1)
+                                .build();
+
+                when(redisPostService.getViewCount(postId)).thenReturn(0);
+                when(popularFeedScoringService.calculateGlobalHotBaseScore(eq(post), eq(1), any()))
+                                .thenReturn(0.01);
+                when(popularFeedScoringService.isHotEligible(0.01)).thenReturn(false);
+
+                postService.updateHotScore(post);
+
+                verify(redisPostService).cacheHotStatus(postId, false);
+                verify(redisPostService).removeFromHotList(postId);
+                verify(redisPostService, never()).updateHotScore(eq(postId), anyDouble(), any());
         }
 
         @Test

@@ -23,6 +23,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.example.ai.config.AiServiceSettings;
+import com.example.common.config.AllowedOriginResolver;
 import com.example.auth.oauth2.CustomOAuth2UserService;
 import com.example.auth.oauth2.CustomSuccessHandler;
 import com.example.auth.oauth2.CookieAuthorizationRequestRepository;
@@ -36,9 +37,7 @@ import jakarta.servlet.http.HttpServletRequest;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.List;
 
 import org.springframework.core.env.Environment;
@@ -53,28 +52,6 @@ public class SecurityConfig {
 
         // ========================================
 
-        private static final List<String> DEFAULT_ALLOWED_ORIGINS = List.of(
-                        "http://localhost",
-                        "http://localhost:3000",
-                        "http://localhost:5173",
-                        "http://localhost:5176",
-                        "http://localhost:5177",
-                        "http://localhost:8080",
-                        "http://host.docker.internal",
-                        "http://host.docker.internal:3000",
-                        "http://host.docker.internal:5173",
-                        "http://host.docker.internal:5176",
-                        "http://host.docker.internal:5177",
-                        "http://host.docker.internal:8080",
-                        "http://127.0.0.1",
-                        "http://127.0.0.1:3000",
-                        "http://127.0.0.1:5173",
-                        "http://127.0.0.1:5176",
-                        "http://127.0.0.1:5177",
-                        "https://www.begabaseball.xyz",
-                        "https://begabaseball.xyz",
-                        "https://*.frontend-dfl.pages.dev",
-                        "http://[::1]");
         // 공개 엔드포인트 그룹 정의
         // ========================================
 
@@ -206,29 +183,11 @@ public class SecurityConfig {
         private final com.example.auth.service.AuthSecurityMonitoringService authSecurityMonitoringService;
         private final Environment environment;
         private final AiServiceSettings aiServiceSettings;
+        private final AllowedOriginResolver allowedOriginResolver;
         @org.springframework.beans.factory.annotation.Value("${app.ai.proxy.public-in-dev:false}")
         private boolean publicAiProxyInDevEnabled;
         @org.springframework.beans.factory.annotation.Value("${app.frontend.url:http://localhost:3000}")
         private String frontendUrl;
-
-        @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:5177,http://localhost:8080,http://host.docker.internal,http://host.docker.internal:3000,http://host.docker.internal:5173,http://host.docker.internal:5176,http://host.docker.internal:5177,http://host.docker.internal:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5176,http://127.0.0.1:5177,https://www.begabaseball.xyz,https://begabaseball.xyz,https://*.frontend-dfl.pages.dev}")
-        private String allowedOriginsStr;
-
-        private java.util.List<String> parseAllowedOrigins() {
-                List<String> parsed = Arrays
-                                .stream(allowedOriginsStr == null ? new String[0] : allowedOriginsStr.split(","))
-                                .map(String::trim)
-                                .filter(origin -> !origin.isEmpty())
-                                .filter(origin -> !origin.equals("*"))
-                                .toList();
-                if (parsed.isEmpty()) {
-                        return DEFAULT_ALLOWED_ORIGINS;
-                }
-
-                LinkedHashSet<String> merged = new LinkedHashSet<>(DEFAULT_ALLOWED_ORIGINS);
-                merged.addAll(parsed);
-                return new ArrayList<>(merged);
-        }
 
         public SecurityConfig(CustomOAuth2UserService customOAuth2UserService,
                         CustomSuccessHandler customSuccessHandler, JWTUtil jwtUtil,
@@ -237,7 +196,8 @@ public class SecurityConfig {
                         UserRepository userRepository,
                         com.example.auth.service.AuthSecurityMonitoringService authSecurityMonitoringService,
                         Environment environment,
-                        AiServiceSettings aiServiceSettings) {
+                        AiServiceSettings aiServiceSettings,
+                        AllowedOriginResolver allowedOriginResolver) {
 
                 this.customOAuth2UserService = customOAuth2UserService;
                 this.customSuccessHandler = customSuccessHandler;
@@ -248,6 +208,7 @@ public class SecurityConfig {
                 this.authSecurityMonitoringService = authSecurityMonitoringService;
                 this.environment = environment;
                 this.aiServiceSettings = aiServiceSettings;
+                this.allowedOriginResolver = allowedOriginResolver;
         }
 
         private boolean isDevOrLocalProfile() {
@@ -344,7 +305,7 @@ public class SecurityConfig {
                 CorsConfiguration configuration = new CorsConfiguration();
 
                 configuration.setAllowedOriginPatterns(
-                                parseAllowedOrigins());
+                                allowedOriginResolver.resolve());
                 configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
                 configuration.setAllowedHeaders(List.of("*"));
                 configuration.setAllowCredentials(true);
@@ -362,7 +323,7 @@ public class SecurityConfig {
         @Bean
         public JWTFilter jwtFilter(org.springframework.core.env.Environment env) {
                 boolean isDev = Arrays.asList(env.getActiveProfiles()).contains("dev");
-                List<String> origins = parseAllowedOrigins();
+                List<String> origins = allowedOriginResolver.resolve();
                 return new JWTFilter(
                                 jwtUtil,
                                 isDev,

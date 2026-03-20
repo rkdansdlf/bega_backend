@@ -64,16 +64,8 @@ public class PostDtoMapper {
         Integer redisViews = redisPostService.getViewCount(post.getId());
         int combinedViews = post.getViews() + (redisViews != null ? redisViews : 0);
 
-        // HOT 게시글 상태 캐싱 활용
         Boolean cachedHot = redisPostService.getCachedHotStatus(post.getId());
-        boolean isHot;
-        if (cachedHot != null) {
-            isHot = cachedHot;
-        } else {
-            // 캐시 없으면 계산 후 캐싱 (계산 시 combinedViews 사용)
-            isHot = hotPostChecker.isHotPost(post, combinedViews);
-            redisPostService.cacheHotStatus(post.getId(), isHot);
-        }
+        boolean isHot = resolveHotStatus(post, combinedViews, cachedHot);
 
         // 리포스트 관련 정보 처리
         Long repostOfId = null;
@@ -264,15 +256,8 @@ public class PostDtoMapper {
         Integer redisViews = viewCountMap.getOrDefault(post.getId(), null);
         int combinedViews = post.getViews() + (redisViews != null ? redisViews : 0);
 
-        // 프리페치된 HOT 상태 사용
         Boolean cachedHot = hotStatusMap.get(post.getId());
-        boolean isHot;
-        if (cachedHot != null) {
-            isHot = cachedHot;
-        } else {
-            isHot = hotPostChecker.isHotPost(post, combinedViews);
-            redisPostService.cacheHotStatus(post.getId(), isHot);
-        }
+        boolean isHot = resolveHotStatus(post, combinedViews, cachedHot);
 
         // 리포스트 관련 정보 처리
         Long repostOfId = null;
@@ -380,6 +365,14 @@ public class PostDtoMapper {
                 original.getLikeCount(),
                 original.getCommentCount(),
                 original.getRepostCount());
+    }
+
+    private boolean resolveHotStatus(CheerPost post, int combinedViews, Boolean cachedHot) {
+        boolean computedHot = hotPostChecker.isHotPost(post, combinedViews);
+        if (cachedHot == null || cachedHot.booleanValue() != computedHot) {
+            redisPostService.cacheHotStatus(post.getId(), computedHot);
+        }
+        return computedHot;
     }
 
     private String resolveDisplayName(UserEntity author) {
