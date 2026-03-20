@@ -2,6 +2,7 @@ package com.example.ai.controller;
 
 import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
+import com.example.ai.service.AiProxyService.ProxyStreamResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 @RequestMapping("/api/ai")
@@ -29,9 +31,9 @@ public class AiProxyController {
     }
 
     @PostMapping("/chat/stream")
-    public ResponseEntity<byte[]> chatStream(@RequestBody String payload) {
-        ProxyByteResponse proxyResponse = aiProxyService.forwardJson("/ai/chat/stream", payload);
-        return toByteResponse(proxyResponse);
+    public ResponseEntity<StreamingResponseBody> chatStream(@RequestBody String payload) {
+        ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/chat/stream", payload);
+        return toStreamResponse(proxyResponse);
     }
 
     @PostMapping("/chat/voice")
@@ -41,9 +43,9 @@ public class AiProxyController {
     }
 
     @PostMapping("/coach/analyze")
-    public ResponseEntity<byte[]> coachAnalyze(@RequestBody String payload) {
-        ProxyByteResponse proxyResponse = aiProxyService.forwardJson("/ai/coach/analyze", payload);
-        return toByteResponse(proxyResponse);
+    public ResponseEntity<StreamingResponseBody> coachAnalyze(@RequestBody String payload) {
+        ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/coach/analyze", payload);
+        return toStreamResponse(proxyResponse);
     }
 
     @GetMapping("/release-decision/presets")
@@ -101,6 +103,22 @@ public class AiProxyController {
         return ResponseEntity.status(proxyResponse.status())
                 .headers(headers)
                 .body(proxyResponse.body());
+    }
+
+    private ResponseEntity<StreamingResponseBody> toStreamResponse(ProxyStreamResponse proxyResponse) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.putAll(proxyResponse.headers());
+
+        StreamingResponseBody responseBody;
+        if (!proxyResponse.status().is2xxSuccessful()) {
+            byte[] errorBody = proxyResponse.errorBody() != null ? proxyResponse.errorBody() : new byte[0];
+            responseBody = outputStream -> outputStream.write(errorBody);
+        } else {
+            responseBody = outputStream -> aiProxyService.writeStream(proxyResponse.bodyFlux(), outputStream);
+        }
+        return ResponseEntity.status(proxyResponse.status())
+                .headers(headers)
+                .body(responseBody);
     }
 
 }

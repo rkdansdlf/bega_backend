@@ -1,22 +1,26 @@
 package com.example.ai.service;
 
 import com.example.ai.exception.AiProxyException;
+import com.example.ai.config.AiServiceSettings;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
-
-import com.example.ai.config.AiServiceSettings;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.web.reactive.function.client.WebClient;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import reactor.core.publisher.Flux;
 
 class AiProxyServiceTest {
 
@@ -106,12 +110,56 @@ class AiProxyServiceTest {
                 });
     }
 
+    @Test
+    void writeStreamStopsCleanlyOnBrokenPipe() {
+        AiProxyService service = newService(Duration.ofSeconds(5), "stream-token", "http://localhost:1");
+        DefaultDataBufferFactory bufferFactory = new DefaultDataBufferFactory();
+        Flux<DataBuffer> bodyFlux = Flux.just(
+                bufferFactory.wrap("event: message\ndata: {\"delta\":\"안녕\"}\n\n".getBytes(StandardCharsets.UTF_8)));
+
+        OutputStream brokenPipeStream = new OutputStream() {
+            @Override
+            public void write(int b) throws IOException {
+                throw new IOException("Broken pipe");
+            }
+        };
+
+        assertThatCode(() -> service.writeStream(bodyFlux, brokenPipeStream))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void writeStreamPropagatesNonDisconnectIOException() {
+        AiProxyService service = newService(Duration.ofSeconds(5), "stream-token", "http://localhost:1");
+        DefaultDataBufferFactory bufferFactory = new DefaultDataBufferFactory();
+        Flux<DataBuffer> bodyFlux = Flux.just(
+                bufferFactory.wrap("event: message\ndata: {\"delta\":\"안녕\"}\n\n".getBytes(StandardCharsets.UTF_8)));
+
+        OutputStream failingStream = new OutputStream() {
+            @Override
+            public void write(int b) throws IOException {
+                throw new IOException("disk full");
+            }
+        };
+
+        assertThatThrownBy(() -> service.writeStream(bodyFlux, failingStream))
+                .isInstanceOf(IOException.class)
+                .hasMessage("disk full");
+    }
+
     private AiProxyService newService(Duration timeout, String token) {
+        if (server == null) {
+            throw new IllegalStateException("test server is not initialized");
+        }
+        return newService(timeout, token, "http://localhost:" + server.getAddress().getPort());
+    }
+
+    private AiProxyService newService(Duration timeout, String token, String serviceUrl) {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("dev");
         AiServiceSettings settings = new AiServiceSettings(
                 environment,
-                "http://localhost:" + server.getAddress().getPort(),
+                serviceUrl,
                 token);
         return new AiProxyService(settings, WebClient.builder(), timeout);
     }

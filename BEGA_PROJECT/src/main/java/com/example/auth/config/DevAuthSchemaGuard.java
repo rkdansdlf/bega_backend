@@ -179,10 +179,12 @@ public class DevAuthSchemaGuard implements ApplicationRunner {
                         detected_database: %s
                         detected_jdbc_url: %s
 
-                        Check these env values and restart:
+                        Check the dev primary datasource env values and restart:
                         - DB_URL
                         - DB_USERNAME
                         - DB_PASSWORD
+
+                        BASEBALL_DB_* only configures the secondary baseball datasource.
                         """.formatted(productName, jdbcUrl));
             }
 

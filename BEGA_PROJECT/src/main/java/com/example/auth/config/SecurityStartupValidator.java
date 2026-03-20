@@ -1,6 +1,7 @@
 package com.example.auth.config;
 
 import java.util.Arrays;
+import java.util.List;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,23 +30,28 @@ public class SecurityStartupValidator implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        boolean isProd = Arrays.stream(environment.getActiveProfiles())
-                .anyMatch(profile -> "prod".equalsIgnoreCase(profile));
+        List<String> activeProfiles = Arrays.stream(environment.getActiveProfiles())
+                .map(String::toLowerCase)
+                .toList();
+        boolean requiresRuntimeAuthValidation = activeProfiles.stream()
+                .anyMatch(profile -> "prod".equals(profile)
+                        || "dev".equals(profile)
+                        || "local".equals(profile));
 
-        if (!isProd) {
+        if (!requiresRuntimeAuthValidation) {
             return;
         }
 
-        if (!secureCookie) {
+        if (activeProfiles.contains("prod") && !secureCookie) {
             throw new IllegalStateException(
                     "prod profile requires app.cookie.secure=true (set profile-specific config for HTTPS cookies)");
         }
 
         if (!StringUtils.hasText(oauth2CookieSecret)) {
             throw new IllegalStateException(
-                    "prod profile requires app.oauth2.cookie-secret (set OAUTH2_COOKIE_SECRET)");
+                    "dev/local/prod profiles require app.oauth2.cookie-secret (set OAUTH2_COOKIE_SECRET)");
         }
 
-        log.info("Security startup validation passed for prod profile.");
+        log.info("Security startup validation passed for runtime auth profile(s): {}", activeProfiles);
     }
 }

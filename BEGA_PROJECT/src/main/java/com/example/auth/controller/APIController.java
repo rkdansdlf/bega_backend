@@ -12,6 +12,7 @@ import com.example.common.ratelimit.RateLimit;
 import com.example.auth.dto.LoginDto;
 import com.example.auth.dto.SignupDto;
 import com.example.auth.service.AuthRegistrationService;
+import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.PolicyConsentService;
 import com.example.auth.service.UserService;
 import com.example.auth.repository.RefreshRepository;
@@ -53,6 +54,7 @@ public class APIController {
     private final RefreshRepository refreshRepository;
     private final AuthCookieUtil authCookieUtil;
     private final ClientIpResolver clientIpResolver;
+    private final AuthSessionService authSessionService;
 
     public APIController(UserService userService,
             AuthRegistrationService authRegistrationService,
@@ -62,7 +64,8 @@ public class APIController {
             com.example.auth.service.TokenBlacklistService tokenBlacklistService,
             RefreshRepository refreshRepository,
             AuthCookieUtil authCookieUtil,
-            ClientIpResolver clientIpResolver) {
+            ClientIpResolver clientIpResolver,
+            AuthSessionService authSessionService) {
         this.userService = userService;
         this.authRegistrationService = authRegistrationService;
         this.policyConsentService = policyConsentService;
@@ -72,6 +75,7 @@ public class APIController {
         this.refreshRepository = refreshRepository;
         this.authCookieUtil = authCookieUtil;
         this.clientIpResolver = clientIpResolver;
+        this.authSessionService = authSessionService;
     }
 
     /**
@@ -141,10 +145,12 @@ public class APIController {
         String refreshToken = loginResult.refreshToken();
 
         // JWT를 쿠키에 설정 (Access Token)
-        ResponseCookie authCookie = authCookieUtil.buildAuthCookie(accessToken, 60 * 60);
+        int accessTokenMaxAge = (int) (userService.getJWTUtil().getAccessTokenExpirationTime() / 1000);
+        ResponseCookie authCookie = authCookieUtil.buildAuthCookie(accessToken, accessTokenMaxAge);
         authCookieUtil.addCookieHeader(response, authCookie);
 
-        ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, 60 * 60 * 24 * 7);
+        int refreshTokenMaxAge = (int) (userService.getJWTUtil().getRefreshTokenExpirationTime() / 1000);
+        ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
         authCookieUtil.addCookieHeader(response, refreshCookie);
 
         // body 응답은 프로필/상태 데이터 중심으로 구성
@@ -202,9 +208,31 @@ public class APIController {
         }
 
         if (refreshToken != null) {
-            java.util.List<RefreshToken> matchedTokens = refreshRepository.findAllByToken(refreshToken);
-            if (!matchedTokens.isEmpty()) {
-                refreshRepository.deleteAll(matchedTokens);
+            String refreshEmail = email;
+            if (refreshEmail == null) {
+                try {
+                    refreshEmail = userService.getJWTUtil().getEmail(refreshToken);
+                } catch (Exception e) {
+                    refreshEmail = null;
+                }
+            }
+
+            if (refreshEmail != null) {
+                java.util.List<RefreshToken> refreshTokens = refreshRepository.findAllByEmailOrderByIdDesc(refreshEmail);
+                RefreshToken currentSessionToken = authSessionService.resolveCurrentSessionToken(refreshTokens, request);
+                if (currentSessionToken != null) {
+                    refreshRepository.delete(currentSessionToken);
+                } else {
+                    java.util.List<RefreshToken> matchedTokens = refreshRepository.findAllByToken(refreshToken);
+                    if (!matchedTokens.isEmpty()) {
+                        refreshRepository.deleteAll(matchedTokens);
+                    }
+                }
+            } else {
+                java.util.List<RefreshToken> matchedTokens = refreshRepository.findAllByToken(refreshToken);
+                if (!matchedTokens.isEmpty()) {
+                    refreshRepository.deleteAll(matchedTokens);
+                }
             }
         } else if (email != null) {
             // Refresh 쿠키가 없을 경우 현재 계정의 전체 세션 정리로 안전하게 폴백
@@ -252,12 +280,6 @@ public class APIController {
         return ResponseEntity.ok(data);
     }
 
-    /**
-     * OAuth2 계정 연동을 위한 Link Token 발급
-     * - 인증된 사용자만 호출 가능
-     * - 5분 유효의 단기 토큰 반환
-     * - 이 토큰을 OAuth2 리다이렉트 URL에 포함하여 연동 모드 활성화
-     */
     /**
      * OAuth2 계정 연동을 위한 Link Token 발급
      * - 인증된 사용자만 호출 가능

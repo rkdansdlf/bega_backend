@@ -143,7 +143,12 @@ public class JWTFilter extends OncePerRequestFilter {
             securityMonitoringService.recordTokenReject();
             SecurityContextHolder.clearContext();
             log.error("Blacklist verification failed, rejecting request: {}", e.getMessage());
-            sendInvalidAuthorResponse(response, "인증 검증을 완료할 수 없습니다. 다시 로그인해 주세요.");
+            if (mutableRequest) {
+                sendInvalidAuthorResponse(response, "인증 검증을 완료할 수 없습니다. 다시 로그인해 주세요.");
+                return;
+            }
+            markInvalidAuthor(request, "인증 검증을 완료할 수 없습니다. 다시 로그인해 주세요.");
+            filterChain.doFilter(request, response);
             return;
         }
 

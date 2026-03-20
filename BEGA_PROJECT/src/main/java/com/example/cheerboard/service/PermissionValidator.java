@@ -20,8 +20,10 @@ public class PermissionValidator {
             throw new AccessDeniedException(String.format("잘못된 팀 정보입니다. (%s)", action));
         }
 
-        // Removed strict favoriteTeam check to allow cross-team interaction
-        // Users can now participate in any team's board
+        String favoriteTeamId = user != null ? user.getFavoriteTeamId() : null;
+        if (favoriteTeamId == null || favoriteTeamId.isBlank() || !favoriteTeamId.equalsIgnoreCase(teamId)) {
+            throw new AccessDeniedException(String.format(TEAM_ACCESS_ERROR, action));
+        }
     }
 
     public void validateOwnerOrAdmin(UserEntity user, UserEntity author, String action) {

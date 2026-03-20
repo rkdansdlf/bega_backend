@@ -6,6 +6,8 @@ import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CONFLI
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CONFLICT_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CYCLE_DETECTED_ERROR;
+import static com.example.cheerboard.service.CheerServiceConstants.DUPLICATE_COMMENT_CODE;
+import static com.example.cheerboard.service.CheerServiceConstants.DUPLICATE_COMMENT_ERROR;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_ALLOWED_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_A_REPOST_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_NOT_A_REPOST_ERROR;
@@ -17,6 +19,7 @@ import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
+import com.example.cheerboard.exception.DuplicateCommentException;
 import com.example.common.dto.ApiResponse;
 import com.example.common.exception.RepostNotAllowedException;
 import com.example.common.exception.RepostSelfNotAllowedException;
@@ -115,6 +118,16 @@ class ApiExceptionHandlerTest {
 
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.getCode()).isEqualTo(REPOST_NOT_ALLOWED_CODE);
+    }
+
+    @Test
+    void duplicateComment_returnsConflict() {
+        var response = handler.handleDuplicateComment(new DuplicateCommentException(DUPLICATE_COMMENT_ERROR));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(DUPLICATE_COMMENT_CODE);
+        assertThat(body.getMessage()).isEqualTo(DUPLICATE_COMMENT_ERROR);
     }
 
     @Test

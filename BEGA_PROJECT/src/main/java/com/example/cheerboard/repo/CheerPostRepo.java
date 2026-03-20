@@ -14,6 +14,10 @@ import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
 public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
+        @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+        @Query("SELECT p FROM CheerPost p WHERE p.id = :postId")
+        Optional<CheerPost> findByIdForImageWrite(@Param("postId") Long postId);
+
         @EntityGraph(attributePaths = { "author", "team", "repostOf", "repostOf.author", "repostOf.team" })
         Page<CheerPost> findByTeam_TeamIdOrderByCreatedAtDesc(String teamId, Pageable pageable);
 

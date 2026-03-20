@@ -4,12 +4,15 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.PostType;
+import com.example.cheerboard.dto.CreateCommentReq;
 import com.example.cheerboard.dto.CreatePostReq;
 import com.example.cheerboard.entity.CheerVoteEntity;
 import com.example.cheerboard.entity.CheerVoteId;
+import com.example.cheerboard.exception.DuplicateCommentException;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repository.CheerVoteRepository;
 import com.example.cheerboard.service.CheerBattleService;
+import com.example.cheerboard.service.CheerCommentService;
 import com.example.cheerboard.service.CheerInteractionService;
 import com.example.cheerboard.service.CheerPostService;
 import com.example.kbo.entity.TeamEntity;
@@ -68,6 +71,9 @@ class CheerConcurrencyIntegrationTest {
 
     @Autowired
     private CheerBattleService battleService;
+
+    @Autowired
+    private CheerCommentService commentService;
 
     @Autowired
     private CheerPostRepo postRepo;
@@ -237,6 +243,70 @@ class CheerConcurrencyIntegrationTest {
         // When & Then
         assertThatThrownBy(() -> postService.createPost(req, author))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("C-11: Concurrent duplicate comments should allow only one save")
+    void testConcurrentDuplicateComments() throws InterruptedException {
+        CheerPost post = CheerPost.builder()
+                .author(author)
+                .team(team)
+                .content("Comment Target")
+                .postType(PostType.NORMAL)
+                .build();
+        post = postRepo.saveAndFlush(post);
+
+        String runSuffix = UUID.randomUUID().toString().substring(0, 8);
+        UserEntity commenter = UserEntity.builder()
+                .email("commenter+" + runSuffix + "@test.com")
+                .name("Commenter")
+                .handle("cm" + runSuffix)
+                .uniqueId(UUID.randomUUID())
+                .provider("LOCAL")
+                .role("ROLE_USER")
+                .favoriteTeam(team)
+                .build();
+        commenter = userRepo.save(commenter);
+        final UserEntity finalCommenter = commenter;
+
+        int threadCount = 2;
+        ExecutorService executorService = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch ready = new CountDownLatch(threadCount);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(threadCount);
+        List<Throwable> errors = Collections.synchronizedList(new ArrayList<>());
+        List<Long> successIds = Collections.synchronizedList(new ArrayList<>());
+
+        Long postId = post.getId();
+        CreateCommentReq req = new CreateCommentReq("같은 댓글");
+
+        for (int i = 0; i < threadCount; i++) {
+            executorService.submit(() -> {
+                try {
+                    SecurityContextHolder.getContext().setAuthentication(
+                            new UsernamePasswordAuthenticationToken(finalCommenter.getId(), null, List.of()));
+                    ready.countDown();
+                    start.await(5, TimeUnit.SECONDS);
+                    successIds.add(commentService.addComment(postId, req, finalCommenter).id());
+                } catch (Exception e) {
+                    errors.add(e);
+                } finally {
+                    SecurityContextHolder.clearContext();
+                    done.countDown();
+                }
+            });
+        }
+
+        assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+        start.countDown();
+        assertThat(done.await(10, TimeUnit.SECONDS)).isTrue();
+        executorService.shutdown();
+        executorService.awaitTermination(5, TimeUnit.SECONDS);
+
+        assertThat(successIds).hasSize(1);
+        assertThat(errors).hasSize(1);
+        assertThat(errors.get(0)).isInstanceOf(DuplicateCommentException.class);
+        assertThat(postRepo.findById(postId).orElseThrow().getCommentCount()).isEqualTo(1);
     }
 
     @Test

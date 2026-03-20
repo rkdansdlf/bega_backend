@@ -15,5 +15,6 @@ public record ClientErrorTopFingerprintDto(
         long uniqueSessions,
         String latestEventId,
         OffsetDateTime latestOccurredAt,
-        OffsetDateTime latestAlertSentAt) {
+        OffsetDateTime latestAlertSentAt,
+        String latestAlertChannel) {
 }
