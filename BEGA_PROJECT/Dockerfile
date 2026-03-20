@@ -43,10 +43,13 @@ USER appuser
 EXPOSE 8080
 
 # 컨테이너 실행 시 JAR 파일을 실행합니다.
-# G1GC: 짧은 GC 중단 목표(200ms), heap 768m(1G 컨테이너 내 최적값)
+# Oracle Cloud Free Tier 1GB RAM 기준 최적값:
+#   전체 메모리 956MB 중 JVM(힙+논힙), postgres, caddy, AI 챗봇 등을 고려해 380m으로 제한
+#   -Xms150m: 초기 힙을 작게 시작해 부팅 시 스왑 방지
+#   Metaspace는 상한 설정 없이 두어 Spring Boot 초기화 중 OOM 방지 (실제 사용량 ~150-180m)
 ENTRYPOINT ["java", \
   "-server", \
   "-XX:+UseG1GC", \
   "-XX:MaxGCPauseMillis=200", \
-  "-Xmx768m", "-Xms512m", \
+  "-Xmx380m", "-Xms150m", \
   "-jar", "app.jar"]
