@@ -65,7 +65,7 @@ public class CacheConfig {
                 CompositeCacheManager compositeCacheManager = new CompositeCacheManager();
                 compositeCacheManager.setCacheManagers(
                                 Objects.requireNonNull(Arrays.asList(caffeineCacheManager, redisCacheManager)));
-                compositeCacheManager.setFallbackToNoOpCache(false);
+                compositeCacheManager.setFallbackToNoOpCache(true);
                 return compositeCacheManager;
         }
 
@@ -94,6 +94,8 @@ public class CacheConfig {
                                 STADIUMS,
                                 TEAM_DATA,
                                 GAME_SCHEDULE,
+                                HOME_BOOTSTRAP,
+                                HOME_WIDGETS,
                                 POST_IMAGE_URLS,
                                 USER_RANK,
                                 USER_STATS));
