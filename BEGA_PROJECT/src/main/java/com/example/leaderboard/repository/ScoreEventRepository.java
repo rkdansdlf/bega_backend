@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 @Repository
@@ -48,7 +49,8 @@ public interface ScoreEventRepository extends JpaRepository<ScoreEvent, Long> {
     // PREDICTION-SPECIFIC QUERIES
     // ============================================
 
-    List<ScoreEvent> findByPredictionId(Long predictionId);
+    @Query("SELECT DISTINCT se.predictionId FROM ScoreEvent se WHERE se.predictionId IN :predictionIds")
+    List<Long> findProcessedPredictionIdsByPredictionIdIn(@Param("predictionIds") Collection<Long> predictionIds);
 
     boolean existsByPredictionIdAndUserId(Long predictionId, Long userId);
 

@@ -14,6 +14,16 @@ import java.util.Optional;
 @Repository
 public interface UserScoreRepository extends JpaRepository<UserScore, Long> {
 
+    interface ScoreRankSnapshot {
+        Long getTotalRank();
+
+        Long getSeasonRank();
+
+        Long getMonthlyRank();
+
+        Long getWeeklyRank();
+    }
+
     Optional<UserScore> findByUserId(Long userId);
 
     // ============================================
@@ -57,6 +67,20 @@ public interface UserScoreRepository extends JpaRepository<UserScore, Long> {
 
     @Query("SELECT COUNT(us) + 1 FROM UserScore us WHERE us.weeklyScore > :score")
     Long findWeeklyRankByScore(@Param("score") Long score);
+
+    @Query(value = """
+            SELECT
+                (SELECT COUNT(*) + 1 FROM user_scores us WHERE us.total_score > :totalScore) AS totalRank,
+                (SELECT COUNT(*) + 1 FROM user_scores us WHERE us.season_score > :seasonScore) AS seasonRank,
+                (SELECT COUNT(*) + 1 FROM user_scores us WHERE us.monthly_score > :monthlyScore) AS monthlyRank,
+                (SELECT COUNT(*) + 1 FROM user_scores us WHERE us.weekly_score > :weeklyScore) AS weeklyRank
+            FROM (SELECT 1 AS dummy) rank_source
+            """, nativeQuery = true)
+    ScoreRankSnapshot findRanksByScores(
+            @Param("totalScore") Long totalScore,
+            @Param("seasonScore") Long seasonScore,
+            @Param("monthlyScore") Long monthlyScore,
+            @Param("weeklyScore") Long weeklyScore);
 
     // ============================================
     // STATISTICS

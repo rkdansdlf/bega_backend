@@ -19,7 +19,7 @@ import java.util.Map;
 public class AiIntegrationService {
 
     private final AiServiceSettings aiServiceSettings;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
 
     /**
      * AI RAG 파이프라인 인덱싱 작업을 트리거합니다.

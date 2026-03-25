@@ -32,9 +32,8 @@ class AIModerationServiceTest {
 
     @BeforeEach
     void setUp() {
-        moderationService = new AIModerationService(aiServiceSettings);
-
         RestTemplate restTemplate = new RestTemplate();
+        moderationService = new AIModerationService(aiServiceSettings, restTemplate);
         ReflectionTestUtils.setField(moderationService, "restTemplate", restTemplate);
         ReflectionTestUtils.setField(moderationService, "highRiskKeywordsRaw", "죽어,병신");
         ReflectionTestUtils.setField(moderationService, "spamKeywordsRaw", "광고,홍보,오픈채팅");

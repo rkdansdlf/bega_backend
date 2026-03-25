@@ -21,11 +21,14 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.Locale;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
@@ -125,11 +128,10 @@ public class PredictionService {
             int pageSize
     ) {
         Page<GameEntity> matches = getCanonicalMatchRangePage(startDate, endDate, includePast, page, pageSize);
+        Map<String, Integer> seriesGameNos = resolveSeriesGameNos(matches.getContent());
 
-        List<GameEntity> selectedMatches = matches.getContent();
-
-        return Objects.requireNonNull(selectedMatches.stream()
-                .map(this::toMatchDto)
+        return Objects.requireNonNull(matches.getContent().stream()
+                .map(match -> toMatchDto(match, seriesGameNos.get(match.getGameId())))
                 .collect(Collectors.toList()));
     }
 
@@ -142,10 +144,11 @@ public class PredictionService {
             int pageSize
     ) {
         Page<GameEntity> matches = getCanonicalMatchRangePage(startDate, endDate, includePast, page, pageSize);
+        Map<String, Integer> seriesGameNos = resolveSeriesGameNos(matches.getContent());
 
         return new MatchRangePageResponseDto(
                 matches.getContent().stream()
-                        .map(this::toMatchDto)
+                        .map(match -> toMatchDto(match, seriesGameNos.get(match.getGameId())))
                         .collect(Collectors.toList()),
                 matches.getNumber(),
                 matches.getSize(),
@@ -171,6 +174,11 @@ public class PredictionService {
 
     private MatchDto toMatchDto(GameEntity game) {
         Integer leagueTypeCode = leagueStageResolver.resolveEffectiveLeagueTypeCode(game);
+        return toMatchDto(game, resolveSeriesGameNo(game, leagueTypeCode));
+    }
+
+    private MatchDto toMatchDto(GameEntity game, Integer seriesGameNo) {
+        Integer leagueTypeCode = leagueStageResolver.resolveEffectiveLeagueTypeCode(game);
         return MatchDto.builder()
                 .gameId(game.getGameId())
                 .gameDate(game.getGameDate())
@@ -188,7 +196,7 @@ public class PredictionService {
                 .seasonId(game.getSeasonId())
                 .leagueType(mapLeagueType(leagueTypeCode))
                 .postSeasonSeries(mapPostSeasonSeries(leagueTypeCode))
-                .seriesGameNo(resolveSeriesGameNo(game, leagueTypeCode))
+                .seriesGameNo(seriesGameNo)
                 .build();
     }
 
@@ -232,6 +240,85 @@ public class PredictionService {
                 game.getGameId()
         );
         return Math.toIntExact(previousGames + 1L);
+    }
+
+    private Map<String, Integer> resolveSeriesGameNos(List<GameEntity> games) {
+        if (games == null || games.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<SeriesGameKey, SeriesAnchor> anchorsByKey = new LinkedHashMap<>();
+        for (GameEntity game : games) {
+            SeriesGameKey key = toSeriesGameKey(game);
+            if (key == null || anchorsByKey.containsKey(key)) {
+                continue;
+            }
+            anchorsByKey.put(key, new SeriesAnchor(game.getGameDate(), game.getGameId()));
+        }
+
+        if (anchorsByKey.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<SeriesGameKey, Long> baseCountsByKey = new HashMap<>();
+        for (Map.Entry<SeriesGameKey, SeriesAnchor> entry : anchorsByKey.entrySet()) {
+            SeriesGameKey key = entry.getKey();
+            SeriesAnchor anchor = entry.getValue();
+            long previousGames = gameRepository.countPreviousCompletedSeriesGames(
+                    key.seasonId(),
+                    key.homeTeam(),
+                    key.awayTeam(),
+                    anchor.gameDate(),
+                    anchor.gameId());
+            baseCountsByKey.put(key, previousGames);
+        }
+
+        Map<SeriesGameKey, Long> runningCountsByKey = new HashMap<>();
+        Map<String, Integer> seriesGameNosByGameId = new HashMap<>();
+        for (GameEntity game : games) {
+            SeriesGameKey key = toSeriesGameKey(game);
+            if (key == null) {
+                continue;
+            }
+
+            long baseCount = baseCountsByKey.getOrDefault(key, 0L);
+            long seriesGameNo = runningCountsByKey.merge(key, 1L, Long::sum) + baseCount;
+            seriesGameNosByGameId.put(game.getGameId(), Math.toIntExact(seriesGameNo));
+        }
+
+        return seriesGameNosByGameId;
+    }
+
+    private SeriesGameKey toSeriesGameKey(GameEntity game) {
+        Integer leagueTypeCode = leagueStageResolver.resolveEffectiveLeagueTypeCode(game);
+        if (leagueTypeCode == null || leagueTypeCode < 2 || leagueTypeCode > 5) {
+            return null;
+        }
+        if (game.getSeasonId() == null || game.getGameDate() == null || game.getGameId() == null) {
+            return null;
+        }
+
+        String homeTeam = normalizeSeriesTeamCode(game.getHomeTeam());
+        String awayTeam = normalizeSeriesTeamCode(game.getAwayTeam());
+        if (homeTeam == null || awayTeam == null) {
+            return null;
+        }
+
+        if (homeTeam.compareTo(awayTeam) <= 0) {
+            return new SeriesGameKey(game.getSeasonId(), homeTeam, awayTeam);
+        }
+        return new SeriesGameKey(game.getSeasonId(), awayTeam, homeTeam);
+    }
+
+    private String normalizeSeriesTeamCode(String teamCode) {
+        if (teamCode == null) {
+            return null;
+        }
+        String normalized = teamCode.trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        return normalized.toUpperCase(Locale.ROOT);
     }
 
     private Page<GameEntity> getCanonicalMatchRangePage(
@@ -584,6 +671,12 @@ public class PredictionService {
         return normalized;
     }
 
+    private record SeriesGameKey(Integer seasonId, String homeTeam, String awayTeam) {
+    }
+
+    private record SeriesAnchor(LocalDate gameDate, String gameId) {
+    }
+
     private String normalizeVotedTeam(String votedTeam) {
         String normalized = votedTeam == null ? "" : votedTeam.trim().toLowerCase();
         if (!normalized.equals("home") && !normalized.equals("away")) {
@@ -606,6 +699,15 @@ public class PredictionService {
     public UserPredictionStatsDto getUserStats(Long userId) {
         List<Prediction> predictions = predictionRepository
                 .findAllByUserIdOrderByCreatedAtDesc(java.util.Objects.requireNonNull(userId));
+        List<String> gameIds = predictions.stream()
+                .map(Prediction::getGameId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        List<GameEntity> loadedGames = gameIds.isEmpty() ? List.of() : gameRepository.findByGameIdIn(gameIds);
+        Map<String, GameEntity> gamesById = loadedGames
+                .stream()
+                .collect(Collectors.toMap(GameEntity::getGameId, game -> game));
 
         int totalFinished = 0;
         int correctCount = 0;
@@ -613,29 +715,26 @@ public class PredictionService {
         boolean streakBroken = false;
 
         for (Prediction prediction : predictions) {
-            Optional<GameEntity> gameOpt = gameRepository.findByGameId(prediction.getGameId());
-            if (gameOpt.isPresent()) {
-                GameEntity game = gameOpt.get();
-                if (!isCanonicalGame(game)) {
-                    continue;
-                }
-                if (game.isFinished()) {
-                    totalFinished++;
-                    String actualWinner = game.getWinner(); // "home", "away", or "draw"
-                    boolean isCorrect = prediction.getVotedTeam().equalsIgnoreCase(actualWinner);
-
-                    if (isCorrect) {
-                        correctCount++;
-                        if (!streakBroken) {
-                            currentStreak++;
-                        }
-                    } else {
-                        // 결과가 나왔는데 틀린 경우 streak 종료
-                        streakBroken = true;
-                    }
-                }
-                // 경기가 아직 안 끝났으면 streak 계산에는 영향을 주지 않고 건너뜀 (최신순이므로)
+            GameEntity game = gamesById.get(prediction.getGameId());
+            if (game == null || !isCanonicalGame(game)) {
+                continue;
             }
+            if (game.isFinished()) {
+                totalFinished++;
+                String actualWinner = game.getWinner(); // "home", "away", or "draw"
+                boolean isCorrect = prediction.getVotedTeam().equalsIgnoreCase(actualWinner);
+
+                if (isCorrect) {
+                    correctCount++;
+                    if (!streakBroken) {
+                        currentStreak++;
+                    }
+                } else {
+                    // 결과가 나왔는데 틀린 경우 streak 종료
+                    streakBroken = true;
+                }
+            }
+            // 경기가 아직 안 끝났으면 streak 계산에는 영향을 주지 않고 건너뜀 (최신순이므로)
         }
 
         double accuracy = totalFinished > 0 ? Math.round((correctCount * 100.0 / totalFinished) * 10.0) / 10.0 : 0.0;

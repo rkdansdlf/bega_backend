@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -24,6 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import com.example.BegaDiary.Entity.BegaDiary;
+import com.example.BegaDiary.Entity.GameResponseDto;
 import com.example.BegaDiary.Service.BegaDiaryService;
 import com.example.BegaDiary.Service.BegaGameService;
 import com.example.BegaDiary.Service.SeatViewService;
@@ -109,6 +111,30 @@ class DiaryControllerTest {
                 .andExpect(jsonPath("$.message").value("sourceTypes 값이 올바르지 않습니다: invalid"));
 
         verifyNoInteractions(seatViewService);
+    }
+
+    @Test
+    @DisplayName("경기장 값이 null이어도 경기 목록 조회는 200 응답을 반환한다")
+    void getGamesByDate_allowsNullStadium() throws Exception {
+        when(gameService.getGamesByDate(java.time.LocalDate.of(2026, 3, 23)))
+                .thenReturn(List.of(GameResponseDto.builder()
+                        .id(77L)
+                        .homeTeam("LG 트윈스")
+                        .awayTeam("기아 타이거즈")
+                        .stadium(null)
+                        .score("3-2")
+                        .date("2026-03-23")
+                        .build()));
+
+        mockMvc.perform(get("/api/diary/games")
+                        .param("date", "2026-03-23"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(77L))
+                .andExpect(jsonPath("$[0].homeTeam").value("LG 트윈스"))
+                .andExpect(jsonPath("$[0].awayTeam").value("기아 타이거즈"))
+                .andExpect(jsonPath("$[0].stadium").isEmpty())
+                .andExpect(jsonPath("$[0].score").value("3-2"))
+                .andExpect(jsonPath("$[0].date").value("2026-03-23"));
     }
 
     private BegaDiary ownedDiary(Long userId) {

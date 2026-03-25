@@ -3,6 +3,11 @@ spring:
     active: local
   config:
     import: optional:file:.env[.properties], optional:file:../../.env[.properties]
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      - io.awspring.cloud.autoconfigure.s3.S3AutoConfiguration
   jwt:
     secret: test-jwt-secret-32-characters-long
     refresh-expiration: 86400000
