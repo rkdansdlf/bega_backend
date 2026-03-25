@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,6 +32,11 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    * @return 경기 엔티티
    */
   Optional<GameEntity> findByGameId(String gameId);
+
+  /**
+   * gameId 목록으로 경기 일괄 조회
+   */
+  List<GameEntity> findByGameIdIn(Collection<String> gameIds);
 
   /**
    * 특정 날짜의 경기 목록 조회

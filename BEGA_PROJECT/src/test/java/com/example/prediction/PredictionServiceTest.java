@@ -4,9 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 import com.example.auth.entity.UserEntity;
@@ -167,8 +170,8 @@ class PredictionServiceTest {
                 .thenReturn(Optional.of(LocalDate.of(2025, 10, 26)));
         when(gameRepository.countPreviousCompletedSeriesGames(
                 264,
-                "SS",
                 "HH",
+                "SS",
                 gameDate,
                 "202510180002"
         )).thenReturn(1L);
@@ -180,6 +183,46 @@ class PredictionServiceTest {
         assertThat(match.getLeagueType()).isEqualTo("POST");
         assertThat(match.getPostSeasonSeries()).isEqualTo("PO");
         assertThat(match.getSeriesGameNo()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("getMatchesByDateRange batches series count lookup per unique series")
+    void getMatchesByDateRange_batchesSeriesCountLookupPerUniqueSeries() {
+        LocalDate gameDate = LocalDate.of(2025, 10, 18);
+        GameEntity first = buildGame("202510180001", gameDate, "HH", "LG", false);
+        GameEntity second = buildGame("202510180002", gameDate.plusDays(1), "HH", "LG", false);
+        first.setSeasonId(264);
+        second.setSeasonId(264);
+        Pageable pageRequest = PageRequest.of(0, 1000);
+
+        when(gameRepository.findCanonicalByDateRange(
+                any(LocalDate.class),
+                any(LocalDate.class),
+                anyList(),
+                any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(first, second), pageRequest, 2));
+        when(gameRepository.findLeagueTypeCodeBySeasonId(264)).thenReturn(Optional.of(4));
+        when(gameRepository.findConfiguredStartDateByTypeFromSeasonYear(anyInt(), anyInt()))
+                .thenReturn(Optional.empty());
+        when(gameRepository.countPreviousCompletedSeriesGames(
+                264,
+                "HH",
+                "LG",
+                gameDate,
+                "202510180001"
+        )).thenReturn(2L);
+
+        List<MatchDto> matches = predictionService.getMatchesByDateRange(gameDate, gameDate.plusDays(1));
+
+        assertThat(matches).extracting(MatchDto::getSeriesGameNo).containsExactly(3, 4);
+        verify(gameRepository, times(1)).countPreviousCompletedSeriesGames(
+                264,
+                "HH",
+                "LG",
+                gameDate,
+                "202510180001");
+        verify(gameRepository, never()).findByGameId("202510180001");
+        verify(gameRepository, never()).findByGameId("202510180002");
     }
 
     @Test
@@ -380,18 +423,18 @@ class PredictionServiceTest {
 
         GameEntity g1 = buildCanonicalMockGame("202603200001");
         GameEntity g2 = buildCanonicalMockGame("202603210001");
+        when(gameRepository.findByGameIdIn(List.of("202603200001", "202603210001")))
+                .thenReturn(List.of(g1, g2));
 
         // p1: voted "home", winner "home" → correct
         when(p1.getGameId()).thenReturn("202603200001");
         when(p1.getVotedTeam()).thenReturn("home");
-        when(gameRepository.findByGameId("202603200001")).thenReturn(Optional.of(g1));
         when(g1.isFinished()).thenReturn(true);
         when(g1.getWinner()).thenReturn("home");
 
         // p2: voted "home", winner "away" → wrong (breaks streak)
         when(p2.getGameId()).thenReturn("202603210001");
         when(p2.getVotedTeam()).thenReturn("home");
-        when(gameRepository.findByGameId("202603210001")).thenReturn(Optional.of(g2));
         when(g2.isFinished()).thenReturn(true);
         when(g2.getWinner()).thenReturn("away");
 
@@ -401,6 +444,38 @@ class PredictionServiceTest {
         assertThat(stats.getCorrectPredictions()).isEqualTo(1);
         assertThat(stats.getAccuracy()).isEqualTo(50.0);
         assertThat(stats.getStreak()).isEqualTo(1); // newest correct, then broken
+    }
+
+    @Test
+    @DisplayName("getUserStats batches game lookup before calculating stats")
+    void getUserStats_batchesGameLookupBeforeCalculatingStats() {
+        Prediction firstPrediction = mock(Prediction.class);
+        Prediction secondPrediction = mock(Prediction.class);
+        GameEntity firstGame = buildGame("202603200001", LocalDate.of(2026, 3, 20), "LG", "HH", false);
+        GameEntity secondGame = buildGame("202603210001", LocalDate.of(2026, 3, 21), "LG", "HH", false);
+        firstGame.setHomeScore(5);
+        firstGame.setAwayScore(3);
+        secondGame.setHomeScore(2);
+        secondGame.setAwayScore(4);
+
+        when(predictionRepository.findAllByUserIdOrderByCreatedAtDesc(7L))
+                .thenReturn(List.of(firstPrediction, secondPrediction));
+        when(firstPrediction.getGameId()).thenReturn("202603200001");
+        when(firstPrediction.getVotedTeam()).thenReturn("home");
+        when(secondPrediction.getGameId()).thenReturn("202603210001");
+        when(secondPrediction.getVotedTeam()).thenReturn("away");
+        when(gameRepository.findByGameIdIn(List.of("202603200001", "202603210001")))
+                .thenReturn(List.of(firstGame, secondGame));
+
+        UserPredictionStatsDto stats = predictionService.getUserStats(7L);
+
+        assertThat(stats.getTotalPredictions()).isEqualTo(2);
+        assertThat(stats.getCorrectPredictions()).isEqualTo(2);
+        assertThat(stats.getAccuracy()).isEqualTo(100.0);
+        assertThat(stats.getStreak()).isEqualTo(2);
+        verify(gameRepository, times(1)).findByGameIdIn(List.of("202603200001", "202603210001"));
+        verify(gameRepository, never()).findByGameId("202603200001");
+        verify(gameRepository, never()).findByGameId("202603210001");
     }
 
     // ========== helpers ==========

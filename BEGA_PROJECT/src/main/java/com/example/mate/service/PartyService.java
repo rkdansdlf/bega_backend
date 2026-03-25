@@ -575,36 +575,44 @@ public class PartyService {
     }
 
     private PartyDTO.Response convertToDto(Party party) {
-        return convertToDto(party, loadHostRatingMetrics(List.of(party)));
+        return convertToDto(party, loadHostInfoMap(List.of(party)), loadHostRatingMetrics(List.of(party)));
     }
 
-    private PartyDTO.Response convertToDto(Party party, Map<Long, HostRatingMetrics> ratingMetricsByHostId) {
+    private PartyDTO.Response convertToDto(
+            Party party,
+            Map<Long, HostInfo> hostInfoById,
+            Map<Long, HostRatingMetrics> ratingMetricsByHostId) {
         if (party == null)
             return null;
 
         PartyDTO.Response response = PartyDTO.Response.from(party);
         String profilePathOrUrl = party.getHostProfileImageUrl();
+        Long hostId = party.getHostId();
+        HostInfo hostInfo = hostId != null ? hostInfoById.get(hostId) : null;
 
         // 파티엔 있는데 만약 무효한 값이거나 비어있다면 DB에서 다시 조회 (fallback)
         if (isLegacyOrInvalidProfileValue(profilePathOrUrl)) {
-            profilePathOrUrl = userRepository.findProfileImageUrlById(party.getHostId())
-                    .filter(this::isUsableProfileValue)
-                    .orElse(null);
+            profilePathOrUrl = hostInfo != null && isUsableProfileValue(hostInfo.profileImageUrl())
+                    ? hostInfo.profileImageUrl()
+                    : null;
         }
 
         // 호스트의 최종 결정된 profilePathOrUrl이 path 형태인 경우 최종적으로 URL로 변환
         String resolvedUrl = profileImageService.getProfileImageUrl(profilePathOrUrl);
         response.setHostProfileImageUrl(resolvedUrl);
-        userRepository.findById(party.getHostId())
-                .map(UserEntity::getHandle)
-                .ifPresent(response::setHostHandle);
-        applyHostRatingMetrics(response, ratingMetricsByHostId.getOrDefault(party.getHostId(), HostRatingMetrics.empty()));
+        if (hostInfo != null) {
+            response.setHostHandle(hostInfo.handle());
+        }
+        HostRatingMetrics hostRatingMetrics = hostId != null
+                ? ratingMetricsByHostId.getOrDefault(hostId, HostRatingMetrics.empty())
+                : HostRatingMetrics.empty();
+        applyHostRatingMetrics(response, hostRatingMetrics);
 
         return Objects.requireNonNull(response);
     }
 
     private PartyDTO.PublicResponse convertToPublicDto(Party party) {
-        PartyDTO.Response response = convertToDto(party, loadHostRatingMetrics(List.of(party)));
+        PartyDTO.Response response = convertToDto(party, loadHostInfoMap(List.of(party)), loadHostRatingMetrics(List.of(party)));
         return response == null ? null : PartyDTO.PublicResponse.from(response);
     }
 
@@ -613,9 +621,10 @@ public class PartyService {
             return List.of();
         }
 
+        Map<Long, HostInfo> hostInfoById = loadHostInfoMap(parties);
         Map<Long, HostRatingMetrics> ratingMetricsByHostId = loadHostRatingMetrics(parties);
         return parties.stream()
-                .map(party -> convertToDto(party, ratingMetricsByHostId))
+                .map(party -> convertToDto(party, hostInfoById, ratingMetricsByHostId))
                 .toList();
     }
 
@@ -624,13 +633,34 @@ public class PartyService {
             return List.of();
         }
 
+        Map<Long, HostInfo> hostInfoById = loadHostInfoMap(parties);
         Map<Long, HostRatingMetrics> ratingMetricsByHostId = loadHostRatingMetrics(parties);
         return parties.stream()
                 .map(party -> {
-                    PartyDTO.Response response = convertToDto(party, ratingMetricsByHostId);
+                    PartyDTO.Response response = convertToDto(party, hostInfoById, ratingMetricsByHostId);
                     return response == null ? null : PartyDTO.PublicResponse.from(response);
                 })
                 .toList();
+    }
+
+    private Map<Long, HostInfo> loadHostInfoMap(List<Party> parties) {
+        if (parties == null || parties.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Long> hostIds = parties.stream()
+                .map(Party::getHostId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (hostIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return userRepository.findAllById(hostIds).stream()
+                .collect(Collectors.toMap(
+                        UserEntity::getId,
+                        user -> new HostInfo(user.getHandle(), user.getProfileImageUrl(), user.getFavoriteTeamId())));
     }
 
     private Map<Long, HostRatingMetrics> loadHostRatingMetrics(List<Party> parties) {
@@ -790,5 +820,8 @@ public class PartyService {
         private static HostRatingMetrics empty() {
             return new HostRatingMetrics(null, 0L);
         }
+    }
+
+    private record HostInfo(String handle, String profileImageUrl, String favoriteTeamId) {
     }
 }

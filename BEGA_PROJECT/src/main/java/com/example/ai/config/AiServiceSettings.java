@@ -17,7 +17,11 @@ public class AiServiceSettings {
 
     static final String LOCAL_DEV_AI_SERVICE_URL = "http://localhost:8001";
     static final String LOCAL_DEV_AI_INTERNAL_TOKEN = "local-dev-ai-internal-token";
-    private static final List<String> LOCAL_TOKEN_ENV_FILES = List.of(".env", ".env.prod");
+    private static final List<Path> LOCAL_TOKEN_ENV_PATHS = List.of(
+            Path.of("bega_AI", ".env"),
+            Path.of("bega_AI", ".env.prod"),
+            Path.of(".env.prod"),
+            Path.of(".env"));
 
     private final Environment environment;
     private final String rawServiceUrl;
@@ -128,8 +132,8 @@ public class AiServiceSettings {
     }
 
     private String resolveLocalEnvFileToken() {
-        for (String filename : LOCAL_TOKEN_ENV_FILES) {
-            String value = readEnvFileValue(workspaceRoot.resolve(filename), "AI_INTERNAL_TOKEN");
+        for (Path relativePath : LOCAL_TOKEN_ENV_PATHS) {
+            String value = readEnvFileValue(workspaceRoot.resolve(relativePath), "AI_INTERNAL_TOKEN");
             if (StringUtils.hasText(value)) {
                 return value;
             }

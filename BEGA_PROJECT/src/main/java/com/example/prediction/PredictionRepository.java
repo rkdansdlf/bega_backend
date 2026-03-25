@@ -16,6 +16,8 @@ public interface PredictionRepository extends JpaRepository<Prediction, Long>{
 
 	// 특정 경기의 모든 투표 조회
 	List<Prediction> findByGameId(String gameId);
+
+	List<Prediction> findByGameIdIn(Collection<String> gameIds);
 	
 	// 특정 경기에 특정 유저가 투표했는지 확인
 	Optional<Prediction> findByGameIdAndUserId(String gameId, Long userId);

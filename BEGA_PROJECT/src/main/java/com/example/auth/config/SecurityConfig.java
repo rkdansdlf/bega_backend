@@ -346,12 +346,22 @@ public class SecurityConfig {
 
                 // 보안 HTTP 헤더 설정
                 http
-                                .headers((headers) -> headers
-                                                .frameOptions(frame -> frame.deny())
-                                                .contentTypeOptions(org.springframework.security.config.Customizer
-                                                                .withDefaults())
-                                                .xssProtection(org.springframework.security.config.Customizer
-                                                                .withDefaults()));
+                                .headers((headers) -> {
+                                        headers.frameOptions(frame -> frame.deny())
+                                                        .contentTypeOptions(org.springframework.security.config.Customizer
+                                                                        .withDefaults())
+                                                        .xssProtection(org.springframework.security.config.Customizer
+                                                                        .withDefaults())
+                                                        .referrerPolicy(referrer -> referrer.policy(
+                                                                        org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                                                        .permissionsPolicy(permissions -> permissions.policy(
+                                                                        "camera=(), microphone=(), geolocation=(), payment=()"));
+                                        if (isProdProfile()) {
+                                                headers.httpStrictTransportSecurity(hsts -> hsts
+                                                                .includeSubDomains(true)
+                                                                .maxAgeInSeconds(31536000));
+                                        }
+                                });
 
                 // From 로그인 방식 disable
                 http
