@@ -70,18 +70,6 @@ public class HomePageFacadeService {
                     submitSection(executor, "games", () -> safeGetGames(date));
             SectionTask<List<HomePageScheduledGameDto>> scheduledGamesTask =
                     submitSection(executor, "scheduledGamesWindow", () -> safeGetScheduledGamesWindow(date));
-            SectionTask<HomeRankingSnapshotDto> rankingsTask = submitSection(executor, "rankings", () -> {
-                try {
-                    return safeResolveRankingSnapshot(
-                            date,
-                            leagueStartDatesTask.future().get(sectionTimeout.toMillis(), TimeUnit.MILLISECONDS));
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    return buildFallbackRankingSnapshot(date);
-                } catch (ExecutionException | TimeoutException ex) {
-                    return safeResolveRankingSnapshot(date, buildFallbackLeagueStartDates(date));
-                }
-            });
 
             SectionResult<HomeScheduleNavigationDto> navigationResult =
                     awaitSection(date, navigationTask, buildFallbackNavigation());
@@ -91,8 +79,6 @@ public class HomePageFacadeService {
                     awaitSection(date, scheduledGamesTask, List.of());
             SectionResult<LeagueStartDatesDto> leagueStartDatesResult =
                     awaitSection(date, leagueStartDatesTask, buildFallbackLeagueStartDates(date));
-            SectionResult<HomeRankingSnapshotDto> rankingsResult =
-                    awaitSection(date, rankingsTask, buildFallbackRankingSnapshot(date));
 
             HomeBootstrapResponseDto response = HomeBootstrapResponseDto.builder()
                     .selectedDate(date.toString())
@@ -100,10 +86,6 @@ public class HomePageFacadeService {
                     .navigation(navigationResult.value())
                     .games(gamesResult.value())
                     .scheduledGamesWindow(scheduledGamesResult.value())
-                    .rankingSeasonYear(rankingsResult.value().getRankingSeasonYear())
-                    .rankingSourceMessage(rankingsResult.value().getRankingSourceMessage())
-                    .isOffSeason(rankingsResult.value().isOffSeason())
-                    .rankings(rankingsResult.value().getRankings())
                     .build();
 
             int timedOutSections = 0;
@@ -111,7 +93,6 @@ public class HomePageFacadeService {
             timedOutSections += navigationResult.timedOut() ? 1 : 0;
             timedOutSections += gamesResult.timedOut() ? 1 : 0;
             timedOutSections += scheduledGamesResult.timedOut() ? 1 : 0;
-            timedOutSections += rankingsResult.timedOut() ? 1 : 0;
 
             log.info(
                     "event=home_bootstrap_completed date={} totalElapsedMs={} sectionTimeoutMs={} timedOutSections={}",
@@ -124,9 +105,9 @@ public class HomePageFacadeService {
         }
     }
 
-    @Cacheable(value = HOME_WIDGETS, key = "#date.toString()")
+    @Cacheable(value = HOME_WIDGETS, key = "#date.toString() + ':' + (#seasonYear == null ? 'auto' : #seasonYear.toString())")
     @Transactional(readOnly = true)
-    public HomeWidgetsResponseDto getWidgets(LocalDate date) {
+    public HomeWidgetsResponseDto getWidgets(LocalDate date, Integer seasonYear) {
         List<PostSummaryRes> hotPosts;
         try {
             hotPosts = cheerService
@@ -148,7 +129,23 @@ public class HomePageFacadeService {
         return HomeWidgetsResponseDto.builder()
                 .hotCheerPosts(hotPosts)
                 .featuredMates(featuredMates)
+                .rankingSnapshot(getRankingSnapshot(date, seasonYear))
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public HomeRankingSnapshotDto getRankingSnapshot(LocalDate date, Integer seasonYear) {
+        try {
+            LeagueStartDatesDto startDates = seasonYear == null ? safeGetLeagueStartDates(date) : null;
+            return seasonYear == null
+                    ? safeResolveRankingSnapshot(date, startDates)
+                    : safeResolveExactSeasonRankingSnapshot(seasonYear);
+        } catch (Exception e) {
+            log.warn("Failed to load ranking snapshot for date={}, seasonYear={}: {}", date, seasonYear, e.getMessage());
+            return seasonYear == null
+                    ? buildFallbackRankingSnapshot(date, safeGetLeagueStartDates(date))
+                    : buildExplicitSeasonFallbackRankingSnapshot(seasonYear);
+        }
     }
 
     private <T> SectionTask<T> submitSection(ExecutorService executor, String name, Supplier<T> supplier) {
@@ -228,9 +225,20 @@ public class HomePageFacadeService {
                 .build();
     }
 
-    private HomeRankingSnapshotDto buildFallbackRankingSnapshot(LocalDate date) {
+    private HomeRankingSnapshotDto buildFallbackRankingSnapshot(LocalDate date, LeagueStartDatesDto startDates) {
+        boolean offSeason = isOffSeason(date, startDates);
+        int rankingSeasonYear = offSeason ? date.getYear() - 1 : date.getYear();
         return HomeRankingSnapshotDto.builder()
-                .rankingSeasonYear(date.getYear())
+                .rankingSeasonYear(rankingSeasonYear)
+                .rankingSourceMessage("순위 데이터를 불러오지 못했습니다.")
+                .isOffSeason(offSeason)
+                .rankings(List.of())
+                .build();
+    }
+
+    private HomeRankingSnapshotDto buildExplicitSeasonFallbackRankingSnapshot(int seasonYear) {
+        return HomeRankingSnapshotDto.builder()
+                .rankingSeasonYear(seasonYear)
                 .rankingSourceMessage("순위 데이터를 불러오지 못했습니다.")
                 .isOffSeason(false)
                 .rankings(List.of())
@@ -282,7 +290,16 @@ public class HomePageFacadeService {
             return resolveRankingSnapshot(date, startDates);
         } catch (Exception e) {
             log.warn("Failed to resolve ranking snapshot for date={}: {}", date, e.getMessage());
-            return buildFallbackRankingSnapshot(date);
+            return buildFallbackRankingSnapshot(date, startDates);
+        }
+    }
+
+    private HomeRankingSnapshotDto safeResolveExactSeasonRankingSnapshot(int seasonYear) {
+        try {
+            return resolveExactSeasonRankingSnapshot(seasonYear);
+        } catch (Exception e) {
+            log.warn("Failed to resolve exact season ranking snapshot for seasonYear={}: {}", seasonYear, e.getMessage());
+            return buildExplicitSeasonFallbackRankingSnapshot(seasonYear);
         }
     }
 
@@ -324,6 +341,25 @@ public class HomePageFacadeService {
                 .rankingSeasonYear(baseSeasonYear)
                 .rankingSourceMessage("현재 시즌과 전시즌(전년도) 데이터가 없습니다.")
                 .isOffSeason(true)
+                .rankings(List.of())
+                .build();
+    }
+
+    private HomeRankingSnapshotDto resolveExactSeasonRankingSnapshot(int seasonYear) {
+        List<HomePageTeamRankingDto> rankings = homePageGameService.getTeamRankings(seasonYear);
+        if (!rankings.isEmpty()) {
+            return HomeRankingSnapshotDto.builder()
+                    .rankingSeasonYear(seasonYear)
+                    .rankingSourceMessage(seasonYear + " 시즌 순위 데이터")
+                    .isOffSeason(false)
+                    .rankings(rankings)
+                    .build();
+        }
+
+        return HomeRankingSnapshotDto.builder()
+                .rankingSeasonYear(seasonYear)
+                .rankingSourceMessage(seasonYear + " 시즌 데이터가 아직 집계되지 않았습니다.")
+                .isOffSeason(false)
                 .rankings(List.of())
                 .build();
     }

@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -21,11 +22,13 @@ class HomePageControllerTest {
 
     private MockMvc mockMvc;
     private HomePageGameService homePageGameService;
+    private HomePageFacadeService homePageFacadeService;
 
     @BeforeEach
     void setUp() {
         homePageGameService = mock(HomePageGameService.class);
-        HomePageController controller = new HomePageController(homePageGameService);
+        homePageFacadeService = mock(HomePageFacadeService.class);
+        HomePageController controller = new HomePageController(homePageGameService, homePageFacadeService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -92,5 +95,52 @@ class HomePageControllerTest {
         mockMvc.perform(get("/api/kbo/rankings/2026"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("[]"));
+    }
+
+    @Test
+    @DisplayName("랭킹 스냅샷 조회는 명시 시즌 응답을 반환한다")
+    void getRankingSnapshotReturnsExplicitSeasonPayload() throws Exception {
+        LocalDate selectedDate = LocalDate.of(2026, 3, 13);
+        given(homePageFacadeService.getRankingSnapshot(eq(selectedDate), eq(2025)))
+                .willReturn(HomeRankingSnapshotDto.builder()
+                        .rankingSeasonYear(2025)
+                        .rankingSourceMessage("2025 시즌 순위 데이터")
+                        .isOffSeason(false)
+                        .rankings(List.of(HomePageTeamRankingDto.builder()
+                                .rank(1)
+                                .teamId("KIA")
+                                .teamName("KIA 타이거즈")
+                                .wins(87)
+                                .losses(55)
+                                .draws(2)
+                                .winRate(".613")
+                                .games(144)
+                                .build()))
+                        .build());
+
+        mockMvc.perform(get("/api/kbo/rankings/snapshot")
+                        .param("date", "2026-03-13")
+                        .param("seasonYear", "2025"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rankingSeasonYear").value(2025))
+                .andExpect(jsonPath("$.rankingSourceMessage").value("2025 시즌 순위 데이터"))
+                .andExpect(jsonPath("$.isOffSeason").value(false))
+                .andExpect(jsonPath("$.rankings[0].teamId").value("KIA"));
+    }
+
+    @Test
+    @DisplayName("랭킹 스냅샷 조회 실패 시 자동 시즌 fallback을 반환한다")
+    void getRankingSnapshotReturnsFallbackPayload() throws Exception {
+        LocalDate selectedDate = LocalDate.of(2026, 3, 13);
+        given(homePageFacadeService.getRankingSnapshot(eq(selectedDate), isNull()))
+                .willThrow(new RuntimeException("db unavailable"));
+
+        mockMvc.perform(get("/api/kbo/rankings/snapshot")
+                        .param("date", "2026-03-13"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rankingSeasonYear").value(2025))
+                .andExpect(jsonPath("$.rankingSourceMessage").value("순위 데이터를 불러오지 못했습니다."))
+                .andExpect(jsonPath("$.isOffSeason").value(true))
+                .andExpect(jsonPath("$.rankings").isArray());
     }
 }
