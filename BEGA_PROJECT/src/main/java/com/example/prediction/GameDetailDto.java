@@ -4,6 +4,7 @@ import com.example.kbo.entity.GameEntity;
 import com.example.kbo.entity.GameInningScoreEntity;
 import com.example.kbo.entity.GameMetadataEntity;
 import com.example.kbo.entity.GameSummaryEntity;
+import com.example.kbo.repository.GameDetailHeaderProjection;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -55,12 +56,46 @@ public class GameDetailDto {
                 .homePitcher(game.getHomePitcher())
                 .awayPitcher(game.getAwayPitcher())
                 .gameStatus(game.getGameStatus())
-                .inningScores(inningScores.stream()
-                        .map(GameInningScoreDto::fromEntity)
-                        .collect(Collectors.toList()))
-                .summary(summaries.stream()
-                        .map(GameSummaryDto::fromEntity)
-                        .collect(Collectors.toList()))
+                .inningScores(mapInningScores(inningScores))
+                .summary(mapSummaries(summaries))
                 .build();
+    }
+
+    public static GameDetailDto from(
+            GameDetailHeaderProjection header,
+            List<GameInningScoreEntity> inningScores,
+            List<GameSummaryEntity> summaries
+    ) {
+        return GameDetailDto.builder()
+                .gameId(header.getGameId())
+                .gameDate(header.getGameDate())
+                .stadium(header.getStadium())
+                .stadiumName(header.getStadiumName())
+                .startTime(header.getStartTime())
+                .attendance(header.getAttendance())
+                .weather(header.getWeather())
+                .gameTimeMinutes(header.getGameTimeMinutes())
+                .homeTeam(header.getHomeTeam())
+                .awayTeam(header.getAwayTeam())
+                .homeScore(header.getHomeScore())
+                .awayScore(header.getAwayScore())
+                .homePitcher(header.getHomePitcher())
+                .awayPitcher(header.getAwayPitcher())
+                .gameStatus(header.getGameStatus())
+                .inningScores(mapInningScores(inningScores))
+                .summary(mapSummaries(summaries))
+                .build();
+    }
+
+    private static List<GameInningScoreDto> mapInningScores(List<GameInningScoreEntity> inningScores) {
+        return inningScores.stream()
+                .map(GameInningScoreDto::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    private static List<GameSummaryDto> mapSummaries(List<GameSummaryEntity> summaries) {
+        return summaries.stream()
+                .map(GameSummaryDto::fromEntity)
+                .collect(Collectors.toList());
     }
 }
