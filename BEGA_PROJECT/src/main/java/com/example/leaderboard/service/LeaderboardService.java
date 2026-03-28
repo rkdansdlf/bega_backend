@@ -20,6 +20,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -67,17 +68,22 @@ public class LeaderboardService {
         // 랭크 계산 (페이지 오프셋 기반)
         long startRank = (long) page * size + 1;
 
-        List<LeaderboardEntryDto> visibleEntries = scorePage.getContent().stream()
-                .map(userScore -> buildVisibleLeaderboardEntry(userScore, userMap, viewerId, type, startRank, scorePage))
-                .filter(java.util.Objects::nonNull)
-                .toList();
+        List<LeaderboardEntryDto> visibleEntries = new ArrayList<>();
+        long visibleRank = startRank;
+        for (UserScore userScore : scorePage.getContent()) {
+            LeaderboardEntryDto entry = buildVisibleLeaderboardEntry(userScore, userMap, viewerId, type, visibleRank);
+            if (entry != null) {
+                visibleEntries.add(entry);
+                visibleRank++;
+            }
+        }
 
         return new PageImpl<>(visibleEntries, pageable, visibleEntries.size());
     }
 
     /**
      * 현재 사용자 통계 조회
-     * 4x COUNT(*) rank 쿼리를 포함하므로 5분 캐시. 점수 변경 시 ScoringService 에서 @CacheEvict 로 무효화.
+     * 랭킹 스냅샷은 한 번의 집계 쿼리로 조회하므로 5분 캐시. 점수 변경 시 ScoringService 에서 @CacheEvict 로 무효화.
      */
     @Cacheable(value = CacheConfig.USER_STATS, key = "#userId", unless = "#result == null")
     public UserStatsDto getUserStats(Long userId) {
@@ -92,10 +98,24 @@ public class LeaderboardService {
         UserStatsDto stats = UserStatsDto.from(userScore, handle, nickname, profileUrl);
 
         // 랭킹 정보 추가
-        stats.setTotalRank(userScoreRepository.findTotalRankByScore(userScore.getTotalScore()));
-        stats.setSeasonRank(userScoreRepository.findSeasonRankByScore(userScore.getSeasonScore()));
-        stats.setMonthlyRank(userScoreRepository.findMonthlyRankByScore(userScore.getMonthlyScore()));
-        stats.setWeeklyRank(userScoreRepository.findWeeklyRankByScore(userScore.getWeeklyScore()));
+        UserScoreRepository.ScoreRankSnapshot rankSnapshot = userScoreRepository.findRanksByScores(
+                userScore.getTotalScore(),
+                userScore.getSeasonScore(),
+                userScore.getMonthlyScore(),
+                userScore.getWeeklyScore());
+
+        stats.setTotalRank(rankSnapshot != null && rankSnapshot.getTotalRank() != null
+                ? rankSnapshot.getTotalRank()
+                : 0L);
+        stats.setSeasonRank(rankSnapshot != null && rankSnapshot.getSeasonRank() != null
+                ? rankSnapshot.getSeasonRank()
+                : 0L);
+        stats.setMonthlyRank(rankSnapshot != null && rankSnapshot.getMonthlyRank() != null
+                ? rankSnapshot.getMonthlyRank()
+                : 0L);
+        stats.setWeeklyRank(rankSnapshot != null && rankSnapshot.getWeeklyRank() != null
+                ? rankSnapshot.getWeeklyRank()
+                : 0L);
         stats.setRank(stats.getSeasonRank());
 
         return stats;
@@ -268,8 +288,7 @@ public class LeaderboardService {
             Map<Long, UserEntity> userMap,
             Long viewerId,
             String type,
-            long startRank,
-            Page<UserScore> scorePage) {
+            long rank) {
         UserEntity user = userMap.get(userScore.getUserId());
         if (!isVisible(user, viewerId)) {
             return null;
@@ -278,11 +297,6 @@ public class LeaderboardService {
         String handle = user.getHandle();
         String nickname = user.getName();
         String profileUrl = user.getProfileImageUrl();
-
-        long rank = startRank + scorePage.getContent().stream()
-                .filter(score -> isVisible(userMap.get(score.getUserId()), viewerId))
-                .toList()
-                .indexOf(userScore);
 
         Long score = switch (type.toLowerCase()) {
             case "season" -> userScore.getSeasonScore();

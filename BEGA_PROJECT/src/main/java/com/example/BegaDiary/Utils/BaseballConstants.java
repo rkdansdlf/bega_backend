@@ -35,11 +35,26 @@ public class BaseballConstants {
     );
     
     public static String getFullStadiumName(String shortName) {
-        return STADIUM_FULL_NAME_MAP.getOrDefault(shortName, shortName);
+        if (shortName == null) {
+            return null;
+        }
+
+        String normalized = shortName.trim();
+        if (normalized.isEmpty()) {
+            return normalized;
+        }
+
+        return STADIUM_FULL_NAME_MAP.getOrDefault(normalized, normalized);
     }
     
     public static String getTeamKoreanName(String teamCode) {
         String normalized = TeamCodeNormalizer.normalize(teamCode);
+        if (normalized == null) {
+            return null;
+        }
+        if (normalized.isBlank()) {
+            return normalized.trim();
+        }
         return TEAM_KOREAN_NAME_MAP.getOrDefault(normalized, normalized);
     }
     

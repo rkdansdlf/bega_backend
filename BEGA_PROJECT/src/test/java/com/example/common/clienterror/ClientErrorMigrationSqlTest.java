@@ -37,7 +37,7 @@ class ClientErrorMigrationSqlTest {
                 .contains("CREATE TABLE client_error_alert_notifications")
                 .contains("stack_trace CLOB NULL")
                 .contains("component_stack CLOB NULL")
-                .contains("comment CLOB NOT NULL")
+                .contains("\"COMMENT\" CLOB NOT NULL")
                 .contains("feedback_count NUMBER(10) DEFAULT 0 NOT NULL")
                 .contains("delivery_status VARCHAR2(20 CHAR) NOT NULL");
     }

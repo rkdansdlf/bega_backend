@@ -1,14 +1,15 @@
 package com.example.kbo.repository;
 
 import com.example.kbo.entity.GameEntity;
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Page;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -19,6 +20,264 @@ import java.util.Optional;
  */
 @Repository
 public interface GameRepository extends JpaRepository<GameEntity, Long> {
+
+  String CANONICAL_RANGE_PROJECTION_QUERY = """
+      WITH range_rows AS (
+          SELECT
+              g.game_id,
+              g.game_date,
+              g.stadium,
+              g.home_team,
+              g.away_team,
+              g.home_score,
+              g.away_score,
+              g.is_dummy,
+              g.home_pitcher,
+              g.away_pitcher,
+              g.season_id,
+              s.league_type_code AS raw_league_type_code
+          FROM game g
+          LEFT JOIN kbo_seasons s ON g.season_id = s.season_id
+          WHERE g.game_date BETWEEN :startDate AND :endDate
+            AND g.is_dummy IS NOT TRUE
+            AND g.game_id NOT LIKE 'MOCK%'
+            AND g.home_team IN :canonicalTeams
+            AND g.away_team IN :canonicalTeams
+      ),
+      series_keys AS (
+          SELECT DISTINCT
+              rr.season_id,
+              CASE
+                  WHEN UPPER(TRIM(rr.home_team)) <= UPPER(TRIM(rr.away_team)) THEN UPPER(TRIM(rr.home_team))
+                  ELSE UPPER(TRIM(rr.away_team))
+              END AS team_a,
+              CASE
+                  WHEN UPPER(TRIM(rr.home_team)) <= UPPER(TRIM(rr.away_team)) THEN UPPER(TRIM(rr.away_team))
+                  ELSE UPPER(TRIM(rr.home_team))
+              END AS team_b
+          FROM range_rows rr
+          WHERE rr.raw_league_type_code BETWEEN 2 AND 5
+            AND rr.season_id IS NOT NULL
+            AND rr.home_team IS NOT NULL
+            AND rr.away_team IS NOT NULL
+      ),
+      series_ranked AS (
+          SELECT
+              g.game_id,
+              ROW_NUMBER() OVER (
+                  PARTITION BY sk.season_id, sk.team_a, sk.team_b
+                  ORDER BY g.game_date ASC, g.game_id ASC
+              ) AS series_game_no
+          FROM series_keys sk
+          JOIN game g
+            ON g.season_id = sk.season_id
+           AND CASE
+               WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.home_team))
+               ELSE UPPER(TRIM(g.away_team))
+           END = sk.team_a
+           AND CASE
+               WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.away_team))
+               ELSE UPPER(TRIM(g.home_team))
+           END = sk.team_b
+          WHERE g.game_date IS NOT NULL
+            AND g.game_id IS NOT NULL
+            AND g.is_dummy IS NOT TRUE
+            AND g.game_id NOT LIKE 'MOCK%'
+      )
+      SELECT
+          rr.game_id AS "gameId",
+          rr.game_date AS "gameDate",
+          rr.stadium AS "stadium",
+          rr.home_team AS "homeTeam",
+          rr.away_team AS "awayTeam",
+          rr.home_score AS "homeScore",
+          rr.away_score AS "awayScore",
+          rr.is_dummy AS "isDummy",
+          rr.home_pitcher AS "homePitcher",
+          rr.away_pitcher AS "awayPitcher",
+          rr.season_id AS "seasonId",
+          rr.raw_league_type_code AS "rawLeagueTypeCode",
+          sr.series_game_no AS "seriesGameNo"
+      FROM range_rows rr
+      LEFT JOIN series_ranked sr ON sr.game_id = rr.game_id
+      ORDER BY rr.game_date ASC, rr.game_id ASC
+      """;
+
+  String CANONICAL_RANGE_PROJECTION_COUNT_QUERY = """
+      SELECT COUNT(*)
+      FROM game g
+      WHERE g.game_date BETWEEN :startDate AND :endDate
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
+        AND g.home_team IN :canonicalTeams
+        AND g.away_team IN :canonicalTeams
+      """;
+
+  String CANONICAL_GAME_DATE_PROJECTION_QUERY = """
+      WITH date_rows AS (
+          SELECT
+              g.game_id,
+              g.game_date,
+              g.stadium,
+              g.home_team,
+              g.away_team,
+              g.home_score,
+              g.away_score,
+              g.is_dummy,
+              g.home_pitcher,
+              g.away_pitcher,
+              g.season_id,
+              s.league_type_code AS raw_league_type_code
+          FROM game g
+          LEFT JOIN kbo_seasons s ON g.season_id = s.season_id
+          WHERE g.game_date = :gameDate
+            AND g.is_dummy IS NOT TRUE
+            AND g.game_id NOT LIKE 'MOCK%'
+            AND g.home_team IN :canonicalTeams
+            AND g.away_team IN :canonicalTeams
+      ),
+      series_keys AS (
+          SELECT DISTINCT
+              dr.season_id,
+              CASE
+                  WHEN UPPER(TRIM(dr.home_team)) <= UPPER(TRIM(dr.away_team)) THEN UPPER(TRIM(dr.home_team))
+                  ELSE UPPER(TRIM(dr.away_team))
+              END AS team_a,
+              CASE
+                  WHEN UPPER(TRIM(dr.home_team)) <= UPPER(TRIM(dr.away_team)) THEN UPPER(TRIM(dr.away_team))
+                  ELSE UPPER(TRIM(dr.home_team))
+              END AS team_b
+          FROM date_rows dr
+          WHERE dr.raw_league_type_code BETWEEN 2 AND 5
+            AND dr.season_id IS NOT NULL
+            AND dr.home_team IS NOT NULL
+            AND dr.away_team IS NOT NULL
+      ),
+      series_ranked AS (
+          SELECT
+              g.game_id,
+              ROW_NUMBER() OVER (
+                  PARTITION BY sk.season_id, sk.team_a, sk.team_b
+                  ORDER BY g.game_date ASC, g.game_id ASC
+              ) AS series_game_no
+          FROM series_keys sk
+          JOIN game g
+            ON g.season_id = sk.season_id
+           AND CASE
+               WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.home_team))
+               ELSE UPPER(TRIM(g.away_team))
+           END = sk.team_a
+           AND CASE
+               WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.away_team))
+               ELSE UPPER(TRIM(g.home_team))
+           END = sk.team_b
+          WHERE g.game_date IS NOT NULL
+            AND g.game_id IS NOT NULL
+            AND g.is_dummy IS NOT TRUE
+            AND g.game_id NOT LIKE 'MOCK%'
+      )
+      SELECT
+          dr.game_id AS "gameId",
+          dr.game_date AS "gameDate",
+          dr.stadium AS "stadium",
+          dr.home_team AS "homeTeam",
+          dr.away_team AS "awayTeam",
+          dr.home_score AS "homeScore",
+          dr.away_score AS "awayScore",
+          dr.is_dummy AS "isDummy",
+          dr.home_pitcher AS "homePitcher",
+          dr.away_pitcher AS "awayPitcher",
+          dr.season_id AS "seasonId",
+          dr.raw_league_type_code AS "rawLeagueTypeCode",
+          sr.series_game_no AS "seriesGameNo"
+      FROM date_rows dr
+      LEFT JOIN series_ranked sr ON sr.game_id = dr.game_id
+      ORDER BY dr.game_date ASC, dr.game_id ASC
+      """;
+
+  String CANONICAL_COMPLETED_RANGE_PROJECTION_QUERY = """
+      WITH past_rows AS (
+          SELECT
+              g.game_id,
+              g.game_date,
+              g.stadium,
+              g.home_team,
+              g.away_team,
+              g.home_score,
+              g.away_score,
+              g.is_dummy,
+              g.home_pitcher,
+              g.away_pitcher,
+              g.season_id,
+              s.league_type_code AS raw_league_type_code
+          FROM game g
+          LEFT JOIN kbo_seasons s ON g.season_id = s.season_id
+          WHERE g.game_date IN :gameDates
+            AND g.home_score IS NOT NULL
+            AND g.away_score IS NOT NULL
+            AND g.is_dummy IS NOT TRUE
+            AND g.game_id NOT LIKE 'MOCK%'
+            AND g.home_team IN :canonicalTeams
+            AND g.away_team IN :canonicalTeams
+      ),
+      series_keys AS (
+          SELECT DISTINCT
+              pr.season_id,
+              CASE
+                  WHEN UPPER(TRIM(pr.home_team)) <= UPPER(TRIM(pr.away_team)) THEN UPPER(TRIM(pr.home_team))
+                  ELSE UPPER(TRIM(pr.away_team))
+              END AS team_a,
+              CASE
+                  WHEN UPPER(TRIM(pr.home_team)) <= UPPER(TRIM(pr.away_team)) THEN UPPER(TRIM(pr.away_team))
+                  ELSE UPPER(TRIM(pr.home_team))
+              END AS team_b
+          FROM past_rows pr
+          WHERE pr.raw_league_type_code BETWEEN 2 AND 5
+            AND pr.season_id IS NOT NULL
+            AND pr.home_team IS NOT NULL
+            AND pr.away_team IS NOT NULL
+      ),
+      series_ranked AS (
+          SELECT
+              g.game_id,
+              ROW_NUMBER() OVER (
+                  PARTITION BY sk.season_id, sk.team_a, sk.team_b
+                  ORDER BY g.game_date ASC, g.game_id ASC
+              ) AS series_game_no
+          FROM series_keys sk
+          JOIN game g
+            ON g.season_id = sk.season_id
+           AND CASE
+               WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.home_team))
+               ELSE UPPER(TRIM(g.away_team))
+           END = sk.team_a
+           AND CASE
+               WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.away_team))
+               ELSE UPPER(TRIM(g.home_team))
+           END = sk.team_b
+          WHERE g.game_date IS NOT NULL
+            AND g.game_id IS NOT NULL
+            AND g.is_dummy IS NOT TRUE
+            AND g.game_id NOT LIKE 'MOCK%'
+      )
+      SELECT
+          pr.game_id AS "gameId",
+          pr.game_date AS "gameDate",
+          pr.stadium AS "stadium",
+          pr.home_team AS "homeTeam",
+          pr.away_team AS "awayTeam",
+          pr.home_score AS "homeScore",
+          pr.away_score AS "awayScore",
+          pr.is_dummy AS "isDummy",
+          pr.home_pitcher AS "homePitcher",
+          pr.away_pitcher AS "awayPitcher",
+          pr.season_id AS "seasonId",
+          pr.raw_league_type_code AS "rawLeagueTypeCode",
+          sr.series_game_no AS "seriesGameNo"
+      FROM past_rows pr
+      LEFT JOIN series_ranked sr ON sr.game_id = pr.game_id
+      ORDER BY pr.game_date ASC, pr.game_id ASC
+      """;
 
   // ========================================
   // 기본 조회 메서드
@@ -31,6 +290,34 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    * @return 경기 엔티티
    */
   Optional<GameEntity> findByGameId(String gameId);
+
+  @Query("""
+      SELECT
+          g.gameId AS gameId,
+          g.gameDate AS gameDate,
+          g.stadium AS stadium,
+          m.stadiumName AS stadiumName,
+          m.startTime AS startTime,
+          m.attendance AS attendance,
+          m.weather AS weather,
+          m.gameTimeMinutes AS gameTimeMinutes,
+          g.homeTeam AS homeTeam,
+          g.awayTeam AS awayTeam,
+          g.homeScore AS homeScore,
+          g.awayScore AS awayScore,
+          g.homePitcher AS homePitcher,
+          g.awayPitcher AS awayPitcher,
+          g.gameStatus AS gameStatus
+      FROM GameEntity g
+      LEFT JOIN GameMetadataEntity m ON m.gameId = g.gameId
+      WHERE g.gameId = :gameId
+      """)
+  Optional<GameDetailHeaderProjection> findGameDetailHeaderByGameId(@Param("gameId") String gameId);
+
+  /**
+   * gameId 목록으로 경기 일괄 조회
+   */
+  List<GameEntity> findByGameIdIn(Collection<String> gameIds);
 
   /**
    * 특정 날짜의 경기 목록 조회
@@ -115,7 +402,7 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
 
   @Query("SELECT g FROM GameEntity g " +
       "WHERE g.gameDate BETWEEN :startDate AND :endDate " +
-      "AND g.isDummy IS NOT TRUE " +
+      "AND COALESCE(g.isDummy, false) = false " +
       "AND g.gameId NOT LIKE 'MOCK%' " +
       "AND g.homeTeam IN :canonicalTeams " +
       "AND g.awayTeam IN :canonicalTeams " +
@@ -126,8 +413,24 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
       @Param("canonicalTeams") List<String> canonicalTeams,
       Pageable pageable);
 
+  @Query(value = CANONICAL_RANGE_PROJECTION_QUERY, nativeQuery = true)
+  List<MatchRangeProjection> findCanonicalRangeProjectionByDateRangeNoCount(
+      @Param("startDate") LocalDate startDate,
+      @Param("endDate") LocalDate endDate,
+      @Param("canonicalTeams") List<String> canonicalTeams,
+      Pageable pageable);
+
+  @Query(value = CANONICAL_RANGE_PROJECTION_QUERY,
+      countQuery = CANONICAL_RANGE_PROJECTION_COUNT_QUERY,
+      nativeQuery = true)
+  Page<MatchRangeProjection> findCanonicalRangeProjectionByDateRange(
+      @Param("startDate") LocalDate startDate,
+      @Param("endDate") LocalDate endDate,
+      @Param("canonicalTeams") List<String> canonicalTeams,
+      Pageable pageable);
+
   @Query("SELECT MIN(g.gameDate) FROM GameEntity g " +
-      "WHERE g.isDummy IS NOT TRUE " +
+      "WHERE COALESCE(g.isDummy, false) = false " +
       "AND g.gameId NOT LIKE 'MOCK%' " +
       "AND g.homeTeam IN :canonicalTeams " +
       "AND g.awayTeam IN :canonicalTeams")
@@ -135,7 +438,7 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
       @Param("canonicalTeams") List<String> canonicalTeams);
 
   @Query("SELECT MAX(g.gameDate) FROM GameEntity g " +
-      "WHERE g.isDummy IS NOT TRUE " +
+      "WHERE COALESCE(g.isDummy, false) = false " +
       "AND g.gameId NOT LIKE 'MOCK%' " +
       "AND g.homeTeam IN :canonicalTeams " +
       "AND g.awayTeam IN :canonicalTeams")
@@ -144,7 +447,7 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
 
   @Query("SELECT MAX(g.gameDate) FROM GameEntity g " +
       "WHERE g.gameDate < :date " +
-      "AND g.isDummy IS NOT TRUE " +
+      "AND COALESCE(g.isDummy, false) = false " +
       "AND g.gameId NOT LIKE 'MOCK%' " +
       "AND g.homeTeam IN :canonicalTeams " +
       "AND g.awayTeam IN :canonicalTeams")
@@ -154,12 +457,60 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
 
   @Query("SELECT MIN(g.gameDate) FROM GameEntity g " +
       "WHERE g.gameDate > :date " +
-      "AND g.isDummy IS NOT TRUE " +
+      "AND COALESCE(g.isDummy, false) = false " +
       "AND g.gameId NOT LIKE 'MOCK%' " +
       "AND g.homeTeam IN :canonicalTeams " +
       "AND g.awayTeam IN :canonicalTeams")
   Optional<LocalDate> findCanonicalNextGameDate(
       @Param("date") LocalDate date,
+      @Param("canonicalTeams") List<String> canonicalTeams);
+
+  @Query(value = """
+      SELECT
+          (
+              SELECT MAX(g.game_date)
+              FROM game g
+              WHERE g.game_date < :date
+                AND g.is_dummy IS NOT TRUE
+                AND g.game_id NOT LIKE 'MOCK%'
+                AND g.home_team IN :canonicalTeams
+                AND g.away_team IN :canonicalTeams
+          ) AS "prevDate",
+          (
+              SELECT MIN(g.game_date)
+              FROM game g
+              WHERE g.game_date > :date
+                AND g.is_dummy IS NOT TRUE
+                AND g.game_id NOT LIKE 'MOCK%'
+                AND g.home_team IN :canonicalTeams
+                AND g.away_team IN :canonicalTeams
+          ) AS "nextDate"
+      """, nativeQuery = true)
+  CanonicalAdjacentGameDatesProjection findCanonicalAdjacentGameDates(
+      @Param("date") LocalDate date,
+      @Param("canonicalTeams") List<String> canonicalTeams);
+
+  @Query(value = """
+      SELECT
+          MIN(g.game_date) AS "earliestGameDate",
+          MAX(g.game_date) AS "latestGameDate"
+      FROM game g
+      WHERE g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
+        AND g.home_team IN :canonicalTeams
+        AND g.away_team IN :canonicalTeams
+      """, nativeQuery = true)
+  CanonicalGameDateBoundsProjection findCanonicalGameDateBounds(
+      @Param("canonicalTeams") List<String> canonicalTeams);
+
+  @Query(value = CANONICAL_GAME_DATE_PROJECTION_QUERY, nativeQuery = true)
+  List<MatchRangeProjection> findCanonicalRangeProjectionByGameDate(
+      @Param("gameDate") LocalDate gameDate,
+      @Param("canonicalTeams") List<String> canonicalTeams);
+
+  @Query(value = CANONICAL_COMPLETED_RANGE_PROJECTION_QUERY, nativeQuery = true)
+  List<MatchRangeProjection> findCanonicalCompletedRangeProjectionByGameDates(
+      @Param("gameDates") List<LocalDate> gameDates,
       @Param("canonicalTeams") List<String> canonicalTeams);
 
   /**
@@ -235,9 +586,13 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
       ),
       top_teams AS (
           SELECT team_id
-          FROM team_stats
-          ORDER BY games_played DESC, team_id ASC
-          FETCH FIRST 10 ROWS ONLY
+          FROM (
+              SELECT
+                  team_id,
+                  ROW_NUMBER() OVER (ORDER BY games_played DESC, team_id ASC) AS team_order_no
+              FROM team_stats
+          ) ranked_teams
+          WHERE team_order_no <= 10
       ),
       ranked AS (
           SELECT
@@ -322,9 +677,13 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
       ),
       top_teams AS (
           SELECT team_id
-          FROM team_stats
-          ORDER BY games_played DESC, team_id ASC
-          FETCH FIRST 10 ROWS ONLY
+          FROM (
+              SELECT
+                  team_id,
+                  ROW_NUMBER() OVER (ORDER BY games_played DESC, team_id ASC) AS team_order_no
+              FROM team_stats
+          ) ranked_teams
+          WHERE team_order_no <= 10
       ),
       ranked AS (
           SELECT
@@ -524,26 +883,4 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
       FETCH FIRST 1 ROWS ONLY
       """, nativeQuery = true)
   Optional<Integer> findLeagueTypeCodeBySeasonId(@Param("seasonId") Integer seasonId);
-
-  @Query(value = """
-      SELECT COUNT(*)
-      FROM game g
-      WHERE g.season_id = :seasonId
-        AND (
-          (UPPER(TRIM(g.home_team)) = UPPER(TRIM(:homeTeam)) AND UPPER(TRIM(g.away_team)) = UPPER(TRIM(:awayTeam)))
-          OR
-          (UPPER(TRIM(g.home_team)) = UPPER(TRIM(:awayTeam)) AND UPPER(TRIM(g.away_team)) = UPPER(TRIM(:homeTeam)))
-        )
-        AND UPPER(TRIM(COALESCE(g.game_status, ''))) IN ('COMPLETED', 'FINAL', 'FINISHED', 'DONE', 'END', 'E', 'F')
-        AND (
-          g.game_date < :gameDate
-          OR (g.game_date = :gameDate AND g.game_id < :gameId)
-        )
-      """, nativeQuery = true)
-  long countPreviousCompletedSeriesGames(
-      @Param("seasonId") Integer seasonId,
-      @Param("homeTeam") String homeTeam,
-      @Param("awayTeam") String awayTeam,
-      @Param("gameDate") LocalDate gameDate,
-      @Param("gameId") String gameId);
 }

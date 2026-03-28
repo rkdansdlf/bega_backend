@@ -24,6 +24,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -80,6 +81,34 @@ class BegaDiaryServiceTest {
 
         assertThat(response.getId()).isEqualTo(100L);
         assertThat(response.getPhotos()).containsExactly("https://signed.example/diary.png");
+    }
+
+    @Test
+    @DisplayName("getAllDiaries batches signed URL generation for all diary photos")
+    void getAllDiaries_batchesSignedUrls() {
+        BegaDiary first = createDiary(100L, 10L, List.of("oci://diary/object-a.png", "oci://diary/object-b.png"));
+        BegaDiary second = createDiary(101L, 10L, List.of("oci://diary/object-c.png"));
+        when(diaryRepository.findByUserId(10L)).thenReturn(List.of(first, second));
+        when(imageService.getDiaryImageSignedUrls(List.of(
+                "oci://diary/object-a.png",
+                "oci://diary/object-b.png",
+                "oci://diary/object-c.png")))
+                .thenReturn(reactor.core.publisher.Mono.just(List.of(
+                        "https://signed.example/a.png",
+                        "https://signed.example/b.png",
+                        "https://signed.example/c.png")));
+
+        List<DiaryResponseDto> response = begaDiaryService.getAllDiaries(10L);
+
+        assertThat(response).hasSize(2);
+        assertThat(response.get(0).getPhotos()).containsExactly(
+                "https://signed.example/a.png",
+                "https://signed.example/b.png");
+        assertThat(response.get(1).getPhotos()).containsExactly("https://signed.example/c.png");
+        verify(imageService).getDiaryImageSignedUrls(List.of(
+                "oci://diary/object-a.png",
+                "oci://diary/object-b.png",
+                "oci://diary/object-c.png"));
     }
 
     private BegaDiary createDiary(Long diaryId, Long ownerId, List<String> photoUrls) {

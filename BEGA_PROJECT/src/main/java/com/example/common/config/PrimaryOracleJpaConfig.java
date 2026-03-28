@@ -126,6 +126,7 @@ public class PrimaryOracleJpaConfig {
 				.dataSource(primaryDataSource)
 				.packages(
 						"com.example.admin",
+						"com.example.ai",
 						"com.example.auth",
 						"com.example.bega",
 						"com.example.BegaDiary",

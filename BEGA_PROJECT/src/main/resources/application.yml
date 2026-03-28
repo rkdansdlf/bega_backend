@@ -22,8 +22,6 @@ spring:
 
   # 데이터 설정 (Web & Redis)
   data:
-    web:
-      page-serialization-mode: via-dto # Fix PageImpl warning
     redis:
       repositories:
         enabled: false # Fix Redis repository scanning warning
@@ -120,12 +118,12 @@ org:
 logging:
   level:
     root: INFO
-    com.example: INFO
-    org.hibernate.SQL: WARN
-    org.hibernate.orm.jdbc.bind: WARN
-    org.hibernate.type.descriptor.sql: WARN
-    org.springframework: INFO
-    org.springframework.web.socket: INFO
+    "[com.example]": INFO
+    "[org.hibernate.SQL]": WARN
+    "[org.hibernate.orm.jdbc.bind]": WARN
+    "[org.hibernate.type.descriptor.sql]": WARN
+    "[org.springframework]": INFO
+    "[org.springframework.web.socket]": INFO
 
 baseball:
   datasource:
@@ -183,7 +181,8 @@ app:
   trusted-proxies: ${APP_TRUSTED_PROXIES:}
   # Canonical env key: APP_ALLOWED_ORIGINS.
   # docker-compose may feed this value from APP_ALLOWED_ORIGINS_OVERRIDE for local smoke only.
-  allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost,http://localhost:3000,http://localhost:5173,http://localhost:5176,http://localhost:5177,http://localhost:8080,http://host.docker.internal,http://host.docker.internal:3000,http://host.docker.internal:5173,http://host.docker.internal:5176,http://host.docker.internal:5177,http://host.docker.internal:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:4173,http://127.0.0.1:5173,http://127.0.0.1:5176,http://127.0.0.1:5177}
+  allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost,http://localhost:3000,http://localhost:4173,http://localhost:4174,http://localhost:4175,http://localhost:4176,http://localhost:4177,http://localhost:4178,http://localhost:5173,http://localhost:5176,http://localhost:5177,http://localhost:8080,http://host.docker.internal,http://host.docker.internal:3000,http://host.docker.internal:4173,http://host.docker.internal:4174,http://host.docker.internal:4175,http://host.docker.internal:4176,http://host.docker.internal:4177,http://host.docker.internal:4178,http://host.docker.internal:5173,http://host.docker.internal:5176,http://host.docker.internal:5177,http://host.docker.internal:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:4173,http://127.0.0.1:4174,http://127.0.0.1:4175,http://127.0.0.1:4176,http://127.0.0.1:4177,http://127.0.0.1:4178,http://127.0.0.1:5173,http://127.0.0.1:5176,http://127.0.0.1:5177}
+  allow-preview-origins: ${APP_ALLOW_PREVIEW_ORIGINS:false}
   cookie:
     secure: false  # 개발 환경 기본값 (HTTP), prod 프로필에서 true로 오버라이드
   policy:
@@ -334,27 +333,21 @@ spring:
     hibernate:
       ddl-auto: validate       # 공유 PostgreSQL + 뷰 환경에서는 Hibernate 스키마 변경 대신 검증만 수행
     properties:
-      hibernate:
-        default_schema: public
-        jdbc:
-          batch_size: 50
-        order_updates: true
-        order_inserts: true
-        boot:
-          allow_jdbc_metadata_access: true
-        connection:
-          driver_class: org.postgresql.Driver
+      "[hibernate.default_schema]": public
+      "[hibernate.jdbc.batch_size]": 50
+      "[hibernate.order_updates]": true
+      "[hibernate.order_inserts]": true
+      "[hibernate.boot.allow_jdbc_metadata_access]": true
+      "[hibernate.connection.driver_class]": org.postgresql.Driver
   sql:
     init:
       mode: never
-    properties:
-      hibernate: {}
 
 app:
   mail:
     enabled: ${APP_MAIL_ENABLED:false}
   oauth2:
-    cookie-secret: ${OAUTH2_COOKIE_SECRET}
+    cookie-secret: ${OAUTH2_COOKIE_SECRET:local-runtime-cookie-signing-secret}
   dev-data:
     enabled: true
 
@@ -382,7 +375,7 @@ spring:
     activate:
       on-profile: prod
   datasource:
-    driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:org.postgresql.Driver}
+    driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:oracle.jdbc.OracleDriver}
     url: ${SPRING_DATASOURCE_URL:?SPRING_DATASOURCE_URL is required in prod}
     username: ${SPRING_DATASOURCE_USERNAME:?SPRING_DATASOURCE_USERNAME is required in prod}
     password: ${SPRING_DATASOURCE_PASSWORD:?SPRING_DATASOURCE_PASSWORD is required in prod}
@@ -403,16 +396,16 @@ spring:
       naming:
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
     properties:
-      hibernate:
-        format_sql: false
+      "[hibernate.format_sql]": false
 
   flyway:
     enabled: true
     baseline-on-migrate: true
     validate-on-migrate: ${SPRING_FLYWAY_VALIDATE_ON_MIGRATE:false}
     locations: classpath:db/migration/
-    ignore-migration-patterns: "*:pending"
-    ignore-missing-migrations: true
+    ignore-migration-patterns:
+      - "*:missing"
+      - "*:pending"
 
 baseball:
   datasource:
@@ -473,9 +466,8 @@ spring:
     hibernate:
       ddl-auto: create-drop # 매 실행 시 스키마 새로 생성
     properties:
-      hibernate:
-        show_sql: true
-        format_sql: true
+      "[hibernate.show_sql]": true
+      "[hibernate.format_sql]": true
 
 kbo:
   schema-guard:
@@ -497,6 +489,8 @@ baseball:
 app:
   mail:
     enabled: ${APP_MAIL_ENABLED:false}
+  oauth2:
+    cookie-secret: ${OAUTH2_COOKIE_SECRET:local-runtime-cookie-signing-secret}
   dev-data:
     enabled: true
 

@@ -20,6 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -167,9 +169,10 @@ public class AdminRoleService {
                 }
 
                 List<AuditLog> logs = auditLogRepository.findAllByOrderByCreatedAtDesc();
+                Map<Long, UserEntity> usersById = loadUsersByIds(extractRelevantUserIds(logs));
 
                 return logs.stream()
-                                .map(this::enrichAuditLogDto)
+                                .map(log -> enrichAuditLogDto(log, usersById))
                                 .collect(Collectors.toList());
         }
 
@@ -186,22 +189,24 @@ public class AdminRoleService {
                         throw new InsufficientPrivilegeException("감사 로그 조회는 SUPER_ADMIN만 가능합니다.");
                 }
 
-                return auditLogRepository.findAllByOrderByCreatedAtDesc(pageable)
-                                .map(this::enrichAuditLogDto);
+                Page<AuditLog> logs = auditLogRepository.findAllByOrderByCreatedAtDesc(pageable);
+                Map<Long, UserEntity> usersById = loadUsersByIds(extractRelevantUserIds(logs.getContent()));
+
+                return logs.map(log -> enrichAuditLogDto(log, usersById));
         }
 
         /**
          * AuditLog 엔티티를 DTO로 변환하면서 사용자 정보 추가
          */
-        private AuditLogDto enrichAuditLogDto(AuditLog log) {
+        private AuditLogDto enrichAuditLogDto(AuditLog log, Map<Long, UserEntity> usersById) {
                 // 관리자 정보 조회
                 UserEntity admin = log.getAdminId() != null
-                                ? userRepository.findById(Objects.requireNonNull(log.getAdminId())).orElse(null)
+                                ? usersById.get(log.getAdminId())
                                 : null;
 
                 // 대상 사용자 정보 조회
                 UserEntity targetUser = log.getTargetUserId() != null
-                                ? userRepository.findById(Objects.requireNonNull(log.getTargetUserId())).orElse(null)
+                                ? usersById.get(log.getTargetUserId())
                                 : null;
 
                 return AuditLogDto.builder()
@@ -219,5 +224,25 @@ public class AdminRoleService {
                                 .description(log.getDescription())
                                 .createdAt(log.getCreatedAt())
                                 .build();
+        }
+
+        private Set<Long> extractRelevantUserIds(List<AuditLog> logs) {
+                if (logs == null || logs.isEmpty()) {
+                        return Set.of();
+                }
+
+                return logs.stream()
+                                .flatMap(log -> java.util.stream.Stream.of(log.getAdminId(), log.getTargetUserId()))
+                                .filter(Objects::nonNull)
+                                .collect(Collectors.toSet());
+        }
+
+        private Map<Long, UserEntity> loadUsersByIds(Set<Long> userIds) {
+                if (userIds == null || userIds.isEmpty()) {
+                        return Map.of();
+                }
+
+                return userRepository.findAllById(userIds).stream()
+                                .collect(Collectors.toMap(UserEntity::getId, java.util.function.Function.identity()));
         }
 }
