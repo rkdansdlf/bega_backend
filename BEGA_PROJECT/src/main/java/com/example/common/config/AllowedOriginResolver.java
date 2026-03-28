@@ -4,12 +4,16 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 @Component
 public class AllowedOriginResolver {
+
+    private static final Logger log = LoggerFactory.getLogger(AllowedOriginResolver.class);
 
     static final List<String> DEV_LOCAL_DEFAULT_ALLOWED_ORIGINS = List.of(
             "http://localhost",
@@ -35,24 +39,40 @@ public class AllowedOriginResolver {
             "http://127.0.0.1:8080",
             "http://[::1]");
 
-    static final List<String> PROD_ALLOWED_ORIGINS = List.of("https://www.begabaseball.xyz");
+    static final List<String> PROD_ALLOWED_ORIGINS = List.of(
+            "https://www.begabaseball.xyz",
+            "https://begabaseball.xyz");
 
     private final Environment environment;
     private final String configuredAllowedOrigins;
+    private final boolean allowPreviewOrigins;
 
     public AllowedOriginResolver(
             Environment environment,
-            @Value("${app.allowed-origins:}") String configuredAllowedOrigins) {
+            @Value("${app.allowed-origins:}") String configuredAllowedOrigins,
+            @Value("${app.allow-preview-origins:false}") boolean allowPreviewOrigins) {
         this.environment = environment;
         this.configuredAllowedOrigins = configuredAllowedOrigins;
+        this.allowPreviewOrigins = allowPreviewOrigins;
     }
 
     public List<String> resolve() {
+        List<String> configuredOrigins = parseOrigins(configuredAllowedOrigins);
+        log.info("AllowedOriginResolver: raw='{}', parsed={}, isProd={}, isDev={}",
+                configuredAllowedOrigins, configuredOrigins, isProdProfile(), isDevOrLocalProfile());
+
         if (isProdProfile()) {
-            return PROD_ALLOWED_ORIGINS;
+            LinkedHashSet<String> merged = new LinkedHashSet<>(PROD_ALLOWED_ORIGINS);
+            if (allowPreviewOrigins) {
+                merged.addAll(configuredOrigins);
+            } else {
+                merged.addAll(filterDisallowedPreviewOrigins(configuredOrigins));
+            }
+            List<String> result = List.copyOf(merged);
+            log.info("AllowedOriginResolver: prod resolved origins={}", result);
+            return result;
         }
 
-        List<String> configuredOrigins = parseOrigins(configuredAllowedOrigins);
         if (isDevOrLocalProfile()) {
             LinkedHashSet<String> merged = new LinkedHashSet<>(DEV_LOCAL_DEFAULT_ALLOWED_ORIGINS);
             merged.addAll(configuredOrigins);
@@ -64,6 +84,12 @@ public class AllowedOriginResolver {
         }
 
         return DEV_LOCAL_DEFAULT_ALLOWED_ORIGINS;
+    }
+
+    private static List<String> filterDisallowedPreviewOrigins(List<String> origins) {
+        return origins.stream()
+                .filter(origin -> !origin.contains(".pages.dev"))
+                .toList();
     }
 
     boolean isDevOrLocalProfile() {

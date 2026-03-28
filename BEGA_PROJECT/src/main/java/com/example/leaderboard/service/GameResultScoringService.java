@@ -46,69 +46,7 @@ public class GameResultScoringService {
         GameEntity game = gameRepository.findByGameId(gameId)
                 .orElseThrow(() -> new IllegalArgumentException("게임을 찾을 수 없습니다: " + gameId));
 
-        if (!isCanonicalGame(game)) {
-            log.info("Skipping non-canonical game {} for scoring.", gameId);
-            return 0;
-        }
-
-        if (!game.isFinished()) {
-            log.warn("Game {} is not finished yet. Skipping score processing.", gameId);
-            return 0;
-        }
-
-        String winner = game.getWinner(); // "home", "away", or "draw"
-        if (winner == null || winner.isBlank()) {
-            log.warn("Game {} has no winner information. Skipping score processing.", gameId);
-            return 0;
-        }
-
-        // 이변 여부 확인 (약팀이 이긴 경우)
-        boolean isUpset = isUpsetGame(game);
-
-        // 해당 게임의 모든 예측 조회
-        List<Prediction> predictions = predictionRepository.findByGameId(gameId);
-
-        if (predictions.isEmpty()) {
-            log.info("No predictions found for game {}.", gameId);
-            return 0;
-        }
-
-        int processedCount = 0;
-        for (Prediction prediction : predictions) {
-            // 이미 점수가 처리되었는지 확인
-            if (isAlreadyProcessed(prediction.getId(), prediction.getUserId())) {
-                log.debug("Prediction {} already processed for user {}.", prediction.getId(), prediction.getUserId());
-                continue;
-            }
-
-            boolean isCorrect = prediction.getVotedTeam().equalsIgnoreCase(winner);
-
-            try {
-                ScoreResultDto result = scoringService.processPredictionResult(
-                        prediction.getUserId(),
-                        prediction.getId(),
-                        gameId,
-                        isCorrect,
-                        isCorrect && isUpset);
-
-                if (Boolean.TRUE.equals(result.getCorrect())) {
-                    log.info("User {} earned {} points for game {} (streak: {})",
-                            prediction.getUserId(), result.getTotalEarned(), gameId, result.getCurrentStreak());
-                }
-
-                processedCount++;
-            } catch (Exception e) {
-                log.error("Failed to process prediction {} for user {}: {}",
-                        prediction.getId(), prediction.getUserId(), e.getMessage());
-            }
-        }
-
-        log.info("Processed {} predictions for game {}.", processedCount, gameId);
-
-        // 퍼펙트 데이 체크 (하루의 모든 경기를 맞힌 사용자)
-        checkPerfectDay(game.getGameDate());
-
-        return processedCount;
+        return processGameResult(game, true);
     }
 
     /**
@@ -133,7 +71,7 @@ public class GameResultScoringService {
         int totalProcessed = 0;
         for (GameEntity game : finishedGames) {
             try {
-                int processed = processGameResult(game.getGameId());
+                int processed = processGameResult(game, false);
                 totalProcessed += processed;
             } catch (Exception e) {
                 log.error("Failed to process game {}: {}", game.getGameId(), e.getMessage());
@@ -141,50 +79,136 @@ public class GameResultScoringService {
         }
 
         log.info("Processed {} finished games for date {}.", finishedGames.size(), date);
+        checkPerfectDay(finishedGames);
         return totalProcessed;
+    }
+
+    private int processGameResult(GameEntity game, boolean runPerfectDayCheck) {
+        if (!isCanonicalGame(game)) {
+            log.info("Skipping non-canonical game {} for scoring.", game.getGameId());
+            return 0;
+        }
+
+        if (!game.isFinished()) {
+            log.warn("Game {} is not finished yet. Skipping score processing.", game.getGameId());
+            return 0;
+        }
+
+        String winner = game.getWinner(); // "home", "away", or "draw"
+        if (winner == null || winner.isBlank()) {
+            log.warn("Game {} has no winner information. Skipping score processing.", game.getGameId());
+            return 0;
+        }
+
+        // 이변 여부 확인 (약팀이 이긴 경우)
+        boolean isUpset = isUpsetGame(game);
+
+        // 해당 게임의 모든 예측 조회
+        List<Prediction> predictions = predictionRepository.findByGameId(game.getGameId());
+
+        if (predictions.isEmpty()) {
+            log.info("No predictions found for game {}.", game.getGameId());
+            return 0;
+        }
+
+        Set<Long> processedPredictionIds = loadProcessedPredictionIds(
+                predictions.stream().map(Prediction::getId).toList());
+
+        int processedCount = 0;
+        for (Prediction prediction : predictions) {
+            // 이미 점수가 처리되었는지 확인
+            if (isAlreadyProcessed(prediction.getId(), processedPredictionIds)) {
+                log.debug("Prediction {} already processed for user {}.", prediction.getId(), prediction.getUserId());
+                continue;
+            }
+
+            boolean isCorrect = prediction.getVotedTeam().equalsIgnoreCase(winner);
+
+            try {
+                ScoreResultDto result = scoringService.processPredictionResult(
+                        prediction.getUserId(),
+                        prediction.getId(),
+                        game.getGameId(),
+                        isCorrect,
+                        isCorrect && isUpset);
+
+                if (Boolean.TRUE.equals(result.getCorrect())) {
+                    log.info("User {} earned {} points for game {} (streak: {})",
+                            prediction.getUserId(), result.getTotalEarned(), game.getGameId(), result.getCurrentStreak());
+                }
+
+                processedCount++;
+            } catch (Exception e) {
+                log.error("Failed to process prediction {} for user {}: {}",
+                        prediction.getId(), prediction.getUserId(), e.getMessage());
+            }
+        }
+
+        log.info("Processed {} predictions for game {}.", processedCount, game.getGameId());
+
+        if (runPerfectDayCheck) {
+            checkPerfectDay(gameRepository.findByGameDate(game.getGameDate()).stream()
+                    .filter(g -> !g.isDummyGame())
+                    .filter(GameEntity::isFinished)
+                    .filter(this::isCanonicalGame)
+                    .toList());
+        }
+
+        return processedCount;
     }
 
     /**
      * 퍼펙트 데이 체크
      * 하루의 모든 경기를 맞힌 사용자에게 보너스 부여
      */
-    private void checkPerfectDay(LocalDate date) {
-        List<GameEntity> gamesForDate = gameRepository.findByGameDate(date).stream()
-                .filter(g -> !g.isDummyGame())
-                .filter(GameEntity::isFinished)
-                .filter(this::isCanonicalGame)
-                .toList();
-
-        if (gamesForDate.isEmpty()) {
+    private void checkPerfectDay(List<GameEntity> gamesForDate) {
+        if (gamesForDate == null || gamesForDate.isEmpty()) {
             return;
         }
 
         int totalGames = gamesForDate.size();
+        if (totalGames < 3) {
+            return;
+        }
 
-        // 해당 날짜의 모든 예측 수집
+        List<String> gameIds = gamesForDate.stream()
+                .map(GameEntity::getGameId)
+                .toList();
+        List<Prediction> predictions = predictionRepository.findByGameIdIn(gameIds);
+        if (predictions.isEmpty()) {
+            return;
+        }
+
+        Map<String, String> winnerByGameId = gamesForDate.stream()
+                .filter(game -> game.getWinner() != null && !game.getWinner().isBlank())
+                .collect(java.util.stream.Collectors.toMap(
+                        GameEntity::getGameId,
+                        GameEntity::getWinner,
+                        (left, right) -> left));
+
         Set<Long> allUsers = new HashSet<>();
         Map<Long, Integer> userCorrectCount = new HashMap<>();
+        Set<String> gameIdSet = new HashSet<>(gameIds);
 
-        for (GameEntity game : gamesForDate) {
-            String winner = game.getWinner();
+        for (Prediction prediction : predictions) {
+            if (!gameIdSet.contains(prediction.getGameId())) {
+                continue;
+            }
+            String winner = winnerByGameId.get(prediction.getGameId());
             if (winner == null || winner.isBlank()) {
                 continue;
             }
+            allUsers.add(prediction.getUserId());
 
-            List<Prediction> predictions = predictionRepository.findByGameId(game.getGameId());
-            for (Prediction prediction : predictions) {
-                allUsers.add(prediction.getUserId());
-
-                if (prediction.getVotedTeam().equalsIgnoreCase(winner)) {
-                    userCorrectCount.merge(prediction.getUserId(), 1, Integer::sum);
-                }
+            if (prediction.getVotedTeam().equalsIgnoreCase(winner)) {
+                userCorrectCount.merge(prediction.getUserId(), 1, Integer::sum);
             }
         }
 
         // 퍼펙트 데이 달성 사용자 확인
         for (Long userId : allUsers) {
             int correctCount = userCorrectCount.getOrDefault(userId, 0);
-            if (correctCount == totalGames && totalGames >= 3) { // 최소 3경기 이상
+            if (correctCount == totalGames) {
                 try {
                     scoringService.processPerfectDay(userId, totalGames);
                 } catch (Exception e) {
@@ -207,8 +231,16 @@ public class GameResultScoringService {
     /**
      * 이미 점수가 처리되었는지 확인
      */
-    private boolean isAlreadyProcessed(Long predictionId, Long userId) {
-        return scoreEventRepository.existsByPredictionIdAndUserId(predictionId, userId);
+    private Set<Long> loadProcessedPredictionIds(List<Long> predictionIds) {
+        if (predictionIds == null || predictionIds.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        return new HashSet<>(scoreEventRepository.findProcessedPredictionIdsByPredictionIdIn(predictionIds));
+    }
+
+    private boolean isAlreadyProcessed(Long predictionId, Set<Long> processedPredictionIds) {
+        return processedPredictionIds.contains(predictionId);
     }
 
     private boolean isCanonicalGame(GameEntity game) {

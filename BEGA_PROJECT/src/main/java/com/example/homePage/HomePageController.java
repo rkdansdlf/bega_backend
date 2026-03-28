@@ -21,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 public class HomePageController {
 
     private final HomePageGameService homePageGameService;
+    private final HomePageFacadeService homePageFacadeService;
 
     // 특정 날짜의 KBO 경기 목록을 조회
     @GetMapping("/schedule")
@@ -43,6 +44,19 @@ public class HomePageController {
                 List::of,
                 "KBO rankings",
                 "seasonYear=" + seasonYear);
+    }
+
+    @GetMapping("/rankings/snapshot")
+    public ResponseEntity<HomeRankingSnapshotDto> getRankingSnapshot(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) Integer seasonYear) {
+        LocalDate selectedDate = date == null ? LocalDate.now() : date;
+        try {
+            return ResponseEntity.ok(homePageFacadeService.getRankingSnapshot(selectedDate, seasonYear));
+        } catch (RuntimeException ex) {
+            log.warn("KBO ranking snapshot fallback applied - date={}, seasonYear={}, reason={}", selectedDate, seasonYear, ex.getMessage());
+            return ResponseEntity.ok(buildRankingSnapshotFallback(selectedDate, seasonYear));
+        }
     }
 
     // 각 리그별 시즌 시작 날짜를 조회
@@ -95,5 +109,24 @@ public class HomePageController {
                 .hasPrev(false)
                 .hasNext(false)
                 .build();
+    }
+
+    private HomeRankingSnapshotDto buildRankingSnapshotFallback(LocalDate selectedDate, Integer seasonYear) {
+        boolean offSeason = seasonYear == null && isAutomaticOffSeason(selectedDate);
+        int rankingSeasonYear = seasonYear == null
+                ? (offSeason ? selectedDate.getYear() - 1 : selectedDate.getYear())
+                : seasonYear;
+        return HomeRankingSnapshotDto.builder()
+                .rankingSeasonYear(rankingSeasonYear)
+                .rankingSourceMessage("순위 데이터를 불러오지 못했습니다.")
+                .isOffSeason(offSeason)
+                .rankings(List.of())
+                .build();
+    }
+
+    private boolean isAutomaticOffSeason(LocalDate selectedDate) {
+        int month = selectedDate.getMonthValue();
+        int day = selectedDate.getDayOfMonth();
+        return month >= 11 || month <= 2 || (month == 3 && day < 22);
     }
 }

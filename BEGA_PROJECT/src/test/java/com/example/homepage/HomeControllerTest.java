@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -34,7 +35,7 @@ class HomeControllerTest {
     }
 
     @Test
-    @DisplayName("홈 bootstrap 응답은 핵심 일정과 순위를 함께 반환한다")
+    @DisplayName("홈 bootstrap 응답은 핵심 일정 데이터를 반환한다")
     void getBootstrapReturnsAggregatedPayload() throws Exception {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
         given(homePageFacadeService.getBootstrap(eq(selectedDate)))
@@ -67,20 +68,6 @@ class HomeControllerTest {
                                 .leagueBadge("정규시즌")
                                 .time("18:30")
                                 .build()))
-                        .rankingSeasonYear(2025)
-                        .rankingSourceMessage("2025 시즌 순위 데이터")
-                        .isOffSeason(true)
-                        .rankings(List.of(HomePageTeamRankingDto.builder()
-                                .rank(1)
-                                .teamId("LG")
-                                .teamName("LG 트윈스")
-                                .wins(80)
-                                .losses(50)
-                                .draws(2)
-                                .winRate("0.615")
-                                .games(132)
-                                .gamesBehind(0.0)
-                                .build()))
                         .build());
 
         mockMvc.perform(get("/api/home/bootstrap").param("date", "2026-03-15"))
@@ -89,18 +76,14 @@ class HomeControllerTest {
                 .andExpect(jsonPath("$.navigation.prevGameDate").value("2026-03-14"))
                 .andExpect(jsonPath("$.games[0].gameId").value("20260315LGSS0"))
                 .andExpect(jsonPath("$.scheduledGamesWindow[0].sourceDate").value("2026-03-16"))
-                .andExpect(jsonPath("$.scheduledGamesWindow[0].leagueBadge").value("정규시즌"))
-                .andExpect(jsonPath("$.rankingSeasonYear").value(2025))
-                .andExpect(jsonPath("$.rankingSourceMessage").value("2025 시즌 순위 데이터"))
-                .andExpect(jsonPath("$.isOffSeason").value(true))
-                .andExpect(jsonPath("$.rankings[0].teamId").value("LG"));
+                .andExpect(jsonPath("$.scheduledGamesWindow[0].leagueBadge").value("정규시즌"));
     }
 
     @Test
-    @DisplayName("홈 widgets 응답은 인기글 3개와 메이트 카드 4개 이하를 반환한다")
+    @DisplayName("홈 widgets 응답은 인기글, 메이트 카드, 랭킹 스냅샷을 함께 반환한다")
     void getWidgetsReturnsAggregatedWidgets() throws Exception {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
-        given(homePageFacadeService.getWidgets(eq(selectedDate)))
+        given(homePageFacadeService.getWidgets(eq(selectedDate), eq(2024)))
                 .willReturn(HomeWidgetsResponseDto.builder()
                         .hotCheerPosts(List.of(
                                 PostSummaryRes.of(
@@ -129,8 +112,13 @@ class HomeControllerTest {
                                         List.of())))
                         .featuredMates(List.of(FeaturedMateCardDto.builder()
                                 .id(101L)
+                                .hostId(1001L)
+                                .teamId("LG")
                                 .gameDate("2026-03-16")
                                 .gameTime("18:30")
+                                .stadium("잠실야구장")
+                                .section("1루 내야")
+                                .description("같이 응원해요")
                                 .homeTeam("LG")
                                 .awayTeam("SS")
                                 .currentParticipants(2)
@@ -138,12 +126,68 @@ class HomeControllerTest {
                                 .ticketPrice(15000)
                                 .status(Party.PartyStatus.PENDING)
                                 .build()))
+                        .rankingSnapshot(HomeRankingSnapshotDto.builder()
+                                .rankingSeasonYear(2024)
+                                .rankingSourceMessage("2024 시즌 순위 데이터")
+                                .isOffSeason(false)
+                                .rankings(List.of(HomePageTeamRankingDto.builder()
+                                        .rank(1)
+                                        .teamId("LG")
+                                        .teamName("LG 트윈스")
+                                        .wins(80)
+                                        .losses(50)
+                                        .draws(2)
+                                        .winRate("0.615")
+                                        .games(132)
+                                        .gamesBehind(0.0)
+                                        .build()))
+                                .build())
                         .build());
 
-        mockMvc.perform(get("/api/home/widgets").param("date", "2026-03-15"))
+        mockMvc.perform(get("/api/home/widgets").param("date", "2026-03-15").param("seasonYear", "2024"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.hotCheerPosts[0].id").value(11))
                 .andExpect(jsonPath("$.featuredMates[0].id").value(101))
-                .andExpect(jsonPath("$.featuredMates[0].status").value("PENDING"));
+                .andExpect(jsonPath("$.featuredMates[0].teamId").value("LG"))
+                .andExpect(jsonPath("$.featuredMates[0].stadium").value("잠실야구장"))
+                .andExpect(jsonPath("$.featuredMates[0].status").value("PENDING"))
+                .andExpect(jsonPath("$.rankingSnapshot.rankingSeasonYear").value(2024))
+                .andExpect(jsonPath("$.rankingSnapshot.rankingSourceMessage").value("2024 시즌 순위 데이터"))
+                .andExpect(jsonPath("$.rankingSnapshot.isOffSeason").value(false))
+                .andExpect(jsonPath("$.rankingSnapshot.rankings[0].teamId").value("LG"));
+    }
+
+    @Test
+    @DisplayName("홈 widgets 실패 fallback 응답도 빈 랭킹 스냅샷을 포함한다")
+    void getWidgetsReturnsFallbackRankingSnapshotWhenServiceFails() throws Exception {
+        LocalDate selectedDate = LocalDate.of(2026, 3, 15);
+        given(homePageFacadeService.getWidgets(eq(selectedDate), eq(2024)))
+                .willThrow(new IllegalStateException("boom"));
+
+        mockMvc.perform(get("/api/home/widgets").param("date", "2026-03-15").param("seasonYear", "2024"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hotCheerPosts").isArray())
+                .andExpect(jsonPath("$.featuredMates").isArray())
+                .andExpect(jsonPath("$.rankingSnapshot.rankingSeasonYear").value(2024))
+                .andExpect(jsonPath("$.rankingSnapshot.rankingSourceMessage").value("순위 데이터를 불러오지 못했습니다."))
+                .andExpect(jsonPath("$.rankingSnapshot.isOffSeason").value(false))
+                .andExpect(jsonPath("$.rankingSnapshot.rankings").isArray());
+    }
+
+    @Test
+    @DisplayName("홈 widgets 자동 시즌 fallback은 비시즌이면 이전 시즌 라벨을 유지한다")
+    void getWidgetsReturnsPreviousSeasonLabelDuringOffSeasonFallback() throws Exception {
+        LocalDate selectedDate = LocalDate.of(2026, 3, 15);
+        given(homePageFacadeService.getWidgets(eq(selectedDate), isNull()))
+                .willThrow(new IllegalStateException("boom"));
+
+        mockMvc.perform(get("/api/home/widgets").param("date", "2026-03-15"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hotCheerPosts").isArray())
+                .andExpect(jsonPath("$.featuredMates").isArray())
+                .andExpect(jsonPath("$.rankingSnapshot.rankingSeasonYear").value(2025))
+                .andExpect(jsonPath("$.rankingSnapshot.rankingSourceMessage").value("순위 데이터를 불러오지 못했습니다."))
+                .andExpect(jsonPath("$.rankingSnapshot.isOffSeason").value(true))
+                .andExpect(jsonPath("$.rankingSnapshot.rankings").isArray());
     }
 }

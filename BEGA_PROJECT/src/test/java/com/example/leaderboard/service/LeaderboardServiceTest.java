@@ -6,6 +6,7 @@ import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.leaderboard.dto.HotStreakDto;
 import com.example.leaderboard.dto.LeaderboardEntryDto;
 import com.example.leaderboard.dto.RecentScoreDto;
+import com.example.leaderboard.dto.UserStatsDto;
 import com.example.leaderboard.entity.ScoreEvent;
 import com.example.leaderboard.entity.UserScore;
 import com.example.leaderboard.repository.ScoreEventRepository;
@@ -29,6 +30,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -80,6 +84,60 @@ class LeaderboardServiceTest {
 
         assertThrows(AccessDeniedException.class,
                 () -> leaderboardService.getUserStatsByHandle("@hidden", 7L));
+    }
+
+    @Test
+    @DisplayName("User stats uses the snapshot rank query once without per-rank count fallback")
+    void getUserStats_usesSnapshotRankQueryOnce() {
+        UserScore userScore = UserScore.builder()
+                .userId(42L)
+                .totalScore(120L)
+                .seasonScore(80L)
+                .monthlyScore(30L)
+                .weeklyScore(10L)
+                .userLevel(3)
+                .build();
+        UserEntity user = UserEntity.builder()
+                .id(42L)
+                .handle("@ranked")
+                .name("Ranked")
+                .profileImageUrl("profiles/42.png")
+                .build();
+
+        when(userScoreRepository.findByUserId(42L)).thenReturn(Optional.of(userScore));
+        when(userRepository.findById(42L)).thenReturn(Optional.of(user));
+        when(userScoreRepository.findRanksByScores(120L, 80L, 30L, 10L))
+                .thenReturn(new UserScoreRepository.ScoreRankSnapshot() {
+                    @Override
+                    public Long getTotalRank() {
+                        return 7L;
+                    }
+
+                    @Override
+                    public Long getSeasonRank() {
+                        return 3L;
+                    }
+
+                    @Override
+                    public Long getMonthlyRank() {
+                        return 2L;
+                    }
+
+                    @Override
+                    public Long getWeeklyRank() {
+                        return 1L;
+                    }
+                });
+
+        UserStatsDto stats = leaderboardService.getUserStats(42L);
+
+        assertThat(stats.getRank()).isEqualTo(3L);
+        assertThat(stats.getTotalRank()).isEqualTo(7L);
+        assertThat(stats.getSeasonRank()).isEqualTo(3L);
+        assertThat(stats.getMonthlyRank()).isEqualTo(2L);
+        assertThat(stats.getWeeklyRank()).isEqualTo(1L);
+        verify(userScoreRepository, times(1)).findRanksByScores(120L, 80L, 30L, 10L);
+        verify(userScoreRepository, never()).findSeasonRankByScore(any());
     }
 
     @Test

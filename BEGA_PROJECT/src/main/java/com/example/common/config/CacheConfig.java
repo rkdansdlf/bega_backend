@@ -15,8 +15,8 @@ import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSeriali
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -33,11 +33,11 @@ import java.util.concurrent.TimeUnit;
 @EnableCaching
 public class CacheConfig {
 
-        // L1 전용 캐시 (Caffeine only) - 인증/로컬 데이터
+        // L1 전용 캐시 (Caffeine only) - 인스턴스 로컬 데이터
         public static final String JWT_USER_CACHE = "jwtUserCache";
         public static final String SIGNED_URLS = "signedUrls";
 
-        // L1 + L2 하이브리드 캐시 - 공유 데이터
+        // Redis 전용 또는 공유 캐시
         public static final String TEAM_RANKINGS = "teamRankings";
         public static final String LEAGUE_DATES = "leagueDates";
         public static final String STADIUMS = "stadiums";
@@ -64,7 +64,7 @@ public class CacheConfig {
                         CacheManager redisCacheManager) {
                 CompositeCacheManager compositeCacheManager = new CompositeCacheManager();
                 compositeCacheManager.setCacheManagers(
-                                Objects.requireNonNull(Arrays.asList(caffeineCacheManager, redisCacheManager)));
+                                Objects.requireNonNull(List.of(caffeineCacheManager, redisCacheManager)));
                 compositeCacheManager.setFallbackToNoOpCache(true);
                 return compositeCacheManager;
         }
@@ -79,26 +79,16 @@ public class CacheConfig {
         public CacheManager caffeineCacheManager() {
                 CaffeineCacheManager manager = new CaffeineCacheManager();
 
-                // 기본 설정: 2분 TTL, 최대 1000개
+                // 기본 설정: 50분 TTL, 최대 1000개
                 manager.setCaffeine(Objects.requireNonNull(Caffeine.newBuilder()
                                 .maximumSize(1000)
                                 .expireAfterWrite(50, TimeUnit.MINUTES)
                                 .recordStats()));
 
-                // 캐시 이름 등록
-                manager.setCacheNames(Arrays.asList(
+                // 인스턴스 로컬 캐시만 등록
+                manager.setCacheNames(List.of(
                                 JWT_USER_CACHE,
-                                SIGNED_URLS,
-                                TEAM_RANKINGS,
-                                LEAGUE_DATES,
-                                STADIUMS,
-                                TEAM_DATA,
-                                GAME_SCHEDULE,
-                                HOME_BOOTSTRAP,
-                                HOME_WIDGETS,
-                                POST_IMAGE_URLS,
-                                USER_RANK,
-                                USER_STATS));
+                                SIGNED_URLS));
 
                 return manager;
         }

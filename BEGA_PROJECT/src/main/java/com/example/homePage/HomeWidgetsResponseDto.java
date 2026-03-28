@@ -15,4 +15,5 @@ public class HomeWidgetsResponseDto {
 
     private List<PostSummaryRes> hotCheerPosts;
     private List<FeaturedMateCardDto> featuredMates;
+    private HomeRankingSnapshotDto rankingSnapshot;
 }

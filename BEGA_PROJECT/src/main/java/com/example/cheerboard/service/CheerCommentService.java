@@ -80,17 +80,9 @@ public class CheerCommentService {
         // listComments by block,
         // but client side might hide or we should. For now keeping as is.
 
-        // Use the optimized query to fetch comments and replies in one go
-        List<CheerComment> allComments = commentRepo.findCommentsWithRepliesByPostId(Objects.requireNonNull(postId));
-
-        int start = (int) pageable.getOffset();
-        int end = Math.min((start + pageable.getPageSize()), allComments.size());
-
-        if (start > allComments.size()) {
-            return new PageImpl<>(Objects.requireNonNull(List.of()), pageable, allComments.size());
-        }
-
-        List<CheerComment> pagedComments = allComments.subList(start, end);
+        Page<CheerComment> commentPage = commentRepo.findByPostIdAndParentCommentIsNullOrderByCreatedAtDesc(
+                Objects.requireNonNull(postId), pageable);
+        List<CheerComment> pagedComments = commentPage.getContent();
 
         Set<Long> likedCommentIds = new HashSet<>();
         if (me != null && !pagedComments.isEmpty()) {
@@ -109,7 +101,7 @@ public class CheerCommentService {
                 .map(comment -> commentDtoMapper.toCommentRes(comment, finalLikedIds))
                 .toList();
 
-        return new PageImpl<>(Objects.requireNonNull(mapped), pageable, allComments.size());
+        return new PageImpl<>(Objects.requireNonNull(mapped), pageable, commentPage.getTotalElements());
     }
 
     private List<Long> collectAllCommentIds(List<CheerComment> comments) {

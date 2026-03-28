@@ -7,6 +7,7 @@ import com.example.leaderboard.repository.ScoreEventRepository;
 import com.example.prediction.Prediction;
 import com.example.prediction.PredictionRepository;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -44,6 +45,15 @@ class GameResultScoringServiceTest {
 
     private static final LocalDate DATE = LocalDate.of(2024, 9, 15);
 
+    @BeforeEach
+    void setUpDefaults() {
+        lenient().when(gameRepository.findByGameDate(any())).thenReturn(Collections.emptyList());
+        lenient().when(scoreEventRepository.findProcessedPredictionIdsByPredictionIdIn(anyList()))
+                .thenReturn(Collections.emptyList());
+        lenient().when(predictionRepository.findByGameIdIn(anyList()))
+                .thenReturn(Collections.emptyList());
+    }
+
     // ============================================
     // processGameResult
     // ============================================
@@ -57,7 +67,6 @@ class GameResultScoringServiceTest {
 
         when(gameRepository.findByGameId("g1")).thenReturn(Optional.of(game));
         when(predictionRepository.findByGameId("g1")).thenReturn(List.of(p1, p2));
-        when(scoreEventRepository.existsByPredictionIdAndUserId(anyLong(), anyLong())).thenReturn(false);
 
         ScoreResultDto correctResult = ScoreResultDto.builder().userId(1L).correct(true).totalEarned(100).currentStreak(1).build();
         ScoreResultDto wrongResult = ScoreResultDto.incorrect(2L, 0);
@@ -65,8 +74,6 @@ class GameResultScoringServiceTest {
                 .thenReturn(correctResult);
         when(scoringService.processPredictionResult(eq(2L), anyLong(), eq("g1"), eq(false), eq(false)))
                 .thenReturn(wrongResult);
-        // checkPerfectDay calls
-        when(gameRepository.findByGameDate(DATE)).thenReturn(List.of(game));
 
         int count = gameResultScoringService.processGameResult("g1");
 
@@ -82,10 +89,8 @@ class GameResultScoringServiceTest {
 
         when(gameRepository.findByGameId("g2")).thenReturn(Optional.of(game));
         when(predictionRepository.findByGameId("g2")).thenReturn(List.of(p));
-        when(scoreEventRepository.existsByPredictionIdAndUserId(anyLong(), anyLong())).thenReturn(false);
         when(scoringService.processPredictionResult(eq(1L), anyLong(), eq("g2"), eq(true), eq(true)))
                 .thenReturn(ScoreResultDto.builder().userId(1L).correct(true).totalEarned(150).currentStreak(1).build());
-        when(gameRepository.findByGameDate(DATE)).thenReturn(List.of(game));
 
         int count = gameResultScoringService.processGameResult("g2");
 
@@ -139,10 +144,8 @@ class GameResultScoringServiceTest {
 
         when(gameRepository.findByGameId("g5")).thenReturn(Optional.of(game));
         when(predictionRepository.findByGameId("g5")).thenReturn(List.of(p));
-        when(scoreEventRepository.existsByPredictionIdAndUserId(anyLong(), anyLong())).thenReturn(false);
         when(scoringService.processPredictionResult(eq(1L), anyLong(), eq("g5"), eq(false), eq(false)))
                 .thenReturn(ScoreResultDto.incorrect(1L, 0));
-        when(gameRepository.findByGameDate(DATE)).thenReturn(List.of(game));
 
         int count = gameResultScoringService.processGameResult("g5");
 
@@ -171,11 +174,10 @@ class GameResultScoringServiceTest {
         when(gameRepository.findByGameId("g7")).thenReturn(Optional.of(game));
         when(predictionRepository.findByGameId("g7")).thenReturn(List.of(p1, p2));
         // p1 already processed, p2 not
-        when(scoreEventRepository.existsByPredictionIdAndUserId(p1.getId(), 1L)).thenReturn(true);
-        when(scoreEventRepository.existsByPredictionIdAndUserId(p2.getId(), 2L)).thenReturn(false);
+        when(scoreEventRepository.findProcessedPredictionIdsByPredictionIdIn(List.of(p1.getId(), p2.getId())))
+                .thenReturn(List.of(p1.getId()));
         when(scoringService.processPredictionResult(eq(2L), eq(p2.getId()), eq("g7"), eq(true), eq(false)))
                 .thenReturn(ScoreResultDto.builder().userId(2L).correct(true).totalEarned(100).currentStreak(1).build());
-        when(gameRepository.findByGameDate(DATE)).thenReturn(List.of(game));
 
         int count = gameResultScoringService.processGameResult("g7");
 
@@ -192,13 +194,11 @@ class GameResultScoringServiceTest {
 
         when(gameRepository.findByGameId("g8")).thenReturn(Optional.of(game));
         when(predictionRepository.findByGameId("g8")).thenReturn(List.of(p1, p2));
-        when(scoreEventRepository.existsByPredictionIdAndUserId(anyLong(), anyLong())).thenReturn(false);
         // p1 throws, p2 succeeds
         when(scoringService.processPredictionResult(eq(1L), anyLong(), anyString(), anyBoolean(), anyBoolean()))
                 .thenThrow(new RuntimeException("test error"));
         when(scoringService.processPredictionResult(eq(2L), anyLong(), anyString(), anyBoolean(), anyBoolean()))
                 .thenReturn(ScoreResultDto.builder().userId(2L).correct(true).totalEarned(100).currentStreak(1).build());
-        when(gameRepository.findByGameDate(DATE)).thenReturn(List.of(game));
 
         int count = gameResultScoringService.processGameResult("g8");
 
@@ -222,14 +222,12 @@ class GameResultScoringServiceTest {
                 .build();
 
         when(gameRepository.findByGameDate(DATE)).thenReturn(List.of(finished1, finished2, unfinished));
-        when(gameRepository.findByGameId("gd1")).thenReturn(Optional.of(finished1));
-        when(gameRepository.findByGameId("gd2")).thenReturn(Optional.of(finished2));
         when(predictionRepository.findByGameId(anyString())).thenReturn(Collections.emptyList());
 
         int count = gameResultScoringService.processGamesForDate(DATE);
 
         // Both games processed but no predictions → 0 total processed predictions
-        verify(gameRepository, times(2)).findByGameId(anyString());
+        verify(predictionRepository, times(2)).findByGameId(anyString());
     }
 
     @Test
@@ -254,14 +252,13 @@ class GameResultScoringServiceTest {
         GameEntity game2 = finishedGame("ge2", "HH", "SSG", 4, 2, DATE);
 
         when(gameRepository.findByGameDate(DATE)).thenReturn(List.of(game1, game2));
-        when(gameRepository.findByGameId("ge1")).thenThrow(new RuntimeException("db error"));
-        when(gameRepository.findByGameId("ge2")).thenReturn(Optional.of(game2));
+        when(predictionRepository.findByGameId("ge1")).thenThrow(new RuntimeException("db error"));
         when(predictionRepository.findByGameId("ge2")).thenReturn(Collections.emptyList());
 
         // Should not throw despite game1 error
         int count = gameResultScoringService.processGamesForDate(DATE);
 
-        verify(gameRepository).findByGameId("ge2");
+        verify(predictionRepository).findByGameId("ge2");
     }
 
     // ============================================
@@ -284,14 +281,12 @@ class GameResultScoringServiceTest {
         // processGameResult("pd1") flow
         when(gameRepository.findByGameId("pd1")).thenReturn(Optional.of(g1));
         when(predictionRepository.findByGameId("pd1")).thenReturn(List.of(pred1));
-        when(scoreEventRepository.existsByPredictionIdAndUserId(anyLong(), eq(userId))).thenReturn(false);
         when(scoringService.processPredictionResult(eq(userId), anyLong(), eq("pd1"), eq(true), eq(false)))
                 .thenReturn(ScoreResultDto.builder().userId(userId).correct(true).totalEarned(100).currentStreak(1).build());
 
-        // checkPerfectDay will query all games for the date
         when(gameRepository.findByGameDate(DATE)).thenReturn(List.of(g1, g2, g3));
-        when(predictionRepository.findByGameId("pd2")).thenReturn(List.of(pred2));
-        when(predictionRepository.findByGameId("pd3")).thenReturn(List.of(pred3));
+        when(predictionRepository.findByGameIdIn(List.of("pd1", "pd2", "pd3")))
+                .thenReturn(List.of(pred1, pred2, pred3));
         // All winners are "home", all predictions are "home"
 
         gameResultScoringService.processGameResult("pd1");
@@ -310,14 +305,10 @@ class GameResultScoringServiceTest {
 
         when(gameRepository.findByGameId("np1")).thenReturn(Optional.of(g1));
         when(predictionRepository.findByGameId("np1")).thenReturn(List.of(pred));
-        when(scoreEventRepository.existsByPredictionIdAndUserId(anyLong(), eq(userId))).thenReturn(false);
         when(scoringService.processPredictionResult(eq(userId), anyLong(), eq("np1"), eq(true), eq(false)))
                 .thenReturn(ScoreResultDto.builder().userId(userId).correct(true).totalEarned(100).currentStreak(1).build());
 
-        // Only 2 games for that date → perfectDay requires >= 3
         when(gameRepository.findByGameDate(DATE)).thenReturn(List.of(g1, g2));
-        Prediction pred2 = prediction(userId, "np2", "home");
-        when(predictionRepository.findByGameId("np2")).thenReturn(List.of(pred2));
 
         gameResultScoringService.processGameResult("np1");
 

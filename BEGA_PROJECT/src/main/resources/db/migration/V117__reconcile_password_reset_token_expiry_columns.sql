@@ -5,6 +5,7 @@ DECLARE
     v_has_table NUMBER := 0;
     v_has_expirydate NUMBER := 0;
     v_has_expiry_date NUMBER := 0;
+    v_nullable VARCHAR2(1);
 BEGIN
     SELECT COUNT(*)
       INTO v_has_table
@@ -44,7 +45,16 @@ BEGIN
              WHERE expirydate IS NULL
         ';
 
-        EXECUTE IMMEDIATE 'ALTER TABLE password_reset_tokens MODIFY (expirydate TIMESTAMP NOT NULL)';
+        -- Only set NOT NULL if currently nullable
+        SELECT nullable INTO v_nullable
+          FROM user_tab_columns
+         WHERE table_name = 'PASSWORD_RESET_TOKENS'
+           AND column_name = 'EXPIRYDATE';
+
+        IF v_nullable = 'Y' THEN
+            EXECUTE IMMEDIATE 'ALTER TABLE password_reset_tokens MODIFY (expirydate TIMESTAMP NOT NULL)';
+        END IF;
+
         EXECUTE IMMEDIATE 'ALTER TABLE password_reset_tokens DROP COLUMN expiry_date';
     END IF;
 END;

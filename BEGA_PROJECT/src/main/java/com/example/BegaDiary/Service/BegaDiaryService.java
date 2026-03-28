@@ -65,25 +65,13 @@ public class BegaDiaryService {
         }
         List<BegaDiary> diaries = this.diaryRepository.findByUserId(userId);
 
-        return diaries.stream()
-                .map(diary -> {
-                    List<String> signedUrls = null;
-                    if (diary.getPhotoUrls() != null && !diary.getPhotoUrls().isEmpty()) {
-                        try {
-                            signedUrls = imageService
-                                    .getDiaryImageSignedUrls(diary.getPhotoUrls())
-                                    .block();
-                        } catch (Exception e) {
-                            Long diaryId = diary.getId();
-                            log.error("다이어리 이미지 Signed URL 생성 실패: diaryId={}, error={}",
-                                    diaryId != null ? diaryId : "unknown", e.getMessage());
-                            signedUrls = new ArrayList<>();
-                        }
-                    }
+        List<List<String>> signedUrlsByDiary = resolveDiarySignedUrls(diaries);
+        List<DiaryResponseDto> responses = new ArrayList<>(diaries.size());
+        for (int index = 0; index < diaries.size(); index++) {
+            responses.add(DiaryResponseDto.from(diaries.get(index), signedUrlsByDiary.get(index)));
+        }
 
-                    return DiaryResponseDto.from(diary, signedUrls);
-                })
-                .collect(Collectors.collectingAndThen(Collectors.toList(), Objects::requireNonNull));
+        return Objects.requireNonNull(responses);
     }
 
     // 특정 다이어리 엔티티 조회 (컨트롤러에서 리워드 처리 시 사용)
@@ -107,18 +95,8 @@ public class BegaDiaryService {
             throw new AccessDeniedException("본인의 일기만 조회할 수 있습니다.");
         }
 
-        List<String> signedUrls = null;
-        if (diary.getPhotoUrls() != null && !diary.getPhotoUrls().isEmpty()) {
-            try {
-                signedUrls = imageService
-                        .getDiaryImageSignedUrls(diary.getPhotoUrls())
-                        .block();
-            } catch (Exception e) {
-                log.warn("Failed to generate signed URLs for diary {}", id);
-            }
-        }
-
-        return Objects.requireNonNull(DiaryResponseDto.from(diary, signedUrls));
+        List<List<String>> signedUrls = resolveDiarySignedUrls(List.of(diary));
+        return Objects.requireNonNull(DiaryResponseDto.from(diary, signedUrls.isEmpty() ? null : signedUrls.get(0)));
     }
 
     // 다이어리 저장
@@ -532,6 +510,62 @@ public class BegaDiaryService {
                 .luckyDay(luckyDay)
                 .earnedBadges(earnedBadges)
                 .build());
+    }
+
+    private List<List<String>> resolveDiarySignedUrls(List<BegaDiary> diaries) {
+        List<List<String>> resolved = new ArrayList<>(diaries.size());
+        List<Integer> photoCounts = new ArrayList<>(diaries.size());
+        List<Integer> photoIndexes = new ArrayList<>();
+        List<String> storagePaths = new ArrayList<>();
+
+        for (int index = 0; index < diaries.size(); index++) {
+            BegaDiary diary = diaries.get(index);
+            List<String> photoUrls = diary.getPhotoUrls();
+            int photoCount = photoUrls == null ? 0 : photoUrls.size();
+            photoCounts.add(photoCount);
+            resolved.add(null);
+
+            if (photoCount > 0) {
+                photoIndexes.add(index);
+                storagePaths.addAll(photoUrls);
+            }
+        }
+
+        if (storagePaths.isEmpty()) {
+            return resolved;
+        }
+
+        List<String> signedUrls;
+        try {
+            signedUrls = imageService.getDiaryImageSignedUrls(storagePaths).block();
+        } catch (Exception e) {
+            log.error("다이어리 이미지 Signed URL 일괄 생성 실패: diaryCount={}, error={}", diaries.size(), e.getMessage(), e);
+            for (Integer index : photoIndexes) {
+                resolved.set(index, new ArrayList<>());
+            }
+            return resolved;
+        }
+
+        if (signedUrls == null || signedUrls.isEmpty()) {
+            for (Integer index : photoIndexes) {
+                resolved.set(index, new ArrayList<>());
+            }
+            return resolved;
+        }
+
+        int cursor = 0;
+        for (int index = 0; index < diaries.size(); index++) {
+            int photoCount = photoCounts.get(index);
+            if (photoCount <= 0) {
+                continue;
+            }
+
+            int nextCursor = Math.min(cursor + photoCount, signedUrls.size());
+            resolved.set(index, new ArrayList<>(signedUrls.subList(cursor, nextCursor)));
+            cursor = nextCursor;
+        }
+
+        return resolved;
     }
 
     // 좌석 시야 사진 목록 조회 (공개 API용)

@@ -56,6 +56,14 @@ class ApplicationPropertyCompatibilityTest {
                 .doesNotContain("dev-oauth2-cookie-secret");
     }
 
+    @Test
+    void applicationYmlProvidesLoopbackOAuth2CookieSecretFallbackForDevAndLocal() throws IOException {
+        String applicationYml = readApplicationYml();
+
+        assertThat(applicationYml)
+                .contains("cookie-secret: ${OAUTH2_COOKIE_SECRET:local-runtime-cookie-signing-secret}");
+    }
+
     private String readApplicationYml() throws IOException {
         return Files.readString(Path.of("src/main/resources/application.yml"), StandardCharsets.UTF_8);
     }

@@ -27,6 +27,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
+import java.util.ArrayList;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
@@ -39,10 +40,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -227,8 +230,6 @@ class PartyServiceTest {
                 when(partyRepository.findPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
                                 any(Pageable.class)))
                                 .thenReturn(new PageImpl<>(List.of(party)));
-                when(userRepository.findProfileImageUrlById(88L)).thenReturn(Optional.empty());
-                when(profileImageService.getProfileImageUrl(null)).thenReturn(null);
 
                 Page<PartyDTO.PublicResponse> result = partyService.getAllParties(null, null, null, "", PageRequest.of(0, 10),
                                 null, null);
@@ -265,6 +266,40 @@ class PartyServiceTest {
         }
 
         @Test
+        @DisplayName("getAllParties batches host lookups for multiple visible parties")
+        void getAllParties_batchesHostLookupsForMultipleParties() {
+                Party first = createParty(301L, 11L, null);
+                Party second = createParty(302L, 12L, null);
+                Party third = createParty(303L, 11L, null);
+
+                when(partyRepository.findPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                                any(Pageable.class)))
+                                .thenReturn(new PageImpl<>(List.of(first, second, third)));
+                when(userRepository.findAllById(any())).thenReturn(List.of(
+                                UserEntity.builder().id(11L).handle("@host11").name("Host 11").email("host11@example.com").build(),
+                                UserEntity.builder().id(12L).handle("@host12").name("Host 12").email("host12@example.com").build()));
+                when(profileImageService.getProfileImageUrl(any())).thenReturn(null);
+
+                Page<PartyDTO.PublicResponse> result = partyService.getAllParties(
+                                null,
+                                null,
+                                null,
+                                "",
+                                PageRequest.of(0, 10),
+                                null,
+                                null);
+
+                assertThat(result.getContent()).hasSize(3);
+                verify(userRepository, times(2)).findAllById(argThat((Iterable<Long> hostIds) -> {
+                        List<Long> ids = new ArrayList<>();
+                        hostIds.forEach(ids::add);
+                        return ids.size() == 2 && ids.containsAll(List.of(11L, 12L));
+                }));
+                verify(userRepository, never()).findById(11L);
+                verify(userRepository, never()).findById(12L);
+        }
+
+        @Test
         @DisplayName("getFeaturedMateCards returns lightweight upcoming pending cards only")
         void getFeaturedMateCards_returnsLightweightCardsOnly() {
                 LocalDate today = LocalDate.now();
@@ -292,6 +327,9 @@ class PartyServiceTest {
                 assertThat(result).hasSize(4);
                 assertThat(result).extracting(FeaturedMateCardDto::getId)
                                 .containsExactly(201L, 202L, 203L, 204L);
+                assertThat(result.get(0).getTeamId()).isEqualTo("KT");
+                assertThat(result.get(0).getStadium()).isEqualTo("수원");
+                assertThat(result.get(0).getSection()).isEqualTo("응원석");
                 verify(profileImageService, never()).getProfileImageUrl(any());
                 verify(userRepository, never()).findById(any());
         }
