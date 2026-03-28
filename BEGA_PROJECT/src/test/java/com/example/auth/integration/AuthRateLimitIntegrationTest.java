@@ -39,9 +39,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "spring.flyway.enabled=false",
         "spring.jpa.open-in-view=false",
-        "spring.data.redis.host=127.0.0.1",
-        "spring.data.redis.port=6379",
-        "spring.data.redis.repositories.enabled=false",
         "jobrunr.background-job-server.enabled=false",
         "jobrunr.dashboard.enabled=false",
         "storage.type=oci",
@@ -49,8 +46,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "oci.s3.access-key=test-access-key",
         "oci.s3.secret-key=test-secret-key",
         "oci.s3.bucket=test-bucket",
-        "oci.s3.region=ap-seoul-1",
-        "spring.autoconfigure.exclude=io.awspring.cloud.autoconfigure.s3.S3AutoConfiguration"
+        "oci.s3.region=ap-seoul-1"
 })
 @DisplayName("Authentication rate limit integration tests")
 class AuthRateLimitIntegrationTest {

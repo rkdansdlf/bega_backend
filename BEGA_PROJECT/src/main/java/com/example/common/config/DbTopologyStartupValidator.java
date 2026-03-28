@@ -45,13 +45,22 @@ public class DbTopologyStartupValidator {
         List<String> failures = new ArrayList<>();
 
         String primaryDriver = normalize(resolveDriver(primaryDataSourceProperties));
+        String primaryUrl = normalize(primaryDataSourceProperties.getUrl());
         String baseballDriver = normalize(resolveDriver(baseballDataSourceProperties));
         String baseballUrl = normalize(baseballDataSourceProperties.getUrl());
         String baseballUsername = normalize(baseballDataSourceProperties.getUsername());
         String baseballPassword = normalize(baseballDataSourceProperties.getPassword());
 
-        if (!primaryDriver.contains("oracle") && !primaryDriver.contains("postgresql")) {
+        if (isBlank(primaryUrl)) {
+            failures.add("SPRING_DATASOURCE_URL is required in prod");
+        }
+
+        if (!primaryDriver.contains("oracle")) {
             failures.add("primary datasource driver must be Oracle, but was: " + safe(primaryDriver));
+        }
+
+        if (!primaryUrl.startsWith("jdbc:oracle:")) {
+            failures.add("primary datasource url must be Oracle JDBC, but was: " + safe(primaryUrl));
         }
 
         if (!baseballDriver.contains("postgresql")) {

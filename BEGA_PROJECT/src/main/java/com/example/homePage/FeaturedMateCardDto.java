@@ -13,8 +13,13 @@ import lombok.NoArgsConstructor;
 public class FeaturedMateCardDto {
 
     private Long id;
+    private Long hostId;
+    private String teamId;
     private String gameDate;
     private String gameTime;
+    private String stadium;
+    private String section;
+    private String description;
     private String homeTeam;
     private String awayTeam;
     private Integer currentParticipants;

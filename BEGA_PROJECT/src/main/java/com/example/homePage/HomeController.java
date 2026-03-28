@@ -33,13 +33,14 @@ public class HomeController {
 
     @GetMapping("/widgets")
     public ResponseEntity<HomeWidgetsResponseDto> getWidgets(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) Integer seasonYear) {
         LocalDate selectedDate = date == null ? LocalDate.now() : date;
         try {
-            return ResponseEntity.ok(homePageFacadeService.getWidgets(selectedDate));
+            return ResponseEntity.ok(homePageFacadeService.getWidgets(selectedDate, seasonYear));
         } catch (Exception e) {
             log.warn("Widgets failed for date={}, returning empty fallback: {}", selectedDate, e.getMessage());
-            return ResponseEntity.ok(buildEmptyWidgets());
+            return ResponseEntity.ok(buildEmptyWidgets(selectedDate, seasonYear));
         }
     }
 
@@ -57,17 +58,29 @@ public class HomeController {
                         .build())
                 .games(List.of())
                 .scheduledGamesWindow(List.of())
-                .rankingSeasonYear(selectedDate.getYear())
-                .rankingSourceMessage("데이터를 불러오지 못했습니다.")
-                .isOffSeason(false)
-                .rankings(List.of())
                 .build();
     }
 
-    private HomeWidgetsResponseDto buildEmptyWidgets() {
+    private HomeWidgetsResponseDto buildEmptyWidgets(LocalDate selectedDate, Integer seasonYear) {
+        boolean offSeason = seasonYear == null && isAutomaticOffSeason(selectedDate);
+        int rankingSeasonYear = seasonYear == null
+                ? (offSeason ? selectedDate.getYear() - 1 : selectedDate.getYear())
+                : seasonYear;
         return HomeWidgetsResponseDto.builder()
                 .hotCheerPosts(List.of())
                 .featuredMates(List.of())
+                .rankingSnapshot(HomeRankingSnapshotDto.builder()
+                        .rankingSeasonYear(rankingSeasonYear)
+                        .rankingSourceMessage("순위 데이터를 불러오지 못했습니다.")
+                        .isOffSeason(offSeason)
+                        .rankings(List.of())
+                        .build())
                 .build();
+    }
+
+    private boolean isAutomaticOffSeason(LocalDate selectedDate) {
+        int month = selectedDate.getMonthValue();
+        int day = selectedDate.getDayOfMonth();
+        return month >= 11 || month <= 2 || (month == 3 && day < 22);
     }
 }

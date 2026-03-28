@@ -111,4 +111,33 @@ class BegaGameServiceTest {
 
         assertThat(matched).isNull();
     }
+
+    @Test
+    @DisplayName("경기장 값이 null이어도 경기 목록 조회가 NPE 없이 동작한다")
+    void getGamesByDate_nullStadiumDoesNotThrow() {
+        LocalDate date = LocalDate.of(2026, 3, 23);
+        GameEntity game = GameEntity.builder()
+                .id(77L)
+                .gameId("20260323LGKIA0")
+                .gameDate(date)
+                .homeTeam("LG")
+                .awayTeam("KIA")
+                .stadium(null)
+                .homeScore(3)
+                .awayScore(2)
+                .build();
+
+        when(gameRepository.findByGameDate(date)).thenReturn(List.of(game));
+
+        assertThat(begaGameService.getGamesByDate(date))
+                .singleElement()
+                .satisfies(dto -> {
+                    assertThat(dto.getId()).isEqualTo(77L);
+                    assertThat(dto.getHomeTeam()).isEqualTo("LG 트윈스");
+                    assertThat(dto.getAwayTeam()).isEqualTo("기아 타이거즈");
+                    assertThat(dto.getStadium()).isNull();
+                    assertThat(dto.getScore()).isEqualTo("3-2");
+                    assertThat(dto.getDate()).isEqualTo("2026-03-23");
+                });
+    }
 }

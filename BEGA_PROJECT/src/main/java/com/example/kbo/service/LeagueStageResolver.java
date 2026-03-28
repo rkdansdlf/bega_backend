@@ -25,22 +25,40 @@ public class LeagueStageResolver {
             return null;
         }
 
-        Integer rawLeagueTypeCode = resolveRawLeagueTypeCode(game.getSeasonId());
-        Integer inferredLeagueTypeCode = inferPostseasonLeagueTypeCode(game.getGameDate());
-        if (!isPostseasonCode(rawLeagueTypeCode) || !isPostseasonCode(inferredLeagueTypeCode)) {
-            return rawLeagueTypeCode;
+        return resolveEffectiveLeagueTypeCode(
+                null,
+                game.getGameDate(),
+                game.getSeasonId(),
+                game.getGameId());
+    }
+
+    public Integer resolveEffectiveLeagueTypeCode(
+            Integer rawLeagueTypeCode,
+            LocalDate gameDate,
+            Integer seasonId,
+            String gameId) {
+        Integer resolvedRawLeagueTypeCode = rawLeagueTypeCode != null
+                ? rawLeagueTypeCode
+                : resolveRawLeagueTypeCode(seasonId);
+        if (!isPostseasonCode(resolvedRawLeagueTypeCode)) {
+            return resolvedRawLeagueTypeCode;
         }
-        if (rawLeagueTypeCode.equals(inferredLeagueTypeCode)) {
-            return rawLeagueTypeCode;
+
+        Integer inferredLeagueTypeCode = inferPostseasonLeagueTypeCode(gameDate, resolvedRawLeagueTypeCode);
+        if (!isPostseasonCode(inferredLeagueTypeCode)) {
+            return resolvedRawLeagueTypeCode;
+        }
+        if (resolvedRawLeagueTypeCode.equals(inferredLeagueTypeCode)) {
+            return resolvedRawLeagueTypeCode;
         }
 
         log.warn(
                 "[LeagueStageResolver] Overriding postseason stage gameId={} seasonId={} raw={} inferred={} gameDate={}",
-                game.getGameId(),
-                game.getSeasonId(),
-                rawLeagueTypeCode,
+                gameId,
+                seasonId,
+                resolvedRawLeagueTypeCode,
                 inferredLeagueTypeCode,
-                game.getGameDate());
+                gameDate);
         return inferredLeagueTypeCode;
     }
 
@@ -62,22 +80,28 @@ public class LeagueStageResolver {
         return fetched.orElse(null);
     }
 
-    private Integer inferPostseasonLeagueTypeCode(LocalDate gameDate) {
+    private Integer inferPostseasonLeagueTypeCode(LocalDate gameDate, Integer rawLeagueTypeCode) {
         if (gameDate == null) {
             return null;
         }
         PostseasonStartDates startDates = postseasonStartDateCache.computeIfAbsent(
                 gameDate.getYear(),
                 this::loadPostseasonStartDates);
-        return startDates.inferLeagueTypeCode(gameDate);
+        return startDates.resolveLeagueTypeCode(gameDate, rawLeagueTypeCode);
     }
 
     private PostseasonStartDates loadPostseasonStartDates(int seasonYear) {
         return new PostseasonStartDates(
-                gameRepository.findConfiguredStartDateByTypeFromSeasonYear(2, seasonYear).orElse(null),
-                gameRepository.findConfiguredStartDateByTypeFromSeasonYear(3, seasonYear).orElse(null),
-                gameRepository.findConfiguredStartDateByTypeFromSeasonYear(4, seasonYear).orElse(null),
-                gameRepository.findConfiguredStartDateByTypeFromSeasonYear(5, seasonYear).orElse(null));
+                loadPostseasonStartDate(2, seasonYear),
+                loadPostseasonStartDate(3, seasonYear),
+                loadPostseasonStartDate(4, seasonYear),
+                loadPostseasonStartDate(5, seasonYear));
+    }
+
+    private LocalDate loadPostseasonStartDate(int leagueTypeCode, int seasonYear) {
+        return gameRepository.findConfiguredStartDateByTypeFromSeasonYear(leagueTypeCode, seasonYear)
+                .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(leagueTypeCode, seasonYear))
+                .orElse(null);
     }
 
     private boolean isPostseasonCode(Integer leagueTypeCode) {
@@ -90,10 +114,28 @@ public class LeagueStageResolver {
             LocalDate playoffStart,
             LocalDate koreanSeriesStart) {
 
-        private Integer inferLeagueTypeCode(LocalDate gameDate) {
+        private Integer resolveLeagueTypeCode(LocalDate gameDate, Integer rawLeagueTypeCode) {
             if (gameDate == null) {
                 return null;
             }
+            if (rawLeagueTypeCode == null) {
+                return inferHighestKnownStartedStage(gameDate);
+            }
+
+            Integer highestKnownStartedStage = inferHighestKnownStartedStage(gameDate);
+            if (highestKnownStartedStage != null && highestKnownStartedStage > rawLeagueTypeCode) {
+                return highestKnownStartedStage;
+            }
+            if (highestKnownStartedStage == null || highestKnownStartedStage.equals(rawLeagueTypeCode)) {
+                return rawLeagueTypeCode;
+            }
+            if (canSafelyDowngrade(rawLeagueTypeCode, highestKnownStartedStage, gameDate)) {
+                return highestKnownStartedStage;
+            }
+            return rawLeagueTypeCode;
+        }
+
+        private Integer inferHighestKnownStartedStage(LocalDate gameDate) {
             if (koreanSeriesStart != null && !gameDate.isBefore(koreanSeriesStart)) {
                 return 5;
             }
@@ -107,6 +149,26 @@ public class LeagueStageResolver {
                 return 2;
             }
             return null;
+        }
+
+        private boolean canSafelyDowngrade(int rawLeagueTypeCode, int targetLeagueTypeCode, LocalDate gameDate) {
+            for (int stage = rawLeagueTypeCode; stage > targetLeagueTypeCode; stage--) {
+                LocalDate stageStart = stageStart(stage);
+                if (stageStart == null || !gameDate.isBefore(stageStart)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private LocalDate stageStart(int leagueTypeCode) {
+            return switch (leagueTypeCode) {
+                case 2 -> wildCardStart;
+                case 3 -> semiPlayoffStart;
+                case 4 -> playoffStart;
+                case 5 -> koreanSeriesStart;
+                default -> null;
+            };
         }
     }
 }

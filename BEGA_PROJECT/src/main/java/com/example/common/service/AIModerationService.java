@@ -1,6 +1,7 @@
 package com.example.common.service;
 
 import com.example.ai.config.AiServiceSettings;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -20,9 +21,11 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class AIModerationService {
 
     private final AiServiceSettings aiServiceSettings;
+    private final RestTemplate restTemplate;
 
     @Value("${ai.moderation.high-risk-keywords:죽어,죽인다,살인,테러,시발,씨발,병신,개새끼}")
     private String highRiskKeywordsRaw;
@@ -42,12 +45,7 @@ public class AIModerationService {
     @Value("${ai.moderation.spam-block-threshold:3}")
     private int spamBlockThreshold;
 
-    private RestTemplate restTemplate = new RestTemplate();
     private static final Pattern URL_PATTERN = Pattern.compile("https?://\\S+|www\\.\\S+");
-
-    public AIModerationService(AiServiceSettings aiServiceSettings) {
-        this.aiServiceSettings = aiServiceSettings;
-    }
 
     public ModerationResult checkContent(String content) {
         if (content == null || content.isBlank()) {
