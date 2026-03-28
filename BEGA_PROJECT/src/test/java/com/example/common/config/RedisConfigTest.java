@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.homepage.FeaturedMateCardDto;
+import com.example.homepage.HomePageTeamRankingDto;
+import com.example.homepage.HomeRankingSnapshotDto;
 import com.example.homepage.HomeWidgetsResponseDto;
 import com.example.mate.entity.Party;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,8 +54,13 @@ class RedisConfigTest {
                 .featuredMates(List.of(
                         FeaturedMateCardDto.builder()
                                 .id(11L)
+                                .hostId(101L)
+                                .teamId("LG")
                                 .gameDate("2026-03-16")
                                 .gameTime("18:30")
+                                .stadium("잠실야구장")
+                                .section("1루 내야")
+                                .description("같이 직관 가요")
                                 .homeTeam("LG")
                                 .awayTeam("SS")
                                 .currentParticipants(1)
@@ -61,6 +68,22 @@ class RedisConfigTest {
                                 .ticketPrice(15000)
                                 .status(Party.PartyStatus.PENDING)
                                 .build()))
+                .rankingSnapshot(HomeRankingSnapshotDto.builder()
+                        .rankingSeasonYear(2025)
+                        .rankingSourceMessage("2025 시즌 순위 데이터")
+                        .isOffSeason(true)
+                        .rankings(List.of(HomePageTeamRankingDto.builder()
+                                .rank(1)
+                                .teamId("LG")
+                                .teamName("LG 트윈스")
+                                .wins(80)
+                                .losses(50)
+                                .draws(2)
+                                .winRate("0.615")
+                                .games(132)
+                                .gamesBehind(0.0)
+                                .build()))
+                        .build())
                 .build();
 
         byte[] serialized = serializer.serialize(payload);
@@ -74,5 +97,8 @@ class RedisConfigTest {
         assertThat(response.getHotCheerPosts().get(0).createdAt()).isEqualTo(createdAt);
         assertThat(response.getFeaturedMates()).hasSize(1);
         assertThat(response.getFeaturedMates().get(0).getStatus()).isEqualTo(Party.PartyStatus.PENDING);
+        assertThat(response.getRankingSnapshot().getRankingSeasonYear()).isEqualTo(2025);
+        assertThat(response.getRankingSnapshot().isOffSeason()).isTrue();
+        assertThat(response.getRankingSnapshot().getRankings()).hasSize(1);
     }
 }

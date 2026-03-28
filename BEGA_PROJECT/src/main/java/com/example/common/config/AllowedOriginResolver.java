@@ -45,12 +45,15 @@ public class AllowedOriginResolver {
 
     private final Environment environment;
     private final String configuredAllowedOrigins;
+    private final boolean allowPreviewOrigins;
 
     public AllowedOriginResolver(
             Environment environment,
-            @Value("${app.allowed-origins:}") String configuredAllowedOrigins) {
+            @Value("${app.allowed-origins:}") String configuredAllowedOrigins,
+            @Value("${app.allow-preview-origins:false}") boolean allowPreviewOrigins) {
         this.environment = environment;
         this.configuredAllowedOrigins = configuredAllowedOrigins;
+        this.allowPreviewOrigins = allowPreviewOrigins;
     }
 
     public List<String> resolve() {
@@ -60,7 +63,11 @@ public class AllowedOriginResolver {
 
         if (isProdProfile()) {
             LinkedHashSet<String> merged = new LinkedHashSet<>(PROD_ALLOWED_ORIGINS);
-            merged.addAll(configuredOrigins);
+            if (allowPreviewOrigins) {
+                merged.addAll(configuredOrigins);
+            } else {
+                merged.addAll(filterDisallowedPreviewOrigins(configuredOrigins));
+            }
             List<String> result = List.copyOf(merged);
             log.info("AllowedOriginResolver: prod resolved origins={}", result);
             return result;
@@ -77,6 +84,12 @@ public class AllowedOriginResolver {
         }
 
         return DEV_LOCAL_DEFAULT_ALLOWED_ORIGINS;
+    }
+
+    private static List<String> filterDisallowedPreviewOrigins(List<String> origins) {
+        return origins.stream()
+                .filter(origin -> !origin.contains(".pages.dev"))
+                .toList();
     }
 
     boolean isDevOrLocalProfile() {
