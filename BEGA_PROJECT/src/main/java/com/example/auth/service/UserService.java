@@ -716,7 +716,7 @@ public class UserService {
             case "SSG 랜더스" -> "SSG";
             case "NC 다이노스" -> "NC";
             case "KT 위즈" -> "KT";
-            case "기아 타이거즈" -> "KIA";
+            case "기아 타이거즈", "KIA 타이거즈" -> "KIA";
             default -> null;
         };
     }

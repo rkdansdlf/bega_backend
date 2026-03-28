@@ -56,6 +56,24 @@ class AiServiceSettingsTest {
     }
 
     @Test
+    void devProfilePrefersAiServiceEnvOverWorkspaceFallbackFiles() throws IOException {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("dev");
+        Files.createDirectories(tempDir.resolve("bega_AI"));
+        Files.writeString(tempDir.resolve("bega_AI/.env"), "AI_INTERNAL_TOKEN=service-env-token\n");
+        Files.writeString(tempDir.resolve(".env"), "AI_INTERNAL_TOKEN=local-dev-ai-internal-token\n");
+        Files.writeString(tempDir.resolve(".env.prod"), "AI_INTERNAL_TOKEN=workspace-prod-token\n");
+
+        AiServiceSettings settings = new AiServiceSettings(
+                environment,
+                "http://localhost:8001",
+                AiServiceSettings.LOCAL_DEV_AI_INTERNAL_TOKEN,
+                tempDir);
+
+        assertThat(settings.getResolvedInternalToken()).isEqualTo("service-env-token");
+    }
+
+    @Test
     void prodProfileBlankServiceUrlFailsValidation() {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("prod");

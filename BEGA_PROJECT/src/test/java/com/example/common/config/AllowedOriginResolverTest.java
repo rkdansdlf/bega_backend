@@ -12,16 +12,52 @@ import org.springframework.mock.env.MockEnvironment;
 class AllowedOriginResolverTest {
 
     @Test
-    @DisplayName("prod profile should allow only the canonical www origin")
-    void resolvesOnlyCanonicalProdOrigin() {
+    @DisplayName("prod profile should keep canonical origins when no extras are configured")
+    void resolvesCanonicalProdOriginsWithoutConfiguredExtras() {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("prod");
         AllowedOriginResolver resolver = new AllowedOriginResolver(
                 environment,
-                "https://www.begabaseball.xyz,https://begabaseball.xyz,https://preview.example");
+                "",
+                false);
 
         assertThat(resolver.resolve())
-                .containsExactly("https://www.begabaseball.xyz");
+                .containsExactly("https://www.begabaseball.xyz", "https://begabaseball.xyz");
+    }
+
+    @Test
+    @DisplayName("prod profile should filter pages.dev origins unless preview access is enabled")
+    void resolvesCanonicalAndConfiguredProdOrigins() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        AllowedOriginResolver resolver = new AllowedOriginResolver(
+                environment,
+                "https://www.begabaseball.xyz,https://*.frontend-dfl.pages.dev,https://preview.example",
+                false);
+
+        assertThat(resolver.resolve())
+                .containsExactly(
+                        "https://www.begabaseball.xyz",
+                        "https://begabaseball.xyz",
+                        "https://preview.example");
+    }
+
+    @Test
+    @DisplayName("prod profile should keep pages.dev origins when preview access is enabled")
+    void resolvesConfiguredPreviewOriginsWhenEnabled() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        AllowedOriginResolver resolver = new AllowedOriginResolver(
+                environment,
+                "https://www.begabaseball.xyz,https://*.frontend-dfl.pages.dev,https://preview.example",
+                true);
+
+        assertThat(resolver.resolve())
+                .containsExactly(
+                        "https://www.begabaseball.xyz",
+                        "https://begabaseball.xyz",
+                        "https://*.frontend-dfl.pages.dev",
+                        "https://preview.example");
     }
 
     @Test
@@ -31,7 +67,8 @@ class AllowedOriginResolverTest {
         environment.setActiveProfiles("local");
         AllowedOriginResolver resolver = new AllowedOriginResolver(
                 environment,
-                "");
+                "",
+                false);
 
         List<String> origins = resolver.resolve();
 

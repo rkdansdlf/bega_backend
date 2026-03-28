@@ -221,6 +221,6 @@ class SecurityConfigTest {
                 mock(com.example.auth.service.AuthSecurityMonitoringService.class),
                 environment,
                 aiServiceSettings,
-                new AllowedOriginResolver(environment, ""));
+                new AllowedOriginResolver(environment, "", false));
     }
 }

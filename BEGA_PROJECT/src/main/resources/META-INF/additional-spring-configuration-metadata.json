@@ -1,67 +1,596 @@
-{"properties": [
-  {
-    "name": "spring.jwt.secret",
-    "type": "java.lang.String",
-    "description": "A description for 'spring.jwt.secret'"
-  },
-  {
-    "name": "spring.jwt.refresh-expiration",
-    "type": "java.lang.String",
-    "description": "A description for 'spring.jwt.refresh-expiration'"
-  },
-  {
-    "name": "app.client-error-monitoring.retention-days",
-    "type": "java.lang.Integer",
-    "description": "Number of days to retain client error monitoring data."
-  },
-  {
-    "name": "app.client-error-monitoring.cleanup-cron",
-    "type": "java.lang.String",
-    "description": "Cron expression for cleaning up expired client error monitoring data."
-  },
-  {
-    "name": "app.client-error-monitoring.alerts.enabled",
-    "type": "java.lang.Boolean",
-    "description": "Whether backend-driven client error alert delivery is enabled."
-  },
-  {
-    "name": "app.client-error-monitoring.alerts.poll-interval-ms",
-    "type": "java.lang.Long",
-    "description": "Polling interval in milliseconds for evaluating client error alert thresholds."
-  },
-  {
-    "name": "app.client-error-monitoring.alerts.runtime-threshold",
-    "type": "java.lang.Integer",
-    "description": "Runtime fingerprint count threshold within the configured window."
-  },
-  {
-    "name": "app.client-error-monitoring.alerts.api5xx-threshold",
-    "type": "java.lang.Integer",
-    "description": "API 5xx fingerprint count threshold within the configured window."
-  },
-  {
-    "name": "app.client-error-monitoring.alerts.window-minutes",
-    "type": "java.lang.Integer",
-    "description": "Rolling window size in minutes for client error threshold evaluation."
-  },
-  {
-    "name": "app.client-error-monitoring.alerts.cooldown-minutes",
-    "type": "java.lang.Integer",
-    "description": "Cooldown period in minutes before the same fingerprint can alert again."
-  },
-  {
-    "name": "app.client-error-monitoring.alerts.channel",
-    "type": "com.example.common.clienterror.ClientErrorAlertChannel",
-    "description": "Alert delivery channel used for backend-driven client error alerts."
-  },
-  {
-    "name": "app.client-error-monitoring.alerts.telegram.bot-token",
-    "type": "java.lang.String",
-    "description": "Telegram bot token used for backend-driven client error alerts."
-  },
-  {
-    "name": "app.client-error-monitoring.alerts.telegram.chat-id",
-    "type": "java.lang.String",
-    "description": "Telegram chat id used for backend-driven client error alerts."
-  }
-]}
+{
+  "groups": [
+    {
+      "name": "app",
+      "type": "java.lang.Object",
+      "description": "Application-specific backend settings."
+    },
+    {
+      "name": "app.mail",
+      "type": "java.lang.Object",
+      "description": "Mail delivery toggles for the backend."
+    },
+    {
+      "name": "app.client-error-monitoring",
+      "type": "com.example.common.clienterror.ClientErrorMonitoringProperties",
+      "description": "Client error monitoring retention and alerting settings."
+    },
+    {
+      "name": "app.client-error-monitoring.alerts",
+      "type": "com.example.common.clienterror.ClientErrorMonitoringProperties$Alerts",
+      "description": "Client error alert evaluation settings."
+    },
+    {
+      "name": "app.client-error-monitoring.alerts.telegram",
+      "type": "com.example.common.clienterror.ClientErrorMonitoringProperties$Telegram",
+      "description": "Telegram alert delivery settings."
+    },
+    {
+      "name": "app.dev-data",
+      "type": "java.lang.Object",
+      "description": "Development seed-data controls."
+    },
+    {
+      "name": "app.frontend",
+      "type": "java.lang.Object",
+      "description": "Frontend URL settings used by the backend."
+    },
+    {
+      "name": "app.backend",
+      "type": "java.lang.Object",
+      "description": "Backend self URL settings."
+    },
+    {
+      "name": "app.flyway",
+      "type": "java.lang.Object",
+      "description": "Application-level Flyway safety controls."
+    },
+    {
+      "name": "app.ai",
+      "type": "java.lang.Object",
+      "description": "Application-level AI proxy settings."
+    },
+    {
+      "name": "app.ai.proxy",
+      "type": "java.lang.Object",
+      "description": "AI proxy exposure and timeout settings."
+    },
+    {
+      "name": "app.cookie",
+      "type": "java.lang.Object",
+      "description": "Cookie security settings."
+    },
+    {
+      "name": "app.policy",
+      "type": "java.lang.Object",
+      "description": "Policy enforcement controls."
+    },
+    {
+      "name": "app.oauth2",
+      "type": "java.lang.Object",
+      "description": "OAuth2 cookie handling settings."
+    },
+    {
+      "name": "baseball",
+      "type": "java.lang.Object",
+      "description": "Secondary PostgreSQL datasource settings."
+    },
+    {
+      "name": "baseball.datasource",
+      "type": "org.springframework.boot.autoconfigure.jdbc.DataSourceProperties",
+      "description": "Secondary PostgreSQL datasource connection settings."
+    },
+    {
+      "name": "baseball.datasource.hikari",
+      "type": "com.zaxxer.hikari.HikariConfig",
+      "description": "Secondary datasource Hikari pool settings."
+    },
+    {
+      "name": "baseball.datasource.data-source-properties",
+      "type": "java.util.Map<java.lang.String,java.lang.String>",
+      "description": "Secondary datasource vendor-specific JDBC properties."
+    },
+    {
+      "name": "baseball.jpa",
+      "type": "java.lang.Object",
+      "description": "Secondary datasource JPA settings."
+    },
+    {
+      "name": "baseball.jpa.hibernate",
+      "type": "java.lang.Object",
+      "description": "Secondary datasource Hibernate settings."
+    },
+    {
+      "name": "kbo",
+      "type": "java.lang.Object",
+      "description": "KBO domain configuration."
+    },
+    {
+      "name": "kbo.schema-guard",
+      "type": "java.lang.Object",
+      "description": "KBO schema validation controls."
+    },
+    {
+      "name": "kbo.game.db",
+      "type": "java.lang.Object",
+      "description": "KBO game database toggles."
+    },
+    {
+      "name": "storage",
+      "type": "java.lang.Object",
+      "description": "Storage strategy selection."
+    },
+    {
+      "name": "oci",
+      "type": "java.lang.Object",
+      "description": "OCI-specific settings."
+    },
+    {
+      "name": "oci.s3",
+      "type": "java.lang.Object",
+      "description": "OCI Object Storage S3-compatible settings."
+    },
+    {
+      "name": "ai",
+      "type": "java.lang.Object",
+      "description": "AI service settings."
+    },
+    {
+      "name": "ai.moderation",
+      "type": "java.lang.Object",
+      "description": "AI moderation keyword and threshold settings."
+    },
+    {
+      "name": "toss",
+      "type": "java.lang.Object",
+      "description": "Toss Payments integration settings."
+    },
+    {
+      "name": "toss.payment",
+      "type": "com.example.mate.config.TossPaymentConfig",
+      "description": "Toss payment API settings."
+    },
+    {
+      "name": "toss.payout",
+      "type": "com.example.mate.config.TossPayoutConfig",
+      "description": "Toss payout API settings."
+    },
+    {
+      "name": "mate",
+      "type": "java.lang.Object",
+      "description": "Mate domain settings."
+    },
+    {
+      "name": "mate.auth",
+      "type": "java.lang.Object",
+      "description": "Mate authentication policy settings."
+    },
+    {
+      "name": "mate.payment",
+      "type": "java.lang.Object",
+      "description": "Mate payment flow settings."
+    },
+    {
+      "name": "payment",
+      "type": "java.lang.Object",
+      "description": "Payment feature toggles."
+    },
+    {
+      "name": "payment.selling",
+      "type": "java.lang.Object",
+      "description": "Selling enforcement settings."
+    },
+    {
+      "name": "payment.payout",
+      "type": "java.lang.Object",
+      "description": "Payout feature settings."
+    },
+    {
+      "name": "spring.jwt",
+      "type": "java.lang.Object",
+      "description": "JWT settings stored under the spring namespace."
+    },
+    {
+      "name": "spring.datasource.data-source-properties",
+      "type": "java.util.Map<java.lang.String,java.lang.String>",
+      "description": "Primary datasource vendor-specific JDBC properties."
+    },
+    {
+      "name": "management.health.jobrunr",
+      "type": "java.lang.Object",
+      "description": "JobRunr health contributor controls."
+    }
+  ],
+  "properties": [
+    {
+      "name": "spring.jwt.secret",
+      "type": "java.lang.String",
+      "description": "JWT signing secret."
+    },
+    {
+      "name": "spring.jwt.access-expiration",
+      "type": "java.lang.Long",
+      "description": "JWT access token lifetime in milliseconds."
+    },
+    {
+      "name": "spring.jwt.refresh-expiration",
+      "type": "java.lang.Long",
+      "description": "JWT refresh token lifetime in milliseconds."
+    },
+    {
+      "name": "app.mail.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether outbound mail sending is enabled."
+    },
+    {
+      "name": "app.client-error-monitoring.retention-days",
+      "type": "java.lang.Integer",
+      "description": "Number of days to retain client error monitoring data."
+    },
+    {
+      "name": "app.client-error-monitoring.cleanup-cron",
+      "type": "java.lang.String",
+      "description": "Cron expression for cleaning up expired client error monitoring data."
+    },
+    {
+      "name": "app.client-error-monitoring.alerts.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether backend-driven client error alert delivery is enabled."
+    },
+    {
+      "name": "app.client-error-monitoring.alerts.poll-interval-ms",
+      "type": "java.lang.Long",
+      "description": "Polling interval in milliseconds for evaluating client error alert thresholds."
+    },
+    {
+      "name": "app.client-error-monitoring.alerts.runtime-threshold",
+      "type": "java.lang.Integer",
+      "description": "Runtime fingerprint count threshold within the configured window."
+    },
+    {
+      "name": "app.client-error-monitoring.alerts.api5xx-threshold",
+      "type": "java.lang.Integer",
+      "description": "API 5xx fingerprint count threshold within the configured window."
+    },
+    {
+      "name": "app.client-error-monitoring.alerts.window-minutes",
+      "type": "java.lang.Integer",
+      "description": "Rolling window size in minutes for client error threshold evaluation."
+    },
+    {
+      "name": "app.client-error-monitoring.alerts.cooldown-minutes",
+      "type": "java.lang.Integer",
+      "description": "Cooldown period in minutes before the same fingerprint can alert again."
+    },
+    {
+      "name": "app.client-error-monitoring.alerts.channel",
+      "type": "com.example.common.clienterror.ClientErrorAlertChannel",
+      "description": "Alert delivery channel used for backend-driven client error alerts."
+    },
+    {
+      "name": "app.client-error-monitoring.alerts.telegram.bot-token",
+      "type": "java.lang.String",
+      "description": "Telegram bot token used for backend-driven client error alerts."
+    },
+    {
+      "name": "app.client-error-monitoring.alerts.telegram.chat-id",
+      "type": "java.lang.String",
+      "description": "Telegram chat id used for backend-driven client error alerts."
+    },
+    {
+      "name": "app.dev-data.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether development seed data should be initialized."
+    },
+    {
+      "name": "app.frontend.url",
+      "type": "java.lang.String",
+      "description": "Public frontend URL used in generated links and redirects."
+    },
+    {
+      "name": "app.backend.url",
+      "type": "java.lang.String",
+      "description": "Public backend URL."
+    },
+    {
+      "name": "app.flyway.auto-repair",
+      "type": "java.lang.Boolean",
+      "description": "Whether application-level Flyway repair should be enabled."
+    },
+    {
+      "name": "app.ai.proxy.public-in-dev",
+      "type": "java.lang.Boolean",
+      "description": "Whether the AI proxy can be exposed without authentication in dev."
+    },
+    {
+      "name": "app.ai.proxy.request-timeout-seconds",
+      "type": "java.lang.Long",
+      "description": "Request timeout for proxied AI calls in seconds."
+    },
+    {
+      "name": "app.trusted-proxies",
+      "type": "java.lang.String",
+      "description": "Comma-separated trusted proxy IPs or CIDRs."
+    },
+    {
+      "name": "app.allowed-origins",
+      "type": "java.lang.String",
+      "description": "Comma-separated list of allowed CORS origins."
+    },
+    {
+      "name": "app.allow-preview-origins",
+      "type": "java.lang.Boolean",
+      "description": "Whether preview deployment origins are accepted."
+    },
+    {
+      "name": "app.cookie.secure",
+      "type": "java.lang.Boolean",
+      "description": "Whether auth cookies are marked secure."
+    },
+    {
+      "name": "app.policy.hard-gate-approved-date",
+      "type": "java.lang.String",
+      "description": "Policy hard-gate approval date in YYYY-MM-DD format."
+    },
+    {
+      "name": "app.oauth2.cookie-secret",
+      "type": "java.lang.String",
+      "description": "Secret used to sign OAuth2 authorization request cookies."
+    },
+    {
+      "name": "baseball.datasource.driver-class-name",
+      "type": "java.lang.String",
+      "description": "JDBC driver class name for the secondary datasource."
+    },
+    {
+      "name": "baseball.datasource.url",
+      "type": "java.lang.String",
+      "description": "JDBC URL for the secondary datasource."
+    },
+    {
+      "name": "baseball.datasource.username",
+      "type": "java.lang.String",
+      "description": "Username for the secondary datasource."
+    },
+    {
+      "name": "baseball.datasource.password",
+      "type": "java.lang.String",
+      "description": "Password for the secondary datasource."
+    },
+    {
+      "name": "baseball.datasource.hikari.maximum-pool-size",
+      "type": "java.lang.Integer",
+      "description": "Maximum pool size for the secondary datasource."
+    },
+    {
+      "name": "baseball.datasource.hikari.minimum-idle",
+      "type": "java.lang.Integer",
+      "description": "Minimum idle connections for the secondary datasource."
+    },
+    {
+      "name": "baseball.datasource.hikari.connection-timeout",
+      "type": "java.lang.Long",
+      "description": "Connection timeout in milliseconds for the secondary datasource."
+    },
+    {
+      "name": "baseball.datasource.hikari.validation-timeout",
+      "type": "java.lang.Long",
+      "description": "Validation timeout in milliseconds for the secondary datasource."
+    },
+    {
+      "name": "baseball.datasource.hikari.idle-timeout",
+      "type": "java.lang.Long",
+      "description": "Idle timeout in milliseconds for the secondary datasource."
+    },
+    {
+      "name": "baseball.datasource.hikari.max-lifetime",
+      "type": "java.lang.Long",
+      "description": "Maximum lifetime in milliseconds for secondary datasource connections."
+    },
+    {
+      "name": "baseball.datasource.data-source-properties.currentSchema",
+      "type": "java.lang.String",
+      "description": "Default schema for the secondary datasource."
+    },
+    {
+      "name": "baseball.datasource.data-source-properties.targetServerType",
+      "type": "java.lang.String",
+      "description": "Preferred PostgreSQL server type for the secondary datasource."
+    },
+    {
+      "name": "baseball.jpa.hibernate.ddl-auto",
+      "type": "java.lang.String",
+      "description": "Hibernate DDL mode for the secondary datasource."
+    },
+    {
+      "name": "kbo.schema-guard.strict",
+      "type": "java.lang.Boolean",
+      "description": "Whether strict KBO schema validation is enforced on startup."
+    },
+    {
+      "name": "kbo.game.db.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the dedicated KBO game database stack is enabled."
+    },
+    {
+      "name": "storage.type",
+      "type": "java.lang.String",
+      "description": "Storage strategy identifier."
+    },
+    {
+      "name": "oci.s3.access-key",
+      "type": "java.lang.String",
+      "description": "OCI S3 access key."
+    },
+    {
+      "name": "oci.s3.secret-key",
+      "type": "java.lang.String",
+      "description": "OCI S3 secret key."
+    },
+    {
+      "name": "oci.s3.endpoint",
+      "type": "java.lang.String",
+      "description": "OCI S3 endpoint URL."
+    },
+    {
+      "name": "oci.s3.region",
+      "type": "java.lang.String",
+      "description": "OCI S3 region."
+    },
+    {
+      "name": "oci.s3.bucket",
+      "type": "java.lang.String",
+      "description": "OCI S3 bucket name."
+    },
+    {
+      "name": "ai.service-url",
+      "type": "java.lang.String",
+      "description": "Base URL for the AI service."
+    },
+    {
+      "name": "ai.internal-token",
+      "type": "java.lang.String",
+      "description": "Shared internal token for backend-to-AI service requests."
+    },
+    {
+      "name": "ai.moderation.high-risk-keywords",
+      "type": "java.lang.String",
+      "description": "Comma-separated high-risk moderation keywords."
+    },
+    {
+      "name": "ai.moderation.spam-keywords",
+      "type": "java.lang.String",
+      "description": "Comma-separated spam moderation keywords."
+    },
+    {
+      "name": "ai.moderation.spam-url-threshold",
+      "type": "java.lang.Integer",
+      "description": "URL count threshold for spam detection."
+    },
+    {
+      "name": "ai.moderation.repeat-char-threshold",
+      "type": "java.lang.Integer",
+      "description": "Repeated character threshold for spam detection."
+    },
+    {
+      "name": "ai.moderation.spam-medium-threshold",
+      "type": "java.lang.Integer",
+      "description": "Score threshold for medium spam classification."
+    },
+    {
+      "name": "ai.moderation.spam-block-threshold",
+      "type": "java.lang.Integer",
+      "description": "Score threshold for blocking spam."
+    },
+    {
+      "name": "toss.payment.secret-key",
+      "type": "java.lang.String",
+      "description": "Toss payment API secret key."
+    },
+    {
+      "name": "toss.payment.confirm-url",
+      "type": "java.lang.String",
+      "description": "Toss payment confirmation endpoint."
+    },
+    {
+      "name": "toss.payment.cancel-url",
+      "type": "java.lang.String",
+      "description": "Toss payment cancellation endpoint."
+    },
+    {
+      "name": "toss.payout.api-secret",
+      "type": "java.lang.String",
+      "description": "Toss payout API secret."
+    },
+    {
+      "name": "toss.payout.base-url",
+      "type": "java.lang.String",
+      "description": "Base URL for Toss payout API calls."
+    },
+    {
+      "name": "toss.payout.request-path",
+      "type": "java.lang.String",
+      "description": "Relative path for creating a payout."
+    },
+    {
+      "name": "toss.payout.status-path",
+      "type": "java.lang.String",
+      "description": "Relative path for fetching payout status."
+    },
+    {
+      "name": "toss.payout.seller-register-path",
+      "type": "java.lang.String",
+      "description": "Relative path for registering sellers."
+    },
+    {
+      "name": "toss.payout.security-mode",
+      "type": "java.lang.String",
+      "description": "Security mode used for payout requests."
+    },
+    {
+      "name": "toss.payout.encryption-public-key",
+      "type": "java.lang.String",
+      "description": "Inline public key used for payout encryption."
+    },
+    {
+      "name": "toss.payout.encryption-public-key-path",
+      "type": "java.lang.String",
+      "description": "Filesystem path to the payout encryption public key."
+    },
+    {
+      "name": "mate.auth.require-social-verification",
+      "type": "java.lang.Boolean",
+      "description": "Whether mate actions require a verified social account."
+    },
+    {
+      "name": "mate.payment.mode",
+      "type": "java.lang.String",
+      "description": "Selected mate payment mode."
+    },
+    {
+      "name": "mate.payment.deposit-amount",
+      "type": "java.lang.Integer",
+      "description": "Deposit amount for mate payments."
+    },
+    {
+      "name": "mate.payment.intent-ttl-minutes",
+      "type": "java.lang.Integer",
+      "description": "TTL in minutes for mate payment intents."
+    },
+    {
+      "name": "mate.payment.fee-rate",
+      "type": "java.lang.Double",
+      "description": "Fee rate applied to mate payments."
+    },
+    {
+      "name": "payment.selling.enforced",
+      "type": "java.lang.Boolean",
+      "description": "Whether selling-related payment rules are enforced."
+    },
+    {
+      "name": "payment.payout.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether payout flows are enabled."
+    },
+    {
+      "name": "payment.payout.provider",
+      "type": "java.lang.String",
+      "description": "Selected payout provider."
+    },
+    {
+      "name": "spring.datasource.data-source-properties.currentSchema",
+      "type": "java.lang.String",
+      "description": "Default schema for the primary datasource."
+    },
+    {
+      "name": "spring.datasource.data-source-properties.targetServerType",
+      "type": "java.lang.String",
+      "description": "Preferred PostgreSQL server type for the primary datasource."
+    },
+    {
+      "name": "management.health.jobrunr.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the JobRunr health contributor is enabled."
+    }
+  ]
+}
