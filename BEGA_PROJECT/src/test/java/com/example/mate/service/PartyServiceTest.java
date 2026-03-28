@@ -327,6 +327,9 @@ class PartyServiceTest {
                 assertThat(result).hasSize(4);
                 assertThat(result).extracting(FeaturedMateCardDto::getId)
                                 .containsExactly(201L, 202L, 203L, 204L);
+                assertThat(result.get(0).getTeamId()).isEqualTo("KT");
+                assertThat(result.get(0).getStadium()).isEqualTo("수원");
+                assertThat(result.get(0).getSection()).isEqualTo("응원석");
                 verify(profileImageService, never()).getProfileImageUrl(any());
                 verify(userRepository, never()).findById(any());
         }
