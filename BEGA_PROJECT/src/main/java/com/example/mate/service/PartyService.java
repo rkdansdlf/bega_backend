@@ -706,8 +706,13 @@ public class PartyService {
     private FeaturedMateCardDto convertToFeaturedMateCard(Party party) {
         return FeaturedMateCardDto.builder()
                 .id(party.getId())
+                .hostId(party.getHostId())
+                .teamId(party.getTeamId())
                 .gameDate(party.getGameDate() == null ? null : party.getGameDate().toString())
                 .gameTime(party.getGameTime() == null ? null : party.getGameTime().toString())
+                .stadium(party.getStadium())
+                .section(party.getSection())
+                .description(party.getDescription())
                 .homeTeam(party.getHomeTeam())
                 .awayTeam(party.getAwayTeam())
                 .currentParticipants(party.getCurrentParticipants())
