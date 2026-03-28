@@ -1,5 +1,8 @@
 package com.example.prediction;
 
+import com.example.kbo.repository.CanonicalAdjacentGameDatesProjection;
+import com.example.kbo.repository.CanonicalGameDateBoundsProjection;
+import com.example.kbo.repository.GameDetailHeaderProjection;
 import com.example.kbo.entity.GameEntity;
 import com.example.kbo.entity.GameInningScoreEntity;
 import com.example.kbo.entity.GameMetadataEntity;
@@ -7,6 +10,7 @@ import com.example.kbo.entity.GameSummaryEntity;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.GameInningScoreRepository;
 import com.example.kbo.repository.GameMetadataRepository;
+import com.example.kbo.repository.MatchRangeProjection;
 import com.example.kbo.repository.GameSummaryRepository;
 import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.util.KboTeamCodePolicy;
@@ -22,13 +26,11 @@ import org.springframework.data.domain.Pageable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.Locale;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
@@ -75,10 +77,11 @@ public class PredictionService {
             return List.of();
         }
 
-        List<GameEntity> matches = gameRepository.findAllByGameDatesIn(recentDates);
+        List<MatchRangeProjection> matches = gameRepository.findCanonicalCompletedRangeProjectionByGameDates(
+                recentDates,
+                QUERYABLE_TEAM_CODES);
 
         return Objects.requireNonNull(matches.stream()
-                .filter(this::isCanonicalGame)
                 .map(this::toMatchDto)
                 .collect(Collectors.toList()));
     }
@@ -86,11 +89,9 @@ public class PredictionService {
     // 특정 날짜의 경기 조회 (실제 DB 데이터만 조회, 더미 및 Mock 제외)
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<MatchDto> getMatchesByDate(LocalDate date) {
-        List<GameEntity> matches = gameRepository.findByGameDate(date).stream()
-                .filter(game -> !Boolean.TRUE.equals(game.getIsDummy()))
-                .filter(game -> !game.getGameId().startsWith("MOCK"))
-                .filter(this::isCanonicalGame)
-                .collect(Collectors.toList());
+        List<MatchRangeProjection> matches = gameRepository.findCanonicalRangeProjectionByGameDate(
+                date,
+                QUERYABLE_TEAM_CODES);
 
         return Objects.requireNonNull(matches.stream()
                 .map(this::toMatchDto)
@@ -101,16 +102,18 @@ public class PredictionService {
     public MatchDayNavigationResponseDto getMatchDayNavigation(LocalDate date) {
         LocalDate targetDate = Objects.requireNonNull(date, "조회 날짜가 올바르지 않습니다.");
         List<MatchDto> matches = getMatchesByDate(targetDate);
-        Optional<LocalDate> prevDate = gameRepository.findCanonicalPrevGameDate(targetDate, QUERYABLE_TEAM_CODES);
-        Optional<LocalDate> nextDate = gameRepository.findCanonicalNextGameDate(targetDate, QUERYABLE_TEAM_CODES);
+        CanonicalAdjacentGameDatesProjection adjacentDates =
+                gameRepository.findCanonicalAdjacentGameDates(targetDate, QUERYABLE_TEAM_CODES);
+        LocalDate prevDate = adjacentDates == null ? null : adjacentDates.getPrevDate();
+        LocalDate nextDate = adjacentDates == null ? null : adjacentDates.getNextDate();
 
         return new MatchDayNavigationResponseDto(
                 targetDate,
                 matches,
-                prevDate.orElse(null),
-                nextDate.orElse(null),
-                prevDate.isPresent(),
-                nextDate.isPresent()
+                prevDate,
+                nextDate,
+                prevDate != null,
+                nextDate != null
         );
     }
 
@@ -127,11 +130,15 @@ public class PredictionService {
             int page,
             int pageSize
     ) {
-        Page<GameEntity> matches = getCanonicalMatchRangePage(startDate, endDate, includePast, page, pageSize);
-        Map<String, Integer> seriesGameNos = resolveSeriesGameNos(matches.getContent());
+        List<MatchRangeProjection> matches = getCanonicalMatchRangeProjectionList(
+                startDate,
+                endDate,
+                includePast,
+                page,
+                pageSize);
 
-        return Objects.requireNonNull(matches.getContent().stream()
-                .map(match -> toMatchDto(match, seriesGameNos.get(match.getGameId())))
+        return Objects.requireNonNull(matches.stream()
+                .map(this::toMatchDto)
                 .collect(Collectors.toList()));
     }
 
@@ -143,12 +150,16 @@ public class PredictionService {
             int page,
             int pageSize
     ) {
-        Page<GameEntity> matches = getCanonicalMatchRangePage(startDate, endDate, includePast, page, pageSize);
-        Map<String, Integer> seriesGameNos = resolveSeriesGameNos(matches.getContent());
+        Page<MatchRangeProjection> matches = getCanonicalMatchRangeProjectionPage(
+                startDate,
+                endDate,
+                includePast,
+                page,
+                pageSize);
 
         return new MatchRangePageResponseDto(
                 matches.getContent().stream()
-                        .map(match -> toMatchDto(match, seriesGameNos.get(match.getGameId())))
+                        .map(this::toMatchDto)
                         .collect(Collectors.toList()),
                 matches.getNumber(),
                 matches.getSize(),
@@ -161,42 +172,42 @@ public class PredictionService {
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public MatchBoundsResponseDto getMatchBounds() {
-        Optional<LocalDate> earliestGameDate = gameRepository.findCanonicalMinGameDate(QUERYABLE_TEAM_CODES);
-        Optional<LocalDate> latestGameDate = gameRepository.findCanonicalMaxGameDate(QUERYABLE_TEAM_CODES);
-        boolean hasData = earliestGameDate.isPresent() && latestGameDate.isPresent();
+        CanonicalGameDateBoundsProjection bounds = gameRepository.findCanonicalGameDateBounds(QUERYABLE_TEAM_CODES);
+        LocalDate earliestGameDate = bounds == null ? null : bounds.getEarliestGameDate();
+        LocalDate latestGameDate = bounds == null ? null : bounds.getLatestGameDate();
+        boolean hasData = earliestGameDate != null && latestGameDate != null;
 
         return new MatchBoundsResponseDto(
-                hasData ? earliestGameDate.get() : null,
-                hasData ? latestGameDate.get() : null,
+                hasData ? earliestGameDate : null,
+                hasData ? latestGameDate : null,
                 hasData
         );
     }
 
-    private MatchDto toMatchDto(GameEntity game) {
-        Integer leagueTypeCode = leagueStageResolver.resolveEffectiveLeagueTypeCode(game);
-        return toMatchDto(game, resolveSeriesGameNo(game, leagueTypeCode));
-    }
-
-    private MatchDto toMatchDto(GameEntity game, Integer seriesGameNo) {
-        Integer leagueTypeCode = leagueStageResolver.resolveEffectiveLeagueTypeCode(game);
+    private MatchDto toMatchDto(MatchRangeProjection match) {
+        Integer leagueTypeCode = leagueStageResolver.resolveEffectiveLeagueTypeCode(
+                match.getRawLeagueTypeCode(),
+                match.getGameDate(),
+                match.getSeasonId(),
+                match.getGameId());
         return MatchDto.builder()
-                .gameId(game.getGameId())
-                .gameDate(game.getGameDate())
-                .homeTeam(com.example.kbo.util.TeamCodeNormalizer.normalize(game.getHomeTeam()))
-                .awayTeam(com.example.kbo.util.TeamCodeNormalizer.normalize(game.getAwayTeam()))
-                .stadium(game.getStadium())
-                .homeScore(game.getHomeScore())
-                .awayScore(game.getAwayScore())
-                .winner(game.getWinner())
-                .isDummy(game.getIsDummy())
-                .homePitcher(MatchDto.pitcherOf(game.getHomePitcher()))
-                .awayPitcher(MatchDto.pitcherOf(game.getAwayPitcher()))
+                .gameId(match.getGameId())
+                .gameDate(match.getGameDate())
+                .homeTeam(com.example.kbo.util.TeamCodeNormalizer.normalize(match.getHomeTeam()))
+                .awayTeam(com.example.kbo.util.TeamCodeNormalizer.normalize(match.getAwayTeam()))
+                .stadium(match.getStadium())
+                .homeScore(match.getHomeScore())
+                .awayScore(match.getAwayScore())
+                .winner(resolveWinner(match.getHomeScore(), match.getAwayScore()))
+                .isDummy(match.getIsDummy())
+                .homePitcher(MatchDto.pitcherOf(match.getHomePitcher()))
+                .awayPitcher(MatchDto.pitcherOf(match.getAwayPitcher()))
                 .aiSummary(null)
                 .winProbability(null)
-                .seasonId(game.getSeasonId())
+                .seasonId(match.getSeasonId())
                 .leagueType(mapLeagueType(leagueTypeCode))
                 .postSeasonSeries(mapPostSeasonSeries(leagueTypeCode))
-                .seriesGameNo(seriesGameNo)
+                .seriesGameNo(match.getSeriesGameNo())
                 .build();
     }
 
@@ -225,103 +236,129 @@ public class PredictionService {
         };
     }
 
-    private Integer resolveSeriesGameNo(GameEntity game, Integer leagueTypeCode) {
-        if (leagueTypeCode == null || leagueTypeCode < 2 || leagueTypeCode > 5) {
+    private String resolveWinner(Integer homeScore, Integer awayScore) {
+        if (homeScore == null || awayScore == null) {
             return null;
         }
-        if (game.getSeasonId() == null || game.getGameDate() == null || game.getGameId() == null) {
-            return null;
+        if (homeScore.equals(awayScore)) {
+            return "draw";
         }
-        long previousGames = gameRepository.countPreviousCompletedSeriesGames(
-                game.getSeasonId(),
-                game.getHomeTeam(),
-                game.getAwayTeam(),
-                game.getGameDate(),
-                game.getGameId()
-        );
-        return Math.toIntExact(previousGames + 1L);
+        return homeScore > awayScore ? "home" : "away";
     }
 
-    private Map<String, Integer> resolveSeriesGameNos(List<GameEntity> games) {
-        if (games == null || games.isEmpty()) {
-            return Map.of();
+    private List<MatchRangeProjection> getCanonicalMatchRangeProjectionList(
+            LocalDate startDate,
+            LocalDate endDate,
+            boolean includePast,
+            int page,
+            int pageSize
+    ) {
+        CanonicalRangeRequest request = normalizeCanonicalRangeRequest(startDate, endDate, includePast, page, pageSize);
+
+        if (request.effectiveStartDate().isAfter(request.effectiveEndDate())) {
+            log.info(
+                    "prediction.range.end_reached includePast={} requestedWindow={}~{} effectiveWindow={}~{} page={} size={} reason=effective-window-empty",
+                    includePast,
+                    startDate,
+                    endDate,
+                    request.effectiveStartDate(),
+                    request.effectiveEndDate(),
+                    request.pageable().getPageNumber(),
+                    request.pageable().getPageSize()
+            );
+            return List.of();
         }
 
-        Map<SeriesGameKey, SeriesAnchor> anchorsByKey = new LinkedHashMap<>();
-        for (GameEntity game : games) {
-            SeriesGameKey key = toSeriesGameKey(game);
-            if (key == null || anchorsByKey.containsKey(key)) {
-                continue;
-            }
-            anchorsByKey.put(key, new SeriesAnchor(game.getGameDate(), game.getGameId()));
+        List<MatchRangeProjection> matches = gameRepository.findCanonicalRangeProjectionByDateRangeNoCount(
+                request.effectiveStartDate(),
+                request.effectiveEndDate(),
+                QUERYABLE_TEAM_CODES,
+                request.pageable());
+
+        if (matches.isEmpty()) {
+            log.info(
+                    "prediction.range.end_reached includePast={} requestedWindow={}~{} effectiveWindow={}~{} page={} size={} reason=no-content",
+                    includePast,
+                    startDate,
+                    endDate,
+                    request.effectiveStartDate(),
+                    request.effectiveEndDate(),
+                    request.pageable().getPageNumber(),
+                    request.pageable().getPageSize()
+            );
+        } else {
+            log.info(
+                    "prediction.range.load includePast={} result=success window={}~{} page={} size={} content={}",
+                    includePast,
+                    request.effectiveStartDate(),
+                    request.effectiveEndDate(),
+                    request.pageable().getPageNumber(),
+                    request.pageable().getPageSize(),
+                    matches.size()
+            );
         }
 
-        if (anchorsByKey.isEmpty()) {
-            return Map.of();
-        }
-
-        Map<SeriesGameKey, Long> baseCountsByKey = new HashMap<>();
-        for (Map.Entry<SeriesGameKey, SeriesAnchor> entry : anchorsByKey.entrySet()) {
-            SeriesGameKey key = entry.getKey();
-            SeriesAnchor anchor = entry.getValue();
-            long previousGames = gameRepository.countPreviousCompletedSeriesGames(
-                    key.seasonId(),
-                    key.homeTeam(),
-                    key.awayTeam(),
-                    anchor.gameDate(),
-                    anchor.gameId());
-            baseCountsByKey.put(key, previousGames);
-        }
-
-        Map<SeriesGameKey, Long> runningCountsByKey = new HashMap<>();
-        Map<String, Integer> seriesGameNosByGameId = new HashMap<>();
-        for (GameEntity game : games) {
-            SeriesGameKey key = toSeriesGameKey(game);
-            if (key == null) {
-                continue;
-            }
-
-            long baseCount = baseCountsByKey.getOrDefault(key, 0L);
-            long seriesGameNo = runningCountsByKey.merge(key, 1L, Long::sum) + baseCount;
-            seriesGameNosByGameId.put(game.getGameId(), Math.toIntExact(seriesGameNo));
-        }
-
-        return seriesGameNosByGameId;
+        return matches;
     }
 
-    private SeriesGameKey toSeriesGameKey(GameEntity game) {
-        Integer leagueTypeCode = leagueStageResolver.resolveEffectiveLeagueTypeCode(game);
-        if (leagueTypeCode == null || leagueTypeCode < 2 || leagueTypeCode > 5) {
-            return null;
-        }
-        if (game.getSeasonId() == null || game.getGameDate() == null || game.getGameId() == null) {
-            return null;
+    private Page<MatchRangeProjection> getCanonicalMatchRangeProjectionPage(
+            LocalDate startDate,
+            LocalDate endDate,
+            boolean includePast,
+            int page,
+            int pageSize
+    ) {
+        CanonicalRangeRequest request = normalizeCanonicalRangeRequest(startDate, endDate, includePast, page, pageSize);
+
+        if (request.effectiveStartDate().isAfter(request.effectiveEndDate())) {
+            log.info(
+                    "prediction.range.end_reached includePast={} requestedWindow={}~{} effectiveWindow={}~{} page={} size={} reason=effective-window-empty",
+                    includePast,
+                    startDate,
+                    endDate,
+                    request.effectiveStartDate(),
+                    request.effectiveEndDate(),
+                    request.pageable().getPageNumber(),
+                    request.pageable().getPageSize()
+            );
+            return Page.empty(request.pageable());
         }
 
-        String homeTeam = normalizeSeriesTeamCode(game.getHomeTeam());
-        String awayTeam = normalizeSeriesTeamCode(game.getAwayTeam());
-        if (homeTeam == null || awayTeam == null) {
-            return null;
+        Page<MatchRangeProjection> rangePage = gameRepository.findCanonicalRangeProjectionByDateRange(
+                request.effectiveStartDate(),
+                request.effectiveEndDate(),
+                QUERYABLE_TEAM_CODES,
+                request.pageable());
+
+        if (rangePage.isEmpty()) {
+            log.info(
+                    "prediction.range.end_reached includePast={} requestedWindow={}~{} effectiveWindow={}~{} page={} size={} reason=no-content",
+                    includePast,
+                    startDate,
+                    endDate,
+                    request.effectiveStartDate(),
+                    request.effectiveEndDate(),
+                    rangePage.getNumber(),
+                    rangePage.getSize()
+            );
+        } else {
+            log.info(
+                    "prediction.range.load includePast={} result=success window={}~{} page={} size={} content={} hasNext={} hasPrevious={}",
+                    includePast,
+                    request.effectiveStartDate(),
+                    request.effectiveEndDate(),
+                    rangePage.getNumber(),
+                    rangePage.getSize(),
+                    rangePage.getNumberOfElements(),
+                    rangePage.hasNext(),
+                    rangePage.hasPrevious()
+            );
         }
 
-        if (homeTeam.compareTo(awayTeam) <= 0) {
-            return new SeriesGameKey(game.getSeasonId(), homeTeam, awayTeam);
-        }
-        return new SeriesGameKey(game.getSeasonId(), awayTeam, homeTeam);
+        return rangePage;
     }
 
-    private String normalizeSeriesTeamCode(String teamCode) {
-        if (teamCode == null) {
-            return null;
-        }
-        String normalized = teamCode.trim();
-        if (normalized.isEmpty()) {
-            return null;
-        }
-        return normalized.toUpperCase(Locale.ROOT);
-    }
-
-    private Page<GameEntity> getCanonicalMatchRangePage(
+    private CanonicalRangeRequest normalizeCanonicalRangeRequest(
             LocalDate startDate,
             LocalDate endDate,
             boolean includePast,
@@ -357,65 +394,14 @@ public class PredictionService {
                 Math.max(0, page),
                 Math.max(1, Math.min(500, pageSize))
         );
-
-        LocalDate effectiveEndDate = endDate;
         LocalDate effectiveStartDate = includePast ? startDate : (startDate.isBefore(today) ? today : startDate);
-
-        if (effectiveStartDate.isAfter(effectiveEndDate)) {
-            log.info(
-                    "prediction.range.end_reached includePast={} requestedWindow={}~{} effectiveWindow={}~{} page={} size={} reason=effective-window-empty",
-                    includePast,
-                    startDate,
-                    endDate,
-                    effectiveStartDate,
-                    effectiveEndDate,
-                    pageable.getPageNumber(),
-                    pageable.getPageSize()
-            );
-            return Page.empty(pageable);
-        }
-
-        Page<GameEntity> rangePage = gameRepository.findCanonicalByDateRange(
-                effectiveStartDate,
-                effectiveEndDate,
-                QUERYABLE_TEAM_CODES,
-                pageable);
-
-        if (rangePage.isEmpty()) {
-            log.info(
-                    "prediction.range.end_reached includePast={} requestedWindow={}~{} effectiveWindow={}~{} page={} size={} reason=no-content",
-                    includePast,
-                    startDate,
-                    endDate,
-                    effectiveStartDate,
-                    effectiveEndDate,
-                    rangePage.getNumber(),
-                    rangePage.getSize()
-            );
-        } else {
-            log.info(
-                    "prediction.range.load includePast={} result=success window={}~{} page={} size={} content={} hasNext={} hasPrevious={}",
-                    includePast,
-                    effectiveStartDate,
-                    effectiveEndDate,
-                    rangePage.getNumber(),
-                    rangePage.getSize(),
-                    rangePage.getNumberOfElements(),
-                    rangePage.hasNext(),
-                    rangePage.hasPrevious()
-            );
-        }
-
-        return rangePage;
+        return new CanonicalRangeRequest(effectiveStartDate, endDate, pageable);
     }
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public GameDetailDto getGameDetail(String gameId) {
-        GameEntity game = gameRepository.findByGameId(gameId)
+        GameDetailHeaderProjection detailHeader = gameRepository.findGameDetailHeaderByGameId(gameId)
                 .orElseThrow(() -> new IllegalArgumentException("경기 정보를 찾을 수 없습니다."));
-
-        GameMetadataEntity metadata = gameMetadataRepository.findByGameId(gameId)
-                .orElse(null);
 
         List<GameInningScoreEntity> inningScores = gameInningScoreRepository
                 .findAllByGameIdOrderByInningAscTeamSideAsc(gameId);
@@ -423,7 +409,7 @@ public class PredictionService {
         List<GameSummaryEntity> summaries = gameSummaryRepository
                 .findAllByGameIdOrderBySummaryTypeAscIdAsc(gameId);
 
-        return Objects.requireNonNull(GameDetailDto.from(game, metadata, inningScores, summaries));
+        return Objects.requireNonNull(GameDetailDto.from(detailHeader, inningScores, summaries));
     }
 
     @Transactional(transactionManager = "kboGameTransactionManager")
@@ -555,8 +541,9 @@ public class PredictionService {
                     .build());
         }
 
-        Long homeVotes = predictionRepository.countByGameIdAndVotedTeam(gameId, "home");
-        Long awayVotes = predictionRepository.countByGameIdAndVotedTeam(gameId, "away");
+        PredictionVoteCountsProjection voteCounts = predictionRepository.findVoteCountsByGameId(gameId);
+        Long homeVotes = voteCounts != null && voteCounts.getHomeVotes() != null ? voteCounts.getHomeVotes() : 0L;
+        Long awayVotes = voteCounts != null && voteCounts.getAwayVotes() != null ? voteCounts.getAwayVotes() : 0L;
         Long totalVotes = homeVotes + awayVotes;
 
         int homePercentage = totalVotes > 0 ? (int) Math.round((homeVotes * 100.0) / totalVotes) : 0;
@@ -671,12 +658,6 @@ public class PredictionService {
         return normalized;
     }
 
-    private record SeriesGameKey(Integer seasonId, String homeTeam, String awayTeam) {
-    }
-
-    private record SeriesAnchor(LocalDate gameDate, String gameId) {
-    }
-
     private String normalizeVotedTeam(String votedTeam) {
         String normalized = votedTeam == null ? "" : votedTeam.trim().toLowerCase();
         if (!normalized.equals("home") && !normalized.equals("away")) {
@@ -742,5 +723,11 @@ public class PredictionService {
         return Objects.requireNonNull(
                 UserPredictionStatsDto.builder().totalPredictions(totalFinished).correctPredictions(correctCount)
                         .accuracy(accuracy).streak(currentStreak).build());
+    }
+
+    private record CanonicalRangeRequest(
+            LocalDate effectiveStartDate,
+            LocalDate effectiveEndDate,
+            Pageable pageable) {
     }
 }

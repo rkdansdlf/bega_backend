@@ -30,6 +30,15 @@ public interface PredictionRepository extends JpaRepository<Prediction, Long>{
 	
 	// 특정 경기에 특정 팀(votedTeam)이 받은 총 투표 수를 계산
 	Long countByGameIdAndVotedTeam(String gameId, String votedTeam);
+
+	@Query(value = """
+			SELECT
+				COALESCE(SUM(CASE WHEN p.voted_team = 'home' THEN 1 ELSE 0 END), 0) AS "homeVotes",
+				COALESCE(SUM(CASE WHEN p.voted_team = 'away' THEN 1 ELSE 0 END), 0) AS "awayVotes"
+			FROM predictions p
+			WHERE p.game_id = :gameId
+			""", nativeQuery = true)
+	PredictionVoteCountsProjection findVoteCountsByGameId(@Param("gameId") String gameId);
 	
 	// 특정 경기의 전체 투표 수
 	Long countByGameId(String gameId);
