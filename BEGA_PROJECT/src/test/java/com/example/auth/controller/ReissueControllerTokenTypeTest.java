@@ -4,6 +4,7 @@ import com.example.auth.entity.RefreshToken;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.service.AuthSessionMetadataResolver;
 import com.example.auth.service.AuthSessionService;
+import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.RefreshRepository;
@@ -51,6 +52,9 @@ class ReissueControllerTokenTypeTest {
     @Mock
     private ClientIpResolver clientIpResolver;
 
+    @Mock
+    private AuthSecurityMonitoringService authSecurityMonitoringService;
+
     private AuthSessionService authSessionService;
     private ReissueController reissueController;
     private MockMvc mockMvc;
@@ -68,7 +72,8 @@ class ReissueControllerTokenTypeTest {
                 refreshRepository,
                 userRepository,
                 authCookieUtil,
-                authSessionService);
+                authSessionService,
+                authSecurityMonitoringService);
         mockMvc = MockMvcBuilders.standaloneSetup(reissueController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -88,6 +93,7 @@ class ReissueControllerTokenTypeTest {
 
         verify(jwtUtil, never()).isExpired("access-token");
         verifyNoInteractions(refreshRepository);
+        verify(authSecurityMonitoringService).recordRefreshReissueReject("INVALID_REFRESH_TOKEN_TYPE");
     }
 
     @Test
@@ -103,6 +109,7 @@ class ReissueControllerTokenTypeTest {
                 .andExpect(jsonPath("$.message").value("유효하지 않은 Refresh Token입니다."));
 
         verifyNoInteractions(refreshRepository);
+        verify(authSecurityMonitoringService).recordRefreshReissueReject("INVALID_REFRESH_TOKEN");
     }
 
     @Test

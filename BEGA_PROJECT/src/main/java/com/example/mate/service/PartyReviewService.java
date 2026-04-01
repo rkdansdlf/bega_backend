@@ -21,7 +21,6 @@ import java.util.List;
 import java.security.Principal;
 import java.util.stream.Collectors;
 import com.example.auth.service.UserService;
-import com.example.mate.exception.UnauthorizedAccessException;
 
 @Service
 @RequiredArgsConstructor

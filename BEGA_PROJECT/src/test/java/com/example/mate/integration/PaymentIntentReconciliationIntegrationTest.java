@@ -12,13 +12,11 @@ import com.example.mate.service.PaymentIntentService;
 import com.example.mate.service.TossPaymentService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -60,7 +58,6 @@ import static org.mockito.Mockito.verify;
         "oci.s3.bucket=test-bucket",
         "oci.s3.region=ap-seoul-1"
 })
-@ExtendWith(SpringExtension.class)
 class PaymentIntentReconciliationIntegrationTest {
 
     @Autowired
@@ -171,9 +168,7 @@ class PaymentIntentReconciliationIntegrationTest {
                 .partyId(103L)
                 .applicantId(203L)
                 .applicantName("existing-applicant")
-                .applicantBadge(PartyApplication.PaymentType.DEPOSIT == PartyApplication.PaymentType.DEPOSIT
-                        ? com.example.mate.entity.Party.BadgeType.NEW
-                        : com.example.mate.entity.Party.BadgeType.NEW)
+                .applicantBadge(com.example.mate.entity.Party.BadgeType.NEW)
                 .applicantRating(5.0)
                 .message("existing application")
                 .depositAmount(28000)

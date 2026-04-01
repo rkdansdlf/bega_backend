@@ -60,7 +60,8 @@ class BegaGameServiceTest {
                 .build();
 
         when(gameRepository.findByGameDateAndTeamVariants(eq(date), anyList(), anyList()))
-                .thenReturn(List.of(game), List.of());
+                .thenReturn(List.of(game))
+                .thenReturn(List.of());
         when(gameMetadataRepository.findByGameId("20250401SKKT0"))
                 .thenReturn(Optional.of(GameMetadataEntity.builder()
                         .gameId("20250401SKKT0")
@@ -98,7 +99,8 @@ class BegaGameServiceTest {
                 .build();
 
         when(gameRepository.findByGameDateAndTeamVariants(eq(date), anyList(), anyList()))
-                .thenReturn(List.of(game1, game2), List.of());
+                .thenReturn(List.of(game1, game2))
+                .thenReturn(List.of());
         when(gameMetadataRepository.findByGameId("20250402SKKT0")).thenReturn(Optional.empty());
         when(gameMetadataRepository.findByGameId("20250402SSGKT1")).thenReturn(Optional.empty());
 

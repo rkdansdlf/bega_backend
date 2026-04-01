@@ -3,8 +3,6 @@ package com.example.auth.service;
 import com.example.auth.dto.BlockToggleResponse;
 import com.example.auth.dto.FollowToggleResponse;
 import com.example.auth.entity.UserEntity;
-import com.example.auth.repository.UserBlockRepository;
-import com.example.auth.repository.UserFollowRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.cheerboard.config.CurrentUser;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,12 +52,6 @@ class FollowBlockVerificationTest {
 
     @Autowired
     private UserRepository userRepository;
-
-    @Autowired
-    private UserFollowRepository followRepository;
-
-    @Autowired
-    private UserBlockRepository blockRepository;
 
     @MockitoBean
     private CurrentUser currentUser;

@@ -1,6 +1,5 @@
 package com.example.mate.controller;
 
-import com.example.common.dto.ApiResponse;
 import com.example.common.exception.AuthenticationRequiredException;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;

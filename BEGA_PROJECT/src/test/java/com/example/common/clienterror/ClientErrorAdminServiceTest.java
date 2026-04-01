@@ -14,6 +14,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -167,7 +169,9 @@ class ClientErrorAdminServiceTest {
                 .feedbackCount(2)
                 .build();
 
-        when(eventRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(org.springframework.data.domain.Pageable.class)))
+        when(eventRepository.findAll(
+                        org.mockito.ArgumentMatchers.<Specification<ClientErrorEventEntity>>any(),
+                        org.mockito.ArgumentMatchers.<Pageable>any()))
                 .thenReturn(new PageImpl<>(List.of(entity)));
 
         var result = clientErrorAdminService.getEvents(

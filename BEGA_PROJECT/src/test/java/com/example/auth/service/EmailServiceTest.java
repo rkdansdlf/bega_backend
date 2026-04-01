@@ -10,13 +10,13 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.time.LocalDateTime;
 
-import org.jobrunr.jobs.lambdas.IocJobLambda;
 import org.jobrunr.scheduling.JobScheduler;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.jobrunr.jobs.lambdas.IocJobLambda;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -54,7 +54,7 @@ class EmailServiceTest {
         emailService.sendNewDeviceLoginEmail("user@example.com", "MacBook", "Chrome", "macOS", "127.0.0.1");
         emailService.sendAccountDeletionRecoveryEmail("user@example.com", "recovery-token", LocalDateTime.now());
 
-        verify(jobScheduler, times(3)).enqueue(any(IocJobLambda.class));
+        verify(jobScheduler, times(3)).enqueue(org.mockito.Mockito.<IocJobLambda<Object>>any());
         verify(mailSender, never()).send(any(SimpleMailMessage.class));
     }
 
@@ -73,7 +73,7 @@ class EmailServiceTest {
     void enabledMailFallsBackToImmediateSendWhenEnqueueFails() {
         doThrow(new IllegalStateException("queue down"))
                 .when(jobScheduler)
-                .enqueue(any(IocJobLambda.class));
+                .enqueue(org.mockito.Mockito.<IocJobLambda<Object>>any());
 
         EmailService emailService = createEnabledEmailService(objectProvider(jobScheduler));
 
@@ -81,7 +81,7 @@ class EmailServiceTest {
         emailService.sendNewDeviceLoginEmail("user@example.com", "MacBook", "Chrome", "macOS", "127.0.0.1");
         emailService.sendAccountDeletionRecoveryEmail("user@example.com", "recovery-token", LocalDateTime.now());
 
-        verify(jobScheduler, times(3)).enqueue(any(IocJobLambda.class));
+        verify(jobScheduler, times(3)).enqueue(org.mockito.Mockito.<IocJobLambda<Object>>any());
         verify(mailSender, times(3)).send(any(SimpleMailMessage.class));
     }
 

@@ -4,7 +4,6 @@ import com.example.auth.dto.OAuth2StateData;
 import com.example.auth.dto.PolicyConsentSubmitDto;
 import com.example.auth.service.OAuth2StateService;
 import com.example.common.exception.AuthenticationRequiredException;
-import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InternalServerBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
 import com.example.common.dto.ApiResponse;

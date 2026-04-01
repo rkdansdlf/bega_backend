@@ -51,33 +51,6 @@ public class ImageUtil {
         log.info("WebP ImageWriter found. WebP conversion enabled. Runtime native issues will fall back to original image.");
     }
 
-    private boolean isWebpEncoderWorking() {
-        try {
-            BufferedImage probeImage = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
-            ByteArrayOutputStream jpegBuffer = new ByteArrayOutputStream();
-            javax.imageio.ImageIO.write(probeImage, "png", jpegBuffer);
-
-            try (InputStream probeInput = new ByteArrayInputStream(jpegBuffer.toByteArray());
-                    ByteArrayOutputStream probeOutput = new ByteArrayOutputStream()) {
-                Thumbnails.of(probeInput)
-                        .size(1, 1)
-                        .outputQuality(COMPRESSION_QUALITY)
-                        .outputFormat("webp")
-                        .toOutputStream(probeOutput);
-                return probeOutput.size() > 0;
-            }
-        } catch (UnsatisfiedLinkError e) {
-            log.warn("WebP encoder probe failed (native library issue). reason={}", e.getMessage());
-            return false;
-        } catch (LinkageError e) {
-            log.warn("WebP encoder probe failed (linkage issue). reason={}", e.getMessage());
-            return false;
-        } catch (IOException e) {
-            log.warn("WebP encoder probe failed. reason={}", e.getMessage());
-            return false;
-        }
-    }
-
     public static class ProcessedImage {
         private final byte[] bytes;
         private final String contentType;
