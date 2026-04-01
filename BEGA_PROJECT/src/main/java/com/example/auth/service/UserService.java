@@ -40,10 +40,8 @@ import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.InvalidCredentialsException;
 import com.example.common.exception.SocialLoginRequiredException;
 
-import com.example.mate.service.PartyService;
 import com.example.profile.storage.service.ProfileImageService;
 
-import org.springframework.context.annotation.Lazy;
 import org.springframework.security.access.AccessDeniedException;
 
 @Service
@@ -61,7 +59,6 @@ public class UserService {
     private final com.example.auth.repository.UserProviderRepository userProviderRepository;
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final JWTUtil jwtUtil;
-    private final PartyService partyService;
     private final ProfileImageService profileImageService;
     private final AccountDeletionService accountDeletionService;
     private final AccountSecurityService accountSecurityService;
@@ -75,7 +72,6 @@ public class UserService {
             com.example.auth.repository.UserProviderRepository userProviderRepository,
             BCryptPasswordEncoder bCryptPasswordEncoder,
             JWTUtil jwtUtil,
-            @Lazy PartyService partyService,
             ProfileImageService profileImageService,
             AccountDeletionService accountDeletionService,
             AccountSecurityService accountSecurityService,
@@ -88,7 +84,6 @@ public class UserService {
         this.userProviderRepository = userProviderRepository;
         this.bCryptPasswordEncoder = bCryptPasswordEncoder;
         this.jwtUtil = jwtUtil;
-        this.partyService = partyService;
         this.profileImageService = profileImageService;
         this.accountDeletionService = accountDeletionService;
         this.accountSecurityService = accountSecurityService;

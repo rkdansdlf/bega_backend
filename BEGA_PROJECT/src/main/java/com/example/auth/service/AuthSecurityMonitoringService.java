@@ -2,11 +2,13 @@ package com.example.auth.service;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.util.Locale;
 import org.springframework.stereotype.Service;
 
 @Service
 public class AuthSecurityMonitoringService {
 
+    private final MeterRegistry meterRegistry;
     private final Counter invalidOriginTotal;
     private final Counter tokenRejectTotal;
     private final Counter unsignedOauth2CookieTotal;
@@ -17,6 +19,7 @@ public class AuthSecurityMonitoringService {
     private final Counter passwordResetSuppressedTotal;
 
     public AuthSecurityMonitoringService(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
         this.invalidOriginTotal = Counter.builder("auth_security_events_total")
                 .description("Invalid origin attempts on authenticated API calls")
                 .tag("event", "INVALID_ORIGIN")
@@ -88,5 +91,23 @@ public class AuthSecurityMonitoringService {
 
     public void recordPasswordResetSuppressed() {
         passwordResetSuppressedTotal.increment();
+    }
+
+    public void recordRefreshReissueReject(String code) {
+        meterRegistry.counter(
+                        "auth_security_events_total",
+                        "event", "REFRESH_REISSUE_REJECT",
+                        "code", normalizeCode(code))
+                .increment();
+    }
+
+    private String normalizeCode(String code) {
+        if (code == null || code.isBlank()) {
+            return "UNKNOWN";
+        }
+
+        return code.trim()
+                .toUpperCase(Locale.ROOT)
+                .replaceAll("[^A-Z0-9_\\-]", "_");
     }
 }

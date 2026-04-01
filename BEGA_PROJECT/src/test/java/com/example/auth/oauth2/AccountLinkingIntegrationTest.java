@@ -33,6 +33,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.mockito.Mock;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -110,12 +111,12 @@ class AccountLinkingIntegrationTest {
         @MockitoBean
         private RateLimitService rateLimitService;
 
+        @Mock
         private ValueOperations<String, String> valueOperations;
         private Map<String, String> redisStorage;
 
         @BeforeEach
         void setUp() {
-                valueOperations = mock(ValueOperations.class);
                 redisStorage = new ConcurrentHashMap<>();
 
                 lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);

@@ -354,7 +354,7 @@ public class SecurityConfig {
                                                                         .withDefaults())
                                                         .referrerPolicy(referrer -> referrer.policy(
                                                                         org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
-                                                        .permissionsPolicy(permissions -> permissions.policy(
+                                                        .permissionsPolicyHeader(permissions -> permissions.policy(
                                                                         "camera=(), microphone=(), geolocation=(), payment=()"));
                                         if (isProdProfile()) {
                                                 headers.httpStrictTransportSecurity(hsts -> hsts

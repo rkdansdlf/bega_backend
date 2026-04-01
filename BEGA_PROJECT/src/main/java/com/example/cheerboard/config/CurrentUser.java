@@ -74,14 +74,6 @@ public class CurrentUser {
         return cached;
     }
 
-    private UserEntity refreshCurrentUser(UserEntity user) {
-        if (user == null || user.getId() == null) {
-            return null;
-        }
-
-        return refreshCurrentUser(user.getId(), null);
-    }
-
     private UserEntity refreshCurrentUser(Long userId, Integer expectedTokenVersion) {
         if (userId == null) {
             return null;
@@ -100,23 +92,6 @@ public class CurrentUser {
         }
 
         return isAuthoritativeUser(user, expectedTokenVersion) ? user : null;
-    }
-
-    private UserEntity refreshCurrentUser(Long userId) {
-        if (userId == null) {
-            return null;
-        }
-
-        UserEntity user = userRepository.findById(userId).orElse(null);
-        if (user == null) {
-            return null;
-        }
-
-        return isAuthoritativeUser(user) ? user : null;
-    }
-
-    private boolean isAuthoritativeUser(UserEntity user) {
-        return isAuthoritativeUser(user, null);
     }
 
     private boolean isAuthoritativeUser(UserEntity user, Integer expectedTokenVersion) {
