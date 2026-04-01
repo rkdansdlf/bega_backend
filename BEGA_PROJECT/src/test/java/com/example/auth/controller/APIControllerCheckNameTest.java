@@ -10,7 +10,6 @@ import com.example.auth.service.OAuth2StateService;
 import com.example.auth.service.PolicyConsentService;
 import com.example.auth.service.TokenBlacklistService;
 import com.example.auth.service.UserService;
-import com.example.auth.util.AuthCookieUtil;
 import com.example.common.dto.ApiResponse;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.DuplicateNameException;
@@ -48,8 +47,6 @@ class APIControllerCheckNameTest {
 
     @Mock
     private ClientIpResolver clientIpResolver;
-
-    private final AuthCookieUtil authCookieUtil = new AuthCookieUtil(false);
 
     @InjectMocks
     private APIController apiController;

@@ -172,7 +172,6 @@ class PredictionControllerMyVotesTest {
     private Map<String, String> extractVotes(ResponseEntity<?> response) {
         Object bodyObject = response.getBody();
         assertThat(bodyObject).isInstanceOf(Map.class);
-        @SuppressWarnings("unchecked")
         Map<String, Object> body = (Map<String, Object>) bodyObject;
         assertThat(body).isNotNull();
         assertThat(body).containsKey("votes");

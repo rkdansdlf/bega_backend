@@ -56,10 +56,6 @@ class PayoutServiceTest {
         return newServiceWithConfig(payoutEnabled, "SIM", List.of(simGateway));
     }
 
-    private PayoutService newServiceWithConfig(boolean payoutEnabled, String provider) throws Exception {
-        return newServiceWithConfig(payoutEnabled, provider, List.of(simGateway));
-    }
-
     private PayoutService newServiceWithConfig(boolean payoutEnabled, String provider, List<PayoutGateway> gateways)
             throws Exception {
         if (gateways.contains(simGateway)) {

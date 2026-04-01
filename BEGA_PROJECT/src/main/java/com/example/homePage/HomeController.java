@@ -37,11 +37,34 @@ public class HomeController {
             @RequestParam(required = false) Integer seasonYear) {
         LocalDate selectedDate = date == null ? LocalDate.now() : date;
         try {
-            return ResponseEntity.ok(homePageFacadeService.getWidgets(selectedDate, seasonYear));
+            return ResponseEntity.ok(normalizeWidgetsResponse(selectedDate, seasonYear,
+                    homePageFacadeService.getWidgets(selectedDate, seasonYear)));
         } catch (Exception e) {
             log.warn("Widgets failed for date={}, returning empty fallback: {}", selectedDate, e.getMessage());
-            return ResponseEntity.ok(buildEmptyWidgets(selectedDate, seasonYear));
+            return ResponseEntity.ok(normalizeWidgetsResponse(selectedDate, seasonYear, null));
         }
+    }
+
+    private HomeWidgetsResponseDto normalizeWidgetsResponse(
+            LocalDate selectedDate,
+            Integer seasonYear,
+            HomeWidgetsResponseDto response) {
+        HomeRankingSnapshotDto rankingSnapshot = response != null ? response.getRankingSnapshot() : null;
+        boolean appliedFallbackSnapshot = !isValidRankingSnapshot(rankingSnapshot);
+        if (appliedFallbackSnapshot) {
+            log.warn(
+                    "event=home_widgets_contract_normalized date={} seasonYear={} reason=missing_or_incomplete_ranking_snapshot",
+                    selectedDate,
+                    seasonYear);
+        }
+
+        return HomeWidgetsResponseDto.builder()
+                .hotCheerPosts(response != null && response.getHotCheerPosts() != null ? response.getHotCheerPosts() : List.of())
+                .featuredMates(response != null && response.getFeaturedMates() != null ? response.getFeaturedMates() : List.of())
+                .rankingSnapshot(appliedFallbackSnapshot
+                        ? buildFallbackRankingSnapshot(selectedDate, seasonYear)
+                        : rankingSnapshot)
+                .build();
     }
 
     private HomeBootstrapResponseDto buildEmptyBootstrap(LocalDate selectedDate) {
@@ -61,21 +84,25 @@ public class HomeController {
                 .build();
     }
 
-    private HomeWidgetsResponseDto buildEmptyWidgets(LocalDate selectedDate, Integer seasonYear) {
+    private HomeRankingSnapshotDto buildFallbackRankingSnapshot(LocalDate selectedDate, Integer seasonYear) {
         boolean offSeason = seasonYear == null && isAutomaticOffSeason(selectedDate);
         int rankingSeasonYear = seasonYear == null
                 ? (offSeason ? selectedDate.getYear() - 1 : selectedDate.getYear())
                 : seasonYear;
-        return HomeWidgetsResponseDto.builder()
-                .hotCheerPosts(List.of())
-                .featuredMates(List.of())
-                .rankingSnapshot(HomeRankingSnapshotDto.builder()
-                        .rankingSeasonYear(rankingSeasonYear)
-                        .rankingSourceMessage("순위 데이터를 불러오지 못했습니다.")
-                        .isOffSeason(offSeason)
-                        .rankings(List.of())
-                        .build())
+        return HomeRankingSnapshotDto.builder()
+                .rankingSeasonYear(rankingSeasonYear)
+                .rankingSourceMessage("순위 데이터를 불러오지 못했습니다.")
+                .isOffSeason(offSeason)
+                .rankings(List.of())
                 .build();
+    }
+
+    private boolean isValidRankingSnapshot(HomeRankingSnapshotDto rankingSnapshot) {
+        return rankingSnapshot != null
+                && rankingSnapshot.getRankingSeasonYear() != null
+                && rankingSnapshot.getRankingSourceMessage() != null
+                && !rankingSnapshot.getRankingSourceMessage().isBlank()
+                && rankingSnapshot.getRankings() != null;
     }
 
     private boolean isAutomaticOffSeason(LocalDate selectedDate) {
