@@ -96,7 +96,7 @@ class PartyQueryCountIntegrationTest {
         UserEntity secondHost = userRepository.save(MateTestFixtureFactory.user("host-two@example.com", "Host Two"));
 
         Party firstParty = partyRepository.save(buildParty(firstHost, "첫 번째 파티", LocalDate.of(2026, 4, 1), LocalTime.of(18, 30)));
-        Party secondParty = partyRepository.save(buildParty(firstHost, "두 번째 파티", LocalDate.of(2026, 4, 2), LocalTime.of(18, 30)));
+        partyRepository.save(buildParty(firstHost, "두 번째 파티", LocalDate.of(2026, 4, 2), LocalTime.of(18, 30)));
         Party thirdParty = partyRepository.save(buildParty(secondHost, "세 번째 파티", LocalDate.of(2026, 4, 3), LocalTime.of(18, 30)));
 
         partyReviewRepository.save(PartyReview.builder()

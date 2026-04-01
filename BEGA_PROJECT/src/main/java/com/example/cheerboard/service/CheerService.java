@@ -17,7 +17,6 @@ import com.example.cheerboard.dto.RepostToggleResponse;
 import com.example.cheerboard.dto.UpdatePostReq;
 import com.example.cheerboard.storage.dto.PostImageDto;
 import com.example.auth.entity.UserEntity;
-import com.example.auth.service.BlockService;
 import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.cheerboard.config.CurrentUser;
 import lombok.RequiredArgsConstructor;
@@ -49,7 +48,6 @@ public class CheerService {
     private final CurrentUser current;
     private final PostDtoMapper postDtoMapper;
     private final RedisPostService redisPostService;
-    private final BlockService blockService;
     private final PublicVisibilityVerifier publicVisibilityVerifier;
     private final PermissionValidator permissionValidator;
 

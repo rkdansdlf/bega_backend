@@ -5,6 +5,8 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.AuthSessionService;
+import com.example.auth.service.AuthSessionMetadataResolver;
+import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.util.JWTUtil;
 import com.example.common.dto.ApiResponse;
@@ -15,7 +17,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -43,9 +44,26 @@ class ReissueControllerTest {
     @Mock
     private AuthSessionService authSessionService;
 
+    @Mock
+    private AuthSecurityMonitoringService authSecurityMonitoringService;
+
     private ReissueController createController() {
         AuthCookieUtil authCookieUtil = new AuthCookieUtil(false);
-        return new ReissueController(jwtUtil, refreshRepository, userRepository, authCookieUtil, authSessionService);
+        lenient().when(authSessionService.resolveRequestMetadata(any())).thenReturn(
+                new AuthSessionMetadataResolver.SessionMetadata(
+                        "desktop",
+                        "Desktop",
+                        "Chrome",
+                        "macOS",
+                        "127.0.0.1",
+                        java.time.LocalDateTime.now()));
+        return new ReissueController(
+                jwtUtil,
+                refreshRepository,
+                userRepository,
+                authCookieUtil,
+                authSessionService,
+                authSecurityMonitoringService);
     }
 
     @Test
@@ -58,6 +76,8 @@ class ReissueControllerTest {
 
         assertThatThrownBy(() -> controller.reissue(request, response))
                 .isInstanceOf(BadRequestBusinessException.class);
+
+        verify(authSecurityMonitoringService).recordRefreshReissueReject("REFRESH_TOKEN_MISSING");
     }
 
     @Test
@@ -71,6 +91,8 @@ class ReissueControllerTest {
 
         assertThatThrownBy(() -> controller.reissue(request, response))
                 .isInstanceOf(BadRequestBusinessException.class);
+
+        verify(authSecurityMonitoringService).recordRefreshReissueReject("INVALID_REFRESH_TOKEN_TYPE");
     }
 
     @Test
@@ -86,6 +108,8 @@ class ReissueControllerTest {
 
         assertThatThrownBy(() -> controller.reissue(request, response))
                 .isInstanceOf(BadRequestBusinessException.class);
+
+        verify(authSecurityMonitoringService).recordRefreshReissueReject("REFRESH_TOKEN_EXPIRED");
     }
 
     @Test
@@ -102,6 +126,8 @@ class ReissueControllerTest {
 
         assertThatThrownBy(() -> controller.reissue(request, response))
                 .isInstanceOf(BadRequestBusinessException.class);
+
+        verify(authSecurityMonitoringService).recordRefreshReissueReject("REFRESH_TOKEN_NOT_FOUND");
     }
 
     @Test

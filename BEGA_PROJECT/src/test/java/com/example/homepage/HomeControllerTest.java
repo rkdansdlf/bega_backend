@@ -175,6 +175,27 @@ class HomeControllerTest {
     }
 
     @Test
+    @DisplayName("홈 widgets 응답의 ranking snapshot이 누락되어도 계약 형태로 보정한다")
+    void getWidgetsNormalizesMissingRankingSnapshot() throws Exception {
+        LocalDate selectedDate = LocalDate.of(2026, 3, 15);
+        given(homePageFacadeService.getWidgets(eq(selectedDate), isNull()))
+                .willReturn(HomeWidgetsResponseDto.builder()
+                        .hotCheerPosts(List.of())
+                        .featuredMates(List.of())
+                        .rankingSnapshot(null)
+                        .build());
+
+        mockMvc.perform(get("/api/home/widgets").param("date", "2026-03-15"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hotCheerPosts").isArray())
+                .andExpect(jsonPath("$.featuredMates").isArray())
+                .andExpect(jsonPath("$.rankingSnapshot.rankingSeasonYear").value(2025))
+                .andExpect(jsonPath("$.rankingSnapshot.rankingSourceMessage").value("순위 데이터를 불러오지 못했습니다."))
+                .andExpect(jsonPath("$.rankingSnapshot.isOffSeason").value(true))
+                .andExpect(jsonPath("$.rankingSnapshot.rankings").isArray());
+    }
+
+    @Test
     @DisplayName("홈 widgets 자동 시즌 fallback은 비시즌이면 이전 시즌 라벨을 유지한다")
     void getWidgetsReturnsPreviousSeasonLabelDuringOffSeasonFallback() throws Exception {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
