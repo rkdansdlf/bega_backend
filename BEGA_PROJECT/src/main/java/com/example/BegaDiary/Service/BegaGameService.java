@@ -45,7 +45,7 @@ public class BegaGameService {
 		}
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
 	public List<GameResponseDto> getGamesByDate(LocalDate date) {
 		if (isGameDbUnavailable()) {
 			return List.of();
@@ -60,7 +60,7 @@ public class BegaGameService {
 		return findGameIdByDateAndTeams(dateStr, homeTeam, awayTeam, null, null);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
 	public Long findGameIdByDateAndTeams(
 			String dateStr,
 			String homeTeam,
@@ -175,7 +175,7 @@ public class BegaGameService {
 		}
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
 	public GameEntity getGameById(Long id) {
 		if (isGameDbUnavailable()) {
 			return null;

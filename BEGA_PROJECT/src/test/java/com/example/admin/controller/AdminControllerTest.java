@@ -5,6 +5,10 @@ import com.example.admin.service.AdminService;
 import com.example.BegaDiary.Service.SeatViewService;
 import com.example.common.dto.ApiResponse;
 import com.example.prediction.GameInningScoreRequestDto;
+import com.example.prediction.GameScoreSyncBatchResultDto;
+import com.example.prediction.GameScoreSyncResultDto;
+import com.example.prediction.GameStatusMismatchBatchResultDto;
+import com.example.prediction.GameStatusRepairBatchResultDto;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -250,5 +254,98 @@ class AdminControllerTest {
         Map<String, Object> data = (Map<String, Object>) result.getBody().getData();
         assertThat(data).containsEntry("gameId", "GAME001");
         assertThat(data).containsEntry("saved", 9);
+    }
+
+    @Test
+    @DisplayName("경기 스냅샷을 동기화한다")
+    void syncGameSnapshot_returnsSuccess() {
+        GameScoreSyncResultDto resultDto = new GameScoreSyncResultDto(
+                "GAME001",
+                4,
+                2,
+                "COMPLETED",
+                8,
+                true,
+                true,
+                "LG",
+                4
+        );
+        when(adminService.syncGameSnapshot("GAME001")).thenReturn(resultDto);
+
+        ResponseEntity<ApiResponse> result = controller.syncGameSnapshot("GAME001");
+
+        assertThat(result.getBody().isSuccess()).isTrue();
+        assertThat(result.getBody().getData()).isEqualTo(resultDto);
+    }
+
+    @Test
+    @DisplayName("날짜 범위 기준으로 경기 스냅샷을 일괄 동기화한다")
+    void syncGameSnapshotsByDateRange_returnsSuccess() {
+        GameScoreSyncBatchResultDto resultDto = new GameScoreSyncBatchResultDto(
+                LocalDate.of(2026, 3, 29),
+                LocalDate.of(2026, 3, 29),
+                2,
+                2,
+                0,
+                List.of()
+        );
+        when(adminService.syncGameSnapshotsByDateRange(LocalDate.of(2026, 3, 29), LocalDate.of(2026, 3, 29)))
+                .thenReturn(resultDto);
+
+        ResponseEntity<ApiResponse> result = controller.syncGameSnapshotsByDateRange(
+                LocalDate.of(2026, 3, 29),
+                null
+        );
+
+        assertThat(result.getBody().isSuccess()).isTrue();
+        assertThat(result.getBody().getData()).isEqualTo(resultDto);
+    }
+
+    @Test
+    @DisplayName("날짜 범위 기준으로 경기 상태 불일치를 조회한다")
+    void getGameStatusMismatches_returnsSuccess() {
+        GameStatusMismatchBatchResultDto resultDto = new GameStatusMismatchBatchResultDto(
+                LocalDate.of(2026, 3, 29),
+                LocalDate.of(2026, 3, 29),
+                5,
+                2,
+                List.of()
+        );
+        when(adminService.findGameStatusMismatchesByDateRange(LocalDate.of(2026, 3, 29), LocalDate.of(2026, 3, 29)))
+                .thenReturn(resultDto);
+
+        ResponseEntity<ApiResponse> result = controller.getGameStatusMismatches(
+                LocalDate.of(2026, 3, 29),
+                null
+        );
+
+        assertThat(result.getBody().isSuccess()).isTrue();
+        assertThat(result.getBody().getData()).isEqualTo(resultDto);
+    }
+
+    @Test
+    @DisplayName("날짜 범위 기준으로 경기 상태 불일치를 dry-run 복구한다")
+    void repairGameStatusMismatches_returnsSuccess() {
+        GameStatusRepairBatchResultDto resultDto = new GameStatusRepairBatchResultDto(
+                LocalDate.of(2026, 3, 29),
+                LocalDate.of(2026, 3, 29),
+                true,
+                5,
+                2,
+                0,
+                List.of(),
+                List.of()
+        );
+        when(adminService.repairGameStatusMismatchesByDateRange(LocalDate.of(2026, 3, 29), LocalDate.of(2026, 3, 29), true))
+                .thenReturn(resultDto);
+
+        ResponseEntity<ApiResponse> result = controller.repairGameStatusMismatches(
+                LocalDate.of(2026, 3, 29),
+                null,
+                true
+        );
+
+        assertThat(result.getBody().isSuccess()).isTrue();
+        assertThat(result.getBody().getData()).isEqualTo(resultDto);
     }
 }

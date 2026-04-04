@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -76,7 +77,7 @@ class LoginSignupFlowIntegrationTest {
 
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String createdEmail = "signup-login-" + suffix + "@example.com";
-        String handle = "@flow" + suffix.substring(0, 6);
+        String handle = "@Flow" + suffix.substring(0, 6);
         String password = "Test1234!";
 
         String signupPayload = objectMapper.writeValueAsString(Map.of(
@@ -128,5 +129,56 @@ class LoginSignupFlowIntegrationTest {
         assertThat(persistedUser.getCheerPoints()).isEqualTo(5);
         assertThat(persistedUser.getLastBonusDate()).isNotNull();
         assertThat(persistedUser.getLastLoginDate()).isNotNull();
+        assertThat(persistedUser.getHandle()).isEqualTo(handle.toLowerCase());
+    }
+
+    @Test
+    @DisplayName("회원가입 사전 중복확인은 handle과 email canonicalization을 반영한다")
+    void signupAvailabilityChecksNormalizeInputs() throws Exception {
+        when(rateLimitService.isAllowed(anyString(), anyInt(), anyInt(), anyBoolean())).thenReturn(true);
+
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String createdEmail = "signup-availability-" + suffix + "@example.com";
+        String mixedCaseHandle = "@Slug" + suffix.substring(0, 4);
+        String password = "Test1234!";
+
+        String signupPayload = objectMapper.writeValueAsString(Map.of(
+                "name", "Signup Availability User",
+                "handle", mixedCaseHandle,
+                "email", createdEmail,
+                "password", password,
+                "confirmPassword", password,
+                "favoriteTeam", "없음",
+                "policyConsents", List.of(
+                        Map.of("policyType", "TERMS", "version", "2026-02-26", "agreed", true),
+                        Map.of("policyType", "PRIVACY", "version", "2026-02-26", "agreed", true),
+                        Map.of("policyType", "DATA_DISCLAIMER", "version", "2026-02-26", "agreed", true)
+                )));
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.USER_AGENT, "JUnit")
+                        .content(signupPayload))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/auth/check-handle")
+                        .param("handle", mixedCaseHandle.toUpperCase()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("HANDLE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.data.available").value(false))
+                .andExpect(jsonPath("$.data.normalized").value(mixedCaseHandle.toLowerCase()));
+
+        mockMvc.perform(get("/api/auth/check-email")
+                        .param("email", createdEmail.toUpperCase()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DUPLICATE_EMAIL"))
+                .andExpect(jsonPath("$.data.available").value(false))
+                .andExpect(jsonPath("$.data.normalized").value(createdEmail));
+
+        mockMvc.perform(get("/api/auth/check-handle")
+                        .param("handle", " Fresh_" + suffix.substring(0, 4)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.available").value(true))
+                .andExpect(jsonPath("$.data.normalized").value("@fresh_" + suffix.substring(0, 4).toLowerCase()));
     }
 }

@@ -140,6 +140,7 @@ baseball:
       validation-timeout: 5000
       idle-timeout: 300000
       max-lifetime: 1200000
+      keepalive-time: 45000
 
 kbo:
   schema-guard:
