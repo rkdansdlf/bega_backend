@@ -224,7 +224,7 @@ class GameResultScoringServiceTest {
         when(gameRepository.findByGameDate(DATE)).thenReturn(List.of(finished1, finished2, unfinished));
         when(predictionRepository.findByGameId(anyString())).thenReturn(Collections.emptyList());
 
-        int count = gameResultScoringService.processGamesForDate(DATE);
+        assertThat(gameResultScoringService.processGamesForDate(DATE)).isZero();
 
         // Both games processed but no predictions → 0 total processed predictions
         verify(predictionRepository, times(2)).findByGameId(anyString());
@@ -256,7 +256,7 @@ class GameResultScoringServiceTest {
         when(predictionRepository.findByGameId("ge2")).thenReturn(Collections.emptyList());
 
         // Should not throw despite game1 error
-        int count = gameResultScoringService.processGamesForDate(DATE);
+        assertThat(gameResultScoringService.processGamesForDate(DATE)).isZero();
 
         verify(predictionRepository).findByGameId("ge2");
     }

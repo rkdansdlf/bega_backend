@@ -24,7 +24,11 @@ import com.example.auth.repository.RefreshRepository;
 import com.example.mate.entity.Party;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.service.PartyService;
+import com.example.prediction.GameScoreSyncBatchResultDto;
 import com.example.prediction.GameInningScoreRequestDto;
+import com.example.prediction.GameScoreSyncResultDto;
+import com.example.prediction.GameStatusMismatchBatchResultDto;
+import com.example.prediction.GameStatusRepairBatchResultDto;
 import com.example.prediction.PredictionService;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
@@ -498,5 +502,25 @@ public class AdminService {
 
     public int upsertInningScores(String gameId, List<GameInningScoreRequestDto> scores) {
         return predictionService.upsertInningScores(gameId, scores);
+    }
+
+    public GameScoreSyncResultDto syncGameSnapshot(String gameId) {
+        return predictionService.syncGameSnapshot(gameId);
+    }
+
+    public GameScoreSyncBatchResultDto syncGameSnapshotsByDateRange(LocalDate startDate, LocalDate endDate) {
+        return predictionService.syncGameSnapshotsByDateRange(startDate, endDate);
+    }
+
+    public GameStatusMismatchBatchResultDto findGameStatusMismatchesByDateRange(LocalDate startDate, LocalDate endDate) {
+        return predictionService.findGameStatusMismatchesByDateRange(startDate, endDate);
+    }
+
+    public GameStatusRepairBatchResultDto repairGameStatusMismatchesByDateRange(
+            LocalDate startDate,
+            LocalDate endDate,
+            boolean dryRun
+    ) {
+        return predictionService.repairGameStatusMismatchesByDateRange(startDate, endDate, dryRun);
     }
 }

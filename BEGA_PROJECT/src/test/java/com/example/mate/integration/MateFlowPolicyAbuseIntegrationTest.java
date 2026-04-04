@@ -337,7 +337,6 @@ class MateFlowPolicyAbuseIntegrationTest {
     void rejectsDuplicateReapplyAndArtifactReuse() throws Exception {
         UserEntity host = userRepository.findByEmail(HOST_EMAIL).orElseThrow();
         UserEntity applicant = userRepository.findByEmail(APPLICANT_EMAIL).orElseThrow();
-        UserEntity outsider = userRepository.findByEmail(OUTSIDER_EMAIL).orElseThrow();
 
         Party firstParty = partyRepository.save(MateTestFixtureFactory.pendingParty(
                 host.getId(), host.getName(), 3));

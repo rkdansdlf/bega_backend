@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -54,10 +55,9 @@ public class DiaryController {
 
     @GetMapping("/games")
     public ResponseEntity<List<GameResponseDto>> getGamesByDate(
-            @RequestParam(value = "date") String date) {
-        LocalDate localDate = LocalDate.parse(date);
-        log.debug("Fetching games for date: {}", localDate);
-        List<GameResponseDto> games = gameService.getGamesByDate(localDate);
+            @RequestParam(value = "date") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        log.debug("Fetching games for date: {}", date);
+        List<GameResponseDto> games = gameService.getGamesByDate(date);
         return ResponseEntity.ok(games);
     }
 

@@ -1,7 +1,9 @@
 package com.example.auth.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -9,21 +11,30 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.auth.entity.UserEntity;
+import com.example.auth.entity.UserProvider;
 import com.example.auth.dto.PublicUserProfileDto;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.UserBlockRepository;
 import com.example.auth.repository.UserFollowRepository;
 import com.example.auth.repository.RefreshRepository;
+import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.DuplicateHandleException;
+import com.example.common.exception.DuplicateNameException;
+import com.example.common.exception.UserNotFoundException;
 import com.example.mypage.dto.UserProfileDto;
+import com.example.mypage.dto.UserProviderDto;
 import com.example.common.web.ClientIpResolver;
 import com.example.kbo.entity.TeamEntity;
 import com.example.kbo.repository.TeamRepository;
 import com.example.mate.service.PartyService;
 import com.example.profile.storage.service.ProfileImageService;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -155,6 +166,19 @@ class UserServiceTest {
     }
 
     @Test
+    void getPublicUserProfileByHandle_normalizesMixedCaseHandleToLowercase() {
+        UserEntity user = baseUser("https://cdn.example.com/old.png");
+        when(userRepository.findByHandle("@user")).thenReturn(Optional.of(user));
+        when(profileImageService.getProfileImageUrl("https://cdn.example.com/old.png"))
+                .thenReturn("https://cdn.example.com/old.png?v=resolved");
+
+        PublicUserProfileDto result = userService.getPublicUserProfileByHandle("@User", null);
+
+        assertEquals("@user", result.getHandle());
+        verify(userRepository).findByHandle("@user");
+    }
+
+    @Test
     void getPublicUserProfileByHandle_withMissingProfileImage_returnsNullWithoutResolver() {
         UserEntity user = baseUser(null);
         when(userRepository.findByHandle("@user")).thenReturn(Optional.of(user));
@@ -229,6 +253,187 @@ class UserServiceTest {
         assertEquals(7, currentPoints);
         assertEquals(LocalDate.now(UserService.DAILY_BONUS_ZONE), user.getLastBonusDate());
         verify(userRepository).save(user);
+    }
+
+    // --- deleteAccount ---
+
+    @Test
+    void deleteAccount_delegatesToAccountDeletionService() {
+        LocalDateTime expectedTime = LocalDateTime.of(2026, 4, 15, 12, 0);
+        when(accountDeletionService.scheduleAccountDeletion(1L, "password123"))
+                .thenReturn(expectedTime);
+
+        LocalDateTime result = userService.deleteAccount(1L, "password123");
+
+        assertEquals(expectedTime, result);
+        verify(accountDeletionService).scheduleAccountDeletion(1L, "password123");
+    }
+
+    // --- unlinkProvider ---
+
+    @Test
+    void unlinkProvider_removesProviderWhenPasswordExists() {
+        UserEntity user = baseUser(null);
+        user.setPassword("encoded-password");
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+        userService.unlinkProvider(1L, "google");
+
+        verify(userProviderRepository).deleteByUserIdAndProvider(1L, "google");
+        verify(accountSecurityService).recordProviderUnlinked(1L, "google");
+    }
+
+    @Test
+    void unlinkProvider_throwsWhenLastProviderAndNoPassword() {
+        UserEntity user = baseUser(null);
+        user.setPassword(null);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userProviderRepository.findByUserId(1L))
+                .thenReturn(List.of(buildProvider(user, "kakao")));
+
+        assertThrows(BadRequestBusinessException.class,
+                () -> userService.unlinkProvider(1L, "kakao"));
+        verify(userProviderRepository, never()).deleteByUserIdAndProvider(any(), any());
+    }
+
+    // --- ensureNameAvailable ---
+
+    @Test
+    void ensureNameAvailable_throwsWhenNameTakenByOtherUser() {
+        UserEntity currentUser = baseUser(null);
+        UserEntity otherUser = UserEntity.builder().id(99L).name("TakenName").build();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(currentUser));
+        when(userRepository.findByNameIgnoreCase("TakenName")).thenReturn(Optional.of(otherUser));
+
+        assertThrows(DuplicateNameException.class,
+                () -> userService.ensureNameAvailable(1L, "TakenName"));
+    }
+
+    @Test
+    void ensureNameAvailable_succeedsWhenOwnNameOrAvailable() {
+        UserEntity user = baseUser(null);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findByNameIgnoreCase("originalName")).thenReturn(Optional.of(user));
+
+        String result = userService.ensureNameAvailable(1L, "originalName");
+        assertEquals("originalName", result);
+    }
+
+    @Test
+    void validateAndNormalizeHandle_lowercasesCanonicalForm() {
+        String result = userService.validateAndNormalizeHandle(" Slugger_01 ");
+
+        assertEquals("@slugger_01", result);
+    }
+
+    @Test
+    void checkHandleAvailability_returnsNormalizedHandle() {
+        when(userRepository.existsByHandle("@slugger")).thenReturn(true);
+
+        var result = userService.checkHandleAvailability(" @Slugger ");
+
+        assertFalse(result.available());
+        assertEquals("@slugger", result.normalized());
+    }
+
+    @Test
+    void checkEmailAvailability_returnsNormalizedEmail() {
+        when(userRepository.existsByEmail("slugger@example.com")).thenReturn(false);
+
+        var result = userService.checkEmailAvailability(" Slugger@Example.com ");
+
+        assertTrue(result.available());
+        assertEquals("slugger@example.com", result.normalized());
+    }
+
+    @Test
+    void createNewUser_throwsDuplicateHandleExceptionForCanonicalHandle() {
+        when(userRepository.findByEmail("slugger@example.com")).thenReturn(Optional.empty());
+        when(userRepository.existsByHandle("@slugger")).thenReturn(true);
+
+        var signupDto = com.example.auth.dto.SignupDto.builder()
+                .name("Slugger")
+                .handle("@Slugger")
+                .email("Slugger@example.com")
+                .password("Test1234!")
+                .confirmPassword("Test1234!")
+                .favoriteTeam("LG 트윈스")
+                .build();
+
+        assertThrows(DuplicateHandleException.class, () -> userService.saveUser(signupDto));
+    }
+
+    // --- getConnectedProviders ---
+
+    @Test
+    void getConnectedProviders_returnsLinkedProviderList() {
+        UserEntity user = baseUser(null);
+        UserProvider kakao = buildProvider(user, "kakao");
+        kakao.setEmail("user@kakao.com");
+        kakao.setConnectedAt(Instant.parse("2026-01-15T09:00:00Z"));
+        when(userProviderRepository.findByUserId(1L)).thenReturn(List.of(kakao));
+
+        List<UserProviderDto> result = userService.getConnectedProviders(1L);
+
+        assertEquals(1, result.size());
+        assertEquals("kakao", result.get(0).getProvider());
+        assertEquals("user@kakao.com", result.get(0).getEmail());
+    }
+
+    // --- isSocialVerified ---
+
+    @Test
+    void isSocialVerified_trueWhenKakaoLinked() {
+        UserEntity user = baseUser(null);
+        when(userProviderRepository.findByUserId(1L))
+                .thenReturn(List.of(buildProvider(user, "kakao")));
+
+        assertTrue(userService.isSocialVerified(1L));
+    }
+
+    @Test
+    void isSocialVerified_falseWhenOnlyGoogleLinked() {
+        UserEntity user = baseUser(null);
+        when(userProviderRepository.findByUserId(1L))
+                .thenReturn(List.of(buildProvider(user, "google")));
+
+        assertFalse(userService.isSocialVerified(1L));
+    }
+
+    // --- isEmailExists / getUserIdByEmail ---
+
+    @Test
+    void isEmailExists_returnsTrueWhenExists() {
+        when(userRepository.existsByEmail("test@example.com")).thenReturn(true);
+        assertTrue(userService.isEmailExists("test@example.com"));
+    }
+
+    @Test
+    void getUserIdByEmail_returnsIdWhenFound() {
+        UserEntity user = baseUser(null);
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+
+        assertEquals(1L, userService.getUserIdByEmail("user@example.com"));
+    }
+
+    @Test
+    void getUserIdByEmail_throwsWhenNotFound() {
+        when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+
+        assertThrows(UserNotFoundException.class,
+                () -> userService.getUserIdByEmail("missing@example.com"));
+    }
+
+    // --- helpers ---
+
+    private UserProvider buildProvider(UserEntity user, String provider) {
+        return UserProvider.builder()
+                .id(1L)
+                .user(user)
+                .provider(provider)
+                .providerId(provider + "_id_123")
+                .connectedAt(Instant.now())
+                .build();
     }
 
     private UserEntity baseUser(String profileImageUrl) {

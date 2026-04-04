@@ -102,4 +102,58 @@ class HomePageGameServiceTest {
         assertThat(games.get(0).getLeagueType()).isEqualTo("POSTSEASON");
         assertThat(games.get(0).getGameInfo()).isEqualTo("포스트시즌");
     }
+
+    @Test
+    @DisplayName("raw status가 SCHEDULED여도 과거 경기 점수가 있으면 종료 상태로 보정한다")
+    void getGamesByDate_normalizesPastScheduledGameWithScore() {
+        LocalDate date = LocalDate.now().minusDays(1);
+        GameEntity game = GameEntity.builder()
+                .id(1L)
+                .gameId("20260403SSGKIA0")
+                .gameDate(date)
+                .homeTeam("SSG")
+                .awayTeam("KIA")
+                .gameStatus("SCHEDULED")
+                .homeScore(11)
+                .awayScore(6)
+                .stadium("문학")
+                .build();
+
+        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(gameRepository.findByGameDate(date)).thenReturn(List.of(game));
+
+        List<HomePageGameDto> games = homePageGameService.getGamesByDate(date);
+
+        assertThat(games).hasSize(1);
+        assertThat(games.get(0).getGameStatus()).isEqualTo("COMPLETED");
+        assertThat(games.get(0).getGameStatusKr()).isEqualTo("경기 종료");
+        assertThat(games.get(0).getHomeScore()).isEqualTo(11);
+        assertThat(games.get(0).getAwayScore()).isEqualTo(6);
+    }
+
+    @Test
+    @DisplayName("raw status가 SCHEDULED여도 오늘 점수가 있으면 진행중 상태로 보정한다")
+    void getGamesByDate_normalizesTodayScheduledGameWithScore() {
+        LocalDate date = LocalDate.now();
+        GameEntity game = GameEntity.builder()
+                .id(1L)
+                .gameId("20260404SSGKIA0")
+                .gameDate(date)
+                .homeTeam("SSG")
+                .awayTeam("KIA")
+                .gameStatus("SCHEDULED")
+                .homeScore(3)
+                .awayScore(1)
+                .stadium("문학")
+                .build();
+
+        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(gameRepository.findByGameDate(date)).thenReturn(List.of(game));
+
+        List<HomePageGameDto> games = homePageGameService.getGamesByDate(date);
+
+        assertThat(games).hasSize(1);
+        assertThat(games.get(0).getGameStatus()).isEqualTo("LIVE");
+        assertThat(games.get(0).getGameStatusKr()).isEqualTo("경기 진행중");
+    }
 }

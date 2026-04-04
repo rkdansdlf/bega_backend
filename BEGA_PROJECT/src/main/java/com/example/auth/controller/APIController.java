@@ -4,11 +4,11 @@ import com.example.auth.dto.OAuth2StateData;
 import com.example.auth.dto.PolicyConsentSubmitDto;
 import com.example.auth.service.OAuth2StateService;
 import com.example.common.exception.AuthenticationRequiredException;
-import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InternalServerBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
 import com.example.common.dto.ApiResponse;
 import com.example.common.ratelimit.RateLimit;
+import com.example.auth.dto.AvailabilityCheckResponseDto;
 import com.example.auth.dto.LoginDto;
 import com.example.auth.dto.SignupDto;
 import com.example.auth.service.AuthRegistrationService;
@@ -158,6 +158,36 @@ public class APIController {
 
         // 성공 응답
         return ResponseEntity.ok(ApiResponse.success("로그인 성공", responseData));
+    }
+
+    @RateLimit(limit = 20, window = 60)
+    @GetMapping("/check-handle")
+    public ResponseEntity<ApiResponse> checkHandle(@RequestParam("handle") String handle) {
+        AvailabilityCheckResponseDto availability = userService.checkHandleAvailability(handle);
+        if (!availability.available()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(ApiResponse.error(
+                            "HANDLE_UNAVAILABLE",
+                            "이미 사용 중인 아이디(@handle)입니다.",
+                            new AvailabilityCheckResponseDto(false, availability.normalized())));
+        }
+
+        return ResponseEntity.ok(ApiResponse.success("사용 가능한 아이디(@handle)입니다.", availability));
+    }
+
+    @RateLimit(limit = 20, window = 60)
+    @GetMapping("/check-email")
+    public ResponseEntity<ApiResponse> checkEmail(@RequestParam("email") String email) {
+        AvailabilityCheckResponseDto availability = userService.checkEmailAvailability(email);
+        if (!availability.available()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(ApiResponse.error(
+                            "DUPLICATE_EMAIL",
+                            "이미 사용 중인 이메일입니다.",
+                            new AvailabilityCheckResponseDto(false, availability.normalized())));
+        }
+
+        return ResponseEntity.ok(ApiResponse.success("사용 가능한 이메일입니다.", availability));
     }
 
     /**

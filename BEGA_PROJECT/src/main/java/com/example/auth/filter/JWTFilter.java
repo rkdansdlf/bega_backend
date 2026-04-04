@@ -78,6 +78,8 @@ public class JWTFilter extends OncePerRequestFilter {
         // 인증 API 공개 경로는 필터 처리 스킵
         if (normalizedRequestUri != null && (normalizedRequestUri.equals("/api/auth/login") ||
                 normalizedRequestUri.equals("/api/auth/signup") ||
+                normalizedRequestUri.equals("/api/auth/check-handle") ||
+                normalizedRequestUri.equals("/api/auth/check-email") ||
                 normalizedRequestUri.equals("/api/auth/reissue") ||
                 normalizedRequestUri.equals("/api/auth/logout") ||
                 normalizedRequestUri.equals("/api/auth/password/reset/request") ||

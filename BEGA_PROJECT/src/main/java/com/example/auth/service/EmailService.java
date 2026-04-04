@@ -84,7 +84,7 @@ public class EmailService {
             return;
         }
         log.info("Starting email sending to {}", toEmail);
-        String resetLink = UriComponentsBuilder.fromHttpUrl(frontendUrl)
+        String resetLink = UriComponentsBuilder.fromUriString(frontendUrl)
                 .path("/password/reset/confirm")
                 .queryParam("token", resetToken)
                 .queryParamIfPresent("redirect",
@@ -208,7 +208,7 @@ public class EmailService {
             log.debug("Mail delivery disabled. Skipping account deletion recovery email job for {}", toEmail);
             return;
         }
-        String recoveryLink = UriComponentsBuilder.fromHttpUrl(frontendUrl)
+        String recoveryLink = UriComponentsBuilder.fromUriString(frontendUrl)
                 .path("/account/deletion/recovery")
                 .queryParam("token", recoveryToken)
                 .queryParamIfPresent("redirect",
