@@ -2,6 +2,7 @@ package com.example.prediction;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDate;
+import java.time.LocalTime;
 
 import lombok.Builder;
 import lombok.Getter;
@@ -14,9 +15,11 @@ public class MatchDto {
     private String homeTeam;
     private String awayTeam;
     private String stadium;
+    private LocalTime startTime;
     private Integer homeScore;
     private Integer awayScore;
     private String winner;
+    private String gameStatus;
     @JsonProperty("isDummy")
     private Boolean isDummy;
 

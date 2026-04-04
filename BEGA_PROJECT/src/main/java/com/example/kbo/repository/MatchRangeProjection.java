@@ -1,6 +1,7 @@
 package com.example.kbo.repository;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 
 public interface MatchRangeProjection {
 
@@ -29,4 +30,8 @@ public interface MatchRangeProjection {
     Integer getRawLeagueTypeCode();
 
     Integer getSeriesGameNo();
+
+    String getGameStatus();
+
+    LocalTime getStartTime();
 }

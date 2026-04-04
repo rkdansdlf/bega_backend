@@ -5,6 +5,7 @@ import com.example.kbo.entity.GameInningScoreEntity;
 import com.example.kbo.entity.GameMetadataEntity;
 import com.example.kbo.entity.GameSummaryEntity;
 import com.example.kbo.repository.GameDetailHeaderProjection;
+import com.example.kbo.util.GameStatusResolver;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -55,7 +56,15 @@ public class GameDetailDto {
                 .awayScore(game.getAwayScore())
                 .homePitcher(game.getHomePitcher())
                 .awayPitcher(game.getAwayPitcher())
-                .gameStatus(game.getGameStatus())
+                .gameStatus(GameStatusResolver.resolveEffectiveStatus(
+                        game.getGameStatus(),
+                        game.getGameDate(),
+                        metadata != null ? metadata.getStartTime() : null,
+                        game.getHomeScore(),
+                        game.getAwayScore(),
+                        (game.getHomeScore() != null && game.getAwayScore() != null)
+                                || (inningScores != null && !inningScores.isEmpty())
+                ))
                 .inningScores(mapInningScores(inningScores))
                 .summary(mapSummaries(summaries))
                 .build();
@@ -81,7 +90,15 @@ public class GameDetailDto {
                 .awayScore(header.getAwayScore())
                 .homePitcher(header.getHomePitcher())
                 .awayPitcher(header.getAwayPitcher())
-                .gameStatus(header.getGameStatus())
+                .gameStatus(GameStatusResolver.resolveEffectiveStatus(
+                        header.getGameStatus(),
+                        header.getGameDate(),
+                        header.getStartTime(),
+                        header.getHomeScore(),
+                        header.getAwayScore(),
+                        (header.getHomeScore() != null && header.getAwayScore() != null)
+                                || (inningScores != null && !inningScores.isEmpty())
+                ))
                 .inningScores(mapInningScores(inningScores))
                 .summary(mapSummaries(summaries))
                 .build();

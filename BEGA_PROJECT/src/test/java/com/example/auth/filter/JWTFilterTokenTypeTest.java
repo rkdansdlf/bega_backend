@@ -191,6 +191,26 @@ class JWTFilterTokenTypeTest {
     }
 
     @Test
+    @DisplayName("/api/auth/check-email 경로는 공개 경로로 필터 체인을 통과한다")
+    void authCheckEmailPath_isNotBlockedByCsrfCheck() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/auth/check-email");
+        request.setQueryString("email=test@example.com");
+        request.addParameter("email", "test@example.com");
+        request.addHeader("Referer", "http://evil.test/signup");
+        request.addHeader("Origin", "http://evil.test");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+
+        DummyFilterChain chain = new DummyFilterChain();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isTrue();
+        assertThat(response.getStatus()).isNotEqualTo(HttpStatus.FORBIDDEN.value());
+    }
+
+    @Test
     @DisplayName("블랙리스트 조회 실패 시 변경 요청은 401로 차단한다")
     void blacklistLookupFailure_rejectsMutableRequestWith401() throws Exception {
         String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);

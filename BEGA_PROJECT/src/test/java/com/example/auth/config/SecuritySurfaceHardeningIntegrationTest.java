@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
@@ -76,15 +77,11 @@ class SecuritySurfaceHardeningIntegrationTest {
     }
 
     @Test
-    @DisplayName("check-email should no longer be publicly accessible")
-    void checkEmail_requiresAuthenticationAndHasNoHandler() throws Exception {
+    @DisplayName("check-email should remain publicly accessible")
+    void checkEmail_remainsPublic() throws Exception {
         mockMvc.perform(get("/api/auth/check-email").param("email", "test@example.com"))
-                .andExpect(status().isUnauthorized());
-
-        mockMvc.perform(get("/api/auth/check-email")
-                        .param("email", "test@example.com")
-                        .with(user("tester").roles("USER")))
-                .andExpect(status().isNotFound());
+                .andExpect(result -> assertThat(result.getResponse().getStatus())
+                        .isNotEqualTo(401));
     }
 
     @Test
