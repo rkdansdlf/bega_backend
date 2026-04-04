@@ -7,6 +7,8 @@ import java.util.Optional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Locale;
+import java.util.regex.Pattern;
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -33,6 +35,7 @@ import com.example.auth.repository.RefreshRepository;
 import com.example.common.exception.UserNotFoundException;
 import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.DuplicateHandleException;
 import com.example.common.exception.TeamNotFoundException;
 import com.example.common.exception.DuplicateEmailException;
 import com.example.common.exception.DuplicateNameException;
@@ -42,6 +45,7 @@ import com.example.common.exception.SocialLoginRequiredException;
 
 import com.example.profile.storage.service.ProfileImageService;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 
 @Service
@@ -50,6 +54,8 @@ public class UserService {
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
     static final ZoneId DAILY_BONUS_ZONE = ZoneId.of("Asia/Seoul");
     private static final int DAILY_LOGIN_BONUS_POINTS = 5;
+    private static final Pattern HANDLE_PATTERN = Pattern.compile("^@[a-z0-9_]{1,14}$");
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
     private final UserRepository userRepository;
     private final TeamRepository teamRepository;
@@ -108,7 +114,7 @@ public class UserService {
 
     private void normalizeUserEmail(UserDto userDto) {
         if (userDto != null && userDto.getEmail() != null) {
-            userDto.setEmail(userDto.getEmail().trim().toLowerCase());
+            userDto.setEmail(normalizeEmail(userDto.getEmail()));
         }
     }
 
@@ -179,7 +185,7 @@ public class UserService {
     private void createNewUser(@NonNull UserDto userDto) {
         String handle = validateAndNormalizeHandle(userDto.getHandle());
         if (userRepository.existsByHandle(handle)) {
-            throw new IllegalArgumentException("이미 사용 중인 아이디(@handle)입니다: " + handle);
+            throw new DuplicateHandleException(handle);
         }
 
         String favoriteTeamName = userDto.getFavoriteTeam();
@@ -200,7 +206,15 @@ public class UserService {
                 .providerId(userDto.getProviderId())
                 .build();
 
-        userRepository.save(Objects.requireNonNull(user));
+        try {
+            userRepository.save(Objects.requireNonNull(user));
+        } catch (DataIntegrityViolationException ex) {
+            RuntimeException mapped = mapDuplicateUserConstraint(ex, user.getEmail(), handle);
+            if (mapped != null) {
+                throw mapped;
+            }
+            throw ex;
+        }
     }
 
     /**
@@ -215,18 +229,45 @@ public class UserService {
         if (!trimmedHandle.startsWith("@")) {
             trimmedHandle = "@" + trimmedHandle;
         }
+        trimmedHandle = trimmedHandle.toLowerCase(Locale.ROOT);
 
         // 정책: 시작은 @, 최대 15자, 영문/숫자/_ 만 허용
         if (trimmedHandle.length() > 15) {
             throw new IllegalArgumentException("아이디(@handle)는 최대 15자까지 가능합니다.");
         }
 
-        String pattern = "^@[a-zA-Z0-9_]{1,14}$";
-        if (!trimmedHandle.matches(pattern)) {
+        if (!HANDLE_PATTERN.matcher(trimmedHandle).matches()) {
             throw new IllegalArgumentException("아이디(@handle)는 영문, 숫자, 밑줄(_)만 포함할 수 있습니다.");
         }
 
         return trimmedHandle;
+    }
+
+    @Transactional(readOnly = true)
+    public com.example.auth.dto.AvailabilityCheckResponseDto checkHandleAvailability(String handle) {
+        String normalizedHandle = validateAndNormalizeHandle(handle);
+        return new com.example.auth.dto.AvailabilityCheckResponseDto(
+                !userRepository.existsByHandle(normalizedHandle),
+                normalizedHandle);
+    }
+
+    @Transactional(readOnly = true)
+    public com.example.auth.dto.AvailabilityCheckResponseDto checkEmailAvailability(String email) {
+        String normalizedEmail = validateAndNormalizeEmail(email);
+        return new com.example.auth.dto.AvailabilityCheckResponseDto(
+                !userRepository.existsByEmail(normalizedEmail),
+                normalizedEmail);
+    }
+
+    public String validateAndNormalizeEmail(String email) {
+        String normalizedEmail = normalizeEmail(email);
+        if (normalizedEmail.isBlank()) {
+            throw new BadRequestBusinessException("EMAIL_REQUIRED", "이메일을 입력해 주세요.");
+        }
+        if (!EMAIL_PATTERN.matcher(normalizedEmail).matches()) {
+            throw new BadRequestBusinessException("EMAIL_INVALID", "유효하지 않은 이메일 형식입니다.");
+        }
+        return normalizedEmail;
     }
 
     /**
@@ -476,7 +517,7 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     public boolean isEmailExists(String email) {
-        return userRepository.existsByEmail(email);
+        return userRepository.existsByEmail(normalizeEmail(email));
     }
 
     /**
@@ -490,7 +531,7 @@ public class UserService {
         }
 
         // 1. Try finding by email
-        Optional<UserEntity> userByEmail = userRepository.findByEmail(input.toLowerCase());
+        Optional<UserEntity> userByEmail = userRepository.findByEmail(normalizeEmail(input));
         if (userByEmail.isPresent()) {
             return userByEmail.get().getId();
         }
@@ -515,7 +556,7 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     public UserDto findUserByEmail(String email) {
-        String normalizedEmail = email.trim().toLowerCase();
+        String normalizedEmail = normalizeEmail(email);
         return userRepository.findByEmail(normalizedEmail)
                 .map(this::convertToUserDto)
                 .orElseThrow(() -> new UserNotFoundException("email", email));
@@ -557,7 +598,11 @@ public class UserService {
         if (handle == null || handle.isBlank()) {
             throw new UserNotFoundException("handle", String.valueOf(handle));
         }
-        return handle.startsWith("@") ? handle : "@" + handle;
+        String normalized = handle.trim();
+        if (!normalized.startsWith("@")) {
+            normalized = "@" + normalized;
+        }
+        return normalized.toLowerCase(Locale.ROOT);
     }
 
     private void validatePublicProfileAccess(UserEntity target, Long currentUserId) {
@@ -653,8 +698,43 @@ public class UserService {
      * 이메일로 사용자 조회 (로그인용)
      */
     private UserEntity findUserByEmailOrThrow(String email) {
-        return userRepository.findByEmail(email)
+        return userRepository.findByEmail(normalizeEmail(email))
                 .orElseThrow(() -> new InvalidCredentialsException());
+    }
+
+    private String normalizeEmail(String email) {
+        return Optional.ofNullable(email)
+                .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                .orElse("");
+    }
+
+    private RuntimeException mapDuplicateUserConstraint(
+            DataIntegrityViolationException exception,
+            String email,
+            String handle) {
+        String message = exception.getMostSpecificCause() != null
+                ? exception.getMostSpecificCause().getMessage()
+                : exception.getMessage();
+        if (message == null) {
+            return null;
+        }
+
+        String loweredMessage = message.toLowerCase(Locale.ROOT);
+        if (loweredMessage.contains("uq_users_handle")
+                || loweredMessage.contains(" users(handle)")
+                || loweredMessage.contains(" users (handle)")
+                || loweredMessage.contains(".handle")) {
+            return new DuplicateHandleException(handle);
+        }
+
+        if (loweredMessage.contains("uq_users_email")
+                || loweredMessage.contains(" users(email)")
+                || loweredMessage.contains(" users (email)")
+                || loweredMessage.contains(".email")) {
+            return new DuplicateEmailException(email);
+        }
+
+        return null;
     }
 
     /**

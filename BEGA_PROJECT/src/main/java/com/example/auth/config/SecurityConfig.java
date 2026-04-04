@@ -59,6 +59,8 @@ public class SecurityConfig {
         private static final String[] PUBLIC_AUTH_ENDPOINTS = {
                         "/api/auth/login",
                         "/api/auth/signup",
+                        "/api/auth/check-handle",
+                        "/api/auth/check-email",
                         "/api/auth/policies/required",
                         "/api/auth/reissue",
                         "/api/auth/logout",

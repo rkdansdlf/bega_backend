@@ -63,6 +63,7 @@ public class StadiumPostgresJpaConfig {
 			hikariDataSource.setInitializationFailTimeout(-1);
 			hikariDataSource.setConnectionTimeout(3000);
 			hikariDataSource.setValidationTimeout(2000);
+			hikariDataSource.setKeepaliveTime(45000);
 		}
 		return dataSource;
 	}

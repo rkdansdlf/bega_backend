@@ -36,7 +36,7 @@ public class HomePageController {
     }
 
     // 특정 시즌의 팀 순위 조회
-    @GetMapping("/rankings/{seasonYear}")
+    @GetMapping("/rankings/{seasonYear:\\d+}")
     public ResponseEntity<List<HomePageTeamRankingDto>> getTeamRankings(
             @PathVariable int seasonYear) {
         return respondWithFallback(

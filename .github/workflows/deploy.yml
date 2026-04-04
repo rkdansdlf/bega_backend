@@ -98,11 +98,7 @@ jobs:
             -Dwebp.strict=false
 
   deploy:
-    if: >
-      vars.DEPLOY_TO_EC2 == 'true' &&
-      secrets.EC2_SSH_KEY != '' &&
-      secrets.EC2_HOST != '' &&
-      secrets.EC2_USER != ''
+    if: ${{ vars.DEPLOY_TO_EC2 == 'true' }}
     needs: guard
     runs-on: ubuntu-latest
     

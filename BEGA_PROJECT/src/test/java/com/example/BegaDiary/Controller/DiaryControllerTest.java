@@ -137,6 +137,17 @@ class DiaryControllerTest {
                 .andExpect(jsonPath("$[0].date").value("2026-03-23"));
     }
 
+    @Test
+    @DisplayName("잘못된 날짜 형식은 표준 validation 400 응답을 반환한다")
+    void getGamesByDate_rejectsInvalidDateFormat() throws Exception {
+        mockMvc.perform(get("/api/diary/games")
+                        .param("date", "bad-date"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errors.date").value("date 값 형식이 올바르지 않습니다."));
+    }
+
     private BegaDiary ownedDiary(Long userId) {
         return BegaDiary.builder()
                 .user(UserEntity.builder().id(userId).build())
