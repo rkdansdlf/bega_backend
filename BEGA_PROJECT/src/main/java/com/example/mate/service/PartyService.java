@@ -733,7 +733,11 @@ public class PartyService {
         if (handle == null || handle.isBlank()) {
             throw new UserNotFoundException("handle", String.valueOf(handle));
         }
-        return handle.startsWith("@") ? handle : "@" + handle;
+        String normalized = handle.trim();
+        if (!normalized.startsWith("@")) {
+            normalized = "@" + normalized;
+        }
+        return normalized.toLowerCase(Locale.ROOT);
     }
 
     private String buildSearchText(

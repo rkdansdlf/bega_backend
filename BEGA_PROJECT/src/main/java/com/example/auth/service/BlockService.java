@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 
@@ -129,6 +130,10 @@ public class BlockService {
         if (handle == null || handle.isBlank()) {
             throw new IllegalArgumentException("유효한 핸들이 필요합니다.");
         }
-        return handle.startsWith("@") ? handle : "@" + handle;
+        String normalized = handle.trim();
+        if (!normalized.startsWith("@")) {
+            normalized = "@" + normalized;
+        }
+        return normalized.toLowerCase(Locale.ROOT);
     }
 }

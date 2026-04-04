@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
@@ -315,7 +316,7 @@ public class LeaderboardService {
     private UserEntity findUserByHandleOrThrow(String handle) {
         String normalizedHandle = handle == null || handle.isBlank()
                 ? handle
-                : (handle.startsWith("@") ? handle : "@" + handle);
+                : (handle.startsWith("@") ? handle.trim() : "@" + handle.trim()).toLowerCase(Locale.ROOT);
         return userRepository.findByHandle(normalizedHandle)
                 .orElseThrow(() -> new UserNotFoundException("handle", handle));
     }

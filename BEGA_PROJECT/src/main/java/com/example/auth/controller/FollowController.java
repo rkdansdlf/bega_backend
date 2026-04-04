@@ -4,6 +4,7 @@ import com.example.auth.dto.FollowCountResponse;
 import com.example.auth.dto.FollowToggleResponse;
 import com.example.auth.dto.UserFollowSummaryDto;
 import com.example.auth.service.FollowService;
+import com.example.cheerboard.config.CurrentUser;
 import com.example.common.ratelimit.RateLimit;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 public class FollowController {
 
     private final FollowService followService;
+    private final CurrentUser currentUser;
 
     @RateLimit(limit = 30, window = 60)
     @PostMapping("/profile/{handle}/follow")
@@ -38,6 +40,26 @@ public class FollowController {
     @GetMapping("/profile/{handle}/follow-counts")
     public ResponseEntity<FollowCountResponse> getPublicFollowCounts(@PathVariable String handle) {
         return ResponseEntity.ok(followService.getPublicFollowCounts(handle));
+    }
+
+    @GetMapping("/me/follow-counts")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<FollowCountResponse> getMyFollowCounts() {
+        return ResponseEntity.ok(followService.getFollowCounts(currentUser.get().getId()));
+    }
+
+    @GetMapping("/me/followers")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Page<UserFollowSummaryDto>> getMyFollowers(
+            @PageableDefault(size = 20) Pageable pageable) {
+        return ResponseEntity.ok(followService.getFollowers(currentUser.get().getId(), pageable));
+    }
+
+    @GetMapping("/me/following")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Page<UserFollowSummaryDto>> getMyFollowing(
+            @PageableDefault(size = 20) Pageable pageable) {
+        return ResponseEntity.ok(followService.getFollowing(currentUser.get().getId(), pageable));
     }
 
     @GetMapping("/profile/{handle}/followers")

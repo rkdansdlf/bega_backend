@@ -1,6 +1,5 @@
 package com.example.auth.service;
 
-import com.example.auth.entity.UserBlock;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.entity.UserFollow;
 import com.example.auth.repository.UserBlockRepository;

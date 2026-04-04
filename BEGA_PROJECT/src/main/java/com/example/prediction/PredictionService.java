@@ -13,6 +13,7 @@ import com.example.kbo.repository.GameMetadataRepository;
 import com.example.kbo.repository.MatchRangeProjection;
 import com.example.kbo.repository.GameSummaryRepository;
 import com.example.kbo.service.LeagueStageResolver;
+import com.example.kbo.util.GameStatusResolver;
 import com.example.kbo.util.KboTeamCodePolicy;
 import com.example.kbo.util.TeamCodeResolver;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +26,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.HashMap;
+import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -63,6 +66,7 @@ public class PredictionService {
             .distinct()
             .collect(Collectors.toList());
     private static final int MAX_VOTE_RETRY_ATTEMPTS = 2;
+    private static final long MAX_SNAPSHOT_SYNC_RANGE_DAYS = 31;
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<MatchDto> getRecentCompletedGames() {
@@ -190,15 +194,25 @@ public class PredictionService {
                 match.getGameDate(),
                 match.getSeasonId(),
                 match.getGameId());
+        boolean hasKnownScore = match.getHomeScore() != null && match.getAwayScore() != null;
+        String effectiveGameStatus = GameStatusResolver.resolveEffectiveStatus(
+                match.getGameStatus(),
+                match.getGameDate(),
+                match.getStartTime(),
+                match.getHomeScore(),
+                match.getAwayScore(),
+                hasKnownScore);
         return MatchDto.builder()
                 .gameId(match.getGameId())
                 .gameDate(match.getGameDate())
                 .homeTeam(com.example.kbo.util.TeamCodeNormalizer.normalize(match.getHomeTeam()))
                 .awayTeam(com.example.kbo.util.TeamCodeNormalizer.normalize(match.getAwayTeam()))
                 .stadium(match.getStadium())
+                .startTime(match.getStartTime())
                 .homeScore(match.getHomeScore())
                 .awayScore(match.getAwayScore())
                 .winner(resolveWinner(match.getHomeScore(), match.getAwayScore()))
+                .gameStatus(effectiveGameStatus)
                 .isDummy(match.getIsDummy())
                 .homePitcher(MatchDto.pitcherOf(match.getHomePitcher()))
                 .awayPitcher(MatchDto.pitcherOf(match.getAwayPitcher()))
@@ -414,7 +428,7 @@ public class PredictionService {
 
     @Transactional(transactionManager = "kboGameTransactionManager")
     public int upsertInningScores(String gameId, List<GameInningScoreRequestDto> scores) {
-        gameRepository.findByGameId(gameId)
+        GameEntity game = gameRepository.findByGameId(gameId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 경기입니다: " + gameId));
 
         gameInningScoreRepository.deleteAllByGameId(gameId);
@@ -433,8 +447,232 @@ public class PredictionService {
                 .collect(Collectors.toList());
 
         gameInningScoreRepository.saveAll(entities);
+        synchronizeGameScoreSnapshot(game, scores);
         log.info("Upserted {} inning score records for gameId={}", entities.size(), gameId);
         return entities.size();
+    }
+
+    @Transactional(transactionManager = "kboGameTransactionManager")
+    public GameScoreSyncResultDto syncGameSnapshot(String gameId) {
+        GameEntity game = gameRepository.findByGameId(gameId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 경기입니다: " + gameId));
+        List<GameInningScoreEntity> inningScores = gameInningScoreRepository
+                .findAllByGameIdOrderByInningAscTeamSideAsc(gameId);
+
+        boolean usedInningScores = !inningScores.isEmpty();
+        Integer homeScore = usedInningScores
+                ? inningScores.stream()
+                .filter(score -> "home".equalsIgnoreCase(score.getTeamSide()))
+                .mapToInt(score -> score.getRuns() == null ? 0 : score.getRuns())
+                .sum()
+                : game.getHomeScore();
+        Integer awayScore = usedInningScores
+                ? inningScores.stream()
+                .filter(score -> "away".equalsIgnoreCase(score.getTeamSide()))
+                .mapToInt(score -> score.getRuns() == null ? 0 : score.getRuns())
+                .sum()
+                : game.getAwayScore();
+
+        boolean canSync = homeScore != null && awayScore != null;
+        if (canSync) {
+            applyGameScoreSnapshot(game, homeScore, awayScore);
+        }
+
+        return new GameScoreSyncResultDto(
+                game.getGameId(),
+                game.getHomeScore(),
+                game.getAwayScore(),
+                game.getGameStatus(),
+                inningScores.size(),
+                canSync,
+                usedInningScores,
+                game.getWinningTeam(),
+                game.getWinningScore()
+        );
+    }
+
+    @Transactional(transactionManager = "kboGameTransactionManager")
+    public GameScoreSyncBatchResultDto syncGameSnapshotsByDateRange(LocalDate startDate, LocalDate endDate) {
+        validateSnapshotDateRange(startDate, endDate);
+
+        List<GameEntity> games = gameRepository.findAllByDateRange(startDate, endDate);
+        List<GameScoreSyncResultDto> results = games.stream()
+                .map(GameEntity::getGameId)
+                .map(this::syncGameSnapshot)
+                .collect(Collectors.toList());
+
+        int syncedGames = (int) results.stream().filter(GameScoreSyncResultDto::synced).count();
+        int skippedGames = results.size() - syncedGames;
+
+        return new GameScoreSyncBatchResultDto(
+                startDate,
+                endDate,
+                results.size(),
+                syncedGames,
+                skippedGames,
+                results
+        );
+    }
+
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
+    public GameStatusMismatchBatchResultDto findGameStatusMismatchesByDateRange(LocalDate startDate, LocalDate endDate) {
+        validateSnapshotDateRange(startDate, endDate);
+
+        List<GameEntity> games = gameRepository.findAllByDateRange(startDate, endDate);
+        List<GameStatusMismatchDto> mismatches = games.stream()
+                .map(this::buildStatusMismatch)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        return new GameStatusMismatchBatchResultDto(
+                startDate,
+                endDate,
+                games.size(),
+                mismatches.size(),
+                mismatches
+        );
+    }
+
+    @Transactional(transactionManager = "kboGameTransactionManager")
+    public GameStatusRepairBatchResultDto repairGameStatusMismatchesByDateRange(
+            LocalDate startDate,
+            LocalDate endDate,
+            boolean dryRun
+    ) {
+        GameStatusMismatchBatchResultDto mismatchBatch = findGameStatusMismatchesByDateRange(startDate, endDate);
+        List<GameScoreSyncResultDto> repairedGames = dryRun
+                ? List.of()
+                : mismatchBatch.mismatches().stream()
+                .map(GameStatusMismatchDto::gameId)
+                .map(this::syncGameSnapshot)
+                .collect(Collectors.toList());
+
+        return new GameStatusRepairBatchResultDto(
+                mismatchBatch.startDate(),
+                mismatchBatch.endDate(),
+                dryRun,
+                mismatchBatch.totalGames(),
+                mismatchBatch.mismatchCount(),
+                repairedGames.size(),
+                mismatchBatch.mismatches(),
+                repairedGames
+        );
+    }
+
+    private GameStatusMismatchDto buildStatusMismatch(GameEntity game) {
+        if (game == null || game.getGameId() == null) {
+            return null;
+        }
+
+        LocalTime startTime = resolveGameStartTime(game);
+        List<GameInningScoreEntity> inningScores = gameInningScoreRepository
+                .findAllByGameIdOrderByInningAscTeamSideAsc(game.getGameId());
+        boolean hasKnownScore = game.getHomeScore() != null && game.getAwayScore() != null;
+        boolean hasInningScores = !inningScores.isEmpty();
+        String normalizedRawStatus = GameStatusResolver.resolveEffectiveStatus(
+                game.getGameStatus(),
+                game.getGameDate(),
+                startTime,
+                game.getHomeScore(),
+                game.getAwayScore(),
+                false
+        );
+        String effectiveStatus = GameStatusResolver.resolveEffectiveStatus(
+                game.getGameStatus(),
+                game.getGameDate(),
+                startTime,
+                game.getHomeScore(),
+                game.getAwayScore(),
+                hasKnownScore || hasInningScores
+        );
+
+        if (Objects.equals(normalizedRawStatus, effectiveStatus)) {
+            return null;
+        }
+
+        List<String> reasons = new ArrayList<>();
+        if (hasKnownScore) {
+            reasons.add("score_present");
+        }
+        if (hasInningScores) {
+            reasons.add("inning_scores_present");
+        }
+
+        return new GameStatusMismatchDto(
+                game.getGameId(),
+                game.getGameDate(),
+                startTime,
+                game.getGameStatus(),
+                normalizedRawStatus,
+                effectiveStatus,
+                game.getHomeScore(),
+                game.getAwayScore(),
+                inningScores.size(),
+                hasKnownScore,
+                hasInningScores,
+                reasons
+        );
+    }
+
+    private void validateSnapshotDateRange(LocalDate startDate, LocalDate endDate) {
+        if (startDate == null || endDate == null) {
+            throw new IllegalArgumentException("조회 날짜가 올바르지 않습니다.");
+        }
+        if (startDate.isAfter(endDate)) {
+            throw new IllegalArgumentException("시작일은 종료일보다 이전이어야 합니다.");
+        }
+        if (ChronoUnit.DAYS.between(startDate, endDate) >= MAX_SNAPSHOT_SYNC_RANGE_DAYS) {
+            throw new IllegalArgumentException("한 번에 최대 31일까지만 동기화할 수 있습니다.");
+        }
+    }
+
+    private void synchronizeGameScoreSnapshot(GameEntity game, List<GameInningScoreRequestDto> scores) {
+        if (game == null || scores == null || scores.isEmpty()) {
+            return;
+        }
+
+        int homeScore = scores.stream()
+                .filter(score -> "home".equalsIgnoreCase(score.getTeamSide()))
+                .mapToInt(score -> score.getRuns() == null ? 0 : score.getRuns())
+                .sum();
+        int awayScore = scores.stream()
+                .filter(score -> "away".equalsIgnoreCase(score.getTeamSide()))
+                .mapToInt(score -> score.getRuns() == null ? 0 : score.getRuns())
+                .sum();
+
+        applyGameScoreSnapshot(game, homeScore, awayScore);
+    }
+
+    private void applyGameScoreSnapshot(GameEntity game, int homeScore, int awayScore) {
+        game.setHomeScore(homeScore);
+        game.setAwayScore(awayScore);
+
+        String effectiveStatus = GameStatusResolver.resolveSnapshotStatus(
+                game.getGameDate(),
+                resolveGameStartTime(game),
+                homeScore,
+                awayScore
+        );
+        game.setGameStatus(effectiveStatus);
+
+        if ("COMPLETED".equals(effectiveStatus)) {
+            game.setWinningTeam(homeScore > awayScore ? game.getHomeTeam() : game.getAwayTeam());
+            game.setWinningScore(Math.max(homeScore, awayScore));
+            return;
+        }
+
+        game.setWinningTeam(null);
+        game.setWinningScore(null);
+    }
+
+    private LocalTime resolveGameStartTime(GameEntity game) {
+        if (game == null || game.getGameId() == null) {
+            return null;
+        }
+
+        return gameMetadataRepository.findByGameId(game.getGameId())
+                .map(GameMetadataEntity::getStartTime)
+                .orElse(null);
     }
 
     @Transactional(transactionManager = "transactionManager")
