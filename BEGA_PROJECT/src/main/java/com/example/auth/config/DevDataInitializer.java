@@ -18,6 +18,7 @@ import com.example.mate.repository.SellerPayoutProfileRepository;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Locale;
 
 @Slf4j
 @Component
@@ -49,24 +50,34 @@ public class DevDataInitializer implements CommandLineRunner {
     @Value("${TEST_BUYER_PASSWORD:buyerpassword}")
     private String testBuyerPassword;
 
+    @Value("${TEST_ADMIN_EMAIL:}")
+    private String testAdminEmail;
+
+    @Value("${TEST_ADMIN_PASSWORD:}")
+    private String testAdminPassword;
+
     @Override
     public void run(String... args) throws Exception {
         log.info("Starting DevDataInitializer to verify test accounts...");
 
         // 1. Smoke test 계정
-        createTestUserIfNotFound(testEmail, testPassword, "test", "Smoke Tester", false);
+        createTestUserIfNotFound(testEmail, testPassword, "test", "Smoke Tester", false, "ROLE_USER");
 
         // 2. 파티 생성자 계정
-        createTestUserIfNotFound(testHostEmail, testHostPassword, "host", "Party Host", true);
+        createTestUserIfNotFound(testHostEmail, testHostPassword, "host", "Party Host", true, "ROLE_USER");
 
         // 3. 파티 구매자 계정
-        createTestUserIfNotFound(testBuyerEmail, testBuyerPassword, "buyer", "Party Buyer", false);
+        createTestUserIfNotFound(testBuyerEmail, testBuyerPassword, "buyer", "Party Buyer", false, "ROLE_USER");
+
+        // 4. Dev 관리자 계정
+        createTestUserIfNotFound(testAdminEmail, testAdminPassword, "devadmin", "Dev Admin", false, "ROLE_ADMIN");
 
         log.info("DevDataInitializer finished applying test accounts.");
     }
 
     private void createTestUserIfNotFound(String email, String password, String handlePrefix, String name,
-            boolean provisionPayoutProfile) {
+            boolean provisionPayoutProfile,
+            String role) {
         if (isBlank(email) || isBlank(password)) {
             log.warn("Skipping test user initialization for {} because TEST_* credentials are blank.", name);
             return;
@@ -74,10 +85,11 @@ public class DevDataInitializer implements CommandLineRunner {
 
         if (!userRepository.existsByEmail(email)) {
             // handle uniqueness check (simple append for dev)
-            String finalHandle = handlePrefix;
+            String normalizedHandlePrefix = handlePrefix == null ? "" : handlePrefix.trim().toLowerCase(Locale.ROOT);
+            String finalHandle = normalizedHandlePrefix;
             int counter = 1;
             while (userRepository.existsByHandle(finalHandle)) {
-                finalHandle = handlePrefix + counter;
+                finalHandle = normalizedHandlePrefix + counter;
                 counter++;
             }
 
@@ -87,7 +99,7 @@ public class DevDataInitializer implements CommandLineRunner {
                     .name(name)
                     .email(email)
                     .password(passwordEncoder.encode(password))
-                    .role("ROLE_USER")
+                    .role(role)
                     .enabled(true)
                     .locked(false)
                     .cheerPoints(100000) // 넉넉한 초기 포인트 지급 (테스트용)
@@ -106,6 +118,10 @@ public class DevDataInitializer implements CommandLineRunner {
                 boolean updated = false;
                 if (u.getPassword() == null || !passwordEncoder.matches(password, u.getPassword())) {
                     u.setPassword(passwordEncoder.encode(password));
+                    updated = true;
+                }
+                if (!role.equals(u.getRole())) {
+                    u.setRole(role);
                     updated = true;
                 }
                 if (!u.isEnabled()) {

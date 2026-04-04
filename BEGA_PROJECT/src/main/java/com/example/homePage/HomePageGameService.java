@@ -17,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import com.example.kbo.entity.GameEntity;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.service.LeagueStageResolver;
+import com.example.kbo.util.GameStatusResolver;
 import com.example.kbo.util.TeamCodeNormalizer;
 
 import lombok.RequiredArgsConstructor;
@@ -116,14 +117,21 @@ public class HomePageGameService {
 			gameInfo = "포스트시즌";
 		}
 
-        String gameStatusKr = convertGameStatus(game.getGameStatus());
-
-        // 점수 데이터 처리 with 상태별 검증
         Integer homeScore = game.getHomeScore();
         Integer awayScore = game.getAwayScore();
+        boolean hasKnownScore = homeScore != null && awayScore != null;
+        String effectiveGameStatus = GameStatusResolver.resolveEffectiveStatus(
+                game.getGameStatus(),
+                game.getGameDate(),
+                null,
+                homeScore,
+                awayScore,
+                hasKnownScore
+        );
+        String gameStatusKr = convertGameStatus(effectiveGameStatus);
 
         // 경기 종료 상태인데 점수가 없으면 0으로 초기화 (데이터 정합성 보장)
-        if ("COMPLETED".equals(game.getGameStatus())) {
+        if ("COMPLETED".equals(effectiveGameStatus) || "DRAW".equals(effectiveGameStatus)) {
             homeScore = (homeScore != null) ? homeScore : 0;
             awayScore = (awayScore != null) ? awayScore : 0;
         }
@@ -131,7 +139,7 @@ public class HomePageGameService {
         return HomePageGameDto.builder()
                 .gameId(game.getGameId())
                 .stadium(game.getStadium())
-                .gameStatus(game.getGameStatus())
+                .gameStatus(effectiveGameStatus)
                 .gameStatusKr(gameStatusKr)
                 .homeTeam(resolvedHomeTeamId)
                 .homeTeamFull(resolvedHomeTeamName)
@@ -152,6 +160,8 @@ public class HomePageGameService {
         switch (status) {
             case "SCHEDULED":
                 return "경기 예정";
+            case "LIVE":
+                return "경기 진행중";
             case "COMPLETED":
                 return "경기 종료";
             case "CANCELLED":

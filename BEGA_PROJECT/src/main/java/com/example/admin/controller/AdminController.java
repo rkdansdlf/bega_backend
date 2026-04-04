@@ -13,9 +13,14 @@ import com.example.admin.service.AdminService;
 import com.example.BegaDiary.Service.SeatViewService;
 import com.example.common.dto.ApiResponse;
 import com.example.prediction.GameInningScoreRequestDto;
+import com.example.prediction.GameScoreSyncBatchResultDto;
+import com.example.prediction.GameScoreSyncResultDto;
+import com.example.prediction.GameStatusMismatchBatchResultDto;
+import com.example.prediction.GameStatusRepairBatchResultDto;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -206,5 +211,59 @@ public class AdminController {
         int saved = adminService.upsertInningScores(gameId, scores);
         return ResponseEntity.ok(ApiResponse.success("이닝 스코어 저장 성공",
                 Map.of("gameId", gameId, "saved", saved)));
+    }
+
+    /**
+     * 저장된 스코어/이닝 데이터를 기준으로 경기 스냅샷 동기화
+     * POST /api/admin/games/{gameId}/sync-snapshot
+     */
+    @PostMapping("/games/{gameId}/sync-snapshot")
+    public ResponseEntity<ApiResponse> syncGameSnapshot(@PathVariable String gameId) {
+        GameScoreSyncResultDto result = adminService.syncGameSnapshot(gameId);
+        return ResponseEntity.ok(ApiResponse.success("경기 스냅샷 동기화 성공", result));
+    }
+
+    /**
+     * 날짜 범위의 경기 스냅샷 일괄 동기화
+     * POST /api/admin/games/sync-snapshots?startDate=2026-03-29&endDate=2026-03-29
+     */
+    @PostMapping("/games/sync-snapshots")
+    public ResponseEntity<ApiResponse> syncGameSnapshotsByDateRange(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        LocalDate resolvedEndDate = endDate != null ? endDate : startDate;
+        GameScoreSyncBatchResultDto result = adminService.syncGameSnapshotsByDateRange(startDate, resolvedEndDate);
+        return ResponseEntity.ok(ApiResponse.success("경기 스냅샷 일괄 동기화 성공", result));
+    }
+
+    /**
+     * 날짜 범위의 경기 상태 불일치 진단
+     * GET /api/admin/games/status-mismatches?startDate=2026-03-29&endDate=2026-03-29
+     */
+    @GetMapping("/games/status-mismatches")
+    public ResponseEntity<ApiResponse> getGameStatusMismatches(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        LocalDate resolvedEndDate = endDate != null ? endDate : startDate;
+        GameStatusMismatchBatchResultDto result = adminService.findGameStatusMismatchesByDateRange(startDate, resolvedEndDate);
+        return ResponseEntity.ok(ApiResponse.success("경기 상태 불일치 조회 성공", result));
+    }
+
+    /**
+     * 날짜 범위의 경기 상태 불일치를 실제로 복구
+     * POST /api/admin/games/repair-status-mismatches?startDate=2026-03-29&endDate=2026-03-29&dryRun=true
+     */
+    @PostMapping("/games/repair-status-mismatches")
+    public ResponseEntity<ApiResponse> repairGameStatusMismatches(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(defaultValue = "true") boolean dryRun) {
+        LocalDate resolvedEndDate = endDate != null ? endDate : startDate;
+        GameStatusRepairBatchResultDto result = adminService
+                .repairGameStatusMismatchesByDateRange(startDate, resolvedEndDate, dryRun);
+        return ResponseEntity.ok(ApiResponse.success(
+                dryRun ? "경기 상태 불일치 복구 시뮬레이션 성공" : "경기 상태 불일치 복구 성공",
+                result
+        ));
     }
 }

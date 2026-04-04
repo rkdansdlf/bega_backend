@@ -27,6 +27,7 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
               g.game_id,
               g.game_date,
               g.stadium,
+              g.game_status,
               g.home_team,
               g.away_team,
               g.home_score,
@@ -35,8 +36,10 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
               g.home_pitcher,
               g.away_pitcher,
               g.season_id,
+              gm.start_time,
               s.league_type_code AS raw_league_type_code
           FROM game g
+          LEFT JOIN game_metadata gm ON gm.game_id = g.game_id
           LEFT JOIN kbo_seasons s ON g.season_id = s.season_id
           WHERE g.game_date BETWEEN :startDate AND :endDate
             AND g.is_dummy IS NOT TRUE
@@ -97,7 +100,9 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
           rr.away_pitcher AS "awayPitcher",
           rr.season_id AS "seasonId",
           rr.raw_league_type_code AS "rawLeagueTypeCode",
-          sr.series_game_no AS "seriesGameNo"
+          sr.series_game_no AS "seriesGameNo",
+          rr.game_status AS "gameStatus",
+          rr.start_time AS "startTime"
       FROM range_rows rr
       LEFT JOIN series_ranked sr ON sr.game_id = rr.game_id
       ORDER BY rr.game_date ASC, rr.game_id ASC
@@ -119,6 +124,7 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
               g.game_id,
               g.game_date,
               g.stadium,
+              g.game_status,
               g.home_team,
               g.away_team,
               g.home_score,
@@ -127,8 +133,10 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
               g.home_pitcher,
               g.away_pitcher,
               g.season_id,
+              gm.start_time,
               s.league_type_code AS raw_league_type_code
           FROM game g
+          LEFT JOIN game_metadata gm ON gm.game_id = g.game_id
           LEFT JOIN kbo_seasons s ON g.season_id = s.season_id
           WHERE g.game_date = :gameDate
             AND g.is_dummy IS NOT TRUE
@@ -189,7 +197,9 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
           dr.away_pitcher AS "awayPitcher",
           dr.season_id AS "seasonId",
           dr.raw_league_type_code AS "rawLeagueTypeCode",
-          sr.series_game_no AS "seriesGameNo"
+          sr.series_game_no AS "seriesGameNo",
+          dr.game_status AS "gameStatus",
+          dr.start_time AS "startTime"
       FROM date_rows dr
       LEFT JOIN series_ranked sr ON sr.game_id = dr.game_id
       ORDER BY dr.game_date ASC, dr.game_id ASC
@@ -201,6 +211,7 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
               g.game_id,
               g.game_date,
               g.stadium,
+              g.game_status,
               g.home_team,
               g.away_team,
               g.home_score,
@@ -209,8 +220,10 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
               g.home_pitcher,
               g.away_pitcher,
               g.season_id,
+              gm.start_time,
               s.league_type_code AS raw_league_type_code
           FROM game g
+          LEFT JOIN game_metadata gm ON gm.game_id = g.game_id
           LEFT JOIN kbo_seasons s ON g.season_id = s.season_id
           WHERE g.game_date IN :gameDates
             AND g.home_score IS NOT NULL
@@ -273,7 +286,9 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
           pr.away_pitcher AS "awayPitcher",
           pr.season_id AS "seasonId",
           pr.raw_league_type_code AS "rawLeagueTypeCode",
-          sr.series_game_no AS "seriesGameNo"
+          sr.series_game_no AS "seriesGameNo",
+          pr.game_status AS "gameStatus",
+          pr.start_time AS "startTime"
       FROM past_rows pr
       LEFT JOIN series_ranked sr ON sr.game_id = pr.game_id
       ORDER BY pr.game_date ASC, pr.game_id ASC

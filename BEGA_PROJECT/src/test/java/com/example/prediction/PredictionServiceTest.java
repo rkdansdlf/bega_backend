@@ -84,6 +84,8 @@ class PredictionServiceTest {
                 .thenReturn(Optional.empty());
         lenient().when(gameRepository.findLeagueTypeCodeBySeasonId(anyInt()))
                 .thenReturn(Optional.empty());
+        lenient().when(gameMetadataRepository.findByGameId(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(Optional.empty());
     }
 
     @Test
@@ -120,6 +122,29 @@ class PredictionServiceTest {
 
         assertThat(matches).hasSize(1);
         assertThat(matches.get(0).getGameId()).isEqualTo("202602010002");
+    }
+
+    @Test
+    void getMatchDayNavigationShouldExposeResolvedGameStatusForListItems() {
+        LocalDate targetDate = LocalDate.now().minusDays(1);
+        MatchRangeProjection staleScheduled = buildRangeMatch("202603290001", targetDate, "HH", "SS", 20260, 0, null);
+        when(staleScheduled.getHomeScore()).thenReturn(4);
+        when(staleScheduled.getAwayScore()).thenReturn(2);
+        when(staleScheduled.getGameStatus()).thenReturn("SCHEDULED");
+        when(staleScheduled.getStartTime()).thenReturn(LocalTime.of(14, 0));
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(
+                any(LocalDate.class),
+                anyList()
+        )).thenReturn(List.of(staleScheduled));
+        when(gameRepository.findCanonicalAdjacentGameDates(any(LocalDate.class), anyList()))
+                .thenReturn(null);
+
+        MatchDayNavigationResponseDto response = predictionService.getMatchDayNavigation(targetDate);
+
+        assertThat(response.getGames()).hasSize(1);
+        MatchDto match = response.getGames().get(0);
+        assertThat(match.getGameStatus()).isEqualTo("COMPLETED");
+        assertThat(match.getStartTime()).isEqualTo(LocalTime.of(14, 0));
     }
 
     @Test
@@ -745,6 +770,8 @@ class PredictionServiceTest {
         lenient().when(match.getSeasonId()).thenReturn(seasonId);
         lenient().when(match.getRawLeagueTypeCode()).thenReturn(rawLeagueTypeCode);
         lenient().when(match.getSeriesGameNo()).thenReturn(seriesGameNo);
+        lenient().when(match.getGameStatus()).thenReturn("COMPLETED");
+        lenient().when(match.getStartTime()).thenReturn(LocalTime.of(18, 30));
         return match;
     }
 
@@ -821,8 +848,213 @@ class PredictionServiceTest {
         int saved = predictionService.upsertInningScores(gameId, List.of(away1, home1));
 
         assertThat(saved).isEqualTo(2);
+        assertThat(game.getHomeScore()).isEqualTo(0);
+        assertThat(game.getAwayScore()).isEqualTo(2);
+        assertThat(game.getGameStatus()).isEqualTo("COMPLETED");
+        assertThat(game.getWinningTeam()).isEqualTo("KT");
+        assertThat(game.getWinningScore()).isEqualTo(2);
         verify(gameInningScoreRepository).deleteAllByGameId(gameId);
         verify(gameInningScoreRepository).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("upsertInningScores - 당일 시작된 경기는 LIVE로 동기화")
+    void upsertInningScoresShouldSyncLiveStatusForStartedTodayGame() {
+        String gameId = "GAME002";
+        GameEntity game = buildGame(gameId, LocalDate.now(), "LG", "KT", false);
+        when(gameRepository.findByGameId(gameId)).thenReturn(Optional.of(game));
+        when(gameInningScoreRepository.deleteAllByGameId(gameId)).thenReturn(0);
+        when(gameInningScoreRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+
+        GameMetadataEntity metadata = mock(GameMetadataEntity.class);
+        when(metadata.getStartTime()).thenReturn(LocalTime.now().minusHours(1));
+        when(gameMetadataRepository.findByGameId(gameId)).thenReturn(Optional.of(metadata));
+
+        GameInningScoreRequestDto away1 = new GameInningScoreRequestDto();
+        setField(away1, "inning", 1);
+        setField(away1, "teamSide", "away");
+        setField(away1, "teamCode", "KT");
+        setField(away1, "runs", 1);
+        setField(away1, "isExtra", false);
+
+        predictionService.upsertInningScores(gameId, List.of(away1));
+
+        assertThat(game.getHomeScore()).isEqualTo(0);
+        assertThat(game.getAwayScore()).isEqualTo(1);
+        assertThat(game.getGameStatus()).isEqualTo("LIVE");
+        assertThat(game.getWinningTeam()).isNull();
+        assertThat(game.getWinningScore()).isNull();
+    }
+
+    @Test
+    @DisplayName("syncGameSnapshot - 저장된 이닝 스코어 기준으로 경기 상태를 복구한다")
+    void syncGameSnapshotShouldRepairFromStoredInningScores() {
+        String gameId = "GAME003";
+        GameEntity game = buildGame(gameId, LocalDate.of(2025, 5, 1), "LG", "KT", false);
+        game.setGameStatus("SCHEDULED");
+        when(gameRepository.findByGameId(gameId)).thenReturn(Optional.of(game));
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc(gameId)).thenReturn(List.of(
+                GameInningScoreEntity.builder().gameId(gameId).inning(1).teamSide("away").runs(2).build(),
+                GameInningScoreEntity.builder().gameId(gameId).inning(3).teamSide("away").runs(1).build(),
+                GameInningScoreEntity.builder().gameId(gameId).inning(5).teamSide("home").runs(4).build()
+        ));
+
+        GameScoreSyncResultDto result = predictionService.syncGameSnapshot(gameId);
+
+        assertThat(result.synced()).isTrue();
+        assertThat(result.usedInningScores()).isTrue();
+        assertThat(result.inningScoreCount()).isEqualTo(3);
+        assertThat(result.homeScore()).isEqualTo(4);
+        assertThat(result.awayScore()).isEqualTo(3);
+        assertThat(result.gameStatus()).isEqualTo("COMPLETED");
+        assertThat(result.winningTeam()).isEqualTo("LG");
+        assertThat(result.winningScore()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("syncGameSnapshot - 이닝 데이터가 없어도 기존 총점으로 상태를 복구한다")
+    void syncGameSnapshotShouldFallbackToExistingScores() {
+        String gameId = "GAME004";
+        GameEntity game = buildGame(gameId, LocalDate.of(2025, 5, 1), "LG", "KT", false);
+        game.setHomeScore(1);
+        game.setAwayScore(1);
+        game.setGameStatus("SCHEDULED");
+        when(gameRepository.findByGameId(gameId)).thenReturn(Optional.of(game));
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc(gameId)).thenReturn(List.of());
+
+        GameScoreSyncResultDto result = predictionService.syncGameSnapshot(gameId);
+
+        assertThat(result.synced()).isTrue();
+        assertThat(result.usedInningScores()).isFalse();
+        assertThat(result.gameStatus()).isEqualTo("DRAW");
+        assertThat(result.winningTeam()).isNull();
+        assertThat(result.winningScore()).isNull();
+    }
+
+    @Test
+    @DisplayName("syncGameSnapshotsByDateRange - 날짜 범위의 경기들을 일괄 동기화한다")
+    void syncGameSnapshotsByDateRangeShouldSyncGames() {
+        LocalDate startDate = LocalDate.of(2025, 5, 1);
+        LocalDate endDate = LocalDate.of(2025, 5, 2);
+        GameEntity first = buildGame("GAME101", LocalDate.of(2025, 5, 1), "LG", "KT", false);
+        first.setGameStatus("SCHEDULED");
+        GameEntity second = buildGame("GAME102", LocalDate.of(2025, 5, 2), "SSG", "KIA", false);
+        second.setGameStatus("SCHEDULED");
+
+        when(gameRepository.findAllByDateRange(startDate, endDate)).thenReturn(List.of(first, second));
+        when(gameRepository.findByGameId("GAME101")).thenReturn(Optional.of(first));
+        when(gameRepository.findByGameId("GAME102")).thenReturn(Optional.of(second));
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc("GAME101")).thenReturn(List.of(
+                GameInningScoreEntity.builder().gameId("GAME101").inning(1).teamSide("home").runs(2).build(),
+                GameInningScoreEntity.builder().gameId("GAME101").inning(2).teamSide("away").runs(1).build()
+        ));
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc("GAME102")).thenReturn(List.of());
+        second.setHomeScore(3);
+        second.setAwayScore(3);
+
+        GameScoreSyncBatchResultDto result = predictionService.syncGameSnapshotsByDateRange(startDate, endDate);
+
+        assertThat(result.totalGames()).isEqualTo(2);
+        assertThat(result.syncedGames()).isEqualTo(2);
+        assertThat(result.skippedGames()).isEqualTo(0);
+        assertThat(result.results()).hasSize(2);
+        assertThat(first.getGameStatus()).isEqualTo("COMPLETED");
+        assertThat(second.getGameStatus()).isEqualTo("DRAW");
+    }
+
+    @Test
+    @DisplayName("syncGameSnapshotsByDateRange - 31일 초과 범위는 예외 발생")
+    void syncGameSnapshotsByDateRangeShouldRejectTooWideRange() {
+        assertThrows(IllegalArgumentException.class,
+                () -> predictionService.syncGameSnapshotsByDateRange(
+                        LocalDate.of(2025, 5, 1),
+                        LocalDate.of(2025, 6, 1)
+                ));
+    }
+
+    @Test
+    @DisplayName("findGameStatusMismatchesByDateRange - stale status 경기만 진단 결과에 포함한다")
+    void findGameStatusMismatchesByDateRangeShouldReturnOnlyMismatches() {
+        LocalDate date = LocalDate.of(2025, 5, 1);
+        GameEntity stale = buildGame("GAME201", date, "LG", "KT", false);
+        stale.setGameStatus("SCHEDULED");
+        stale.setHomeScore(4);
+        stale.setAwayScore(2);
+        GameEntity alreadyNormalized = buildGame("GAME202", date, "SSG", "KIA", false);
+        alreadyNormalized.setGameStatus("COMPLETED");
+        alreadyNormalized.setHomeScore(3);
+        alreadyNormalized.setAwayScore(1);
+
+        when(gameRepository.findAllByDateRange(date, date)).thenReturn(List.of(stale, alreadyNormalized));
+        when(gameMetadataRepository.findByGameId("GAME201")).thenReturn(Optional.empty());
+        when(gameMetadataRepository.findByGameId("GAME202")).thenReturn(Optional.empty());
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc("GAME201")).thenReturn(List.of());
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc("GAME202")).thenReturn(List.of());
+
+        GameStatusMismatchBatchResultDto result = predictionService.findGameStatusMismatchesByDateRange(date, date);
+
+        assertThat(result.totalGames()).isEqualTo(2);
+        assertThat(result.mismatchCount()).isEqualTo(1);
+        assertThat(result.mismatches()).hasSize(1);
+        assertThat(result.mismatches().get(0).gameId()).isEqualTo("GAME201");
+        assertThat(result.mismatches().get(0).normalizedRawStatus()).isEqualTo("SCHEDULED");
+        assertThat(result.mismatches().get(0).effectiveStatus()).isEqualTo("COMPLETED");
+        assertThat(result.mismatches().get(0).reasons()).contains("score_present");
+    }
+
+    @Test
+    @DisplayName("repairGameStatusMismatchesByDateRange - dryRun이면 실제 복구 없이 대상만 반환한다")
+    void repairGameStatusMismatchesByDateRangeShouldSupportDryRun() {
+        LocalDate date = LocalDate.of(2025, 5, 1);
+        GameEntity stale = buildGame("GAME301", date, "LG", "KT", false);
+        stale.setGameStatus("SCHEDULED");
+        stale.setHomeScore(5);
+        stale.setAwayScore(3);
+
+        when(gameRepository.findAllByDateRange(date, date)).thenReturn(List.of(stale));
+        when(gameMetadataRepository.findByGameId("GAME301")).thenReturn(Optional.empty());
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc("GAME301")).thenReturn(List.of());
+
+        GameStatusRepairBatchResultDto result = predictionService
+                .repairGameStatusMismatchesByDateRange(date, date, true);
+
+        assertThat(result.dryRun()).isTrue();
+        assertThat(result.mismatchCount()).isEqualTo(1);
+        assertThat(result.repairedCount()).isEqualTo(0);
+        assertThat(result.repairedGames()).isEmpty();
+        assertThat(stale.getGameStatus()).isEqualTo("SCHEDULED");
+    }
+
+    @Test
+    @DisplayName("repairGameStatusMismatchesByDateRange - apply면 mismatch 경기만 복구한다")
+    void repairGameStatusMismatchesByDateRangeShouldRepairMismatches() {
+        LocalDate date = LocalDate.of(2025, 5, 1);
+        GameEntity stale = buildGame("GAME302", date, "LG", "KT", false);
+        stale.setGameStatus("SCHEDULED");
+        stale.setHomeScore(2);
+        stale.setAwayScore(1);
+        GameEntity healthy = buildGame("GAME303", date, "SSG", "KIA", false);
+        healthy.setGameStatus("COMPLETED");
+        healthy.setHomeScore(4);
+        healthy.setAwayScore(3);
+
+        when(gameRepository.findAllByDateRange(date, date)).thenReturn(List.of(stale, healthy));
+        when(gameMetadataRepository.findByGameId("GAME302")).thenReturn(Optional.empty());
+        when(gameMetadataRepository.findByGameId("GAME303")).thenReturn(Optional.empty());
+        when(gameRepository.findByGameId("GAME302")).thenReturn(Optional.of(stale));
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc("GAME302")).thenReturn(List.of());
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc("GAME303")).thenReturn(List.of());
+
+        GameStatusRepairBatchResultDto result = predictionService
+                .repairGameStatusMismatchesByDateRange(date, date, false);
+
+        assertThat(result.dryRun()).isFalse();
+        assertThat(result.mismatchCount()).isEqualTo(1);
+        assertThat(result.repairedCount()).isEqualTo(1);
+        assertThat(result.repairedGames()).hasSize(1);
+        assertThat(result.repairedGames().get(0).gameId()).isEqualTo("GAME302");
+        assertThat(stale.getGameStatus()).isEqualTo("COMPLETED");
+        assertThat(healthy.getGameStatus()).isEqualTo("COMPLETED");
     }
 
     @Test

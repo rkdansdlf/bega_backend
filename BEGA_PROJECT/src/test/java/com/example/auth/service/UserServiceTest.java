@@ -19,6 +19,7 @@ import com.example.auth.repository.UserBlockRepository;
 import com.example.auth.repository.UserFollowRepository;
 import com.example.auth.repository.RefreshRepository;
 import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.DuplicateHandleException;
 import com.example.common.exception.DuplicateNameException;
 import com.example.common.exception.UserNotFoundException;
 import com.example.mypage.dto.UserProfileDto;
@@ -165,6 +166,19 @@ class UserServiceTest {
     }
 
     @Test
+    void getPublicUserProfileByHandle_normalizesMixedCaseHandleToLowercase() {
+        UserEntity user = baseUser("https://cdn.example.com/old.png");
+        when(userRepository.findByHandle("@user")).thenReturn(Optional.of(user));
+        when(profileImageService.getProfileImageUrl("https://cdn.example.com/old.png"))
+                .thenReturn("https://cdn.example.com/old.png?v=resolved");
+
+        PublicUserProfileDto result = userService.getPublicUserProfileByHandle("@User", null);
+
+        assertEquals("@user", result.getHandle());
+        verify(userRepository).findByHandle("@user");
+    }
+
+    @Test
     void getPublicUserProfileByHandle_withMissingProfileImage_returnsNullWithoutResolver() {
         UserEntity user = baseUser(null);
         when(userRepository.findByHandle("@user")).thenReturn(Optional.of(user));
@@ -303,6 +317,50 @@ class UserServiceTest {
 
         String result = userService.ensureNameAvailable(1L, "originalName");
         assertEquals("originalName", result);
+    }
+
+    @Test
+    void validateAndNormalizeHandle_lowercasesCanonicalForm() {
+        String result = userService.validateAndNormalizeHandle(" Slugger_01 ");
+
+        assertEquals("@slugger_01", result);
+    }
+
+    @Test
+    void checkHandleAvailability_returnsNormalizedHandle() {
+        when(userRepository.existsByHandle("@slugger")).thenReturn(true);
+
+        var result = userService.checkHandleAvailability(" @Slugger ");
+
+        assertFalse(result.available());
+        assertEquals("@slugger", result.normalized());
+    }
+
+    @Test
+    void checkEmailAvailability_returnsNormalizedEmail() {
+        when(userRepository.existsByEmail("slugger@example.com")).thenReturn(false);
+
+        var result = userService.checkEmailAvailability(" Slugger@Example.com ");
+
+        assertTrue(result.available());
+        assertEquals("slugger@example.com", result.normalized());
+    }
+
+    @Test
+    void createNewUser_throwsDuplicateHandleExceptionForCanonicalHandle() {
+        when(userRepository.findByEmail("slugger@example.com")).thenReturn(Optional.empty());
+        when(userRepository.existsByHandle("@slugger")).thenReturn(true);
+
+        var signupDto = com.example.auth.dto.SignupDto.builder()
+                .name("Slugger")
+                .handle("@Slugger")
+                .email("Slugger@example.com")
+                .password("Test1234!")
+                .confirmPassword("Test1234!")
+                .favoriteTeam("LG 트윈스")
+                .build();
+
+        assertThrows(DuplicateHandleException.class, () -> userService.saveUser(signupDto));
     }
 
     // --- getConnectedProviders ---
