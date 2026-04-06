@@ -20,6 +20,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -77,14 +78,14 @@ class CheerInteractionServiceTest {
         CheerPost post = CheerPost.builder().id(postId).author(author).likeCount(0).build();
 
         mockWriteEnabledAuthor(me);
-        when(postService.findPostById(postId)).thenReturn(post);
+        when(postRepo.findByIdForInteractionWrite(postId)).thenReturn(Optional.of(post));
         doNothing().when(publicVisibilityVerifier).validate(author, userId, "게시글");
         when(blockService.hasBidirectionalBlock(userId, author.getId())).thenReturn(false);
         lenient().when(userRepo.findById(anyLong())).thenReturn(Optional.of(author));
 
         // Case: Not liked yet -> Like
         when(likeRepo.existsById(any(CheerPostLike.Id.class))).thenReturn(false);
-        when(postRepo.findLikeCountById(postId)).thenReturn(1);
+        when(likeRepo.countByPostId(postId)).thenReturn(1L);
 
         // When
         LikeToggleResponse res = interactionService.toggleLike(postId, me);
@@ -94,6 +95,11 @@ class CheerInteractionServiceTest {
         assertThat(res.likes()).isEqualTo(1);
         verify(likeRepo).save(any(CheerPostLike.class));
         verify(postService).updateHotScore(post);
+        InOrder likeFlow = inOrder(likeRepo, postRepo, entityManager);
+        likeFlow.verify(likeRepo).save(any(CheerPostLike.class));
+        likeFlow.verify(entityManager).flush();
+        likeFlow.verify(likeRepo).countByPostId(postId);
+        likeFlow.verify(postRepo).setExactLikeCount(postId, 1);
 
         // Case: Liked -> Unlike
         // Reset mocks roughly or just verified flow 1.
@@ -101,7 +107,7 @@ class CheerInteractionServiceTest {
         // Re-mock for unlike scenario
         post.setLikeCount(1);
         when(likeRepo.existsById(any(CheerPostLike.Id.class))).thenReturn(true);
-        when(postRepo.findLikeCountById(postId)).thenReturn(0);
+        when(likeRepo.countByPostId(postId)).thenReturn(0L);
 
         // When
         res = interactionService.toggleLike(postId, me);
@@ -110,6 +116,15 @@ class CheerInteractionServiceTest {
         assertThat(res.liked()).isFalse();
         assertThat(res.likes()).isEqualTo(0);
         verify(likeRepo).deleteById(any(CheerPostLike.Id.class));
+        InOrder unlikeFlow = inOrder(likeRepo, postRepo, entityManager);
+        unlikeFlow.verify(likeRepo).save(any(CheerPostLike.class));
+        unlikeFlow.verify(entityManager).flush();
+        unlikeFlow.verify(likeRepo).countByPostId(postId);
+        unlikeFlow.verify(postRepo).setExactLikeCount(postId, 1);
+        unlikeFlow.verify(likeRepo).deleteById(any(CheerPostLike.Id.class));
+        unlikeFlow.verify(entityManager).flush();
+        unlikeFlow.verify(likeRepo).countByPostId(postId);
+        unlikeFlow.verify(postRepo).setExactLikeCount(postId, 0);
     }
 
     @Test
@@ -122,7 +137,7 @@ class CheerInteractionServiceTest {
         CheerPost post = CheerPost.builder().id(postId).author(author).build();
 
         mockWriteEnabledAuthor(me);
-        when(postService.findPostById(postId)).thenReturn(post);
+        when(postRepo.findByIdForInteractionWrite(postId)).thenReturn(Optional.of(post));
         doThrow(new org.springframework.security.access.AccessDeniedException("비공개 계정"))
                 .when(publicVisibilityVerifier).validate(author, userId, "게시글");
 
