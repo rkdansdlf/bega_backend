@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -270,37 +271,59 @@ public class CheerFeedService {
     private Page<PostSummaryRes> getGlobalHotPosts(Pageable pageable, PopularFeedAlgorithm algorithm, UserEntity me) {
         int start = (int) pageable.getOffset();
         int end = start + pageable.getPageSize() - 1;
+        long totalElements = redisPostService.getHotListSize(algorithm);
 
         Set<Long> hotPostIds = redisPostService.getHotPostIds(start, end, algorithm);
         if (hotPostIds.isEmpty()) {
-            return new PageImpl<>(Collections.emptyList(), pageable, redisPostService.getHotListSize(algorithm));
+            return new PageImpl<>(Collections.emptyList(), pageable, totalElements);
         }
 
         List<CheerPost> posts = postRepo.findAllByIdWithGraph(hotPostIds);
+        Map<Long, CheerPost> postMap = posts.stream()
+                .collect(Collectors.toMap(CheerPost::getId, Function.identity()));
+        List<CheerPost> orderedPosts = hotPostIds.stream()
+                .map(postMap::get)
+                .filter(Objects::nonNull)
+                .toList();
+        List<CheerPost> visibleOrderedPosts = me == null ? filterVisiblePosts(orderedPosts, null) : orderedPosts;
+        totalElements = pruneExplicitHotEntries(
+                algorithm,
+                totalElements,
+                orderedPosts.stream()
+                        .map(CheerPost::getId)
+                        .filter(id -> visibleOrderedPosts.stream().noneMatch(post -> Objects.equals(post.getId(), id)))
+                        .toList());
+
+        Map<Long, Integer> viewCountMap = safeGetViewCounts(visibleOrderedPosts.stream().map(CheerPost::getId).toList());
+        java.time.Instant now = java.time.Instant.now();
+        Map<Long, Boolean> eligibilityMap = visibleOrderedPosts.stream()
+                .collect(Collectors.toMap(
+                        CheerPost::getId,
+                        post -> popularFeedScoringService.isHotEligible(
+                                post,
+                                post.getViews() + viewCountMap.getOrDefault(post.getId(), 0),
+                                now)));
+        totalElements = pruneInvalidHotEntries(
+                algorithm,
+                totalElements,
+                hotPostIds,
+                visibleOrderedPosts,
+                eligibilityMap);
 
         // 차단 필터링
         java.util.Set<Long> excludedIds = getExcludedUserIds(me);
 
         // Redis 순서 유지 정렬
-        Map<Long, CheerPost> postMap = posts.stream()
-                .collect(Collectors.toMap(CheerPost::getId, Function.identity()));
-        List<CheerPost> sortedPosts = hotPostIds.stream()
-                .map(postMap::get)
-                .filter(Objects::nonNull)
+        List<CheerPost> sortedPosts = visibleOrderedPosts.stream()
                 .filter(post -> !excludedIds.contains(post.getAuthor().getId()))
                 .toList();
 
-        Map<Long, Integer> viewCountMap = safeGetViewCounts(sortedPosts.stream().map(CheerPost::getId).toList());
-        java.time.Instant now = java.time.Instant.now();
         List<CheerPost> eligiblePosts = sortedPosts.stream()
-                .filter(post -> popularFeedScoringService.isHotEligible(
-                        post,
-                        post.getViews() + viewCountMap.getOrDefault(post.getId(), 0),
-                        now))
+                .filter(post -> eligibilityMap.getOrDefault(post.getId(), false))
                 .toList();
 
         List<PostSummaryRes> content = toHotPostSummary(eligiblePosts, me);
-        return new PageImpl<>(Objects.requireNonNull(content), pageable, redisPostService.getHotListSize(algorithm));
+        return new PageImpl<>(Objects.requireNonNull(content), pageable, totalElements);
     }
 
     private Page<PostSummaryRes> getHybridHotPosts(Pageable pageable, UserEntity me) {
@@ -319,9 +342,26 @@ public class CheerFeedService {
 
         Map<Long, CheerPost> postMap = posts.stream()
                 .collect(Collectors.toMap(CheerPost::getId, Function.identity()));
-        List<CheerPost> candidatePosts = candidateIds.stream()
+        List<CheerPost> orderedCandidatePosts = candidateIds.stream()
                 .map(postMap::get)
                 .filter(Objects::nonNull)
+                .toList();
+        totalElements = pruneExplicitHotEntries(
+                PopularFeedAlgorithm.TIME_DECAY,
+                totalElements,
+                candidateIds.stream()
+                        .filter(id -> orderedCandidatePosts.stream().noneMatch(post -> Objects.equals(post.getId(), id)))
+                        .toList());
+        List<CheerPost> visibleCandidatePosts = me == null ? filterVisiblePosts(orderedCandidatePosts, null)
+                : orderedCandidatePosts;
+        totalElements = pruneExplicitHotEntries(
+                PopularFeedAlgorithm.TIME_DECAY,
+                totalElements,
+                orderedCandidatePosts.stream()
+                        .map(CheerPost::getId)
+                        .filter(id -> visibleCandidatePosts.stream().noneMatch(post -> Objects.equals(post.getId(), id)))
+                        .toList());
+        List<CheerPost> candidatePosts = visibleCandidatePosts.stream()
                 .filter(post -> !excludedIds.contains(post.getAuthor().getId()))
                 .toList();
 
@@ -329,17 +369,27 @@ public class CheerFeedService {
             return new PageImpl<>(Collections.emptyList(), pageable, totalElements);
         }
 
-        List<Long> candidatePostIds = candidatePosts.stream().map(CheerPost::getId).toList();
+        List<Long> candidatePostIds = visibleCandidatePosts.stream().map(CheerPost::getId).toList();
         Map<Long, Integer> viewCountMap = safeGetViewCounts(candidatePostIds);
         Set<Long> followingIds = me != null
                 ? new HashSet<>(followService.getFollowingIds(me.getId()))
                 : Collections.emptySet();
         java.time.Instant now = java.time.Instant.now();
+        Map<Long, Boolean> eligibilityMap = visibleCandidatePosts.stream()
+                .collect(Collectors.toMap(
+                        CheerPost::getId,
+                        post -> popularFeedScoringService.isHotEligible(
+                                post,
+                                post.getViews() + viewCountMap.getOrDefault(post.getId(), 0),
+                                now)));
+        totalElements = pruneInvalidHotEntries(
+                PopularFeedAlgorithm.TIME_DECAY,
+                totalElements,
+                candidateIds,
+                visibleCandidatePosts,
+                eligibilityMap);
         List<CheerPost> eligibleCandidates = candidatePosts.stream()
-                .filter(post -> popularFeedScoringService.isHotEligible(
-                        post,
-                        post.getViews() + viewCountMap.getOrDefault(post.getId(), 0),
-                        now))
+                .filter(post -> eligibilityMap.getOrDefault(post.getId(), false))
                 .toList();
 
         List<ScoredHotPost> scoredPosts = eligibleCandidates.stream()
@@ -383,6 +433,48 @@ public class CheerFeedService {
 
         List<PostSummaryRes> content = toHotPostSummary(pagedPosts, me);
         return new PageImpl<>(Objects.requireNonNull(content), pageable, totalElements);
+    }
+
+    private long pruneInvalidHotEntries(
+            PopularFeedAlgorithm algorithm,
+            long currentTotalElements,
+            Set<Long> requestedIds,
+            List<CheerPost> resolvedPosts,
+            Map<Long, Boolean> eligibilityMap) {
+        LinkedHashSet<Long> invalidIds = new LinkedHashSet<>();
+        Set<Long> resolvedIds = resolvedPosts.stream()
+                .map(CheerPost::getId)
+                .collect(Collectors.toSet());
+
+        requestedIds.stream()
+                .filter(id -> !resolvedIds.contains(id))
+                .forEach(invalidIds::add);
+
+        resolvedPosts.stream()
+                .map(CheerPost::getId)
+                .filter(id -> !eligibilityMap.getOrDefault(id, false))
+                .forEach(invalidIds::add);
+
+        if (invalidIds.isEmpty()) {
+            return currentTotalElements;
+        }
+
+        invalidIds.forEach(redisPostService::removeFromHotList);
+        return redisPostService.getHotListSize(algorithm);
+    }
+
+    private long pruneExplicitHotEntries(
+            PopularFeedAlgorithm algorithm,
+            long currentTotalElements,
+            List<Long> invalidIds) {
+        if (invalidIds == null || invalidIds.isEmpty()) {
+            return currentTotalElements;
+        }
+        invalidIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .forEach(redisPostService::removeFromHotList);
+        return redisPostService.getHotListSize(algorithm);
     }
 
     private List<PostSummaryRes> toHotPostSummary(List<CheerPost> posts, UserEntity me) {
@@ -457,7 +549,13 @@ public class CheerFeedService {
 
         Long viewerId = me != null ? me.getId() : null;
         return posts.stream()
-                .filter(post -> post.getAuthor() == null || publicVisibilityVerifier.canAccess(post.getAuthor(), viewerId))
+                .filter(post -> {
+                    if (post.getAuthor() == null) {
+                        log.warn("Skipping cheer post with missing author reference: postId={}", post.getId());
+                        return false;
+                    }
+                    return publicVisibilityVerifier.canAccess(post.getAuthor(), viewerId);
+                })
                 .toList();
     }
 
@@ -477,9 +575,9 @@ public class CheerFeedService {
                 resolveTeamColor(post.getTeam()),
                 post.getContent(),
                 resolveDisplayName(post.getAuthor()),
-                post.getAuthor().getHandle(),
+                resolveAuthorHandle(post.getAuthor()),
                 resolveAuthorProfileImageUrl(post.getAuthor()),
-                post.getAuthor().getFavoriteTeamId(),
+                resolveAuthorTeamId(post.getAuthor()),
                 post.getCreatedAt(),
                 post.getCommentCount(),
                 post.getLikeCount(),
@@ -491,7 +589,7 @@ public class CheerFeedService {
                 isOwner,
                 post.getRepostCount(),
                 repostedByMe,
-                post.getPostType().name(),
+                resolvePostTypeName(post),
                 Collections.emptyList());
     }
 
@@ -536,6 +634,28 @@ public class CheerFeedService {
             return rawValue;
         }
         return null;
+    }
+
+    private String resolveAuthorHandle(com.example.auth.entity.UserEntity author) {
+        if (author == null) {
+            return null;
+        }
+        String handle = author.getHandle();
+        return handle == null || handle.isBlank() ? null : handle;
+    }
+
+    private String resolveAuthorTeamId(com.example.auth.entity.UserEntity author) {
+        if (author == null) {
+            return null;
+        }
+        return author.getFavoriteTeamId();
+    }
+
+    private String resolvePostTypeName(CheerPost post) {
+        if (post == null || post.getPostType() == null) {
+            return PostType.NORMAL.name();
+        }
+        return post.getPostType().name();
     }
 
     private Map<Long, List<String>> prefetchRepostOriginalImages(List<CheerPost> posts) {

@@ -43,6 +43,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -185,7 +186,15 @@ public class AdminService {
         // 좋아요 삭제
         List<CheerPostLike> userLikes = likeRepository.findByUser(user);
         if (!userLikes.isEmpty()) {
+            Set<Long> affectedPostIds = userLikes.stream()
+                    .map(CheerPostLike::getPost)
+                    .filter(Objects::nonNull)
+                    .map(CheerPost::getId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
             likeRepository.deleteAll(userLikes);
+            likeRepository.flush();
+            reconcileCheerPostLikeCounts(affectedPostIds);
         }
 
         // 댓글 삭제
@@ -225,6 +234,13 @@ public class AdminService {
                     .build();
             auditLogRepository.save(Objects.requireNonNull(auditLog));
             log.info("User {} deleted by admin {}. Email: {}", userId, adminId, userEmail);
+        }
+    }
+
+    private void reconcileCheerPostLikeCounts(Set<Long> postIds) {
+        for (Long postId : postIds) {
+            int exactLikeCount = Math.toIntExact(likeRepository.countByPostId(postId));
+            cheerPostRepository.setExactLikeCount(postId, exactLikeCount);
         }
     }
 
