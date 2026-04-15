@@ -5,10 +5,12 @@ import com.example.admin.service.AdminService;
 import com.example.BegaDiary.Service.SeatViewService;
 import com.example.common.dto.ApiResponse;
 import com.example.prediction.GameInningScoreRequestDto;
+import com.example.prediction.GameStatusMismatchDto;
 import com.example.prediction.GameScoreSyncBatchResultDto;
 import com.example.prediction.GameScoreSyncResultDto;
 import com.example.prediction.GameStatusMismatchBatchResultDto;
 import com.example.prediction.GameStatusRepairBatchResultDto;
+import com.example.prediction.NonCanonicalGameDto;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -309,7 +311,9 @@ class AdminControllerTest {
                 LocalDate.of(2026, 3, 29),
                 5,
                 2,
-                List.of()
+                List.<GameStatusMismatchDto>of(),
+                1,
+                List.<NonCanonicalGameDto>of()
         );
         when(adminService.findGameStatusMismatchesByDateRange(LocalDate.of(2026, 3, 29), LocalDate.of(2026, 3, 29)))
                 .thenReturn(resultDto);
@@ -333,8 +337,10 @@ class AdminControllerTest {
                 5,
                 2,
                 0,
-                List.of(),
-                List.of()
+                List.<GameStatusMismatchDto>of(),
+                List.<GameScoreSyncResultDto>of(),
+                1,
+                List.<NonCanonicalGameDto>of()
         );
         when(adminService.repairGameStatusMismatchesByDateRange(LocalDate.of(2026, 3, 29), LocalDate.of(2026, 3, 29), true))
                 .thenReturn(resultDto);
@@ -347,5 +353,81 @@ class AdminControllerTest {
 
         assertThat(result.getBody().isSuccess()).isTrue();
         assertThat(result.getBody().getData()).isEqualTo(resultDto);
+    }
+
+    @Test
+    @DisplayName("비정상 팀 코드 정제 tracker 목록을 조회한다")
+    void getNonCanonicalCleanupTrackers_returnsSuccess() {
+        List<AdminNonCanonicalCleanupTrackerDto> resultDto = List.of(
+                new AdminNonCanonicalCleanupTrackerDto(
+                        LocalDate.of(2026, 4, 14),
+                        LocalDate.of(2026, 4, 14),
+                        "https://tickets.example.com/noncanonical-20260414",
+                        "ops-team",
+                        "requested",
+                        "raw team code cleanup requested",
+                        java.time.LocalDateTime.of(2026, 4, 15, 10, 0),
+                        List.of("20260414롯데00LG0")
+                )
+        );
+        when(adminService.getNonCanonicalCleanupTrackers()).thenReturn(resultDto);
+
+        ResponseEntity<ApiResponse> result = controller.getNonCanonicalCleanupTrackers();
+
+        assertThat(result.getBody().isSuccess()).isTrue();
+        assertThat(result.getBody().getData()).isEqualTo(resultDto);
+    }
+
+    @Test
+    @DisplayName("비정상 팀 코드 정제 tracker를 저장한다")
+    void upsertNonCanonicalCleanupTracker_returnsSuccess() {
+        AdminNonCanonicalCleanupTrackerUpsertRequest request = new AdminNonCanonicalCleanupTrackerUpsertRequest(
+                "https://tickets.example.com/noncanonical-20260414",
+                "ops-team",
+                "requested",
+                "raw team code cleanup requested",
+                List.of("20260414롯데00LG0")
+        );
+        AdminNonCanonicalCleanupTrackerDto resultDto = new AdminNonCanonicalCleanupTrackerDto(
+                LocalDate.of(2026, 4, 14),
+                LocalDate.of(2026, 4, 14),
+                "https://tickets.example.com/noncanonical-20260414",
+                "ops-team",
+                "requested",
+                "raw team code cleanup requested",
+                java.time.LocalDateTime.of(2026, 4, 15, 10, 0),
+                List.of("20260414롯데00LG0")
+        );
+        when(adminService.upsertNonCanonicalCleanupTracker(
+                LocalDate.of(2026, 4, 14),
+                LocalDate.of(2026, 4, 14),
+                request,
+                42L
+        )).thenReturn(resultDto);
+
+        ResponseEntity<ApiResponse> result = controller.upsertNonCanonicalCleanupTracker(
+                42L,
+                LocalDate.of(2026, 4, 14),
+                LocalDate.of(2026, 4, 14),
+                request
+        );
+
+        assertThat(result.getBody().isSuccess()).isTrue();
+        assertThat(result.getBody().getData()).isEqualTo(resultDto);
+    }
+
+    @Test
+    @DisplayName("비정상 팀 코드 정제 tracker를 삭제한다")
+    void deleteNonCanonicalCleanupTracker_returnsNoContent() {
+        ResponseEntity<Void> result = controller.deleteNonCanonicalCleanupTracker(
+                LocalDate.of(2026, 4, 14),
+                LocalDate.of(2026, 4, 14)
+        );
+
+        assertThat(result.getStatusCode().value()).isEqualTo(204);
+        verify(adminService).deleteNonCanonicalCleanupTracker(
+                LocalDate.of(2026, 4, 14),
+                LocalDate.of(2026, 4, 14)
+        );
     }
 }
