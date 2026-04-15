@@ -1,13 +1,17 @@
 package com.example.admin.service;
 
 import com.example.admin.dto.AdminMateDto;
+import com.example.admin.dto.AdminNonCanonicalCleanupTrackerDto;
+import com.example.admin.dto.AdminNonCanonicalCleanupTrackerUpsertRequest;
 import com.example.admin.dto.AdminPostDto;
 import com.example.admin.dto.AdminReportActionReq;
 import com.example.admin.dto.AdminReportAppealReq;
 import com.example.admin.dto.AdminReportDto;
 import com.example.admin.dto.AdminStatsDto;
 import com.example.admin.dto.AdminUserDto;
+import com.example.admin.entity.AdminNonCanonicalCleanupTrackerEntity;
 import com.example.admin.entity.AuditLog;
+import com.example.admin.repository.AdminNonCanonicalCleanupTrackerRepository;
 import com.example.admin.repository.AuditLogRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
@@ -39,10 +43,13 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -62,9 +69,12 @@ public class AdminService {
     private final CheerPostLikeRepo likeRepository;
     private final CacheManager cacheManager;
     private final AuditLogRepository auditLogRepository;
+    private final AdminNonCanonicalCleanupTrackerRepository nonCanonicalCleanupTrackerRepository;
     private final PartyService partyService;
     private final RefreshRepository refreshRepository;
     private final PredictionService predictionService;
+    private static final Set<String> NON_CANONICAL_TRACKER_STATUSES =
+            Set.of("draft", "requested", "in_progress", "done");
 
     /**
      * 대시보드 통계 조회
@@ -538,5 +548,105 @@ public class AdminService {
             boolean dryRun
     ) {
         return predictionService.repairGameStatusMismatchesByDateRange(startDate, endDate, dryRun);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AdminNonCanonicalCleanupTrackerDto> getNonCanonicalCleanupTrackers() {
+        return nonCanonicalCleanupTrackerRepository.findAllByOrderByUpdatedAtDesc().stream()
+                .map(this::convertToNonCanonicalCleanupTrackerDto)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public AdminNonCanonicalCleanupTrackerDto upsertNonCanonicalCleanupTracker(
+            LocalDate startDate,
+            LocalDate endDate,
+            AdminNonCanonicalCleanupTrackerUpsertRequest request,
+            Long adminId
+    ) {
+        LocalDate resolvedEndDate = endDate != null ? endDate : startDate;
+        if (resolvedEndDate.isBefore(startDate)) {
+            throw new IllegalArgumentException("종료일은 시작일보다 빠를 수 없습니다.");
+        }
+
+        LocalDateTime updatedAt = LocalDateTime.now();
+        String normalizedStatus = normalizeCleanupTrackerStatus(request.status());
+        List<String> normalizedGameIds = normalizeCleanupTrackerGameIds(request.gameIds());
+
+        AdminNonCanonicalCleanupTrackerEntity entity = nonCanonicalCleanupTrackerRepository
+                .findByStartDateAndEndDate(startDate, resolvedEndDate)
+                .orElseGet(() -> AdminNonCanonicalCleanupTrackerEntity.builder()
+                        .startDate(startDate)
+                        .endDate(resolvedEndDate)
+                        .status(normalizedStatus)
+                        .updatedAt(updatedAt)
+                        .gameIds(new ArrayList<>())
+                        .build());
+
+        entity.applyUpdate(
+                trimToNull(request.ticketUrl()),
+                trimToNull(request.assignee()),
+                normalizedStatus,
+                trimToNull(request.note()),
+                updatedAt,
+                adminId,
+                normalizedGameIds
+        );
+
+        return convertToNonCanonicalCleanupTrackerDto(nonCanonicalCleanupTrackerRepository.save(entity));
+    }
+
+    @Transactional
+    public void deleteNonCanonicalCleanupTracker(LocalDate startDate, LocalDate endDate) {
+        LocalDate resolvedEndDate = endDate != null ? endDate : startDate;
+        nonCanonicalCleanupTrackerRepository.findByStartDateAndEndDate(startDate, resolvedEndDate)
+                .ifPresent(nonCanonicalCleanupTrackerRepository::delete);
+    }
+
+    private AdminNonCanonicalCleanupTrackerDto convertToNonCanonicalCleanupTrackerDto(
+            AdminNonCanonicalCleanupTrackerEntity entity
+    ) {
+        return new AdminNonCanonicalCleanupTrackerDto(
+                entity.getStartDate(),
+                entity.getEndDate(),
+                entity.getTicketUrl(),
+                entity.getAssignee(),
+                entity.getStatus(),
+                entity.getNote(),
+                entity.getUpdatedAt(),
+                entity.getGameIds() == null ? List.of() : List.copyOf(entity.getGameIds())
+        );
+    }
+
+    private String normalizeCleanupTrackerStatus(String status) {
+        String normalized = trimToNull(status);
+        if (normalized == null) {
+            return "draft";
+        }
+
+        String lowerCase = normalized.toLowerCase(Locale.ROOT);
+        if (!NON_CANONICAL_TRACKER_STATUSES.contains(lowerCase)) {
+            throw new IllegalArgumentException("지원하지 않는 정제 티켓 상태입니다: " + status);
+        }
+        return lowerCase;
+    }
+
+    private List<String> normalizeCleanupTrackerGameIds(List<String> gameIds) {
+        if (gameIds == null) {
+            return List.of();
+        }
+
+        return gameIds.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    private String trimToNull(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        return value.trim();
     }
 }
