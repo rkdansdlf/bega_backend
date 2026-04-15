@@ -2,6 +2,7 @@ package com.example.mate.controller;
 
 import com.example.mate.dto.ChatMessageDTO;
 import com.example.mate.service.ChatMessageService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.http.HttpStatus;
@@ -21,7 +22,7 @@ public class ChatMessageController {
     // 메시지 전송
     @PostMapping("/messages")
     public ResponseEntity<?> sendMessage(
-            @RequestBody ChatMessageDTO.Request request,
+            @Valid @RequestBody ChatMessageDTO.Request request,
             java.security.Principal principal) {
         ChatMessageDTO.Response response = chatMessageService.sendMessage(request, principal);
         messagingTemplate.convertAndSend("/topic/party/" + response.getPartyId(), response);
