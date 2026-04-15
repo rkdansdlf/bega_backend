@@ -78,6 +78,19 @@ public class AiServiceSettings {
         return "";
     }
 
+    public List<String> getResolvedInternalTokenCandidates() {
+        String primaryToken = getResolvedInternalToken();
+        if (!StringUtils.hasText(primaryToken)) {
+            return List.of();
+        }
+
+        if (!isDevOrLocalProfile() || LOCAL_DEV_AI_INTERNAL_TOKEN.equals(primaryToken)) {
+            return List.of(primaryToken);
+        }
+
+        return List.of(primaryToken, LOCAL_DEV_AI_INTERNAL_TOKEN);
+    }
+
     public String buildUrl(String path) {
         String baseUrl = getResolvedServiceUrl();
         if (!StringUtils.hasText(baseUrl)) {
