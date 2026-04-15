@@ -1,7 +1,10 @@
 package com.example.homepage;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.Year;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -15,8 +18,11 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.example.kbo.entity.GameEntity;
+import com.example.kbo.entity.GameMetadataEntity;
+import com.example.kbo.repository.GameMetadataRepository;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.service.LeagueStageResolver;
+import com.example.kbo.validation.BaseballDataIntegrityGuard;
 import com.example.kbo.util.GameStatusResolver;
 import com.example.kbo.util.TeamCodeNormalizer;
 
@@ -31,11 +37,16 @@ import static com.example.common.config.CacheConfig.*;
 @RequiredArgsConstructor
 public class HomePageGameService {
 
+    private static final String DEFAULT_GAME_TIME = "18:30";
+    private static final DateTimeFormatter GAME_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+
     private final GameRepository gameRepository;
+    private final GameMetadataRepository gameMetadataRepository;
 	private final HomePageTeamRepository homePageTeamRepository;
     @Qualifier("stadiumDataSource")
     private final DataSource stadiumDataSource;
     private final LeagueStageResolver leagueStageResolver;
+    private final BaseballDataIntegrityGuard baseballDataIntegrityGuard;
 
 	private final Map<String, HomePageTeam> teamMap = new ConcurrentHashMap<>();
 
@@ -68,17 +79,32 @@ public class HomePageGameService {
                 games = jdbcFallbackGames;
             }
         }
+        if (games.isEmpty()) {
+            return List.of();
+        }
+        baseballDataIntegrityGuard.ensureHomeGamesByDate("home.schedule", date, games);
+        Map<String, LocalTime> startTimes = loadStartTimes(games);
 
         return games.stream()
-                .map(this::convertToDto)
+                .map(game -> convertToDto(game, startTimes.get(game.getGameId())))
                 .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<HomePageScheduledGameDto> getScheduledGamesWindow(LocalDate startDate, LocalDate endDate) {
-        return gameRepository.findAllByDateRange(startDate, endDate).stream()
+        List<GameEntity> games = gameRepository.findAllByDateRange(startDate, endDate);
+        if (games.isEmpty()) {
+            return List.of();
+        }
+        baseballDataIntegrityGuard.ensureHomeScheduledWindow(
+                "home.scheduled_window",
+                startDate,
+                endDate,
+                games);
+        Map<String, LocalTime> startTimes = loadStartTimes(games);
+        return games.stream()
                 .map(game -> {
-                    HomePageGameDto baseDto = convertToDto(game);
+                    HomePageGameDto baseDto = convertToDto(game, startTimes.get(game.getGameId()));
                     return HomePageScheduledGameDto.builder()
                             .gameId(baseDto.getGameId())
                             .time(baseDto.getTime())
@@ -100,7 +126,7 @@ public class HomePageGameService {
                 .collect(Collectors.toList());
     }
 
-    private HomePageGameDto convertToDto(GameEntity game) {
+    private HomePageGameDto convertToDto(GameEntity game, LocalTime startTime) {
 		HomePageTeam homeTeam = getTeam(game.getHomeTeam());
 		HomePageTeam awayTeam = getTeam(game.getAwayTeam());
         String resolvedHomeTeamId = resolveTeamId(game.getHomeTeam(), homeTeam.getTeamId());
@@ -123,7 +149,7 @@ public class HomePageGameService {
         String effectiveGameStatus = GameStatusResolver.resolveEffectiveStatus(
                 game.getGameStatus(),
                 game.getGameDate(),
-                null,
+                startTime,
                 homeScore,
                 awayScore,
                 hasKnownScore
@@ -147,10 +173,41 @@ public class HomePageGameService {
                 .awayTeamFull(resolvedAwayTeamName)
                 .homeScore(homeScore)
                 .awayScore(awayScore)
-                .time("18:30")
+                .time(formatGameTime(startTime))
                 .leagueType(leagueType)
                 .gameInfo(gameInfo)
                 .build();
+    }
+
+    private Map<String, LocalTime> loadStartTimes(List<GameEntity> games) {
+        if (games == null || games.isEmpty()) {
+            return Map.of();
+        }
+
+        List<String> gameIds = games.stream()
+                .map(GameEntity::getGameId)
+                .filter(gameId -> gameId != null && !gameId.isBlank())
+                .distinct()
+                .collect(Collectors.toList());
+        if (gameIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, LocalTime> startTimes = new HashMap<>();
+        for (GameMetadataEntity metadata : gameMetadataRepository.findAllById(gameIds)) {
+            if (metadata.getGameId() == null || metadata.getStartTime() == null) {
+                continue;
+            }
+            startTimes.putIfAbsent(metadata.getGameId(), metadata.getStartTime());
+        }
+        return startTimes;
+    }
+
+    private String formatGameTime(LocalTime startTime) {
+        if (startTime == null) {
+            return DEFAULT_GAME_TIME;
+        }
+        return startTime.format(GAME_TIME_FORMATTER);
     }
 
     private String convertGameStatus(String status) {
@@ -192,6 +249,13 @@ public class HomePageGameService {
 
 	private String determineLeagueType(GameEntity game) {
 		Integer leagueTypeCode = leagueStageResolver.resolveEffectiveLeagueTypeCode(game);
+		if (leagueTypeCode == null
+				&& game != null
+				&& game.getSeasonId() != null
+				&& game.getGameDate() != null
+				&& game.getSeasonId().equals(game.getGameDate().getYear())) {
+			leagueTypeCode = 0;
+		}
 		if (leagueTypeCode == null) {
 			return "OFFSEASON";
 		}
