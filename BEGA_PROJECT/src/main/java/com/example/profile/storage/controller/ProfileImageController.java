@@ -3,6 +3,7 @@ package com.example.profile.storage.controller;
 import com.example.common.dto.ApiResponse;
 import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.ratelimit.RateLimit;
 import com.example.profile.storage.dto.ProfileImageDto;
 import com.example.profile.storage.service.ProfileImageService;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +30,7 @@ public class ProfileImageController {
      * 프로필 이미지 업로드
      * POST /api/profile/image
      */
+    @RateLimit(limit = 3, window = 60, key = "image:profile")
     @PostMapping(value = "/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse> uploadProfileImage(
             @RequestPart("file") MultipartFile file) {
