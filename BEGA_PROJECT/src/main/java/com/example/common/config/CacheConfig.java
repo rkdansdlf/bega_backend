@@ -48,6 +48,9 @@ public class CacheConfig {
         public static final String POST_IMAGE_URLS = "postImageUrls";
         public static final String USER_RANK = "userRank";           // 리더보드 랭킹 (per-user, season rank only)
         public static final String USER_STATS = "userStats";          // 리더보드 전체 통계 (per-user, 4x rank counts)
+        public static final String PREDICTION_VOTE_STATUS = "predictionVoteStatus";
+        public static final String RANKING_PREDICTION_CONTEXT = "rankingPredictionContext";
+        public static final String RANKING_SHARE_IDS = "rankingShareIds";
 
         // L2 전용 캐시 (Redis only) - 라이브 데이터 (추후 확장용)
         public static final String LIVE_GAME_SCORE = "liveGameScore";
@@ -127,11 +130,17 @@ public class CacheConfig {
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(50))));
                 cacheConfigs.put(USER_STATS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
+                cacheConfigs.put(RANKING_PREDICTION_CONTEXT,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
+                cacheConfigs.put(RANKING_SHARE_IDS,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(30))));
 
                 // L2 전용 캐시 - 라이브 데이터 (짧은 TTL)
                 cacheConfigs.put(LIVE_GAME_SCORE,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(10))));
                 cacheConfigs.put(LIVE_GAME_STATUS,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(5))));
+                cacheConfigs.put(PREDICTION_VOTE_STATUS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(5))));
 
                 return RedisCacheManager.builder(Objects.requireNonNull(connectionFactory))

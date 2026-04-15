@@ -40,6 +40,9 @@ public class LeagueStageResolver {
         Integer resolvedRawLeagueTypeCode = rawLeagueTypeCode != null
                 ? rawLeagueTypeCode
                 : resolveRawLeagueTypeCode(seasonId);
+        if (resolvedRawLeagueTypeCode == null) {
+            resolvedRawLeagueTypeCode = inferRegularSeasonLeagueTypeCode(gameDate, seasonId);
+        }
         if (!isPostseasonCode(resolvedRawLeagueTypeCode)) {
             return resolvedRawLeagueTypeCode;
         }
@@ -78,6 +81,13 @@ public class LeagueStageResolver {
         }
         rawLeagueTypeCache.put(seasonId, fetched);
         return fetched.orElse(null);
+    }
+
+    private Integer inferRegularSeasonLeagueTypeCode(LocalDate gameDate, Integer seasonId) {
+        if (gameDate == null || seasonId == null) {
+            return null;
+        }
+        return seasonId.equals(gameDate.getYear()) ? 0 : null;
     }
 
     private Integer inferPostseasonLeagueTypeCode(LocalDate gameDate, Integer rawLeagueTypeCode) {

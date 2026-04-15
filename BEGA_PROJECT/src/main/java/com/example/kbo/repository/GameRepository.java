@@ -37,7 +37,15 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
               g.away_pitcher,
               g.season_id,
               gm.start_time,
-              s.league_type_code AS raw_league_type_code
+              s.league_type_code AS raw_league_type_code,
+              CASE
+                  WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.home_team))
+                  ELSE UPPER(TRIM(g.away_team))
+              END AS team_a,
+              CASE
+                  WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.away_team))
+                  ELSE UPPER(TRIM(g.home_team))
+              END AS team_b
           FROM game g
           LEFT JOIN game_metadata gm ON gm.game_id = g.game_id
           LEFT JOIN kbo_seasons s ON g.season_id = s.season_id
@@ -46,46 +54,6 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
             AND g.game_id NOT LIKE 'MOCK%'
             AND g.home_team IN :canonicalTeams
             AND g.away_team IN :canonicalTeams
-      ),
-      series_keys AS (
-          SELECT DISTINCT
-              rr.season_id,
-              CASE
-                  WHEN UPPER(TRIM(rr.home_team)) <= UPPER(TRIM(rr.away_team)) THEN UPPER(TRIM(rr.home_team))
-                  ELSE UPPER(TRIM(rr.away_team))
-              END AS team_a,
-              CASE
-                  WHEN UPPER(TRIM(rr.home_team)) <= UPPER(TRIM(rr.away_team)) THEN UPPER(TRIM(rr.away_team))
-                  ELSE UPPER(TRIM(rr.home_team))
-              END AS team_b
-          FROM range_rows rr
-          WHERE rr.raw_league_type_code BETWEEN 2 AND 5
-            AND rr.season_id IS NOT NULL
-            AND rr.home_team IS NOT NULL
-            AND rr.away_team IS NOT NULL
-      ),
-      series_ranked AS (
-          SELECT
-              g.game_id,
-              ROW_NUMBER() OVER (
-                  PARTITION BY sk.season_id, sk.team_a, sk.team_b
-                  ORDER BY g.game_date ASC, g.game_id ASC
-              ) AS series_game_no
-          FROM series_keys sk
-          JOIN game g
-            ON g.season_id = sk.season_id
-           AND CASE
-               WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.home_team))
-               ELSE UPPER(TRIM(g.away_team))
-           END = sk.team_a
-           AND CASE
-               WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.away_team))
-               ELSE UPPER(TRIM(g.home_team))
-           END = sk.team_b
-          WHERE g.game_date IS NOT NULL
-            AND g.game_id IS NOT NULL
-            AND g.is_dummy IS NOT TRUE
-            AND g.game_id NOT LIKE 'MOCK%'
       )
       SELECT
           rr.game_id AS "gameId",
@@ -100,11 +68,37 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
           rr.away_pitcher AS "awayPitcher",
           rr.season_id AS "seasonId",
           rr.raw_league_type_code AS "rawLeagueTypeCode",
-          sr.series_game_no AS "seriesGameNo",
+          CASE
+              WHEN rr.raw_league_type_code BETWEEN 2 AND 5
+               AND rr.season_id IS NOT NULL
+               AND rr.team_a IS NOT NULL
+               AND rr.team_b IS NOT NULL
+              THEN (
+                  SELECT COUNT(*)
+                  FROM game sg
+                  WHERE sg.season_id = rr.season_id
+                    AND sg.game_date IS NOT NULL
+                    AND sg.game_id IS NOT NULL
+                    AND sg.is_dummy IS NOT TRUE
+                    AND sg.game_id NOT LIKE 'MOCK%'
+                    AND CASE
+                        WHEN UPPER(TRIM(sg.home_team)) <= UPPER(TRIM(sg.away_team)) THEN UPPER(TRIM(sg.home_team))
+                        ELSE UPPER(TRIM(sg.away_team))
+                    END = rr.team_a
+                    AND CASE
+                        WHEN UPPER(TRIM(sg.home_team)) <= UPPER(TRIM(sg.away_team)) THEN UPPER(TRIM(sg.away_team))
+                        ELSE UPPER(TRIM(sg.home_team))
+                    END = rr.team_b
+                    AND (
+                        sg.game_date < rr.game_date
+                        OR (sg.game_date = rr.game_date AND sg.game_id <= rr.game_id)
+                    )
+              )
+              ELSE NULL
+          END AS "seriesGameNo",
           rr.game_status AS "gameStatus",
           rr.start_time AS "startTime"
       FROM range_rows rr
-      LEFT JOIN series_ranked sr ON sr.game_id = rr.game_id
       ORDER BY rr.game_date ASC, rr.game_id ASC
       """;
 
@@ -134,7 +128,15 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
               g.away_pitcher,
               g.season_id,
               gm.start_time,
-              s.league_type_code AS raw_league_type_code
+              s.league_type_code AS raw_league_type_code,
+              CASE
+                  WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.home_team))
+                  ELSE UPPER(TRIM(g.away_team))
+              END AS team_a,
+              CASE
+                  WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.away_team))
+                  ELSE UPPER(TRIM(g.home_team))
+              END AS team_b
           FROM game g
           LEFT JOIN game_metadata gm ON gm.game_id = g.game_id
           LEFT JOIN kbo_seasons s ON g.season_id = s.season_id
@@ -143,46 +145,6 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
             AND g.game_id NOT LIKE 'MOCK%'
             AND g.home_team IN :canonicalTeams
             AND g.away_team IN :canonicalTeams
-      ),
-      series_keys AS (
-          SELECT DISTINCT
-              dr.season_id,
-              CASE
-                  WHEN UPPER(TRIM(dr.home_team)) <= UPPER(TRIM(dr.away_team)) THEN UPPER(TRIM(dr.home_team))
-                  ELSE UPPER(TRIM(dr.away_team))
-              END AS team_a,
-              CASE
-                  WHEN UPPER(TRIM(dr.home_team)) <= UPPER(TRIM(dr.away_team)) THEN UPPER(TRIM(dr.away_team))
-                  ELSE UPPER(TRIM(dr.home_team))
-              END AS team_b
-          FROM date_rows dr
-          WHERE dr.raw_league_type_code BETWEEN 2 AND 5
-            AND dr.season_id IS NOT NULL
-            AND dr.home_team IS NOT NULL
-            AND dr.away_team IS NOT NULL
-      ),
-      series_ranked AS (
-          SELECT
-              g.game_id,
-              ROW_NUMBER() OVER (
-                  PARTITION BY sk.season_id, sk.team_a, sk.team_b
-                  ORDER BY g.game_date ASC, g.game_id ASC
-              ) AS series_game_no
-          FROM series_keys sk
-          JOIN game g
-            ON g.season_id = sk.season_id
-           AND CASE
-               WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.home_team))
-               ELSE UPPER(TRIM(g.away_team))
-           END = sk.team_a
-           AND CASE
-               WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.away_team))
-               ELSE UPPER(TRIM(g.home_team))
-           END = sk.team_b
-          WHERE g.game_date IS NOT NULL
-            AND g.game_id IS NOT NULL
-            AND g.is_dummy IS NOT TRUE
-            AND g.game_id NOT LIKE 'MOCK%'
       )
       SELECT
           dr.game_id AS "gameId",
@@ -197,11 +159,37 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
           dr.away_pitcher AS "awayPitcher",
           dr.season_id AS "seasonId",
           dr.raw_league_type_code AS "rawLeagueTypeCode",
-          sr.series_game_no AS "seriesGameNo",
+          CASE
+              WHEN dr.raw_league_type_code BETWEEN 2 AND 5
+               AND dr.season_id IS NOT NULL
+               AND dr.team_a IS NOT NULL
+               AND dr.team_b IS NOT NULL
+              THEN (
+                  SELECT COUNT(*)
+                  FROM game sg
+                  WHERE sg.season_id = dr.season_id
+                    AND sg.game_date IS NOT NULL
+                    AND sg.game_id IS NOT NULL
+                    AND sg.is_dummy IS NOT TRUE
+                    AND sg.game_id NOT LIKE 'MOCK%'
+                    AND CASE
+                        WHEN UPPER(TRIM(sg.home_team)) <= UPPER(TRIM(sg.away_team)) THEN UPPER(TRIM(sg.home_team))
+                        ELSE UPPER(TRIM(sg.away_team))
+                    END = dr.team_a
+                    AND CASE
+                        WHEN UPPER(TRIM(sg.home_team)) <= UPPER(TRIM(sg.away_team)) THEN UPPER(TRIM(sg.away_team))
+                        ELSE UPPER(TRIM(sg.home_team))
+                    END = dr.team_b
+                    AND (
+                        sg.game_date < dr.game_date
+                        OR (sg.game_date = dr.game_date AND sg.game_id <= dr.game_id)
+                    )
+              )
+              ELSE NULL
+          END AS "seriesGameNo",
           dr.game_status AS "gameStatus",
           dr.start_time AS "startTime"
       FROM date_rows dr
-      LEFT JOIN series_ranked sr ON sr.game_id = dr.game_id
       ORDER BY dr.game_date ASC, dr.game_id ASC
       """;
 
@@ -221,7 +209,15 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
               g.away_pitcher,
               g.season_id,
               gm.start_time,
-              s.league_type_code AS raw_league_type_code
+              s.league_type_code AS raw_league_type_code,
+              CASE
+                  WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.home_team))
+                  ELSE UPPER(TRIM(g.away_team))
+              END AS team_a,
+              CASE
+                  WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.away_team))
+                  ELSE UPPER(TRIM(g.home_team))
+              END AS team_b
           FROM game g
           LEFT JOIN game_metadata gm ON gm.game_id = g.game_id
           LEFT JOIN kbo_seasons s ON g.season_id = s.season_id
@@ -232,46 +228,6 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
             AND g.game_id NOT LIKE 'MOCK%'
             AND g.home_team IN :canonicalTeams
             AND g.away_team IN :canonicalTeams
-      ),
-      series_keys AS (
-          SELECT DISTINCT
-              pr.season_id,
-              CASE
-                  WHEN UPPER(TRIM(pr.home_team)) <= UPPER(TRIM(pr.away_team)) THEN UPPER(TRIM(pr.home_team))
-                  ELSE UPPER(TRIM(pr.away_team))
-              END AS team_a,
-              CASE
-                  WHEN UPPER(TRIM(pr.home_team)) <= UPPER(TRIM(pr.away_team)) THEN UPPER(TRIM(pr.away_team))
-                  ELSE UPPER(TRIM(pr.home_team))
-              END AS team_b
-          FROM past_rows pr
-          WHERE pr.raw_league_type_code BETWEEN 2 AND 5
-            AND pr.season_id IS NOT NULL
-            AND pr.home_team IS NOT NULL
-            AND pr.away_team IS NOT NULL
-      ),
-      series_ranked AS (
-          SELECT
-              g.game_id,
-              ROW_NUMBER() OVER (
-                  PARTITION BY sk.season_id, sk.team_a, sk.team_b
-                  ORDER BY g.game_date ASC, g.game_id ASC
-              ) AS series_game_no
-          FROM series_keys sk
-          JOIN game g
-            ON g.season_id = sk.season_id
-           AND CASE
-               WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.home_team))
-               ELSE UPPER(TRIM(g.away_team))
-           END = sk.team_a
-           AND CASE
-               WHEN UPPER(TRIM(g.home_team)) <= UPPER(TRIM(g.away_team)) THEN UPPER(TRIM(g.away_team))
-               ELSE UPPER(TRIM(g.home_team))
-           END = sk.team_b
-          WHERE g.game_date IS NOT NULL
-            AND g.game_id IS NOT NULL
-            AND g.is_dummy IS NOT TRUE
-            AND g.game_id NOT LIKE 'MOCK%'
       )
       SELECT
           pr.game_id AS "gameId",
@@ -286,11 +242,37 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
           pr.away_pitcher AS "awayPitcher",
           pr.season_id AS "seasonId",
           pr.raw_league_type_code AS "rawLeagueTypeCode",
-          sr.series_game_no AS "seriesGameNo",
+          CASE
+              WHEN pr.raw_league_type_code BETWEEN 2 AND 5
+               AND pr.season_id IS NOT NULL
+               AND pr.team_a IS NOT NULL
+               AND pr.team_b IS NOT NULL
+              THEN (
+                  SELECT COUNT(*)
+                  FROM game sg
+                  WHERE sg.season_id = pr.season_id
+                    AND sg.game_date IS NOT NULL
+                    AND sg.game_id IS NOT NULL
+                    AND sg.is_dummy IS NOT TRUE
+                    AND sg.game_id NOT LIKE 'MOCK%'
+                    AND CASE
+                        WHEN UPPER(TRIM(sg.home_team)) <= UPPER(TRIM(sg.away_team)) THEN UPPER(TRIM(sg.home_team))
+                        ELSE UPPER(TRIM(sg.away_team))
+                    END = pr.team_a
+                    AND CASE
+                        WHEN UPPER(TRIM(sg.home_team)) <= UPPER(TRIM(sg.away_team)) THEN UPPER(TRIM(sg.away_team))
+                        ELSE UPPER(TRIM(sg.home_team))
+                    END = pr.team_b
+                    AND (
+                        sg.game_date < pr.game_date
+                        OR (sg.game_date = pr.game_date AND sg.game_id <= pr.game_id)
+                    )
+              )
+              ELSE NULL
+          END AS "seriesGameNo",
           pr.game_status AS "gameStatus",
           pr.start_time AS "startTime"
       FROM past_rows pr
-      LEFT JOIN series_ranked sr ON sr.game_id = pr.game_id
       ORDER BY pr.game_date ASC, pr.game_id ASC
       """;
 
@@ -333,6 +315,27 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    * gameId 목록으로 경기 일괄 조회
    */
   List<GameEntity> findByGameIdIn(Collection<String> gameIds);
+
+  @Query(value = """
+      SELECT
+          g.game_id AS "gameId",
+          CASE
+              WHEN g.home_score = g.away_score THEN 'draw'
+              WHEN g.home_score > g.away_score THEN 'home'
+              ELSE 'away'
+          END AS "winner"
+      FROM game g
+      WHERE g.game_id IN :gameIds
+        AND g.home_score IS NOT NULL
+        AND g.away_score IS NOT NULL
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
+        AND g.home_team IN :canonicalTeams
+        AND g.away_team IN :canonicalTeams
+      """, nativeQuery = true)
+  List<PredictionStatsGameProjection> findPredictionStatsGameSummaries(
+      @Param("gameIds") Collection<String> gameIds,
+      @Param("canonicalTeams") List<String> canonicalTeams);
 
   /**
    * 특정 날짜의 경기 목록 조회
@@ -898,4 +901,16 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
       FETCH FIRST 1 ROWS ONLY
       """, nativeQuery = true)
   Optional<Integer> findLeagueTypeCodeBySeasonId(@Param("seasonId") Integer seasonId);
+
+  @Query(value = """
+      SELECT
+          s.season_id AS "seasonId",
+          s.season_year AS "seasonYear",
+          s.league_type_code AS "leagueTypeCode",
+          s.league_type_name AS "leagueTypeName"
+      FROM kbo_seasons s
+      WHERE s.season_id = :seasonId
+      FETCH FIRST 1 ROWS ONLY
+      """, nativeQuery = true)
+  Optional<SeasonInfoProjection> findSeasonInfoBySeasonId(@Param("seasonId") Integer seasonId);
 }

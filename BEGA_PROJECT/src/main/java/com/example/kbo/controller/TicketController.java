@@ -1,6 +1,7 @@
 package com.example.kbo.controller;
 
 import com.example.kbo.dto.TicketInfo;
+import com.example.common.ratelimit.RateLimit;
 import com.example.kbo.service.TicketAnalysisService;
 import com.example.kbo.service.TicketVerificationTokenStore;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ public class TicketController {
     private final TicketAnalysisService ticketAnalysisService;
     private final TicketVerificationTokenStore verificationTokenStore;
 
+    @RateLimit(limit = 5, window = 60, key = "image:ticket")
     @PostMapping(value = "/analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<TicketInfo> analyzeTicket(@RequestPart("file") MultipartFile file) {
         log.info("Received ticket analysis request");
