@@ -77,11 +77,10 @@ class SecuritySurfaceHardeningIntegrationTest {
     }
 
     @Test
-    @DisplayName("check-email should remain publicly accessible")
-    void checkEmail_remainsPublic() throws Exception {
+    @DisplayName("check-email should no longer be publicly accessible")
+    void checkEmail_requiresAuthentication() throws Exception {
         mockMvc.perform(get("/api/auth/check-email").param("email", "test@example.com"))
-                .andExpect(result -> assertThat(result.getResponse().getStatus())
-                        .isNotEqualTo(401));
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

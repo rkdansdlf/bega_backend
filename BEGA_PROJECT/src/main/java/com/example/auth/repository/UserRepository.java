@@ -39,6 +39,9 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
   @org.springframework.data.jpa.repository.Query("SELECT u.profileImageUrl FROM UserEntity u WHERE u.id = :userId")
   Optional<String> findProfileImageUrlById(@org.springframework.data.repository.query.Param("userId") Long userId);
 
+  @org.springframework.data.jpa.repository.Query("SELECT u.profileFeedImageUrl FROM UserEntity u WHERE u.id = :userId")
+  Optional<String> findProfileFeedImageUrlById(@org.springframework.data.repository.query.Param("userId") Long userId);
+
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("SELECT u FROM UserEntity u WHERE u.id = :userId")
   Optional<UserEntity> findByIdForWrite(@org.springframework.data.repository.query.Param("userId") Long userId);
@@ -114,6 +117,13 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
   @org.springframework.data.jpa.repository.Query("UPDATE UserEntity u SET u.profileImageUrl = :profilePath WHERE u.id = :userId")
   int updateProfileImageUrlById(@org.springframework.data.repository.query.Param("userId") Long userId,
       @org.springframework.data.repository.query.Param("profilePath") String profilePath);
+
+  @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+  @Transactional
+  @org.springframework.data.jpa.repository.Query("UPDATE UserEntity u SET u.profileImageUrl = :profilePath, u.profileFeedImageUrl = :profileFeedImagePath WHERE u.id = :userId")
+  int updateProfileImageUrlsById(@org.springframework.data.repository.query.Param("userId") Long userId,
+      @org.springframework.data.repository.query.Param("profilePath") String profilePath,
+      @org.springframework.data.repository.query.Param("profileFeedImagePath") String profileFeedImagePath);
 
   @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
   @Transactional
