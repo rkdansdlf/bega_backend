@@ -12,6 +12,61 @@ java {
     sourceCompatibility = JavaVersion.VERSION_21
 }
 
+def loadOptionalEnvFile = { File envFile ->
+	def values = [:]
+	if (!envFile.exists() || !envFile.isFile()) {
+		return values
+	}
+
+	envFile.eachLine('UTF-8') { line ->
+		def trimmed = line.trim()
+		if (!trimmed || trimmed.startsWith('#') || !trimmed.contains('=')) {
+			return
+		}
+
+		int separatorIndex = trimmed.indexOf('=')
+		def rawKey = trimmed.substring(0, separatorIndex).trim()
+		def key = rawKey.startsWith('export ') ? rawKey.substring('export '.length()).trim() : rawKey
+		def value = trimmed.substring(separatorIndex + 1).trim()
+
+		if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+			value = value.substring(1, value.length() - 1)
+		}
+
+		if (key) {
+			values[key] = value
+		}
+	}
+
+	return values
+}
+
+def dotEnvValues = [:]
+dotEnvValues.putAll(loadOptionalEnvFile(file('../../.env')))
+dotEnvValues.putAll(loadOptionalEnvFile(file('.env')))
+
+def schemaValidationEnvKeys = [
+	'DB_URL',
+	'DB_USERNAME',
+	'DB_PASSWORD',
+	'BASEBALL_DB_URL',
+	'BASEBALL_DB_USERNAME',
+	'BASEBALL_DB_PASSWORD',
+]
+
+def flywayResourceDirMappings = [
+	[
+		source: file('src/main/resources/db/migration'),
+		build : file("$buildDir/resources/main/db/migration"),
+		label : 'primary'
+	],
+	[
+		source: file('src/main/resources/db/migration_postgresql'),
+		build : file("$buildDir/resources/main/db/migration_postgresql"),
+		label : 'postgres'
+	],
+]
+
 repositories {
 	mavenCentral()
 }
@@ -124,9 +179,85 @@ tasks.register('schemaValidationTest', Test) {
 	description = 'Runs only schema validation context test(s) from src/test/java/com/example/schema/**'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
+    schemaValidationEnvKeys.each { key ->
+        def resolvedValue = System.getenv(key) ?: dotEnvValues[key]
+        if (resolvedValue?.trim()) {
+            environment key, resolvedValue
+        }
+    }
+    doFirst {
+        def missingKeys = ['DB_URL', 'DB_USERNAME', 'DB_PASSWORD'].findAll { key ->
+            def resolvedValue = System.getenv(key) ?: dotEnvValues[key]
+            !resolvedValue?.trim()
+        }
+
+        if (!missingKeys.isEmpty()) {
+            throw new GradleException("schemaValidationTest requires ${missingKeys.join(', ')} via environment or .env")
+        }
+    }
     filter {
         includeTestsMatching "com.example.schema.*"
     }
+}
+
+tasks.register('flywaySafetyTest', Test) {
+	group = 'verification'
+	description = 'Runs Flyway safety regression tests for migration version uniqueness and repair policy'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    filter {
+        includeTestsMatching "com.example.common.config.FlywayConfigTest"
+        includeTestsMatching "com.example.common.config.FlywayMigrationVersionUniquenessTest"
+    }
+}
+
+tasks.register('migrationSafetyCheck') {
+	group = 'verification'
+	description = 'Runs Flyway regression tests and verifies build/resources has no stale migration SQL files'
+	dependsOn tasks.named('flywaySafetyTest')
+	dependsOn tasks.named('verifyFlywayResourceSync')
+}
+
+tasks.register('dbSafetyTest') {
+	group = 'verification'
+	description = 'Runs Flyway safety regression tests and schema validation context checks'
+	dependsOn tasks.named('migrationSafetyCheck')
+	dependsOn tasks.named('schemaValidationTest')
+}
+
+tasks.register('verifyFlywayResourceSync') {
+	group = 'verification'
+	description = 'Verifies build/resources contains no stale Flyway SQL files after processResources'
+	dependsOn tasks.named('processResources')
+	doLast {
+		flywayResourceDirMappings.each { mapping ->
+			def sourceFiles = mapping.source.exists()
+				? fileTree(mapping.source) { include '**/*.sql' }.files.collect { it.name }.toSet()
+				: [] as Set
+			def buildFiles = mapping.build.exists()
+				? fileTree(mapping.build) { include '**/*.sql' }.files.collect { it.name }.toSet()
+				: [] as Set
+
+			def staleFiles = buildFiles - sourceFiles
+			def missingFiles = sourceFiles - buildFiles
+
+			if (!staleFiles.isEmpty() || !missingFiles.isEmpty()) {
+				throw new GradleException(
+					"Flyway resource sync mismatch for ${mapping.label}: stale=${staleFiles}, missing=${missingFiles}"
+				)
+			}
+		}
+	}
+}
+
+tasks.named('check') {
+	dependsOn tasks.named('migrationSafetyCheck')
+}
+
+tasks.named('processResources') {
+	doFirst {
+		delete(destinationDir)
+	}
 }
 
 tasks.withType(Test).configureEach {
