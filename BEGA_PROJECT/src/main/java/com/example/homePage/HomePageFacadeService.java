@@ -5,6 +5,7 @@ import static com.example.common.config.CacheConfig.HOME_WIDGETS;
 
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.service.CheerService;
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import com.example.mate.service.PartyService;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -198,6 +199,9 @@ public class HomePageFacadeService {
         } catch (ExecutionException ex) {
             long elapsedMs = elapsedMillis(task.startedAtNanos());
             Throwable cause = ex.getCause();
+            if (cause instanceof ManualBaseballDataRequiredException manualDataRequiredException) {
+                throw manualDataRequiredException;
+            }
             log.warn(
                     "event=home_bootstrap_section_failed date={} section={} elapsedMs={} cause={}",
                     date,
@@ -261,6 +265,8 @@ public class HomePageFacadeService {
     private List<HomePageGameDto> safeGetGames(LocalDate date) {
         try {
             return homePageGameService.getGamesByDate(date);
+        } catch (ManualBaseballDataRequiredException e) {
+            throw e;
         } catch (Exception e) {
             log.warn("Failed to load games for date={}: {}", date, e.getMessage());
             return List.of();
@@ -270,6 +276,8 @@ public class HomePageFacadeService {
     private List<HomePageScheduledGameDto> safeGetScheduledGamesWindow(LocalDate date) {
         try {
             return homePageGameService.getScheduledGamesWindow(date, date.plusDays(7));
+        } catch (ManualBaseballDataRequiredException e) {
+            throw e;
         } catch (Exception e) {
             log.warn("Failed to load scheduled games window for date={}: {}", date, e.getMessage());
             return List.of();
@@ -279,6 +287,8 @@ public class HomePageFacadeService {
     private HomeScheduleNavigationDto safeGetNavigation(LocalDate date) {
         try {
             return toHomeScheduleNavigation(homePageGameService.getScheduleNavigation(date));
+        } catch (ManualBaseballDataRequiredException e) {
+            throw e;
         } catch (Exception e) {
             log.warn("Failed to load schedule navigation for date={}: {}", date, e.getMessage());
             return buildFallbackNavigation();

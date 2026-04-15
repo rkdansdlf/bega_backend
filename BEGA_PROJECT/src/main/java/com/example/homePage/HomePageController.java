@@ -1,5 +1,6 @@
 package com.example.homepage;
 
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.function.Supplier;
@@ -87,6 +88,8 @@ public class HomePageController {
             String context) {
         try {
             return ResponseEntity.ok(primarySupplier.get());
+        } catch (ManualBaseballDataRequiredException ex) {
+            throw ex;
         } catch (RuntimeException ex) {
             log.warn("{} fallback applied - {}, reason={}", operation, context, ex.getMessage());
             return ResponseEntity.ok(fallbackSupplier.get());
