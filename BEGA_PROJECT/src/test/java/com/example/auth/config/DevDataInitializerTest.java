@@ -16,7 +16,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -65,7 +64,8 @@ class DevDataInitializerTest {
         ReflectionTestUtils.setField(devDataInitializer, "testAdminPassword", "Rhksflwk1234@");
 
         when(userRepository.existsByEmail("rhksflwk@mail.com")).thenReturn(false);
-        when(userRepository.existsByHandle("devadmin")).thenReturn(false);
+        when(userRepository.findByHandle("@devadmin")).thenReturn(Optional.empty());
+        when(userRepository.findByHandle("devadmin")).thenReturn(Optional.empty());
         when(passwordEncoder.encode("Rhksflwk1234@")).thenReturn("encoded-admin-password");
         when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> {
             UserEntity candidate = invocation.getArgument(0);
@@ -81,6 +81,7 @@ class DevDataInitializerTest {
         assertThat(savedUser.getEmail()).isEqualTo("rhksflwk@mail.com");
         assertThat(savedUser.getRole()).isEqualTo("ROLE_ADMIN");
         assertThat(savedUser.getPassword()).isEqualTo("encoded-admin-password");
+        assertThat(savedUser.getHandle()).isEqualTo("@devadmin");
 
         ArgumentCaptor<UserProvider> providerCaptor = ArgumentCaptor.forClass(UserProvider.class);
         verify(userProviderRepository).save(providerCaptor.capture());
@@ -110,6 +111,8 @@ class DevDataInitializerTest {
 
         when(userRepository.existsByEmail("rhksflwk@mail.com")).thenReturn(true);
         when(userRepository.findWithProvidersByEmail("rhksflwk@mail.com")).thenReturn(Optional.of(existingUser));
+        when(userRepository.findByHandle("@devadmin")).thenReturn(Optional.empty());
+        when(userRepository.findByHandle("devadmin")).thenReturn(Optional.of(existingUser));
         when(passwordEncoder.matches("Rhksflwk1234@", "old-password")).thenReturn(false);
         when(passwordEncoder.encode("Rhksflwk1234@")).thenReturn("encoded-admin-password");
         when(userProviderRepository.save(any(UserProvider.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -121,6 +124,7 @@ class DevDataInitializerTest {
         assertThat(existingUser.isLocked()).isFalse();
         assertThat(existingUser.getCheerPoints()).isEqualTo(100000);
         assertThat(existingUser.getPassword()).isEqualTo("encoded-admin-password");
+        assertThat(existingUser.getHandle()).isEqualTo("@devadmin");
         verify(userRepository).save(existingUser);
     }
 }

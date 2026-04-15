@@ -16,6 +16,7 @@ import com.example.auth.repository.UserProviderRepository;
 import com.example.mate.entity.SellerPayoutProfile;
 import com.example.mate.repository.SellerPayoutProfileRepository;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.Locale;
@@ -84,14 +85,7 @@ public class DevDataInitializer implements CommandLineRunner {
         }
 
         if (!userRepository.existsByEmail(email)) {
-            // handle uniqueness check (simple append for dev)
-            String normalizedHandlePrefix = handlePrefix == null ? "" : handlePrefix.trim().toLowerCase(Locale.ROOT);
-            String finalHandle = normalizedHandlePrefix;
-            int counter = 1;
-            while (userRepository.existsByHandle(finalHandle)) {
-                finalHandle = normalizedHandlePrefix + counter;
-                counter++;
-            }
+            String finalHandle = resolveUniqueSeedHandle(handlePrefix, null);
 
             UserEntity user = UserEntity.builder()
                     .uniqueId(UUID.randomUUID())
@@ -116,6 +110,11 @@ public class DevDataInitializer implements CommandLineRunner {
             Optional<UserEntity> existingUser = userRepository.findWithProvidersByEmail(email);
             existingUser.ifPresent(u -> {
                 boolean updated = false;
+                String desiredHandle = resolveUniqueSeedHandle(handlePrefix, u.getId());
+                if (!desiredHandle.equals(u.getHandle())) {
+                    u.setHandle(desiredHandle);
+                    updated = true;
+                }
                 if (u.getPassword() == null || !passwordEncoder.matches(password, u.getPassword())) {
                     u.setPassword(passwordEncoder.encode(password));
                     updated = true;
@@ -146,6 +145,41 @@ public class DevDataInitializer implements CommandLineRunner {
                 }
             });
         }
+    }
+
+    private String resolveUniqueSeedHandle(String handlePrefix, Long currentUserId) {
+        String normalizedHandlePrefix = normalizeSeedHandlePrefix(handlePrefix);
+        String candidate = normalizedHandlePrefix;
+        int counter = 1;
+        while (isHandleOwnedByAnotherUser(candidate, currentUserId)) {
+            candidate = normalizedHandlePrefix + counter;
+            counter++;
+        }
+        return candidate;
+    }
+
+    private boolean isHandleOwnedByAnotherUser(String candidateHandle, Long currentUserId) {
+        Optional<UserEntity> normalizedOwner = userRepository.findByHandle(candidateHandle);
+        if (normalizedOwner.isPresent()) {
+            return !Objects.equals(normalizedOwner.get().getId(), currentUserId);
+        }
+
+        String legacyHandle = candidateHandle.startsWith("@") ? candidateHandle.substring(1) : candidateHandle;
+        if (legacyHandle.equals(candidateHandle)) {
+            return false;
+        }
+
+        return userRepository.findByHandle(legacyHandle)
+                .map(owner -> !Objects.equals(owner.getId(), currentUserId))
+                .orElse(false);
+    }
+
+    private String normalizeSeedHandlePrefix(String handlePrefix) {
+        String normalizedHandlePrefix = handlePrefix == null ? "" : handlePrefix.trim().toLowerCase(Locale.ROOT);
+        if (!normalizedHandlePrefix.startsWith("@")) {
+            normalizedHandlePrefix = "@" + normalizedHandlePrefix;
+        }
+        return normalizedHandlePrefix;
     }
 
     private boolean isBlank(String value) {
