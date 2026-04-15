@@ -5,6 +5,8 @@ import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerReportRepo;
+import com.example.kbo.dto.TicketInfo;
+import com.example.kbo.service.TicketVerificationTokenStore;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PaymentFlowType;
@@ -99,6 +101,9 @@ class MateFlowHappyPathIntegrationTest {
     private CheckInRecordRepository checkInRecordRepository;
 
     @Autowired
+    private TicketVerificationTokenStore ticketVerificationTokenStore;
+
+    @Autowired
     private PartyLifecycleScheduler partyLifecycleScheduler;
 
     @MockitoBean
@@ -155,17 +160,20 @@ class MateFlowHappyPathIntegrationTest {
     @Test
     @DisplayName("Happy path: 파티 생성 -> 결제 승인 신청 -> 호스트 승인 -> 채팅 -> 체크인 -> 자동 COMPLETED")
     void happyPath_endToEndFlow() throws Exception {
+        LocalDate gameDate = LocalDate.now().plusDays(1);
+        String verificationToken = issueVerificationToken(gameDate, "잠실", "LG", "OB");
         String createPartyBody = objectMapper.writeValueAsString(Map.ofEntries(
-                Map.entry("teamId", "LG"),
-                Map.entry("gameDate", LocalDate.now().plusDays(1).toString()),
+                Map.entry("gameDate", gameDate.toString()),
                 Map.entry("gameTime", "18:30:00"),
                 Map.entry("stadium", "잠실"),
                 Map.entry("homeTeam", "LG"),
                 Map.entry("awayTeam", "OB"),
+                Map.entry("cheeringSide", "HOME"),
                 Map.entry("section", "1루"),
                 Map.entry("maxParticipants", 2),
                 Map.entry("description", "happy path party"),
-                Map.entry("ticketPrice", 12000)));
+                Map.entry("ticketPrice", 12000),
+                Map.entry("verificationToken", verificationToken)));
 
         String createdPartyJson = mockMvc.perform(post("/api/parties")
                         .with(MateTestTokenHelper.principalAs(HOST_EMAIL))
@@ -213,7 +221,7 @@ class MateFlowHappyPathIntegrationTest {
                 "intentId", intentId,
                 "partyId", partyId,
                 "flowType", PaymentFlowType.DEPOSIT.name(),
-                "message", "승인 부탁드려요"));
+                "message", "승인 부탁드려요. 함께 즐겁게 관람해요."));
 
         String confirmJson = mockMvc.perform(post("/api/payments/toss/confirm")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
@@ -251,7 +259,8 @@ class MateFlowHappyPathIntegrationTest {
 
         String hostChatBody = objectMapper.writeValueAsString(Map.of(
                 "partyId", partyId,
-                "message", "환영합니다"));
+                "message", "환영합니다",
+                "clientMessageId", "happy-host-chat-1"));
         mockMvc.perform(post("/api/chat/messages")
                         .with(MateTestTokenHelper.principalAs(HOST_EMAIL))
                         .contentType("application/json")
@@ -260,7 +269,8 @@ class MateFlowHappyPathIntegrationTest {
 
         String applicantChatBody = objectMapper.writeValueAsString(Map.of(
                 "partyId", partyId,
-                "message", "잘 부탁드립니다"));
+                "message", "잘 부탁드립니다",
+                "clientMessageId", "happy-applicant-chat-1"));
         mockMvc.perform(post("/api/chat/messages")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
                         .contentType("application/json")
@@ -303,17 +313,20 @@ class MateFlowHappyPathIntegrationTest {
     @Test
     @DisplayName("Happy path: 판매 전환(PENDING->SELLING) 후 SELLING_FULL 결제 승인 성공")
     void sellingFlow_convertAndConfirmPayment() throws Exception {
+        LocalDate gameDate = LocalDate.now().plusDays(1);
+        String verificationToken = issueVerificationToken(gameDate, "잠실", "LG", "OB");
         String createPartyBody = objectMapper.writeValueAsString(Map.ofEntries(
-                Map.entry("teamId", "LG"),
-                Map.entry("gameDate", LocalDate.now().plusDays(1).toString()),
+                Map.entry("gameDate", gameDate.toString()),
                 Map.entry("gameTime", "18:30:00"),
                 Map.entry("stadium", "잠실"),
                 Map.entry("homeTeam", "LG"),
                 Map.entry("awayTeam", "OB"),
+                Map.entry("cheeringSide", "HOME"),
                 Map.entry("section", "1루"),
                 Map.entry("maxParticipants", 2),
                 Map.entry("description", "selling happy path"),
-                Map.entry("ticketPrice", 12000)));
+                Map.entry("ticketPrice", 12000),
+                Map.entry("verificationToken", verificationToken)));
 
         String createdPartyJson = mockMvc.perform(post("/api/parties")
                         .with(MateTestTokenHelper.principalAs(HOST_EMAIL))
@@ -378,7 +391,7 @@ class MateFlowHappyPathIntegrationTest {
                 "partyId", partyId,
                 "flowType", PaymentFlowType.SELLING_FULL.name(),
                 "paymentType", "FULL",
-                "message", "티켓 구매 요청"));
+                "message", "티켓 구매 요청을 진행합니다."));
 
         String firstConfirmJson = mockMvc.perform(post("/api/payments/toss/confirm")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
@@ -412,5 +425,14 @@ class MateFlowHappyPathIntegrationTest {
         assertThat(matchedParty.getStatus()).isEqualTo(Party.PartyStatus.MATCHED);
 
         verify(tossPaymentService, times(1)).confirmPayment(eq("pay-key-selling-happy"), eq(orderId), eq(amount));
+    }
+
+    private String issueVerificationToken(LocalDate gameDate, String stadium, String homeTeam, String awayTeam) {
+        return ticketVerificationTokenStore.generateToken(TicketInfo.builder()
+                .date(gameDate.toString())
+                .stadium(stadium)
+                .homeTeam(homeTeam)
+                .awayTeam(awayTeam)
+                .build());
     }
 }
