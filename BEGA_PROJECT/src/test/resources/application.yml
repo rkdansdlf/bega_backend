@@ -38,11 +38,12 @@ spring:
             user-info-uri: https://www.googleapis.com/oauth2/v3/userinfo
             user-name-attribute: sub
 
-jobrunr:
-  background-job-server:
-    enabled: false
-  dashboard:
-    enabled: false
+org:
+  jobrunr:
+    background-job-server:
+      enabled: false
+    dashboard:
+      enabled: false
 
 storage:
   type: oci
@@ -56,6 +57,12 @@ oci:
 
 ai:
   service-url: http://localhost:8001
+
+app:
+  ai:
+    coach-auto-brief:
+      monitoring:
+        enabled: false
 
 baseball:
   datasource:
