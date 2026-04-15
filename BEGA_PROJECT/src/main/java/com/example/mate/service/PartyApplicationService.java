@@ -157,6 +157,10 @@ public class PartyApplicationService {
                     false);
         }
 
+        if (request.getMessage() == null || request.getMessage().isBlank()) {
+            request.setMessage("함께 즐거운 관람 부탁드립니다!");
+        }
+
         ApplicationCreationContext context = prepareCreationContext(request, principal);
         PartyApplication contextExisting = resolveExistingPaymentApplication(orderId, paymentKey,
                 context.applicantId());
@@ -462,6 +466,8 @@ public class PartyApplicationService {
             throw new com.example.common.exception.IdentityVerificationRequiredException(
                     "메이트에 신청하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
         }
+
+        MateContentPolicyValidator.validateApplicationMessage(request.getMessage());
 
         applicationRepository.findByPartyIdAndApplicantId(request.getPartyId(), applicantId)
                 .ifPresent(app -> {

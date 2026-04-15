@@ -38,6 +38,10 @@ public class Party {
     @Column(name = "teamid", nullable = false, length = 20)
     private String teamId; // 응원 팀 ID
 
+    @Column(name = "cheering_side", length = 16)
+    @Enumerated(EnumType.STRING)
+    private CheeringSide cheeringSide; // 응원 방향
+
     @Column(name = "gamedate", nullable = false)
     private LocalDate gameDate; // 경기 날짜
 
@@ -126,6 +130,22 @@ public class Party {
         private final String description;
 
         BadgeType(String description) {
+            this.description = description;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+    }
+
+    public enum CheeringSide {
+        HOME("홈 응원"),
+        AWAY("원정 응원"),
+        NEUTRAL("중립");
+
+        private final String description;
+
+        CheeringSide(String description) {
             this.description = description;
         }
 

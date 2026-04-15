@@ -6,6 +6,9 @@ import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.CancelReasonType;
 import com.example.mate.entity.PaymentStatus;
 import com.example.mate.entity.SettlementStatus;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -20,13 +23,22 @@ public class PartyApplicationDTO {
     @AllArgsConstructor
     @Builder
     public static class Request {
+        @NotNull(message = "파티 ID는 필수입니다.")
         private Long partyId;
+
+        @Size(max = 500, message = "신청 메시지는 500자 이하여야 합니다.")
         private String message;
         // DIRECT_TRADE: 거래 기준 금액 스냅샷, TOSS_TEST: 보증금/결제 금액
+
+        @Min(value = 0, message = "결제 금액은 0원 이상이어야 합니다.")
         private Integer depositAmount;
         private PartyApplication.PaymentType paymentType;
         private Boolean ticketVerified; // Client-side flag (ignored for verification, used for UI)
+
+        @Size(max = 2048, message = "티켓 이미지 URL은 2048자 이하여야 합니다.")
         private String ticketImageUrl;
+
+        @Size(max = 128, message = "예매 인증 토큰은 128자 이하여야 합니다.")
         private String verificationToken; // Server-side proof from TicketVerificationTokenStore
     }
 

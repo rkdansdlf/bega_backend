@@ -2,7 +2,7 @@ package com.example.mate.controller;
 
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.service.PartyApplicationService;
-
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -22,7 +22,7 @@ public class PartyApplicationController {
     // 신청 생성 — applicantId는 인증 principal에서 파생
     @PostMapping
     public ResponseEntity<?> createApplication(
-            @RequestBody PartyApplicationDTO.Request request,
+            @Valid @RequestBody PartyApplicationDTO.Request request,
             Principal principal) {
         PartyApplicationDTO.Response response = applicationService.createApplication(request, principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);

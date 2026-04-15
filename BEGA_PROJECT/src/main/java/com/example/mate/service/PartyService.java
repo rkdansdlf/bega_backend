@@ -1,14 +1,17 @@
 package com.example.mate.service;
 
-import java.util.Objects;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.PublicVisibilityVerifier;
+import com.example.auth.util.HandleNormalizer;
 import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.UserNotFoundException;
 import com.example.homepage.FeaturedMateCardDto;
+import com.example.kbo.dto.TicketInfo;
+import com.example.kbo.service.TicketVerificationTokenStore;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
@@ -20,6 +23,7 @@ import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PartyReviewRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
+import com.example.kbo.util.TicketTeamNormalizer;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -29,12 +33,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 
-import java.time.LocalDate;
 import java.security.Principal;
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.springframework.lang.NonNull;
 
@@ -49,6 +54,7 @@ public class PartyService {
     private final PartyReviewRepository partyReviewRepository;
     private final UserProviderRepository userProviderRepository;
     private final PublicVisibilityVerifier publicVisibilityVerifier;
+    private final TicketVerificationTokenStore ticketVerificationTokenStore;
     private final com.example.notification.service.NotificationService notificationService;
     private final com.example.profile.storage.service.ProfileImageService profileImageService;
     @Value("${mate.auth.require-social-verification:true}")
@@ -75,6 +81,12 @@ public class PartyService {
         String hostFavoriteTeam = hostUser.getFavoriteTeamId();
         String hostName = hostUser.getName();
         Party.BadgeType hostBadge = resolveHostBadge(hostId, socialVerified);
+        MateContentPolicyValidator.validatePartyDescription(request.getDescription());
+        TicketInfo verifiedTicket = consumeAndValidateTicketToken(request);
+        Party.CheeringSide cheeringSide = Objects.requireNonNull(request.getCheeringSide());
+        String normalizedHomeTeam = normalizeTeamCode(request.getHomeTeam());
+        String normalizedAwayTeam = normalizeTeamCode(request.getAwayTeam());
+        String resolvedTeamId = resolveTeamId(cheeringSide, normalizedHomeTeam, normalizedAwayTeam);
 
         Party party = Party.builder()
                 .hostId(hostId)
@@ -82,25 +94,26 @@ public class PartyService {
                 .hostProfileImageUrl(hostProfileImageUrl)
                 .hostFavoriteTeam(hostFavoriteTeam)
                 .hostBadge(hostBadge)
-                .teamId(request.getTeamId())
+                .teamId(resolvedTeamId)
+                .cheeringSide(cheeringSide)
                 .gameDate(request.getGameDate())
                 .gameTime(request.getGameTime())
                 .stadium(request.getStadium())
-                .homeTeam(request.getHomeTeam())
-                .awayTeam(request.getAwayTeam())
+                .homeTeam(normalizedHomeTeam)
+                .awayTeam(normalizedAwayTeam)
                 .section(request.getSection())
                 .maxParticipants(request.getMaxParticipants())
                 .currentParticipants(1) // 호스트 포함
                 .description(request.getDescription())
                 .searchText(buildSearchText(
                         request.getStadium(),
-                        request.getHomeTeam(),
-                        request.getAwayTeam(),
+                        normalizedHomeTeam,
+                        normalizedAwayTeam,
                         request.getSection(),
                         hostName,
                         request.getDescription()))
-                .ticketVerified(request.getTicketImageUrl() != null)
-                .ticketImageUrl(request.getTicketImageUrl())
+                .ticketVerified(verifiedTicket != null)
+                .ticketImageUrl(null)
                 .ticketPrice(request.getTicketPrice())
                 .reservationNumber(request.getReservationNumber())
                 .status(Party.PartyStatus.PENDING)
@@ -132,17 +145,16 @@ public class PartyService {
         if (normalizedTeamId != null && normalizedTeamId.isBlank())
             normalizedTeamId = null;
 
-        Page<Party> parties = partyRepository.findPartiesWithFilter(
+        Page<Party> parties = partyRepository.findVisiblePublicPartiesWithFilter(
                 normalizedTeamId,
                 stadium,
                 gameDate,
                 normalizedSearchQuery,
                 excludedStatuses,
                 status,
+                currentUserId,
                 pageable);
-
-        List<Party> visibleParties = filterVisiblePublicParties(parties.getContent(), currentUserId);
-        List<PartyDTO.PublicResponse> visibleContent = convertToPublicResponses(visibleParties);
+        List<PartyDTO.PublicResponse> visibleContent = convertToPublicResponses(parties.getContent());
         return new org.springframework.data.domain.PageImpl<>(visibleContent, pageable, parties.getTotalElements());
     }
 
@@ -166,7 +178,10 @@ public class PartyService {
 
     @Transactional(readOnly = true)
     public List<PartyDTO.PublicResponse> getPartiesByHostHandle(String handle, Long currentUserId) {
-        UserEntity host = userRepository.findByHandle(normalizeHandle(handle))
+        UserEntity host = HandleNormalizer.candidates(handle).stream()
+                .map(userRepository::findByHandle)
+                .flatMap(java.util.Optional::stream)
+                .findFirst()
                 .orElseThrow(() -> new UserNotFoundException("handle", handle));
         publicVisibilityVerifier.validate(host, currentUserId, "파티");
         Long hostId = host.getId();
@@ -229,6 +244,7 @@ public class PartyService {
         boolean sellingConversionRequested = request.getStatus() == Party.PartyStatus.SELLING;
 
         if (request.getDescription() != null) {
+            MateContentPolicyValidator.validatePartyDescription(request.getDescription());
             party.setDescription(request.getDescription());
         }
 
@@ -586,6 +602,9 @@ public class PartyService {
             return null;
 
         PartyDTO.Response response = PartyDTO.Response.from(party);
+        Party.CheeringSide resolvedCheeringSide = resolveCheeringSide(party);
+        response.setCheeringSide(resolvedCheeringSide);
+        response.setTeamId(resolveEffectiveTeamId(party, resolvedCheeringSide));
         String profilePathOrUrl = party.getHostProfileImageUrl();
         Long hostId = party.getHostId();
         HostInfo hostInfo = hostId != null ? hostInfoById.get(hostId) : null;
@@ -704,10 +723,11 @@ public class PartyService {
     }
 
     private FeaturedMateCardDto convertToFeaturedMateCard(Party party) {
+        Party.CheeringSide resolvedCheeringSide = resolveCheeringSide(party);
         return FeaturedMateCardDto.builder()
                 .id(party.getId())
                 .hostId(party.getHostId())
-                .teamId(party.getTeamId())
+                .teamId(resolveEffectiveTeamId(party, resolvedCheeringSide))
                 .gameDate(party.getGameDate() == null ? null : party.getGameDate().toString())
                 .gameTime(party.getGameTime() == null ? null : party.getGameTime().toString())
                 .stadium(party.getStadium())
@@ -729,15 +749,120 @@ public class PartyService {
         return searchQuery.trim();
     }
 
-    private String normalizeHandle(String handle) {
-        if (handle == null || handle.isBlank()) {
-            throw new UserNotFoundException("handle", String.valueOf(handle));
+    private TicketInfo consumeAndValidateTicketToken(PartyDTO.Request request) {
+        String token = request.getVerificationToken();
+        if (token == null || token.isBlank()) {
+            throw new BadRequestBusinessException("MATE_TICKET_VERIFICATION_REQUIRED", "예매내역 인증이 필요합니다.");
         }
-        String normalized = handle.trim();
-        if (!normalized.startsWith("@")) {
-            normalized = "@" + normalized;
+
+        TicketInfo ticketInfo = ticketVerificationTokenStore.consumeToken(token);
+        if (ticketInfo == null) {
+            throw new BadRequestBusinessException("MATE_TICKET_VERIFICATION_FAILED", "유효하지 않거나 만료된 예매 인증 정보입니다.");
         }
-        return normalized.toLowerCase(Locale.ROOT);
+
+        if (!validateTicketMatch(ticketInfo, request)) {
+            throw new BadRequestBusinessException("MATE_TICKET_VERIFICATION_FAILED", "예매내역 인증 정보가 현재 경기와 일치하지 않습니다.");
+        }
+
+        return ticketInfo;
+    }
+
+    private boolean validateTicketMatch(TicketInfo ticketInfo, PartyDTO.Request request) {
+        if (ticketInfo == null || request == null || request.getGameDate() == null) {
+            return false;
+        }
+
+        boolean dateMatch = false;
+        try {
+            if (ticketInfo.getDate() != null && !ticketInfo.getDate().isBlank()) {
+                if (ticketInfo.getDate().equals(request.getGameDate().toString())) {
+                    dateMatch = true;
+                } else {
+                    LocalDate ticketDate = LocalDate.parse(ticketInfo.getDate());
+                    dateMatch = ticketDate.isEqual(request.getGameDate());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[PartyCreate] Ticket date parsing failed: {}", ticketInfo.getDate());
+        }
+
+        if (!dateMatch) {
+            return false;
+        }
+
+        if (ticketInfo.getStadium() != null && !ticketInfo.getStadium().isBlank()
+                && request.getStadium() != null && !request.getStadium().isBlank()) {
+            String ticketStadium = ticketInfo.getStadium().trim();
+            String requestStadium = request.getStadium().trim();
+            boolean stadiumMatch = ticketStadium.equalsIgnoreCase(requestStadium)
+                    || ticketStadium.contains(requestStadium)
+                    || requestStadium.contains(ticketStadium);
+            if (!stadiumMatch) {
+                return false;
+            }
+        }
+
+        String normalizedTicketHome = TicketTeamNormalizer.normalize(ticketInfo.getHomeTeam());
+        String normalizedTicketAway = TicketTeamNormalizer.normalize(ticketInfo.getAwayTeam());
+        String normalizedRequestHome = TicketTeamNormalizer.normalize(request.getHomeTeam());
+        String normalizedRequestAway = TicketTeamNormalizer.normalize(request.getAwayTeam());
+        return normalizedTicketHome != null
+                && normalizedTicketAway != null
+                && normalizedTicketHome.equalsIgnoreCase(normalizedRequestHome)
+                && normalizedTicketAway.equalsIgnoreCase(normalizedRequestAway);
+    }
+
+    private String normalizeTeamCode(String teamCode) {
+        if (teamCode == null) {
+            return null;
+        }
+        String normalized = TeamCodeNormalizer.normalize(teamCode);
+        return normalized == null || normalized.isBlank() ? teamCode : normalized;
+    }
+
+    private String resolveTeamId(Party.CheeringSide cheeringSide, String homeTeam, String awayTeam) {
+        return switch (cheeringSide) {
+            case HOME -> homeTeam;
+            case AWAY -> awayTeam;
+            case NEUTRAL -> "NEUTRAL";
+        };
+    }
+
+    private Party.CheeringSide resolveCheeringSide(Party party) {
+        if (party == null) {
+            return null;
+        }
+        if (party.getCheeringSide() != null) {
+            return party.getCheeringSide();
+        }
+        String section = party.getSection();
+        if (section == null) {
+            return null;
+        }
+        if (section.startsWith("[홈응원]")) {
+            return Party.CheeringSide.HOME;
+        }
+        if (section.startsWith("[원정응원]")) {
+            return Party.CheeringSide.AWAY;
+        }
+        if (section.startsWith("[중립]")) {
+            return Party.CheeringSide.NEUTRAL;
+        }
+        return null;
+    }
+
+    private String resolveEffectiveTeamId(Party party, Party.CheeringSide cheeringSide) {
+        if (party == null) {
+            return null;
+        }
+        if (cheeringSide == null) {
+            return party.getTeamId();
+        }
+        return switch (cheeringSide) {
+            case HOME -> normalizeTeamCode(party.getHomeTeam());
+            case AWAY -> normalizeTeamCode(party.getAwayTeam());
+            case NEUTRAL -> "NEUTRAL";
+        };
     }
 
     private String buildSearchText(
