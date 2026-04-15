@@ -7,6 +7,7 @@ import com.example.common.exception.InternalServerBusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.UUID;
@@ -19,8 +20,11 @@ public class ChatImageService {
     private final StorageStrategy storageStrategy;
     private final StorageConfig storageConfig;
     private final com.example.common.image.ImageUtil imageUtil;
+    private final com.example.common.image.ImageOptimizationMetricsService metricsService;
 
     public UploadResult uploadChatImage(Long userId, MultipartFile file) {
+        metricsService.recordRequest("mate_chat");
+        metricsService.recordLegacyEndpoint("chat_image_upload");
         if (userId == null) {
             throw new BadRequestBusinessException("USER_ID_REQUIRED", "사용자 정보를 확인할 수 없습니다.");
         }
@@ -60,11 +64,13 @@ public class ChatImageService {
             return null;
         }
 
-        if (isHttpUrl(pathOrUrl)) {
-            return pathOrUrl;
+        String normalizedPath = normalizeChatStoragePath(pathOrUrl);
+        if (normalizedPath == null || normalizedPath.isBlank()) {
+            return null;
         }
-
-        String normalizedPath = normalizeStoragePath(pathOrUrl);
+        if (isHttpUrl(normalizedPath)) {
+            return normalizedPath;
+        }
         String resolved = generateSignedUrl(normalizedPath);
         if (resolved != null) {
             return resolved;
@@ -80,16 +86,54 @@ public class ChatImageService {
         return pathOrUrl;
     }
 
+    public String normalizeChatStoragePath(String pathOrUrl) {
+        if (!StringUtils.hasText(pathOrUrl)) {
+            return null;
+        }
+
+        String normalized = pathOrUrl.strip();
+        if (isHttpUrl(normalized)) {
+            String extracted = extractStoragePathFromUrl(normalized);
+            if (StringUtils.hasText(extracted)) {
+                normalized = extracted;
+            } else {
+                return normalized;
+            }
+        }
+
+        normalized = normalizeStoragePath(normalized);
+        if (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        return normalized;
+    }
+
     private void validateFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
+            metricsService.recordReject("mate_chat", "file_required");
             throw new BadRequestBusinessException("CHAT_IMAGE_FILE_REQUIRED", "업로드할 파일이 없습니다.");
         }
         if (file.getSize() > storageConfig.getMaxImageBytes()) {
+            metricsService.recordReject("mate_chat", "file_too_large");
             throw new BadRequestBusinessException("CHAT_IMAGE_FILE_TOO_LARGE", "이미지 크기는 5MB 이하여야 합니다.");
         }
         String contentType = file.getContentType();
         if (contentType == null || !contentType.startsWith("image/")) {
+            metricsService.recordReject("mate_chat", "invalid_type");
             throw new BadRequestBusinessException("CHAT_IMAGE_INVALID_TYPE", "이미지 파일만 업로드 가능합니다.");
+        }
+        com.example.common.image.ImageUtil.ImageDimension imageDimension = imageUtil.getImageDimension(file);
+        int longSide = Math.max(imageDimension.width(), imageDimension.height());
+        long totalPixels = (long) imageDimension.width() * imageDimension.height();
+        if (longSide > storageConfig.getMaxImageLongSidePixels()) {
+            metricsService.recordReject("mate_chat", "long_side_exceeded");
+            throw new BadRequestBusinessException("CHAT_IMAGE_DIMENSION_TOO_LARGE",
+                    "이미지의 긴 변은 4096px 이하여야 합니다.");
+        }
+        if (totalPixels > storageConfig.getMaxImageTotalPixels()) {
+            metricsService.recordReject("mate_chat", "total_pixels_exceeded");
+            throw new BadRequestBusinessException("CHAT_IMAGE_DIMENSION_TOO_LARGE",
+                    "이미지 총 픽셀 수는 16000000 이하여야 합니다.");
         }
     }
 
@@ -126,6 +170,31 @@ public class ChatImageService {
             return storagePath.substring(prefix.length());
         }
         return storagePath;
+    }
+
+    private String extractStoragePathFromUrl(String url) {
+        if (!StringUtils.hasText(url)) {
+            return null;
+        }
+
+        int mediaChatIndex = url.indexOf("/media/chat/");
+        if (mediaChatIndex != -1) {
+            return url.substring(mediaChatIndex + 1).split("\\?")[0];
+        }
+
+        int chatIndex = url.indexOf("/chat/");
+        if (chatIndex != -1) {
+            return url.substring(chatIndex + 1).split("\\?")[0];
+        }
+
+        String bucket = storageConfig.getCheerBucket();
+        if (StringUtils.hasText(bucket) && url.contains("/" + bucket + "/")) {
+            String[] parts = url.split("/" + bucket + "/");
+            if (parts.length >= 2) {
+                return parts[parts.length - 1].split("\\?")[0];
+            }
+        }
+        return null;
     }
 
     private boolean isHttpUrl(String value) {

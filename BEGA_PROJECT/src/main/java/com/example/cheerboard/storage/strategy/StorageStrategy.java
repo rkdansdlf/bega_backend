@@ -30,6 +30,17 @@ public interface StorageStrategy {
     Mono<String> uploadBytes(byte[] bytes, String contentType, String bucket, String path);
 
     /**
+     * 단일 PUT 업로드용 presigned URL 생성
+     *
+     * @param bucket      버킷명
+     * @param path        업로드 대상 경로
+     * @param contentType 요청 시 강제할 MIME 타입
+     * @param expiresInSeconds 유효 시간 (초)
+     * @return presigned 업로드 URL 및 필수 헤더
+     */
+    Mono<PresignedUpload> presignPut(String bucket, String path, String contentType, int expiresInSeconds);
+
+    /**
      * 파일 삭제
      * 
      * @param bucket 버킷명
@@ -46,4 +57,22 @@ public interface StorageStrategy {
      * @return 접근 가능한 URL (Signed URL or Public URL)
      */
     Mono<String> getUrl(String bucket, String path, int expiresInSeconds);
+
+    /**
+     * 객체 다운로드
+     *
+     * @param bucket 버킷명
+     * @param path   객체 경로
+     * @return 객체 바이트 및 메타데이터
+     */
+    Mono<StoredObject> download(String bucket, String path);
+
+    /**
+     * 객체 존재 여부 확인
+     *
+     * @param bucket 버킷명
+     * @param path   파일 경로
+     * @return 존재하면 true
+     */
+    Mono<Boolean> exists(String bucket, String path);
 }

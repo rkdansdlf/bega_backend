@@ -88,7 +88,7 @@ BEGIN
             FOREIGN KEY (user_id) REFERENCES users(id)';
 EXCEPTION
     WHEN OTHERS THEN
-        IF SQLCODE != -2264 THEN
+        IF SQLCODE NOT IN (-2264, -2275) THEN
             RAISE;
         END IF;
 END;
@@ -101,7 +101,7 @@ BEGIN
             FOREIGN KEY (session_id) REFERENCES ai_chat_session(id) ON DELETE CASCADE';
 EXCEPTION
     WHEN OTHERS THEN
-        IF SQLCODE != -2264 THEN
+        IF SQLCODE NOT IN (-2264, -2275) THEN
             RAISE;
         END IF;
 END;
@@ -114,7 +114,7 @@ BEGIN
             FOREIGN KEY (user_id) REFERENCES users(id)';
 EXCEPTION
     WHEN OTHERS THEN
-        IF SQLCODE != -2264 THEN
+        IF SQLCODE NOT IN (-2264, -2275) THEN
             RAISE;
         END IF;
 END;
@@ -127,7 +127,7 @@ BEGIN
             FOREIGN KEY (message_id) REFERENCES ai_chat_message(id) ON DELETE CASCADE';
 EXCEPTION
     WHEN OTHERS THEN
-        IF SQLCODE != -2264 THEN
+        IF SQLCODE NOT IN (-2264, -2275) THEN
             RAISE;
         END IF;
 END;

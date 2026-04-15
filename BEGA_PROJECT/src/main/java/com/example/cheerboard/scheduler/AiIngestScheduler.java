@@ -18,7 +18,7 @@ public class AiIngestScheduler implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         // 매일 새벽 04:30에 AI RAG 인덱싱 작업 실행
-        // (04:00 크롤링/통계 업데이트가 완료된 후 실행)
+        // (내부 DB 동기화와 운영자 데이터 반영 이후 실행)
         jobScheduler.scheduleRecurrently("ai-rag-ingestion", Cron.daily(4, 30),
                 aiIntegrationService::triggerRagIngestion);
     }

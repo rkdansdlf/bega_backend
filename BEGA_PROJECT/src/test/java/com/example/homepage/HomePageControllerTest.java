@@ -1,6 +1,9 @@
 package com.example.homepage;
 
 import com.example.common.exception.GlobalExceptionHandler;
+import com.example.kbo.validation.ManualBaseballDataMissingItem;
+import com.example.kbo.validation.ManualBaseballDataRequest;
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +38,18 @@ class HomePageControllerTest {
     }
 
     @Test
+    @DisplayName("무경기일 홈 일정 조회는 빈 배열을 정상 응답으로 반환한다")
+    void getGamesByDateReturnsEmptyListWhenNoGamesScheduled() throws Exception {
+        given(homePageGameService.getGamesByDate(eq(LocalDate.of(2026, 4, 13))))
+                .willReturn(List.of());
+
+        mockMvc.perform(get("/api/kbo/schedule")
+                        .param("date", "2026-04-13"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[]"));
+    }
+
+    @Test
     @DisplayName("홈 일정 조회 실패 시 빈 배열 fallback을 반환한다")
     void getGamesByDateReturnsEmptyListFallback() throws Exception {
         given(homePageGameService.getGamesByDate(eq(LocalDate.of(2026, 3, 13))))
@@ -44,6 +59,34 @@ class HomePageControllerTest {
                         .param("date", "2026-03-13"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("[]"));
+    }
+
+    @Test
+    @DisplayName("홈 일정 조회는 수동 야구 데이터 요청 계약을 그대로 노출한다")
+    void getGamesByDateReturnsManualBaseballDataRequiredPayload() throws Exception {
+        given(homePageGameService.getGamesByDate(eq(LocalDate.of(2026, 4, 5))))
+                .willThrow(new ManualBaseballDataRequiredException(
+                        new ManualBaseballDataRequest(
+                                "home.schedule",
+                                List.of(new ManualBaseballDataMissingItem(
+                                        "game_date",
+                                        "경기 날짜",
+                                        "요청한 날짜의 홈 일정 row가 없습니다.",
+                                        "YYYY-MM-DD")),
+                                "다음 야구 데이터가 필요합니다: 날짜=2026-04-05, 경기 날짜",
+                                true
+                        )));
+
+        mockMvc.perform(get("/api/kbo/schedule")
+                        .param("date", "2026-04-05"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("MANUAL_BASEBALL_DATA_REQUIRED"))
+                .andExpect(jsonPath("$.message").value("야구 데이터 준비가 필요합니다. 운영자가 데이터를 제공하면 다시 확인할 수 있습니다."))
+                .andExpect(jsonPath("$.data.scope").value("home.schedule"))
+                .andExpect(jsonPath("$.data.blocking").value(true))
+                .andExpect(jsonPath("$.data.missingItems[0].key").value("game_date"))
+                .andExpect(jsonPath("$.data.missingItems[0].expected_format").value("YYYY-MM-DD"));
     }
 
     @Test
@@ -58,6 +101,30 @@ class HomePageControllerTest {
                 .andExpect(jsonPath("$.regularSeasonStart").value(today))
                 .andExpect(jsonPath("$.postseasonStart").value(today))
                 .andExpect(jsonPath("$.koreanSeriesStart").value(today));
+    }
+
+    @Test
+    @DisplayName("무경기일 일정 네비게이션은 인접 경기일을 정상 반환한다")
+    void getScheduleNavigationReturnsAdjacentDatesWithoutSameDayGames() throws Exception {
+        given(homePageGameService.getScheduleNavigation(eq(LocalDate.of(2026, 4, 13))))
+                .willReturn(ScheduleNavigationDto.builder()
+                        .prevGameDate(LocalDate.of(2026, 4, 12))
+                        .nextGameDate(LocalDate.of(2026, 4, 14))
+                        .hasPrev(true)
+                        .hasNext(true)
+                        .build());
+
+        mockMvc.perform(get("/api/kbo/schedule/navigation")
+                        .param("date", "2026-04-13"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.prevGameDate[0]").value(2026))
+                .andExpect(jsonPath("$.prevGameDate[1]").value(4))
+                .andExpect(jsonPath("$.prevGameDate[2]").value(12))
+                .andExpect(jsonPath("$.nextGameDate[0]").value(2026))
+                .andExpect(jsonPath("$.nextGameDate[1]").value(4))
+                .andExpect(jsonPath("$.nextGameDate[2]").value(14))
+                .andExpect(jsonPath("$.hasPrev").value(true))
+                .andExpect(jsonPath("$.hasNext").value(true));
     }
 
     @Test

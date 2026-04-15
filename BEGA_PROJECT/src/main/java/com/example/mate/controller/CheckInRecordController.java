@@ -2,6 +2,7 @@ package com.example.mate.controller;
 
 import com.example.mate.dto.CheckInRecordDTO;
 import com.example.mate.service.CheckInRecordService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,7 +18,7 @@ public class CheckInRecordController {
     // 체크인
     @PostMapping
     public ResponseEntity<?> checkIn(
-            @RequestBody CheckInRecordDTO.Request request,
+            @Valid @RequestBody CheckInRecordDTO.Request request,
             java.security.Principal principal) {
         CheckInRecordDTO.Response response = checkInRecordService.checkIn(request, principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
@@ -26,7 +27,7 @@ public class CheckInRecordController {
     // 체크인 QR 세션 발급
     @PostMapping("/qr-session")
     public ResponseEntity<?> createQrSession(
-            @RequestBody CheckInRecordDTO.QrSessionRequest request,
+            @Valid @RequestBody CheckInRecordDTO.QrSessionRequest request,
             java.security.Principal principal) {
         CheckInRecordDTO.QrSessionResponse response = checkInRecordService.createQrSession(request, principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);

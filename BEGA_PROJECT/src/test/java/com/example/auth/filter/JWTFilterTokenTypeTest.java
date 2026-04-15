@@ -191,7 +191,7 @@ class JWTFilterTokenTypeTest {
     }
 
     @Test
-    @DisplayName("/api/auth/check-email 경로는 공개 경로로 필터 체인을 통과한다")
+    @DisplayName("/api/auth/check-email 경로는 유효한 access 토큰으로 필터 체인을 통과한다")
     void authCheckEmailPath_isNotBlockedByCsrfCheck() throws Exception {
         String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/auth/check-email");

@@ -41,6 +41,12 @@ public class GameDetailDto {
             List<GameInningScoreEntity> inningScores,
             List<GameSummaryEntity> summaries
     ) {
+        List<GameInningScoreEntity> meaningfulInningScores = GameInningScoreSupport.normalizeMeaningful(
+                inningScores,
+                game.getHomeScore(),
+                game.getAwayScore()
+        );
+
         return GameDetailDto.builder()
                 .gameId(game.getGameId())
                 .gameDate(game.getGameDate())
@@ -63,9 +69,9 @@ public class GameDetailDto {
                         game.getHomeScore(),
                         game.getAwayScore(),
                         (game.getHomeScore() != null && game.getAwayScore() != null)
-                                || (inningScores != null && !inningScores.isEmpty())
+                                || !meaningfulInningScores.isEmpty()
                 ))
-                .inningScores(mapInningScores(inningScores))
+                .inningScores(mapInningScores(meaningfulInningScores))
                 .summary(mapSummaries(summaries))
                 .build();
     }
@@ -75,6 +81,12 @@ public class GameDetailDto {
             List<GameInningScoreEntity> inningScores,
             List<GameSummaryEntity> summaries
     ) {
+        List<GameInningScoreEntity> meaningfulInningScores = GameInningScoreSupport.normalizeMeaningful(
+                inningScores,
+                header.getHomeScore(),
+                header.getAwayScore()
+        );
+
         return GameDetailDto.builder()
                 .gameId(header.getGameId())
                 .gameDate(header.getGameDate())
@@ -97,20 +109,28 @@ public class GameDetailDto {
                         header.getHomeScore(),
                         header.getAwayScore(),
                         (header.getHomeScore() != null && header.getAwayScore() != null)
-                                || (inningScores != null && !inningScores.isEmpty())
+                                || !meaningfulInningScores.isEmpty()
                 ))
-                .inningScores(mapInningScores(inningScores))
+                .inningScores(mapInningScores(meaningfulInningScores))
                 .summary(mapSummaries(summaries))
                 .build();
     }
 
     private static List<GameInningScoreDto> mapInningScores(List<GameInningScoreEntity> inningScores) {
+        if (inningScores == null || inningScores.isEmpty()) {
+            return List.of();
+        }
+
         return inningScores.stream()
                 .map(GameInningScoreDto::fromEntity)
                 .collect(Collectors.toList());
     }
 
     private static List<GameSummaryDto> mapSummaries(List<GameSummaryEntity> summaries) {
+        if (summaries == null || summaries.isEmpty()) {
+            return List.of();
+        }
+
         return summaries.stream()
                 .map(GameSummaryDto::fromEntity)
                 .collect(Collectors.toList());

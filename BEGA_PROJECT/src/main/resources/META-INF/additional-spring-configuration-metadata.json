@@ -388,6 +388,11 @@
       "description": "Maximum lifetime in milliseconds for secondary datasource connections."
     },
     {
+      "name": "baseball.datasource.hikari.keepalive-time",
+      "type": "java.lang.Long",
+      "description": "Keepalive interval in milliseconds for the secondary datasource."
+    },
+    {
       "name": "baseball.datasource.data-source-properties.currentSchema",
       "type": "java.lang.String",
       "description": "Default schema for the secondary datasource."

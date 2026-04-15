@@ -35,6 +35,8 @@ class ProfileImageValidatorTest {
         when(file.getContentType()).thenReturn("image/webp");
         when(file.getSize()).thenReturn(1024L);
         when(config.getMaxImageBytes()).thenReturn(1024L * 1024L);
+        when(config.getMaxImageLongSidePixels()).thenReturn(4096);
+        when(config.getMaxImageTotalPixels()).thenReturn(16_000_000L);
         when(imageUtil.getImageDimension(file)).thenReturn(new ImageUtil.ImageDimension(320, 320));
 
         assertDoesNotThrow(() -> validator.validateProfileImage(file));
@@ -56,6 +58,19 @@ class ProfileImageValidatorTest {
     void validateProfileImage_rejectsUnsupportedFileExtension() {
         when(file.isEmpty()).thenReturn(false);
         when(file.getOriginalFilename()).thenReturn("avatar.txt");
+
+        assertThrows(IllegalArgumentException.class, () -> validator.validateProfileImage(file));
+    }
+
+    @Test
+    void validateProfileImage_rejectsImageWithExcessiveLongSide() {
+        when(file.isEmpty()).thenReturn(false);
+        when(file.getOriginalFilename()).thenReturn("avatar.png");
+        when(file.getContentType()).thenReturn("image/png");
+        when(file.getSize()).thenReturn(1024L);
+        when(config.getMaxImageBytes()).thenReturn(1024L * 1024L);
+        when(config.getMaxImageLongSidePixels()).thenReturn(4096);
+        when(imageUtil.getImageDimension(file)).thenReturn(new ImageUtil.ImageDimension(4097, 1024));
 
         assertThrows(IllegalArgumentException.class, () -> validator.validateProfileImage(file));
     }

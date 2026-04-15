@@ -27,6 +27,7 @@ public class DiaryResponseDto {
     private String winningName;
     private String memo;
     private List<String> photos;
+    private List<String> photoStoragePaths;
     private String type;
 
     // 좌석 정보
@@ -52,6 +53,7 @@ public class DiaryResponseDto {
             .winningName(diary.getWinning() != null ? diary.getWinning().name() : null)
             .memo(diary.getMemo())
             .photos(diary.getPhotoUrls())
+            .photoStoragePaths(diary.getPhotoUrls())
             .type(diary.getType().name().toLowerCase())
             .section(diary.getSection())
             .block(diary.getBlock())
@@ -87,6 +89,7 @@ public class DiaryResponseDto {
             .winningName(diary.getWinning() != null ? diary.getWinning().name() : null)
             .memo(diary.getMemo())
             .photos(signedUrls)
+            .photoStoragePaths(diary.getPhotoUrls())
             .type(diary.getType().name().toLowerCase())
             .section(diary.getSection())
             .block(diary.getBlock())
