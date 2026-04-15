@@ -22,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -197,7 +198,7 @@ class CheerFeedServiceTest {
                 .build();
         CheerPost validPost = createSimplePost(222L, 15L);
 
-        when(postRepo.findAllOrderByPostTypeAndCreatedAtNoExcluded(eq(null), eq(null), any(), eq(pageable)))
+        when(postRepo.findAll(org.mockito.ArgumentMatchers.<Specification<CheerPost>>any(), any(PageRequest.class)))
                 .thenReturn(new PageImpl<>(List.of(orphanPost, validPost), pageable, 2));
         when(imageService.getPostImageUrlsByPostIds(anyList())).thenReturn(Collections.emptyMap());
         when(redisPostService.getViewCounts(anyCollection())).thenReturn(Collections.emptyMap());
@@ -242,6 +243,60 @@ class CheerFeedServiceTest {
         Page<PostSummaryRes> page = feedService.list(null, null, pageable, null);
 
         assertThat(page.getContent()).extracting(PostSummaryRes::id).containsExactly(222L);
+    }
+
+    @Test
+    @DisplayName("list preserves repository page metadata without in-memory visibility filtering")
+    void list_preserves_repository_pagination_metadata() {
+        PageRequest pageable = PageRequest.of(0, 20);
+        CheerPost validPost = createSimplePost(300L, 33L);
+
+        when(postRepo.findAll(org.mockito.ArgumentMatchers.<Specification<CheerPost>>any(), any(PageRequest.class)))
+                .thenReturn(new PageImpl<>(List.of(validPost), PageRequest.of(0, 20), 41));
+        when(imageService.getPostImageUrlsByPostIds(anyList())).thenReturn(Collections.emptyMap());
+        when(redisPostService.getViewCounts(anyCollection())).thenReturn(Collections.emptyMap());
+        when(redisPostService.getCachedHotStatuses(anyCollection())).thenReturn(Collections.emptyMap());
+        when(interactionService.getBookmarkCountMap(anyList())).thenReturn(Collections.emptyMap());
+        when(postDtoMapper.toPostSummaryRes(
+                eq(validPost),
+                eq(false),
+                eq(false),
+                eq(false),
+                eq(false),
+                eq(0),
+                anyList(),
+                anyMap(),
+                anyMap(),
+                anyMap()))
+                .thenReturn(PostSummaryRes.of(
+                        validPost.getId(),
+                        "LG",
+                        "LG 트윈스",
+                        "LG",
+                        "#C30452",
+                        validPost.getContent(),
+                        "Author-33",
+                        "author-33",
+                        null,
+                        null,
+                        null,
+                        validPost.getCommentCount(),
+                        validPost.getLikeCount(),
+                        0,
+                        false,
+                        validPost.getViews(),
+                        false,
+                        false,
+                        false,
+                        validPost.getRepostCount(),
+                        false,
+                        "NORMAL",
+                        List.of()));
+
+        Page<PostSummaryRes> page = feedService.list(null, null, pageable, null);
+
+        assertThat(page.getTotalElements()).isEqualTo(41);
+        verify(publicVisibilityVerifier, never()).canAccess(any(), isNull());
     }
 
     @Test

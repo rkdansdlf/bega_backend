@@ -3,14 +3,21 @@ package com.example.cheerboard.storage.strategy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
+import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * OCI Object Storage (S3 Compatible) Strategy
@@ -90,6 +97,21 @@ public class S3StorageStrategy implements StorageStrategy {
     }
 
     @Override
+    public Mono<PresignedUpload> presignPut(String bucket, String path, String contentType, int expiresInSeconds) {
+        return Mono.fromCallable(() -> {
+            String objectKey = buildObjectKey(bucket, path);
+
+            PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
+                    .signatureDuration(Duration.ofSeconds(expiresInSeconds))
+                    .putObjectRequest(b -> b.bucket(bucketName).key(objectKey).contentType(contentType))
+                    .build();
+
+            String url = s3Presigner.presignPutObject(presignRequest).url().toString();
+            return new PresignedUpload(url, Map.of("Content-Type", contentType));
+        });
+    }
+
+    @Override
     public Mono<Void> delete(String bucket, String path) {
         return Mono.fromRunnable(() -> {
             try {
@@ -122,6 +144,39 @@ public class S3StorageStrategy implements StorageStrategy {
             } catch (Exception e) {
                 log.error("S3 URL 생성 실패: {}", path, e);
                 return null;
+            }
+        });
+    }
+
+    @Override
+    public Mono<StoredObject> download(String bucket, String path) {
+        return Mono.fromCallable(() -> {
+            String objectKey = buildObjectKey(bucket, path);
+            GetObjectRequest request = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(objectKey)
+                    .build();
+            ResponseBytes<GetObjectResponse> response = s3Client.getObjectAsBytes(request);
+            return new StoredObject(response.asByteArray(), response.response().contentType());
+        });
+    }
+
+    @Override
+    public Mono<Boolean> exists(String bucket, String path) {
+        return Mono.fromCallable(() -> {
+            try {
+                String objectKey = buildObjectKey(bucket, path);
+                HeadObjectRequest headObjectRequest = HeadObjectRequest.builder()
+                        .bucket(bucketName)
+                        .key(objectKey)
+                        .build();
+                s3Client.headObject(headObjectRequest);
+                return true;
+            } catch (NoSuchKeyException e) {
+                return false;
+            } catch (Exception e) {
+                log.warn("S3 객체 존재 여부 조회 실패: path={}, error={}", path, e.getMessage());
+                return false;
             }
         });
     }
