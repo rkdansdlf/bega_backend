@@ -139,7 +139,7 @@ class MateFlowPolicyAbuseIntegrationTest {
                 "partyId", sellingParty.getId(),
                 "paymentType", "FULL",
                 "depositAmount", 50000,
-                "message", "직접 FULL 신청"));
+                "message", "직접 FULL 신청 시도를 검증합니다."));
 
         mockMvc.perform(post("/api/applications")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
@@ -187,7 +187,7 @@ class MateFlowPolicyAbuseIntegrationTest {
                 "intentId", intentId,
                 "partyId", pendingParty.getId(),
                 "flowType", PaymentFlowType.DEPOSIT.name(),
-                "message", "위변조 시나리오"));
+                "message", "위변조 시나리오를 검증합니다."));
 
         mockMvc.perform(post("/api/payments/toss/confirm")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
@@ -235,7 +235,7 @@ class MateFlowPolicyAbuseIntegrationTest {
                 "intentId", intentId,
                 "partyId", pendingParty.getId(),
                 "flowType", PaymentFlowType.DEPOSIT.name(),
-                "message", "중복 confirm 테스트"));
+                "message", "중복 confirm 동작을 검증합니다."));
 
         mockMvc.perform(post("/api/payments/toss/confirm")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
@@ -262,7 +262,8 @@ class MateFlowPolicyAbuseIntegrationTest {
 
         String sendBody = objectMapper.writeValueAsString(Map.of(
                 "partyId", party.getId(),
-                "message", "침입 메시지"));
+                "message", "침입 메시지",
+                "clientMessageId", "outsider-policy-1"));
         mockMvc.perform(post("/api/chat/messages")
                         .with(MateTestTokenHelper.principalAs(OUTSIDER_EMAIL))
                         .contentType("application/json")
@@ -345,7 +346,7 @@ class MateFlowPolicyAbuseIntegrationTest {
                 "partyId", firstParty.getId(),
                 "paymentType", "DEPOSIT",
                 "depositAmount", 22000,
-                "message", "첫 신청"));
+                "message", "첫 번째 신청 메시지를 보냅니다."));
 
         String firstApplyJson = mockMvc.perform(post("/api/applications")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
@@ -409,7 +410,7 @@ class MateFlowPolicyAbuseIntegrationTest {
                 "orderId", "MATE-DUP-ORDER",
                 "partyId", anotherParty.getId(),
                 "flowType", PaymentFlowType.DEPOSIT.name(),
-                "message", "재사용 시도"));
+                "message", "재사용 시도를 검증합니다."));
 
         mockMvc.perform(post("/api/payments/toss/confirm")
                         .with(MateTestTokenHelper.principalAs(OUTSIDER_EMAIL))
