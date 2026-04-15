@@ -5,9 +5,11 @@ import java.util.Map;
 
 import javax.sql.DataSource;
 
+import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.orm.jpa.EntityManagerFactoryBuilder;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -53,24 +55,44 @@ public class StadiumPostgresJpaConfig {
 	}
 
 	@Bean
+	@ConfigurationProperties("baseball.datasource.data-source-properties")
+	public Map<String, String> stadiumDataSourceJdbcProperties() {
+		return new LinkedHashMap<>();
+	}
+
+	@Bean
 	@ConfigurationProperties("baseball.datasource.hikari")
-	public DataSource stadiumDataSource() {
-		DataSource dataSource = stadiumDataSourceProperties()
-				.initializeDataSourceBuilder()
-				.build();
-		if (dataSource instanceof HikariDataSource hikariDataSource) {
-			hikariDataSource.setMinimumIdle(0);
-			hikariDataSource.setInitializationFailTimeout(-1);
-			hikariDataSource.setConnectionTimeout(3000);
-			hikariDataSource.setValidationTimeout(2000);
-			hikariDataSource.setKeepaliveTime(45000);
+	public HikariConfig stadiumHikariConfig(
+			@Qualifier("stadiumDataSourceProperties") DataSourceProperties stadiumProperties,
+			@Qualifier("stadiumDataSourceJdbcProperties") Map<String, String> jdbcProperties) {
+		HikariConfig config = new HikariConfig();
+		config.setJdbcUrl(stadiumProperties.getUrl());
+		config.setUsername(stadiumProperties.getUsername());
+		config.setPassword(stadiumProperties.getPassword());
+		if (stadiumProperties.getDriverClassName() != null && !stadiumProperties.getDriverClassName().isBlank()) {
+			config.setDriverClassName(stadiumProperties.getDriverClassName());
 		}
-		return dataSource;
+		for (Map.Entry<String, String> entry : jdbcProperties.entrySet()) {
+			config.addDataSourceProperty(entry.getKey(), entry.getValue());
+		}
+		config.setMinimumIdle(0);
+		config.setInitializationFailTimeout(-1);
+		config.setConnectionTimeout(3000);
+		config.setValidationTimeout(2000);
+		config.setKeepaliveTime(45000);
+		return config;
+	}
+
+	@Bean
+	public HikariDataSource stadiumDataSource(
+			@Qualifier("stadiumHikariConfig") HikariConfig stadiumHikariConfig) {
+		return new HikariDataSource(stadiumHikariConfig);
 	}
 
 	@Bean
 	public LocalContainerEntityManagerFactoryBean stadiumEntityManagerFactory(
-			EntityManagerFactoryBuilder builder) {
+			EntityManagerFactoryBuilder builder,
+			@Qualifier("stadiumDataSource") DataSource stadiumDataSource) {
 		Map<String, Object> jpaProperties = new LinkedHashMap<>();
 		jpaProperties.put(HIBERNATE_DEFAULT_SCHEMA, stadiumDefaultSchema);
 		jpaProperties.put(HIBERNATE_HBM2DDL_AUTO, stadiumDdlAuto);
@@ -79,7 +101,7 @@ public class StadiumPostgresJpaConfig {
 		jpaProperties.put(HIBERNATE_METADATA_DEFAULTS, false);
 
 		return builder
-				.dataSource(stadiumDataSource())
+				.dataSource(stadiumDataSource)
 				.packages("com.example.stadium.entity")
 				.persistenceUnit("stadium")
 				.properties(jpaProperties)

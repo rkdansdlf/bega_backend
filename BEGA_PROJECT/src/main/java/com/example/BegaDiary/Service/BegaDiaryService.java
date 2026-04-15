@@ -39,6 +39,8 @@ import com.example.auth.repository.UserRepository;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.kbo.dto.TicketInfo;
 import com.example.kbo.service.TicketVerificationTokenStore;
+import com.example.media.entity.MediaDomain;
+import com.example.media.service.MediaLinkService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -57,6 +59,7 @@ public class BegaDiaryService {
     private final PartyApplicationRepository partyApplicationRepository;
     private final TicketVerificationTokenStore ticketVerificationTokenStore;
     private final SeatViewService seatViewService;
+    private final MediaLinkService mediaLinkService;
 
     // 전체 다이어리 조회
     public List<DiaryResponseDto> getAllDiaries(Long userId) {
@@ -133,13 +136,16 @@ public class BegaDiaryService {
 
         String team = buildTeamLabel(game);
 
+        List<String> normalizedPhotoPaths = normalizeDiaryPhotoPaths(requestDto.getPhotos());
+        mediaLinkService.resolveReadyAssets(userId, MediaDomain.DIARY, normalizedPhotoPaths);
+
         BegaDiary diary = BegaDiary.builder()
                 .diaryDate(diaryDate)
                 .memo(requestDto.getMemo())
                 .mood(mood)
                 .type(DiaryType.ATTENDED)
                 .winning(winning)
-                .photoUrls(requestDto.getPhotos())
+                .photoUrls(normalizedPhotoPaths)
                 .game(game)
                 .team(team)
                 .stadium(game.getStadium())
@@ -153,7 +159,9 @@ public class BegaDiaryService {
         applyTicketVerification(diary, game, diaryDate, requestDto.getTicketVerificationToken());
 
         // 5. DB 저장
-        return Objects.requireNonNull(diaryRepository.save(Objects.requireNonNull(diary)));
+        BegaDiary savedDiary = Objects.requireNonNull(diaryRepository.save(Objects.requireNonNull(diary)));
+        mediaLinkService.syncDiaryLinks(savedDiary.getId(), userId, normalizedPhotoPaths);
+        return savedDiary;
     }
 
     @Async
@@ -182,7 +190,7 @@ public class BegaDiaryService {
             // DB 업데이트 (기존 이미지 + 새 이미지)
             List<String> allPaths = new ArrayList<>();
             if (diary.getPhotoUrls() != null) {
-                allPaths.addAll(diary.getPhotoUrls());
+                allPaths.addAll(normalizeDiaryPhotoPaths(diary.getPhotoUrls()));
             }
             allPaths.addAll(uploadedPaths);
             diary.updateDiary(
@@ -235,10 +243,13 @@ public class BegaDiaryService {
         String updatedStadium = game != null ? game.getStadium() : diary.getStadium();
         boolean identityChanged = hasTicketIdentityChanged(diary, game, updatedStadium);
 
+        List<String> normalizedPhotoPaths = normalizeDiaryPhotoPaths(requestDto.getPhotos());
+        mediaLinkService.resolveReadyAssets(userId, MediaDomain.DIARY, normalizedPhotoPaths);
+
         diary.updateDiary(
                 requestDto.getMemo(),
                 mood,
-                requestDto.getPhotos(),
+                normalizedPhotoPaths,
                 game,
                 updatedTeam,
                 updatedStadium,
@@ -255,6 +266,7 @@ public class BegaDiaryService {
         }
 
         seatViewService.processDiaryRewardIfEligible(diary);
+        mediaLinkService.syncDiaryLinks(diary.getId(), userId, normalizedPhotoPaths);
 
         return Objects.requireNonNull(diary);
     }
@@ -281,6 +293,7 @@ public class BegaDiaryService {
         }
 
         seatViewService.deleteByDiaryId(id);
+        mediaLinkService.unlinkEntity(MediaDomain.DIARY, id);
         this.diaryRepository.delete(diary);
     }
 
@@ -510,6 +523,13 @@ public class BegaDiaryService {
                 .luckyDay(luckyDay)
                 .earnedBadges(earnedBadges)
                 .build());
+    }
+
+    private List<String> normalizeDiaryPhotoPaths(List<String> photoPaths) {
+        if (photoPaths == null || photoPaths.isEmpty()) {
+            return List.of();
+        }
+        return imageService.normalizeDiaryStoragePaths(photoPaths);
     }
 
     private List<List<String>> resolveDiarySignedUrls(List<BegaDiary> diaries) {

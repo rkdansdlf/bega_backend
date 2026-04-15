@@ -18,15 +18,25 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.data.redis.serializer.SerializationException;
 import org.springframework.security.access.AccessDeniedException;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
+import static com.example.common.config.CacheConfig.POST_IMAGE_URLS;
 
 @ExtendWith(MockitoExtension.class)
 class ImageServiceTest {
@@ -60,6 +70,9 @@ class ImageServiceTest {
 
     @Mock
     private com.example.common.image.ImageUtil imageUtil;
+
+    @Mock
+    private com.example.common.image.ImageOptimizationMetricsService metricsService;
 
     @Test
     @DisplayName("I-04: 다른 게시글 소유자의 이미지 삭제 시도는 차단된다")
@@ -141,5 +154,40 @@ class ImageServiceTest {
         assertThrows(AccessDeniedException.class, () -> imageService.renewSignedUrl(10L));
         verify(storageStrategy, never()).getUrl(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    @DisplayName("I-08: 게시글 이미지 캐시가 손상되어도 DB fallback으로 목록 조회를 계속한다")
+    void getPostImageUrlsByPostIds_fallsBackWhenCacheEntryIsCorrupted() {
+        Cache cache = mock(Cache.class);
+        when(cacheManager.getCache(POST_IMAGE_URLS)).thenReturn(cache);
+        when(cache.get(1L, List.class)).thenThrow(new SerializationException("broken cache payload"));
+        when(postImageRepo.findByPostIdInOrderByPostIdAscCreatedAtAsc(Collections.singletonList(1L)))
+                .thenReturn(Collections.emptyList());
+
+        var result = imageService.getPostImageUrlsByPostIds(Collections.singletonList(1L));
+
+        org.assertj.core.api.Assertions.assertThat(result).containsKey(1L);
+        org.assertj.core.api.Assertions.assertThat(result.get(1L)).isEmpty();
+        verify(cache).evict(1L);
+        verify(cache).put(eq(1L), any());
+    }
+
+    @Test
+    @DisplayName("I-09: 게시글 이미지 캐시 저장이 실패해도 목록 응답은 계속된다")
+    void getPostImageUrlsByPostIds_ignoresCacheWriteFailure() {
+        Cache cache = mock(Cache.class);
+        when(cacheManager.getCache(POST_IMAGE_URLS)).thenReturn(cache);
+        when(cache.get(1L, List.class)).thenReturn(null);
+        when(postImageRepo.findByPostIdInOrderByPostIdAscCreatedAtAsc(Collections.singletonList(1L)))
+                .thenReturn(Collections.emptyList());
+        doThrow(new SerializationException("write failed")).when(cache).put(eq(1L), any());
+
+        var result = imageService.getPostImageUrlsByPostIds(Collections.singletonList(1L));
+
+        org.assertj.core.api.Assertions.assertThat(result).containsKey(1L);
+        org.assertj.core.api.Assertions.assertThat(result.get(1L)).isEmpty();
+        verify(cache).put(eq(1L), any());
+        verify(cache).evict(1L);
     }
 }

@@ -38,6 +38,30 @@ public class StorageConfig {
     @Value("${oci.s3.bucket:}")
     private String s3BucketName;
 
+    @Value("${media.upload-url-ttl-seconds:900}")
+    private int mediaUploadUrlTtlSeconds;
+
+    @Value("${media.cleanup.pending-retention-hours:24}")
+    private int mediaPendingRetentionHours;
+
+    @Value("${media.cleanup.orphan-retention-hours:24}")
+    private int mediaOrphanRetentionHours;
+
+    @Value("${media.quota.daily-bytes:104857600}")
+    private long mediaDailyUploadBytesLimit;
+
+    @Value("${media.quota.profile-daily-count:10}")
+    private int mediaProfileDailyCountLimit;
+
+    @Value("${media.quota.diary-daily-count:20}")
+    private int mediaDiaryDailyCountLimit;
+
+    @Value("${media.quota.cheer-daily-count:20}")
+    private int mediaCheerDailyCountLimit;
+
+    @Value("${media.quota.chat-daily-count:50}")
+    private int mediaChatDailyCountLimit;
+
     @PostConstruct
     public void logConfig() {
         log.info("=== Storage 설정 ===");
@@ -77,6 +101,14 @@ public class StorageConfig {
         return 5242880L;
     } // 5MB
 
+    public int getMaxImageLongSidePixels() {
+        return 4096;
+    }
+
+    public long getMaxImageTotalPixels() {
+        return 16_000_000L;
+    }
+
     public int getMaxImagesPerPost() {
         return 10;
     }
@@ -87,6 +119,38 @@ public class StorageConfig {
 
     public int getMaxImagesPerProfile() {
         return 1;
+    }
+
+    public int getMediaUploadUrlTtlSeconds() {
+        return mediaUploadUrlTtlSeconds;
+    }
+
+    public int getMediaPendingRetentionHours() {
+        return mediaPendingRetentionHours;
+    }
+
+    public int getMediaOrphanRetentionHours() {
+        return mediaOrphanRetentionHours;
+    }
+
+    public long getMediaDailyUploadBytesLimit() {
+        return mediaDailyUploadBytesLimit;
+    }
+
+    public int getMediaProfileDailyCountLimit() {
+        return mediaProfileDailyCountLimit;
+    }
+
+    public int getMediaDiaryDailyCountLimit() {
+        return mediaDiaryDailyCountLimit;
+    }
+
+    public int getMediaCheerDailyCountLimit() {
+        return mediaCheerDailyCountLimit;
+    }
+
+    public int getMediaChatDailyCountLimit() {
+        return mediaChatDailyCountLimit;
     }
 
     @Bean

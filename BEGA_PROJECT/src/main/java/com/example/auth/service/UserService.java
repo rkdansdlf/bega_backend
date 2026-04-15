@@ -25,6 +25,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.kbo.entity.TeamEntity;
 import com.example.auth.entity.Role;
 import com.example.auth.util.JWTUtil;
+import com.example.auth.util.HandleNormalizer;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.UserBlockRepository;
 import com.example.auth.repository.UserFollowRepository;
@@ -44,6 +45,7 @@ import com.example.common.exception.InvalidCredentialsException;
 import com.example.common.exception.SocialLoginRequiredException;
 
 import com.example.profile.storage.service.ProfileImageService;
+import com.example.media.service.MediaLinkService;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
@@ -66,6 +68,7 @@ public class UserService {
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final JWTUtil jwtUtil;
     private final ProfileImageService profileImageService;
+    private final MediaLinkService mediaLinkService;
     private final AccountDeletionService accountDeletionService;
     private final AccountSecurityService accountSecurityService;
     private final AuthSessionService authSessionService;
@@ -79,6 +82,7 @@ public class UserService {
             BCryptPasswordEncoder bCryptPasswordEncoder,
             JWTUtil jwtUtil,
             ProfileImageService profileImageService,
+            MediaLinkService mediaLinkService,
             AccountDeletionService accountDeletionService,
             AccountSecurityService accountSecurityService,
             AuthSessionService authSessionService) {
@@ -91,6 +95,7 @@ public class UserService {
         this.bCryptPasswordEncoder = bCryptPasswordEncoder;
         this.jwtUtil = jwtUtil;
         this.profileImageService = profileImageService;
+        this.mediaLinkService = mediaLinkService;
         this.accountDeletionService = accountDeletionService;
         this.accountSecurityService = accountSecurityService;
         this.authSessionService = authSessionService;
@@ -380,9 +385,20 @@ public class UserService {
     }
 
     private void updateProfileImage(UserEntity user, String imageUrl) {
-        if (imageUrl != null && !imageUrl.isEmpty()) {
-            user.setProfileImageUrl(imageUrl);
+        if (imageUrl == null || imageUrl.isEmpty()) {
+            return;
         }
+
+        String normalizedPath = profileImageService.normalizeProfileStoragePath(imageUrl);
+        String currentPath = profileImageService.normalizeProfileStoragePath(user.getProfileImageUrl());
+        if (Objects.equals(currentPath, normalizedPath)) {
+            user.setProfileImageUrl(normalizedPath);
+            return;
+        }
+
+        MediaLinkService.ProfileLinkResult linkResult = mediaLinkService.syncProfileLinks(user.getId(), normalizedPath);
+        user.setProfileImageUrl(linkResult.profileObjectKey() != null ? linkResult.profileObjectKey() : normalizedPath);
+        user.setProfileFeedImageUrl(linkResult.profileFeedObjectKey());
     }
 
     private void updateBio(UserEntity user, String bio) {
@@ -584,25 +600,16 @@ public class UserService {
     }
 
     private UserEntity findUserByHandleOrThrow(String handle) {
-        String normalizedHandle = normalizeHandle(handle);
-        return userRepository.findByHandle(normalizedHandle)
+        return HandleNormalizer.candidates(handle).stream()
+                .map(userRepository::findByHandle)
+                .flatMap(Optional::stream)
+                .findFirst()
                 .orElseThrow(() -> new UserNotFoundException("handle", handle));
     }
 
     @Transactional(readOnly = true)
     public Long getUserIdByHandle(String handle) {
         return findUserByHandleOrThrow(handle).getId();
-    }
-
-    private String normalizeHandle(String handle) {
-        if (handle == null || handle.isBlank()) {
-            throw new UserNotFoundException("handle", String.valueOf(handle));
-        }
-        String normalized = handle.trim();
-        if (!normalized.startsWith("@")) {
-            normalized = "@" + normalized;
-        }
-        return normalized.toLowerCase(Locale.ROOT);
     }
 
     private void validatePublicProfileAccess(UserEntity target, Long currentUserId) {

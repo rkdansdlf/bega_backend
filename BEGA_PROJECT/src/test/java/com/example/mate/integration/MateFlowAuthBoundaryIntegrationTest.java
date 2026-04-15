@@ -157,7 +157,8 @@ class MateFlowAuthBoundaryIntegrationTest {
 
         String hostMessageBody = objectMapper.writeValueAsString(Map.of(
                 "partyId", party.getId(),
-                "message", "권한 경계 테스트 시작"));
+                "message", "권한 경계 테스트 시작",
+                "clientMessageId", "host-boundary-1"));
         mockMvc.perform(post("/api/chat/messages")
                         .with(MateTestTokenHelper.principalAs(HOST_EMAIL))
                         .contentType("application/json")
@@ -173,7 +174,8 @@ class MateFlowAuthBoundaryIntegrationTest {
 
         String approvedMessageBody = objectMapper.writeValueAsString(Map.of(
                 "partyId", party.getId(),
-                "message", "승인 참여자 메시지"));
+                "message", "승인 참여자 메시지",
+                "clientMessageId", "approved-boundary-1"));
         mockMvc.perform(post("/api/chat/messages")
                         .with(MateTestTokenHelper.principalAs(APPROVED_EMAIL))
                         .contentType("application/json")
@@ -185,7 +187,8 @@ class MateFlowAuthBoundaryIntegrationTest {
 
         String pendingMessageBody = objectMapper.writeValueAsString(Map.of(
                 "partyId", party.getId(),
-                "message", "대기 참여자 메시지"));
+                "message", "대기 참여자 메시지",
+                "clientMessageId", "pending-boundary-1"));
         mockMvc.perform(post("/api/chat/messages")
                         .with(MateTestTokenHelper.principalAs(PENDING_EMAIL))
                         .contentType("application/json")
@@ -200,7 +203,8 @@ class MateFlowAuthBoundaryIntegrationTest {
 
         String outsiderMessageBody = objectMapper.writeValueAsString(Map.of(
                 "partyId", party.getId(),
-                "message", "외부인 메시지"));
+                "message", "외부인 메시지",
+                "clientMessageId", "outsider-boundary-1"));
         mockMvc.perform(post("/api/chat/messages")
                         .with(MateTestTokenHelper.principalAs(OUTSIDER_EMAIL))
                         .contentType("application/json")

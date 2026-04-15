@@ -124,6 +124,8 @@ List<TeamEntity> findByFranchiseId(Integer franchiseId);
 cd /Users/mac/project/KBO_platform/bega_backend/BEGA_PROJECT
 
 # Run tests
+./gradlew migrationSafetyCheck
+./gradlew dbSafetyTest
 ./gradlew test
 
 # Start application

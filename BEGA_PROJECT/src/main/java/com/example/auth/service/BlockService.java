@@ -6,6 +6,7 @@ import com.example.auth.entity.UserBlock;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserBlockRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.util.HandleNormalizer;
 import com.example.cheerboard.config.CurrentUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -14,9 +15,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -122,18 +123,14 @@ public class BlockService {
     }
 
     private UserEntity findUserByHandleOrThrow(String handle) {
-        return userRepo.findByHandle(normalizeHandle(handle))
-                .orElseThrow(() -> new NoSuchElementException("사용자를 찾을 수 없습니다."));
-    }
-
-    private String normalizeHandle(String handle) {
         if (handle == null || handle.isBlank()) {
             throw new IllegalArgumentException("유효한 핸들이 필요합니다.");
         }
-        String normalized = handle.trim();
-        if (!normalized.startsWith("@")) {
-            normalized = "@" + normalized;
-        }
-        return normalized.toLowerCase(Locale.ROOT);
+
+        return HandleNormalizer.candidates(handle).stream()
+                .map(userRepo::findByHandle)
+                .flatMap(Optional::stream)
+                .findFirst()
+                .orElseThrow(() -> new NoSuchElementException("사용자를 찾을 수 없습니다."));
     }
 }

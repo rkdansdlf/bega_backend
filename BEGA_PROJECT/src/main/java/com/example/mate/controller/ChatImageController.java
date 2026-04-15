@@ -3,6 +3,7 @@ package com.example.mate.controller;
 import com.example.auth.service.UserService;
 import com.example.common.dto.ApiResponse;
 import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.ratelimit.RateLimit;
 import com.example.mate.service.ChatImageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -24,6 +25,7 @@ public class ChatImageController {
     private final ChatImageService chatImageService;
     private final UserService userService;
 
+    @RateLimit(limit = 20, window = 60, key = "image:chat")
     @PostMapping(value = "/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse> uploadChatImage(@RequestPart("file") MultipartFile file, Principal principal) {
         Long userId = resolveUserId(principal);

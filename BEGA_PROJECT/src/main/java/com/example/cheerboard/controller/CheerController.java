@@ -86,6 +86,7 @@ public class CheerController {
 
     @PostMapping(value = "/posts/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("isAuthenticated()")
+    @RateLimit(limit = 10, window = 60, key = "image:cheer")
     public ResponseEntity<java.util.List<com.example.cheerboard.storage.dto.PostImageDto>> uploadImages(
             @PathVariable Long id,
             @RequestPart("files") java.util.List<org.springframework.web.multipart.MultipartFile> images) {

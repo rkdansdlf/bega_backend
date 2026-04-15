@@ -11,6 +11,8 @@ public record GameStatusRepairBatchResultDto(
         int mismatchCount,
         int repairedCount,
         List<GameStatusMismatchDto> mismatches,
-        List<GameScoreSyncResultDto> repairedGames
+        List<GameScoreSyncResultDto> repairedGames,
+        int nonCanonicalCount,
+        List<NonCanonicalGameDto> nonCanonicalGames
 ) {
 }

@@ -8,6 +8,8 @@ public record GameStatusMismatchBatchResultDto(
         LocalDate endDate,
         int totalGames,
         int mismatchCount,
-        List<GameStatusMismatchDto> mismatches
+        List<GameStatusMismatchDto> mismatches,
+        int nonCanonicalCount,
+        List<NonCanonicalGameDto> nonCanonicalGames
 ) {
 }

@@ -165,7 +165,7 @@ public class PostDtoMapper {
                 post.getContent(),
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor().getHandle(),
-                resolveAuthorProfileImageUrl(post.getAuthor()),
+                resolveAuthorProfileImageUrlForFeed(post.getAuthor()),
                 post.getCreatedAt(),
                 post.getCommentCount(),
                 post.getLikeCount(),
@@ -287,7 +287,7 @@ public class PostDtoMapper {
                 post.getContent(),
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor().getHandle(),
-                resolveAuthorProfileImageUrl(post.getAuthor()),
+                resolveAuthorProfileImageUrlForFeed(post.getAuthor()),
                 post.getAuthor().getFavoriteTeamId(),
                 post.getCreatedAt(),
                 post.getCommentCount(),
@@ -332,7 +332,7 @@ public class PostDtoMapper {
                 original.getContent(),
                 resolveDisplayName(original.getAuthor()),
                 original.getAuthor().getHandle(),
-                resolveAuthorProfileImageUrl(original.getAuthor()),
+                resolveAuthorProfileImageUrlForFeed(original.getAuthor()),
                 original.getCreatedAt(),
                 originalImageUrls,
                 original.getLikeCount(),
@@ -359,7 +359,7 @@ public class PostDtoMapper {
                 original.getContent(),
                 resolveDisplayName(original.getAuthor()),
                 original.getAuthor().getHandle(),
-                resolveAuthorProfileImageUrl(original.getAuthor()),
+                resolveAuthorProfileImageUrlForFeed(original.getAuthor()),
                 original.getCreatedAt(),
                 originalImageUrls,
                 original.getLikeCount(),
@@ -442,16 +442,27 @@ public class PostDtoMapper {
                 post.getCommentCount(),
                 post.getCreatedAt(),
                 resolveDisplayName(post.getAuthor()),
-                resolveAuthorProfileImageUrl(post.getAuthor()));
+                resolveAuthorProfileImageUrlForFeed(post.getAuthor()));
     }
 
     private String resolveAuthorProfileImageUrl(UserEntity author) {
+        return resolveAuthorProfileImageUrl(author, false);
+    }
+
+    private String resolveAuthorProfileImageUrlForFeed(UserEntity author) {
+        return resolveAuthorProfileImageUrl(author, true);
+    }
+
+    private String resolveAuthorProfileImageUrl(UserEntity author, boolean forCheerFeed) {
         if (author == null) {
             return null;
         }
 
         String rawValue = author.getProfileImageUrl();
-        String resolved = profileImageService.getProfileImageUrl(rawValue);
+        String feedValue = author.getProfileFeedImageUrl();
+        String resolved = forCheerFeed
+                ? profileImageService.getProfileImageUrlForCheerFeed(rawValue, feedValue)
+                : profileImageService.getProfileImageUrl(rawValue);
         if (resolved != null && !resolved.isBlank()) {
             return resolved;
         }

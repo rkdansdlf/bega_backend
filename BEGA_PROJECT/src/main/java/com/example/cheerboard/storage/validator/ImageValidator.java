@@ -1,6 +1,7 @@
 package com.example.cheerboard.storage.validator;
 
 import com.example.cheerboard.storage.config.StorageConfig;
+import com.example.common.image.ImageUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,6 +18,7 @@ import java.util.Set;
 public class ImageValidator {
 
     private final StorageConfig config;
+    private final ImageUtil imageUtil;
 
     /**
      * 허용된 확장자
@@ -99,6 +101,7 @@ public class ImageValidator {
         validateExtension(originalFilename);
         validateMimeType(file.getContentType());
         validateSize(file.getSize());
+        validateDimensions(file);
     }
 
     /**
@@ -125,5 +128,20 @@ public class ImageValidator {
             throw new IllegalArgumentException("파일 확장자가 없습니다.");
         }
         return filename.substring(lastDotIndex + 1);
+    }
+
+    private void validateDimensions(MultipartFile file) {
+        ImageUtil.ImageDimension imageDimension = imageUtil.getImageDimension(file);
+        int longSide = Math.max(imageDimension.width(), imageDimension.height());
+        long totalPixels = (long) imageDimension.width() * imageDimension.height();
+
+        if (longSide > config.getMaxImageLongSidePixels()) {
+            throw new IllegalArgumentException(
+                    String.format("이미지의 긴 변은 최대 %dpx 이하여야 합니다.", config.getMaxImageLongSidePixels()));
+        }
+        if (totalPixels > config.getMaxImageTotalPixels()) {
+            throw new IllegalArgumentException(
+                    String.format("이미지 총 픽셀 수는 최대 %,d 이하여야 합니다.", config.getMaxImageTotalPixels()));
+        }
     }
 }

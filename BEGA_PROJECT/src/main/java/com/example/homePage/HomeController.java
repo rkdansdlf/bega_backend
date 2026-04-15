@@ -1,5 +1,6 @@
 package com.example.homepage;
 
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -25,6 +26,8 @@ public class HomeController {
         LocalDate selectedDate = date == null ? LocalDate.now() : date;
         try {
             return ResponseEntity.ok(homePageFacadeService.getBootstrap(selectedDate));
+        } catch (ManualBaseballDataRequiredException e) {
+            throw e;
         } catch (Exception e) {
             log.warn("Bootstrap failed for date={}, returning empty fallback: {}", selectedDate, e.getMessage());
             return ResponseEntity.ok(buildEmptyBootstrap(selectedDate));

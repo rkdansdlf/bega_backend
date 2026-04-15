@@ -98,7 +98,22 @@ public class PrimaryOracleJpaConfig {
 	public HikariDataSource primaryDataSource(
 			@Qualifier("primaryHikariConfig") HikariConfig primaryHikariConfig
 	) {
-		return new HikariDataSource(primaryHikariConfig);
+		try {
+			return new HikariDataSource(primaryHikariConfig);
+		} catch (RuntimeException ex) {
+			if (isOracleJdbcUrl(primaryHikariConfig.getJdbcUrl())
+					&& OracleConnectionDiagnostics.isListenerAclFailure(ex)) {
+				throw new IllegalStateException(
+						OracleConnectionDiagnostics.buildListenerAclFailureMessage(
+								primaryHikariConfig.getJdbcUrl(),
+								primaryHikariConfig.getUsername(),
+								resolveTnsAdmin(primaryHikariConfig.getJdbcUrl())
+						),
+						ex
+				);
+			}
+			throw ex;
+		}
 	}
 
 	@Bean
@@ -122,26 +137,29 @@ public class PrimaryOracleJpaConfig {
 				jpaProperties.put("hibernate.dialect", hibernateDialect);
 			}
 
-		return builder
-				.dataSource(primaryDataSource)
-				.packages(
-						"com.example.admin",
-						"com.example.ai",
-						"com.example.auth",
-						"com.example.bega",
-						"com.example.BegaDiary",
-						"com.example.cheerboard",
-						"com.example.common",
-						"com.example.homepage",
-						"com.example.kbo",
-						"com.example.leaderboard",
-						"com.example.mate",
-						"com.example.mypage",
-						"com.example.notification",
-						"com.example.prediction",
-						"com.example.profile",
-						"com.example.teamRecommendationTest"
-				)
+			return builder
+					.dataSource(primaryDataSource)
+					.packages(
+							"com.example.admin",
+							"com.example.ai",
+							"com.example.auth",
+							"com.example.bega",
+							"com.example.BegaDiary",
+							"com.example.cheerboard",
+							"com.example.common",
+							"com.example.dm",
+							"com.example.dm.entity",
+							"com.example.homepage",
+								"com.example.kbo",
+								"com.example.leaderboard",
+								"com.example.media",
+								"com.example.mate",
+								"com.example.mypage",
+								"com.example.notification",
+								"com.example.prediction",
+								"com.example.profile",
+								"com.example.teamRecommendationTest"
+						)
 				.persistenceUnit("primary")
 				.properties(jpaProperties)
 				.build();
@@ -159,13 +177,7 @@ public class PrimaryOracleJpaConfig {
 			return;
 		}
 
-		String tnsAdmin = extractTnsAdmin(datasourceUrl);
-		if (isBlank(tnsAdmin)) {
-			tnsAdmin = environment.getProperty("TNS_ADMIN");
-		}
-		if (isBlank(tnsAdmin)) {
-			tnsAdmin = environment.getProperty("ORACLE_TNS_ADMIN");
-		}
+		String tnsAdmin = resolveTnsAdmin(datasourceUrl);
 
 		if (isBlank(tnsAdmin)) {
 			throw new IllegalStateException("Oracle TNS alias is used, but TNS admin path is missing. Set SPRING_DATASOURCE_URL with full host/port/service OR configure TNS_ADMIN.");
@@ -184,6 +196,17 @@ public class PrimaryOracleJpaConfig {
 			if (!Files.exists(walletDir.resolve("tnsnames.ora")) || !hasWalletFile) {
 			throw new IllegalStateException("Oracle wallet files are incomplete at " + tnsAdmin + ". Expected tnsnames.ora and wallet file (ewallet.p12 or cwallet.sso).");
 		}
+	}
+
+	private String resolveTnsAdmin(String datasourceUrl) {
+		String tnsAdmin = extractTnsAdmin(datasourceUrl);
+		if (isBlank(tnsAdmin)) {
+			tnsAdmin = environment.getProperty("TNS_ADMIN");
+		}
+		if (isBlank(tnsAdmin)) {
+			tnsAdmin = environment.getProperty("ORACLE_TNS_ADMIN");
+		}
+		return tnsAdmin;
 	}
 
 	private boolean isOracleWithTnsAlias(String datasourceUrl) {

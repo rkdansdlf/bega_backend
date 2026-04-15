@@ -19,6 +19,8 @@ import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.entity.Party.PartyStatus;
+import com.example.media.entity.MediaDomain;
+import com.example.media.service.MediaLinkService;
 
 @Service
 @RequiredArgsConstructor
@@ -30,6 +32,7 @@ public class ChatMessageService {
     private final PartyRepository partyRepository;
     private final PartyApplicationRepository applicationRepository;
     private final ChatImageService chatImageService;
+    private final MediaLinkService mediaLinkService;
 
     // 메시지 전송
     @Transactional
@@ -52,9 +55,24 @@ public class ChatMessageService {
             throw new UnauthorizedAccessException("파티 참여자만 메시지를 보낼 수 있습니다.");
         }
 
+        MateContentPolicyValidator.validateChatMessage(request.getMessage(), request.getImageUrl());
+
         String userName = userRepository.findById(userId)
                 .map(com.example.auth.entity.UserEntity::getName)
                 .orElse("Unknown");
+
+        if (request.getImageUrl() != null && !request.getImageUrl().isBlank()) {
+            mediaLinkService.resolveReadyAssets(userId, MediaDomain.CHAT, List.of(request.getImageUrl()));
+        }
+
+        if (request.getClientMessageId() != null && !request.getClientMessageId().isBlank()) {
+            ChatMessage existingMessage = chatMessageRepository
+                    .findByPartyIdAndSenderIdAndClientMessageId(request.getPartyId(), userId, request.getClientMessageId())
+                    .orElse(null);
+            if (existingMessage != null) {
+                return toResponseWithResolvedImage(existingMessage);
+            }
+        }
 
         ChatMessage chatMessage = ChatMessage.builder()
                 .partyId(request.getPartyId())
@@ -62,9 +80,11 @@ public class ChatMessageService {
                 .senderName(userName)
                 .message(request.getMessage())
                 .imageUrl(request.getImageUrl())
+                .clientMessageId(request.getClientMessageId())
                 .build();
 
         ChatMessage savedMessage = chatMessageRepository.save(chatMessage);
+        mediaLinkService.syncChatLink(savedMessage.getId(), userId, savedMessage.getImageUrl());
         return toResponseWithResolvedImage(savedMessage);
     }
 

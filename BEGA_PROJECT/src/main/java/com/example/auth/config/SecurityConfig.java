@@ -60,7 +60,6 @@ public class SecurityConfig {
                         "/api/auth/login",
                         "/api/auth/signup",
                         "/api/auth/check-handle",
-                        "/api/auth/check-email",
                         "/api/auth/policies/required",
                         "/api/auth/reissue",
                         "/api/auth/logout",
@@ -101,10 +100,14 @@ public class SecurityConfig {
         /** 개발/로컬에서만 공개되는 시스템 엔드포인트 */
         private static final String[] DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS = {
                         "/api/test/**",
-                        "/actuator/prometheus",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
                         "/swagger-ui.html"
+        };
+
+        /** 조건부 공개 시스템 엔드포인트 */
+        private static final String[] CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS = {
+                        "/actuator/prometheus"
         };
 
         /** 공개 API 엔드포인트 (인증 불필요) */
@@ -188,6 +191,8 @@ public class SecurityConfig {
         private final AllowedOriginResolver allowedOriginResolver;
         @org.springframework.beans.factory.annotation.Value("${app.ai.proxy.public-in-dev:false}")
         private boolean publicAiProxyInDevEnabled;
+        @org.springframework.beans.factory.annotation.Value("${app.observability.public-prometheus-endpoint:false}")
+        private boolean publicPrometheusEndpointEnabled;
         @org.springframework.beans.factory.annotation.Value("${app.frontend.url:http://localhost:3000}")
         private String frontendUrl;
 
@@ -225,24 +230,35 @@ public class SecurityConfig {
         }
 
         String[] publicSystemEndpoints() {
+                int conditionalLength = shouldExposePrometheusEndpointPublicly()
+                                ? CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS.length
+                                : 0;
                 if (!isDevOrLocalProfile()) {
-                        return PUBLIC_SYSTEM_ENDPOINTS;
+                        return mergeEndpoints(PUBLIC_SYSTEM_ENDPOINTS, CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS,
+                                        conditionalLength);
                 }
 
-                String[] merged = Arrays.copyOf(
-                                PUBLIC_SYSTEM_ENDPOINTS,
-                                PUBLIC_SYSTEM_ENDPOINTS.length + DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS.length);
-                System.arraycopy(
+                String[] devLocalEndpoints = mergeEndpoints(
                                 DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS,
-                                0,
-                                merged,
-                                PUBLIC_SYSTEM_ENDPOINTS.length,
-                                DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS.length);
-                return merged;
+                                CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS,
+                                CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS.length);
+                return mergeEndpoints(PUBLIC_SYSTEM_ENDPOINTS, devLocalEndpoints, devLocalEndpoints.length);
         }
 
         boolean allowUnauthenticatedAiProxy() {
                 return publicAiProxyInDevEnabled && isDevOrLocalProfile();
+        }
+
+        boolean shouldExposePrometheusEndpointPublicly() {
+                return publicPrometheusEndpointEnabled;
+        }
+
+        private String[] mergeEndpoints(String[] baseEndpoints, String[] extraEndpoints, int extraLength) {
+                String[] merged = Arrays.copyOf(baseEndpoints, baseEndpoints.length + extraLength);
+                if (extraLength > 0) {
+                        System.arraycopy(extraEndpoints, 0, merged, baseEndpoints.length, extraLength);
+                }
+                return merged;
         }
 
         boolean isAuthenticatedPrincipal(Authentication authentication, Object object) {

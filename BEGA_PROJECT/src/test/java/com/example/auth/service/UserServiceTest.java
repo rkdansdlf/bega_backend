@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -13,6 +15,10 @@ import static org.mockito.Mockito.when;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.entity.UserProvider;
 import com.example.auth.dto.PublicUserProfileDto;
+import com.example.auth.dto.UserDto;
+import com.example.auth.util.JWTUtil;
+import com.example.common.exception.DuplicateEmailException;
+import com.example.common.exception.InvalidCredentialsException;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.UserBlockRepository;
@@ -27,6 +33,7 @@ import com.example.mypage.dto.UserProviderDto;
 import com.example.common.web.ClientIpResolver;
 import com.example.kbo.entity.TeamEntity;
 import com.example.kbo.repository.TeamRepository;
+import com.example.media.service.MediaLinkService;
 import com.example.mate.service.PartyService;
 import com.example.profile.storage.service.ProfileImageService;
 import java.time.Instant;
@@ -88,6 +95,12 @@ class UserServiceTest {
     @Mock
     private AccountSecurityService accountSecurityService;
 
+    @Mock
+    private AuthSessionService authSessionService;
+
+    @Mock
+    private MediaLinkService mediaLinkService;
+
     @Test
     void updateProfile_withNullProfileImageUrl_keepsExistingUrl() {
         UserEntity user = baseUser("https://cdn.example.com/old.png");
@@ -135,6 +148,10 @@ class UserServiceTest {
         UserEntity user = baseUser("https://cdn.example.com/old.png");
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(profileImageService.normalizeProfileStoragePath("https://cdn.example.com/new.png"))
+                .thenReturn("profiles/1/new.webp");
+        when(mediaLinkService.syncProfileLinks(1L, "profiles/1/new.webp"))
+                .thenReturn(new MediaLinkService.ProfileLinkResult("profiles/1/new.webp", null));
 
         UserProfileDto updateDto = UserProfileDto.builder()
                 .name("newName")
@@ -146,7 +163,7 @@ class UserServiceTest {
 
         UserEntity result = userService.updateProfile(1L, updateDto);
 
-        assertEquals("https://cdn.example.com/new.png", result.getProfileImageUrl());
+        assertEquals("profiles/1/new.webp", result.getProfileImageUrl());
         assertEquals("newName", result.getName());
         verify(userRepository).save(user);
     }
@@ -176,6 +193,35 @@ class UserServiceTest {
 
         assertEquals("@user", result.getHandle());
         verify(userRepository).findByHandle("@user");
+    }
+
+    @Test
+    void getPublicUserProfileByHandle_decodesPercentEncodedHandle() {
+        UserEntity user = baseUser("https://cdn.example.com/old.png");
+        when(userRepository.findByHandle("@user")).thenReturn(Optional.of(user));
+        when(profileImageService.getProfileImageUrl("https://cdn.example.com/old.png"))
+                .thenReturn("https://cdn.example.com/old.png?v=resolved");
+
+        PublicUserProfileDto result = userService.getPublicUserProfileByHandle("%40User", null);
+
+        assertEquals("@user", result.getHandle());
+        verify(userRepository).findByHandle("@user");
+    }
+
+    @Test
+    void getPublicUserProfileByHandle_fallsBackToLegacyHandleWithoutPrefix() {
+        UserEntity user = baseUser("https://cdn.example.com/old.png");
+        user.setHandle("user");
+        when(userRepository.findByHandle("@user")).thenReturn(Optional.empty());
+        when(userRepository.findByHandle("user")).thenReturn(Optional.of(user));
+        when(profileImageService.getProfileImageUrl("https://cdn.example.com/old.png"))
+                .thenReturn("https://cdn.example.com/old.png?v=resolved");
+
+        PublicUserProfileDto result = userService.getPublicUserProfileByHandle("%40User", null);
+
+        assertEquals("user", result.getHandle());
+        verify(userRepository).findByHandle("@user");
+        verify(userRepository).findByHandle("user");
     }
 
     @Test
@@ -434,6 +480,107 @@ class UserServiceTest {
                 .providerId(provider + "_id_123")
                 .connectedAt(Instant.now())
                 .build();
+    }
+
+    @Test
+    void signUp_createsNewUserWithEncodedPassword() {
+        UserDto dto = UserDto.builder()
+                .name("tester")
+                .handle("@newbie")
+                .email("NEW@Example.com")
+                .password("raw-password")
+                .favoriteTeam(null)
+                .provider("LOCAL")
+                .build();
+
+        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+        when(userRepository.existsByHandle("@newbie")).thenReturn(false);
+        when(bCryptPasswordEncoder.encode("raw-password")).thenReturn("ENCODED");
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        userService.signUp(dto);
+
+        verify(bCryptPasswordEncoder).encode("raw-password");
+        verify(userRepository).save(any(UserEntity.class));
+    }
+
+    @Test
+    void signUp_throwsDuplicateEmail_whenLocalAccountExists() {
+        UserDto dto = UserDto.builder()
+                .name("tester")
+                .handle("@newbie")
+                .email("dup@example.com")
+                .password("raw-password")
+                .provider("LOCAL")
+                .build();
+
+        UserEntity existing = UserEntity.builder()
+                .id(7L)
+                .email("dup@example.com")
+                .password("already-encoded")
+                .provider("LOCAL")
+                .build();
+        when(userRepository.findByEmail("dup@example.com")).thenReturn(Optional.of(existing));
+
+        assertThrows(DuplicateEmailException.class, () -> userService.signUp(dto));
+        verify(userRepository, never()).save(any(UserEntity.class));
+    }
+
+    @Test
+    void authenticateAndGetToken_returnsTokens_onValidCredentials() {
+        UserEntity user = baseUser(null);
+        user.setPassword("ENCODED");
+        user.setEnabled(true);
+        user.setLocked(false);
+
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(jwtUtil.getAccessTokenExpirationTime()).thenReturn(600_000L);
+        when(jwtUtil.createJwt(eq("user@example.com"), eq("ROLE_USER"), eq(1L), anyLong(), any()))
+                .thenReturn("access-token");
+        when(authSessionService.issueRefreshToken(eq("user@example.com"), eq("ROLE_USER"), eq(1L), any(), any()))
+                .thenReturn("refresh-token");
+
+        UserService.LoginResult result = userService.authenticateAndGetToken("USER@example.com", "raw-password");
+
+        assertEquals("access-token", result.accessToken());
+        assertEquals("refresh-token", result.refreshToken());
+        assertEquals(1L, result.profileData().get("id"));
+        verify(accountSecurityService).handleSuccessfulLogin(eq(user), any());
+    }
+
+    @Test
+    void authenticateAndGetToken_throwsInvalidCredentials_onBadPassword() {
+        UserEntity user = baseUser(null);
+        user.setPassword("ENCODED");
+        user.setEnabled(true);
+
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("wrong", "ENCODED")).thenReturn(false);
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("user@example.com", "wrong"));
+        verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
+        verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void findUserById_returnsEntity_whenPresent() {
+        UserEntity user = baseUser(null);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+        UserEntity result = userService.findUserById(1L);
+
+        assertEquals(1L, result.getId());
+        assertEquals("user@example.com", result.getEmail());
+    }
+
+    @Test
+    void findUserById_throwsUserNotFound_whenMissing() {
+        when(userRepository.findById(999L)).thenReturn(Optional.empty());
+
+        assertThrows(UserNotFoundException.class, () -> userService.findUserById(999L));
     }
 
     private UserEntity baseUser(String profileImageUrl) {

@@ -1,0 +1,5 @@
+app:
+  ai:
+    coach-auto-brief:
+      monitoring:
+        enabled: false

@@ -1,6 +1,8 @@
 package com.example.admin.controller;
 
 import com.example.admin.dto.AdminMateDto;
+import com.example.admin.dto.AdminNonCanonicalCleanupTrackerDto;
+import com.example.admin.dto.AdminNonCanonicalCleanupTrackerUpsertRequest;
 import com.example.admin.dto.AdminPostDto;
 import com.example.admin.dto.AdminReportActionReq;
 import com.example.admin.dto.AdminReportAppealReq;
@@ -265,5 +267,50 @@ public class AdminController {
                 dryRun ? "경기 상태 불일치 복구 시뮬레이션 성공" : "경기 상태 불일치 복구 성공",
                 result
         ));
+    }
+
+    /**
+     * 비정상 팀 코드 정제 tracker 목록 조회
+     * GET /api/admin/games/non-canonical-cleanup-trackers
+     */
+    @GetMapping("/games/non-canonical-cleanup-trackers")
+    public ResponseEntity<ApiResponse> getNonCanonicalCleanupTrackers() {
+        List<AdminNonCanonicalCleanupTrackerDto> result = adminService.getNonCanonicalCleanupTrackers();
+        return ResponseEntity.ok(ApiResponse.success("비정상 팀 코드 정제 tracker 조회 성공", result));
+    }
+
+    /**
+     * 비정상 팀 코드 정제 tracker 저장/수정
+     * PUT /api/admin/games/non-canonical-cleanup-trackers?startDate=2026-04-14&endDate=2026-04-14
+     */
+    @PutMapping("/games/non-canonical-cleanup-trackers")
+    public ResponseEntity<ApiResponse> upsertNonCanonicalCleanupTracker(
+            @AuthenticationPrincipal Long adminId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @Valid @RequestBody AdminNonCanonicalCleanupTrackerUpsertRequest request
+    ) {
+        LocalDate resolvedEndDate = endDate != null ? endDate : startDate;
+        AdminNonCanonicalCleanupTrackerDto result = adminService.upsertNonCanonicalCleanupTracker(
+                startDate,
+                resolvedEndDate,
+                request,
+                adminId
+        );
+        return ResponseEntity.ok(ApiResponse.success("비정상 팀 코드 정제 tracker 저장 성공", result));
+    }
+
+    /**
+     * 비정상 팀 코드 정제 tracker 삭제
+     * DELETE /api/admin/games/non-canonical-cleanup-trackers?startDate=2026-04-14&endDate=2026-04-14
+     */
+    @DeleteMapping("/games/non-canonical-cleanup-trackers")
+    public ResponseEntity<Void> deleteNonCanonicalCleanupTracker(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
+    ) {
+        LocalDate resolvedEndDate = endDate != null ? endDate : startDate;
+        adminService.deleteNonCanonicalCleanupTracker(startDate, resolvedEndDate);
+        return ResponseEntity.noContent().build();
     }
 }

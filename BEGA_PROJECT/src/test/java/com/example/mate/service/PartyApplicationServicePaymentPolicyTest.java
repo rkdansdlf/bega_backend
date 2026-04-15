@@ -91,7 +91,7 @@ class PartyApplicationServicePaymentPolicyTest {
 
         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                 .partyId(1L)
-                .message("신청합니다")
+                .message("함께 관람 신청을 진행합니다.")
                 .depositAmount(50000)
                 .paymentType(PartyApplication.PaymentType.FULL)
                 .build();
