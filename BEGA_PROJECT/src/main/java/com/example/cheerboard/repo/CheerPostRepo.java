@@ -10,10 +10,15 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
-public interface CheerPostRepo extends JpaRepository<CheerPost, Long> {
+public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecificationExecutor<CheerPost> {
+        @Override
+        @EntityGraph(attributePaths = { "author", "team", "repostOf", "repostOf.author", "repostOf.team" })
+        Page<CheerPost> findAll(Specification<CheerPost> spec, Pageable pageable);
+
         @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
         @Query("SELECT p FROM CheerPost p WHERE p.id = :postId")
         Optional<CheerPost> findByIdForImageWrite(@Param("postId") Long postId);

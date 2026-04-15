@@ -514,11 +514,6 @@ public class CheerInteractionService {
         builder.append('[').append(key).append("] ").append(value.trim());
     }
 
-    private int readLikeCount(Long postId) {
-        Integer count = postRepo.findLikeCountById(postId);
-        return count == null ? 0 : count;
-    }
-
     private int reconcileLikeCount(Long postId) {
         entityManager.flush();
         int exactCount = Math.toIntExact(likeRepo.countByPostId(postId));

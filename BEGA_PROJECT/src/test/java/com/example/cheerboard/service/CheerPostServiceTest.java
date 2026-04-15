@@ -12,13 +12,18 @@ import com.example.cheerboard.dto.RepostToggleResponse;
 import com.example.cheerboard.dto.UpdatePostReq;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerPostRepostRepo;
+import com.example.cheerboard.storage.config.StorageConfig;
+import com.example.cheerboard.storage.repository.PostImageRepository;
 import com.example.kbo.entity.TeamEntity;
+import com.example.media.entity.MediaDomain;
+import com.example.media.service.MediaLinkService;
 import com.example.notification.service.NotificationService;
 import com.example.common.exception.RepostNotAllowedException;
 import com.example.common.exception.RepostSelfNotAllowedException;
 import com.example.common.exception.RepostTargetNotFoundException;
 import jakarta.persistence.EntityManager;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +31,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -85,6 +92,28 @@ class CheerPostServiceTest {
 
         @Mock
         private PopularFeedScoringService popularFeedScoringService;
+
+        @Mock
+        private MediaLinkService mediaLinkService;
+
+        @Mock
+        private StorageConfig storageConfig;
+
+        @Mock
+        private PostImageRepository postImageRepository;
+
+        @Mock
+        private com.example.auth.service.FollowService followService;
+
+        @BeforeEach
+        void setUp() {
+                lenient().when(storageConfig.getMaxImagesPerPost()).thenReturn(4);
+                lenient().when(mediaLinkService.resolveReadyAssets(anyLong(), eq(MediaDomain.CHEER), anyCollection()))
+                                .thenReturn(Map.of());
+                lenient().doNothing().when(mediaLinkService).syncCheerLinks(anyLong(), anyLong(), anyList());
+                lenient().when(postImageRepository.findByPostIdOrderByCreatedAtAsc(anyLong())).thenReturn(List.of());
+                lenient().when(followService.getFollowersWithNotifyEnabled(anyLong())).thenReturn(List.of());
+        }
 
         @Test
         @DisplayName("HOT 점수 업데이트 시 TIME_DECAY와 ENGAGEMENT_RATE를 모두 갱신한다")
@@ -719,8 +748,8 @@ class CheerPostServiceTest {
         }
 
         @Test
-        @DisplayName("Create Post Success - With Title")
-        void createPost_success_withTitle() {
+        @DisplayName("Create Post Success - Persists sanitized content")
+        void createPost_success_persists_content() {
                 // Given
                 Long userId = 100L;
                 TeamEntity team = TeamEntity.builder().teamId("LG").teamName("LG").build();
@@ -759,8 +788,104 @@ class CheerPostServiceTest {
         }
 
         @Test
-        @DisplayName("Update Post Entity Success - Title Change")
-        void updatePost_success_titleChange() {
+        @DisplayName("Create Post rejects unsafe external source URLs")
+        void createPost_rejects_unsafe_external_source_url() {
+                Long userId = 100L;
+                TeamEntity team = TeamEntity.builder().teamId("LG").teamName("LG").build();
+                UserEntity me = UserEntity.builder().id(userId).name("Me").favoriteTeam(team).build();
+                CreatePostReq req = new CreatePostReq(
+                                "LG",
+                                "My Content",
+                                null,
+                                "CHEER",
+                                CheerPost.ShareMode.EXTERNAL_LINK,
+                                "javascript:alert(1)",
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null);
+
+                mockWriteEnabledAuthor(me);
+                when(moderationService.checkContent(any()))
+                                .thenReturn(com.example.common.service.AIModerationService.ModerationResult.allow());
+
+                IllegalArgumentException exception = assertThrows(
+                                IllegalArgumentException.class,
+                                () -> postService.createPost(req, me));
+
+                assertThat(exception).hasMessageContaining("http/https");
+                verify(postRepo, never()).saveAndFlush(any(CheerPost.class));
+        }
+
+        @Test
+        @DisplayName("Create Post normalizes external source URLs before saving")
+        void createPost_normalizes_external_source_url() {
+                Long userId = 100L;
+                TeamEntity team = TeamEntity.builder().teamId("LG").teamName("LG").build();
+                UserEntity me = UserEntity.builder().id(userId).name("Me").favoriteTeam(team).build();
+                CreatePostReq req = new CreatePostReq(
+                                "LG",
+                                "My Content",
+                                null,
+                                "CHEER",
+                                CheerPost.ShareMode.EXTERNAL_LINK,
+                                " https://example.com/news ",
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null);
+
+                mockWriteEnabledAuthor(me);
+                when(teamRepo.findById("LG")).thenReturn(Optional.of(team));
+                doNothing().when(permissionValidator).validateTeamAccess(any(), any(), any());
+                when(moderationService.checkContent(any()))
+                                .thenReturn(com.example.common.service.AIModerationService.ModerationResult.allow());
+                when(postRepo.saveAndFlush(any(CheerPost.class))).thenAnswer(invocation -> invocation.getArgument(0));
+                when(postDtoMapper.toNewPostDetailRes(any(CheerPost.class), any(UserEntity.class)))
+                                .thenReturn(PostDetailRes.of(
+                                                1L, "LG", "LG", "LG", "#C30452", "My Content", "Me",
+                                                "me", "http://example.com/me.jpg", null,
+                                                0, 0, 0, false, false, false, null, 0, 0, false, "CHEER"));
+
+                postService.createPost(req, me);
+
+                org.mockito.ArgumentCaptor<CheerPost> postCaptor = org.mockito.ArgumentCaptor.forClass(CheerPost.class);
+                verify(postRepo).saveAndFlush(postCaptor.capture());
+                assertThat(postCaptor.getValue().getSourceUrl()).isEqualTo("https://example.com/news");
+        }
+
+        @Test
+        @DisplayName("Update Post Entity rejects blank content")
+        void updatePost_rejects_blank_content() {
+                Long postId = 1L;
+                Long userId = 100L;
+                UserEntity me = UserEntity.builder().id(userId).name("Me").build();
+                CheerPost existing = CheerPost.builder()
+                                .id(postId)
+                                .author(me)
+                                .content("Old Content")
+                                .build();
+                UpdatePostReq req = new UpdatePostReq("   ");
+
+                when(postRepo.findById(postId)).thenReturn(Optional.of(existing));
+                doNothing().when(permissionValidator).validateOwnerOrAdmin(any(), any(), any());
+                mockWriteEnabledAuthor(me);
+
+                IllegalArgumentException exception = assertThrows(
+                                IllegalArgumentException.class,
+                                () -> postService.updatePostEntity(postId, req, me));
+
+                assertThat(exception).hasMessageContaining("내용은 필수입니다.");
+                verify(moderationService, never()).checkContent(any());
+        }
+
+        @Test
+        @DisplayName("Update Post Entity Success - Content Change")
+        void updatePost_success_contentChange() {
                 // Given
                 Long postId = 1L;
                 Long userId = 100L;

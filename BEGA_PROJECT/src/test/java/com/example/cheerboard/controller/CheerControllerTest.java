@@ -7,12 +7,16 @@ import com.example.cheerboard.storage.dto.PostImageDto;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.*;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.security.Principal;
@@ -21,6 +25,8 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
 class CheerControllerTest {
@@ -99,6 +105,25 @@ class CheerControllerTest {
         Page<PostSummaryRes> result = controller.listFollowing(pageable);
 
         assertThat(result).isEqualTo(page);
+    }
+
+    @Test
+    @DisplayName("encoded handle path로도 유저 게시글 목록을 조회한다")
+    void listByUser_decodesPercentEncodedHandlePath() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver())
+                .build();
+        when(svc.listByUserHandle(anyString(), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/api/cheer/user/%40User/posts")
+                        .param("page", "0")
+                        .param("size", "20"))
+                .andReturn();
+
+        ArgumentCaptor<String> handleCaptor = ArgumentCaptor.forClass(String.class);
+        verify(svc).listByUserHandle(handleCaptor.capture(), any(Pageable.class));
+        assertThat(handleCaptor.getValue()).isNotBlank();
+        assertThat(handleCaptor.getValue()).isIn("%40User", "User", "@User");
     }
 
     // ── uploadImages ──

@@ -7,7 +7,10 @@ import com.example.cheerboard.dto.PostLightweightSummaryRes;
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.service.ImageService;
+import com.example.profile.storage.service.ProfileImageService;
 import com.example.auth.entity.UserEntity;
+import com.example.auth.entity.UserBlock;
+import com.example.auth.entity.UserFollow;
 import com.example.auth.service.BlockService;
 import com.example.auth.service.FollowService;
 import com.example.auth.service.PublicVisibilityVerifier;
@@ -17,7 +20,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +54,7 @@ public class CheerFeedService {
     private final UserService userService;
     private final PermissionValidator permissionValidator;
     private final PostDtoMapper postDtoMapper;
+    private final ProfileImageService profileImageService;
     private final com.example.cheerboard.repo.CheerBookmarkRepo bookmarkRepo;
 
     // We need to resolve Normalized Team ID, so call utility directly or via helper
@@ -60,7 +66,7 @@ public class CheerFeedService {
         }
 
         Page<com.example.cheerboard.domain.CheerPostBookmark> bookmarkPage = bookmarkRepo
-                .findByUserIdOrderByCreatedAtDesc(me.getId(), pageable);
+                .findVisibleByUserIdOrderByCreatedAtDesc(me.getId(), me.getId(), pageable);
 
         Page<CheerPost> postPage = bookmarkPage.map(com.example.cheerboard.domain.CheerPostBookmark::getPost);
         return buildPostSummaryPage(postPage, me);
@@ -86,36 +92,18 @@ public class CheerFeedService {
             }
         }
 
-        java.util.Set<Long> excludedIds = getExcludedUserIds(me);
-        boolean hasExcludedIds = !excludedIds.isEmpty();
-        log.debug("List - excludedIds size: {}", excludedIds.size());
-
-        Page<CheerPost> page;
-        boolean hasSort = pageable.getSort().isSorted();
-
-        if (hasSort && pageable.getSort().stream().anyMatch(order -> !order.getProperty().equals("createdAt"))) {
-            page = hasExcludedIds
-                    ? postRepo.findByTeamIdAndPostType(normalizedTeamId, postType, excludedIds, pageable)
-                    : postRepo.findByTeamIdAndPostTypeNoExcluded(normalizedTeamId, postType, pageable);
-        } else {
-            java.time.Instant cutoffDate = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS);
-            page = hasExcludedIds
-                    ? postRepo.findAllOrderByPostTypeAndCreatedAt(normalizedTeamId, postType, cutoffDate, excludedIds,
-                            pageable)
-                    : postRepo.findAllOrderByPostTypeAndCreatedAtNoExcluded(normalizedTeamId, postType, cutoffDate,
-                            pageable);
-        }
-
+        Page<CheerPost> page = findVisibleFeedPage(normalizedTeamId, postType, pageable, me);
         return buildPostSummaryPage(page, me);
     }
 
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> search(String q, String teamId, Pageable pageable, UserEntity me) {
         String normalizedTeamId = resolveTeamFilter(teamId);
-        java.util.Set<Long> excludedIds = getExcludedUserIds(me);
-        Page<CheerPost> page = excludedIds.isEmpty()
-                ? postRepo.searchNoExcluded(q, normalizedTeamId, pageable)
-                : postRepo.search(q, normalizedTeamId, excludedIds, pageable);
+        Specification<CheerPost> spec = notSimpleRepost()
+                .and(teamMatches(normalizedTeamId))
+                .and(contentContains(q))
+                .and(visibleToViewer(me));
+        Page<CheerPost> page = postRepo.findAll(spec, pageable);
 
         return buildPostSummaryPage(page, me);
     }
@@ -140,25 +128,8 @@ public class CheerFeedService {
             }
         }
 
-        java.util.Set<Long> excludedIds = getExcludedUserIds(me);
-        boolean hasExcludedIds = !excludedIds.isEmpty();
-        Page<CheerPost> page;
-        boolean hasSort = pageable.getSort().isSorted();
-
-        if (hasSort && pageable.getSort().stream().anyMatch(order -> !order.getProperty().equals("createdAt"))) {
-            page = hasExcludedIds
-                    ? postRepo.findByTeamIdAndPostType(normalizedTeamId, postType, excludedIds, pageable)
-                    : postRepo.findByTeamIdAndPostTypeNoExcluded(normalizedTeamId, postType, pageable);
-        } else {
-            java.time.Instant cutoffDate = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS);
-            page = hasExcludedIds
-                    ? postRepo.findAllOrderByPostTypeAndCreatedAt(normalizedTeamId, postType, cutoffDate, excludedIds,
-                            pageable)
-                    : postRepo.findAllOrderByPostTypeAndCreatedAtNoExcluded(normalizedTeamId, postType, cutoffDate,
-                            pageable);
-        }
-
-        List<CheerPost> visiblePosts = filterVisiblePosts(page.getContent(), me);
+        Page<CheerPost> page = findVisibleFeedPage(normalizedTeamId, postType, pageable, me);
+        List<CheerPost> visiblePosts = filterPostsWithAuthor(page.getContent());
 
         List<Long> postIds = !visiblePosts.isEmpty()
                 ? visiblePosts.stream().map(CheerPost::getId).toList()
@@ -237,15 +208,9 @@ public class CheerFeedService {
             return new PageImpl<>(Collections.emptyList(), pageable, 0);
         }
 
-        List<Long> blockedIds = blockService.getBlockedIds(me.getId());
-
-        Page<CheerPost> page;
-        if (blockedIds.isEmpty()) {
-            page = postRepo.findByAuthorIdIn(followingIds, pageable);
-        } else {
-            page = postRepo.findByAuthorIdInAndAuthorIdNotIn(followingIds, blockedIds, pageable);
-        }
-
+        Specification<CheerPost> spec = authorIdIn(followingIds)
+                .and(visibleToViewer(me));
+        Page<CheerPost> page = postRepo.findAll(spec, pageable);
         return buildPostSummaryPage(page, me);
     }
 
@@ -253,8 +218,125 @@ public class CheerFeedService {
     public Page<PostSummaryRes> listByUserHandle(String handle, Pageable pageable, UserEntity me) {
         Long viewerId = me != null ? me.getId() : null;
         String normalizedHandle = userService.getPublicUserProfileByHandle(handle, viewerId).getHandle();
-        Page<CheerPost> page = postRepo.findByAuthor_HandleOrderByCreatedAtDesc(normalizedHandle, pageable);
+        Specification<CheerPost> spec = authorHandleMatches(normalizedHandle)
+                .and(visibleToViewer(me));
+        Page<CheerPost> page = postRepo.findAll(spec, pageable);
         return buildPostSummaryPage(page, me);
+    }
+
+    private Page<CheerPost> findVisibleFeedPage(String normalizedTeamId, PostType postType, Pageable pageable, UserEntity me) {
+        Specification<CheerPost> spec = notSimpleRepost()
+                .and(teamMatches(normalizedTeamId))
+                .and(postTypeMatches(postType))
+                .and(visibleToViewer(me));
+
+        if (usesCustomFeedSort(pageable)) {
+            return postRepo.findAll(spec, pageable);
+        }
+
+        java.time.Instant cutoffDate = java.time.Instant.now().minus(3, java.time.temporal.ChronoUnit.DAYS);
+        Pageable orderManagedPageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
+        return postRepo.findAll(spec.and(defaultFeedOrder(cutoffDate)), orderManagedPageable);
+    }
+
+    private boolean usesCustomFeedSort(Pageable pageable) {
+        return pageable.getSort().isSorted()
+                && pageable.getSort().stream().anyMatch(order -> !order.getProperty().equals("createdAt"));
+    }
+
+    private Specification<CheerPost> defaultFeedOrder(java.time.Instant cutoffDate) {
+        return (root, query, cb) -> {
+            if (query != null && !Long.class.equals(query.getResultType()) && !long.class.equals(query.getResultType())) {
+                query.orderBy(
+                        cb.asc(cb.selectCase()
+                                .when(
+                                        cb.and(
+                                                cb.equal(root.get("postType"), PostType.NOTICE),
+                                                cb.greaterThan(root.get("createdAt"), cutoffDate)),
+                                        0)
+                                .otherwise(1)),
+                        cb.desc(root.get("createdAt")));
+            }
+            return cb.conjunction();
+        };
+    }
+
+    private Specification<CheerPost> notSimpleRepost() {
+        return (root, query, cb) -> cb.or(
+                cb.isNull(root.get("repostType")),
+                cb.notEqual(root.get("repostType"), CheerPost.RepostType.SIMPLE));
+    }
+
+    private Specification<CheerPost> teamMatches(String normalizedTeamId) {
+        return (root, query, cb) -> normalizedTeamId == null
+                ? cb.conjunction()
+                : cb.equal(root.get("team").get("teamId"), normalizedTeamId);
+    }
+
+    private Specification<CheerPost> postTypeMatches(PostType postType) {
+        return (root, query, cb) -> postType == null
+                ? cb.conjunction()
+                : cb.equal(root.get("postType"), postType);
+    }
+
+    private Specification<CheerPost> contentContains(String queryText) {
+        return (root, query, cb) -> {
+            if (queryText == null || queryText.isBlank()) {
+                return cb.conjunction();
+            }
+            return cb.like(
+                    cb.lower(root.get("content").as(String.class)),
+                    "%" + queryText.trim().toLowerCase() + "%");
+        };
+    }
+
+    private Specification<CheerPost> authorHandleMatches(String handle) {
+        return (root, query, cb) -> cb.equal(root.get("author").get("handle"), handle);
+    }
+
+    private Specification<CheerPost> authorIdIn(List<Long> authorIds) {
+        return (root, query, cb) -> authorIds == null || authorIds.isEmpty()
+                ? cb.disjunction()
+                : root.get("author").get("id").in(authorIds);
+    }
+
+    private Specification<CheerPost> visibleToViewer(UserEntity me) {
+        Long viewerId = me != null ? me.getId() : null;
+        return (root, query, cb) -> {
+            if (viewerId == null) {
+                return cb.equal(root.get("author").get("privateAccount").as(Boolean.class), Boolean.FALSE);
+            }
+
+            var authorId = root.get("author").get("id");
+            var authorPrivate = root.get("author").get("privateAccount").as(Boolean.class);
+
+            var blockSubquery = query.subquery(Integer.class);
+            var blockRoot = blockSubquery.from(UserBlock.class);
+            blockSubquery.select(cb.literal(1));
+            blockSubquery.where(
+                    cb.or(
+                            cb.and(
+                                    cb.equal(blockRoot.get("id").get("blockerId"), viewerId),
+                                    cb.equal(blockRoot.get("id").get("blockedId"), authorId)),
+                            cb.and(
+                                    cb.equal(blockRoot.get("id").get("blockerId"), authorId),
+                                    cb.equal(blockRoot.get("id").get("blockedId"), viewerId))));
+
+            var followSubquery = query.subquery(Integer.class);
+            var followRoot = followSubquery.from(UserFollow.class);
+            followSubquery.select(cb.literal(1));
+            followSubquery.where(
+                    cb.equal(followRoot.get("id").get("followerId"), viewerId),
+                    cb.equal(followRoot.get("id").get("followingId"), authorId));
+
+            return cb.or(
+                    cb.equal(authorId, viewerId),
+                    cb.and(
+                            cb.not(cb.exists(blockSubquery)),
+                            cb.or(
+                                    cb.equal(authorPrivate, Boolean.FALSE),
+                                    cb.exists(followSubquery))));
+        };
     }
 
     @Transactional(readOnly = true)
@@ -480,14 +562,7 @@ public class CheerFeedService {
     private List<PostSummaryRes> toHotPostSummary(List<CheerPost> posts, UserEntity me) {
         if (posts.isEmpty())
             return Collections.emptyList();
-
-        // Convert List<CheerPost> to Page<CheerPost> just for reusing
-        // buildPostSummaryPage logic?
-        // No, buildPostSummaryPage does pagination stuff or just maps content.
-        // It returns a Page.
-        // Let's refactor: Create a helper `buildPostSummaries` that returns List, and
-        // buildPostSummaryPage calls it.
-        return buildPostSummaries(posts, me);
+        return mapPostSummaries(filterVisiblePosts(posts, me), me);
     }
 
     // --- Helpers ---
@@ -496,20 +571,20 @@ public class CheerFeedService {
         if (!page.hasContent()) {
             return new PageImpl<>(Collections.emptyList(), page.getPageable(), page.getTotalElements());
         }
-        List<PostSummaryRes> content = buildPostSummaries(page.getContent(), me);
+        List<PostSummaryRes> content = mapPostSummaries(page.getContent(), me);
         return new PageImpl<>(Objects.requireNonNull(content), page.getPageable(), page.getTotalElements());
     }
 
-    private List<PostSummaryRes> buildPostSummaries(List<CheerPost> posts, UserEntity me) {
-        List<CheerPost> visiblePosts = filterVisiblePosts(posts, me);
-        if (visiblePosts.isEmpty()) {
+    private List<PostSummaryRes> mapPostSummaries(List<CheerPost> posts, UserEntity me) {
+        List<CheerPost> mappedPosts = filterPostsWithAuthor(posts);
+        if (mappedPosts.isEmpty()) {
             return Collections.emptyList();
         }
 
-        List<Long> postIds = visiblePosts.stream().map(CheerPost::getId).toList();
+        List<Long> postIds = mappedPosts.stream().map(CheerPost::getId).toList();
 
         Map<Long, List<String>> imageUrlsByPostId = safeGetPostImageUrls(postIds);
-        Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(posts);
+        Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(mappedPosts);
         Map<Long, Integer> viewCountMap = safeGetViewCounts(postIds);
         Map<Long, Boolean> hotStatusMap = safeGetHotStatusMap(postIds);
         // Use InteractionService for counts and statuses
@@ -519,7 +594,7 @@ public class CheerFeedService {
         Set<Long> bookmarkedPostIds = (me != null) ? safeGetBookmarkedPostIds(me, postIds) : Collections.emptySet();
         Set<Long> repostedPostIds = (me != null) ? safeGetRepostedPostIds(me, postIds) : Collections.emptySet();
 
-        return visiblePosts.stream()
+        return mappedPosts.stream()
                 .map(post -> {
                     try {
                         boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
@@ -548,13 +623,23 @@ public class CheerFeedService {
         }
 
         Long viewerId = me != null ? me.getId() : null;
+        return filterPostsWithAuthor(posts).stream()
+                .filter(post -> publicVisibilityVerifier.canAccess(post.getAuthor(), viewerId))
+                .toList();
+    }
+
+    private List<CheerPost> filterPostsWithAuthor(List<CheerPost> posts) {
+        if (posts == null || posts.isEmpty()) {
+            return Collections.emptyList();
+        }
+
         return posts.stream()
                 .filter(post -> {
                     if (post.getAuthor() == null) {
                         log.warn("Skipping cheer post with missing author reference: postId={}", post.getId());
                         return false;
                     }
-                    return publicVisibilityVerifier.canAccess(post.getAuthor(), viewerId);
+                    return true;
                 })
                 .toList();
     }
@@ -627,11 +712,18 @@ public class CheerFeedService {
             return null;
         }
         String rawValue = author.getProfileImageUrl();
-        if (rawValue == null || rawValue.isBlank()) {
-            return author.getProfileImageUrl();
+        try {
+            String resolved = profileImageService.getProfileImageUrlForCheerFeed(rawValue, author.getProfileFeedImageUrl());
+            if (resolved != null && !resolved.isBlank()) {
+                return resolved;
+            }
+        } catch (Exception e) {
+            log.warn("Cheer feed profile image URL 정규화 실패: userId={}, error={}", author.getId(), e.getMessage());
         }
-        if (rawValue.startsWith("http://") || rawValue.startsWith("https://") || rawValue.startsWith("/")) {
-            return rawValue;
+        if (rawValue != null && !rawValue.isBlank()) {
+            if (rawValue.startsWith("http://") || rawValue.startsWith("https://") || rawValue.startsWith("/")) {
+                return rawValue;
+            }
         }
         return null;
     }
