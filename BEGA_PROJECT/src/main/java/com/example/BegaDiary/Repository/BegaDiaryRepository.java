@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
@@ -25,6 +26,9 @@ public interface BegaDiaryRepository extends JpaRepository<BegaDiary, Long> {
 
        @EntityGraph(attributePaths = "game")
        List<BegaDiary> findByUserId(Long id);
+
+       @EntityGraph(attributePaths = "user")
+       Page<BegaDiary> findAllBy(Pageable pageable);
 
        // 총 개수
        @Query("SELECT COUNT(d) FROM BegaDiary d WHERE d.user.id = :userId")
