@@ -46,6 +46,16 @@ public interface PredictionRepository extends JpaRepository<Prediction, Long>{
 	// 특정 유저의 모든 투표 조회 (최신순)
 	List<Prediction> findAllByUserIdOrderByCreatedAtDesc(Long userId);
 
+	@Query("""
+			SELECT
+				p.gameId AS gameId,
+				p.votedTeam AS votedTeam
+			FROM Prediction p
+			WHERE p.userId = :userId
+			ORDER BY p.createdAt DESC
+			""")
+	List<PredictionStatsRowProjection> findStatsRowsByUserIdOrderByCreatedAtDesc(@Param("userId") Long userId);
+
 	// 특정 유저의 특정 경기들 투표 조회
 	List<Prediction> findByUserIdAndGameIdIn(Long userId, Collection<String> gameIds);
 

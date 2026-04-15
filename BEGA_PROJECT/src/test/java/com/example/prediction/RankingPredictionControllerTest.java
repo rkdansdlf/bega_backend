@@ -1,7 +1,9 @@
 package com.example.prediction;
 
 import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.ConflictBusinessException;
 import com.example.common.exception.GlobalExceptionHandler;
+import com.example.common.exception.NotFoundBusinessException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -73,5 +75,42 @@ class RankingPredictionControllerTest {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("RANKING_PREDICTION_SHARE_NOT_FOUND"))
                 .andExpect(jsonPath("$.message").value("공유된 시즌 순위 예측을 찾을 수 없습니다."));
+    }
+
+    @Test
+    void getPrediction_returnsNotFoundWhenSavedPredictionMissing() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(rankingPredictionController)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        when(rankingPredictionService.getPrediction("7", 2026))
+                .thenThrow(new NotFoundBusinessException(
+                        "RANKING_PREDICTION_NOT_FOUND",
+                        "저장된 시즌 순위 예측을 찾을 수 없습니다."));
+
+        mockMvc.perform(get("/api/predictions/ranking")
+                        .principal(() -> "7")
+                        .param("seasonYear", "2026"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("RANKING_PREDICTION_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("저장된 시즌 순위 예측을 찾을 수 없습니다."));
+    }
+
+    @Test
+    void getCurrentSeason_returnsConflictWhenPredictionPeriodClosed() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(rankingPredictionController)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        when(rankingPredictionService.getCurrentSeason())
+                .thenThrow(new ConflictBusinessException(
+                        "RANKING_PREDICTION_CLOSED",
+                        "현재는 순위 예측 기간이 아닙니다. (예측 가능 기간: 11월 1일 ~ 5월 31일)"));
+
+        mockMvc.perform(get("/api/predictions/ranking/current-season"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("RANKING_PREDICTION_CLOSED"));
     }
 }

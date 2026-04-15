@@ -24,7 +24,7 @@ public class GameInningScoreDto {
                 .teamSide(score.getTeamSide())
                 .teamCode(score.getTeamCode())
                 .runs(score.getRuns())
-                .isExtra(score.getIsExtra())
+                .isExtra(GameInningScoreSupport.normalizeIsExtraFlag(score.getInning(), score.getIsExtra()))
                 .build();
     }
 }
