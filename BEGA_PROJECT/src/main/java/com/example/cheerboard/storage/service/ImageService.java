@@ -1,5 +1,9 @@
 package com.example.cheerboard.storage.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -11,9 +15,10 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.Cache;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.data.redis.serializer.SerializationException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -53,6 +58,9 @@ import reactor.core.publisher.Mono;
 @Slf4j
 public class ImageService {
 
+    private static final ObjectMapper CACHE_OBJECT_MAPPER = new ObjectMapper();
+    private static final Duration POST_IMAGE_URL_CACHE_TTL = Duration.ofMinutes(50);
+
     private final PostImageRepository postImageRepo;
     private final CheerPostRepo postRepo;
     private final StorageStrategy storageStrategy; // OCI Object Storage Strategy
@@ -62,6 +70,7 @@ public class ImageService {
     // 리팩토링된 컴포넌트들
     private final PermissionValidator permissionValidator;
     private final CacheManager cacheManager;
+    private final StringRedisTemplate stringRedisTemplate;
     private final com.example.common.image.ImageUtil imageUtil;
     private final com.example.common.image.ImageOptimizationMetricsService metricsService;
 
@@ -219,11 +228,15 @@ public class ImageService {
 
     /**
      * 게시글의 이미지 서명 URL 목록 조회 (DTO 변환용)
-     * 캐싱: postId 기준으로 5분간 캐시 (signed URL TTL보다 짧게 설정)
+     * 캐싱: postId 기준으로 Redis 문자열 JSON 캐시에 저장
      */
-    @Cacheable(value = POST_IMAGE_URLS, key = "#postId")
     @Transactional(readOnly = true)
     public List<String> getPostImageUrls(Long postId) {
+        List<String> cached = getCachedPostImageUrls(postId);
+        if (cached != null) {
+            return cached;
+        }
+
         log.debug("이미지 URL 조회 시작: postId={}", postId);
         List<PostImage> images = postImageRepo.findByPostIdOrderByCreatedAtAsc(postId);
         log.debug("DB에서 조회된 이미지 수: {}", images.size());
@@ -237,6 +250,7 @@ public class ImageService {
                 .filter(url -> url != null && !url.isEmpty())
                 .toList();
 
+        cachePostImageUrls(postId, urls);
         log.info("이미지 URL 조회 완료: postId={}, 총 {}개", postId, urls.size());
         return urls;
     }
@@ -253,22 +267,19 @@ public class ImageService {
             return result;
         }
 
-        Cache cache = cacheManager.getCache(POST_IMAGE_URLS);
         List<Long> missingPostIds = new ArrayList<>();
 
-        if (cache != null) {
-            for (Long postId : postIds) {
-                if (postId == null)
-                    continue;
-                List<String> cached = getCachedPostImageUrls(cache, postId);
-                if (cached != null) {
-                    result.put(postId, cached);
-                } else {
-                    missingPostIds.add(postId);
-                }
+        for (Long postId : postIds) {
+            if (postId == null) {
+                continue;
             }
-        } else {
-            missingPostIds.addAll(postIds);
+
+            List<String> cached = getCachedPostImageUrls(postId);
+            if (cached != null) {
+                result.put(postId, cached);
+            } else {
+                missingPostIds.add(postId);
+            }
         }
 
         if (missingPostIds.isEmpty()) {
@@ -294,32 +305,159 @@ public class ImageService {
         for (Long postId : missingPostIds) {
             List<String> urls = groupedUrls.getOrDefault(postId, Collections.emptyList());
             result.put(postId, urls);
-            cachePostImageUrls(cache, postId, urls);
+            cachePostImageUrls(postId, urls);
         }
 
         return result;
     }
 
-    @SuppressWarnings("unchecked")
-    private List<String> getCachedPostImageUrls(Cache cache, Long postId) {
+    private List<String> getCachedPostImageUrls(Long postId) {
+        if (postId == null) {
+            return null;
+        }
+
+        String cacheKey = getPostImageCacheKey(postId);
         try {
-            return cache.get(postId, List.class);
+            String rawValue = stringRedisTemplate.opsForValue().get(cacheKey);
+            if (rawValue == null) {
+                return null;
+            }
+            return parseCachedPostImageUrls(rawValue);
         } catch (RuntimeException e) {
-            log.warn("게시글 이미지 URL 캐시 조회 실패. 캐시 엔트리를 비우고 DB fallback으로 전환합니다: postId={}", postId, e);
-            safeEvictCacheEntry(cache, postId, POST_IMAGE_URLS);
+            if (isRecoverableCacheReadFailure(e)) {
+                log.warn(
+                        "게시글 이미지 URL 캐시 조회 실패. 캐시 엔트리를 비우고 DB fallback으로 전환합니다: postId={}, reason={}",
+                        postId,
+                        summarizeCacheReadFailure(e));
+            } else {
+                log.warn("게시글 이미지 URL 캐시 조회 실패. 캐시 엔트리를 비우고 DB fallback으로 전환합니다: postId={}",
+                        postId, e);
+            }
+            safeDeletePostImageCache(cacheKey, postId);
             return null;
         }
     }
 
-    private void cachePostImageUrls(Cache cache, Long postId, List<String> urls) {
-        if (cache == null || postId == null) {
+    private boolean isRecoverableCacheReadFailure(RuntimeException exception) {
+        Throwable current = exception;
+        while (current != null) {
+            if (current instanceof SerializationException
+                    || current instanceof JsonProcessingException
+                    || current instanceof IllegalArgumentException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private String summarizeCacheReadFailure(RuntimeException exception) {
+        Throwable rootCause = exception;
+        while (rootCause.getCause() != null) {
+            rootCause = rootCause.getCause();
+        }
+
+        String message = rootCause.getMessage();
+        if (!StringUtils.hasText(message)) {
+            message = exception.getClass().getSimpleName();
+        }
+
+        message = message.replaceAll("\\s+", " ").trim();
+        if (message.length() > 220) {
+            return message.substring(0, 220) + "...";
+        }
+        return message;
+    }
+
+    private List<String> parseCachedPostImageUrls(String rawValue) {
+        if (!StringUtils.hasText(rawValue)) {
+            return Collections.emptyList();
+        }
+
+        try {
+            JsonNode payload = CACHE_OBJECT_MAPPER.readTree(rawValue);
+            return extractCachedPostImageUrls(payload);
+        } catch (JsonProcessingException e) {
+            String trimmed = rawValue.trim();
+            if (!trimmed.startsWith("[") && !trimmed.startsWith("{") && !trimmed.startsWith("\"")) {
+                return List.of(trimmed);
+            }
+            throw new IllegalArgumentException("게시글 이미지 URL 캐시 payload를 파싱할 수 없습니다.", e);
+        }
+    }
+
+    private List<String> extractCachedPostImageUrls(JsonNode payload) {
+        if (payload == null || payload.isNull()) {
+            return Collections.emptyList();
+        }
+        if (payload.isTextual()) {
+            return List.of(payload.asText());
+        }
+        if (payload.isObject() && payload.has("urls")) {
+            return extractStringValues(payload.get("urls"));
+        }
+        if (payload.isArray() && payload.size() == 2 && payload.get(0).isTextual() && payload.get(1).isArray()) {
+            return extractStringValues(payload.get(1));
+        }
+        return extractStringValues(payload);
+    }
+
+    private List<String> extractStringValues(JsonNode payload) {
+        if (payload == null || payload.isNull()) {
+            return Collections.emptyList();
+        }
+        if (!payload.isArray()) {
+            throw new IllegalArgumentException("게시글 이미지 URL 캐시 payload가 배열 형식이 아닙니다.");
+        }
+
+        List<String> urls = new ArrayList<>();
+        for (JsonNode value : payload) {
+            if (value == null || value.isNull()) {
+                continue;
+            }
+            if (!value.isTextual()) {
+                throw new IllegalArgumentException("게시글 이미지 URL 캐시 payload에 문자열이 아닌 값이 포함되어 있습니다.");
+            }
+
+            String url = value.asText();
+            if (StringUtils.hasText(url)) {
+                urls.add(url);
+            }
+        }
+        return urls;
+    }
+
+    private void cachePostImageUrls(Long postId, List<String> urls) {
+        if (postId == null) {
+            return;
+        }
+
+        String cacheKey = getPostImageCacheKey(postId);
+        try {
+            String serializedUrls = CACHE_OBJECT_MAPPER
+                    .writeValueAsString(urls == null ? Collections.emptyList() : urls);
+            stringRedisTemplate.opsForValue().set(cacheKey, serializedUrls, POST_IMAGE_URL_CACHE_TTL);
+        } catch (JsonProcessingException e) {
+            log.warn("게시글 이미지 URL 캐시 직렬화 실패. 캐시를 비우고 요청은 계속 진행합니다: postId={}", postId, e);
+            safeDeletePostImageCache(cacheKey, postId);
+        } catch (RuntimeException e) {
+            log.warn("게시글 이미지 URL 캐시 저장 실패. 요청은 계속 진행합니다: postId={}", postId, e);
+            safeDeletePostImageCache(cacheKey, postId);
+        }
+    }
+
+    private String getPostImageCacheKey(Long postId) {
+        return POST_IMAGE_URLS + "::" + postId;
+    }
+
+    private void safeDeletePostImageCache(String cacheKey, Long postId) {
+        if (!StringUtils.hasText(cacheKey)) {
             return;
         }
         try {
-            cache.put(postId, urls);
+            stringRedisTemplate.delete(cacheKey);
         } catch (RuntimeException e) {
-            log.warn("게시글 이미지 URL 캐시 저장 실패. 요청은 계속 진행합니다: postId={}", postId, e);
-            safeEvictCacheEntry(cache, postId, POST_IMAGE_URLS);
+            log.warn("게시글 이미지 URL 캐시 엔트리 삭제 실패: postId={}, key={}", postId, cacheKey, e);
         }
     }
 
@@ -368,11 +506,14 @@ public class ImageService {
      * 게시글 이미지 URL 캐시 무효화
      */
     private void evictPostImageCache(Long postId) {
+        Long targetPostId = Objects.requireNonNull(postId);
+        safeDeletePostImageCache(getPostImageCacheKey(targetPostId), targetPostId);
+
         var cache = cacheManager.getCache(POST_IMAGE_URLS);
         if (cache != null) {
-            cache.evict(Objects.requireNonNull(postId));
-            log.debug("이미지 URL 캐시 무효화: postId={}", postId);
+            cache.evict(targetPostId);
         }
+        log.debug("이미지 URL 캐시 무효화: postId={}", targetPostId);
     }
 
     /**
