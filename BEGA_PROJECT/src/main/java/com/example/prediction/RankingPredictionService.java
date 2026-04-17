@@ -25,10 +25,12 @@ import com.example.common.exception.NotFoundBusinessException;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.util.KboTeamCodePolicy;
 
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class RankingPredictionService {
 
 	private static final int RANKING_TEAM_COUNT = 10;
@@ -138,12 +140,13 @@ public class RankingPredictionService {
 	private RankingPredictionContextSnapshot getRankingContext(int seasonYear) {
 		Cache cache = cacheManager.getCache(CacheConfig.RANKING_PREDICTION_CONTEXT);
 		String cacheKey = String.valueOf(seasonYear);
-		if (cache != null) {
-			Cache.ValueWrapper wrapper = cache.get(cacheKey);
-			Object value = wrapper == null ? null : wrapper.get();
-			if (value instanceof RankingPredictionContextSnapshot snapshot) {
-				return snapshot;
-			}
+		RankingPredictionContextSnapshot cachedSnapshot = getCachedValue(
+				cache,
+				CacheConfig.RANKING_PREDICTION_CONTEXT,
+				cacheKey,
+				RankingPredictionContextSnapshot.class);
+		if (cachedSnapshot != null) {
+			return cachedSnapshot;
 		}
 
 		Map<String, Integer> currentRankMap = extractRankMap(gameRepository.findTeamRankingsBySeason(seasonYear));
@@ -155,9 +158,7 @@ public class RankingPredictionService {
 				currentRankMap,
 				lastRankMap,
 				teamNameMap);
-		if (cache != null) {
-			cache.put(cacheKey, snapshot);
-		}
+		safeCachePut(cache, CacheConfig.RANKING_PREDICTION_CONTEXT, cacheKey, snapshot);
 		return snapshot;
 	}
 
@@ -197,12 +198,9 @@ public class RankingPredictionService {
 		}
 
 		Cache cache = cacheManager.getCache(CacheConfig.RANKING_SHARE_IDS);
-		if (cache != null) {
-			Cache.ValueWrapper wrapper = cache.get(userIdString);
-			Object value = wrapper == null ? null : wrapper.get();
-			if (value instanceof String cachedShareId) {
-				return cachedShareId;
-			}
+		String cachedShareId = getCachedValue(cache, CacheConfig.RANKING_SHARE_IDS, userIdString, String.class);
+		if (cachedShareId != null) {
+			return cachedShareId;
 		}
 
 		final Long userId;
@@ -216,10 +214,77 @@ public class RankingPredictionService {
 				.map(UserEntity::getUniqueId)
 				.map(UUID::toString)
 				.orElse(null);
-		if (cache != null && shareId != null) {
-			cache.put(userIdString, shareId);
+		if (shareId != null) {
+			safeCachePut(cache, CacheConfig.RANKING_SHARE_IDS, userIdString, shareId);
 		}
 		return shareId;
+	}
+
+	private <T> T getCachedValue(Cache cache, String cacheName, Object key, Class<T> expectedType) {
+		if (cache == null || key == null) {
+			return null;
+		}
+		try {
+			Cache.ValueWrapper wrapper = cache.get(key);
+			Object value = wrapper == null ? null : wrapper.get();
+			if (expectedType.isInstance(value)) {
+				return expectedType.cast(value);
+			}
+			if (value != null) {
+				log.warn("캐시 payload 타입이 올바르지 않아 무효화합니다: cache={}, key={}, actualType={}",
+						cacheName, key, value.getClass().getName());
+				safeEvict(cache, cacheName, key);
+			}
+			return null;
+		} catch (RuntimeException e) {
+			log.warn("캐시 조회 실패. 캐시를 비우고 DB fallback으로 전환합니다: cache={}, key={}, reason={}",
+					cacheName, key, summarizeCacheFailure(e));
+			safeEvict(cache, cacheName, key);
+			return null;
+		}
+	}
+
+	private void safeCachePut(Cache cache, String cacheName, Object key, Object value) {
+		if (cache == null || key == null || value == null) {
+			return;
+		}
+		try {
+			cache.put(key, value);
+		} catch (RuntimeException e) {
+			log.warn("캐시 저장 실패. 응답은 계속 진행합니다: cache={}, key={}, reason={}",
+					cacheName, key, summarizeCacheFailure(e));
+			safeEvict(cache, cacheName, key);
+		}
+	}
+
+	private void safeEvict(Cache cache, String cacheName, Object key) {
+		if (cache == null || key == null) {
+			return;
+		}
+		try {
+			cache.evict(key);
+		} catch (RuntimeException e) {
+			log.warn("캐시 엔트리 무효화 실패: cache={}, key={}, reason={}",
+					cacheName, key, summarizeCacheFailure(e));
+		}
+	}
+
+	private String summarizeCacheFailure(RuntimeException exception) {
+		Throwable rootCause = exception;
+		while (rootCause.getCause() != null) {
+			rootCause = rootCause.getCause();
+		}
+
+		String message = rootCause.getMessage();
+		if (message == null || message.isBlank()) {
+			message = rootCause.getClass().getSimpleName();
+		}
+
+		String normalized = message.replaceAll("\\s+", " ").trim();
+		if (normalized.length() > 220) {
+			return normalized.substring(0, 220) + "...";
+		}
+		return normalized;
 	}
 
 	private void ensurePredictionPeriodOpen() {

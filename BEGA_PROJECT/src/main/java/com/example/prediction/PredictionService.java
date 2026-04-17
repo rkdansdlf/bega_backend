@@ -1057,18 +1057,36 @@ public class PredictionService {
         if (cache == null) {
             return null;
         }
-        Cache.ValueWrapper wrapper = cache.get(gameId);
-        Object value = wrapper == null ? null : wrapper.get();
-        if (value instanceof PredictionVoteStatusCacheEntry entry) {
-            return entry.toResponseDto();
+        try {
+            Cache.ValueWrapper wrapper = cache.get(gameId);
+            Object value = wrapper == null ? null : wrapper.get();
+            if (value instanceof PredictionVoteStatusCacheEntry entry) {
+                return entry.toResponseDto();
+            }
+            if (value != null) {
+                log.warn("예측 투표 상태 캐시 payload 타입이 올바르지 않아 무효화합니다: gameId={}, actualType={}",
+                        gameId, value.getClass().getName());
+                safeEvictCacheEntry(cache, gameId, CacheConfig.PREDICTION_VOTE_STATUS);
+            }
+            return null;
+        } catch (RuntimeException e) {
+            log.warn("예측 투표 상태 캐시 조회 실패. 캐시를 비우고 DB fallback으로 전환합니다: gameId={}, reason={}",
+                    gameId, summarizeCacheFailure(e));
+            safeEvictCacheEntry(cache, gameId, CacheConfig.PREDICTION_VOTE_STATUS);
+            return null;
         }
-        return null;
     }
 
     private void cacheVoteStatus(String gameId, PredictionResponseDto response) {
         Cache cache = cacheManager.getCache(CacheConfig.PREDICTION_VOTE_STATUS);
         if (cache != null && response != null) {
-            cache.put(gameId, PredictionVoteStatusCacheEntry.from(response));
+            try {
+                cache.put(gameId, PredictionVoteStatusCacheEntry.from(response));
+            } catch (RuntimeException e) {
+                log.warn("예측 투표 상태 캐시 저장 실패. 응답은 계속 진행합니다: gameId={}, reason={}",
+                        gameId, summarizeCacheFailure(e));
+                safeEvictCacheEntry(cache, gameId, CacheConfig.PREDICTION_VOTE_STATUS);
+            }
         }
     }
 
@@ -1090,6 +1108,36 @@ public class PredictionService {
         }
 
         cache.evict(normalizedGameId);
+    }
+
+    private String summarizeCacheFailure(RuntimeException exception) {
+        Throwable rootCause = exception;
+        while (rootCause.getCause() != null) {
+            rootCause = rootCause.getCause();
+        }
+
+        String message = rootCause.getMessage();
+        if (message == null || message.isBlank()) {
+            message = rootCause.getClass().getSimpleName();
+        }
+
+        String normalized = message.replaceAll("\\s+", " ").trim();
+        if (normalized.length() > 220) {
+            return normalized.substring(0, 220) + "...";
+        }
+        return normalized;
+    }
+
+    private void safeEvictCacheEntry(Cache cache, Object key, String cacheName) {
+        if (cache == null || key == null) {
+            return;
+        }
+        try {
+            cache.evict(key);
+        } catch (RuntimeException e) {
+            log.warn("캐시 엔트리 무효화 실패: cache={}, key={}, reason={}",
+                    cacheName, key, summarizeCacheFailure(e));
+        }
     }
 
     private void validateVoteOpen(GameEntity game) {

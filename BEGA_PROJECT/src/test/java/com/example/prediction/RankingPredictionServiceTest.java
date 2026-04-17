@@ -2,6 +2,11 @@ package com.example.prediction;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -15,9 +20,11 @@ import org.mockito.MockedStatic;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.redis.serializer.SerializationException;
 
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
@@ -149,6 +156,88 @@ class RankingPredictionServiceTest {
         org.mockito.Mockito.verify(gameRepository, org.mockito.Mockito.times(1)).findTeamRankingsBySeason(2025);
         org.mockito.Mockito.verify(homePageTeamRepository, org.mockito.Mockito.times(1)).findAll();
         org.mockito.Mockito.verify(userRepository, org.mockito.Mockito.times(1)).findById(7L);
+    }
+
+    @Test
+    void getPrediction_fallsBackWhenRankingContextCacheIsCorrupted() {
+        CacheManager cacheManager = mock(CacheManager.class);
+        Cache contextCache = mock(Cache.class);
+        Cache shareIdCache = mock(Cache.class);
+        when(cacheManager.getCache(CacheConfig.RANKING_PREDICTION_CONTEXT)).thenReturn(contextCache);
+        when(cacheManager.getCache(CacheConfig.RANKING_SHARE_IDS)).thenReturn(shareIdCache);
+        when(contextCache.get("2026")).thenThrow(new SerializationException("broken cache payload"));
+
+        UUID uniqueId = UUID.randomUUID();
+        RankingPrediction prediction = new RankingPrediction("7", 2026, List.of("LG"));
+        UserEntity user = UserEntity.builder()
+                .id(7L)
+                .uniqueId(uniqueId)
+                .handle("@tester")
+                .name("tester")
+                .email("tester@example.com")
+                .role("ROLE_USER")
+                .build();
+        when(rankingPredictionRepository.findByUserIdAndSeasonYear("7", 2026))
+                .thenReturn(Optional.of(prediction));
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(gameRepository.findTeamRankingsBySeason(2026)).thenReturn(List.of());
+        when(gameRepository.findTeamRankingsBySeason(2025)).thenReturn(List.of());
+        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+
+        RankingPredictionService localService = new RankingPredictionService(
+                rankingPredictionRepository,
+                gameRepository,
+                homePageTeamRepository,
+                userRepository,
+                cacheManager);
+
+        RankingPredictionResponseDto response = localService.getPrediction("7", 2026);
+
+        assertThat(response.getShareId()).isEqualTo(uniqueId.toString());
+        verify(contextCache).evict("2026");
+        verify(contextCache).put(eq("2026"), any(RankingPredictionContextSnapshot.class));
+    }
+
+    @Test
+    void getPrediction_ignoresRankingContextCacheWriteFailure() {
+        CacheManager cacheManager = mock(CacheManager.class);
+        Cache contextCache = mock(Cache.class);
+        Cache shareIdCache = mock(Cache.class);
+        when(cacheManager.getCache(CacheConfig.RANKING_PREDICTION_CONTEXT)).thenReturn(contextCache);
+        when(cacheManager.getCache(CacheConfig.RANKING_SHARE_IDS)).thenReturn(shareIdCache);
+        when(contextCache.get("2026")).thenReturn(null);
+        doThrow(new SerializationException("write failed")).when(contextCache)
+                .put(eq("2026"), any(RankingPredictionContextSnapshot.class));
+
+        UUID uniqueId = UUID.randomUUID();
+        RankingPrediction prediction = new RankingPrediction("7", 2026, List.of("LG"));
+        UserEntity user = UserEntity.builder()
+                .id(7L)
+                .uniqueId(uniqueId)
+                .handle("@tester")
+                .name("tester")
+                .email("tester@example.com")
+                .role("ROLE_USER")
+                .build();
+        when(rankingPredictionRepository.findByUserIdAndSeasonYear("7", 2026))
+                .thenReturn(Optional.of(prediction));
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(gameRepository.findTeamRankingsBySeason(2026)).thenReturn(List.of());
+        when(gameRepository.findTeamRankingsBySeason(2025)).thenReturn(List.of());
+        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+
+        RankingPredictionService localService = new RankingPredictionService(
+                rankingPredictionRepository,
+                gameRepository,
+                homePageTeamRepository,
+                userRepository,
+                cacheManager);
+
+        RankingPredictionResponseDto response = localService.getPrediction("7", 2026);
+
+        assertThat(response.getShareId()).isEqualTo(uniqueId.toString());
+        verify(contextCache).put(eq("2026"), any(RankingPredictionContextSnapshot.class));
+        verify(contextCache).evict("2026");
     }
 
     @Test

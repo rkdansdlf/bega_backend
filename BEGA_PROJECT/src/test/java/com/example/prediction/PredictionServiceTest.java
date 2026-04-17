@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -43,9 +44,11 @@ import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.redis.serializer.SerializationException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
@@ -589,6 +592,77 @@ class PredictionServiceTest {
         assertThat(second.getTotalVotes()).isEqualTo(10L);
         verify(voteFinalResultRepository, times(1)).findById("202603200001");
         verify(predictionRepository, times(1)).findVoteCountsByGameId("202603200001");
+    }
+
+    @Test
+    void getVoteStatusShouldFallBackWhenCacheReadFails() {
+        CacheManager cacheManager = mock(CacheManager.class);
+        Cache cache = mock(Cache.class);
+        PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+        lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        when(cacheManager.getCache(CacheConfig.PREDICTION_VOTE_STATUS)).thenReturn(cache);
+        when(cache.get("202603200001")).thenThrow(new SerializationException("broken cache payload"));
+        PredictionVoteCountsProjection voteCounts = mock(PredictionVoteCountsProjection.class);
+        when(voteFinalResultRepository.findById("202603200001")).thenReturn(Optional.empty());
+        when(voteCounts.getHomeVotes()).thenReturn(6L);
+        when(voteCounts.getAwayVotes()).thenReturn(4L);
+        when(predictionRepository.findVoteCountsByGameId("202603200001")).thenReturn(voteCounts);
+
+        PredictionService localService = new PredictionService(
+                predictionRepository,
+                gameRepository,
+                gameMetadataRepository,
+                gameInningScoreRepository,
+                gameSummaryRepository,
+                voteFinalResultRepository,
+                userRepository,
+                new LeagueStageResolver(gameRepository),
+                mock(BaseballDataIntegrityGuard.class),
+                cacheManager,
+                transactionManager);
+
+        PredictionResponseDto response = localService.getVoteStatus("202603200001");
+
+        assertThat(response.getTotalVotes()).isEqualTo(10L);
+        verify(cache).evict("202603200001");
+        verify(predictionRepository).findVoteCountsByGameId("202603200001");
+        verify(cache).put(eq("202603200001"), any(PredictionVoteStatusCacheEntry.class));
+    }
+
+    @Test
+    void getVoteStatusShouldIgnoreCacheWriteFailure() {
+        CacheManager cacheManager = mock(CacheManager.class);
+        Cache cache = mock(Cache.class);
+        PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+        lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        when(cacheManager.getCache(CacheConfig.PREDICTION_VOTE_STATUS)).thenReturn(cache);
+        when(cache.get("202603200001")).thenReturn(null);
+        doThrow(new SerializationException("write failed")).when(cache)
+                .put(eq("202603200001"), any(PredictionVoteStatusCacheEntry.class));
+        PredictionVoteCountsProjection voteCounts = mock(PredictionVoteCountsProjection.class);
+        when(voteFinalResultRepository.findById("202603200001")).thenReturn(Optional.empty());
+        when(voteCounts.getHomeVotes()).thenReturn(5L);
+        when(voteCounts.getAwayVotes()).thenReturn(5L);
+        when(predictionRepository.findVoteCountsByGameId("202603200001")).thenReturn(voteCounts);
+
+        PredictionService localService = new PredictionService(
+                predictionRepository,
+                gameRepository,
+                gameMetadataRepository,
+                gameInningScoreRepository,
+                gameSummaryRepository,
+                voteFinalResultRepository,
+                userRepository,
+                new LeagueStageResolver(gameRepository),
+                mock(BaseballDataIntegrityGuard.class),
+                cacheManager,
+                transactionManager);
+
+        PredictionResponseDto response = localService.getVoteStatus("202603200001");
+
+        assertThat(response.getTotalVotes()).isEqualTo(10L);
+        verify(cache).put(eq("202603200001"), any(PredictionVoteStatusCacheEntry.class));
+        verify(cache).evict("202603200001");
     }
 
     @Test
