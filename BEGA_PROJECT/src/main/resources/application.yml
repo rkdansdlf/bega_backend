@@ -394,7 +394,7 @@ spring:
       idle-timeout: 600000
       max-lifetime: 1800000
       keepalive-time: 45000
-      leak-detection-threshold: 30000
+      leak-detection-threshold: ${SPRING_DATASOURCE_HIKARI_LEAK_DETECTION_THRESHOLD:120000}
 
   jpa:
     show-sql: false # Production should not log SQL by default
