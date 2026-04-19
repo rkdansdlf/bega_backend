@@ -444,6 +444,9 @@ management:
   endpoint:
     health:
       show-details: never
+  health:
+    jobrunr:
+      enabled: false
 
 ---
 # 'local' 프로필: 로컬 테스트 환경 (H2 In-Memory)
