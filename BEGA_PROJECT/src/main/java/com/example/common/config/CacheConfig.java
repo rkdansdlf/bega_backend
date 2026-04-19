@@ -94,10 +94,17 @@ public class CacheConfig {
                                 .expireAfterWrite(50, TimeUnit.MINUTES)
                                 .recordStats()));
 
-                // 인스턴스 로컬 캐시만 등록
+                // 기본 TTL을 쓰는 인스턴스 로컬 캐시만 등록
                 manager.setCacheNames(List.of(
-                                JWT_USER_CACHE,
                                 SIGNED_URLS));
+
+                // jwtUserCache는 토큰 claims용 민감 캐시이므로 별도 짧은 TTL을 적용한다.
+                manager.registerCustomCache(JWT_USER_CACHE,
+                                Caffeine.newBuilder()
+                                                .maximumSize(1000)
+                                                .expireAfterWrite(60, TimeUnit.SECONDS)
+                                                .recordStats()
+                                                .build());
 
                 return manager;
         }
