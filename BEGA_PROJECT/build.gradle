@@ -89,6 +89,9 @@ dependencies {
     implementation 'io.jsonwebtoken:jjwt-api:0.12.3'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.3'
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.3'
+
+    // Argon2id password hashing (required by Spring Security's Argon2PasswordEncoder)
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
     
     // Standard Lombok (managed by Spring Boot)
     compileOnly 'org.projectlombok:lombok:1.18.36'
