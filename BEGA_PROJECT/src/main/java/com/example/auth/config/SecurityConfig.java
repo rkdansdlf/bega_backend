@@ -12,7 +12,10 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.authorization.AuthenticatedAuthorizationManager;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.DelegatingPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -298,9 +301,22 @@ public class SecurityConfig {
                 return configuration.getAuthenticationManager();
         }
 
+        /**
+         * [Security Fix - Critical #2]
+         * OWASP Password Storage Cheat Sheet 권고에 따라 Argon2id를 기본 해시로 사용.
+         *
+         * - 신규 비밀번호는 모두 {argon2} prefix로 저장.
+         * - 기존 $2a$10 BCrypt 해시는 DB migration을 통해 {bcrypt} prefix가 부여되며,
+         *   {@link PasswordEncoder#upgradeEncoding(String)}으로 로그인 성공 시 자동 업그레이드된다.
+         * - Argon2 파라미터는 Spring Security 5.8 기본값 (m=16384KiB, t=2, p=1).
+         */
         @Bean
-        public BCryptPasswordEncoder bCryptPasswordEncoder() {
-                return new BCryptPasswordEncoder();
+        public PasswordEncoder passwordEncoder() {
+                String idForEncode = "argon2";
+                java.util.Map<String, PasswordEncoder> encoders = new java.util.HashMap<>();
+                encoders.put("argon2", Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8());
+                encoders.put("bcrypt", new BCryptPasswordEncoder(12));
+                return new DelegatingPasswordEncoder(idForEncode, encoders);
         }
 
         /**
