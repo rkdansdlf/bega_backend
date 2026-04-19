@@ -117,32 +117,6 @@ class APIControllerCheckNameTest {
         assertThat(response.getBody().getData()).isEqualTo(new AvailabilityCheckResponseDto(false, "@slugger"));
     }
 
-    @Test
-    @DisplayName("사용 가능한 이메일이면 success 응답을 반환한다")
-    void checkEmail_returnsSuccessWhenAvailable() {
-        when(userService.checkEmailAvailability(" Slugger@Example.com "))
-                .thenReturn(new AvailabilityCheckResponseDto(true, "slugger@example.com"));
-
-        ResponseEntity<ApiResponse> response = apiController.checkEmail(" Slugger@Example.com ");
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().isSuccess()).isTrue();
-        assertThat(response.getBody().getData()).isEqualTo(new AvailabilityCheckResponseDto(true, "slugger@example.com"));
-    }
-
-    @Test
-    @DisplayName("중복 이메일이면 conflict 응답을 반환한다")
-    void checkEmail_returnsConflictWhenTaken() {
-        when(userService.checkEmailAvailability("slugger@example.com"))
-                .thenReturn(new AvailabilityCheckResponseDto(false, "slugger@example.com"));
-
-        ResponseEntity<ApiResponse> response = apiController.checkEmail("slugger@example.com");
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().isSuccess()).isFalse();
-        assertThat(response.getBody().getCode()).isEqualTo("DUPLICATE_EMAIL");
-        assertThat(response.getBody().getData()).isEqualTo(new AvailabilityCheckResponseDto(false, "slugger@example.com"));
-    }
+    // [Security Fix - Critical #3] /check-email 엔드포인트 제거에 따라 관련 테스트 제거.
+    // 이메일 존재 여부를 노출하지 않는 것이 User Enumeration 방어 원칙.
 }

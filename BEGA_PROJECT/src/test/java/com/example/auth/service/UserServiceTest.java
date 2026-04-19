@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -42,13 +43,14 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -75,7 +77,7 @@ class UserServiceTest {
     private UserProviderRepository userProviderRepository;
 
     @Mock
-    private BCryptPasswordEncoder bCryptPasswordEncoder;
+    private PasswordEncoder bCryptPasswordEncoder;
 
     @Mock
     private com.example.auth.util.JWTUtil jwtUtil;
@@ -100,6 +102,11 @@ class UserServiceTest {
 
     @Mock
     private MediaLinkService mediaLinkService;
+
+    @BeforeEach
+    void clearConstructorInteractions() {
+        clearInvocations(bCryptPasswordEncoder);
+    }
 
     @Test
     void updateProfile_withNullProfileImageUrl_keepsExistingUrl() {
@@ -563,6 +570,101 @@ class UserServiceTest {
                 () -> userService.authenticateAndGetToken("user@example.com", "wrong"));
         verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
         verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void authenticateAndGetToken_runsPasswordCheckForMissingUser() {
+        when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+
+        InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("missing@example.com", "raw-password"));
+
+        assertEquals("INVALID_CREDENTIALS", exception.getCode());
+        verify(bCryptPasswordEncoder).matches(eq("raw-password"), any());
+        verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
+        verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
+        verify(userRepository, never()).save(any(UserEntity.class));
+    }
+
+    @Test
+    void authenticateAndGetToken_runsPasswordCheckForOAuthOnlyUser() {
+        UserEntity user = baseUser(null);
+        user.setPassword(null);
+        user.setEnabled(true);
+        user.setLocked(false);
+
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+
+        InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("user@example.com", "raw-password"));
+
+        assertEquals("INVALID_CREDENTIALS", exception.getCode());
+        verify(bCryptPasswordEncoder).matches(eq("raw-password"), any());
+        verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
+        verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
+        verify(userRepository, never()).save(any(UserEntity.class));
+    }
+
+    @Test
+    void authenticateAndGetToken_runsPasswordCheckForDisabledUser() {
+        UserEntity user = baseUser(null);
+        user.setPassword("ENCODED");
+        user.setEnabled(false);
+        user.setLocked(false);
+
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
+
+        InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("user@example.com", "raw-password"));
+
+        assertEquals("INVALID_CREDENTIALS", exception.getCode());
+        verify(bCryptPasswordEncoder).matches("raw-password", "ENCODED");
+        verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
+        verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
+        verify(userRepository, never()).save(any(UserEntity.class));
+    }
+
+    @Test
+    void authenticateAndGetToken_runsPasswordCheckForLockedUser() {
+        UserEntity user = baseUser(null);
+        user.setPassword("ENCODED");
+        user.setEnabled(true);
+        user.setLocked(true);
+        user.setLockExpiresAt(null);
+
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
+
+        InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("user@example.com", "raw-password"));
+
+        assertEquals("INVALID_CREDENTIALS", exception.getCode());
+        verify(bCryptPasswordEncoder).matches("raw-password", "ENCODED");
+        verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
+        verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
+        verify(userRepository, never()).save(any(UserEntity.class));
+    }
+
+    @Test
+    void authenticateAndGetToken_runsPasswordCheckForPendingDeletionUser() {
+        UserEntity user = baseUser(null);
+        user.setPassword("ENCODED");
+        user.setEnabled(true);
+        user.setLocked(false);
+        user.setPendingDeletion(true);
+
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
+
+        InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("user@example.com", "raw-password"));
+
+        assertEquals("INVALID_CREDENTIALS", exception.getCode());
+        verify(bCryptPasswordEncoder).matches("raw-password", "ENCODED");
+        verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
+        verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
+        verify(userRepository, never()).save(any(UserEntity.class));
     }
 
     @Test
