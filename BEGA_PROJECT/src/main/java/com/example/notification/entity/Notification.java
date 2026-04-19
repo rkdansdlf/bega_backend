@@ -23,7 +23,7 @@ public class Notification {
     @Column(name = "user_id", nullable = false)
     private Long userId; // 알림을 받을 사용자 ID
 
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 50)
     @Enumerated(EnumType.STRING)
     private NotificationType type; // 알림 타입
 
