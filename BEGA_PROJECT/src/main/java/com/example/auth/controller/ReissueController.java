@@ -8,6 +8,7 @@ import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.AuthSessionMetadataResolver;
 import com.example.auth.service.AuthSecurityMonitoringService;
+import com.example.auth.service.RefreshTokenReuseDetector;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InvalidAuthorException;
 import org.springframework.http.ResponseEntity;
@@ -39,16 +40,19 @@ public class ReissueController {
     private final AuthCookieUtil authCookieUtil;
     private final AuthSessionService authSessionService;
     private final AuthSecurityMonitoringService authSecurityMonitoringService;
+    private final RefreshTokenReuseDetector refreshTokenReuseDetector;
 
     public ReissueController(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository,
             AuthCookieUtil authCookieUtil, AuthSessionService authSessionService,
-            AuthSecurityMonitoringService authSecurityMonitoringService) {
+            AuthSecurityMonitoringService authSecurityMonitoringService,
+            RefreshTokenReuseDetector refreshTokenReuseDetector) {
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
         this.userRepository = userRepository;
         this.authCookieUtil = authCookieUtil;
         this.authSessionService = authSessionService;
         this.authSecurityMonitoringService = authSecurityMonitoringService;
+        this.refreshTokenReuseDetector = refreshTokenReuseDetector;
     }
 
     @PostMapping("/reissue")
@@ -100,6 +104,28 @@ public class ReissueController {
                 .findFirst();
 
         if (matchedToken.isEmpty()) {
+            // [Security Fix - Medium #4] 재사용 탐지:
+            // 이 토큰이 과거에 회전된 적 있으면 탈취 후 재생(replay)으로 간주하고
+            // 해당 사용자의 모든 세션을 무효화 + tokenVersion 증가로 기존 Access Token도 강제 폐기.
+            Optional<Long> reuseUserId = refreshTokenReuseDetector.findReuseUserId(refreshToken);
+            if (reuseUserId.isPresent()) {
+                Long reusedUserId = reuseUserId.get();
+                try {
+                    userRepository.findById(reusedUserId).ifPresent(affected -> {
+                        affected.setTokenVersion(
+                                Optional.ofNullable(affected.getTokenVersion()).orElse(0) + 1);
+                        userRepository.save(affected);
+                    });
+                    refreshRepository.deleteByEmail(email);
+                } catch (Exception cleanup) {
+                    log.warn("Failed to revoke sessions after refresh reuse detection: {}", cleanup.getMessage());
+                }
+                authSecurityMonitoringService.recordRefreshReissueReject("REFRESH_TOKEN_REUSE_DETECTED");
+                logReissueReject("REFRESH_TOKEN_REUSE_DETECTED", request, email, reusedUserId);
+                throw new BadRequestBusinessException(
+                        "REFRESH_TOKEN_REUSE_DETECTED",
+                        "보안 경고: 재사용이 감지되어 모든 세션이 종료되었습니다. 다시 로그인해주세요.");
+            }
             // 해당 이메일로 등록된 Refresh Token이 DB에 없으면 띄우기
             throw rejectBadRequest("REFRESH_TOKEN_NOT_FOUND", "잘못된 Refresh Token입니다.", request, email, null);
         }

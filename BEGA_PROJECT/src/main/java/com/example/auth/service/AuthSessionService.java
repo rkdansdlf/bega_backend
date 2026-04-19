@@ -20,6 +20,7 @@ public class AuthSessionService {
     private final RefreshRepository refreshRepository;
     private final JWTUtil jwtUtil;
     private final AuthSessionMetadataResolver authSessionMetadataResolver;
+    private final RefreshTokenReuseDetector refreshTokenReuseDetector;
 
     public record PreparedRefreshSession(
             String sessionId,
@@ -109,6 +110,12 @@ public class AuthSessionService {
         }
         if (sessionId == null) {
             sessionId = UUID.randomUUID().toString();
+        }
+
+        // [Security Fix - Medium #4] 회전 전 원본 token을 재사용 탐지 마커로 등록.
+        String previousTokenValue = existingToken == null ? null : existingToken.getToken();
+        if (previousTokenValue != null && !previousTokenValue.isBlank() && userId != null) {
+            refreshTokenReuseDetector.markRotated(previousTokenValue, userId, jwtUtil.getRefreshTokenExpirationTime());
         }
 
         String refreshToken = jwtUtil.createRefreshToken(email, role, userId, tokenVersion, sessionId);
