@@ -89,6 +89,9 @@ dependencies {
     implementation 'io.jsonwebtoken:jjwt-api:0.12.3'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.3'
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.3'
+
+    // Argon2id password hashing (required by Spring Security's Argon2PasswordEncoder)
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
     
     // Standard Lombok (managed by Spring Boot)
     compileOnly 'org.projectlombok:lombok:1.18.36'
@@ -132,6 +135,9 @@ dependencies {
 
     // Caffeine Cache
     implementation 'com.github.ben-manes.caffeine:caffeine'
+
+    // [Security Fix - High #1] Rate Limiting (Bucket4j)
+    implementation 'com.bucket4j:bucket4j-core:8.10.1'
     
     // JobRunr (Spring Boot 3)
     implementation 'org.jobrunr:jobrunr-spring-boot-3-starter:7.2.0'
