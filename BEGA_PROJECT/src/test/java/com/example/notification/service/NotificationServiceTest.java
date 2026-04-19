@@ -7,8 +7,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+
+import jakarta.persistence.Column;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,6 +38,18 @@ class NotificationServiceTest {
 
     @Mock
     private SimpMessagingTemplate messagingTemplate;
+
+    @Test
+    void notificationTypeNamesFitDatabaseColumn() throws NoSuchFieldException {
+        Column typeColumn = Notification.class.getDeclaredField("type").getAnnotation(Column.class);
+        int maxEnumNameLength = Arrays.stream(Notification.NotificationType.values())
+                .map(Enum::name)
+                .mapToInt(String::length)
+                .max()
+                .orElse(0);
+
+        assertThat(maxEnumNameLength).isLessThanOrEqualTo(typeColumn.length());
+    }
 
     // --- getMyNotifications ---
 

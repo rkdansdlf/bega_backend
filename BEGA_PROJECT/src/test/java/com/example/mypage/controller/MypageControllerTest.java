@@ -16,6 +16,7 @@ import com.example.auth.service.AccountSecurityService;
 import com.example.auth.service.AuthSessionMetadataResolver;
 import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.PolicyConsentService;
+import com.example.auth.service.RefreshTokenReuseDetector;
 import com.example.auth.service.UserService;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.util.JWTUtil;
@@ -69,6 +70,9 @@ class MypageControllerTest {
     @Mock
     private ClientIpResolver clientIpResolver;
 
+    @Mock
+    private RefreshTokenReuseDetector refreshTokenReuseDetector;
+
     private AuthSessionService authSessionService;
     private MypageController controller;
 
@@ -77,7 +81,8 @@ class MypageControllerTest {
         authSessionService = new AuthSessionService(
                 refreshRepository,
                 jwtUtil,
-                new AuthSessionMetadataResolver(clientIpResolver));
+                new AuthSessionMetadataResolver(clientIpResolver),
+                refreshTokenReuseDetector);
         lenient().when(clientIpResolver.resolveOrUnknown(any())).thenAnswer(invocation -> {
             MockHttpServletRequest request = (MockHttpServletRequest) invocation.getArgument(0);
             return request.getRemoteAddr() == null ? "unknown" : request.getRemoteAddr();

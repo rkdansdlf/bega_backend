@@ -7,6 +7,7 @@ import com.example.auth.dto.KaKaoResponse;
 import com.example.auth.dto.NaverResponse;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.util.LogMaskingUtil;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
@@ -121,7 +122,8 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
         log.info("=== CustomOAuth2UserService loadUser ===");
         log.info("RegistrationId: {}", registrationId);
-        log.info("Email: {}", email);
+        // [Security Fix - High #2] 이메일 평문 로깅 방지 (CWE-532)
+        log.info("Email: {}", LogMaskingUtil.maskEmail(email));
         log.info("LinkData: {}",
                 linkData != null ? "userId=" + linkData.userId() + ", failureReason=" + linkData.failureReason() : "null");
 
@@ -174,7 +176,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             userEntity.addCheerPoints(5);
             userEntity.setLastBonusDate(today);
             userRepository.save(userEntity);
-            log.info("Daily Login Bonus (5 points) awarded to Social User: {}", userEntity.getEmail());
+            log.info("Daily Login Bonus (5 points) awarded to Social User id={}", userEntity.getId());
         }
 
         // 6. CustomOAuth2User 객체 반환
@@ -426,7 +428,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             Optional<UserEntity> existingUserOpt = userRepository.findByEmail(email);
 
             if (existingUserOpt.isPresent()) {
-                log.warn("Existing account found by email, requiring manual link: provider={} email={}", provider, email);
+                log.warn("Existing account found by email, requiring manual link: provider={} email={}", provider, LogMaskingUtil.maskEmail(email));
                 throw new OAuth2AuthenticationException(MANUAL_LINK_REQUIRED);
             } else {
                 // 신규 사용자 -> 회원가입 + 연동 정보 생성

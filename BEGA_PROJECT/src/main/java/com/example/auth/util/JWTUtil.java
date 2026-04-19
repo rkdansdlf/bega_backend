@@ -14,7 +14,10 @@ import lombok.extern.slf4j.Slf4j;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Date;
+import java.util.HexFormat;
 
 @Slf4j
 @Component
@@ -110,9 +113,25 @@ public class JWTUtil {
                 .compact();
     }
 
-    // JWT에서 특정 Claim 가져오기
-    @Cacheable(value = "jwtUserCache", key = "#token")
-    private Claims getClaims(String token) {
+    // [Security Fix - Critical #1] 토큰 원문을 캐시 key로 쓰지 않고 SHA-256 해시를 사용.
+    // 원문 토큰이 cache store(Redis/Caffeine)에 평문 저장되면 스냅샷 유출 시
+    // 모든 유효 토큰이 그대로 노출되므로, 단방향 해시를 key로 사용한다.
+    public static String hashKey(String token) {
+        if (token == null) {
+            return "null";
+        }
+        try {
+            byte[] hashed = MessageDigest.getInstance("SHA-256")
+                    .digest(token.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hashed);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 algorithm not available", e);
+        }
+    }
+
+    // JWT에서 특정 Claim 가져오기 (해시된 token을 cache key로 사용)
+    @Cacheable(value = "jwtUserCache", key = "T(com.example.auth.util.JWTUtil).hashKey(#token)")
+    public Claims getClaims(String token) {
         try {
             return Jwts.parser()
                     .verifyWith(secretKey)
@@ -236,10 +255,10 @@ public class JWTUtil {
      * [Security Fix] 로그아웃된 토큰의 캐시된 Claims 정보 제거
      * @param token 무효화할 토큰
      */
-    @CacheEvict(value = "jwtUserCache", key = "#token")
+    @CacheEvict(value = "jwtUserCache", key = "T(com.example.auth.util.JWTUtil).hashKey(#token)")
     public void evictTokenCache(String token) {
-        if (token != null && token.length() > 20) {
-            log.debug("Evicted token cache for token: {}...", token.substring(0, 20));
-        }
+        // [Security Fix - High #2] 토큰 prefix 로깅 제거 (CWE-532).
+        // 필요 시 log.debug("Evicted token cache for key {}", hashKey(token)) 형태로 대체 가능.
+        log.debug("Evicted token cache entry");
     }
 }
