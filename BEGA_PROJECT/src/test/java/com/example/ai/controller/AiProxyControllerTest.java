@@ -4,6 +4,7 @@ import com.example.ai.exception.AiProxyException;
 import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
 import com.example.ai.service.AiProxyService.ProxyStreamResponse;
+import com.example.ai.service.CoachAutoBriefMonitoringService;
 import com.example.common.exception.GlobalExceptionHandler;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -21,10 +22,12 @@ import reactor.core.publisher.Flux;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -38,11 +41,13 @@ class AiProxyControllerTest {
 
     private MockMvc mockMvc;
     private AiProxyService aiProxyService;
+    private CoachAutoBriefMonitoringService coachAutoBriefMonitoringService;
 
     @BeforeEach
     void setup() {
         aiProxyService = mock(AiProxyService.class);
-        AiProxyController controller = new AiProxyController(aiProxyService);
+        coachAutoBriefMonitoringService = mock(CoachAutoBriefMonitoringService.class);
+        AiProxyController controller = new AiProxyController(aiProxyService, coachAutoBriefMonitoringService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -246,6 +251,7 @@ class AiProxyControllerTest {
         headers.add("X-Accel-Buffering", "no");
         String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\"}";
         DefaultDataBufferFactory bufferFactory = new DefaultDataBufferFactory();
+        given(coachAutoBriefMonitoringService.extractRequestMode(eq(payload))).willReturn("manual_detail");
 
         given(aiProxyService.forwardJsonStream(eq("/ai/coach/analyze"), eq(payload)))
                 .willReturn(new ProxyStreamResponse(
@@ -273,6 +279,8 @@ class AiProxyControllerTest {
                 .andExpect(header().string("X-Accel-Buffering", "no"))
                 .andExpect(content().string(containsString("event: meta")))
                 .andExpect(content().string(containsString("data: [DONE]")));
+
+        verify(coachAutoBriefMonitoringService).recordCoachAnalyzeDuration(eq("manual_detail"), eq(200), anyLong());
     }
 
     @Test
@@ -282,6 +290,7 @@ class AiProxyControllerTest {
         headers.setContentType(MediaType.APPLICATION_JSON);
         String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\"}";
         String responseBody = "{\"success\":false,\"code\":\"AI_UPSTREAM_UNAVAILABLE\",\"message\":\"AI 서비스가 현재 사용할 수 없습니다.\"}";
+        given(coachAutoBriefMonitoringService.extractRequestMode(eq(payload))).willReturn("manual_detail");
 
         given(aiProxyService.forwardJsonStream(eq("/ai/coach/analyze"), eq(payload)))
                 .willReturn(new ProxyStreamResponse(
@@ -299,6 +308,8 @@ class AiProxyControllerTest {
         mockMvc.perform(asyncDispatch(result))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().json(responseBody));
+
+        verify(coachAutoBriefMonitoringService).recordCoachAnalyzeDuration(eq("manual_detail"), eq(503), anyLong());
     }
 
     @Test

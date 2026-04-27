@@ -7,6 +7,7 @@ import java.util.regex.Pattern;
 import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 
@@ -44,7 +45,7 @@ public class RankingPredictionController {
 	@PreAuthorize("isAuthenticated()")
 	@PostMapping
 	public ResponseEntity<?> savePrediction(
-			Principal principal, @RequestBody RankingPredictionRequestDto requestDto) {
+			Principal principal, @Valid @RequestBody RankingPredictionRequestDto requestDto) {
 		Principal authenticatedPrincipal = requirePrincipal(principal);
 		RankingPredictionResponseDto savedDto = rankingPredictionService.savePrediction(
 				requestDto,

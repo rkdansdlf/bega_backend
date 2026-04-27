@@ -18,6 +18,7 @@ import com.example.auth.service.UserService;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.util.AuthCookieUtil;
+import com.example.auth.util.LogMaskingUtil;
 import com.example.common.web.ClientIpResolver;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
@@ -175,20 +176,9 @@ public class APIController {
         return ResponseEntity.ok(ApiResponse.success("사용 가능한 아이디(@handle)입니다.", availability));
     }
 
-    @RateLimit(limit = 20, window = 60)
-    @GetMapping("/check-email")
-    public ResponseEntity<ApiResponse> checkEmail(@RequestParam("email") String email) {
-        AvailabilityCheckResponseDto availability = userService.checkEmailAvailability(email);
-        if (!availability.available()) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(ApiResponse.error(
-                            "DUPLICATE_EMAIL",
-                            "이미 사용 중인 이메일입니다.",
-                            new AvailabilityCheckResponseDto(false, availability.normalized())));
-        }
-
-        return ResponseEntity.ok(ApiResponse.success("사용 가능한 이메일입니다.", availability));
-    }
+    // [Security Fix - Critical #3] /check-email 엔드포인트 제거.
+    // 이메일 존재 여부를 응답하는 것은 User Enumeration 취약점(CWE-204)이다.
+    // 회원가입 시 중복 이메일은 signUp 시점에 동일 메시지로 처리한다.
 
     /**
      * 닉네임(이름) 사용 가능 여부 체크
@@ -279,7 +269,7 @@ public class APIController {
                 long remainingTime = expiration.getTime() - System.currentTimeMillis();
                 if (remainingTime > 0) {
                     tokenBlacklistService.blacklist(accessToken, remainingTime);
-                    log.info("Access token blacklisted on logout for email: {}", email);
+                    log.info("Access token blacklisted on logout for email: {}", LogMaskingUtil.maskEmail(email));
                 }
             } catch (Exception e) {
                 log.warn("Failed to blacklist token: {}", e.getMessage());

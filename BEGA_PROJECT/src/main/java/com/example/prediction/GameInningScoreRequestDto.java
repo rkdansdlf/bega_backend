@@ -25,6 +25,7 @@ public class GameInningScoreRequestDto {
 
     private String teamCode;
 
+    @NotNull
     @Min(0)
     private Integer runs;
 

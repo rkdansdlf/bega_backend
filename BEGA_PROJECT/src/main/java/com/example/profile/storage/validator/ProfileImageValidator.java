@@ -79,10 +79,20 @@ public class ProfileImageValidator {
     private void validateDimensions(MultipartFile file) {
         ImageUtil.ImageDimension imageDimension = imageUtil.getImageDimension(file);
         int shortSide = Math.min(imageDimension.width(), imageDimension.height());
+        int longSide = Math.max(imageDimension.width(), imageDimension.height());
+        long totalPixels = (long) imageDimension.width() * imageDimension.height();
         if (shortSide < MIN_SHORT_SIDE_PIXELS) {
             throw new IllegalArgumentException(
                     String.format("해상도가 너무 낮습니다. 최소 %dpx x %dpx 이상이어야 합니다.", MIN_SHORT_SIDE_PIXELS,
                             MIN_SHORT_SIDE_PIXELS));
+        }
+        if (longSide > config.getMaxImageLongSidePixels()) {
+            throw new IllegalArgumentException(
+                    String.format("이미지의 긴 변은 최대 %dpx 이하여야 합니다.", config.getMaxImageLongSidePixels()));
+        }
+        if (totalPixels > config.getMaxImageTotalPixels()) {
+            throw new IllegalArgumentException(
+                    String.format("이미지 총 픽셀 수는 최대 %,d 이하여야 합니다.", config.getMaxImageTotalPixels()));
         }
     }
 

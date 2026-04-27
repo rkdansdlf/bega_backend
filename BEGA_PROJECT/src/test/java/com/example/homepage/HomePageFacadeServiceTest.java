@@ -65,6 +65,45 @@ class HomePageFacadeServiceTest {
     }
 
     @Test
+    @DisplayName("bootstrap은 무경기일에도 빈 경기 목록과 예정 경기 윈도를 함께 반환한다")
+    void getBootstrapReturnsEmptyGamesForNoGameDay() {
+        LocalDate selectedDate = LocalDate.of(2026, 4, 13);
+        LeagueStartDatesDto leagueStartDates = LeagueStartDatesDto.builder()
+                .regularSeasonStart("2026-03-28")
+                .postseasonStart("2026-10-06")
+                .koreanSeriesStart("2026-10-26")
+                .build();
+
+        when(homePageGameService.getLeagueStartDates()).thenReturn(leagueStartDates);
+        when(homePageGameService.getScheduleNavigation(selectedDate)).thenReturn(ScheduleNavigationDto.builder()
+                .prevGameDate(LocalDate.of(2026, 4, 12))
+                .nextGameDate(LocalDate.of(2026, 4, 14))
+                .hasPrev(true)
+                .hasNext(true)
+                .build());
+        when(homePageGameService.getGamesByDate(selectedDate)).thenReturn(List.of());
+        when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
+                .thenReturn(List.of(HomePageScheduledGameDto.builder()
+                        .gameId("20260414LGKT0")
+                        .homeTeam("LG")
+                        .awayTeam("KT")
+                        .leagueType("REGULAR")
+                        .sourceDate("2026-04-14")
+                        .leagueBadge("정규시즌")
+                        .time("18:30")
+                        .build()));
+
+        HomeBootstrapResponseDto response = homePageFacadeService.getBootstrap(selectedDate);
+
+        assertThat(response.getSelectedDate()).isEqualTo("2026-04-13");
+        assertThat(response.getNavigation().getPrevGameDate()).isEqualTo("2026-04-12");
+        assertThat(response.getNavigation().getNextGameDate()).isEqualTo("2026-04-14");
+        assertThat(response.getGames()).isEmpty();
+        assertThat(response.getScheduledGamesWindow()).hasSize(1);
+        assertThat(response.getScheduledGamesWindow().get(0).getSourceDate()).isEqualTo("2026-04-14");
+    }
+
+    @Test
     @DisplayName("widgets 응답은 공개 인기글, 메이트 카드, 자동 랭킹 스냅샷을 조합한다")
     void getWidgetsAggregatesPublicHotPostsAndFeaturedMates() {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);

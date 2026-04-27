@@ -6,6 +6,7 @@ import com.example.mate.entity.Party;
 import com.example.mate.exception.InvalidPartyStatusException;
 import com.example.mate.service.PartyService;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.data.domain.Page;
@@ -32,7 +33,7 @@ public class PartyController {
 
     // 파티 생성
     @PostMapping
-    public ResponseEntity<?> createParty(@RequestBody PartyDTO.Request request, java.security.Principal principal) {
+    public ResponseEntity<?> createParty(@Valid @RequestBody PartyDTO.Request request, java.security.Principal principal) {
         PartyDTO.Response response = partyService.createParty(request, principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -125,7 +126,7 @@ public class PartyController {
     @PatchMapping("/{id}")
     public ResponseEntity<?> updateParty(
             @PathVariable Long id,
-            @RequestBody PartyDTO.UpdateRequest request,
+            @Valid @RequestBody PartyDTO.UpdateRequest request,
             java.security.Principal principal) {
         PartyDTO.Response response = partyService.updateParty(id, request, principal);
         return ResponseEntity.ok(response);

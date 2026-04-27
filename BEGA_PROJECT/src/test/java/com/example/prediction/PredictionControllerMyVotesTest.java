@@ -70,20 +70,50 @@ class PredictionControllerMyVotesTest {
     }
 
     @Test
-    void shouldReturnEmptyVotesWhenGameIdsIsNull() {
+    void nullGameIdsShouldReturnBadRequest() throws Exception {
         PredictionService predictionService = mock(PredictionService.class);
         PredictionRepository predictionRepository = mock(PredictionRepository.class);
-        PredictionController controller =
-                new PredictionController(predictionService, predictionRepository);
+        PredictionController controller = new PredictionController(predictionService, predictionRepository);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
 
-        Principal principal = () -> "1";
-        PredictionMyVotesRequestDto request = new PredictionMyVotesRequestDto();
-        request.setGameIds(null);
+        mockMvc.perform(post("/api/predictions/my-votes")
+                        .principal(() -> "1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "gameIds": null
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
-        ResponseEntity<?> response = controller.getMyVotesBulk(request, principal);
+        verifyNoInteractions(predictionRepository);
+    }
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).isEqualTo(Map.of("votes", Map.of()));
+    @Test
+    void malformedGameIdsShouldReturnBadRequest() throws Exception {
+        PredictionService predictionService = mock(PredictionService.class);
+        PredictionRepository predictionRepository = mock(PredictionRepository.class);
+        PredictionController controller = new PredictionController(predictionService, predictionRepository);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        mockMvc.perform(post("/api/predictions/my-votes")
+                        .principal(() -> "1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "gameIds": ["GAME-1", "BAD ID!"]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
         verifyNoInteractions(predictionRepository);
     }
 

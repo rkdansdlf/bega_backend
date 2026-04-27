@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
@@ -23,4 +24,9 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             Long partyId,
             java.time.Instant createdAt,
             Long senderId);
+
+    Optional<ChatMessage> findByPartyIdAndSenderIdAndClientMessageId(
+            Long partyId,
+            Long senderId,
+            String clientMessageId);
 }

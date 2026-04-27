@@ -2,11 +2,13 @@ package com.example.ai.service;
 
 import com.example.ai.exception.AiProxyException;
 import com.example.ai.config.AiServiceSettings;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -41,7 +43,7 @@ class AiProxyServiceTest {
             writeResponse(exchange, 401, "unauthorized");
         });
 
-        AiProxyService service = newService(Duration.ofSeconds(5), "test-token");
+        AiProxyService service = newServiceForProfile(Duration.ofSeconds(5), "test-token", "prod");
 
         AiProxyService.ProxyByteResponse response = service.forwardJson("/ai/chat/completion", "{\"test\":true}");
 
@@ -67,6 +69,85 @@ class AiProxyServiceTest {
     }
 
     @Test
+    void forwardJsonStreamPreservesSuccessfulSseBody() throws Exception {
+        server = startServer("/ai/coach/analyze", exchange -> writeResponse(
+                exchange,
+                200,
+                "event: meta\ndata: {\"request_mode\":\"manual_detail\"}\n\nevent: done\ndata: [DONE]\n\n",
+                "text/event-stream"));
+
+        AiProxyService service = newService(Duration.ofSeconds(5), "stream-token");
+
+        AiProxyService.ProxyStreamResponse response = service.forwardJsonStream("/ai/coach/analyze", "{\"test\":true}");
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        service.writeStream(response.bodyFlux(), outputStream);
+
+        assertThat(response.status().value()).isEqualTo(200);
+        assertThat(outputStream.toString(StandardCharsets.UTF_8))
+                .contains("event: meta")
+                .contains("event: done")
+                .contains("data: [DONE]");
+    }
+
+    @Test
+    void forwardJsonRetriesWithLocalDevFallbackTokenOnUnauthorized() throws Exception {
+        AtomicInteger requestCount = new AtomicInteger();
+        AtomicReference<String> firstToken = new AtomicReference<>();
+        AtomicReference<String> secondToken = new AtomicReference<>();
+        server = startServer("/ai/chat/completion", exchange -> {
+            int currentAttempt = requestCount.incrementAndGet();
+            String header = exchange.getRequestHeaders().getFirst("X-Internal-Api-Key");
+            if (currentAttempt == 1) {
+                firstToken.set(header);
+                writeResponse(exchange, 401, "unauthorized");
+                return;
+            }
+
+            secondToken.set(header);
+            writeResponse(exchange, 200, "{\"ok\":true}");
+        });
+
+        AiProxyService service = newService(Duration.ofSeconds(5), "mismatched-env-token");
+
+        AiProxyService.ProxyByteResponse response = service.forwardJson("/ai/chat/completion", "{\"test\":true}");
+
+        assertThat(response.status().value()).isEqualTo(200);
+        assertThat(new String(response.body(), StandardCharsets.UTF_8)).isEqualTo("{\"ok\":true}");
+        assertThat(requestCount.get()).isEqualTo(2);
+        assertThat(firstToken.get()).isEqualTo("mismatched-env-token");
+        assertThat(secondToken.get()).isEqualTo("local-dev-ai-internal-token");
+    }
+
+    @Test
+    void forwardJsonStreamRetriesWithLocalDevFallbackTokenOnUnauthorized() throws Exception {
+        AtomicInteger requestCount = new AtomicInteger();
+        AtomicReference<String> firstToken = new AtomicReference<>();
+        AtomicReference<String> secondToken = new AtomicReference<>();
+        server = startServer("/ai/coach/analyze", exchange -> {
+            int currentAttempt = requestCount.incrementAndGet();
+            String header = exchange.getRequestHeaders().getFirst("X-Internal-Api-Key");
+            if (currentAttempt == 1) {
+                firstToken.set(header);
+                writeResponse(exchange, 401, "unauthorized");
+                return;
+            }
+
+            secondToken.set(header);
+            writeResponse(exchange, 200, "event: done\ndata: [DONE]\n\n");
+        });
+
+        AiProxyService service = newService(Duration.ofSeconds(5), "mismatched-env-token");
+
+        AiProxyService.ProxyStreamResponse response = service.forwardJsonStream("/ai/coach/analyze", "{\"test\":true}");
+
+        assertThat(response.status().value()).isEqualTo(200);
+        assertThat(requestCount.get()).isEqualTo(2);
+        assertThat(firstToken.get()).isEqualTo("mismatched-env-token");
+        assertThat(secondToken.get()).isEqualTo("local-dev-ai-internal-token");
+    }
+
+    @Test
     void forwardGetPreservesUnauthorizedStatusAndInternalTokenHeader() throws Exception {
         AtomicReference<String> internalToken = new AtomicReference<>();
         server = startServer("/ai/release-decision/presets", exchange -> {
@@ -74,7 +155,7 @@ class AiProxyServiceTest {
             writeResponse(exchange, 401, "unauthorized");
         });
 
-        AiProxyService service = newService(Duration.ofSeconds(5), "preset-token");
+        AiProxyService service = newServiceForProfile(Duration.ofSeconds(5), "preset-token", "prod");
 
         AiProxyService.ProxyByteResponse response = service.forwardGet("/ai/release-decision/presets");
 
@@ -154,9 +235,20 @@ class AiProxyServiceTest {
         return newService(timeout, token, "http://localhost:" + server.getAddress().getPort());
     }
 
+    private AiProxyService newServiceForProfile(Duration timeout, String token, String profile) {
+        if (server == null) {
+            throw new IllegalStateException("test server is not initialized");
+        }
+        return newService(timeout, token, "http://localhost:" + server.getAddress().getPort(), profile);
+    }
+
     private AiProxyService newService(Duration timeout, String token, String serviceUrl) {
+        return newService(timeout, token, serviceUrl, "dev");
+    }
+
+    private AiProxyService newService(Duration timeout, String token, String serviceUrl, String... activeProfiles) {
         MockEnvironment environment = new MockEnvironment();
-        environment.setActiveProfiles("dev");
+        environment.setActiveProfiles(activeProfiles);
         AiServiceSettings settings = new AiServiceSettings(
                 environment,
                 serviceUrl,
@@ -172,7 +264,12 @@ class AiProxyServiceTest {
     }
 
     private void writeResponse(HttpExchange exchange, int status, String body) throws IOException {
+        writeResponse(exchange, status, body, "text/plain; charset=utf-8");
+    }
+
+    private void writeResponse(HttpExchange exchange, int status, String body, String contentType) throws IOException {
         byte[] payload = body.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", contentType);
         exchange.sendResponseHeaders(status, payload.length);
         exchange.getResponseBody().write(payload);
         exchange.close();

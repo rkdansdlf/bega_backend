@@ -6,6 +6,8 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.entity.UserProvider;
 import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.homepage.FeaturedMateCardDto;
+import com.example.kbo.dto.TicketInfo;
+import com.example.kbo.service.TicketVerificationTokenStore;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
@@ -76,6 +78,9 @@ class PartyServiceTest {
         @Mock
         private ProfileImageService profileImageService;
 
+        @Mock
+        private TicketVerificationTokenStore ticketVerificationTokenStore;
+
         @InjectMocks
         private PartyService partyService;
 
@@ -110,18 +115,26 @@ class PartyServiceTest {
                         party.setId(500L);
                         return party;
                 });
+                when(ticketVerificationTokenStore.consumeToken("party-verification-token"))
+                                .thenReturn(TicketInfo.builder()
+                                                .date(LocalDate.now().plusDays(1).toString())
+                                                .stadium("수원")
+                                                .homeTeam("KT")
+                                                .awayTeam("KIA")
+                                                .build());
 
                 PartyDTO.Request request = PartyDTO.Request.builder()
-                                .teamId("KT")
                                 .gameDate(LocalDate.now().plusDays(1))
                                 .gameTime(LocalTime.of(18, 30))
                                 .stadium("수원")
                                 .homeTeam("KT")
                                 .awayTeam("KIA")
+                                .cheeringSide(Party.CheeringSide.HOME)
                                 .section("1루")
                                 .maxParticipants(4)
                                 .description("실제 사용자 프로필에서 생성해야 합니다.")
                                 .ticketPrice(12000)
+                                .verificationToken("party-verification-token")
                                 .build();
 
                 PartyDTO.Response response = partyService.createParty(request, principal);
@@ -138,18 +151,19 @@ class PartyServiceTest {
         @DisplayName("getAllParties normalizes null searchQuery to empty string")
         void getAllParties_normalizesNullSearchQuery() {
                 // Force IDE re-sync for arguments match
-                when(partyRepository.findPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
-                                any(Pageable.class)))
+                when(partyRepository.findVisiblePublicPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                                any(), any(Pageable.class)))
                                 .thenReturn(Page.empty());
 
                 partyService.getAllParties(null, null, null, null, PageRequest.of(0, 10), null, null);
 
-                verify(partyRepository).findPartiesWithFilter(
+                verify(partyRepository).findVisiblePublicPartiesWithFilter(
                                 isNull(),
                                 isNull(),
                                 isNull(),
                                 eq(""),
                                 anyList(),
+                                isNull(),
                                 isNull(),
                                 any(Pageable.class));
         }
@@ -157,18 +171,20 @@ class PartyServiceTest {
         @Test
         @DisplayName("getAllParties trims and keeps non-empty searchQuery")
         void getAllParties_trimsSearchQuery() {
-                when(partyRepository.findPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                when(partyRepository.findVisiblePublicPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                                any(),
                                 any(Pageable.class)))
                                 .thenReturn(Page.empty());
 
                 partyService.getAllParties(null, null, null, "  kt  ", PageRequest.of(0, 10), null, null);
 
-                verify(partyRepository).findPartiesWithFilter(
+                verify(partyRepository).findVisiblePublicPartiesWithFilter(
                                 isNull(),
                                 isNull(),
                                 isNull(),
                                 eq("kt"),
                                 anyList(),
+                                isNull(),
                                 isNull(),
                                 any(Pageable.class));
         }
@@ -176,19 +192,21 @@ class PartyServiceTest {
         @Test
         @DisplayName("getAllParties applies status filter when status is provided")
         void getAllParties_filtersByStatus() {
-                when(partyRepository.findPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                when(partyRepository.findVisiblePublicPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                                any(),
                                 any(Pageable.class)))
                                 .thenReturn(Page.empty());
 
                 partyService.getAllParties(null, null, null, null, PageRequest.of(0, 10), Party.PartyStatus.MATCHED, null);
 
-                verify(partyRepository).findPartiesWithFilter(
+                verify(partyRepository).findVisiblePublicPartiesWithFilter(
                                 isNull(),
                                 isNull(),
                                 isNull(),
                                 eq(""),
                                 anyList(),
                                 eq(Party.PartyStatus.MATCHED),
+                                isNull(),
                                 any(Pageable.class));
         }
 
@@ -227,7 +245,8 @@ class PartyServiceTest {
         @DisplayName("legacy local asset host image falls back to null when no usable user profile")
         void getAllParties_legacyLocalAssetFallsBackToNull() {
                 Party party = createParty(103L, 88L, "/assets/default-avatar.png");
-                when(partyRepository.findPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                when(partyRepository.findVisiblePublicPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                                any(),
                                 any(Pageable.class)))
                                 .thenReturn(new PageImpl<>(List.of(party)));
 
@@ -244,7 +263,8 @@ class PartyServiceTest {
         @DisplayName("getAllParties includes review summary for consistent host rating display")
         void getAllParties_includesReviewSummary() {
                 Party party = createParty(104L, 91L, null);
-                when(partyRepository.findPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                when(partyRepository.findVisiblePublicPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                                any(),
                                 any(Pageable.class)))
                                 .thenReturn(new PageImpl<>(List.of(party)));
                 when(profileImageService.getProfileImageUrl(null)).thenReturn(null);
@@ -272,7 +292,8 @@ class PartyServiceTest {
                 Party second = createParty(302L, 12L, null);
                 Party third = createParty(303L, 11L, null);
 
-                when(partyRepository.findPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                when(partyRepository.findVisiblePublicPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                                any(),
                                 any(Pageable.class)))
                                 .thenReturn(new PageImpl<>(List.of(first, second, third)));
                 when(userRepository.findAllById(any())).thenReturn(List.of(
@@ -290,7 +311,7 @@ class PartyServiceTest {
                                 null);
 
                 assertThat(result.getContent()).hasSize(3);
-                verify(userRepository, times(2)).findAllById(argThat((Iterable<Long> hostIds) -> {
+                verify(userRepository, times(1)).findAllById(argThat((Iterable<Long> hostIds) -> {
                         List<Long> ids = new ArrayList<>();
                         hostIds.forEach(ids::add);
                         return ids.size() == 2 && ids.containsAll(List.of(11L, 12L));

@@ -12,7 +12,10 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.authorization.AuthenticatedAuthorizationManager;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.DelegatingPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -28,6 +31,7 @@ import com.example.auth.oauth2.CustomOAuth2UserService;
 import com.example.auth.oauth2.CustomSuccessHandler;
 import com.example.auth.oauth2.CookieAuthorizationRequestRepository;
 import com.example.auth.filter.JWTFilter;
+import com.example.auth.ratelimit.RateLimitFilter;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.util.JWTUtil;
 
@@ -60,7 +64,6 @@ public class SecurityConfig {
                         "/api/auth/login",
                         "/api/auth/signup",
                         "/api/auth/check-handle",
-                        "/api/auth/check-email",
                         "/api/auth/policies/required",
                         "/api/auth/reissue",
                         "/api/auth/logout",
@@ -101,10 +104,14 @@ public class SecurityConfig {
         /** 개발/로컬에서만 공개되는 시스템 엔드포인트 */
         private static final String[] DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS = {
                         "/api/test/**",
-                        "/actuator/prometheus",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
                         "/swagger-ui.html"
+        };
+
+        /** 조건부 공개 시스템 엔드포인트 */
+        private static final String[] CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS = {
+                        "/actuator/prometheus"
         };
 
         /** 공개 API 엔드포인트 (인증 불필요) */
@@ -188,6 +195,8 @@ public class SecurityConfig {
         private final AllowedOriginResolver allowedOriginResolver;
         @org.springframework.beans.factory.annotation.Value("${app.ai.proxy.public-in-dev:false}")
         private boolean publicAiProxyInDevEnabled;
+        @org.springframework.beans.factory.annotation.Value("${app.observability.public-prometheus-endpoint:false}")
+        private boolean publicPrometheusEndpointEnabled;
         @org.springframework.beans.factory.annotation.Value("${app.frontend.url:http://localhost:3000}")
         private String frontendUrl;
 
@@ -224,25 +233,61 @@ public class SecurityConfig {
                                 .anyMatch(profile -> "prod".equalsIgnoreCase(profile));
         }
 
+        /**
+         * [Security Fix - High #3] Content Security Policy 정책.
+         * Kakao Maps/OAuth, Google OAuth, OCI Object Storage 이미지를 허용한다.
+         * 'unsafe-inline' 스타일/스크립트는 현 프론트(React + inline styles) 호환성을 위해
+         * 임시 허용하며, 차후 nonce 기반으로 tighten 하는 것이 권장된다.
+         */
+        String buildContentSecurityPolicy() {
+                return String.join("; ",
+                                "default-src 'self'",
+                                "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
+                                                + "https://dapi.kakao.com https://t1.daumcdn.net "
+                                                + "https://accounts.google.com https://apis.google.com",
+                                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+                                "font-src 'self' data: https://fonts.gstatic.com",
+                                "img-src 'self' data: blob: https:",
+                                "connect-src 'self' https://dapi.kakao.com https://*.kakao.com "
+                                                + "https://accounts.google.com https://kauth.kakao.com "
+                                                + "https://kapi.kakao.com wss: https:",
+                                "frame-src 'self' https://accounts.google.com https://*.kakao.com",
+                                "object-src 'none'",
+                                "base-uri 'self'",
+                                "form-action 'self'",
+                                "frame-ancestors 'none'");
+        }
+
         String[] publicSystemEndpoints() {
+                int conditionalLength = shouldExposePrometheusEndpointPublicly()
+                                ? CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS.length
+                                : 0;
                 if (!isDevOrLocalProfile()) {
-                        return PUBLIC_SYSTEM_ENDPOINTS;
+                        return mergeEndpoints(PUBLIC_SYSTEM_ENDPOINTS, CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS,
+                                        conditionalLength);
                 }
 
-                String[] merged = Arrays.copyOf(
-                                PUBLIC_SYSTEM_ENDPOINTS,
-                                PUBLIC_SYSTEM_ENDPOINTS.length + DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS.length);
-                System.arraycopy(
+                String[] devLocalEndpoints = mergeEndpoints(
                                 DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS,
-                                0,
-                                merged,
-                                PUBLIC_SYSTEM_ENDPOINTS.length,
-                                DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS.length);
-                return merged;
+                                CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS,
+                                CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS.length);
+                return mergeEndpoints(PUBLIC_SYSTEM_ENDPOINTS, devLocalEndpoints, devLocalEndpoints.length);
         }
 
         boolean allowUnauthenticatedAiProxy() {
                 return publicAiProxyInDevEnabled && isDevOrLocalProfile();
+        }
+
+        boolean shouldExposePrometheusEndpointPublicly() {
+                return publicPrometheusEndpointEnabled;
+        }
+
+        private String[] mergeEndpoints(String[] baseEndpoints, String[] extraEndpoints, int extraLength) {
+                String[] merged = Arrays.copyOf(baseEndpoints, baseEndpoints.length + extraLength);
+                if (extraLength > 0) {
+                        System.arraycopy(extraEndpoints, 0, merged, baseEndpoints.length, extraLength);
+                }
+                return merged;
         }
 
         boolean isAuthenticatedPrincipal(Authentication authentication, Object object) {
@@ -282,9 +327,22 @@ public class SecurityConfig {
                 return configuration.getAuthenticationManager();
         }
 
+        /**
+         * [Security Fix - Critical #2]
+         * OWASP Password Storage Cheat Sheet 권고에 따라 Argon2id를 기본 해시로 사용.
+         *
+         * - 신규 비밀번호는 모두 {argon2} prefix로 저장.
+         * - 기존 $2a$10 BCrypt 해시는 DB migration을 통해 {bcrypt} prefix가 부여되며,
+         *   {@link PasswordEncoder#upgradeEncoding(String)}으로 로그인 성공 시 자동 업그레이드된다.
+         * - Argon2 파라미터는 Spring Security 5.8 기본값 (m=16384KiB, t=2, p=1).
+         */
         @Bean
-        public BCryptPasswordEncoder bCryptPasswordEncoder() {
-                return new BCryptPasswordEncoder();
+        public PasswordEncoder passwordEncoder() {
+                String idForEncode = "argon2";
+                java.util.Map<String, PasswordEncoder> encoders = new java.util.HashMap<>();
+                encoders.put("argon2", Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8());
+                encoders.put("bcrypt", new BCryptPasswordEncoder(12));
+                return new DelegatingPasswordEncoder(idForEncode, encoders);
         }
 
         /**
@@ -336,7 +394,7 @@ public class SecurityConfig {
         }
 
         @Bean
-        public SecurityFilterChain filterChain(HttpSecurity http, JWTFilter jwtFilter) throws Exception {
+        public SecurityFilterChain filterChain(HttpSecurity http, JWTFilter jwtFilter, RateLimitFilter rateLimitFilter) throws Exception {
                 final boolean publicAiProxyInDev = allowUnauthenticatedAiProxy();
 
                 // CORS 활성화 및 CSRF 비활성화 (JWT 토큰 기반 인증이므로 CSRF 비활성화)
@@ -363,6 +421,15 @@ public class SecurityConfig {
                                                                 .includeSubDomains(true)
                                                                 .maxAgeInSeconds(31536000));
                                         }
+                                        // [Security Fix - High #3] Content Security Policy (A05).
+                                        // prod: enforce, dev/local: Report-Only (리포트만 수집, 차단 안 함).
+                                        String cspPolicy = buildContentSecurityPolicy();
+                                        if (isProdProfile()) {
+                                                headers.contentSecurityPolicy(csp -> csp.policyDirectives(cspPolicy));
+                                        } else {
+                                                headers.contentSecurityPolicy(csp -> csp.policyDirectives(cspPolicy)
+                                                                .reportOnly());
+                                        }
                                 });
 
                 // From 로그인 방식 disable
@@ -372,6 +439,12 @@ public class SecurityConfig {
                 // HTTP Basic 인증 방식 disable
                 http
                                 .httpBasic((auth) -> auth.disable());
+
+                // [Security Fix - High #1] Rate Limiting 필터는 JWTFilter보다 먼저 실행.
+                // JWTFilter는 Spring Security에 등록된 순서가 없어 기준으로 사용할 수 없으므로
+                // 동일하게 UsernamePasswordAuthenticationFilter 앞에 배치하되, 등록 순서로 RateLimit → JWT 순서를 보장.
+                http
+                                .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class);
 
                 // 인자로 받은 jwtFilter를 사용
                 http

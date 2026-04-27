@@ -51,6 +51,137 @@ class GameDetailDtoTest {
     }
 
     @Test
+    void shouldIgnorePlaceholderExtraInningRowsWhenNormalizingStatus() {
+        GameDetailDto detail = GameDetailDto.from(
+                header(
+                        "SCHEDULED",
+                        LocalDate.now(),
+                        LocalTime.MIDNIGHT,
+                        null,
+                        null
+                ),
+                List.of(
+                        GameInningScoreEntity.builder()
+                                .gameId("20260404SSGKIA0")
+                                .inning(10)
+                                .teamSide("AWAY")
+                                .runs(null)
+                                .build(),
+                        GameInningScoreEntity.builder()
+                                .gameId("20260404SSGKIA0")
+                                .inning(10)
+                                .teamSide("HOME")
+                                .runs(null)
+                                .build()
+                ),
+                List.of()
+        );
+
+        assertThat(detail.getGameStatus()).isEqualTo("SCHEDULED");
+        assertThat(detail.getInningScores()).isEmpty();
+    }
+
+    @Test
+    void shouldTrimZeroTemplateExtraInningsAfterKnownFinalScore() {
+        GameDetailDto detail = GameDetailDto.from(
+                header(
+                        "COMPLETED",
+                        LocalDate.now().minusDays(1),
+                        LocalTime.of(14, 0),
+                        11,
+                        6
+                ),
+                List.of(
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(1).teamSide("AWAY").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(1).teamSide("HOME").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(2).teamSide("HOME").runs(4).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(3).teamSide("HOME").runs(5).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(4).teamSide("AWAY").runs(2).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(4).teamSide("HOME").runs(1).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(7).teamSide("AWAY").runs(4).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(8).teamSide("HOME").runs(1).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(9).teamSide("AWAY").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(9).teamSide("HOME").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(10).teamSide("AWAY").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(10).teamSide("HOME").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(11).teamSide("AWAY").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(11).teamSide("HOME").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(12).teamSide("AWAY").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(12).teamSide("HOME").runs(0).build()
+                ),
+                List.of()
+        );
+
+        assertThat(detail.getInningScores())
+                .extracting(GameInningScoreDto::getInning)
+                .containsExactly(1, 1, 2, 3, 4, 4, 7, 8, 9, 9);
+        assertThat(detail.getInningScores()).extracting(GameInningScoreDto::getInning).doesNotContain(10, 11, 12);
+    }
+
+    @Test
+    void shouldTrimZeroTemplateExtraInningsAfterDecisiveNinthWhenFinalScoreMissing() {
+        GameDetailDto detail = GameDetailDto.from(
+                header(
+                        "SCHEDULED",
+                        LocalDate.now().minusDays(1),
+                        LocalTime.of(14, 0),
+                        null,
+                        null
+                ),
+                List.of(
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(1).teamSide("AWAY").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(1).teamSide("HOME").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(2).teamSide("HOME").runs(4).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(3).teamSide("HOME").runs(5).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(4).teamSide("AWAY").runs(2).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(4).teamSide("HOME").runs(1).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(7).teamSide("AWAY").runs(4).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(8).teamSide("HOME").runs(1).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(9).teamSide("AWAY").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(9).teamSide("HOME").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(10).teamSide("AWAY").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(10).teamSide("HOME").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(11).teamSide("AWAY").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(11).teamSide("HOME").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(12).teamSide("AWAY").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(12).teamSide("HOME").runs(0).build()
+                ),
+                List.of()
+        );
+
+        assertThat(detail.getGameStatus()).isEqualTo("COMPLETED");
+        assertThat(detail.getInningScores())
+                .extracting(GameInningScoreDto::getInning)
+                .containsExactly(1, 1, 2, 3, 4, 4, 7, 8, 9, 9);
+        assertThat(detail.getInningScores()).extracting(GameInningScoreDto::getInning).doesNotContain(10, 11, 12);
+    }
+
+    @Test
+    void shouldNormalizeFalseExtraFlagForRenderedExtraInnings() {
+        GameDetailDto detail = GameDetailDto.from(
+                header(
+                        "COMPLETED",
+                        LocalDate.now().minusDays(1),
+                        LocalTime.of(14, 0),
+                        2,
+                        3
+                ),
+                List.of(
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(9).teamSide("AWAY").runs(2).isExtra(false).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(9).teamSide("HOME").runs(2).isExtra(false).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(10).teamSide("AWAY").runs(1).isExtra(false).build(),
+                        GameInningScoreEntity.builder().gameId("20260404SSGKIA0").inning(10).teamSide("HOME").runs(0).isExtra(false).build()
+                ),
+                List.of()
+        );
+
+        assertThat(detail.getInningScores())
+                .filteredOn(score -> Integer.valueOf(10).equals(score.getInning()))
+                .extracting(GameInningScoreDto::getIsExtra)
+                .containsExactly(true, true);
+    }
+
+    @Test
     void shouldNormalizeCompletedTieGameAsDraw() {
         GameDetailDto detail = GameDetailDto.from(
                 header(

@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
+import com.example.kbo.service.TicketVerificationTokenStore;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyReview;
@@ -78,6 +79,9 @@ class PartyQueryCountIntegrationTest {
 
     @MockitoBean
     private ProfileImageService profileImageService;
+
+    @MockitoBean
+    private TicketVerificationTokenStore ticketVerificationTokenStore;
 
     private MockMvc mockMvc;
 

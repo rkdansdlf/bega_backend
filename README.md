@@ -31,6 +31,11 @@
 
 BEGA(Baseball Guide) Backend는 한국 야구 팬 커뮤니티 플랫폼의 핵심 REST API 서버입니다. Spring Boot로 구축되어 게임 데이터 관리, 사용자 상호작용, KBO 야구 정보를 제공하는 강력하고 확장 가능한 서비스를 제공합니다.
 
+야구 데이터 운영 원칙:
+- 외부 야구 웹 조회나 크롤링은 사용하지 않습니다.
+- 내부 DB 동기화와 운영자 제공 데이터만 사용합니다.
+- 데이터가 부족하거나 시즌 문맥이 어긋나면 `MANUAL_BASEBALL_DATA_REQUIRED` 계약으로 전환합니다.
+
 **왜 BEGA인가?**
 
 이 프로젝트는 다음을 지원하는 고성능 백엔드 인프라를 제공합니다:
@@ -222,6 +227,18 @@ OCI Object Storage
 ### 실행
 
 프로젝트를 실행합니다:
+
+### 검증 게이트
+
+개발/CI에서 권장하는 backend 검증 명령:
+
+```sh
+# Flyway 중복 버전 + stale build resource 빠른 검사 (DB 연결 불필요)
+./gradlew migrationSafetyCheck
+
+# Flyway safety + 실제 schema validation 전체 검사 (DB 연결 필요)
+./gradlew dbSafetyTest
+```
 
 **Gradle 사용:**
 

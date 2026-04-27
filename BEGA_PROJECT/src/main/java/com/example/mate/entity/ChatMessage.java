@@ -9,7 +9,11 @@ import lombok.Builder;
 import java.time.Instant;
 
 @Entity
-@Table(name = "chat_messages")
+@Table(
+        name = "chat_messages",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_chat_messages_party_sender_client_msg",
+                columnNames = { "party_id", "sender_id", "client_message_id" }))
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -34,6 +38,9 @@ public class ChatMessage {
 
     @Column(name = "image_url", length = 2048)
     private String imageUrl; // 이미지 첨부 URL (선택)
+
+    @Column(name = "client_message_id", length = 64)
+    private String clientMessageId; // 클라이언트 멱등 키
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

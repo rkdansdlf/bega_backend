@@ -4,6 +4,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
+import org.springframework.cache.interceptor.CacheErrorHandler;
 import org.springframework.cache.support.CompositeCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -48,6 +49,9 @@ public class CacheConfig {
         public static final String POST_IMAGE_URLS = "postImageUrls";
         public static final String USER_RANK = "userRank";           // 리더보드 랭킹 (per-user, season rank only)
         public static final String USER_STATS = "userStats";          // 리더보드 전체 통계 (per-user, 4x rank counts)
+        public static final String PREDICTION_VOTE_STATUS = "predictionVoteStatus";
+        public static final String RANKING_PREDICTION_CONTEXT = "rankingPredictionContext";
+        public static final String RANKING_SHARE_IDS = "rankingShareIds";
 
         // L2 전용 캐시 (Redis only) - 라이브 데이터 (추후 확장용)
         public static final String LIVE_GAME_SCORE = "liveGameScore";
@@ -69,6 +73,11 @@ public class CacheConfig {
                 return compositeCacheManager;
         }
 
+        @Bean
+        public CacheErrorHandler cacheErrorHandler() {
+                return new ResilientCacheErrorHandler();
+        }
+
         /**
          * L1 캐시 매니저 (Caffeine)
          * - 로컬 인메모리 캐시
@@ -85,10 +94,17 @@ public class CacheConfig {
                                 .expireAfterWrite(50, TimeUnit.MINUTES)
                                 .recordStats()));
 
-                // 인스턴스 로컬 캐시만 등록
+                // 기본 TTL을 쓰는 인스턴스 로컬 캐시만 등록
                 manager.setCacheNames(List.of(
-                                JWT_USER_CACHE,
                                 SIGNED_URLS));
+
+                // jwtUserCache는 토큰 claims용 민감 캐시이므로 별도 짧은 TTL을 적용한다.
+                manager.registerCustomCache(JWT_USER_CACHE,
+                                Caffeine.newBuilder()
+                                                .maximumSize(1000)
+                                                .expireAfterWrite(60, TimeUnit.SECONDS)
+                                                .recordStats()
+                                                .build());
 
                 return manager;
         }
@@ -127,11 +143,17 @@ public class CacheConfig {
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(50))));
                 cacheConfigs.put(USER_STATS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
+                cacheConfigs.put(RANKING_PREDICTION_CONTEXT,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
+                cacheConfigs.put(RANKING_SHARE_IDS,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(30))));
 
                 // L2 전용 캐시 - 라이브 데이터 (짧은 TTL)
                 cacheConfigs.put(LIVE_GAME_SCORE,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(10))));
                 cacheConfigs.put(LIVE_GAME_STATUS,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(5))));
+                cacheConfigs.put(PREDICTION_VOTE_STATUS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(5))));
 
                 return RedisCacheManager.builder(Objects.requireNonNull(connectionFactory))

@@ -1,6 +1,7 @@
 package com.example.BegaDiary.Service;
 
 import com.example.BegaDiary.Entity.BegaDiary;
+import com.example.BegaDiary.Entity.DiaryRequestDto;
 import com.example.BegaDiary.Entity.DiaryResponseDto;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.auth.entity.UserEntity;
@@ -9,6 +10,7 @@ import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.kbo.service.TicketVerificationTokenStore;
 import com.example.mate.repository.PartyApplicationRepository;
+import com.example.media.service.MediaLinkService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -55,6 +57,9 @@ class BegaDiaryServiceTest {
     @Mock
     private SeatViewService seatViewService;
 
+    @Mock
+    private MediaLinkService mediaLinkService;
+
     @InjectMocks
     private BegaDiaryService begaDiaryService;
 
@@ -81,6 +86,7 @@ class BegaDiaryServiceTest {
 
         assertThat(response.getId()).isEqualTo(100L);
         assertThat(response.getPhotos()).containsExactly("https://signed.example/diary.png");
+        assertThat(response.getPhotoStoragePaths()).containsExactly("oci://diary/object.png");
     }
 
     @Test
@@ -109,6 +115,36 @@ class BegaDiaryServiceTest {
                 "oci://diary/object-a.png",
                 "oci://diary/object-b.png",
                 "oci://diary/object-c.png"));
+    }
+
+    @Test
+    @DisplayName("update stores canonical diary keys instead of signed URLs")
+    void update_normalizesSignedUrlsToStoragePaths() {
+        BegaDiary diary = createDiary(100L, 10L, List.of("diary/10/100/existing.webp"));
+        when(diaryRepository.findById(100L)).thenReturn(Optional.of(diary));
+        when(imageService.normalizeDiaryStoragePaths(List.of(
+                "https://signed.example.com/diary/10/100/existing.webp?sig=abc",
+                "kbo-bucket/diary/10/100/new.webp")))
+                .thenReturn(List.of("diary/10/100/existing.webp", "diary/10/100/new.webp"));
+
+        DiaryRequestDto requestDto = new DiaryRequestDto();
+        requestDto.setMemo("수정된 메모");
+        requestDto.setEmojiName("즐거움");
+        requestDto.setWinningName("WIN");
+        requestDto.setPhotos(List.of(
+                "https://signed.example.com/diary/10/100/existing.webp?sig=abc",
+                "kbo-bucket/diary/10/100/new.webp"));
+        requestDto.setSection("1루");
+        requestDto.setBlock("101");
+        requestDto.setSeatRow("A");
+        requestDto.setSeatNumber("1");
+
+        BegaDiary updated = begaDiaryService.update(100L, 10L, requestDto);
+
+        assertThat(updated.getPhotoUrls()).containsExactly(
+                "diary/10/100/existing.webp",
+                "diary/10/100/new.webp");
+        verify(imageService).normalizeDiaryStoragePaths(requestDto.getPhotos());
     }
 
     private BegaDiary createDiary(Long diaryId, Long ownerId, List<String> photoUrls) {

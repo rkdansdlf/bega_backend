@@ -24,12 +24,16 @@ class PartyDtoSerializationTest {
                 .hostId(99L)
                 .hostHandle("@host")
                 .hostName("Host")
+                .ticketImageUrl("https://example.com/ticket.png")
+                .reservationNumber("RES-12345")
                 .build();
 
         String json = objectMapper.writeValueAsString(PartyDTO.PublicResponse.from(response));
 
         assertThat(json).contains("\"hostHandle\":\"@host\"");
         assertThat(json).doesNotContain("hostId");
+        assertThat(json).doesNotContain("ticketImageUrl");
+        assertThat(json).doesNotContain("reservationNumber");
     }
 
     @Test

@@ -5,6 +5,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.service.AuthSessionMetadataResolver;
 import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.AuthSecurityMonitoringService;
+import com.example.auth.service.RefreshTokenReuseDetector;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.RefreshRepository;
@@ -55,6 +56,9 @@ class ReissueControllerTokenTypeTest {
     @Mock
     private AuthSecurityMonitoringService authSecurityMonitoringService;
 
+    @Mock
+    private RefreshTokenReuseDetector refreshTokenReuseDetector;
+
     private AuthSessionService authSessionService;
     private ReissueController reissueController;
     private MockMvc mockMvc;
@@ -66,14 +70,16 @@ class ReissueControllerTokenTypeTest {
         authSessionService = new AuthSessionService(
                 refreshRepository,
                 jwtUtil,
-                new AuthSessionMetadataResolver(clientIpResolver));
+                new AuthSessionMetadataResolver(clientIpResolver),
+                refreshTokenReuseDetector);
         reissueController = new ReissueController(
                 jwtUtil,
                 refreshRepository,
                 userRepository,
                 authCookieUtil,
                 authSessionService,
-                authSecurityMonitoringService);
+                authSecurityMonitoringService,
+                refreshTokenReuseDetector);
         mockMvc = MockMvcBuilders.standaloneSetup(reissueController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

@@ -19,8 +19,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -182,6 +184,208 @@ class CheerFeedServiceTest {
         assertThat(response.newCount()).isEqualTo(0);
         assertThat(response.latestId()).isEqualTo(10L);
         verify(permissionValidator, never()).validateTeamAccess(any(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("list skips orphaned posts whose author reference is missing")
+    void list_skipsPostsWithMissingAuthorReference() {
+        PageRequest pageable = PageRequest.of(0, 20);
+
+        CheerPost orphanPost = CheerPost.builder()
+                .id(169L)
+                .content("orphan")
+                .postType(PostType.NORMAL)
+                .build();
+        CheerPost validPost = createSimplePost(222L, 15L);
+
+        when(postRepo.findAll(org.mockito.ArgumentMatchers.<Specification<CheerPost>>any(), any(PageRequest.class)))
+                .thenReturn(new PageImpl<>(List.of(orphanPost, validPost), pageable, 2));
+        when(imageService.getPostImageUrlsByPostIds(anyList())).thenReturn(Collections.emptyMap());
+        when(redisPostService.getViewCounts(anyCollection())).thenReturn(Collections.emptyMap());
+        when(redisPostService.getCachedHotStatuses(anyCollection())).thenReturn(Collections.emptyMap());
+        when(interactionService.getBookmarkCountMap(anyList())).thenReturn(Collections.emptyMap());
+        when(postDtoMapper.toPostSummaryRes(
+                eq(validPost),
+                eq(false),
+                eq(false),
+                eq(false),
+                eq(false),
+                eq(0),
+                anyList(),
+                anyMap(),
+                anyMap(),
+                anyMap()))
+                .thenReturn(PostSummaryRes.of(
+                        validPost.getId(),
+                        "LG",
+                        "LG 트윈스",
+                        "LG",
+                        "#C30452",
+                        validPost.getContent(),
+                        "Author-15",
+                        "author-15",
+                        null,
+                        null,
+                        null,
+                        validPost.getCommentCount(),
+                        validPost.getLikeCount(),
+                        0,
+                        false,
+                        validPost.getViews(),
+                        false,
+                        false,
+                        false,
+                        validPost.getRepostCount(),
+                        false,
+                        "NORMAL",
+                        List.of()));
+
+        Page<PostSummaryRes> page = feedService.list(null, null, pageable, null);
+
+        assertThat(page.getContent()).extracting(PostSummaryRes::id).containsExactly(222L);
+    }
+
+    @Test
+    @DisplayName("list preserves repository page metadata without in-memory visibility filtering")
+    void list_preserves_repository_pagination_metadata() {
+        PageRequest pageable = PageRequest.of(0, 20);
+        CheerPost validPost = createSimplePost(300L, 33L);
+
+        when(postRepo.findAll(org.mockito.ArgumentMatchers.<Specification<CheerPost>>any(), any(PageRequest.class)))
+                .thenReturn(new PageImpl<>(List.of(validPost), PageRequest.of(0, 20), 41));
+        when(imageService.getPostImageUrlsByPostIds(anyList())).thenReturn(Collections.emptyMap());
+        when(redisPostService.getViewCounts(anyCollection())).thenReturn(Collections.emptyMap());
+        when(redisPostService.getCachedHotStatuses(anyCollection())).thenReturn(Collections.emptyMap());
+        when(interactionService.getBookmarkCountMap(anyList())).thenReturn(Collections.emptyMap());
+        when(postDtoMapper.toPostSummaryRes(
+                eq(validPost),
+                eq(false),
+                eq(false),
+                eq(false),
+                eq(false),
+                eq(0),
+                anyList(),
+                anyMap(),
+                anyMap(),
+                anyMap()))
+                .thenReturn(PostSummaryRes.of(
+                        validPost.getId(),
+                        "LG",
+                        "LG 트윈스",
+                        "LG",
+                        "#C30452",
+                        validPost.getContent(),
+                        "Author-33",
+                        "author-33",
+                        null,
+                        null,
+                        null,
+                        validPost.getCommentCount(),
+                        validPost.getLikeCount(),
+                        0,
+                        false,
+                        validPost.getViews(),
+                        false,
+                        false,
+                        false,
+                        validPost.getRepostCount(),
+                        false,
+                        "NORMAL",
+                        List.of()));
+
+        Page<PostSummaryRes> page = feedService.list(null, null, pageable, null);
+
+        assertThat(page.getTotalElements()).isEqualTo(41);
+        verify(publicVisibilityVerifier, never()).canAccess(any(), isNull());
+    }
+
+    @Test
+    @DisplayName("HYBRID hot 목록은 stale/ineligible Redis 엔트리를 정리하고 total을 갱신한다")
+    void getHotPosts_hybridPrunesInvalidEntriesAndRefreshesTotal() {
+        PageRequest pageable = PageRequest.of(0, 3);
+        LinkedHashSet<Long> candidateIds = new LinkedHashSet<>(List.of(9L, 8L, 7L));
+
+        CheerPost post9 = createSimplePost(9L, 109L);
+        CheerPost post8 = createSimplePost(8L, 108L);
+        CheerPost post7 = createSimplePost(7L, 107L);
+
+        when(redisPostService.getHotPostIds(0, 202, PopularFeedAlgorithm.TIME_DECAY)).thenReturn(candidateIds);
+        when(redisPostService.getHotListSize(PopularFeedAlgorithm.TIME_DECAY)).thenReturn(3L, 0L);
+        when(postRepo.findAllByIdWithGraph(candidateIds)).thenReturn(List.of(post9, post8, post7));
+        when(redisPostService.getViewCounts(anyCollection())).thenReturn(Collections.emptyMap());
+        when(popularFeedScoringService.isHotEligible(any(CheerPost.class), anyInt(), any())).thenReturn(false);
+
+        Page<PostSummaryRes> page = feedService.getHotPosts(pageable, "HYBRID", null);
+
+        assertThat(page.getContent()).isEmpty();
+        assertThat(page.getTotalElements()).isZero();
+        verify(redisPostService).removeFromHotList(9L);
+        verify(redisPostService).removeFromHotList(8L);
+        verify(redisPostService).removeFromHotList(7L);
+        verify(postDtoMapper, never()).toPostSummaryRes(
+                any(CheerPost.class),
+                anyBoolean(),
+                anyBoolean(),
+                anyBoolean(),
+                anyBoolean(),
+                anyInt(),
+                anyList(),
+                anyMap(),
+                anyMap(),
+                anyMap());
+    }
+
+    @Test
+    @DisplayName("HYBRID hot 목록은 게스트에게 비공개인 작성자의 게시글을 HOT Redis에서 정리한다")
+    void getHotPosts_hybridPrunesGuestInvisibleEntries() {
+        PageRequest pageable = PageRequest.of(0, 3);
+        LinkedHashSet<Long> candidateIds = new LinkedHashSet<>(List.of(21L, 22L));
+
+        CheerPost post21 = createSimplePost(21L, 121L);
+        CheerPost post22 = createSimplePost(22L, 122L);
+
+        when(redisPostService.getHotPostIds(0, 202, PopularFeedAlgorithm.TIME_DECAY)).thenReturn(candidateIds);
+        when(redisPostService.getHotListSize(PopularFeedAlgorithm.TIME_DECAY)).thenReturn(2L, 0L);
+        when(postRepo.findAllByIdWithGraph(candidateIds)).thenReturn(List.of(post21, post22));
+        when(publicVisibilityVerifier.canAccess(post21.getAuthor(), null)).thenReturn(false);
+        when(publicVisibilityVerifier.canAccess(post22.getAuthor(), null)).thenReturn(false);
+
+        Page<PostSummaryRes> page = feedService.getHotPosts(pageable, "HYBRID", null);
+
+        assertThat(page.getContent()).isEmpty();
+        assertThat(page.getTotalElements()).isZero();
+        verify(redisPostService).removeFromHotList(21L);
+        verify(redisPostService).removeFromHotList(22L);
+        verify(postDtoMapper, never()).toPostSummaryRes(
+                any(CheerPost.class),
+                anyBoolean(),
+                anyBoolean(),
+                anyBoolean(),
+                anyBoolean(),
+                anyInt(),
+                anyList(),
+                anyMap(),
+                anyMap(),
+                anyMap());
+    }
+
+    @Test
+    @DisplayName("HYBRID hot 목록은 삭제된 게시글만 남아 있으면 Redis total도 함께 정리한다")
+    void getHotPosts_hybridPrunesMissingEntriesBeforeEmptyReturn() {
+        PageRequest pageable = PageRequest.of(0, 3);
+        LinkedHashSet<Long> candidateIds = new LinkedHashSet<>(List.of(220L, 3L, 170L));
+
+        when(redisPostService.getHotPostIds(0, 202, PopularFeedAlgorithm.TIME_DECAY)).thenReturn(candidateIds);
+        when(redisPostService.getHotListSize(PopularFeedAlgorithm.TIME_DECAY)).thenReturn(3L, 0L);
+        when(postRepo.findAllByIdWithGraph(candidateIds)).thenReturn(Collections.emptyList());
+
+        Page<PostSummaryRes> page = feedService.getHotPosts(pageable, "HYBRID", null);
+
+        assertThat(page.getContent()).isEmpty();
+        assertThat(page.getTotalElements()).isZero();
+        verify(redisPostService).removeFromHotList(220L);
+        verify(redisPostService).removeFromHotList(3L);
+        verify(redisPostService).removeFromHotList(170L);
     }
 
     private CheerPost createSimplePost(Long postId, Long authorId) {

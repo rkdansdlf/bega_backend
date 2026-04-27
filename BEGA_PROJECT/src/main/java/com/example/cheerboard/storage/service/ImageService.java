@@ -1,5 +1,9 @@
 package com.example.cheerboard.storage.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -11,9 +15,12 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.Cache;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.data.redis.serializer.SerializationException;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import static com.example.common.config.CacheConfig.POST_IMAGE_URLS;
@@ -51,6 +58,9 @@ import reactor.core.publisher.Mono;
 @Slf4j
 public class ImageService {
 
+    private static final ObjectMapper CACHE_OBJECT_MAPPER = new ObjectMapper();
+    private static final Duration POST_IMAGE_URL_CACHE_TTL = Duration.ofMinutes(50);
+
     private final PostImageRepository postImageRepo;
     private final CheerPostRepo postRepo;
     private final StorageStrategy storageStrategy; // OCI Object Storage Strategy
@@ -60,7 +70,9 @@ public class ImageService {
     // 리팩토링된 컴포넌트들
     private final PermissionValidator permissionValidator;
     private final CacheManager cacheManager;
+    private final StringRedisTemplate stringRedisTemplate;
     private final com.example.common.image.ImageUtil imageUtil;
+    private final com.example.common.image.ImageOptimizationMetricsService metricsService;
 
     /**
      * 게시글 이미지 업로드 (여러 파일)
@@ -70,6 +82,8 @@ public class ImageService {
     public List<PostImageDto> uploadPostImages(Long postId, List<MultipartFile> files) {
         int fileCount = files == null ? 0 : files.size();
         log.info("이미지 업로드 시작 (Parallel): postId={}, 파일 수={}", postId, fileCount);
+        metricsService.recordRequest("cheer_post");
+        metricsService.recordLegacyEndpoint("cheer_post_images");
         UserEntity me = currentUser.get();
         CheerPost post = findPostByIdForImageWrite(postId);
 
@@ -82,6 +96,7 @@ public class ImageService {
         try {
             validator.validateFiles(files, (int) currentCount);
         } catch (IllegalArgumentException e) {
+            metricsService.recordReject("cheer_post", "invalid_post_image_request");
             throw new BadRequestBusinessException("INVALID_POST_IMAGE_REQUEST", e.getMessage());
         }
 
@@ -213,11 +228,15 @@ public class ImageService {
 
     /**
      * 게시글의 이미지 서명 URL 목록 조회 (DTO 변환용)
-     * 캐싱: postId 기준으로 5분간 캐시 (signed URL TTL보다 짧게 설정)
+     * 캐싱: postId 기준으로 Redis 문자열 JSON 캐시에 저장
      */
-    @Cacheable(value = POST_IMAGE_URLS, key = "#postId")
     @Transactional(readOnly = true)
     public List<String> getPostImageUrls(Long postId) {
+        List<String> cached = getCachedPostImageUrls(postId);
+        if (cached != null) {
+            return cached;
+        }
+
         log.debug("이미지 URL 조회 시작: postId={}", postId);
         List<PostImage> images = postImageRepo.findByPostIdOrderByCreatedAtAsc(postId);
         log.debug("DB에서 조회된 이미지 수: {}", images.size());
@@ -231,6 +250,7 @@ public class ImageService {
                 .filter(url -> url != null && !url.isEmpty())
                 .toList();
 
+        cachePostImageUrls(postId, urls);
         log.info("이미지 URL 조회 완료: postId={}, 총 {}개", postId, urls.size());
         return urls;
     }
@@ -247,23 +267,19 @@ public class ImageService {
             return result;
         }
 
-        var cache = cacheManager.getCache(POST_IMAGE_URLS);
         List<Long> missingPostIds = new ArrayList<>();
 
-        if (cache != null) {
-            for (Long postId : postIds) {
-                if (postId == null)
-                    continue;
-                @SuppressWarnings("unchecked")
-                List<String> cached = cache.get(postId, List.class);
-                if (cached != null) {
-                    result.put(postId, cached);
-                } else {
-                    missingPostIds.add(postId);
-                }
+        for (Long postId : postIds) {
+            if (postId == null) {
+                continue;
             }
-        } else {
-            missingPostIds.addAll(postIds);
+
+            List<String> cached = getCachedPostImageUrls(postId);
+            if (cached != null) {
+                result.put(postId, cached);
+            } else {
+                missingPostIds.add(postId);
+            }
         }
 
         if (missingPostIds.isEmpty()) {
@@ -289,12 +305,171 @@ public class ImageService {
         for (Long postId : missingPostIds) {
             List<String> urls = groupedUrls.getOrDefault(postId, Collections.emptyList());
             result.put(postId, urls);
-            if (cache != null && postId != null) {
-                cache.put(postId, urls);
-            }
+            cachePostImageUrls(postId, urls);
         }
 
         return result;
+    }
+
+    private List<String> getCachedPostImageUrls(Long postId) {
+        if (postId == null) {
+            return null;
+        }
+
+        String cacheKey = getPostImageCacheKey(postId);
+        try {
+            String rawValue = stringRedisTemplate.opsForValue().get(cacheKey);
+            if (rawValue == null) {
+                return null;
+            }
+            return parseCachedPostImageUrls(rawValue);
+        } catch (RuntimeException e) {
+            if (isRecoverableCacheReadFailure(e)) {
+                log.warn(
+                        "게시글 이미지 URL 캐시 조회 실패. 캐시 엔트리를 비우고 DB fallback으로 전환합니다: postId={}, reason={}",
+                        postId,
+                        summarizeCacheReadFailure(e));
+            } else {
+                log.warn("게시글 이미지 URL 캐시 조회 실패. 캐시 엔트리를 비우고 DB fallback으로 전환합니다: postId={}",
+                        postId, e);
+            }
+            safeDeletePostImageCache(cacheKey, postId);
+            return null;
+        }
+    }
+
+    private boolean isRecoverableCacheReadFailure(RuntimeException exception) {
+        Throwable current = exception;
+        while (current != null) {
+            if (current instanceof SerializationException
+                    || current instanceof JsonProcessingException
+                    || current instanceof IllegalArgumentException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private String summarizeCacheReadFailure(RuntimeException exception) {
+        Throwable rootCause = exception;
+        while (rootCause.getCause() != null) {
+            rootCause = rootCause.getCause();
+        }
+
+        String message = rootCause.getMessage();
+        if (!StringUtils.hasText(message)) {
+            message = exception.getClass().getSimpleName();
+        }
+
+        message = message.replaceAll("\\s+", " ").trim();
+        if (message.length() > 220) {
+            return message.substring(0, 220) + "...";
+        }
+        return message;
+    }
+
+    private List<String> parseCachedPostImageUrls(String rawValue) {
+        if (!StringUtils.hasText(rawValue)) {
+            return Collections.emptyList();
+        }
+
+        try {
+            JsonNode payload = CACHE_OBJECT_MAPPER.readTree(rawValue);
+            return extractCachedPostImageUrls(payload);
+        } catch (JsonProcessingException e) {
+            String trimmed = rawValue.trim();
+            if (!trimmed.startsWith("[") && !trimmed.startsWith("{") && !trimmed.startsWith("\"")) {
+                return List.of(trimmed);
+            }
+            throw new IllegalArgumentException("게시글 이미지 URL 캐시 payload를 파싱할 수 없습니다.", e);
+        }
+    }
+
+    private List<String> extractCachedPostImageUrls(JsonNode payload) {
+        if (payload == null || payload.isNull()) {
+            return Collections.emptyList();
+        }
+        if (payload.isTextual()) {
+            return List.of(payload.asText());
+        }
+        if (payload.isObject() && payload.has("urls")) {
+            return extractStringValues(payload.get("urls"));
+        }
+        if (payload.isArray() && payload.size() == 2 && payload.get(0).isTextual() && payload.get(1).isArray()) {
+            return extractStringValues(payload.get(1));
+        }
+        return extractStringValues(payload);
+    }
+
+    private List<String> extractStringValues(JsonNode payload) {
+        if (payload == null || payload.isNull()) {
+            return Collections.emptyList();
+        }
+        if (!payload.isArray()) {
+            throw new IllegalArgumentException("게시글 이미지 URL 캐시 payload가 배열 형식이 아닙니다.");
+        }
+
+        List<String> urls = new ArrayList<>();
+        for (JsonNode value : payload) {
+            if (value == null || value.isNull()) {
+                continue;
+            }
+            if (!value.isTextual()) {
+                throw new IllegalArgumentException("게시글 이미지 URL 캐시 payload에 문자열이 아닌 값이 포함되어 있습니다.");
+            }
+
+            String url = value.asText();
+            if (StringUtils.hasText(url)) {
+                urls.add(url);
+            }
+        }
+        return urls;
+    }
+
+    private void cachePostImageUrls(Long postId, List<String> urls) {
+        if (postId == null) {
+            return;
+        }
+
+        String cacheKey = getPostImageCacheKey(postId);
+        try {
+            String serializedUrls = CACHE_OBJECT_MAPPER
+                    .writeValueAsString(urls == null ? Collections.emptyList() : urls);
+            stringRedisTemplate.opsForValue().set(cacheKey, serializedUrls, POST_IMAGE_URL_CACHE_TTL);
+        } catch (JsonProcessingException e) {
+            log.warn("게시글 이미지 URL 캐시 직렬화 실패. 캐시를 비우고 요청은 계속 진행합니다: postId={}", postId, e);
+            safeDeletePostImageCache(cacheKey, postId);
+        } catch (RuntimeException e) {
+            log.warn("게시글 이미지 URL 캐시 저장 실패. 요청은 계속 진행합니다: postId={}", postId, e);
+            safeDeletePostImageCache(cacheKey, postId);
+        }
+    }
+
+    private String getPostImageCacheKey(Long postId) {
+        return POST_IMAGE_URLS + "::" + postId;
+    }
+
+    private void safeDeletePostImageCache(String cacheKey, Long postId) {
+        if (!StringUtils.hasText(cacheKey)) {
+            return;
+        }
+        try {
+            stringRedisTemplate.delete(cacheKey);
+        } catch (RuntimeException e) {
+            log.warn("게시글 이미지 URL 캐시 엔트리 삭제 실패: postId={}, key={}", postId, cacheKey, e);
+        }
+    }
+
+    private void safeEvictCacheEntry(Cache cache, Object key, String cacheName) {
+        if (cache == null || key == null) {
+            return;
+        }
+        try {
+            cache.evict(key);
+        } catch (RuntimeException e) {
+            log.warn("캐시 엔트리 무효화 실패: cache={}, key={}", cacheName, key, e);
+        }
     }
 
     /**
@@ -331,11 +506,14 @@ public class ImageService {
      * 게시글 이미지 URL 캐시 무효화
      */
     private void evictPostImageCache(Long postId) {
+        Long targetPostId = Objects.requireNonNull(postId);
+        safeDeletePostImageCache(getPostImageCacheKey(targetPostId), targetPostId);
+
         var cache = cacheManager.getCache(POST_IMAGE_URLS);
         if (cache != null) {
-            cache.evict(Objects.requireNonNull(postId));
-            log.debug("이미지 URL 캐시 무효화: postId={}", postId);
+            cache.evict(targetPostId);
         }
+        log.debug("이미지 URL 캐시 무효화: postId={}", targetPostId);
     }
 
     /**
@@ -448,10 +626,10 @@ public class ImageService {
     private String generateSignedUrl(String storagePath) {
         var cache = cacheManager.getCache(SIGNED_URLS);
         if (cache != null && storagePath != null) {
-            String cached = cache.get(storagePath, String.class);
+            String cached = getCachedSignedUrl(cache, storagePath);
             if (cached != null && !cached.isBlank()) {
                 if (isDuplicatedBucketPrefixUrl(cached)) {
-                    cache.evict(storagePath);
+                    safeEvictCacheEntry(cache, storagePath, SIGNED_URLS);
                     log.warn("중복 bucket prefix로 생성된 기존 Signed URL 캐시 무효화: path={}", storagePath);
                 } else {
                     log.info("Signed URL cache hit: path={}", storagePath);
@@ -466,12 +644,31 @@ public class ImageService {
                     config.getSignedUrlTtlSeconds()).block();
 
             if (cache != null && url != null && !url.isBlank() && storagePath != null) {
-                cache.put(storagePath, url);
+                cacheSignedUrl(cache, storagePath, url);
             }
             return url;
         } catch (Exception e) {
             log.error("URL generation failed for path: {}", storagePath, e);
             return null;
+        }
+    }
+
+    private String getCachedSignedUrl(Cache cache, String storagePath) {
+        try {
+            return cache.get(storagePath, String.class);
+        } catch (RuntimeException e) {
+            log.warn("Signed URL 캐시 조회 실패. 캐시 엔트리를 비우고 재생성합니다: path={}", storagePath, e);
+            safeEvictCacheEntry(cache, storagePath, SIGNED_URLS);
+            return null;
+        }
+    }
+
+    private void cacheSignedUrl(Cache cache, String storagePath, String url) {
+        try {
+            cache.put(storagePath, url);
+        } catch (RuntimeException e) {
+            log.warn("Signed URL 캐시 저장 실패. 응답은 계속 진행합니다: path={}", storagePath, e);
+            safeEvictCacheEntry(cache, storagePath, SIGNED_URLS);
         }
     }
 
@@ -535,15 +732,27 @@ public class ImageService {
     public Mono<List<String>> uploadDiaryImages(Long userId, Long diaryId, List<MultipartFile> files) {
         log.info("다이어리 이미지 업로드 시작 (Optimized): userId={}, diaryId={}, 파일 수={}",
                 userId, diaryId, files != null ? files.size() : 0);
+        metricsService.recordRequest("diary");
+        metricsService.recordLegacyEndpoint("diary_images");
 
         if (files == null || files.isEmpty()) {
             return Mono.just(List.of());
         }
 
         if (files.size() > config.getMaxImagesPerDiary()) {
+            metricsService.recordReject("diary", "too_many_files");
             return Mono.error(new IllegalArgumentException(
                     String.format("이미지는 최대 %d개까지 업로드할 수 있습니다.",
                             config.getMaxImagesPerDiary())));
+        }
+
+        try {
+            for (MultipartFile file : files) {
+                validator.validateFile(file);
+            }
+        } catch (IllegalArgumentException e) {
+            metricsService.recordReject("diary", "invalid_diary_image");
+            return Mono.error(e);
         }
 
         // 1. Process and Upload in Parallel using CompletableFuture (matching
@@ -553,7 +762,7 @@ public class ImageService {
                     .map(file -> CompletableFuture.supplyAsync(() -> {
                         try {
                             // 이미지 압축 및 WebP 변환
-                            var processed = imageUtil.process(file, "cheer_diary");
+                            var processed = imageUtil.process(file, "diary");
 
                             String fileName = UUID.randomUUID() + "." + processed.getExtension();
                             String storagePath = String.format("diary/%d/%d/%s",
@@ -605,6 +814,9 @@ public class ImageService {
         }
 
         List<Mono<Void>> deleteMonos = storagePaths.stream()
+                .map(this::normalizeDiaryStoragePath)
+                .filter(StringUtils::hasText)
+                .filter(path -> !isHttpUrl(path))
                 .map(path -> storageStrategy.delete(config.getDiaryBucket(), path)
                         .doOnSuccess(v -> log.info("다이어리 이미지 삭제 성공: path={}", path))
                         .doOnError(err -> log.error("다이어리 이미지 삭제 실패: path={}, error={}",
@@ -629,12 +841,7 @@ public class ImageService {
         }
 
         List<Mono<String>> urlMonos = storagePaths.stream()
-                // config.getDiaryBucket()이 null일 가능성 차단
-                .map(path -> storageStrategy
-                        .getUrl(Objects.requireNonNull(config.getDiaryBucket()), path,
-                                config.getSignedUrlTtlSeconds())
-                        .doOnError(err -> log.error("다이어리 이미지 URL 생성 실패: path={}, error={}",
-                                path, err.getMessage())))
+                .map(this::resolveDiarySignedUrl)
                 .toList();
 
         return Mono.zip(urlMonos, results -> {
@@ -647,6 +854,108 @@ public class ImageService {
             log.info("다이어리 이미지 URL 생성 완료: 총 {}개", urls.size());
             return urls;
         });
+    }
+
+    public List<String> normalizeDiaryStoragePaths(List<String> storagePaths) {
+        if (storagePaths == null || storagePaths.isEmpty()) {
+            return List.of();
+        }
+
+        return storagePaths.stream()
+                .map(this::normalizeDiaryStoragePath)
+                .filter(StringUtils::hasText)
+                .toList();
+    }
+
+    public String normalizeDiaryStoragePath(String pathOrUrl) {
+        if (!StringUtils.hasText(pathOrUrl)) {
+            return null;
+        }
+
+        String normalized = pathOrUrl.strip();
+        if (isHttpUrl(normalized)) {
+            String extracted = extractDiaryStoragePathFromUrl(normalized);
+            if (StringUtils.hasText(extracted)) {
+                normalized = extracted;
+            } else {
+                return normalized;
+            }
+        }
+
+        normalized = stripBucketPrefix(normalized, config.getDiaryBucket());
+        if (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        return normalized;
+    }
+
+    private Mono<String> resolveDiarySignedUrl(String pathOrUrl) {
+        if (!StringUtils.hasText(pathOrUrl)) {
+            return Mono.empty();
+        }
+
+        String normalizedPath = normalizeDiaryStoragePath(pathOrUrl);
+        if (!StringUtils.hasText(normalizedPath)) {
+            return Mono.empty();
+        }
+        if (isHttpUrl(normalizedPath)) {
+            return Mono.just(normalizedPath);
+        }
+
+        return storageStrategy
+                .getUrl(Objects.requireNonNull(config.getDiaryBucket()), normalizedPath, config.getSignedUrlTtlSeconds())
+                .doOnError(err -> log.error("다이어리 이미지 URL 생성 실패: path={}, error={}",
+                        normalizedPath, err.getMessage()))
+                .onErrorResume(err -> Mono.empty());
+    }
+
+    private String extractDiaryStoragePathFromUrl(String url) {
+        if (!StringUtils.hasText(url)) {
+            return null;
+        }
+
+        int diaryIndex = url.indexOf("/diary/");
+        if (diaryIndex != -1) {
+            return url.substring(diaryIndex + 1).split("\\?")[0];
+        }
+
+        String bucket = config.getDiaryBucket();
+        if (StringUtils.hasText(bucket) && url.contains("/" + bucket + "/")) {
+            String[] parts = url.split("/" + bucket + "/");
+            if (parts.length >= 2) {
+                return parts[parts.length - 1].split("\\?")[0];
+            }
+        }
+        return null;
+    }
+
+    private String stripBucketPrefix(String storagePath, String bucket) {
+        if (!StringUtils.hasText(storagePath) || !StringUtils.hasText(bucket)) {
+            return storagePath;
+        }
+
+        String bucketPrefix = bucket + "/";
+        if (storagePath.startsWith(bucketPrefix)) {
+            return storagePath.substring(bucketPrefix.length());
+        }
+        return storagePath;
+    }
+
+    private boolean isHttpUrl(String value) {
+        return value.startsWith("http://") || value.startsWith("https://");
+    }
+
+    public byte[] downloadDiaryImageBytes(String pathOrUrl) {
+        String normalizedPath = normalizeDiaryStoragePath(pathOrUrl);
+        if (!StringUtils.hasText(normalizedPath) || isHttpUrl(normalizedPath)) {
+            throw new IllegalArgumentException("다운로드할 다이어리 이미지 경로가 올바르지 않습니다.");
+        }
+
+        var storedObject = storageStrategy.download(config.getDiaryBucket(), normalizedPath).block();
+        if (storedObject == null || storedObject.bytes() == null || storedObject.bytes().length == 0) {
+            throw new IllegalArgumentException("다이어리 이미지를 읽을 수 없습니다.");
+        }
+        return storedObject.bytes();
     }
 
 }

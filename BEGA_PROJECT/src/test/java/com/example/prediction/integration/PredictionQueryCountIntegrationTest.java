@@ -14,6 +14,8 @@ import com.example.kbo.repository.GameMetadataRepository;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.GameSummaryRepository;
 import com.example.kbo.service.LeagueStageResolver;
+import com.example.kbo.validation.BaseballDataIntegrityGuard;
+import com.example.common.config.CacheConfig;
 import com.example.prediction.MatchDto;
 import com.example.prediction.MatchRangePageResponseDto;
 import com.example.prediction.Prediction;
@@ -39,6 +41,8 @@ import com.example.auth.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -103,6 +107,9 @@ class PredictionQueryCountIntegrationTest {
 
     @MockitoBean
     private UserRepository userRepository;
+
+    @MockitoBean
+    private BaseballDataIntegrityGuard baseballDataIntegrityGuard;
 
     private JdbcTemplate jdbcTemplate;
     private MockMvc mockMvc;
@@ -215,6 +222,31 @@ class PredictionQueryCountIntegrationTest {
                 .andExpect(jsonPath("$[0].seriesGameNo").value(1))
                 .andExpect(jsonPath("$[1].seriesGameNo").value(2))
                 .andExpect(jsonPath("$[2].seriesGameNo").value(3));
+
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("matches range API without metadata stays single-query for regular season window")
+    void getMatchesByRangeApiWithoutMetadata_keepsPrepareStatementCountFlatForRegularSeason() throws Exception {
+        LocalDate targetDate = LocalDate.of(2026, 4, 10);
+        saveSeriesGame("202604100001", targetDate, null, null, null, "SCHEDULED");
+        saveSeriesGame("202604100002", targetDate, null, null, null, "SCHEDULED");
+        gameRepository.flush();
+
+        Statistics statistics = HibernateQueryCountSupport.reset(entityManagerFactory);
+
+        mockMvc.perform(get("/api/matches/range")
+                        .param("startDate", targetDate.toString())
+                        .param("endDate", targetDate.toString())
+                        .param("includePast", "true")
+                        .param("withMeta", "false")
+                        .param("page", "0")
+                        .param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].seriesGameNo").isEmpty())
+                .andExpect(jsonPath("$[1].seriesGameNo").isEmpty());
 
         assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(1);
     }
@@ -569,6 +601,11 @@ class PredictionQueryCountIntegrationTest {
         PlatformTransactionManager predictionQueryCountTransactionManager(
                 EntityManagerFactory entityManagerFactory) {
             return new JpaTransactionManager(entityManagerFactory);
+        }
+
+        @Bean
+        CacheManager cacheManager() {
+            return new ConcurrentMapCacheManager(CacheConfig.PREDICTION_VOTE_STATUS);
         }
     }
 }
