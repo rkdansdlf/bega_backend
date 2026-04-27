@@ -3,6 +3,9 @@ package com.example.ai.controller;
 import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
 import com.example.ai.service.AiProxyService.ProxyStreamResponse;
+import com.example.ai.service.CoachAutoBriefMonitoringService;
+import jakarta.servlet.http.HttpServletRequest;
+import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +26,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 public class AiProxyController {
 
     private final AiProxyService aiProxyService;
+    private final CoachAutoBriefMonitoringService coachAutoBriefMonitoringService;
 
     @PostMapping("/chat/completion")
     public ResponseEntity<byte[]> chatCompletion(@RequestBody String payload) {
@@ -44,8 +48,26 @@ public class AiProxyController {
 
     @PostMapping("/coach/analyze")
     public ResponseEntity<StreamingResponseBody> coachAnalyze(@RequestBody String payload) {
-        ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/coach/analyze", payload);
-        return toStreamResponse(proxyResponse);
+        String requestMode = coachAutoBriefMonitoringService.extractRequestMode(payload);
+        long startNanos = System.nanoTime();
+
+        try {
+            ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/coach/analyze", payload);
+            return toCoachAnalyzeStreamResponse(proxyResponse, requestMode, startNanos);
+        } catch (RuntimeException exception) {
+            coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
+                    requestMode,
+                    coachAutoBriefMonitoringService.resolveStatusCode(exception),
+                    System.nanoTime() - startNanos);
+            throw exception;
+        }
+    }
+
+    @GetMapping("/coach/auto-brief/ops/health")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<byte[]> coachAutoBriefOpsHealth(HttpServletRequest request) {
+        ProxyByteResponse proxyResponse = aiProxyService.forwardGet(withQuery("/ai/coach/auto-brief/ops/health", request));
+        return toByteResponse(proxyResponse);
     }
 
     @GetMapping("/release-decision/presets")
@@ -119,6 +141,57 @@ public class AiProxyController {
         return ResponseEntity.status(proxyResponse.status())
                 .headers(headers)
                 .body(responseBody);
+    }
+
+    private ResponseEntity<StreamingResponseBody> toCoachAnalyzeStreamResponse(
+            ProxyStreamResponse proxyResponse,
+            String requestMode,
+            long startNanos) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.putAll(proxyResponse.headers());
+
+        StreamingResponseBody responseBody;
+        if (!proxyResponse.status().is2xxSuccessful()) {
+            byte[] errorBody = proxyResponse.errorBody() != null ? proxyResponse.errorBody() : new byte[0];
+            responseBody = outputStream -> {
+                try {
+                    outputStream.write(errorBody);
+                } finally {
+                    coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
+                            requestMode,
+                            proxyResponse.status().value(),
+                            System.nanoTime() - startNanos);
+                }
+            };
+        } else {
+            responseBody = outputStream -> {
+                try {
+                    aiProxyService.writeStream(proxyResponse.bodyFlux(), outputStream);
+                } catch (IOException | RuntimeException exception) {
+                    coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
+                            requestMode,
+                            proxyResponse.status().value(),
+                            System.nanoTime() - startNanos);
+                    throw exception;
+                }
+                coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
+                        requestMode,
+                        proxyResponse.status().value(),
+                        System.nanoTime() - startNanos);
+            };
+        }
+
+        return ResponseEntity.status(proxyResponse.status())
+                .headers(headers)
+                .body(responseBody);
+    }
+
+    private String withQuery(String path, HttpServletRequest request) {
+        String queryString = request != null ? request.getQueryString() : null;
+        if (queryString == null || queryString.isBlank()) {
+            return path;
+        }
+        return path + "?" + queryString;
     }
 
 }

@@ -28,6 +28,7 @@ import com.example.BegaDiary.Entity.DiaryResponseDto;
 import com.example.BegaDiary.Entity.DiaryStatisticsDto;
 import com.example.BegaDiary.Entity.GameResponseDto;
 import com.example.BegaDiary.Entity.SeatViewCandidateDto;
+import com.example.BegaDiary.Entity.SeatViewCandidateCreateRequest;
 import com.example.BegaDiary.Entity.SeatViewPhoto;
 import com.example.BegaDiary.Entity.SeatViewPhotoDto;
 import com.example.BegaDiary.Entity.SeatViewSelectionRequest;
@@ -38,6 +39,7 @@ import com.example.cheerboard.storage.service.ImageService;
 import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.BusinessException;
+import com.example.common.ratelimit.RateLimit;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -82,6 +84,7 @@ public class DiaryController {
     }
 
     @PreAuthorize("isAuthenticated()")
+    @RateLimit(limit = 10, window = 60, key = "image:diary")
     @PostMapping("/{id}/images")
     public ResponseEntity<?> uploadImages(
             @PathVariable("id") Long diaryId,
@@ -147,6 +150,32 @@ public class DiaryController {
         return ResponseEntity.ok(java.util.Map.of(
                 "message", "시야뷰 제출이 완료되었습니다.",
                 "candidates", selected));
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping("/{id}/seat-view-candidates")
+    public ResponseEntity<?> createSeatViewCandidates(
+            @PathVariable("id") Long diaryId,
+            @RequestBody SeatViewCandidateCreateRequest request,
+            Principal principal) {
+        Long userId = requireUserId(principal);
+        BegaDiary ownerCheck = this.diaryService.getDiaryEntityById(diaryId);
+        if (!ownerCheck.getUser().getId().equals(userId)) {
+            throw new AccessDeniedException("본인의 일기에 대해서만 시야뷰 후보를 생성할 수 있습니다.");
+        }
+        List<String> storagePaths = request != null && request.getStoragePaths() != null
+                ? request.getStoragePaths()
+                : List.of();
+        List<SeatViewPhoto.SourceType> parsedSourceTypes = parseSourceTypes(
+                request != null ? request.getSourceTypes() : List.of());
+        List<SeatViewCandidateDto> candidates = seatViewService.createCandidatesFromStoragePaths(
+                diaryId,
+                userId,
+                storagePaths,
+                parsedSourceTypes);
+        return ResponseEntity.ok(java.util.Map.of(
+                "message", "시야뷰 후보 생성이 완료되었습니다.",
+                "candidates", candidates));
     }
 
     // 특정 다이어리 조회

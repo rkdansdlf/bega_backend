@@ -1,8 +1,11 @@
 package com.example.homepage;
 
 import com.example.kbo.entity.GameEntity;
+import com.example.kbo.entity.GameMetadataEntity;
+import com.example.kbo.repository.GameMetadataRepository;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.service.LeagueStageResolver;
+import com.example.kbo.validation.BaseballDataIntegrityGuard;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,10 +15,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import javax.sql.DataSource;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -28,7 +33,13 @@ class HomePageGameServiceTest {
     private HomePageTeamRepository homePageTeamRepository;
 
     @Mock
+    private GameMetadataRepository gameMetadataRepository;
+
+    @Mock
     private DataSource stadiumDataSource;
+
+    @Mock
+    private BaseballDataIntegrityGuard baseballDataIntegrityGuard;
 
     private HomePageGameService homePageGameService;
 
@@ -37,9 +48,11 @@ class HomePageGameServiceTest {
         LeagueStageResolver leagueStageResolver = new LeagueStageResolver(gameRepository);
         homePageGameService = new HomePageGameService(
                 gameRepository,
+                gameMetadataRepository,
                 homePageTeamRepository,
                 stadiumDataSource,
-                leagueStageResolver
+                leagueStageResolver,
+                baseballDataIntegrityGuard
         );
     }
 
@@ -67,6 +80,34 @@ class HomePageGameServiceTest {
         assertThat(games).hasSize(1);
         assertThat(games.get(0).getLeagueType()).isEqualTo("KOREAN_SERIES");
         assertThat(games.get(0).getGameInfo()).isEqualTo("한국시리즈");
+    }
+
+    @Test
+    @DisplayName("kbo_seasons 매핑이 없어도 season_id가 경기 연도와 같으면 REGULAR로 본다")
+    void getGamesByDate_infersRegularSeasonWhenSeasonIdMatchesGameYear() {
+        LocalDate date = LocalDate.of(2026, 3, 31);
+        GameEntity game = GameEntity.builder()
+                .id(1L)
+                .gameId("20260331HTLG0")
+                .gameDate(date)
+                .homeTeam("LG")
+                .awayTeam("KIA")
+                .seasonId(2026)
+                .gameStatus("COMPLETED")
+                .stadium("잠실")
+                .homeScore(2)
+                .awayScore(7)
+                .build();
+
+        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(gameRepository.findByGameDate(date)).thenReturn(List.of(game));
+        when(gameRepository.findLeagueTypeCodeBySeasonId(2026)).thenReturn(Optional.empty());
+
+        List<HomePageGameDto> games = homePageGameService.getGamesByDate(date);
+
+        assertThat(games).hasSize(1);
+        assertThat(games.get(0).getLeagueType()).isEqualTo("REGULAR");
+        assertThat(games.get(0).getGameInfo()).isEmpty();
     }
 
     @Test
@@ -155,5 +196,70 @@ class HomePageGameServiceTest {
         assertThat(games).hasSize(1);
         assertThat(games.get(0).getGameStatus()).isEqualTo("LIVE");
         assertThat(games.get(0).getGameStatusKr()).isEqualTo("경기 진행중");
+    }
+
+    @Test
+    @DisplayName("game_metadata.start_time 이 있으면 홈 일정 시간에 반영한다")
+    void getGamesByDate_usesMetadataStartTime() {
+        LocalDate date = LocalDate.of(2026, 4, 5);
+        String gameId = "20260405LGKT0";
+        GameEntity game = GameEntity.builder()
+                .id(1L)
+                .gameId(gameId)
+                .gameDate(date)
+                .homeTeam("LG")
+                .awayTeam("KT")
+                .gameStatus("COMPLETED")
+                .homeScore(5)
+                .awayScore(1)
+                .stadium("잠실")
+                .build();
+
+        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(gameRepository.findByGameDate(date)).thenReturn(List.of(game));
+        when(gameMetadataRepository.findAllById(List.of(gameId))).thenReturn(List.of(
+                GameMetadataEntity.builder()
+                        .gameId(gameId)
+                        .startTime(LocalTime.of(14, 0))
+                        .build()
+        ));
+
+        List<HomePageGameDto> games = homePageGameService.getGamesByDate(date);
+
+        assertThat(games).hasSize(1);
+        assertThat(games.get(0).getTime()).isEqualTo("14:00");
+    }
+
+    @Test
+    @DisplayName("예정 경기 윈도우에 행이 없으면 빈 배열을 정상 응답으로 반환한다")
+    void getScheduledGamesWindow_returnsEmptyListWhenNoUpcomingGamesExist() {
+        LocalDate startDate = LocalDate.of(2026, 4, 13);
+        LocalDate endDate = startDate.plusDays(7);
+
+        when(gameRepository.findAllByDateRange(startDate, endDate)).thenReturn(List.of());
+
+        List<HomePageScheduledGameDto> scheduledGames = homePageGameService.getScheduledGamesWindow(startDate, endDate);
+
+        assertThat(scheduledGames).isEmpty();
+        verifyNoInteractions(baseballDataIntegrityGuard);
+    }
+
+    @Test
+    @DisplayName("선택한 날짜에 경기가 없어도 이전/다음 경기일 네비게이션을 계산한다")
+    void getScheduleNavigation_returnsAdjacentDatesWithoutSameDayGames() {
+        LocalDate selectedDate = LocalDate.of(2026, 4, 13);
+        LocalDate prevDate = LocalDate.of(2026, 4, 12);
+        LocalDate nextDate = LocalDate.of(2026, 4, 14);
+
+        when(gameRepository.findPrevGameDate(selectedDate)).thenReturn(Optional.of(prevDate));
+        when(gameRepository.findNextGameDate(selectedDate)).thenReturn(Optional.of(nextDate));
+
+        ScheduleNavigationDto navigation = homePageGameService.getScheduleNavigation(selectedDate);
+
+        assertThat(navigation.getPrevGameDate()).isEqualTo(prevDate);
+        assertThat(navigation.getNextGameDate()).isEqualTo(nextDate);
+        assertThat(navigation.isHasPrev()).isTrue();
+        assertThat(navigation.isHasNext()).isTrue();
+        verifyNoInteractions(baseballDataIntegrityGuard);
     }
 }

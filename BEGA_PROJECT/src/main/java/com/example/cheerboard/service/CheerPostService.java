@@ -10,7 +10,10 @@ import com.example.cheerboard.dto.RepostToggleResponse;
 import com.example.cheerboard.dto.UpdatePostReq;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerPostRepostRepo;
+import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.dto.PostImageDto;
+import com.example.cheerboard.storage.entity.PostImage;
+import com.example.cheerboard.storage.repository.PostImageRepository;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
@@ -23,6 +26,9 @@ import com.example.common.exception.RepostTargetNotFoundException;
 import com.example.common.service.AIModerationService;
 import com.example.kbo.repository.TeamRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
+import com.example.media.entity.MediaAsset;
+import com.example.media.entity.MediaDomain;
+import com.example.media.service.MediaLinkService;
 import com.example.notification.service.NotificationService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityNotFoundException;
@@ -36,12 +42,15 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.util.HtmlUtils;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Objects;
+import java.util.Optional;
 
 import static com.example.cheerboard.service.CheerServiceConstants.GLOBAL_TEAM_ID;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CANCEL_NOT_ALLOWED_ERROR;
@@ -72,6 +81,7 @@ public class CheerPostService {
     private final UserRepository userRepo;
     private final NotificationService notificationService;
     private final ImageService imageService;
+    private final PostImageRepository postImageRepository;
     private final FollowService followService;
     private final BlockService blockService;
     private final PermissionValidator permissionValidator;
@@ -80,6 +90,8 @@ public class CheerPostService {
     private final RedisPostService redisPostService;
     private final PopularFeedScoringService popularFeedScoringService;
     private final EntityManager entityManager;
+    private final MediaLinkService mediaLinkService;
+    private final StorageConfig storageConfig;
 
     @Transactional
     public PostDetailRes createPost(CreatePostReq req, UserEntity me) {
@@ -91,9 +103,7 @@ public class CheerPostService {
         // 저장 직전 재검증(토큰/계정 상태 동기화 갱신)
         author = ensureAuthorRecordStillExists(author);
 
-        if (req.content() == null || req.content().isBlank()) {
-            throw new IllegalArgumentException("내용은 필수입니다.");
-        }
+        String normalizedContent = sanitizeRequiredPostContent(req.content());
 
         // AI Moderation 체크
         AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
@@ -103,17 +113,17 @@ public class CheerPostService {
             throw new IllegalArgumentException("부적절한 내용이 포함되어 게시글을 작성할 수 없습니다.");
         }
 
-        validateSharePolicy(
+        String normalizedSourceUrl = validateSharePolicy(
                 req.shareMode(),
                 req.content(),
                 req.sourceUrl(),
                 req.sourceLicense());
-        flagPotentialSourceSpam(author.getId(), req.sourceUrl());
+        flagPotentialSourceSpam(author.getId(), normalizedSourceUrl);
 
         permissionValidator.validateTeamAccess(author, normalizedTeamId, "게시글 작성");
 
         PostType postType = determinePostType(req, author);
-        CheerPost post = buildNewPost(req, author, postType, normalizedTeamId);
+        CheerPost post = buildNewPost(req, author, postType, normalizedTeamId, normalizedContent, normalizedSourceUrl);
         CheerPost savedPost;
         try {
             savedPost = postRepo.saveAndFlush(Objects.requireNonNull(post));
@@ -133,6 +143,8 @@ public class CheerPostService {
             throw ex;
         }
 
+        syncManagedPostImages(savedPost, author.getId(), req.images());
+
         // 팔로워들에게 새 글 알림 (notify_new_posts=true 인 팔로워에게만)
         sendNewPostNotificationToFollowers(savedPost, author);
 
@@ -144,6 +156,7 @@ public class CheerPostService {
         UserEntity author = resolveWriteAuthor(me);
         CheerPost post = findPostById(id);
         permissionValidator.validateOwnerOrAdmin(author, post.getAuthor(), "게시글 수정");
+        String normalizedContent = sanitizeRequiredPostContent(req.content());
 
         // AI Moderation 체크
         AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
@@ -152,8 +165,12 @@ public class CheerPostService {
                     modResult.decisionSource(), modResult.riskLevel(), modResult.category(), modResult.reason());
             throw new IllegalArgumentException("부적절한 내용이 포함되어 게시글을 수정할 수 없습니다.");
         }
-
-        updatePostContent(post, req);
+        String normalizedSourceUrl = validateSharePolicy(
+                req.shareMode(),
+                req.content(),
+                req.sourceUrl(),
+                req.sourceLicense());
+        updatePostContent(post, req, normalizedContent, normalizedSourceUrl);
 
         // and let the Facade handle response construction with user interaction states.
         // However, to keep it simple and match the signature return type:
@@ -212,6 +229,7 @@ public class CheerPostService {
         UserEntity author = resolveWriteAuthor(me);
         CheerPost post = findPostById(id);
         permissionValidator.validateOwnerOrAdmin(author, post.getAuthor(), "게시글 수정");
+        String normalizedContent = sanitizeRequiredPostContent(req.content());
 
         AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
         if (!modResult.isAllowed()) {
@@ -221,13 +239,16 @@ public class CheerPostService {
         }
 
         CheerPost.ShareMode shareModeForValidation = req.shareMode() != null ? req.shareMode() : post.getShareMode();
-        validateSharePolicy(
+        String normalizedSourceUrl = validateSharePolicy(
                 shareModeForValidation,
                 req.content(),
                 req.sourceUrl() != null ? req.sourceUrl() : post.getSourceUrl(),
                 req.sourceLicense() != null ? req.sourceLicense() : post.getSourceLicense());
 
-        updatePostContent(post, req);
+        updatePostContent(post, req, normalizedContent, normalizedSourceUrl);
+        if (req.images() != null) {
+            syncManagedPostImages(post, author.getId(), req.images());
+        }
         return Objects.requireNonNull(post);
     }
 
@@ -242,6 +263,7 @@ public class CheerPostService {
         redisPostService.removeFromHotList(id);
 
         boolean storageClean = imageService.deleteImagesByPostId(post.getId());
+        mediaLinkService.unlinkEntity(MediaDomain.CHEER, post.getId());
 
         if (storageClean) {
             postRepo.delete(post);
@@ -550,7 +572,13 @@ public class CheerPostService {
         return PostType.NORMAL;
     }
 
-    private CheerPost buildNewPost(CreatePostReq req, UserEntity author, PostType postType, String normalizedTeamId) {
+    private CheerPost buildNewPost(
+            CreatePostReq req,
+            UserEntity author,
+            PostType postType,
+            String normalizedTeamId,
+            String normalizedContent,
+            String normalizedSourceUrl) {
         final String finalTeamId;
         String requestTeamId = normalizedTeamId;
 
@@ -567,26 +595,30 @@ public class CheerPostService {
                 .author(author)
                 .team(team)
                 .shareMode(resolveShareMode(req.shareMode(), null))
-                .sourceUrl(req.sourceUrl())
+                .sourceUrl(normalizedSourceUrl)
                 .sourceTitle(req.sourceTitle())
                 .sourceAuthor(req.sourceAuthor())
                 .sourceLicense(req.sourceLicense())
                 .sourceLicenseUrl(req.sourceLicenseUrl())
                 .sourceChangedNote(req.sourceChangedNote())
                 .sourceSnapshotType(req.sourceSnapshotType())
-                .content(sanitizePostContent(req.content()))
+                .content(normalizedContent)
                 .postType(postType)
                 .build();
     }
 
-    private void updatePostContent(CheerPost post, UpdatePostReq req) {
-        post.setContent(sanitizePostContent(req.content()));
+    private void updatePostContent(
+            CheerPost post,
+            UpdatePostReq req,
+            String normalizedContent,
+            String normalizedSourceUrl) {
+        post.setContent(normalizedContent);
         if (req.shareMode() != null || hasAnySourceMeta(req)) {
             CheerPost.ShareMode nextMode = req.shareMode() != null
                     ? resolveShareMode(req.shareMode(), post.getRepostType())
                     : post.getShareMode();
             post.setShareMode(nextMode);
-            post.setSourceUrl(req.sourceUrl());
+            post.setSourceUrl(normalizedSourceUrl);
             post.setSourceTitle(req.sourceTitle());
             post.setSourceAuthor(req.sourceAuthor());
             post.setSourceLicense(req.sourceLicense());
@@ -605,6 +637,13 @@ public class CheerPostService {
         if (content == null || content.isBlank())
             return "";
         return HtmlUtils.htmlEscape(content);
+    }
+
+    private String sanitizeRequiredPostContent(String content) {
+        if (content == null || content.isBlank()) {
+            throw new IllegalArgumentException("내용은 필수입니다.");
+        }
+        return sanitizePostContent(content);
     }
 
     private CheerPost.ShareMode resolveShareMode(CheerPost.ShareMode requested, CheerPost.RepostType repostType) {
@@ -627,12 +666,59 @@ public class CheerPostService {
                 || req.sourceSnapshotType() != null;
     }
 
-    private void validateSharePolicy(
+    private void syncManagedPostImages(CheerPost post, Long userId, List<String> requestedImages) {
+        List<String> desiredPaths = requestedImages == null
+                ? List.of()
+                : requestedImages.stream()
+                        .filter(path -> path != null && !path.isBlank())
+                        .map(String::strip)
+                        .distinct()
+                        .toList();
+        if (desiredPaths.size() > storageConfig.getMaxImagesPerPost()) {
+            throw new IllegalArgumentException(
+                    String.format("이미지는 최대 %d개까지 업로드 가능합니다.", storageConfig.getMaxImagesPerPost()));
+        }
+
+        mediaLinkService.resolveReadyAssets(userId, MediaDomain.CHEER, desiredPaths);
+
+        List<PostImage> existingImages = postImageRepository.findByPostIdOrderByCreatedAtAsc(post.getId());
+        Map<String, PostImage> existingByPath = new LinkedHashMap<>();
+        for (PostImage existingImage : existingImages) {
+            existingByPath.put(existingImage.getStoragePath(), existingImage);
+        }
+
+        for (PostImage existingImage : existingImages) {
+            if (!desiredPaths.contains(existingImage.getStoragePath())) {
+                postImageRepository.delete(existingImage);
+            }
+        }
+
+        for (String desiredPath : desiredPaths) {
+            if (existingByPath.containsKey(desiredPath)) {
+                continue;
+            }
+
+            MediaAsset asset = mediaLinkService.findReadyAsset(desiredPath)
+                    .orElseThrow(() -> new IllegalArgumentException("이미지 업로드를 다시 완료한 뒤 저장해주세요."));
+            postImageRepository.save(PostImage.builder()
+                    .post(post)
+                    .storagePath(desiredPath)
+                    .mimeType(asset.getStoredContentType() != null ? asset.getStoredContentType() : asset.getDeclaredContentType())
+                    .bytes(asset.getStoredBytes() != null ? asset.getStoredBytes() : asset.getDeclaredBytes())
+                    .isThumbnail(false)
+                    .build());
+        }
+
+        mediaLinkService.syncCheerLinks(post.getId(), userId, desiredPaths);
+    }
+
+    private String validateSharePolicy(
             CheerPost.ShareMode mode,
             String content,
             String sourceUrl,
             String sourceLicense) {
         CheerPost.ShareMode effectiveMode = mode != null ? mode : CheerPost.ShareMode.INTERNAL_REPOST;
+        String normalizedSourceUrl = normalizeSourceUrl(sourceUrl);
         EnumSet<CheerPost.ShareMode> externalModes = EnumSet.of(
                 CheerPost.ShareMode.EXTERNAL_LINK,
                 CheerPost.ShareMode.EXTERNAL_COPY,
@@ -640,10 +726,10 @@ public class CheerPostService {
                 CheerPost.ShareMode.EXTERNAL_SUMMARY);
 
         if (!externalModes.contains(effectiveMode)) {
-            return;
+            return normalizedSourceUrl;
         }
 
-        if (sourceUrl == null || sourceUrl.isBlank()) {
+        if (normalizedSourceUrl == null) {
             throw new IllegalArgumentException("외부 콘텐츠 공유 시 출처 URL은 필수입니다.");
         }
 
@@ -656,6 +742,29 @@ public class CheerPostService {
             if (normalized.length() > 2000) {
                 throw new IllegalArgumentException("EXTERNAL_COPY 모드의 본문은 2000자 이하로 제한됩니다.");
             }
+        }
+
+        return normalizedSourceUrl;
+    }
+
+    private String normalizeSourceUrl(String sourceUrl) {
+        if (sourceUrl == null || sourceUrl.isBlank()) {
+            return null;
+        }
+
+        String trimmed = sourceUrl.strip();
+        try {
+            URI uri = new URI(trimmed).normalize();
+            String scheme = uri.getScheme();
+            if (scheme == null
+                    || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))
+                    || uri.getHost() == null
+                    || uri.getHost().isBlank()) {
+                throw new IllegalArgumentException("출처 URL은 http/https 형식만 허용됩니다.");
+            }
+            return uri.toString();
+        } catch (URISyntaxException ex) {
+            throw new IllegalArgumentException("출처 URL 형식이 올바르지 않습니다.", ex);
         }
     }
 

@@ -16,6 +16,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
+import com.example.dm.service.DmRoomService;
 import com.example.mate.entity.Party;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
@@ -27,6 +28,7 @@ import lombok.RequiredArgsConstructor;
 public class WebSocketAuthorizationChannelInterceptor implements ChannelInterceptor {
 
     private static final Pattern PARTY_TOPIC_PATTERN = Pattern.compile("^/topic/party/(\\d+)$");
+    private static final Pattern DM_TOPIC_PATTERN = Pattern.compile("^/topic/dm/(\\d+)$");
     private static final Pattern CHAT_SEND_PATTERN = Pattern.compile("^/app/chat/(\\d+)$");
     private static final Pattern BATTLE_TOPIC_PATTERN = Pattern.compile("^/topic/battle/[^/]+$");
     private static final Pattern BATTLE_SEND_PATTERN = Pattern.compile("^/app/battle/vote/[^/]+$");
@@ -35,6 +37,7 @@ public class WebSocketAuthorizationChannelInterceptor implements ChannelIntercep
 
     private final PartyRepository partyRepository;
     private final PartyApplicationRepository partyApplicationRepository;
+    private final DmRoomService dmRoomService;
 
     @Override
     public Message<?> preSend(@NonNull Message<?> message, @NonNull MessageChannel channel) {
@@ -99,6 +102,16 @@ public class WebSocketAuthorizationChannelInterceptor implements ChannelIntercep
             Long partyId = Long.valueOf(partyMatcher.group(1));
             if (!isPartyMember(userId, partyId)) {
                 throw new AccessDeniedException("파티 참여자만 채팅을 구독할 수 있습니다.");
+            }
+            return;
+        }
+
+        Matcher dmMatcher = DM_TOPIC_PATTERN.matcher(destination);
+        if (dmMatcher.matches()) {
+            Long userId = requireAuthenticatedUserId(principal, "DM 구독에는 로그인이 필요합니다.");
+            Long roomId = Long.valueOf(dmMatcher.group(1));
+            if (!dmRoomService.canSubscribe(roomId, userId)) {
+                throw new AccessDeniedException("대화방 참여자만 DM을 구독할 수 있습니다.");
             }
         }
     }

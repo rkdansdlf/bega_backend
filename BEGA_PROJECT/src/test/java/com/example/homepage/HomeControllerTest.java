@@ -2,6 +2,9 @@ package com.example.homepage;
 
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.common.exception.GlobalExceptionHandler;
+import com.example.kbo.validation.ManualBaseballDataMissingItem;
+import com.example.kbo.validation.ManualBaseballDataRequest;
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import com.example.mate.entity.Party;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -77,6 +80,32 @@ class HomeControllerTest {
                 .andExpect(jsonPath("$.games[0].gameId").value("20260315LGSS0"))
                 .andExpect(jsonPath("$.scheduledGamesWindow[0].sourceDate").value("2026-03-16"))
                 .andExpect(jsonPath("$.scheduledGamesWindow[0].leagueBadge").value("정규시즌"));
+    }
+
+    @Test
+    @DisplayName("홈 bootstrap은 수동 야구 데이터 요청 계약을 409로 반환한다")
+    void getBootstrapReturnsManualBaseballDataRequiredPayload() throws Exception {
+        LocalDate selectedDate = LocalDate.of(2026, 4, 5);
+        given(homePageFacadeService.getBootstrap(eq(selectedDate)))
+                .willThrow(new ManualBaseballDataRequiredException(
+                        new ManualBaseballDataRequest(
+                                "home.schedule",
+                                List.of(new ManualBaseballDataMissingItem(
+                                        "season_league_context",
+                                        "시즌/리그 구분",
+                                        "시즌 연도 또는 리그 단계가 경기 날짜와 맞지 않아 홈 일정을 구성할 수 없습니다.",
+                                        "season_id, season_year, league_type_code")),
+                                "다음 야구 데이터가 필요합니다: 날짜=2026-04-05, 시즌/리그 구분",
+                                true
+                        )));
+
+        mockMvc.perform(get("/api/home/bootstrap").param("date", "2026-04-05"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("MANUAL_BASEBALL_DATA_REQUIRED"))
+                .andExpect(jsonPath("$.data.scope").value("home.schedule"))
+                .andExpect(jsonPath("$.data.blocking").value(true))
+                .andExpect(jsonPath("$.data.missingItems[0].key").value("season_league_context"));
     }
 
     @Test

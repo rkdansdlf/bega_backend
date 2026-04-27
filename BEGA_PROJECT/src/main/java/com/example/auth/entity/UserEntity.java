@@ -48,6 +48,10 @@ public class UserEntity {
     @Column(name = "profile_image_url", length = 2048)
     private String profileImageUrl;
 
+    // Cheer 피드 썸네일 경로 (cheer 페이지에서 축소 이미지 사용)
+    @Column(name = "profile_feed_image_url", length = 2048)
+    private String profileFeedImageUrl;
+
     // 사용자 권한
     @Column(name = "role", nullable = false)
     private String role;

@@ -11,7 +11,7 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 import jakarta.servlet.http.HttpServletRequest;
 
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.lang.NonNull;
@@ -25,6 +25,8 @@ import com.example.auth.entity.UserEntity;
 import com.example.kbo.entity.TeamEntity;
 import com.example.auth.entity.Role;
 import com.example.auth.util.JWTUtil;
+import com.example.auth.util.HandleNormalizer;
+import com.example.auth.util.LogMaskingUtil;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.UserBlockRepository;
 import com.example.auth.repository.UserFollowRepository;
@@ -39,11 +41,11 @@ import com.example.common.exception.DuplicateHandleException;
 import com.example.common.exception.TeamNotFoundException;
 import com.example.common.exception.DuplicateEmailException;
 import com.example.common.exception.DuplicateNameException;
-import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.InvalidCredentialsException;
 import com.example.common.exception.SocialLoginRequiredException;
 
 import com.example.profile.storage.service.ProfileImageService;
+import com.example.media.service.MediaLinkService;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
@@ -63,9 +65,17 @@ public class UserService {
     private final UserFollowRepository userFollowRepository;
     private final UserBlockRepository userBlockRepository;
     private final com.example.auth.repository.UserProviderRepository userProviderRepository;
-    private final BCryptPasswordEncoder bCryptPasswordEncoder;
+    private final PasswordEncoder passwordEncoder;
     private final JWTUtil jwtUtil;
+
+    // [Security Fix - Critical #3] 타이밍 공격 방지용 더미 해시.
+    // 존재하지 않는 이메일 요청도 비밀번호 비교 연산을 수행해 응답 시간을 평탄화한다.
+    // Argon2id encoded format이어야 DelegatingPasswordEncoder가 matches()를 정상 호출한다.
+    // 비어있는 문자열을 argon2로 해시한 고정값(빌드 타임에 계산해 하드코딩하지 않고 필드 초기화로 처리).
+    private static final String DUMMY_PASSWORD_HASH_SEED = "__never_match_placeholder__";
+    private final String dummyPasswordHash;
     private final ProfileImageService profileImageService;
+    private final MediaLinkService mediaLinkService;
     private final AccountDeletionService accountDeletionService;
     private final AccountSecurityService accountSecurityService;
     private final AuthSessionService authSessionService;
@@ -76,9 +86,10 @@ public class UserService {
             UserFollowRepository userFollowRepository,
             UserBlockRepository userBlockRepository,
             com.example.auth.repository.UserProviderRepository userProviderRepository,
-            BCryptPasswordEncoder bCryptPasswordEncoder,
+            PasswordEncoder passwordEncoder,
             JWTUtil jwtUtil,
             ProfileImageService profileImageService,
+            MediaLinkService mediaLinkService,
             AccountDeletionService accountDeletionService,
             AccountSecurityService accountSecurityService,
             AuthSessionService authSessionService) {
@@ -88,9 +99,11 @@ public class UserService {
         this.userFollowRepository = userFollowRepository;
         this.userBlockRepository = userBlockRepository;
         this.userProviderRepository = userProviderRepository;
-        this.bCryptPasswordEncoder = bCryptPasswordEncoder;
+        this.passwordEncoder = passwordEncoder;
+        this.dummyPasswordHash = passwordEncoder.encode(DUMMY_PASSWORD_HASH_SEED);
         this.jwtUtil = jwtUtil;
         this.profileImageService = profileImageService;
+        this.mediaLinkService = mediaLinkService;
         this.accountDeletionService = accountDeletionService;
         this.accountSecurityService = accountSecurityService;
         this.authSessionService = authSessionService;
@@ -124,7 +137,8 @@ public class UserService {
     @Transactional
     public void signUp(@NonNull UserDto userDto) {
         normalizeUserEmail(userDto);
-        log.info("--- [SignUp] Attempt - Email: {} ---", userDto.getEmail());
+        // [Security Fix - High #2] 이메일 평문 로깅 방지 (CWE-532)
+        log.info("--- [SignUp] Attempt - Email: {} ---", LogMaskingUtil.maskEmail(userDto.getEmail()));
 
         Optional<UserEntity> existingUser = userRepository.findByEmail(userDto.getEmail());
 
@@ -286,11 +300,22 @@ public class UserService {
 
     @Transactional
     public LoginResult authenticateAndGetToken(String email, String password, HttpServletRequest request) {
-        String normalizedEmail = Optional.ofNullable(email).map(e -> e.trim().toLowerCase()).orElse(null);
-        UserEntity user = findUserByEmailOrThrow(normalizedEmail);
+        // [Security Fix - Critical #3] User Enumeration 방지:
+        // - 존재하지 않는 이메일도 동일하게 더미 해시와 matches()를 호출해 응답 시간을 평탄화한다.
+        // - 실패 원인(이메일 없음 / 비밀번호 불일치 / 소셜 전용 / 비활성 / 잠금 / 삭제예약)과 무관하게
+        //   외부에는 동일한 메시지로 응답해 계정 상태를 추론할 수 없도록 한다.
+        String normalizedEmail = normalizeEmail(email);
+        String rawPassword = password == null ? "" : password;
+        UserEntity user = userRepository.findByEmail(normalizedEmail).orElse(null);
+        String storedHash = user != null ? user.getPassword() : null;
+        String hashToCompare = storedHash != null ? storedHash : dummyPasswordHash;
+        boolean passwordOk = passwordEncoder.matches(rawPassword, hashToCompare);
 
-        validateAuthorForLogin(user);
-        validatePassword(user, password);
+        if (user == null || storedHash == null || !passwordOk || !isLoginAuthorValid(user)) {
+            throw new InvalidCredentialsException();
+        }
+
+        upgradePasswordHashIfNecessary(user, rawPassword, storedHash);
 
         // 일일 출석 보너스 체크
         int currentCheerPoints = checkAndApplyDailyLoginBonus(Objects.requireNonNull(user));
@@ -343,7 +368,7 @@ public class UserService {
             currentCheerPoints += DAILY_LOGIN_BONUS_POINTS;
             user.setCheerPoints(currentCheerPoints);
             user.setLastBonusDate(today);
-            log.info("Daily Login Bonus (5 points) awarded to user: {}. Current Points: {}", user.getEmail(),
+            log.info("Daily Login Bonus (5 points) awarded to userId: {}. Current Points: {}", user.getId(),
                     currentCheerPoints);
         } else if (user.getCheerPoints() == null) {
             user.setCheerPoints(currentCheerPoints);
@@ -380,9 +405,20 @@ public class UserService {
     }
 
     private void updateProfileImage(UserEntity user, String imageUrl) {
-        if (imageUrl != null && !imageUrl.isEmpty()) {
-            user.setProfileImageUrl(imageUrl);
+        if (imageUrl == null || imageUrl.isEmpty()) {
+            return;
         }
+
+        String normalizedPath = profileImageService.normalizeProfileStoragePath(imageUrl);
+        String currentPath = profileImageService.normalizeProfileStoragePath(user.getProfileImageUrl());
+        if (Objects.equals(currentPath, normalizedPath)) {
+            user.setProfileImageUrl(normalizedPath);
+            return;
+        }
+
+        MediaLinkService.ProfileLinkResult linkResult = mediaLinkService.syncProfileLinks(user.getId(), normalizedPath);
+        user.setProfileImageUrl(linkResult.profileObjectKey() != null ? linkResult.profileObjectKey() : normalizedPath);
+        user.setProfileFeedImageUrl(linkResult.profileFeedObjectKey());
     }
 
     private void updateBio(UserEntity user, String bio) {
@@ -426,13 +462,13 @@ public class UserService {
             if (currentPassword == null || currentPassword.isEmpty()) {
                 throw new BadRequestBusinessException("CURRENT_PASSWORD_REQUIRED", "현재 비밀번호를 입력해주세요.");
             }
-            if (!bCryptPasswordEncoder.matches(currentPassword, user.getPassword())) {
+            if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
                 throw new InvalidCredentialsException("현재 비밀번호가 일치하지 않습니다.");
             }
         }
 
-        // 새 비밀번호 암호화 및 저장
-        user.setPassword(bCryptPasswordEncoder.encode(newPassword));
+        // 새 비밀번호 암호화 및 저장 (DelegatingPasswordEncoder가 {argon2} prefix 포함해서 인코딩)
+        user.setPassword(passwordEncoder.encode(newPassword));
         user.setTokenVersion(Optional.ofNullable(user.getTokenVersion()).orElse(0) + 1);
         userRepository.save(user);
         refreshRepository.deleteByEmail(user.getEmail());
@@ -584,25 +620,16 @@ public class UserService {
     }
 
     private UserEntity findUserByHandleOrThrow(String handle) {
-        String normalizedHandle = normalizeHandle(handle);
-        return userRepository.findByHandle(normalizedHandle)
+        return HandleNormalizer.candidates(handle).stream()
+                .map(userRepository::findByHandle)
+                .flatMap(Optional::stream)
+                .findFirst()
                 .orElseThrow(() -> new UserNotFoundException("handle", handle));
     }
 
     @Transactional(readOnly = true)
     public Long getUserIdByHandle(String handle) {
         return findUserByHandleOrThrow(handle).getId();
-    }
-
-    private String normalizeHandle(String handle) {
-        if (handle == null || handle.isBlank()) {
-            throw new UserNotFoundException("handle", String.valueOf(handle));
-        }
-        String normalized = handle.trim();
-        if (!normalized.startsWith("@")) {
-            normalized = "@" + normalized;
-        }
-        return normalized.toLowerCase(Locale.ROOT);
     }
 
     private void validatePublicProfileAccess(UserEntity target, Long currentUserId) {
@@ -652,14 +679,21 @@ public class UserService {
 
     /**
      * 비밀번호 검증
+     * [Security Fix - Critical #2] 로그인 성공 시 레거시 BCrypt 해시를 Argon2id로 자동 재인코딩한다.
+     * DelegatingPasswordEncoder는 prefix({bcrypt}/{argon2})로 알고리즘을 구분하므로
+     * 기존 {bcrypt} 해시는 그대로 검증 가능하며 성공 시 조용히 업그레이드한다.
      */
-    private void validatePassword(UserEntity user, String password) {
-        if (user.getPassword() == null) {
-            throw new SocialLoginRequiredException();
-        }
-
-        if (!bCryptPasswordEncoder.matches(password, user.getPassword())) {
-            throw new InvalidCredentialsException();
+    private void upgradePasswordHashIfNecessary(UserEntity user, String password, String storedHash) {
+        // Upgrade-on-read: 기본 인코더(argon2)가 아니면 성공 로그인 시 재인코딩
+        try {
+            if (storedHash != null && !storedHash.startsWith("{argon2}")) {
+                user.setPassword(passwordEncoder.encode(password));
+                userRepository.save(user);
+                log.info("Password hash upgraded to Argon2id for user ID: {}", user.getId());
+            }
+        } catch (RuntimeException e) {
+            // 업그레이드 실패가 로그인 자체를 막아선 안 된다.
+            log.warn("Failed to upgrade password hash for user ID: {}: {}", user.getId(), e.getMessage());
         }
     }
 
@@ -668,18 +702,16 @@ public class UserService {
      * - 비활성 계정(enabled=false) 차단
      * - 잠금 계정(locked=true) 차단, 단 잠금 만료 시 허용
      */
-    private void validateAuthorForLogin(UserEntity user) {
+    private boolean isLoginAuthorValid(UserEntity user) {
         if (user.isPendingDeletion()) {
-            throw new InvalidAuthorException("계정 삭제 예약 상태입니다. 이메일의 복구 링크를 확인해주세요.");
+            return false;
         }
 
         if (!user.isEnabled()) {
-            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+            return false;
         }
 
-        if (!isAccountUsable(user)) {
-            throw new InvalidAuthorException("계정이 잠겨 있습니다. 잠시 후 다시 시도해 주세요.");
-        }
+        return isAccountUsable(user);
     }
 
     private boolean isAccountUsable(UserEntity user) {
@@ -751,7 +783,7 @@ public class UserService {
     }
 
     private String encodePasswordIfPresent(String password) {
-        return password != null ? bCryptPasswordEncoder.encode(password) : null;
+        return password != null ? passwordEncoder.encode(password) : null;
     }
 
     private UserDto convertToUserDto(UserEntity userEntity) {

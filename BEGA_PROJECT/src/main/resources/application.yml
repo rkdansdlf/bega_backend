@@ -41,6 +41,9 @@ spring:
       max-file-size: 10MB # 단일 파일 최대 크기
       max-request-size: 50MB # 전체 요청 최대 크기
       enabled: true
+  mvc:
+    async:
+      request-timeout: ${APP_MVC_ASYNC_REQUEST_TIMEOUT_MS:180000}
   jwt:
     secret: ${JWT_SECRET}
     access-expiration: ${JWT_ACCESS_EXPIRATION:7200000}
@@ -179,6 +182,9 @@ app:
       # 기본값은 false. dev/local에서만 필요 시 APP_AI_PROXY_PUBLIC_IN_DEV=true로 명시적으로 엽니다.
       public-in-dev: ${APP_AI_PROXY_PUBLIC_IN_DEV:false}
       request-timeout-seconds: ${APP_AI_PROXY_REQUEST_TIMEOUT_SECONDS:180}
+  observability:
+    # 기본값은 false. local compose observability 확인이 필요할 때만 명시적으로 엽니다.
+    public-prometheus-endpoint: ${APP_OBSERVABILITY_PUBLIC_PROMETHEUS_ENDPOINT:false}
   trusted-proxies: ${APP_TRUSTED_PROXIES:}
   # Canonical env key: APP_ALLOWED_ORIGINS.
   # docker-compose may feed this value from APP_ALLOWED_ORIGINS_OVERRIDE for local smoke only.
@@ -388,7 +394,7 @@ spring:
       idle-timeout: 600000
       max-lifetime: 1800000
       keepalive-time: 45000
-      leak-detection-threshold: 30000
+      leak-detection-threshold: ${SPRING_DATASOURCE_HIKARI_LEAK_DETECTION_THRESHOLD:120000}
 
   jpa:
     show-sql: false # Production should not log SQL by default
@@ -438,6 +444,9 @@ management:
   endpoint:
     health:
       show-details: never
+  health:
+    jobrunr:
+      enabled: false
 
 ---
 # 'local' 프로필: 로컬 테스트 환경 (H2 In-Memory)

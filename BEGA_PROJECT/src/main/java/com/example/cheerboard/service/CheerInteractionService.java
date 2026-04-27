@@ -64,7 +64,7 @@ public class CheerInteractionService {
     @Transactional
     public LikeToggleResponse toggleLike(Long postId, UserEntity me) {
         UserEntity author = resolveWriteAuthor(me);
-        CheerPost post = postService.findPostById(postId);
+        CheerPost post = findPostByIdForInteractionWrite(postId);
 
         publicVisibilityVerifier.validate(post.getAuthor(), author.getId(), "게시글");
         // [NEW] 차단 관계 확인 (양방향)
@@ -81,8 +81,7 @@ public class CheerInteractionService {
             if (likeRepo.existsById(likeId)) {
                 // 좋아요 취소
                 likeRepo.deleteById(likeId);
-                postRepo.decrementLikeCount(post.getId());
-                likes = readLikeCount(post.getId());
+                likes = reconcileLikeCount(post.getId());
                 liked = false;
 
                 // 작성자 포인트 차감 (원자적 UPDATE)
@@ -96,8 +95,7 @@ public class CheerInteractionService {
                 like.setPost(post);
                 like.setUser(author);
                 likeRepo.save(like);
-                postRepo.incrementLikeCount(post.getId());
-                likes = readLikeCount(post.getId());
+                likes = reconcileLikeCount(post.getId());
                 liked = true;
 
                 // 작성자 포인트 증가 (원자적 UPDATE)
@@ -346,6 +344,11 @@ public class CheerInteractionService {
                 .orElseThrow(() -> new java.util.NoSuchElementException("댓글을 찾을 수 없습니다: " + commentId));
     }
 
+    private CheerPost findPostByIdForInteractionWrite(Long postId) {
+        return postRepo.findByIdForInteractionWrite(Objects.requireNonNull(postId))
+                .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
+    }
+
     private CheerPost resolveActionTargetPost(Long postId) {
         CheerPost target = postService.findPostById(postId);
         return resolveActionTargetPost(target);
@@ -511,9 +514,11 @@ public class CheerInteractionService {
         builder.append('[').append(key).append("] ").append(value.trim());
     }
 
-    private int readLikeCount(Long postId) {
-        Integer count = postRepo.findLikeCountById(postId);
-        return count == null ? 0 : count;
+    private int reconcileLikeCount(Long postId) {
+        entityManager.flush();
+        int exactCount = Math.toIntExact(likeRepo.countByPostId(postId));
+        postRepo.setExactLikeCount(postId, exactCount);
+        return exactCount;
     }
 
     private int readCommentLikeCount(Long commentId) {

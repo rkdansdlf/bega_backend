@@ -32,6 +32,7 @@ import com.example.admin.dto.AdminSeatViewDto;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.leaderboard.dto.SeatViewRewardDto;
 import com.example.leaderboard.service.ScoringService;
+import com.example.media.support.ByteArrayMultipartFile;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -62,38 +63,32 @@ public class SeatViewService {
         BegaDiary diary = diaryRepository.findById(diaryId)
                 .orElseThrow(() -> new IllegalArgumentException("다이어리를 찾을 수 없습니다."));
 
-        List<SeatViewPhoto> savedCandidates = new ArrayList<>();
-        for (int index = 0; index < images.size(); index++) {
-            MultipartFile image = images.get(index);
-            String storagePath = storagePaths.get(index);
-            SourceType sourceType = resolveSourceType(sourceTypes, index);
+        return createCandidatesInternal(diary, userId, images, storagePaths, sourceTypes);
+    }
 
-            SeatViewPhoto candidate = SeatViewPhoto.builder()
-                    .diary(diary)
-                    .userId(userId)
-                    .storagePath(storagePath)
-                    .sourceType(sourceType)
-                    .userSelected(false)
-                    .rewardGranted(false)
-                    .build();
-
-            if (sourceType == SourceType.TICKET_SCAN) {
-                candidate.updateSuggestion(ClassificationLabel.TICKET, 1.0d, "티켓 스캔 이미지로 업로드되었습니다.");
-            } else {
-                try {
-                    var classification = seatViewClassificationService.classify(image);
-                    ClassificationLabel label = parseClassificationLabel(classification.getLabel());
-                    candidate.updateSuggestion(label, classification.getConfidence(), classification.getReason());
-                } catch (Exception ex) {
-                    log.warn("Seat-view AI classification skipped for diaryId={} path={} cause={}",
-                            diaryId, storagePath, ex.getMessage());
-                }
-            }
-
-            savedCandidates.add(seatViewPhotoRepository.save(candidate));
+    @Transactional
+    public List<SeatViewCandidateDto> createCandidatesFromStoragePaths(
+            Long diaryId,
+            Long userId,
+            List<String> storagePaths,
+            List<SourceType> sourceTypes) {
+        if (storagePaths == null || storagePaths.isEmpty()) {
+            return List.of();
         }
 
-        return toCandidateDtos(savedCandidates);
+        BegaDiary diary = diaryRepository.findById(diaryId)
+                .orElseThrow(() -> new IllegalArgumentException("다이어리를 찾을 수 없습니다."));
+
+        List<MultipartFile> images = new ArrayList<>(storagePaths.size());
+        for (String storagePath : storagePaths) {
+            byte[] bytes = imageService.downloadDiaryImageBytes(storagePath);
+            String filename = storagePath != null && storagePath.contains("/")
+                    ? storagePath.substring(storagePath.lastIndexOf('/') + 1)
+                    : "seat-view.jpg";
+            images.add(new ByteArrayMultipartFile(filename, "image/jpeg", bytes));
+        }
+
+        return createCandidatesInternal(diary, userId, images, storagePaths, sourceTypes);
     }
 
     @Transactional
@@ -364,6 +359,46 @@ public class SeatViewService {
             return SourceType.DIARY_UPLOAD;
         }
         return sourceTypes.get(index);
+    }
+
+    private List<SeatViewCandidateDto> createCandidatesInternal(
+            BegaDiary diary,
+            Long userId,
+            List<MultipartFile> images,
+            List<String> storagePaths,
+            List<SourceType> sourceTypes) {
+        List<SeatViewPhoto> savedCandidates = new ArrayList<>();
+        for (int index = 0; index < images.size(); index++) {
+            MultipartFile image = images.get(index);
+            String storagePath = storagePaths.get(index);
+            SourceType sourceType = resolveSourceType(sourceTypes, index);
+
+            SeatViewPhoto candidate = SeatViewPhoto.builder()
+                    .diary(diary)
+                    .userId(userId)
+                    .storagePath(storagePath)
+                    .sourceType(sourceType)
+                    .userSelected(false)
+                    .rewardGranted(false)
+                    .build();
+
+            if (sourceType == SourceType.TICKET_SCAN) {
+                candidate.updateSuggestion(ClassificationLabel.TICKET, 1.0d, "티켓 스캔 이미지로 업로드되었습니다.");
+            } else {
+                try {
+                    var classification = seatViewClassificationService.classify(image);
+                    ClassificationLabel label = parseClassificationLabel(classification.getLabel());
+                    candidate.updateSuggestion(label, classification.getConfidence(), classification.getReason());
+                } catch (Exception ex) {
+                    log.warn("Seat-view AI classification skipped for diaryId={} path={} cause={}",
+                            diary.getId(), storagePath, ex.getMessage());
+                }
+            }
+
+            savedCandidates.add(seatViewPhotoRepository.save(candidate));
+        }
+
+        return toCandidateDtos(savedCandidates);
     }
 
     private ClassificationLabel parseClassificationLabel(String value) {

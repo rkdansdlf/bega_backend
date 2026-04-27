@@ -254,16 +254,18 @@ public class CheerCommentService {
         CheerComment comment = findCommentById(commentId);
         permissionValidator.validateOwnerOrAdmin(author, comment.getAuthor(), "댓글 삭제");
 
-        CheerPost post = comment.getPost();
+        Long postId = Objects.requireNonNull(comment.getPost().getId());
         try {
             commentRepo.delete(comment);
 
             // 실제 DB에서 댓글 수 재계산 후 원자적 UPDATE (Lost Update 방지)
-            Long actualCount = commentRepo.countByPostId(Objects.requireNonNull(post.getId()).longValue());
+            Long actualCount = commentRepo.countByPostId(postId);
             int newCount = actualCount != null ? actualCount.intValue() : 0;
-            postRepo.setExactCommentCount(post.getId(), newCount);
-            post.setCommentCount(newCount);
-            postService.updateHotScore(post);
+            postRepo.setExactCommentCount(postId, newCount);
+
+            CheerPost managedPost = postService.findPostById(postId);
+            managedPost.setCommentCount(newCount);
+            postService.updateHotScore(managedPost);
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 ensureAuthorRecordStillExists(author);

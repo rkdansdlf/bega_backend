@@ -1,5 +1,8 @@
 package com.example.prediction;
 
+import com.example.common.config.CacheConfig;
+import com.example.common.exception.ConflictBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 import com.example.kbo.repository.CanonicalAdjacentGameDatesProjection;
 import com.example.kbo.repository.CanonicalGameDateBoundsProjection;
 import com.example.kbo.repository.GameDetailHeaderProjection;
@@ -11,19 +14,28 @@ import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.GameInningScoreRepository;
 import com.example.kbo.repository.GameMetadataRepository;
 import com.example.kbo.repository.MatchRangeProjection;
+import com.example.kbo.repository.PredictionStatsGameProjection;
 import com.example.kbo.repository.GameSummaryRepository;
 import com.example.kbo.service.LeagueStageResolver;
+import com.example.kbo.validation.BaseballDataIntegrityGuard;
 import com.example.kbo.util.GameStatusResolver;
 import com.example.kbo.util.KboTeamCodePolicy;
 import com.example.kbo.util.TeamCodeResolver;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -38,7 +50,6 @@ import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class PredictionService {
 
@@ -50,6 +61,9 @@ public class PredictionService {
     private final VoteFinalResultRepository voteFinalResultRepository;
     private final com.example.auth.repository.UserRepository userRepository;
     private final LeagueStageResolver leagueStageResolver;
+    private final BaseballDataIntegrityGuard baseballDataIntegrityGuard;
+    private final CacheManager cacheManager;
+    private final PlatformTransactionManager transactionManager;
     private static final Set<String> BLOCKED_VOTE_STATUSES = Set.of(
             "COMPLETED",
             "CANCELLED",
@@ -67,6 +81,32 @@ public class PredictionService {
             .collect(Collectors.toList());
     private static final int MAX_VOTE_RETRY_ATTEMPTS = 2;
     private static final long MAX_SNAPSHOT_SYNC_RANGE_DAYS = 31;
+    private static final String MATCH_NOT_FOUND_CODE = "MATCH_NOT_FOUND";
+
+    public PredictionService(
+            PredictionRepository predictionRepository,
+            GameRepository gameRepository,
+            GameMetadataRepository gameMetadataRepository,
+            GameInningScoreRepository gameInningScoreRepository,
+            GameSummaryRepository gameSummaryRepository,
+            VoteFinalResultRepository voteFinalResultRepository,
+            com.example.auth.repository.UserRepository userRepository,
+            LeagueStageResolver leagueStageResolver,
+            BaseballDataIntegrityGuard baseballDataIntegrityGuard,
+            CacheManager cacheManager,
+            @Qualifier("transactionManager") PlatformTransactionManager transactionManager) {
+        this.predictionRepository = predictionRepository;
+        this.gameRepository = gameRepository;
+        this.gameMetadataRepository = gameMetadataRepository;
+        this.gameInningScoreRepository = gameInningScoreRepository;
+        this.gameSummaryRepository = gameSummaryRepository;
+        this.voteFinalResultRepository = voteFinalResultRepository;
+        this.userRepository = userRepository;
+        this.leagueStageResolver = leagueStageResolver;
+        this.baseballDataIntegrityGuard = baseballDataIntegrityGuard;
+        this.cacheManager = cacheManager;
+        this.transactionManager = transactionManager;
+    }
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<MatchDto> getRecentCompletedGames() {
@@ -81,9 +121,19 @@ public class PredictionService {
             return List.of();
         }
 
+        for (LocalDate recentDate : recentDates) {
+            baseballDataIntegrityGuard.ensurePredictionDateMatches(
+                    "prediction.past_games",
+                    recentDate,
+                    gameRepository.findCanonicalRangeProjectionByGameDate(
+                            recentDate,
+                            QUERYABLE_TEAM_CODES));
+        }
+
         List<MatchRangeProjection> matches = gameRepository.findCanonicalCompletedRangeProjectionByGameDates(
                 recentDates,
                 QUERYABLE_TEAM_CODES);
+        baseballDataIntegrityGuard.ensurePredictionRangeMatches("prediction.past_games", matches);
 
         return Objects.requireNonNull(matches.stream()
                 .map(this::toMatchDto)
@@ -96,6 +146,7 @@ public class PredictionService {
         List<MatchRangeProjection> matches = gameRepository.findCanonicalRangeProjectionByGameDate(
                 date,
                 QUERYABLE_TEAM_CODES);
+        baseballDataIntegrityGuard.ensurePredictionDateMatches("prediction.matches_by_date", date, matches);
 
         return Objects.requireNonNull(matches.stream()
                 .map(this::toMatchDto)
@@ -140,6 +191,7 @@ public class PredictionService {
                 includePast,
                 page,
                 pageSize);
+        baseballDataIntegrityGuard.ensurePredictionRangeMatches("prediction.matches_by_range", matches);
 
         return Objects.requireNonNull(matches.stream()
                 .map(this::toMatchDto)
@@ -160,6 +212,9 @@ public class PredictionService {
                 includePast,
                 page,
                 pageSize);
+        baseballDataIntegrityGuard.ensurePredictionRangeMatches(
+                "prediction.matches_by_range",
+                matches.getContent());
 
         return new MatchRangePageResponseDto(
                 matches.getContent().stream()
@@ -414,11 +469,21 @@ public class PredictionService {
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public GameDetailDto getGameDetail(String gameId) {
+        baseballDataIntegrityGuard.requireValidGame("prediction.game_detail", gameId);
         GameDetailHeaderProjection detailHeader = gameRepository.findGameDetailHeaderByGameId(gameId)
-                .orElseThrow(() -> new IllegalArgumentException("경기 정보를 찾을 수 없습니다."));
+                .orElseThrow(() -> new NotFoundBusinessException(
+                        MATCH_NOT_FOUND_CODE,
+                        "경기 정보를 찾을 수 없습니다."));
 
-        List<GameInningScoreEntity> inningScores = gameInningScoreRepository
+        List<GameInningScoreEntity> rawInningScores = gameInningScoreRepository
                 .findAllByGameIdOrderByInningAscTeamSideAsc(gameId);
+        List<GameInningScoreEntity> inningScores = filterMeaningfulInningScores(
+                gameId,
+                rawInningScores,
+                detailHeader.getHomeScore(),
+                detailHeader.getAwayScore(),
+                "game_detail"
+        );
 
         List<GameSummaryEntity> summaries = gameSummaryRepository
                 .findAllByGameIdOrderBySummaryTypeAscIdAsc(gameId);
@@ -430,6 +495,7 @@ public class PredictionService {
     public int upsertInningScores(String gameId, List<GameInningScoreRequestDto> scores) {
         GameEntity game = gameRepository.findByGameId(gameId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 경기입니다: " + gameId));
+        validateInningScoreRequests(scores);
 
         gameInningScoreRepository.deleteAllByGameId(gameId);
 
@@ -440,7 +506,7 @@ public class PredictionService {
                         .teamSide(dto.getTeamSide())
                         .teamCode(dto.getTeamCode())
                         .runs(dto.getRuns())
-                        .isExtra(dto.getIsExtra())
+                        .isExtra(GameInningScoreSupport.normalizeIsExtraFlag(dto.getInning(), dto.getIsExtra()))
                         .createdAt(LocalDateTime.now())
                         .updatedAt(LocalDateTime.now())
                         .build())
@@ -456,26 +522,41 @@ public class PredictionService {
     public GameScoreSyncResultDto syncGameSnapshot(String gameId) {
         GameEntity game = gameRepository.findByGameId(gameId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 경기입니다: " + gameId));
-        List<GameInningScoreEntity> inningScores = gameInningScoreRepository
+        List<GameInningScoreEntity> rawInningScores = gameInningScoreRepository
                 .findAllByGameIdOrderByInningAscTeamSideAsc(gameId);
+        List<GameInningScoreEntity> inningScores = filterMeaningfulInningScores(
+                gameId,
+                rawInningScores,
+                game.getHomeScore(),
+                game.getAwayScore(),
+                "sync_snapshot"
+        );
 
         boolean usedInningScores = !inningScores.isEmpty();
-        Integer homeScore = usedInningScores
-                ? inningScores.stream()
-                .filter(score -> "home".equalsIgnoreCase(score.getTeamSide()))
-                .mapToInt(score -> score.getRuns() == null ? 0 : score.getRuns())
-                .sum()
-                : game.getHomeScore();
-        Integer awayScore = usedInningScores
-                ? inningScores.stream()
-                .filter(score -> "away".equalsIgnoreCase(score.getTeamSide()))
-                .mapToInt(score -> score.getRuns() == null ? 0 : score.getRuns())
-                .sum()
-                : game.getAwayScore();
+        Integer homeScore;
+        if (usedInningScores) {
+            homeScore = inningScores.stream()
+                    .filter(score -> "home".equalsIgnoreCase(score.getTeamSide()))
+                    .mapToInt(score -> score.getRuns() == null ? 0 : score.getRuns())
+                    .sum();
+        } else {
+            homeScore = game.getHomeScore();
+        }
+
+        Integer awayScore;
+        if (usedInningScores) {
+            awayScore = inningScores.stream()
+                    .filter(score -> "away".equalsIgnoreCase(score.getTeamSide()))
+                    .mapToInt(score -> score.getRuns() == null ? 0 : score.getRuns())
+                    .sum();
+        } else {
+            awayScore = game.getAwayScore();
+        }
 
         boolean canSync = homeScore != null && awayScore != null;
         if (canSync) {
             applyGameScoreSnapshot(game, homeScore, awayScore);
+            gameRepository.saveAndFlush(game);
         }
 
         return new GameScoreSyncResultDto(
@@ -519,17 +600,32 @@ public class PredictionService {
         validateSnapshotDateRange(startDate, endDate);
 
         List<GameEntity> games = gameRepository.findAllByDateRange(startDate, endDate);
-        List<GameStatusMismatchDto> mismatches = games.stream()
-                .map(this::buildStatusMismatch)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+        List<GameStatusMismatchDto> mismatches = new ArrayList<>();
+        List<NonCanonicalGameDto> nonCanonicalGames = new ArrayList<>();
+
+        for (GameEntity game : games) {
+            if (!isCanonicalGame(game)) {
+                NonCanonicalGameDto nonCanonicalGame = buildNonCanonicalGame(game);
+                if (nonCanonicalGame != null) {
+                    nonCanonicalGames.add(nonCanonicalGame);
+                }
+                continue;
+            }
+
+            GameStatusMismatchDto mismatch = buildStatusMismatch(game);
+            if (mismatch != null) {
+                mismatches.add(mismatch);
+            }
+        }
 
         return new GameStatusMismatchBatchResultDto(
                 startDate,
                 endDate,
                 games.size(),
                 mismatches.size(),
-                mismatches
+                mismatches,
+                nonCanonicalGames.size(),
+                nonCanonicalGames
         );
     }
 
@@ -555,7 +651,35 @@ public class PredictionService {
                 mismatchBatch.mismatchCount(),
                 repairedGames.size(),
                 mismatchBatch.mismatches(),
-                repairedGames
+                repairedGames,
+                mismatchBatch.nonCanonicalCount(),
+                mismatchBatch.nonCanonicalGames()
+        );
+    }
+
+    private NonCanonicalGameDto buildNonCanonicalGame(GameEntity game) {
+        if (game == null || game.getGameId() == null) {
+            return null;
+        }
+
+        List<String> reasons = new ArrayList<>();
+        if (!KboTeamCodePolicy.isCanonicalTeamCode(game.getHomeTeam())) {
+            reasons.add("non_canonical_home_team");
+        }
+        if (!KboTeamCodePolicy.isCanonicalTeamCode(game.getAwayTeam())) {
+            reasons.add("non_canonical_away_team");
+        }
+
+        return new NonCanonicalGameDto(
+                game.getGameId(),
+                game.getGameDate(),
+                resolveGameStartTime(game),
+                game.getGameStatus(),
+                game.getHomeTeam(),
+                game.getAwayTeam(),
+                game.getHomeScore(),
+                game.getAwayScore(),
+                reasons
         );
     }
 
@@ -565,8 +689,15 @@ public class PredictionService {
         }
 
         LocalTime startTime = resolveGameStartTime(game);
-        List<GameInningScoreEntity> inningScores = gameInningScoreRepository
+        List<GameInningScoreEntity> rawInningScores = gameInningScoreRepository
                 .findAllByGameIdOrderByInningAscTeamSideAsc(game.getGameId());
+        List<GameInningScoreEntity> inningScores = filterMeaningfulInningScores(
+                game.getGameId(),
+                rawInningScores,
+                game.getHomeScore(),
+                game.getAwayScore(),
+                "status_mismatch"
+        );
         boolean hasKnownScore = game.getHomeScore() != null && game.getAwayScore() != null;
         boolean hasInningScores = !inningScores.isEmpty();
         String normalizedRawStatus = GameStatusResolver.resolveEffectiveStatus(
@@ -632,15 +763,18 @@ public class PredictionService {
         }
 
         int homeScore = scores.stream()
+                .filter(score -> score != null && score.getRuns() != null)
                 .filter(score -> "home".equalsIgnoreCase(score.getTeamSide()))
-                .mapToInt(score -> score.getRuns() == null ? 0 : score.getRuns())
+                .mapToInt(GameInningScoreRequestDto::getRuns)
                 .sum();
         int awayScore = scores.stream()
+                .filter(score -> score != null && score.getRuns() != null)
                 .filter(score -> "away".equalsIgnoreCase(score.getTeamSide()))
-                .mapToInt(score -> score.getRuns() == null ? 0 : score.getRuns())
+                .mapToInt(GameInningScoreRequestDto::getRuns)
                 .sum();
 
         applyGameScoreSnapshot(game, homeScore, awayScore);
+        gameRepository.saveAndFlush(game);
     }
 
     private void applyGameScoreSnapshot(GameEntity game, int homeScore, int awayScore) {
@@ -675,7 +809,47 @@ public class PredictionService {
                 .orElse(null);
     }
 
-    @Transactional(transactionManager = "transactionManager")
+    private List<GameInningScoreEntity> filterMeaningfulInningScores(
+            String gameId,
+            List<GameInningScoreEntity> inningScores,
+            Integer homeScore,
+            Integer awayScore,
+            String context
+    ) {
+        List<GameInningScoreEntity> meaningfulScores = GameInningScoreSupport.normalizeMeaningful(
+                inningScores,
+                homeScore,
+                awayScore
+        );
+        int rawCount = inningScores == null ? 0 : inningScores.size();
+        int filteredCount = Math.max(0, rawCount - meaningfulScores.size());
+
+        if (filteredCount > 0) {
+            log.warn(
+                    "prediction.inning_scores.filtered context={} gameId={} rawCount={} meaningfulCount={} filteredCount={}",
+                    context,
+                    gameId,
+                    rawCount,
+                    meaningfulScores.size(),
+                    filteredCount
+            );
+        }
+
+        return meaningfulScores;
+    }
+
+    private void validateInningScoreRequests(List<GameInningScoreRequestDto> scores) {
+        if (scores == null || scores.isEmpty()) {
+            return;
+        }
+
+        boolean hasPlaceholderRow = scores.stream()
+                .anyMatch(score -> score != null && score.getRuns() == null);
+        if (hasPlaceholderRow) {
+            throw new IllegalArgumentException("득점 정보가 없는 이닝은 저장할 수 없습니다.");
+        }
+    }
+
     public void vote(Long userId, PredictionRequestDto request) {
         String gameId = normalizeGameId(request == null ? null : request.getGameId());
         String votedTeam = normalizeVotedTeam(request == null ? null : request.getVotedTeam());
@@ -685,49 +859,7 @@ public class PredictionService {
             attempt++;
 
             try {
-                GameEntity game = gameRepository.findByGameId(gameId)
-                        .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 경기입니다."));
-
-                if (!isCanonicalGame(game)) {
-                    throw new IllegalArgumentException("예측 대상이 아닌 경기입니다.");
-                }
-
-                validateVoteOpen(game);
-
-                com.example.auth.entity.UserEntity user = userRepository.findByIdForWrite(userId)
-                        .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다."));
-
-                Optional<Prediction> existing = predictionRepository
-                        .findByGameIdAndUserIdForWrite(gameId, userId);
-
-                if (existing.isPresent()) {
-                    Prediction prediction = existing.get();
-
-                    if (prediction.getVotedTeam().equals(votedTeam)) {
-                        if (attempt > 1) {
-                            return;
-                        }
-
-                        predictionRepository.delete(prediction);
-                        return;
-                    }
-
-                    prediction.updateVotedTeam(votedTeam);
-                    return;
-                }
-
-                if (user.getCheerPoints() == null || user.getCheerPoints() < 1) {
-                    throw new IllegalArgumentException(
-                            "응원 포인트가 부족합니다. (현재: " + (user.getCheerPoints() == null ? 0 : user.getCheerPoints()) + ")");
-                }
-
-                user.deductCheerPoints(1);
-
-                predictionRepository.saveAndFlush(Prediction.builder()
-                        .gameId(gameId)
-                        .userId(userId)
-                        .votedTeam(votedTeam)
-                        .build());
+                executeVoteAttempt(userId, gameId, votedTeam);
                 return;
             } catch (DataIntegrityViolationException ex) {
                 if (!isRetryableVoteConflict(ex)) {
@@ -749,7 +881,9 @@ public class PredictionService {
                             gameId,
                             attempt
                     );
-                    throw new IllegalStateException("예측 처리 중 중복 요청이 충돌했습니다. 잠시 후 다시 시도해주세요.");
+                    throw new ConflictBusinessException(
+                            "PREDICTION_VOTE_CONFLICT",
+                            "예측 처리 중 중복 요청이 충돌했습니다. 잠시 후 다시 시도해주세요.");
                 }
             }
         }
@@ -757,7 +891,13 @@ public class PredictionService {
 
     @Transactional(readOnly = true, transactionManager = "transactionManager")
     public PredictionResponseDto getVoteStatus(String gameId) {
-        Optional<VoteFinalResult> finalResult = voteFinalResultRepository.findById(gameId);
+        String normalizedGameId = normalizeGameId(gameId);
+        PredictionResponseDto cachedResponse = getCachedVoteStatus(normalizedGameId);
+        if (cachedResponse != null) {
+            return cachedResponse;
+        }
+
+        Optional<VoteFinalResult> finalResult = voteFinalResultRepository.findById(normalizedGameId);
 
         if (finalResult.isPresent()) {
             VoteFinalResult result = finalResult.get();
@@ -769,17 +909,19 @@ public class PredictionService {
             int homePercentage = totalVotes > 0 ? (int) Math.round((finalVotesA * 100.0) / totalVotes) : 0;
             int awayPercentage = totalVotes > 0 ? (int) Math.round((finalVotesB * 100.0) / totalVotes) : 0;
 
-            return Objects.requireNonNull(PredictionResponseDto.builder()
-                    .gameId(gameId)
+            PredictionResponseDto response = Objects.requireNonNull(PredictionResponseDto.builder()
+                    .gameId(normalizedGameId)
                     .homeVotes((long) finalVotesA)
                     .awayVotes((long) finalVotesB)
                     .totalVotes((long) totalVotes)
                     .homePercentage(homePercentage)
                     .awayPercentage(awayPercentage)
                     .build());
+            cacheVoteStatus(normalizedGameId, response);
+            return response;
         }
 
-        PredictionVoteCountsProjection voteCounts = predictionRepository.findVoteCountsByGameId(gameId);
+        PredictionVoteCountsProjection voteCounts = predictionRepository.findVoteCountsByGameId(normalizedGameId);
         Long homeVotes = voteCounts != null && voteCounts.getHomeVotes() != null ? voteCounts.getHomeVotes() : 0L;
         Long awayVotes = voteCounts != null && voteCounts.getAwayVotes() != null ? voteCounts.getAwayVotes() : 0L;
         Long totalVotes = homeVotes + awayVotes;
@@ -787,14 +929,16 @@ public class PredictionService {
         int homePercentage = totalVotes > 0 ? (int) Math.round((homeVotes * 100.0) / totalVotes) : 0;
         int awayPercentage = totalVotes > 0 ? (int) Math.round((awayVotes * 100.0) / totalVotes) : 0;
 
-        return Objects.requireNonNull(PredictionResponseDto.builder()
-                .gameId(gameId)
+        PredictionResponseDto response = Objects.requireNonNull(PredictionResponseDto.builder()
+                .gameId(normalizedGameId)
                 .homeVotes(homeVotes)
                 .awayVotes(awayVotes)
                 .totalVotes(totalVotes)
                 .homePercentage(homePercentage)
                 .awayPercentage(awayPercentage)
                 .build());
+        cacheVoteStatus(normalizedGameId, response);
+        return response;
     }
 
     private boolean isCanonicalGame(GameEntity game) {
@@ -821,6 +965,57 @@ public class PredictionService {
         // 포인트 반환 없음 (No Refund Policy)
 
         predictionRepository.delete(prediction);
+        evictVoteStatusCacheAfterCommit(normalizedGameId);
+    }
+
+    private void executeVoteAttempt(Long userId, String gameId, String votedTeam) {
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        transactionTemplate.executeWithoutResult(status -> executeVoteAttemptInTransaction(userId, gameId, votedTeam));
+    }
+
+    private void executeVoteAttemptInTransaction(Long userId, String gameId, String votedTeam) {
+        GameEntity game = gameRepository.findByGameId(gameId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 경기입니다."));
+
+        if (!isCanonicalGame(game)) {
+            throw new IllegalArgumentException("예측 대상이 아닌 경기입니다.");
+        }
+
+        validateVoteOpen(game);
+
+        Optional<Prediction> existing = predictionRepository
+                .findByGameIdAndUserIdForWrite(gameId, userId);
+
+        if (existing.isPresent()) {
+            Prediction prediction = existing.get();
+
+            if (prediction.getVotedTeam().equals(votedTeam)) {
+                evictVoteStatusCacheAfterCommit(gameId);
+                return;
+            }
+
+            prediction.updateVotedTeam(votedTeam);
+            evictVoteStatusCacheAfterCommit(gameId);
+            return;
+        }
+
+        com.example.auth.entity.UserEntity user = userRepository.findByIdForWrite(userId)
+                .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다."));
+
+        if (user.getCheerPoints() == null || user.getCheerPoints() < 1) {
+            throw new IllegalArgumentException(
+                    "응원 포인트가 부족합니다. (현재: " + (user.getCheerPoints() == null ? 0 : user.getCheerPoints()) + ")");
+        }
+
+        user.deductCheerPoints(1);
+
+        predictionRepository.saveAndFlush(Prediction.builder()
+                .gameId(gameId)
+                .userId(userId)
+                .votedTeam(votedTeam)
+                .build());
+        evictVoteStatusCacheAfterCommit(gameId);
     }
 
     @Transactional(transactionManager = "transactionManager")
@@ -854,6 +1049,95 @@ public class PredictionService {
                 .build();
 
         voteFinalResultRepository.save(finalResult);
+        evictVoteStatusCacheAfterCommit(gameId);
+    }
+
+    private PredictionResponseDto getCachedVoteStatus(String gameId) {
+        Cache cache = cacheManager.getCache(CacheConfig.PREDICTION_VOTE_STATUS);
+        if (cache == null) {
+            return null;
+        }
+        try {
+            Cache.ValueWrapper wrapper = cache.get(gameId);
+            Object value = wrapper == null ? null : wrapper.get();
+            if (value instanceof PredictionVoteStatusCacheEntry entry) {
+                return entry.toResponseDto();
+            }
+            if (value != null) {
+                log.warn("예측 투표 상태 캐시 payload 타입이 올바르지 않아 무효화합니다: gameId={}, actualType={}",
+                        gameId, value.getClass().getName());
+                safeEvictCacheEntry(cache, gameId, CacheConfig.PREDICTION_VOTE_STATUS);
+            }
+            return null;
+        } catch (RuntimeException e) {
+            log.warn("예측 투표 상태 캐시 조회 실패. 캐시를 비우고 DB fallback으로 전환합니다: gameId={}, reason={}",
+                    gameId, summarizeCacheFailure(e));
+            safeEvictCacheEntry(cache, gameId, CacheConfig.PREDICTION_VOTE_STATUS);
+            return null;
+        }
+    }
+
+    private void cacheVoteStatus(String gameId, PredictionResponseDto response) {
+        Cache cache = cacheManager.getCache(CacheConfig.PREDICTION_VOTE_STATUS);
+        if (cache != null && response != null) {
+            try {
+                cache.put(gameId, PredictionVoteStatusCacheEntry.from(response));
+            } catch (RuntimeException e) {
+                log.warn("예측 투표 상태 캐시 저장 실패. 응답은 계속 진행합니다: gameId={}, reason={}",
+                        gameId, summarizeCacheFailure(e));
+                safeEvictCacheEntry(cache, gameId, CacheConfig.PREDICTION_VOTE_STATUS);
+            }
+        }
+    }
+
+    private void evictVoteStatusCacheAfterCommit(String gameId) {
+        String normalizedGameId = normalizeGameId(gameId);
+        Cache cache = cacheManager.getCache(CacheConfig.PREDICTION_VOTE_STATUS);
+        if (cache == null) {
+            return;
+        }
+
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    cache.evict(normalizedGameId);
+                }
+            });
+            return;
+        }
+
+        cache.evict(normalizedGameId);
+    }
+
+    private String summarizeCacheFailure(RuntimeException exception) {
+        Throwable rootCause = exception;
+        while (rootCause.getCause() != null) {
+            rootCause = rootCause.getCause();
+        }
+
+        String message = rootCause.getMessage();
+        if (message == null || message.isBlank()) {
+            message = rootCause.getClass().getSimpleName();
+        }
+
+        String normalized = message.replaceAll("\\s+", " ").trim();
+        if (normalized.length() > 220) {
+            return normalized.substring(0, 220) + "...";
+        }
+        return normalized;
+    }
+
+    private void safeEvictCacheEntry(Cache cache, Object key, String cacheName) {
+        if (cache == null || key == null) {
+            return;
+        }
+        try {
+            cache.evict(key);
+        } catch (RuntimeException e) {
+            log.warn("캐시 엔트리 무효화 실패: cache={}, key={}, reason={}",
+                    cacheName, key, summarizeCacheFailure(e));
+        }
     }
 
     private void validateVoteOpen(GameEntity game) {
@@ -916,44 +1200,53 @@ public class PredictionService {
 
     @Transactional(readOnly = true, transactionManager = "transactionManager")
     public UserPredictionStatsDto getUserStats(Long userId) {
-        List<Prediction> predictions = predictionRepository
-                .findAllByUserIdOrderByCreatedAtDesc(java.util.Objects.requireNonNull(userId));
+        List<PredictionStatsRowProjection> predictions = predictionRepository
+                .findStatsRowsByUserIdOrderByCreatedAtDesc(java.util.Objects.requireNonNull(userId));
+        if (predictions.isEmpty()) {
+            return Objects.requireNonNull(
+                    UserPredictionStatsDto.builder()
+                            .totalPredictions(0)
+                            .correctPredictions(0)
+                            .accuracy(0.0)
+                            .streak(0)
+                            .build());
+        }
+
         List<String> gameIds = predictions.stream()
-                .map(Prediction::getGameId)
+                .map(PredictionStatsRowProjection::getGameId)
                 .filter(Objects::nonNull)
                 .distinct()
                 .collect(Collectors.toList());
-        List<GameEntity> loadedGames = gameIds.isEmpty() ? List.of() : gameRepository.findByGameIdIn(gameIds);
-        Map<String, GameEntity> gamesById = loadedGames
+
+        List<PredictionStatsGameProjection> loadedGames = gameIds.isEmpty()
+                ? List.of()
+                : gameRepository.findPredictionStatsGameSummaries(gameIds, QUERYABLE_TEAM_CODES);
+        Map<String, String> winnerByGameId = loadedGames
                 .stream()
-                .collect(Collectors.toMap(GameEntity::getGameId, game -> game));
+                .collect(Collectors.toMap(PredictionStatsGameProjection::getGameId, PredictionStatsGameProjection::getWinner));
 
         int totalFinished = 0;
         int correctCount = 0;
         int currentStreak = 0;
         boolean streakBroken = false;
 
-        for (Prediction prediction : predictions) {
-            GameEntity game = gamesById.get(prediction.getGameId());
-            if (game == null || !isCanonicalGame(game)) {
+        for (PredictionStatsRowProjection prediction : predictions) {
+            String actualWinner = winnerByGameId.get(prediction.getGameId());
+            if (actualWinner == null) {
                 continue;
             }
-            if (game.isFinished()) {
-                totalFinished++;
-                String actualWinner = game.getWinner(); // "home", "away", or "draw"
-                boolean isCorrect = prediction.getVotedTeam().equalsIgnoreCase(actualWinner);
 
-                if (isCorrect) {
-                    correctCount++;
-                    if (!streakBroken) {
-                        currentStreak++;
-                    }
-                } else {
-                    // 결과가 나왔는데 틀린 경우 streak 종료
-                    streakBroken = true;
+            totalFinished++;
+            boolean isCorrect = prediction.getVotedTeam().equalsIgnoreCase(actualWinner);
+
+            if (isCorrect) {
+                correctCount++;
+                if (!streakBroken) {
+                    currentStreak++;
                 }
+            } else {
+                streakBroken = true;
             }
-            // 경기가 아직 안 끝났으면 streak 계산에는 영향을 주지 않고 건너뜀 (최신순이므로)
         }
 
         double accuracy = totalFinished > 0 ? Math.round((correctCount * 100.0 / totalFinished) * 10.0) / 10.0 : 0.0;

@@ -1,4 +1,4 @@
--- V128: Normalize users.handle values to lowercase canonical form.
+-- V128_5: Normalize users.handle values to lowercase canonical form.
 -- Fail fast if case-insensitive duplicates already exist so they can be resolved manually.
 
 DECLARE
@@ -15,7 +15,7 @@ BEGIN
       );
 
     IF v_conflict_count > 0 THEN
-        RAISE_APPLICATION_ERROR(-20003, 'Cannot apply V128: lowercase handle collisions already exist.');
+        RAISE_APPLICATION_ERROR(-20003, 'Cannot apply V128_5: lowercase handle collisions already exist.');
     END IF;
 END;
 /

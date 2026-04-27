@@ -137,6 +137,48 @@ class CheerCommentServiceTest {
         verify(commentDtoMapper).toCommentRes(root, Set.of(11L));
     }
 
+    @Test
+    @DisplayName("댓글 삭제는 post proxy 대신 재조회한 게시글로 count와 hot score를 갱신한다")
+    void deleteComment_refetchesPostBeforeUpdatingCounts() {
+        UserEntity actor = user(7L, "@actor", "Actor");
+        UserEntity author = user(8L, "@author", "Author");
+
+        CheerPost referencedPost = CheerPost.builder()
+                .id(41L)
+                .author(author)
+                .commentCount(1)
+                .build();
+
+        CheerPost managedPost = CheerPost.builder()
+                .id(41L)
+                .author(author)
+                .commentCount(1)
+                .build();
+
+        CheerComment comment = CheerComment.builder()
+                .id(21L)
+                .post(referencedPost)
+                .author(author)
+                .content("comment")
+                .build();
+
+        when(commentRepo.findById(21L)).thenReturn(java.util.Optional.of(comment));
+        when(userRepo.findByIdForWrite(7L)).thenReturn(java.util.Optional.of(actor));
+        when(userRepo.lockUsableAuthorForWrite(7L)).thenReturn(java.util.Optional.of(7L));
+        when(postService.findPostById(41L)).thenReturn(managedPost);
+        when(commentRepo.countByPostId(41L)).thenReturn(0L);
+
+        cheerCommentService.deleteComment(21L, actor);
+
+        verify(permissionValidator).validateOwnerOrAdmin(actor, author, "댓글 삭제");
+        verify(commentRepo).delete(comment);
+        verify(commentRepo).countByPostId(41L);
+        verify(postRepo).setExactCommentCount(41L, 0);
+        verify(postService).findPostById(41L);
+        verify(postService).updateHotScore(managedPost);
+        assertThat(managedPost.getCommentCount()).isEqualTo(0);
+    }
+
     private static UserEntity user(Long id, String handle, String name) {
         return UserEntity.builder()
                 .id(id)

@@ -16,7 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,7 +30,7 @@ public class AccountDeletionService {
     private final UserRepository userRepository;
     private final RefreshRepository refreshRepository;
     private final AccountDeletionTokenRepository accountDeletionTokenRepository;
-    private final BCryptPasswordEncoder bCryptPasswordEncoder;
+    private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
     private final AccountSecurityService accountSecurityService;
     private final PartyService partyService;
@@ -39,14 +39,14 @@ public class AccountDeletionService {
             UserRepository userRepository,
             RefreshRepository refreshRepository,
             AccountDeletionTokenRepository accountDeletionTokenRepository,
-            BCryptPasswordEncoder bCryptPasswordEncoder,
+            PasswordEncoder passwordEncoder,
             EmailService emailService,
             AccountSecurityService accountSecurityService,
             @Lazy PartyService partyService) {
         this.userRepository = userRepository;
         this.refreshRepository = refreshRepository;
         this.accountDeletionTokenRepository = accountDeletionTokenRepository;
-        this.bCryptPasswordEncoder = bCryptPasswordEncoder;
+        this.passwordEncoder = passwordEncoder;
         this.emailService = emailService;
         this.accountSecurityService = accountSecurityService;
         this.partyService = partyService;
@@ -69,7 +69,7 @@ public class AccountDeletionService {
             if (user.getPassword() == null) {
                 throw new BadRequestBusinessException("PASSWORD_NOT_SET", "비밀번호가 설정되어 있지 않습니다.");
             }
-            if (!bCryptPasswordEncoder.matches(password, user.getPassword())) {
+            if (!passwordEncoder.matches(password, user.getPassword())) {
                 throw new InvalidCredentialsException("비밀번호가 일치하지 않습니다.");
             }
         }

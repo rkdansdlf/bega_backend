@@ -2,6 +2,9 @@ package com.example.kbo.service;
 
 import com.example.BegaDiary.Service.BegaGameService;
 import com.example.ai.config.AiServiceSettings;
+import com.example.cheerboard.storage.config.StorageConfig;
+import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.image.ImageOptimizationMetricsService;
 import com.example.kbo.dto.TicketInfo;
 import com.example.kbo.exception.TicketAnalysisException;
 import lombok.RequiredArgsConstructor;
@@ -30,9 +33,13 @@ public class TicketAnalysisService {
     private final AiServiceSettings aiServiceSettings;
     private final WebClient.Builder webClientBuilder;
     private final BegaGameService begaGameService;
+    private final StorageConfig storageConfig;
+    private final ImageOptimizationMetricsService metricsService;
 
     public TicketInfo analyzeTicket(MultipartFile file) {
         log.info("Analyzing ticket image: {}", file.getOriginalFilename());
+        metricsService.recordRequest("ticket_analyze");
+        validateTicketImage(file);
 
         String aiServiceUrl = aiServiceSettings.getResolvedServiceUrl();
         if (!StringUtils.hasText(aiServiceUrl)) {
@@ -187,5 +194,25 @@ public class TicketAnalysisService {
         return new TicketAnalysisException(
                 HttpStatus.BAD_GATEWAY,
                 "티켓 분석 서비스 호출에 실패했습니다.");
+    }
+
+    private void validateTicketImage(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            metricsService.recordReject("ticket_analyze", "file_required");
+            throw new BadRequestBusinessException("TICKET_IMAGE_REQUIRED", "업로드할 티켓 이미지가 없습니다.");
+        }
+        if (file.getSize() > storageConfig.getMaxImageBytes()) {
+            metricsService.recordReject("ticket_analyze", "file_too_large");
+            throw new BadRequestBusinessException("TICKET_IMAGE_TOO_LARGE", "이미지 파일 크기가 너무 큽니다. (최대 5MB)");
+        }
+        String contentType = file.getContentType();
+        if (!StringUtils.hasText(contentType)
+                || (!MediaType.IMAGE_JPEG_VALUE.equals(contentType)
+                        && !MediaType.IMAGE_PNG_VALUE.equals(contentType)
+                        && "image/webp".equals(contentType) == false)) {
+            metricsService.recordReject("ticket_analyze", "invalid_type");
+            throw new BadRequestBusinessException("TICKET_IMAGE_INVALID_TYPE",
+                    "지원되지 않는 이미지 형식입니다. JPG, PNG, WEBP 파일만 가능합니다.");
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.example.auth.service;
 
 import com.example.auth.util.FrontendRedirectUtil;
+import com.example.auth.util.LogMaskingUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.jobrunr.jobs.annotations.Job;
@@ -51,21 +52,21 @@ public class EmailService {
 
     public void sendPasswordResetEmail(String toEmail, String resetToken, String redirectPath) {
         if (!mailEnabled) {
-            log.debug("Mail delivery disabled. Skipping password reset email enqueue for {}", toEmail);
+            log.debug("Mail delivery disabled. Skipping password reset email enqueue for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
         if (jobScheduler != null) {
             try {
                 jobScheduler.enqueue((EmailService emailService) ->
                         emailService.sendPasswordResetEmailJob(toEmail, resetToken, redirectPath));
-                log.info("Password reset email job enqueued for {}", toEmail);
+                log.info("Password reset email job enqueued for {}", LogMaskingUtil.maskEmail(toEmail));
                 return;
             } catch (RuntimeException e) {
-                log.warn("Failed to enqueue password reset email job for {}. Falling back to immediate send.", toEmail, e);
+                log.warn("Failed to enqueue password reset email job for {}. Falling back to immediate send.", LogMaskingUtil.maskEmail(toEmail), e);
             }
         }
 
-        log.warn("JobScheduler unavailable. Sending password reset email immediately for {}", toEmail);
+        log.warn("JobScheduler unavailable. Sending password reset email immediately for {}", LogMaskingUtil.maskEmail(toEmail));
         sendPasswordResetEmailJob(toEmail, resetToken, redirectPath);
     }
 
@@ -80,10 +81,10 @@ public class EmailService {
     @Job(name = "Send Password Reset Email")
     public void sendPasswordResetEmailJob(String toEmail, String resetToken, String redirectPath) {
         if (!mailEnabled) {
-            log.debug("Mail delivery disabled. Skipping password reset email job for {}", toEmail);
+            log.debug("Mail delivery disabled. Skipping password reset email job for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
-        log.info("Starting email sending to {}", toEmail);
+        log.info("Starting email sending to {}", LogMaskingUtil.maskEmail(toEmail));
         String resetLink = UriComponentsBuilder.fromUriString(frontendUrl)
                 .path("/password/reset/confirm")
                 .queryParam("token", resetToken)
@@ -108,26 +109,26 @@ public class EmailService {
 
         try {
             mailSender.send(message);
-            log.info("Email sent successfully to {}", toEmail);
+            log.info("Email sent successfully to {}", LogMaskingUtil.maskEmail(toEmail));
         } catch (Exception e) {
-            log.error("Failed to send email to {}", toEmail, e);
+            log.error("Failed to send email to {}", LogMaskingUtil.maskEmail(toEmail), e);
             throw e; // 예외 발생 시 JobRunr가 재시도(Retry) 함
         }
     }
 
     public void sendNewDeviceLoginEmail(String toEmail, String deviceLabel, String browser, String os, String ipAddress) {
         if (!mailEnabled) {
-            log.debug("Mail delivery disabled. Skipping new device login email enqueue for {}", toEmail);
+            log.debug("Mail delivery disabled. Skipping new device login email enqueue for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
         if (jobScheduler != null) {
             try {
                 jobScheduler.enqueue((EmailService emailService) ->
                         emailService.sendNewDeviceLoginEmailJob(toEmail, deviceLabel, browser, os, ipAddress));
-                log.info("New device login email job enqueued for {}", toEmail);
+                log.info("New device login email job enqueued for {}", LogMaskingUtil.maskEmail(toEmail));
                 return;
             } catch (RuntimeException e) {
-                log.warn("Failed to enqueue new device login email job for {}. Falling back to immediate send.", toEmail, e);
+                log.warn("Failed to enqueue new device login email job for {}. Falling back to immediate send.", LogMaskingUtil.maskEmail(toEmail), e);
             }
         }
 
@@ -137,7 +138,7 @@ public class EmailService {
     @Job(name = "Send New Device Login Email")
     public void sendNewDeviceLoginEmailJob(String toEmail, String deviceLabel, String browser, String os, String ipAddress) {
         if (!mailEnabled) {
-            log.debug("Mail delivery disabled. Skipping new device login email job for {}", toEmail);
+            log.debug("Mail delivery disabled. Skipping new device login email job for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
         String detectedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"))
@@ -164,9 +165,9 @@ public class EmailService {
 
         try {
             mailSender.send(message);
-            log.info("New device login email sent to {}", toEmail);
+            log.info("New device login email sent to {}", LogMaskingUtil.maskEmail(toEmail));
         } catch (Exception e) {
-            log.error("Failed to send new device login email to {}", toEmail, e);
+            log.error("Failed to send new device login email to {}", LogMaskingUtil.maskEmail(toEmail), e);
             throw e;
         }
     }
@@ -177,17 +178,17 @@ public class EmailService {
 
     public void sendAccountDeletionRecoveryEmail(String toEmail, String recoveryToken, LocalDateTime scheduledFor, String redirectPath) {
         if (!mailEnabled) {
-            log.debug("Mail delivery disabled. Skipping account deletion recovery email enqueue for {}", toEmail);
+            log.debug("Mail delivery disabled. Skipping account deletion recovery email enqueue for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
         if (jobScheduler != null) {
             try {
                 jobScheduler.enqueue((EmailService emailService) ->
                         emailService.sendAccountDeletionRecoveryEmailJob(toEmail, recoveryToken, scheduledFor, redirectPath));
-                log.info("Account deletion recovery email job enqueued for {}", toEmail);
+                log.info("Account deletion recovery email job enqueued for {}", LogMaskingUtil.maskEmail(toEmail));
                 return;
             } catch (RuntimeException e) {
-                log.warn("Failed to enqueue account deletion recovery email job for {}. Falling back to immediate send.", toEmail, e);
+                log.warn("Failed to enqueue account deletion recovery email job for {}. Falling back to immediate send.", LogMaskingUtil.maskEmail(toEmail), e);
             }
         }
 
@@ -205,7 +206,7 @@ public class EmailService {
             LocalDateTime scheduledFor,
             String redirectPath) {
         if (!mailEnabled) {
-            log.debug("Mail delivery disabled. Skipping account deletion recovery email job for {}", toEmail);
+            log.debug("Mail delivery disabled. Skipping account deletion recovery email job for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
         String recoveryLink = UriComponentsBuilder.fromUriString(frontendUrl)
@@ -240,9 +241,9 @@ public class EmailService {
 
         try {
             mailSender.send(message);
-            log.info("Account deletion recovery email sent to {}", toEmail);
+            log.info("Account deletion recovery email sent to {}", LogMaskingUtil.maskEmail(toEmail));
         } catch (Exception e) {
-            log.error("Failed to send account deletion recovery email to {}", toEmail, e);
+            log.error("Failed to send account deletion recovery email to {}", LogMaskingUtil.maskEmail(toEmail), e);
             throw e;
         }
     }

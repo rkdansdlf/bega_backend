@@ -154,7 +154,7 @@ class MateDirectTradeModeIntegrationTest {
                 "partyId", sellingParty.getId(),
                 "paymentType", "DEPOSIT",
                 "depositAmount", 10000,
-                "message", "직거래 판매 신청"));
+                "message", "직거래 판매 신청을 진행합니다."));
 
         String createdJson = mockMvc.perform(post("/api/applications")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
@@ -185,7 +185,7 @@ class MateDirectTradeModeIntegrationTest {
                 "partyId", party.getId(),
                 "paymentType", "DEPOSIT",
                 "depositAmount", 999999,
-                "message", "직거래 일반 신청"));
+                "message", "직거래 일반 신청을 진행합니다."));
 
         String createdJson = mockMvc.perform(post("/api/applications")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
@@ -216,7 +216,7 @@ class MateDirectTradeModeIntegrationTest {
                 "partyId", party.getId(),
                 "paymentType", "FULL",
                 "depositAmount", 12000,
-                "message", "FULL 요청 차단 확인"));
+                "message", "FULL 요청 차단 여부를 확인합니다."));
 
         mockMvc.perform(post("/api/applications")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
@@ -238,7 +238,7 @@ class MateDirectTradeModeIntegrationTest {
                 "partyId", party.getId(),
                 "paymentType", "DEPOSIT",
                 "depositAmount", 10000,
-                "message", "직거래 신청"));
+                "message", "직거래 신청을 생성합니다."));
         String createdJson = mockMvc.perform(post("/api/applications")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
                         .contentType("application/json")

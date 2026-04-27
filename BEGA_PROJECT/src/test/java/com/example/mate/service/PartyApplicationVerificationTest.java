@@ -135,6 +135,7 @@ class PartyApplicationVerificationTest {
 
                         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                                         .partyId(1L)
+                                        .message("함께 즐겁게 관람 신청드립니다.")
                                         .depositAmount(10000)
                                         .paymentType(PartyApplication.PaymentType.DEPOSIT)
                                         .build();
@@ -183,6 +184,7 @@ class PartyApplicationVerificationTest {
                 void shouldRejectCreateApplicationWithoutPrincipal() {
                         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                                         .partyId(1L)
+                                        .message("함께 즐겁게 관람 신청드립니다.")
                                         .depositAmount(10000)
                                         .paymentType(PartyApplication.PaymentType.DEPOSIT)
                                         .build();
@@ -213,6 +215,7 @@ class PartyApplicationVerificationTest {
 
                         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                                         .partyId(1L)
+                                        .message("함께 즐겁게 관람 신청드립니다.")
                                         .verificationToken("valid-token")
                                         .depositAmount(10000)
                                         .paymentType(PartyApplication.PaymentType.DEPOSIT)
@@ -235,6 +238,7 @@ class PartyApplicationVerificationTest {
 
                         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                                         .partyId(1L)
+                                        .message("함께 즐겁게 관람 신청드립니다.")
                                         .depositAmount(10000)
                                         .paymentType(PartyApplication.PaymentType.DEPOSIT)
                                         .build();
@@ -254,6 +258,7 @@ class PartyApplicationVerificationTest {
 
                         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                                         .partyId(1L)
+                                        .message("함께 즐겁게 관람 신청드립니다.")
                                         .depositAmount(10000)
                                         .paymentType(PartyApplication.PaymentType.DEPOSIT)
                                         .build();
@@ -273,6 +278,7 @@ class PartyApplicationVerificationTest {
 
                         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                                         .partyId(1L)
+                                        .message("함께 즐겁게 관람 신청드립니다.")
                                         .depositAmount(10000)
                                         .paymentType(PartyApplication.PaymentType.DEPOSIT)
                                         .build();
@@ -305,6 +311,7 @@ class PartyApplicationVerificationTest {
 
                         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                                         .partyId(1L)
+                                        .message("함께 즐겁게 관람 신청드립니다.")
                                         .verificationToken("kr-token")
                                         .depositAmount(10000)
                                         .paymentType(PartyApplication.PaymentType.DEPOSIT)
@@ -335,6 +342,7 @@ class PartyApplicationVerificationTest {
 
                         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                                         .partyId(1L)
+                                        .message("함께 즐겁게 관람 신청드립니다.")
                                         .verificationToken("wrong-date")
                                         .depositAmount(10000)
                                         .paymentType(PartyApplication.PaymentType.DEPOSIT)
@@ -357,6 +365,7 @@ class PartyApplicationVerificationTest {
 
                         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                                         .partyId(1L)
+                                        .message("함께 즐겁게 관람 신청드립니다.")
                                         .verificationToken("invalid-token")
                                         .depositAmount(10000)
                                         .paymentType(PartyApplication.PaymentType.DEPOSIT)

@@ -23,6 +23,7 @@ import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import com.example.dm.service.DmRoomService;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.repository.PartyApplicationRepository;
@@ -38,13 +39,16 @@ class WebSocketAuthorizationChannelInterceptorTest {
     @Mock
     private PartyApplicationRepository partyApplicationRepository;
 
+    @Mock
+    private DmRoomService dmRoomService;
+
     private WebSocketAuthorizationChannelInterceptor interceptor;
     private MessageChannel channel;
 
     @BeforeEach
     void setUp() {
         SecurityContextHolder.clearContext();
-        interceptor = new WebSocketAuthorizationChannelInterceptor(partyRepository, partyApplicationRepository);
+        interceptor = new WebSocketAuthorizationChannelInterceptor(partyRepository, partyApplicationRepository, dmRoomService);
         channel = mock(MessageChannel.class);
     }
 
@@ -96,6 +100,28 @@ class WebSocketAuthorizationChannelInterceptorTest {
         assertThatThrownBy(() -> interceptor.preSend(message, channel))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("파티 참여자");
+    }
+
+    @Test
+    @DisplayName("dm subscription should allow room participant")
+    void subscribe_dmTopic_allowsParticipant() {
+        given(dmRoomService.canSubscribe(77L, 123L)).willReturn(true);
+
+        Message<byte[]> message = message(StompCommand.SUBSCRIBE, "/topic/dm/77", principal("123"));
+
+        assertThat(interceptor.preSend(message, channel)).isSameAs(message);
+    }
+
+    @Test
+    @DisplayName("dm subscription should reject non participant")
+    void subscribe_dmTopic_rejectsNonParticipant() {
+        given(dmRoomService.canSubscribe(77L, 123L)).willReturn(false);
+
+        Message<byte[]> message = message(StompCommand.SUBSCRIBE, "/topic/dm/77", principal("123"));
+
+        assertThatThrownBy(() -> interceptor.preSend(message, channel))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("대화방 참여자");
     }
 
     @Test

@@ -8,7 +8,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.time.Duration;
+import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
@@ -18,6 +20,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -25,8 +28,8 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
 @Slf4j
 @Service
@@ -61,19 +64,17 @@ public class AiProxyService {
     }
 
     public ProxyByteResponse forwardJson(String uri, String payload) {
-        WebClient.RequestHeadersSpec<?> request = client().post()
+        return executeByteRequest(uri, internalToken -> client().post()
                 .uri(uri)
                 .contentType(MediaType.APPLICATION_JSON)
-                .headers(this::applyInternalAuth)
-                .bodyValue(payload);
-        return executeByteRequest(uri, request);
+                .headers(headers -> applyInternalAuth(headers, internalToken))
+                .bodyValue(payload));
     }
 
     public ProxyByteResponse forwardGet(String uri) {
-        WebClient.RequestHeadersSpec<?> request = client().get()
+        return executeByteRequest(uri, internalToken -> client().get()
                 .uri(uri)
-                .headers(this::applyInternalAuth);
-        return executeByteRequest(uri, request);
+                .headers(headers -> applyInternalAuth(headers, internalToken)));
     }
 
     public ProxyByteResponse forwardMultipart(String uri, MultipartFile file) {
@@ -88,59 +89,22 @@ public class AiProxyService {
                     return filename;
                 }
             });
-
-            WebClient.RequestHeadersSpec<?> request = client().post()
+            return executeByteRequest(uri, internalToken -> client().post()
                     .uri(uri)
                     .contentType(MediaType.MULTIPART_FORM_DATA)
-                    .headers(this::applyInternalAuth)
-                    .body(BodyInserters.fromMultipartData(builder.build()));
-
-            return executeByteRequest(uri, request);
+                    .headers(headers -> applyInternalAuth(headers, internalToken))
+                    .body(BodyInserters.fromMultipartData(builder.build())));
         } catch (IOException e) {
             throw new AiProxyException(HttpStatus.BAD_REQUEST, "AI_PROXY_INVALID_UPLOAD_PAYLOAD", "업로드 파일을 읽을 수 없습니다.");
         }
     }
 
     public ProxyStreamResponse forwardJsonStream(String uri, String payload) {
-        WebClient.RequestHeadersSpec<?> request = client().post()
+        return executeStreamRequest(uri, internalToken -> client().post()
                 .uri(uri)
                 .contentType(MediaType.APPLICATION_JSON)
-                .headers(this::applyInternalAuth)
-                .bodyValue(payload);
-
-        ProxyStreamResponse response;
-        try {
-            response = request.exchangeToMono(clientResponse -> {
-                HttpStatusCode statusCode = clientResponse.statusCode();
-                HttpHeaders headers = filterResponseHeaders(clientResponse.headers().asHttpHeaders());
-                if (statusCode.is2xxSuccessful()) {
-                    return Mono.just(new ProxyStreamResponse(
-                            statusCode,
-                            headers,
-                            clientResponse.bodyToFlux(DataBuffer.class),
-                            null));
-                }
-                log.warn("AI upstream returned status={} for stream uri={}", statusCode.value(), uri);
-                headers.setContentType(MediaType.APPLICATION_JSON);
-                return clientResponse.bodyToMono(byte[].class)
-                        .defaultIfEmpty(new byte[0])
-                        .map(ignored -> new ProxyStreamResponse(
-                                statusCode,
-                                headers,
-                                Flux.empty(),
-                                buildStandardizedErrorBody(statusCode)));
-            })
-                    .block(requestTimeout);
-        } catch (WebClientRequestException e) {
-            throw mapRequestFailure(uri, e);
-        } catch (IllegalStateException e) {
-            throw mapBlockingFailure(uri, e);
-        }
-
-        if (response == null) {
-            throw new AiProxyException(HttpStatus.BAD_GATEWAY, "AI_UPSTREAM_EMPTY_RESPONSE", "AI 응답이 비어 있습니다.");
-        }
-        return response;
+                .headers(headers -> applyInternalAuth(headers, internalToken))
+                .bodyValue(payload));
     }
 
     public void writeStream(Flux<DataBuffer> bodyFlux, OutputStream outputStream) throws IOException {
@@ -162,7 +126,27 @@ public class AiProxyService {
         }
     }
 
-    private ProxyByteResponse executeByteRequest(String uri, WebClient.RequestHeadersSpec<?> request) {
+    private ProxyByteResponse executeByteRequest(
+            String uri,
+            Function<String, WebClient.RequestHeadersSpec<?>> requestFactory) {
+        List<String> tokenCandidates = resolveInternalTokenCandidates();
+        ProxyByteResponse lastResponse = null;
+
+        for (int attemptIndex = 0; attemptIndex < tokenCandidates.size(); attemptIndex++) {
+            lastResponse = exchangeByteRequest(uri, requestFactory.apply(tokenCandidates.get(attemptIndex)));
+            if (lastResponse.status().value() != HttpStatus.UNAUTHORIZED.value() || attemptIndex == tokenCandidates.size() - 1) {
+                return lastResponse;
+            }
+            log.warn("AI upstream rejected primary internal token for uri={}; retrying with local dev fallback token.", uri);
+        }
+
+        if (lastResponse == null) {
+            throw new AiProxyException(HttpStatus.BAD_GATEWAY, "AI_UPSTREAM_EMPTY_RESPONSE", "AI 응답이 비어 있습니다.");
+        }
+        return lastResponse;
+    }
+
+    private ProxyByteResponse exchangeByteRequest(String uri, WebClient.RequestHeadersSpec<?> request) {
         ProxyByteResponse response;
         try {
             response = request.exchangeToMono(clientResponse -> clientResponse
@@ -191,6 +175,60 @@ public class AiProxyService {
         return response;
     }
 
+    private ProxyStreamResponse executeStreamRequest(
+            String uri,
+            Function<String, WebClient.RequestHeadersSpec<?>> requestFactory) {
+        List<String> tokenCandidates = resolveInternalTokenCandidates();
+        ProxyStreamResponse lastResponse = null;
+
+        for (int attemptIndex = 0; attemptIndex < tokenCandidates.size(); attemptIndex++) {
+            lastResponse = exchangeStreamRequest(uri, requestFactory.apply(tokenCandidates.get(attemptIndex)));
+            if (lastResponse.status().value() != HttpStatus.UNAUTHORIZED.value() || attemptIndex == tokenCandidates.size() - 1) {
+                return lastResponse;
+            }
+            log.warn("AI upstream rejected primary internal token for stream uri={}; retrying with local dev fallback token.", uri);
+        }
+
+        if (lastResponse == null) {
+            throw new AiProxyException(HttpStatus.BAD_GATEWAY, "AI_UPSTREAM_EMPTY_RESPONSE", "AI 응답이 비어 있습니다.");
+        }
+        return lastResponse;
+    }
+
+    private ProxyStreamResponse exchangeStreamRequest(String uri, WebClient.RequestHeadersSpec<?> request) {
+        try {
+            ResponseEntity<Flux<DataBuffer>> entityResponse = request.retrieve()
+                    .toEntityFlux(DataBuffer.class)
+                    .block(requestTimeout);
+            if (entityResponse == null) {
+                throw new AiProxyException(HttpStatus.BAD_GATEWAY, "AI_UPSTREAM_EMPTY_RESPONSE", "AI 응답이 비어 있습니다.");
+            }
+
+            HttpHeaders headers = filterResponseHeaders(entityResponse.getHeaders());
+            Flux<DataBuffer> bodyFlux = entityResponse.getBody() != null
+                    ? entityResponse.getBody()
+                    : Flux.empty();
+            return new ProxyStreamResponse(
+                    entityResponse.getStatusCode(),
+                    headers,
+                    bodyFlux,
+                    null);
+        } catch (WebClientResponseException e) {
+            log.warn("AI upstream returned status={} for stream uri={}", e.getStatusCode().value(), uri);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            return new ProxyStreamResponse(
+                    e.getStatusCode(),
+                    headers,
+                    Flux.empty(),
+                    buildStandardizedErrorBody(e.getStatusCode()));
+        } catch (WebClientRequestException e) {
+            throw mapRequestFailure(uri, e);
+        } catch (IllegalStateException e) {
+            throw mapBlockingFailure(uri, e);
+        }
+    }
+
     private WebClient client() {
         String aiServiceUrl = aiServiceSettings.getResolvedServiceUrl();
         if (!StringUtils.hasText(aiServiceUrl)) {
@@ -206,8 +244,15 @@ public class AiProxyService {
         }
     }
 
-    private void applyInternalAuth(HttpHeaders headers) {
-        String aiInternalToken = aiServiceSettings.getResolvedInternalToken();
+    private List<String> resolveInternalTokenCandidates() {
+        List<String> tokenCandidates = aiServiceSettings.getResolvedInternalTokenCandidates();
+        if (!tokenCandidates.isEmpty()) {
+            return tokenCandidates;
+        }
+        return List.of("");
+    }
+
+    private void applyInternalAuth(HttpHeaders headers, String aiInternalToken) {
         if (!StringUtils.hasText(aiInternalToken)) {
             log.error("ai.internal-token is not configured.");
             throw new AiProxyException(

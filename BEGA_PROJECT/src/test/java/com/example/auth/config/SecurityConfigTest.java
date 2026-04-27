@@ -77,6 +77,17 @@ class SecurityConfigTest {
     }
 
     @Test
+    @DisplayName("prod profile should expose prometheus only when observability flag is enabled")
+    void publicSystemEndpoints_includePrometheusInProdWhenFlagEnabled() throws Exception {
+        SecurityConfig securityConfig = newSecurityConfig("prod");
+        setPrivateField(securityConfig, "publicPrometheusEndpointEnabled", true);
+
+        assertThat(securityConfig.publicSystemEndpoints())
+                .contains("/actuator/health", "/actuator/health/**", "/actuator/prometheus")
+                .doesNotContain("/api/test/**", "/swagger-ui.html", "/v3/api-docs/**", "/ws", "/ws/**");
+    }
+
+    @Test
     @DisplayName("dev profile should keep debug and diagnostics endpoints public")
     void publicSystemEndpoints_includeDiagnosticsInDev() {
         SecurityConfig securityConfig = newSecurityConfig("dev");

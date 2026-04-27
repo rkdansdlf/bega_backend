@@ -2,6 +2,7 @@ package com.example.mate.controller;
 
 import com.example.mate.dto.ChatMessageDTO;
 import com.example.mate.service.ChatMessageService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -25,7 +26,7 @@ public class WebSocketChatController {
     @SendTo("/topic/party/{partyId}")
     public ChatMessageDTO.Response sendMessage(
             @DestinationVariable Long partyId,
-            ChatMessageDTO.Request request,
+            @Valid ChatMessageDTO.Request request,
             java.security.Principal principal) {
         if (request == null) {
             request = new ChatMessageDTO.Request();

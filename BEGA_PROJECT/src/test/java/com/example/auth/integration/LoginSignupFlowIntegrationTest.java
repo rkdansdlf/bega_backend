@@ -168,12 +168,26 @@ class LoginSignupFlowIntegrationTest {
                 .andExpect(jsonPath("$.data.available").value(false))
                 .andExpect(jsonPath("$.data.normalized").value(mixedCaseHandle.toLowerCase()));
 
-        mockMvc.perform(get("/api/auth/check-email")
-                        .param("email", createdEmail.toUpperCase()))
+        String duplicateEmailPayload = objectMapper.writeValueAsString(Map.of(
+                "name", "Duplicate Email User",
+                "handle", "@Dup" + suffix,
+                "email", createdEmail.toUpperCase(),
+                "password", password,
+                "confirmPassword", password,
+                "favoriteTeam", "없음",
+                "policyConsents", List.of(
+                        Map.of("policyType", "TERMS", "version", "2026-02-26", "agreed", true),
+                        Map.of("policyType", "PRIVACY", "version", "2026-02-26", "agreed", true),
+                        Map.of("policyType", "DATA_DISCLAIMER", "version", "2026-02-26", "agreed", true)
+                )));
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.USER_AGENT, "JUnit")
+                        .content(duplicateEmailPayload))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("DUPLICATE_EMAIL"))
-                .andExpect(jsonPath("$.data.available").value(false))
-                .andExpect(jsonPath("$.data.normalized").value(createdEmail));
+                .andExpect(jsonPath("$.data.email").value(createdEmail));
 
         mockMvc.perform(get("/api/auth/check-handle")
                         .param("handle", " Fresh_" + suffix.substring(0, 4)))
