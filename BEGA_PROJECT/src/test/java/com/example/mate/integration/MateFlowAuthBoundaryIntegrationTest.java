@@ -38,7 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc(addFilters = false)
 @TestPropertySource(properties = {
         "spring.profiles.active=test",
-        "spring.jwt.secret=test-jwt-secret-32-characters-long",
+        "spring.jwt.secret=test-jwt-secret-64-characters-long-for-hs512-signature-tests-key-1234567890",
         "spring.jwt.refresh-expiration=86400000",
         "spring.datasource.url=jdbc:h2:mem:mate_flow_auth;DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
         "spring.datasource.driver-class-name=org.h2.Driver",

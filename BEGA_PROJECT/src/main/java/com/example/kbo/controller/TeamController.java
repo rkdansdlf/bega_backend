@@ -11,8 +11,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.kbo.dto.TeamSummaryDto;
-import com.example.kbo.entity.TeamEntity;
-import com.example.kbo.repository.TeamRepository;
+import com.example.kbo.service.TeamLookupService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -28,7 +27,7 @@ public class TeamController {
 
     private static final Logger log = LoggerFactory.getLogger(TeamController.class);
 
-    private final TeamRepository teamRepository;
+    private final TeamLookupService teamLookupService;
 
     /**
      * 팀 목록 조회
@@ -43,10 +42,10 @@ public class TeamController {
             @RequestParam(defaultValue = "false") boolean includeInactive) {
         log.info("GET /api/teams - includeInactive={}", includeInactive);
 
-        List<TeamEntity> teams = includeInactive
-                ? teamRepository.findAll()
-                : teamRepository.findAllActiveTeams();
-        return ResponseEntity.ok(teams.stream().map(TeamSummaryDto::from).toList());
+        List<TeamSummaryDto> teams = includeInactive
+                ? teamLookupService.getAllTeamSummaries()
+                : teamLookupService.getActiveTeamSummaries();
+        return ResponseEntity.ok(teams);
     }
 
     /**
@@ -59,9 +58,7 @@ public class TeamController {
     @GetMapping("/active")
     public ResponseEntity<List<TeamSummaryDto>> getActiveTeams() {
         log.info("GET /api/teams/active");
-        return ResponseEntity.ok(teamRepository.findAllActiveTeams().stream()
-                .map(TeamSummaryDto::from)
-                .toList());
+        return ResponseEntity.ok(teamLookupService.getActiveTeamSummaries());
     }
 
 }

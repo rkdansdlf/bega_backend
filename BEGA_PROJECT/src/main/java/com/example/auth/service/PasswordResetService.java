@@ -14,7 +14,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Base64;
+import java.util.HexFormat;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -24,12 +31,16 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class PasswordResetService {
 
+    private static final int RESET_TOKEN_BYTES = 32;
+    private static final Duration RESET_TOKEN_TTL = Duration.ofMinutes(15);
+
     private final UserRepository userRepository;
     private final PasswordResetTokenRepository tokenRepository;
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
     private final RefreshRepository refreshRepository;
     private final AuthSecurityMonitoringService authSecurityMonitoringService;
+    private final SecureRandom secureRandom = new SecureRandom();
 
     @Transactional
     public void requestPasswordReset(PasswordResetRequestDto request) {
@@ -54,12 +65,12 @@ public class PasswordResetService {
             // 기존 토큰 삭제
             tokenRepository.deleteByUserId(Objects.requireNonNull(user.getId()));
 
-            // 새 토큰 생성 (30분 유효)
-            String token = UUID.randomUUID().toString();
+            // 새 토큰 생성: raw token은 이메일로만 보내고 DB에는 SHA-256 hash만 저장한다.
+            String token = generateRawToken();
             PasswordResetToken resetToken = PasswordResetToken.builder()
-                    .token(token)
+                    .token(hashToken(token))
                     .user(user)
-                    .expiryDate(LocalDateTime.now().plusMinutes(30))
+                    .expiryDate(LocalDateTime.now().plus(RESET_TOKEN_TTL))
                     .used(false)
                     .build();
 
@@ -82,13 +93,15 @@ public class PasswordResetService {
             throw new IllegalArgumentException("비밀번호가 일치하지 않습니다.");
         }
 
-        // 비밀번호 길이 확인
-        if (request.getNewPassword().length() < 8) {
-            throw new IllegalArgumentException("비밀번호는 최소 8자 이상이어야 합니다.");
+        // 서비스 직접 호출도 기본 길이 정책을 우회하지 못하게 한다.
+        int passwordLength = request.getNewPassword().length();
+        if (passwordLength < 12 || passwordLength > 72) {
+            throw new IllegalArgumentException("비밀번호는 12자 이상 72자 이하이어야 합니다.");
         }
 
         // 토큰 조회
-        PasswordResetToken resetToken = tokenRepository.findByToken(request.getToken())
+        String tokenHash = hashToken(request.getToken());
+        PasswordResetToken resetToken = tokenRepository.findByToken(tokenHash)
                 .orElseThrow(() -> {
                     return new IllegalArgumentException("유효하지 않은 토큰입니다.");
                 });
@@ -111,6 +124,7 @@ public class PasswordResetService {
 
         // 토큰 사용 처리
         resetToken.setUsed(true);
+        resetToken.setToken("used:" + UUID.randomUUID());
         tokenRepository.save(Objects.requireNonNull(resetToken));
     }
 
@@ -119,5 +133,21 @@ public class PasswordResetService {
             return null;
         }
         return email.trim().toLowerCase();
+    }
+
+    private String generateRawToken() {
+        byte[] tokenBytes = new byte[RESET_TOKEN_BYTES];
+        secureRandom.nextBytes(tokenBytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
+    }
+
+    private String hashToken(String token) {
+        try {
+            byte[] hashed = MessageDigest.getInstance("SHA-256")
+                    .digest(String.valueOf(token).getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hashed);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 algorithm not available", e);
+        }
     }
 }

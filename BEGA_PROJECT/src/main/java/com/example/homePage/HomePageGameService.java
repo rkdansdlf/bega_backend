@@ -39,6 +39,30 @@ public class HomePageGameService {
 
     private static final String DEFAULT_GAME_TIME = "18:30";
     private static final DateTimeFormatter GAME_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+    private static final String SCOPE_POSTSEASON = "postseason";
+    private static final String SCOPE_KOREAN_SERIES = "koreanseries";
+    private static final String SCOPE_SCHEDULED = "scheduled";
+    private static final List<Integer> REGULAR_LEAGUE_CODES = List.of(0);
+    private static final List<Integer> POSTSEASON_LEAGUE_CODES = List.of(2, 3, 4);
+    private static final List<Integer> KOREAN_SERIES_LEAGUE_CODES = List.of(5);
+    private static final List<String> SCHEDULED_NAVIGATION_STATUSES = List.of(
+            "SCHEDULED",
+            "READY",
+            "UPCOMING",
+            "NOT_STARTED",
+            "PRE_GAME",
+            "BEFORE_GAME");
+    private static final List<String> SCHEDULED_WINDOW_STATUSES = List.of(
+            "SCHEDULED",
+            "READY",
+            "UPCOMING",
+            "NOT_STARTED",
+            "PRE_GAME",
+            "BEFORE_GAME",
+            "POSTPONED",
+            "CANCELLED",
+            "CANCEL");
+    private static final List<String> STANDARD_NAVIGATION_EXCLUDED_STATUSES = SCHEDULED_WINDOW_STATUSES;
 
     private final GameRepository gameRepository;
     private final GameMetadataRepository gameMetadataRepository;
@@ -92,7 +116,10 @@ public class HomePageGameService {
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<HomePageScheduledGameDto> getScheduledGamesWindow(LocalDate startDate, LocalDate endDate) {
-        List<GameEntity> games = gameRepository.findAllByDateRange(startDate, endDate);
+        List<GameEntity> games = gameRepository.findScheduledGamesByDateRange(
+                startDate,
+                endDate,
+                SCHEDULED_WINDOW_STATUSES);
         if (games.isEmpty()) {
             return List.of();
         }
@@ -156,14 +183,10 @@ public class HomePageGameService {
         );
         String gameStatusKr = convertGameStatus(effectiveGameStatus);
 
-        // 경기 종료 상태인데 점수가 없으면 0으로 초기화 (데이터 정합성 보장)
-        if ("COMPLETED".equals(effectiveGameStatus) || "DRAW".equals(effectiveGameStatus)) {
-            homeScore = (homeScore != null) ? homeScore : 0;
-            awayScore = (awayScore != null) ? awayScore : 0;
-        }
-
         return HomePageGameDto.builder()
                 .gameId(game.getGameId())
+                .gameDate(game.getGameDate() == null ? null : game.getGameDate().toString())
+                .sourceDate(game.getGameDate() == null ? null : game.getGameDate().toString())
                 .stadium(game.getStadium())
                 .gameStatus(effectiveGameStatus)
                 .gameStatusKr(gameStatusKr)
@@ -318,14 +341,14 @@ public class HomePageGameService {
                 .or(() -> gameRepository.findConfiguredStartDateByTypeFromSeasonYear(2, seasonYear))
                 .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(2, seasonYear))
                 .or(() -> gameRepository.findLatestStartDateByTypeAsOf(2, now))
-                .orElse(now);
+                .orElse(null);
 
         LocalDate koreanSeriesStart = gameRepository
                 .findFirstKoreanSeriesDate(seasonYear)
                 .or(() -> gameRepository.findConfiguredStartDateByTypeFromSeasonYear(5, seasonYear))
                 .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(5, seasonYear))
                 .or(() -> gameRepository.findLatestStartDateByTypeAsOf(5, now))
-                .orElse(now);
+                .orElse(null);
 
         regularStart = normalizeDateToSeasonYear(regularStart, seasonYear);
         postseasonStart = normalizeDateToSeasonYear(postseasonStart, seasonYear);
@@ -333,12 +356,15 @@ public class HomePageGameService {
 
         return LeagueStartDatesDto.builder()
                 .regularSeasonStart(regularStart.toString())
-                .postseasonStart(postseasonStart.toString())
-                .koreanSeriesStart(koreanSeriesStart.toString())
+                .postseasonStart(postseasonStart == null ? null : postseasonStart.toString())
+                .koreanSeriesStart(koreanSeriesStart == null ? null : koreanSeriesStart.toString())
                 .build();
     }
 
     private LocalDate normalizeDateToSeasonYear(LocalDate date, int seasonYear) {
+        if (date == null) {
+            return null;
+        }
         if (date.getYear() == seasonYear) {
             return date;
         }
@@ -360,6 +386,109 @@ public class HomePageGameService {
                 .hasPrev(prev != null)
                 .hasNext(next != null)
                 .build();
+    }
+
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
+    public HomeScopedNavigationDto getScopedNavigation(LocalDate date, String scope, Integer seasonYear) {
+        LocalDate anchorDate = date == null ? LocalDate.now() : date;
+        String normalizedScope = normalizeNavigationScope(scope);
+        int resolvedSeasonYear = seasonYear == null ? anchorDate.getYear() : seasonYear;
+
+        LocalDate resolvedDate = resolveScopedDate(anchorDate, normalizedScope, resolvedSeasonYear);
+        LocalDate navigationAnchor = resolvedDate == null ? anchorDate : resolvedDate;
+        LocalDate prev = findPrevScopedDate(navigationAnchor, normalizedScope, resolvedSeasonYear);
+        LocalDate next = findNextScopedDate(navigationAnchor, normalizedScope, resolvedSeasonYear);
+
+        return HomeScopedNavigationDto.builder()
+                .resolvedDate(resolvedDate == null ? null : resolvedDate.toString())
+                .prevGameDate(prev == null ? null : prev.toString())
+                .nextGameDate(next == null ? null : next.toString())
+                .hasPrev(prev != null)
+                .hasNext(next != null)
+                .build();
+    }
+
+    private String normalizeNavigationScope(String scope) {
+        if (scope == null || scope.isBlank()) {
+            return "regular";
+        }
+
+        String normalized = scope.trim().toLowerCase();
+        if (SCOPE_POSTSEASON.equals(normalized)
+                || SCOPE_KOREAN_SERIES.equals(normalized)
+                || SCOPE_SCHEDULED.equals(normalized)) {
+            return normalized;
+        }
+
+        return "regular";
+    }
+
+    private LocalDate resolveScopedDate(LocalDate anchorDate, String scope, int seasonYear) {
+        LocalDate current = findCurrentScopedDate(anchorDate, scope, seasonYear);
+        if (current != null) {
+            return current;
+        }
+
+        LocalDate next = findNextScopedDate(anchorDate.minusDays(1), scope, seasonYear);
+        if (next != null) {
+            return next;
+        }
+
+        return findPrevScopedDate(anchorDate.plusDays(1), scope, seasonYear);
+    }
+
+    private LocalDate findCurrentScopedDate(LocalDate anchorDate, String scope, int seasonYear) {
+        if (SCOPE_SCHEDULED.equals(scope)) {
+            return gameRepository.findScheduledNavigationDateOnOrAfter(anchorDate, SCHEDULED_NAVIGATION_STATUSES)
+                    .filter(anchorDate::equals)
+                    .orElse(null);
+        }
+
+        return gameRepository.findScopedGameDateOnOrAfter(
+                        anchorDate,
+                        seasonYear,
+                        resolveLeagueCodes(scope),
+                        STANDARD_NAVIGATION_EXCLUDED_STATUSES)
+                .filter(anchorDate::equals)
+                .orElse(null);
+    }
+
+    private LocalDate findPrevScopedDate(LocalDate anchorDate, String scope, int seasonYear) {
+        if (SCOPE_SCHEDULED.equals(scope)) {
+            return gameRepository.findPrevScheduledNavigationDate(anchorDate, SCHEDULED_NAVIGATION_STATUSES)
+                    .orElse(null);
+        }
+
+        return gameRepository.findPrevScopedGameDate(
+                        anchorDate,
+                        seasonYear,
+                        resolveLeagueCodes(scope),
+                        STANDARD_NAVIGATION_EXCLUDED_STATUSES)
+                .orElse(null);
+    }
+
+    private LocalDate findNextScopedDate(LocalDate anchorDate, String scope, int seasonYear) {
+        if (SCOPE_SCHEDULED.equals(scope)) {
+            return gameRepository.findNextScheduledNavigationDate(anchorDate, SCHEDULED_NAVIGATION_STATUSES)
+                    .orElse(null);
+        }
+
+        return gameRepository.findNextScopedGameDate(
+                        anchorDate,
+                        seasonYear,
+                        resolveLeagueCodes(scope),
+                        STANDARD_NAVIGATION_EXCLUDED_STATUSES)
+                .orElse(null);
+    }
+
+    private List<Integer> resolveLeagueCodes(String scope) {
+        if (SCOPE_POSTSEASON.equals(scope)) {
+            return POSTSEASON_LEAGUE_CODES;
+        }
+        if (SCOPE_KOREAN_SERIES.equals(scope)) {
+            return KOREAN_SERIES_LEAGUE_CODES;
+        }
+        return REGULAR_LEAGUE_CODES;
     }
 
     private String resolveTeamId(String rawTeamCode, String mappedTeamId) {

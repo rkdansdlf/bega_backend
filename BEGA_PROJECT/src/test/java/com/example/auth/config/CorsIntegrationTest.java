@@ -19,7 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
         "spring.profiles.active=test",
-        "spring.jwt.secret=test-jwt-secret-32-characters-long",
+        "spring.jwt.secret=test-jwt-secret-64-characters-long-for-hs512-signature-tests-key-1234567890",
         "spring.jwt.refresh-expiration=86400000",
         "spring.datasource.url=jdbc:h2:mem:cors_integration;DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
         "spring.datasource.driver-class-name=org.h2.Driver",
@@ -36,7 +36,7 @@ import org.springframework.test.web.servlet.MockMvc;
         "oci.s3.secret-key=test-secret-key",
         "oci.s3.bucket=test-bucket",
         "oci.s3.region=ap-seoul-1",
-        "app.allowed-origins=https://www.begabaseball.xyz,https://begabaseball.xyz"
+        "app.allowed-origins=https://www.begabaseball.xyz,https://begabaseball.xyz,http://127.0.0.1:5176"
 })
 @DisplayName("CORS integration tests — SecurityConfig.corsConfigurationSource is sole authority")
 class CorsIntegrationTest {
@@ -69,6 +69,20 @@ class CorsIntegrationTest {
     }
 
     @Test
+    @DisplayName("local prodlike preflight from 127.0.0.1:5176 should pass when override is configured")
+    void preflight_localProdlikeOrigin_passes() throws Exception {
+        mockMvc.perform(options("/api/auth/signup")
+                        .header(HttpHeaders.ORIGIN, "http://127.0.0.1:5176")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://127.0.0.1:5176"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, Matchers.containsString("POST")))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, Matchers.containsString("content-type")));
+    }
+
+    @Test
     @DisplayName("preflight from unknown origin should NOT include Access-Control-Allow-Origin")
     void preflight_unknownOrigin_rejected() throws Exception {
         mockMvc.perform(options("/api/auth/mypage")
@@ -88,14 +102,15 @@ class CorsIntegrationTest {
     }
 
     @Test
-    @DisplayName("CORS response should expose Authorization and Set-Cookie headers")
-    void preflight_exposedHeaders() throws Exception {
-        mockMvc.perform(options("/api/auth/mypage")
-                        .header(HttpHeaders.ORIGIN, "https://www.begabaseball.xyz")
-                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+    @DisplayName("CORS response should expose Content-Disposition only")
+    void corsResponse_exposedHeadersAreNarrowed() throws Exception {
+        mockMvc.perform(get("/api/auth/mypage")
+                        .header(HttpHeaders.ORIGIN, "https://www.begabaseball.xyz"))
+                .andExpect(status().isUnauthorized())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS,
                         Matchers.allOf(
-                                Matchers.containsString("Authorization"),
-                                Matchers.containsString("Set-Cookie"))));
+                                Matchers.containsString("Content-Disposition"),
+                                Matchers.not(Matchers.containsString("Set-Cookie")),
+                                Matchers.not(Matchers.containsString("Authorization")))));
     }
 }

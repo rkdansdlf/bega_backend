@@ -1,6 +1,5 @@
 package com.example.homepage;
 
-import static com.example.common.config.CacheConfig.HOME_BOOTSTRAP;
 import static com.example.common.config.CacheConfig.HOME_WIDGETS;
 
 import com.example.cheerboard.dto.PostSummaryRes;
@@ -29,7 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class HomePageFacadeService {
 
-    private static final Duration DEFAULT_SECTION_TIMEOUT = Duration.ofSeconds(2);
+    private static final Duration DEFAULT_SECTION_TIMEOUT = Duration.ofSeconds(6);
 
     private final HomePageGameService homePageGameService;
     private final CheerService cheerService;
@@ -57,7 +56,6 @@ public class HomePageFacadeService {
                 : sectionTimeout;
     }
 
-    @Cacheable(value = HOME_BOOTSTRAP, key = "#date.toString()")
     @Transactional(readOnly = true)
     public HomeBootstrapResponseDto getBootstrap(LocalDate date) {
         long bootstrapStartedAt = System.nanoTime();
@@ -215,8 +213,8 @@ public class HomePageFacadeService {
     private LeagueStartDatesDto buildFallbackLeagueStartDates(LocalDate date) {
         return LeagueStartDatesDto.builder()
                 .regularSeasonStart(date.toString())
-                .postseasonStart(date.toString())
-                .koreanSeriesStart(date.toString())
+                .postseasonStart(null)
+                .koreanSeriesStart(null)
                 .build();
     }
 

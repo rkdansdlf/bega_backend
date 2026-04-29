@@ -8,12 +8,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,9 +34,10 @@ class NotificationControllerTest {
     @DisplayName("내 알림 목록을 조회한다")
     void getMyNotifications_returnsList() {
         NotificationDTO.Response resp = NotificationDTO.Response.builder().id(1L).build();
-        when(notificationService.getMyNotifications(42L)).thenReturn(List.of(resp));
+        Pageable pageable = PageRequest.of(0, 30);
+        when(notificationService.getMyNotifications(eq(42L), any(Pageable.class))).thenReturn(List.of(resp));
 
-        ResponseEntity<List<NotificationDTO.Response>> result = controller.getMyNotifications(42L);
+        ResponseEntity<List<NotificationDTO.Response>> result = controller.getMyNotifications(42L, pageable);
 
         assertThat(result.getBody()).hasSize(1);
     }

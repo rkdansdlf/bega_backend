@@ -15,6 +15,7 @@ import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.mock.env.MockEnvironment;
@@ -226,6 +227,26 @@ class AiProxyServiceTest {
         assertThatThrownBy(() -> service.writeStream(bodyFlux, failingStream))
                 .isInstanceOf(IOException.class)
                 .hasMessage("disk full");
+    }
+
+    @Test
+    void clientIsBuiltOnceAndReusedAcrossCalls() throws Exception {
+        server = startServer("/ai/chat/completion", exchange -> writeResponse(exchange, 200, "ok"));
+
+        WebClient.Builder spyBuilder = Mockito.spy(WebClient.builder());
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("dev");
+        AiServiceSettings settings = new AiServiceSettings(
+                environment,
+                "http://localhost:" + server.getAddress().getPort(),
+                "reuse-token");
+        AiProxyService service = new AiProxyService(settings, spyBuilder, Duration.ofSeconds(5));
+
+        for (int i = 0; i < 5; i++) {
+            service.forwardJson("/ai/chat/completion", "{}");
+        }
+
+        Mockito.verify(spyBuilder, Mockito.times(1)).baseUrl(Mockito.anyString());
     }
 
     private AiProxyService newService(Duration timeout, String token) {

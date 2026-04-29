@@ -420,6 +420,17 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
 
   @Query("SELECT g FROM GameEntity g " +
       "WHERE g.gameDate BETWEEN :startDate AND :endDate " +
+      "AND UPPER(g.gameStatus) IN :statuses " +
+      "AND COALESCE(g.isDummy, false) = false " +
+      "AND g.gameId NOT LIKE 'MOCK%' " +
+      "ORDER BY g.gameDate ASC, g.gameId ASC")
+  List<GameEntity> findScheduledGamesByDateRange(
+      @Param("startDate") LocalDate startDate,
+      @Param("endDate") LocalDate endDate,
+      @Param("statuses") Collection<String> statuses);
+
+  @Query("SELECT g FROM GameEntity g " +
+      "WHERE g.gameDate BETWEEN :startDate AND :endDate " +
       "AND COALESCE(g.isDummy, false) = false " +
       "AND g.gameId NOT LIKE 'MOCK%' " +
       "AND g.homeTeam IN :canonicalTeams " +
@@ -890,6 +901,93 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    */
   @Query("SELECT MIN(g.gameDate) FROM GameEntity g WHERE g.gameDate > :date")
   Optional<LocalDate> findNextGameDate(@Param("date") LocalDate date);
+
+  @Query(value = """
+      SELECT MIN(g.game_date)
+      FROM game g
+      LEFT JOIN kbo_seasons s ON g.season_id = s.season_id
+      WHERE g.game_date >= :date
+        AND COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
+        AND COALESCE(s.league_type_code, 0) IN (:leagueTypeCodes)
+        AND UPPER(COALESCE(g.game_status, '')) NOT IN (:excludedStatuses)
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
+      """, nativeQuery = true)
+  Optional<LocalDate> findScopedGameDateOnOrAfter(
+      @Param("date") LocalDate date,
+      @Param("seasonYear") int seasonYear,
+      @Param("leagueTypeCodes") Collection<Integer> leagueTypeCodes,
+      @Param("excludedStatuses") Collection<String> excludedStatuses);
+
+  @Query(value = """
+      SELECT MAX(g.game_date)
+      FROM game g
+      LEFT JOIN kbo_seasons s ON g.season_id = s.season_id
+      WHERE g.game_date < :date
+        AND COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
+        AND COALESCE(s.league_type_code, 0) IN (:leagueTypeCodes)
+        AND UPPER(COALESCE(g.game_status, '')) NOT IN (:excludedStatuses)
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
+      """, nativeQuery = true)
+  Optional<LocalDate> findPrevScopedGameDate(
+      @Param("date") LocalDate date,
+      @Param("seasonYear") int seasonYear,
+      @Param("leagueTypeCodes") Collection<Integer> leagueTypeCodes,
+      @Param("excludedStatuses") Collection<String> excludedStatuses);
+
+  @Query(value = """
+      SELECT MIN(g.game_date)
+      FROM game g
+      LEFT JOIN kbo_seasons s ON g.season_id = s.season_id
+      WHERE g.game_date > :date
+        AND COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
+        AND COALESCE(s.league_type_code, 0) IN (:leagueTypeCodes)
+        AND UPPER(COALESCE(g.game_status, '')) NOT IN (:excludedStatuses)
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
+      """, nativeQuery = true)
+  Optional<LocalDate> findNextScopedGameDate(
+      @Param("date") LocalDate date,
+      @Param("seasonYear") int seasonYear,
+      @Param("leagueTypeCodes") Collection<Integer> leagueTypeCodes,
+      @Param("excludedStatuses") Collection<String> excludedStatuses);
+
+  @Query(value = """
+      SELECT MIN(g.game_date)
+      FROM game g
+      WHERE g.game_date >= :date
+        AND UPPER(g.game_status) IN (:statuses)
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
+      """, nativeQuery = true)
+  Optional<LocalDate> findScheduledNavigationDateOnOrAfter(
+      @Param("date") LocalDate date,
+      @Param("statuses") Collection<String> statuses);
+
+  @Query(value = """
+      SELECT MAX(g.game_date)
+      FROM game g
+      WHERE g.game_date < :date
+        AND UPPER(g.game_status) IN (:statuses)
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
+      """, nativeQuery = true)
+  Optional<LocalDate> findPrevScheduledNavigationDate(
+      @Param("date") LocalDate date,
+      @Param("statuses") Collection<String> statuses);
+
+  @Query(value = """
+      SELECT MIN(g.game_date)
+      FROM game g
+      WHERE g.game_date > :date
+        AND UPPER(g.game_status) IN (:statuses)
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
+      """, nativeQuery = true)
+  Optional<LocalDate> findNextScheduledNavigationDate(
+      @Param("date") LocalDate date,
+      @Param("statuses") Collection<String> statuses);
 
   /**
    * season_id로 리그 타입 코드 조회

@@ -46,6 +46,9 @@ public class AiProxyService {
     private final WebClient.Builder webClientBuilder;
     private final Duration requestTimeout;
 
+    private volatile WebClient cachedClient;
+    private volatile String cachedClientBaseUrl;
+
     @Autowired
     public AiProxyService(
             AiServiceSettings aiServiceSettings,
@@ -236,11 +239,24 @@ public class AiProxyService {
             throw new AiProxyException(HttpStatus.SERVICE_UNAVAILABLE, "AI_SERVICE_URL_NOT_CONFIGURED", "AI 서비스 주소가 설정되지 않았습니다.");
         }
 
-        try {
-            return webClientBuilder.baseUrl(aiServiceUrl).build();
-        } catch (IllegalArgumentException e) {
-            log.error("AI service URL is invalid. url={}", aiServiceUrl, e);
-            throw new AiProxyException(HttpStatus.SERVICE_UNAVAILABLE, "AI_SERVICE_URL_INVALID", "AI 서비스 주소 설정이 올바르지 않습니다.");
+        WebClient localCached = cachedClient;
+        if (localCached != null && aiServiceUrl.equals(cachedClientBaseUrl)) {
+            return localCached;
+        }
+
+        synchronized (this) {
+            if (cachedClient != null && aiServiceUrl.equals(cachedClientBaseUrl)) {
+                return cachedClient;
+            }
+            try {
+                WebClient built = webClientBuilder.baseUrl(aiServiceUrl).build();
+                cachedClient = built;
+                cachedClientBaseUrl = aiServiceUrl;
+                return built;
+            } catch (IllegalArgumentException e) {
+                log.error("AI service URL is invalid. url={}", aiServiceUrl, e);
+                throw new AiProxyException(HttpStatus.SERVICE_UNAVAILABLE, "AI_SERVICE_URL_INVALID", "AI 서비스 주소 설정이 올바르지 않습니다.");
+            }
         }
     }
 

@@ -13,6 +13,17 @@ spring:
     properties:
       hibernate:
         format-sql: true
+        # 임계값(ms) 초과 쿼리만 WARN 로그로 남긴다. 운영에서 slow query 후보를 드러내기 위함.
+        # APP_HIBERNATE_SLOW_QUERY_THRESHOLD_MS=0 으로 무력화 가능 (기본 1000ms = 1초).
+        session:
+          events:
+            log:
+              LOG_QUERIES_SLOWER_THAN_MS: ${APP_HIBERNATE_SLOW_QUERY_THRESHOLD_MS:1000}
+  # Java 21 virtual threads. AI SSE/OCI/외부 HTTP I/O가 platform thread를 길게 점유하는 부하를
+  # 완화한다. 기본 비활성: stage에서 SPRING_THREADS_VIRTUAL_ENABLED=true로 검증 후 prod 적용.
+  threads:
+    virtual:
+      enabled: ${SPRING_THREADS_VIRTUAL_ENABLED:false}
   thymeleaf:
     cache: false
     check-template-location: false
@@ -102,6 +113,20 @@ spring:
           starttls:
             enable: true
 
+# Tomcat / 서버 설정
+# - Tomcat 스레드 풀 기본은 max=200, accept=100. AI SSE/외부 HTTP 호출이 길어지면
+#   기본값으로 스레드가 고갈될 수 있어 명시적으로 한도를 둔다.
+# - virtual threads(spring.threads.virtual.enabled=true) 활성화 시 Tomcat은 가상 스레드 executor로 전환되어
+#   max-threads는 사실상 무시된다. graceful shutdown은 두 모드 모두에서 유효.
+server:
+  shutdown: graceful
+  tomcat:
+    threads:
+      max: ${SERVER_TOMCAT_THREADS_MAX:200}
+      min-spare: ${SERVER_TOMCAT_THREADS_MIN_SPARE:20}
+    accept-count: ${SERVER_TOMCAT_ACCEPT_COUNT:100}
+    connection-timeout: ${SERVER_TOMCAT_CONNECTION_TIMEOUT:20000}
+
 # JobRunr 설정
 org:
   jobrunr:
@@ -171,7 +196,7 @@ app:
     enabled: false
   frontend:
     # Canonical env key: APP_FRONTEND_URL. FRONTEND_URL is a deprecated fallback only.
-    url: ${APP_FRONTEND_URL:${FRONTEND_URL:http://localhost:3000}}
+    url: ${APP_FRONTEND_URL:${FRONTEND_URL:http://localhost:5176}}
   backend:
     # Canonical env key: APP_BACKEND_URL.
     url: ${APP_BACKEND_URL:http://localhost:8080}
@@ -188,7 +213,7 @@ app:
   trusted-proxies: ${APP_TRUSTED_PROXIES:}
   # Canonical env key: APP_ALLOWED_ORIGINS.
   # docker-compose may feed this value from APP_ALLOWED_ORIGINS_OVERRIDE for local smoke only.
-  allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost,http://localhost:3000,http://localhost:4173,http://localhost:4174,http://localhost:4175,http://localhost:4176,http://localhost:4177,http://localhost:4178,http://localhost:5173,http://localhost:5176,http://localhost:5177,http://localhost:8080,http://host.docker.internal,http://host.docker.internal:3000,http://host.docker.internal:4173,http://host.docker.internal:4174,http://host.docker.internal:4175,http://host.docker.internal:4176,http://host.docker.internal:4177,http://host.docker.internal:4178,http://host.docker.internal:5173,http://host.docker.internal:5176,http://host.docker.internal:5177,http://host.docker.internal:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:4173,http://127.0.0.1:4174,http://127.0.0.1:4175,http://127.0.0.1:4176,http://127.0.0.1:4177,http://127.0.0.1:4178,http://127.0.0.1:5173,http://127.0.0.1:5176,http://127.0.0.1:5177}
+  allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost,http://localhost:5176,http://localhost:5177,http://localhost:8080,http://host.docker.internal,http://host.docker.internal:5176,http://host.docker.internal:5177,http://host.docker.internal:8080,http://127.0.0.1,http://127.0.0.1:5176,http://127.0.0.1:5177,http://127.0.0.1:8080,http://[::1]}
   allow-preview-origins: ${APP_ALLOW_PREVIEW_ORIGINS:false}
   cookie:
     secure: false  # 개발 환경 기본값 (HTTP), prod 프로필에서 true로 오버라이드
@@ -273,7 +298,16 @@ management:
       show-details: always
       probes:
         enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+        liveness:
+          include: livenessState
   health:
+    readinessstate:
+      enabled: true
+    livenessstate:
+      enabled: true
     db:
       enabled: true
     diskspace:
@@ -404,6 +438,10 @@ spring:
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
     properties:
       "[hibernate.format_sql]": false
+      # 일괄 INSERT/UPDATE를 묶어서 라운드트립을 줄인다 (prod 누락 보완)
+      "[hibernate.jdbc.batch_size]": 50
+      "[hibernate.order_updates]": true
+      "[hibernate.order_inserts]": true
 
   flyway:
     enabled: true

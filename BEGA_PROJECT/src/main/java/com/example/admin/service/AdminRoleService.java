@@ -158,24 +158,6 @@ public class AdminRoleService {
         /**
          * 감사 로그 조회 (SUPER_ADMIN만 가능)
          */
-        @Transactional(readOnly = true)
-        public List<AuditLogDto> getAuditLogs(Long adminId) {
-                // 권한 확인
-                UserEntity admin = userRepository.findById(Objects.requireNonNull(adminId))
-                                .orElseThrow(() -> new UserNotFoundException(adminId));
-
-                if (!admin.isSuperAdmin()) {
-                        throw new InsufficientPrivilegeException("감사 로그 조회는 SUPER_ADMIN만 가능합니다.");
-                }
-
-                List<AuditLog> logs = auditLogRepository.findAllByOrderByCreatedAtDesc();
-                Map<Long, UserEntity> usersById = loadUsersByIds(extractRelevantUserIds(logs));
-
-                return logs.stream()
-                                .map(log -> enrichAuditLogDto(log, usersById))
-                                .collect(Collectors.toList());
-        }
-
         /**
          * 감사 로그 조회 (페이징, SUPER_ADMIN만 가능)
          */

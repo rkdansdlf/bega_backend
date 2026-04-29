@@ -25,22 +25,19 @@ import jakarta.servlet.http.HttpServletResponse;
 @lombok.extern.slf4j.Slf4j
 public class JWTFilter extends OncePerRequestFilter {
 
+    private static final String DEBUG_ROLE_HEADER = "X-Debug-Role";
+
     private final com.example.auth.util.JWTUtil jwtUtil;
-    private final boolean isDev;
     private final List<String> allowedOrigins;
     private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
     private final UserRepository userRepository;
     private final com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService;
 
-    // localhost IP 주소 목록 (Debug 헤더 허용)
-    private static final List<String> LOCALHOST_IPS = List.of("127.0.0.1", "::1", "0:0:0:0:0:0:0:1");
-
-    public JWTFilter(com.example.auth.util.JWTUtil jwtUtil, boolean isDev, List<String> allowedOrigins,
+    public JWTFilter(com.example.auth.util.JWTUtil jwtUtil, List<String> allowedOrigins,
             com.example.auth.service.TokenBlacklistService tokenBlacklistService,
             UserRepository userRepository,
             com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService) {
         this.jwtUtil = jwtUtil;
-        this.isDev = isDev;
         this.allowedOrigins = allowedOrigins;
         this.tokenBlacklistService = tokenBlacklistService;
         this.userRepository = userRepository;
@@ -74,6 +71,20 @@ public class JWTFilter extends OncePerRequestFilter {
 
         String requestUri = request.getRequestURI();
         String normalizedRequestUri = requestUri != null ? requestUri.replaceAll("/+$", "") : requestUri;
+
+        if (request.getHeader(DEBUG_ROLE_HEADER) != null) {
+            log.warn("Rejected request containing disabled debug role header");
+            if (securityMonitoringService != null) {
+                securityMonitoringService.recordTokenReject();
+            }
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            response.setContentType("application/json;charset=UTF-8");
+            response.setCharacterEncoding("UTF-8");
+            response.setHeader("Cache-Control", "no-store");
+            response.getWriter().write(
+                    "{\"success\":false,\"code\":\"DEBUG_ROLE_HEADER_DISABLED\",\"message\":\"지원하지 않는 인증 헤더입니다.\"}");
+            return;
+        }
 
         // 인증 API 공개 경로는 필터 처리 스킵
         if (normalizedRequestUri != null && (normalizedRequestUri.equals("/api/auth/login") ||
@@ -180,7 +191,6 @@ public class JWTFilter extends OncePerRequestFilter {
 
         // ✅ JWT에서 필요한 정보 모두 추출 (캐싱 적용, DB 조회 없음!)
         try {
-            // String email = jwtUtil.getEmail(token);
             String role = jwtUtil.getRole(token);
             Long userId = jwtUtil.getUserId(token);
             Integer tokenVersion = jwtUtil.getTokenVersion(token);
@@ -219,22 +229,6 @@ public class JWTFilter extends OncePerRequestFilter {
                 }
                 filterChain.doFilter(request, response);
                 return;
-            }
-
-            // ✅ DB 조회 없이 Authentication 객체 생성
-            // [Security Fix] Dev Toggle: localhost에서만 Debug 헤더 허용
-            if (isDev) {
-                String debugRole = request.getHeader("X-Debug-Role");
-                if (debugRole != null && !debugRole.isBlank()) {
-                    String remoteAddr = request.getRemoteAddr();
-                    if (LOCALHOST_IPS.contains(remoteAddr)) {
-                        log.warn("Dev Mode: Role Override {} -> {} from localhost", role, debugRole);
-                        role = debugRole;
-                    } else {
-                        log.error("Unauthorized Debug Role Override Attempt from IP: {}", remoteAddr);
-                        // 외부 IP에서의 Debug 헤더 시도는 무시하고 원래 role 유지
-                    }
-                }
             }
 
             Collection<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role));
