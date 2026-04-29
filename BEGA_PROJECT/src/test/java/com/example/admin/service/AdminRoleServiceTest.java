@@ -38,37 +38,6 @@ class AdminRoleServiceTest {
     private AuditLogRepository auditLogRepository;
 
     @Test
-    @DisplayName("getAuditLogs batches distinct users into one repository lookup")
-    void getAuditLogs_batchesDistinctUsersIntoOneLookup() {
-        UserEntity admin = user(1L, "admin@example.com", "Admin", "ROLE_SUPER_ADMIN");
-        UserEntity user10 = user(10L, "user10@example.com", "User 10", "ROLE_USER");
-        UserEntity user20 = user(20L, "user20@example.com", "User 20", "ROLE_USER");
-        UserEntity user30 = user(30L, "user30@example.com", "User 30", "ROLE_USER");
-        UserEntity user40 = user(40L, "user40@example.com", "User 40", "ROLE_USER");
-
-        List<AuditLog> logs = List.of(
-                auditLog(10L, 20L, AuditLog.AuditAction.PROMOTE_TO_ADMIN, "ROLE_USER", "ROLE_ADMIN", LocalDateTime.now()),
-                auditLog(10L, 30L, AuditLog.AuditAction.DEMOTE_TO_USER, "ROLE_ADMIN", "ROLE_USER", LocalDateTime.now().minusMinutes(1)),
-                auditLog(40L, 20L, AuditLog.AuditAction.DELETE_USER, null, null, LocalDateTime.now().minusMinutes(2)));
-
-        when(userRepository.findById(1L)).thenReturn(Optional.of(admin));
-        when(auditLogRepository.findAllByOrderByCreatedAtDesc()).thenReturn(logs);
-        when(userRepository.findAllById(any())).thenReturn(List.of(user10, user20, user30, user40));
-
-        List<AuditLogDto> result = adminRoleService.getAuditLogs(1L);
-
-        assertThat(result).hasSize(3);
-        assertThat(result.get(0).getAdminEmail()).isEqualTo("user10@example.com");
-        assertThat(result.get(0).getTargetUserEmail()).isEqualTo("user20@example.com");
-        verify(userRepository, times(1)).findById(1L);
-        verify(userRepository, times(1)).findAllById(argThat((Iterable<Long> userIds) -> {
-            List<Long> ids = new java.util.ArrayList<>();
-            userIds.forEach(ids::add);
-            return ids.size() == 4 && ids.containsAll(List.of(10L, 20L, 30L, 40L));
-        }));
-    }
-
-    @Test
     @DisplayName("getAuditLogsPaged batches distinct users into one repository lookup")
     void getAuditLogsPaged_batchesDistinctUsersIntoOneLookup() {
         UserEntity admin = user(1L, "admin@example.com", "Admin", "ROLE_SUPER_ADMIN");

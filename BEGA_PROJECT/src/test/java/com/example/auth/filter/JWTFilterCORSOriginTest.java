@@ -10,7 +10,7 @@ public class JWTFilterCORSOriginTest {
     @Test
     public void testMatchesOriginPatternWithWildcard() {
         // Create an instance of the class containing the private method
-        JWTFilter jwtFilter = new JWTFilter(null, true, List.of("https://*.frontend-dfl.pages.dev"), null, null, null);
+        JWTFilter jwtFilter = new JWTFilter(null, List.of("https://*.frontend-dfl.pages.dev"), null, null, null);
 
         // Define origin strings
         String pattern = "https://*.frontend-dfl.pages.dev";

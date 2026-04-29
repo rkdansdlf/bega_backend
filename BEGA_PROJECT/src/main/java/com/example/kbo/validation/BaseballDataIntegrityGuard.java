@@ -1,9 +1,11 @@
 package com.example.kbo.validation;
 
 import com.example.kbo.entity.GameEntity;
+import com.example.kbo.entity.GameSummaryEntity;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.MatchRangeProjection;
 import com.example.kbo.repository.SeasonInfoProjection;
+import com.example.kbo.util.GameSummaryDisplayPolicy;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -77,6 +79,37 @@ public class BaseballDataIntegrityGuard {
                                         "season_id, season_year, league_type_code"))));
         validateGameEntity(scope, game);
         return game;
+    }
+
+    public void ensurePredictionGameSummaryRecords(
+            String scope,
+            String gameId,
+            LocalDate gameDate,
+            String rawGameStatus,
+            Integer homeScore,
+            Integer awayScore,
+            List<GameSummaryEntity> summaries) {
+        if (!requiresGameSummaryRecords(gameDate, rawGameStatus, homeScore, awayScore)) {
+            return;
+        }
+
+        if (GameSummaryDisplayPolicy.hasDisplayableSummary(summaries)) {
+            return;
+        }
+
+        String reason = summaries == null || summaries.isEmpty()
+                ? "완료 경기의 주요 기록 row가 없습니다."
+                : "주요 기록 row가 표시 가능한 형식이 아니거나 내부 구조화 데이터만 포함합니다.";
+        throw newException(
+                scope,
+                gameId,
+                gameDate,
+                null,
+                List.of(missingItem(
+                        "game_summary",
+                        "경기 주요 기록",
+                        reason,
+                        "game_summary.summary_type, player_name, detail_text")));
     }
 
     public void ensureHomeGamesByDate(
@@ -339,6 +372,29 @@ public class BaseballDataIntegrityGuard {
                             "과거 경기의 최종 점수가 비어 있습니다.",
                             "home_score, away_score"));
         }
+    }
+
+    private boolean requiresGameSummaryRecords(
+            LocalDate gameDate,
+            String rawGameStatus,
+            Integer homeScore,
+            Integer awayScore) {
+        String normalizedStatus = normalizeStatus(rawGameStatus);
+        boolean noSummaryExpectedStatus = switch (normalizedStatus) {
+            case "CANCELLED", "POSTPONED", "SUSPENDED", "DELAYED" -> true;
+            default -> false;
+        };
+        if (noSummaryExpectedStatus) {
+            return false;
+        }
+
+        boolean hasKnownScore = homeScore != null && awayScore != null;
+        boolean isFinishedStatus = switch (normalizedStatus) {
+            case "COMPLETED", "DRAW", "FINAL" -> true;
+            default -> false;
+        };
+        boolean isResolvedPastGame = gameDate != null && gameDate.isBefore(LocalDate.now()) && hasKnownScore;
+        return isFinishedStatus || isResolvedPastGame;
     }
 
     private SeasonResolution resolveSeasonResolution(Integer seasonId, LocalDate gameDate) {

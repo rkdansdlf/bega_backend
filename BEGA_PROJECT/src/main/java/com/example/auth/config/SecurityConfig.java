@@ -19,6 +19,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 import org.springframework.util.StringUtils;
 
 import org.springframework.web.cors.CorsConfiguration;
@@ -97,8 +98,8 @@ public class SecurityConfig {
 
         /** 테스트 및 시스템 엔드포인트 */
         private static final String[] PUBLIC_SYSTEM_ENDPOINTS = {
-                        "/actuator/health",
-                        "/actuator/health/**"
+                        "/actuator/health/readiness",
+                        "/actuator/health/liveness"
         };
 
         /** 개발/로컬에서만 공개되는 시스템 엔드포인트 */
@@ -197,7 +198,7 @@ public class SecurityConfig {
         private boolean publicAiProxyInDevEnabled;
         @org.springframework.beans.factory.annotation.Value("${app.observability.public-prometheus-endpoint:false}")
         private boolean publicPrometheusEndpointEnabled;
-        @org.springframework.beans.factory.annotation.Value("${app.frontend.url:http://localhost:3000}")
+        @org.springframework.beans.factory.annotation.Value("${app.frontend.url:http://localhost:5176}")
         private String frontendUrl;
 
         public SecurityConfig(CustomOAuth2UserService customOAuth2UserService,
@@ -237,14 +238,19 @@ public class SecurityConfig {
          * [Security Fix - High #3] Content Security Policy 정책.
          * Kakao Maps/OAuth, Google OAuth, OCI Object Storage 이미지를 허용한다.
          * 'unsafe-inline' 스타일/스크립트는 현 프론트(React + inline styles) 호환성을 위해
-         * 임시 허용하며, 차후 nonce 기반으로 tighten 하는 것이 권장된다.
+         * 임시 허용하며, prod에서는 unsafe-eval을 허용하지 않는다.
          */
         String buildContentSecurityPolicy() {
+                String scriptPolicy = isProdProfile()
+                                ? "script-src 'self' 'unsafe-inline' "
+                                                + "https://dapi.kakao.com https://t1.daumcdn.net "
+                                                + "https://accounts.google.com https://apis.google.com"
+                                : "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
+                                                + "https://dapi.kakao.com https://t1.daumcdn.net "
+                                                + "https://accounts.google.com https://apis.google.com";
                 return String.join("; ",
                                 "default-src 'self'",
-                                "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
-                                                + "https://dapi.kakao.com https://t1.daumcdn.net "
-                                                + "https://accounts.google.com https://apis.google.com",
+                                scriptPolicy,
                                 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
                                 "font-src 'self' data: https://fonts.gstatic.com",
                                 "img-src 'self' data: blob: https:",
@@ -367,12 +373,17 @@ public class SecurityConfig {
                 configuration.setAllowedOriginPatterns(
                                 allowedOriginResolver.resolve());
                 configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-                configuration.setAllowedHeaders(List.of("*"));
+                configuration.setAllowedHeaders(List.of(
+                                "Authorization",
+                                "Content-Type",
+                                "Accept",
+                                "Origin",
+                                "X-Requested-With",
+                                "X-XSRF-TOKEN"));
                 configuration.setAllowCredentials(true);
                 configuration.setMaxAge(3600L);
 
-                // JWT Cookie를 Set-Cookie 헤더에 노출하도록 설정 유지
-                configuration.setExposedHeaders(Arrays.asList("Authorization", "Set-Cookie"));
+                configuration.setExposedHeaders(List.of("Content-Disposition"));
 
                 UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
                 source.registerCorsConfiguration("/**", configuration);
@@ -381,12 +392,10 @@ public class SecurityConfig {
         }
 
         @Bean
-        public JWTFilter jwtFilter(org.springframework.core.env.Environment env) {
-                boolean isDev = Arrays.asList(env.getActiveProfiles()).contains("dev");
+        public JWTFilter jwtFilter() {
                 List<String> origins = allowedOriginResolver.resolve();
                 return new JWTFilter(
                                 jwtUtil,
-                                isDev,
                                 origins,
                                 tokenBlacklistService,
                                 userRepository,
@@ -415,7 +424,11 @@ public class SecurityConfig {
                                                         .referrerPolicy(referrer -> referrer.policy(
                                                                         org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
                                                         .permissionsPolicyHeader(permissions -> permissions.policy(
-                                                                        "camera=(), microphone=(), geolocation=(), payment=()"));
+                                                                        "camera=(), microphone=(), geolocation=(), payment=()"))
+                                                        .addHeaderWriter(new StaticHeadersWriter(
+                                                                        "Cross-Origin-Opener-Policy", "same-origin"))
+                                                        .addHeaderWriter(new StaticHeadersWriter(
+                                                                        "Cross-Origin-Resource-Policy", "same-origin"));
                                         if (isProdProfile()) {
                                                 headers.httpStrictTransportSecurity(hsts -> hsts
                                                                 .includeSubDomains(true)

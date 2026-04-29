@@ -34,7 +34,7 @@ public class EmailService {
         this.mailEnabled = mailEnabled;
     }
 
-    @Value("${app.frontend.url:http://localhost:3000}")
+    @Value("${app.frontend.url:http://localhost:5176}")
     private String frontendUrl;
 
     @PostConstruct

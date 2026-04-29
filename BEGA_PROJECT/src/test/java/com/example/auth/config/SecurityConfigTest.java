@@ -71,7 +71,8 @@ class SecurityConfigTest {
         SecurityConfig securityConfig = newSecurityConfig("prod");
 
         assertThat(securityConfig.publicSystemEndpoints())
-                .contains("/actuator/health", "/actuator/health/**")
+                .contains("/actuator/health/readiness", "/actuator/health/liveness")
+                .doesNotContain("/actuator/health", "/actuator/health/**")
                 .doesNotContain("/api/test/**", "/actuator/prometheus", "/swagger-ui.html", "/v3/api-docs/**", "/ws",
                         "/ws/**");
     }
@@ -83,7 +84,8 @@ class SecurityConfigTest {
         setPrivateField(securityConfig, "publicPrometheusEndpointEnabled", true);
 
         assertThat(securityConfig.publicSystemEndpoints())
-                .contains("/actuator/health", "/actuator/health/**", "/actuator/prometheus")
+                .contains("/actuator/health/readiness", "/actuator/health/liveness", "/actuator/prometheus")
+                .doesNotContain("/actuator/health", "/actuator/health/**")
                 .doesNotContain("/api/test/**", "/swagger-ui.html", "/v3/api-docs/**", "/ws", "/ws/**");
     }
 
@@ -93,7 +95,8 @@ class SecurityConfigTest {
         SecurityConfig securityConfig = newSecurityConfig("dev");
 
         assertThat(securityConfig.publicSystemEndpoints())
-                .contains("/actuator/health", "/actuator/health/**", "/api/test/**", "/actuator/prometheus", "/swagger-ui.html", "/v3/api-docs/**")
+                .contains("/actuator/health/readiness", "/actuator/health/liveness", "/api/test/**", "/actuator/prometheus", "/swagger-ui.html", "/v3/api-docs/**")
+                .doesNotContain("/actuator/health", "/actuator/health/**")
                 .doesNotContain("/ws", "/ws/**");
     }
 

@@ -39,7 +39,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     private final AuthCookieUtil authCookieUtil;
     private final AuthSessionService authSessionService;
 
-    @Value("${app.frontend.url:http://localhost:3000}")
+    @Value("${app.frontend.url:http://localhost:5176}")
     private String frontendUrl;
 
     public CustomSuccessHandler(JWTUtil jwtUtil, UserRepository userRepository,

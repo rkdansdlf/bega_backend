@@ -82,7 +82,6 @@ public class APIController {
     /**
      * 일반 회원가입
      */
-    @RateLimit(limit = 3, window = 3600) // 1시간에 최대 3회 가입 시도
     @PostMapping("/signup")
     public ResponseEntity<ApiResponse> signUp(@Valid @RequestBody SignupDto signupDto, HttpServletRequest request) {
         authRegistrationService.register(
@@ -129,7 +128,6 @@ public class APIController {
     /**
      * 로그인
      */
-    @RateLimit(limit = 10, window = 60, key = "auth:login", failClosed = true) // 1분에 최대 10회 로그인 시도
     @PostMapping("/login")
     public ResponseEntity<ApiResponse> login(
             @Valid @RequestBody LoginDto loginDto,
@@ -140,6 +138,7 @@ public class APIController {
         UserService.LoginResult loginResult = userService.authenticateAndGetToken(
                 loginDto.getEmail(),
                 loginDto.getPassword(),
+                loginDto.getCaptchaToken(),
                 request);
 
         String accessToken = loginResult.accessToken();
@@ -199,8 +198,7 @@ public class APIController {
 
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse> logout(HttpServletRequest request, HttpServletResponse response) {
-        // 1. JWT (Authorization) 및 Refresh 쿠키 추출하여 이메일 확인
-        String email = null;
+        Long accessUserId = null;
         String accessToken = null;
         Cookie[] cookies = request.getCookies();
         if (cookies != null) {
@@ -208,7 +206,7 @@ public class APIController {
                 if (cookie.getName().equals("Authorization")) {
                     accessToken = cookie.getValue();
                     try {
-                        email = userService.getJWTUtil().getEmail(accessToken);
+                        accessUserId = userService.getJWTUtil().getUserId(accessToken);
                     } catch (Exception e) {
                         // 토큰 만료 등의 경우 무시
                     }
@@ -228,35 +226,18 @@ public class APIController {
         }
 
         if (refreshToken != null) {
-            String refreshEmail = email;
-            if (refreshEmail == null) {
-                try {
-                    refreshEmail = userService.getJWTUtil().getEmail(refreshToken);
-                } catch (Exception e) {
-                    refreshEmail = null;
-                }
+            java.util.List<RefreshToken> matchedTokens = refreshRepository.findAllByToken(refreshToken);
+            if (!matchedTokens.isEmpty()) {
+                refreshRepository.deleteAll(matchedTokens);
             }
-
-            if (refreshEmail != null) {
-                java.util.List<RefreshToken> refreshTokens = refreshRepository.findAllByEmailOrderByIdDesc(refreshEmail);
-                RefreshToken currentSessionToken = authSessionService.resolveCurrentSessionToken(refreshTokens, request);
-                if (currentSessionToken != null) {
-                    refreshRepository.delete(currentSessionToken);
-                } else {
-                    java.util.List<RefreshToken> matchedTokens = refreshRepository.findAllByToken(refreshToken);
-                    if (!matchedTokens.isEmpty()) {
-                        refreshRepository.deleteAll(matchedTokens);
-                    }
-                }
-            } else {
-                java.util.List<RefreshToken> matchedTokens = refreshRepository.findAllByToken(refreshToken);
-                if (!matchedTokens.isEmpty()) {
-                    refreshRepository.deleteAll(matchedTokens);
-                }
-            }
-        } else if (email != null) {
+        } else if (accessUserId != null) {
             // Refresh 쿠키가 없을 경우 현재 계정의 전체 세션 정리로 안전하게 폴백
-            userService.deleteRefreshTokenByEmail(email);
+            try {
+                String email = userService.findUserById(accessUserId).getEmail();
+                userService.deleteRefreshTokenByEmail(email);
+            } catch (Exception e) {
+                log.debug("Logout session fallback skipped: {}", e.getMessage());
+            }
         }
 
         // 3. [Security Fix] Access Token을 블랙리스트에 추가 및 캐시 무효화
@@ -269,7 +250,7 @@ public class APIController {
                 long remainingTime = expiration.getTime() - System.currentTimeMillis();
                 if (remainingTime > 0) {
                     tokenBlacklistService.blacklist(accessToken, remainingTime);
-                    log.info("Access token blacklisted on logout for email: {}", LogMaskingUtil.maskEmail(email));
+                    log.info("Access token blacklisted on logout for userId: {}", accessUserId);
                 }
             } catch (Exception e) {
                 log.warn("Failed to blacklist token: {}", e.getMessage());

@@ -12,12 +12,15 @@ import java.util.NoSuchElementException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
@@ -139,21 +142,34 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error("DATA_INTEGRITY_VIOLATION", "요청 데이터의 무결성 제약을 위반했습니다."));
     }
 
-    @ExceptionHandler(org.springframework.dao.TransientDataAccessException.class)
+    @ExceptionHandler(TransientDataAccessException.class)
     public ResponseEntity<ApiResponse> handleTransientDataAccessException(
-            org.springframework.dao.TransientDataAccessException e) {
-        log.error("Transient DB error: {}", e.getMessage());
-        return ResponseEntity
-                .status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(ApiResponse.error("TEMPORARY_DATABASE_ERROR", "서버가 현재 혼잡합니다. 잠시 후 다시 시도해주세요."));
+            TransientDataAccessException e) {
+        return buildTemporaryDatabaseErrorResponse("Transient DB error", e);
     }
 
-    @ExceptionHandler({IllegalArgumentException.class, IllegalStateException.class})
-    public ResponseEntity<ApiResponse> handleBadRequestExceptions(RuntimeException ex) {
+    @ExceptionHandler({CannotCreateTransactionException.class, CannotGetJdbcConnectionException.class})
+    public ResponseEntity<ApiResponse> handleDatabaseConnectionException(Exception e) {
+        return buildTemporaryDatabaseErrorResponse("Database connection error", e);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse> handleIllegalArgumentException(IllegalArgumentException ex) {
         log.warn("{}: {}", ex.getClass().getSimpleName(), ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error("BAD_REQUEST", defaultIfBlank(ex.getMessage(), "잘못된 요청입니다.")));
+    }
+
+    // [Security] IllegalStateException은 도메인/라이브러리 내부 상태 오류에서 주로 던져지며,
+    // 메시지에 Hibernate/Jackson/DB 드라이버 등의 내부 구현 정보가 섞여 나갈 위험이 있다.
+    // prod에서 응답 바디에는 일반 메시지만 노출하고, 상세는 서버 로그에만 남긴다.
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<ApiResponse> handleIllegalStateException(IllegalStateException ex) {
+        log.warn("IllegalStateException: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error("BAD_REQUEST", "요청을 처리할 수 없습니다."));
     }
 
     @ExceptionHandler(NoSuchElementException.class)
@@ -238,6 +254,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error(VALIDATION_ERROR_CODE, VALIDATION_ERROR_MESSAGE, resolvedErrors));
+    }
+
+    private ResponseEntity<ApiResponse> buildTemporaryDatabaseErrorResponse(String logMessage, Exception e) {
+        log.error("{}: {}", logMessage, e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ApiResponse.error("TEMPORARY_DATABASE_ERROR", "서버가 현재 혼잡합니다. 잠시 후 다시 시도해주세요."));
     }
 
     private Map<String, String> extractFieldErrors(BindingResult bindingResult) {

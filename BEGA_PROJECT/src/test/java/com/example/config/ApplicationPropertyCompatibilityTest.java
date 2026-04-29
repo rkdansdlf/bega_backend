@@ -16,7 +16,7 @@ class ApplicationPropertyCompatibilityTest {
         String applicationYml = readApplicationYml();
 
         assertThat(applicationYml)
-                .contains("url: ${APP_FRONTEND_URL:${FRONTEND_URL:http://localhost:3000}}");
+                .contains("url: ${APP_FRONTEND_URL:${FRONTEND_URL:http://localhost:5176}}");
     }
 
     @Test
