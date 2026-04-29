@@ -7,8 +7,10 @@ import java.util.Map;
 import javax.sql.DataSource;
 
 import com.example.kbo.entity.GameEntity;
+import com.example.kbo.entity.GameEventEntity;
 import com.example.kbo.entity.GameInningScoreEntity;
 import com.example.kbo.entity.GameMetadataEntity;
+import com.example.kbo.entity.GamePlayByPlayEntity;
 import com.example.kbo.entity.GameSummaryEntity;
 import com.example.kbo.entity.PlayerSeasonBattingEntity;
 import com.example.kbo.entity.PlayerSeasonPitchingEntity;
@@ -55,6 +57,8 @@ public class KboGamePostgresJpaConfig {
 	private static final String GAME_METADATA_TABLE = "game_metadata";
 	private static final String GAME_SUMMARY_TABLE = "game_summary";
 	private static final String GAME_INNING_SCORES_TABLE = "game_inning_scores";
+	private static final String GAME_EVENTS_TABLE = "game_events";
+	private static final String GAME_PLAY_BY_PLAY_TABLE = "game_play_by_play";
 	private static final String IS_DUMMY_COLUMN = "is_dummy";
 	private static final String IS_EXTRA_COLUMN = "is_extra";
 
@@ -103,6 +107,8 @@ public class KboGamePostgresJpaConfig {
 						GameMetadataEntity.class.getName(),
 						GameSummaryEntity.class.getName(),
 						GameInningScoreEntity.class.getName(),
+						GameEventEntity.class.getName(),
+						GamePlayByPlayEntity.class.getName(),
 						PlayerSeasonBattingEntity.class.getName(),
 						PlayerSeasonPitchingEntity.class.getName()
 				),
@@ -208,11 +214,17 @@ public class KboGamePostgresJpaConfig {
 		String summarySchema = resolveSchemaForTable(jdbcTemplate, activeSchema, GAME_SUMMARY_TABLE);
 		String gameSchema = resolveSchemaForTable(jdbcTemplate, activeSchema, GAME_TABLE);
 		String inningSchema = resolveSchemaForTable(jdbcTemplate, activeSchema, GAME_INNING_SCORES_TABLE);
+		String eventSchema = resolveSchemaForTable(jdbcTemplate, activeSchema, GAME_EVENTS_TABLE);
+		String playByPlaySchema = resolveSchemaForTable(jdbcTemplate, activeSchema, GAME_PLAY_BY_PLAY_TABLE);
 
-		if (!gameSchema.equals(metadataSchema) || !gameSchema.equals(summarySchema) || !gameSchema.equals(inningSchema)) {
+		if (!gameSchema.equals(metadataSchema)
+				|| !gameSchema.equals(summarySchema)
+				|| !gameSchema.equals(inningSchema)
+				|| !gameSchema.equals(eventSchema)
+				|| !gameSchema.equals(playByPlaySchema)) {
 			throw new IllegalStateException(
-					"[Schema Guard] kboGame tables are split across schemas. game=%s, game_metadata=%s, game_summary=%s, game_inning_scores=%s"
-							.formatted(gameSchema, metadataSchema, summarySchema, inningSchema));
+					"[Schema Guard] kboGame tables are split across schemas. game=%s, game_metadata=%s, game_summary=%s, game_inning_scores=%s, game_events=%s, game_play_by_play=%s"
+							.formatted(gameSchema, metadataSchema, summarySchema, inningSchema, eventSchema, playByPlaySchema));
 		}
 
 		validateBooleanColumnType(jdbcTemplate, gameSchema, GAME_TABLE, IS_DUMMY_COLUMN);
@@ -241,7 +253,9 @@ public class KboGamePostgresJpaConfig {
 		return countTable(jdbcTemplate, schema, GAME_TABLE) > 0
 				&& countTable(jdbcTemplate, schema, GAME_METADATA_TABLE) > 0
 				&& countTable(jdbcTemplate, schema, GAME_SUMMARY_TABLE) > 0
-				&& countTable(jdbcTemplate, schema, GAME_INNING_SCORES_TABLE) > 0;
+				&& countTable(jdbcTemplate, schema, GAME_INNING_SCORES_TABLE) > 0
+				&& countTable(jdbcTemplate, schema, GAME_EVENTS_TABLE) > 0
+				&& countTable(jdbcTemplate, schema, GAME_PLAY_BY_PLAY_TABLE) > 0;
 	}
 
 	private String resolveSchemaForTable(JdbcTemplate jdbcTemplate, String activeSchema, String tableName) {

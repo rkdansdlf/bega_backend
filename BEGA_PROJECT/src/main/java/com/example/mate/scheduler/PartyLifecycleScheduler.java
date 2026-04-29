@@ -23,7 +23,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Component
@@ -94,13 +97,15 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
         List<Party> matchedYesterdayParties = partyRepository.findByStatusAndGameDate(
                 Party.PartyStatus.MATCHED, yesterday);
 
+        Map<Long, List<PartyApplication>> matchedYesterdayApplicants = loadApprovedApplicantsByParty(matchedYesterdayParties);
+
         for (Party party : matchedYesterdayParties) {
             party.setStatus(Party.PartyStatus.COMPLETED);
             partyRepository.save(party);
 
-            // 승인된 참여자들 조회
-            List<PartyApplication> approvedApplicants = applicationRepository
-                    .findByPartyIdAndIsApprovedTrue(party.getId());
+            // 승인된 참여자들 조회 (bulk pre-fetched)
+            List<PartyApplication> approvedApplicants = matchedYesterdayApplicants
+                    .getOrDefault(party.getId(), Collections.emptyList());
 
             // 호스트에게 알림
             notificationService.createNotification(
@@ -146,6 +151,16 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
         // 3. CHECKED_IN 파티 중 경기 시간이 3시간 이상 지난 것 → COMPLETED
         List<Party> checkedInParties = partyRepository.findByStatus(Party.PartyStatus.CHECKED_IN);
 
+        // 3시간 이상 경과한 파티만 추려서 그 ID 기준으로 신청자를 bulk 조회
+        List<Party> checkedInExpired = checkedInParties.stream()
+                .filter(p -> {
+                    Instant gameInstant = LocalDateTime.of(p.getGameDate(), p.getGameTime())
+                            .atZone(ZoneId.systemDefault()).toInstant();
+                    return gameInstant.isBefore(threeHoursAgo);
+                })
+                .toList();
+        Map<Long, List<PartyApplication>> checkedInExpiredApplicants = loadApprovedApplicantsByParty(checkedInExpired);
+
         for (Party party : checkedInParties) {
             // 경기 날짜와 시간을 Instant로 변환
             LocalDateTime gameDateTime = LocalDateTime.of(party.getGameDate(), party.getGameTime());
@@ -156,9 +171,9 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
                 party.setStatus(Party.PartyStatus.COMPLETED);
                 partyRepository.save(party);
 
-                // 승인된 참여자들 조회
-                List<PartyApplication> approvedApplicants = applicationRepository
-                        .findByPartyIdAndIsApprovedTrue(party.getId());
+                // 승인된 참여자들 조회 (bulk pre-fetched)
+                List<PartyApplication> approvedApplicants = checkedInExpiredApplicants
+                        .getOrDefault(party.getId(), Collections.emptyList());
 
                 // 호스트에게 알림
                 notificationService.createNotification(
@@ -274,17 +289,27 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
         List<Party> checkedInParties = partyRepository.findByStatusAndGameDate(
                 Party.PartyStatus.CHECKED_IN, tomorrow);
 
+        // 두 상태의 파티 신청자를 한 번에 bulk 조회
+        List<Party> allTargetParties = new java.util.ArrayList<>(matchedParties.size() + checkedInParties.size());
+        allTargetParties.addAll(matchedParties);
+        allTargetParties.addAll(checkedInParties);
+        Map<Long, List<PartyApplication>> applicantsByParty = loadApprovedApplicantsByParty(allTargetParties);
+
         int notificationCount = 0;
 
         // MATCHED 파티 알림
         for (Party party : matchedParties) {
-            sendGameReminder(party, "내일 경기 알림", "내일 경기가 있습니다! 준비해주세요.", Notification.NotificationType.GAME_TOMORROW_REMINDER);
+            sendGameReminder(party,
+                    applicantsByParty.getOrDefault(party.getId(), Collections.emptyList()),
+                    "내일 경기 알림", "내일 경기가 있습니다! 준비해주세요.", Notification.NotificationType.GAME_TOMORROW_REMINDER);
             notificationCount++;
         }
 
         // CHECKED_IN 파티 알림
         for (Party party : checkedInParties) {
-            sendGameReminder(party, "내일 경기 알림", "내일 경기가 있습니다! 준비해주세요.", Notification.NotificationType.GAME_TOMORROW_REMINDER);
+            sendGameReminder(party,
+                    applicantsByParty.getOrDefault(party.getId(), Collections.emptyList()),
+                    "내일 경기 알림", "내일 경기가 있습니다! 준비해주세요.", Notification.NotificationType.GAME_TOMORROW_REMINDER);
             notificationCount++;
         }
 
@@ -307,17 +332,27 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
         List<Party> checkedInParties = partyRepository.findByStatusAndGameDate(
                 Party.PartyStatus.CHECKED_IN, today);
 
+        // 두 상태의 파티 신청자를 한 번에 bulk 조회
+        List<Party> allTargetParties = new java.util.ArrayList<>(matchedParties.size() + checkedInParties.size());
+        allTargetParties.addAll(matchedParties);
+        allTargetParties.addAll(checkedInParties);
+        Map<Long, List<PartyApplication>> applicantsByParty = loadApprovedApplicantsByParty(allTargetParties);
+
         int notificationCount = 0;
 
         // MATCHED 파티 알림
         for (Party party : matchedParties) {
-            sendGameReminder(party, "오늘 경기 알림", "오늘 경기가 있습니다! 즐거운 관람 되세요!", Notification.NotificationType.GAME_DAY_REMINDER);
+            sendGameReminder(party,
+                    applicantsByParty.getOrDefault(party.getId(), Collections.emptyList()),
+                    "오늘 경기 알림", "오늘 경기가 있습니다! 즐거운 관람 되세요!", Notification.NotificationType.GAME_DAY_REMINDER);
             notificationCount++;
         }
 
         // CHECKED_IN 파티 알림
         for (Party party : checkedInParties) {
-            sendGameReminder(party, "오늘 경기 알림", "오늘 경기가 있습니다! 즐거운 관람 되세요!", Notification.NotificationType.GAME_DAY_REMINDER);
+            sendGameReminder(party,
+                    applicantsByParty.getOrDefault(party.getId(), Collections.emptyList()),
+                    "오늘 경기 알림", "오늘 경기가 있습니다! 즐거운 관람 되세요!", Notification.NotificationType.GAME_DAY_REMINDER);
             notificationCount++;
         }
 
@@ -329,7 +364,8 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
     /**
      * 파티의 호스트와 승인된 참여자들에게 알림 전송
      */
-    private void sendGameReminder(Party party, String title, String message, Notification.NotificationType type) {
+    private void sendGameReminder(Party party, List<PartyApplication> approvedApplicants,
+                                  String title, String message, Notification.NotificationType type) {
         // 호스트에게 알림
         notificationService.createNotification(
                 party.getHostId(),
@@ -340,8 +376,6 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
         );
 
         // 승인된 참여자들에게 알림
-        List<PartyApplication> approvedApplicants = applicationRepository
-                .findByPartyIdAndIsApprovedTrue(party.getId());
         for (PartyApplication app : approvedApplicants) {
             notificationService.createNotification(
                     app.getApplicantId(),
@@ -351,6 +385,19 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
                     party.getId()
             );
         }
+    }
+
+    /**
+     * 파티 목록의 승인된 신청자들을 bulk 조회한 뒤 partyId로 그룹화하여 반환.
+     * 빈 목록이 들어오면 IN 쿼리 호출을 건너뛴다.
+     */
+    private Map<Long, List<PartyApplication>> loadApprovedApplicantsByParty(List<Party> parties) {
+        if (parties == null || parties.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<Long> partyIds = parties.stream().map(Party::getId).toList();
+        return applicationRepository.findByPartyIdInAndIsApprovedTrue(partyIds).stream()
+                .collect(Collectors.groupingBy(PartyApplication::getPartyId));
     }
 
     /**

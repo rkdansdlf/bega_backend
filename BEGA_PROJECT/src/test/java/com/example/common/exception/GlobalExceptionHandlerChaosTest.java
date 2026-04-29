@@ -4,6 +4,7 @@ import com.example.common.dto.ApiResponse;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.server.ResponseStatusException;
 import org.junit.jupiter.api.Test;
 
@@ -48,6 +49,21 @@ class GlobalExceptionHandlerChaosTest {
         assertThat(body.getMessage()).doesNotContain("30s");
     }
 
+    @Test
+    void cannotCreateTransaction_returns503_asTemporaryDatabaseError() {
+        var ex = new CannotCreateTransactionException("ORA-12506 listener rejected connection");
+
+        var response = handler.handleDatabaseConnectionException(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.isSuccess()).isFalse();
+        assertThat(body.getCode()).isEqualTo("TEMPORARY_DATABASE_ERROR");
+        assertThat(body.getMessage()).isEqualTo("서버가 현재 혼잡합니다. 잠시 후 다시 시도해주세요.");
+        assertThat(body.getMessage()).doesNotContain("ORA-12506");
+        assertThat(body.getMessage()).doesNotContain("listener");
+    }
+
     // ─────────────────────────────────────────────
     // 레이트 리밋 시나리오
     // ─────────────────────────────────────────────
@@ -62,6 +78,21 @@ class GlobalExceptionHandlerChaosTest {
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.isSuccess()).isFalse();
         assertThat(body.getMessage()).isEqualTo("너무 많은 요청을 보냈습니다. 잠시 후 다시 시도해주세요.");
+    }
+
+    @Test
+    void refreshTokenRevokeFailed_returns503_withoutOverstatingRevocation() {
+        var ex = new RefreshTokenRevokeFailedException(new RuntimeException("delete failed"));
+
+        var response = handler.handleBusinessException(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.isSuccess()).isFalse();
+        assertThat(body.getCode()).isEqualTo("REFRESH_TOKEN_REVOKE_FAILED");
+        assertThat(body.getMessage()).isEqualTo("보안 조치를 완료할 수 없습니다. 잠시 후 다시 시도해주세요.");
+        assertThat(body.getMessage()).doesNotContain("모든 세션이 종료되었습니다");
+        assertThat(body.getMessage()).doesNotContain("delete failed");
     }
 
     // ─────────────────────────────────────────────

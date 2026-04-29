@@ -3,16 +3,31 @@ package com.example.common.validation;
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * 비밀번호 복잡도 검증 구현
  */
 public class PasswordConstraintValidator implements ConstraintValidator<ValidPassword, String> {
 
-    // 정규식: 최소 8자, 소문자, 대문자, 숫자, 특수문자 각 1개 이상
+    private static final int MIN_LENGTH = 12;
+    private static final int MAX_LENGTH = 72;
+
+    // 정규식: 소문자, 대문자, 숫자, 특수문자 각 1개 이상
     private static final Pattern PASSWORD_PATTERN = Pattern.compile(
-        "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#])[A-Za-z\\d@$!%*?&#]{8,}$"
+        "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#])[A-Za-z\\d@$!%*?&#]+$"
     );
+
+    private final CompromisedPasswordChecker compromisedPasswordChecker;
+
+    public PasswordConstraintValidator() {
+        this(null);
+    }
+
+    @Autowired
+    public PasswordConstraintValidator(CompromisedPasswordChecker compromisedPasswordChecker) {
+        this.compromisedPasswordChecker = compromisedPasswordChecker;
+    }
 
     @Override
     public void initialize(ValidPassword constraintAnnotation) {
@@ -25,7 +40,16 @@ public class PasswordConstraintValidator implements ConstraintValidator<ValidPas
         if (password == null || password.isEmpty()) {
             return true;
         }
-        
-        return PASSWORD_PATTERN.matcher(password).matches();
+
+        if (password.length() < MIN_LENGTH || password.length() > MAX_LENGTH) {
+            return false;
+        }
+
+        if (!PASSWORD_PATTERN.matcher(password).matches()) {
+            return false;
+        }
+
+        return compromisedPasswordChecker == null
+                || !compromisedPasswordChecker.isCompromised(password);
     }
 }

@@ -3,6 +3,9 @@ package com.example.auth.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.auth.dto.AvailabilityCheckResponseDto;
 import com.example.auth.repository.RefreshRepository;
@@ -14,6 +17,7 @@ import com.example.auth.service.UserService;
 import com.example.common.dto.ApiResponse;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.DuplicateNameException;
+import com.example.common.exception.GlobalExceptionHandler;
 import com.example.common.web.ClientIpResolver;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
@@ -22,8 +26,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 @ExtendWith(MockitoExtension.class)
 class APIControllerCheckNameTest {
@@ -115,6 +121,22 @@ class APIControllerCheckNameTest {
         assertThat(response.getBody().isSuccess()).isFalse();
         assertThat(response.getBody().getCode()).isEqualTo("HANDLE_UNAVAILABLE");
         assertThat(response.getBody().getData()).isEqualTo(new AvailabilityCheckResponseDto(false, "@slugger"));
+    }
+
+    @Test
+    @DisplayName("handle availability DB timeout returns temporary database error")
+    void checkHandle_transientDataAccessException_returns503() throws Exception {
+        when(userService.checkHandleAvailability("@slugger"))
+                .thenThrow(new TransientDataAccessResourceException("connection pool exhausted"));
+
+        MockMvcBuilders.standaloneSetup(apiController)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build()
+                .perform(get("/api/auth/check-handle").param("handle", "@slugger"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("TEMPORARY_DATABASE_ERROR"))
+                .andExpect(jsonPath("$.message").value("서버가 현재 혼잡합니다. 잠시 후 다시 시도해주세요."));
     }
 
     // [Security Fix - Critical #3] /check-email 엔드포인트 제거에 따라 관련 테스트 제거.

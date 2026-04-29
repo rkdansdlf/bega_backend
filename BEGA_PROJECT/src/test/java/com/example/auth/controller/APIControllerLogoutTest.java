@@ -1,10 +1,10 @@
 package com.example.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.repository.RefreshRepository;
@@ -80,12 +80,12 @@ class APIControllerLogoutTest {
                 new AuthCookieUtil(false),
                 clientIpResolver,
                 authSessionService);
-        when(userService.getJWTUtil()).thenReturn(jwtUtil);
+        lenient().when(userService.getJWTUtil()).thenReturn(jwtUtil);
     }
 
     @Test
-    @DisplayName("logout는 현재 세션이 해석되면 해당 refresh row만 삭제한다")
-    void logout_deletesResolvedCurrentSessionOnly() {
+    @DisplayName("logout는 refresh token DB row만 삭제한다")
+    void logout_deletesRefreshTokenRowsByTokenOnly() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie("Refresh", "refresh-current"));
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -93,18 +93,9 @@ class APIControllerLogoutTest {
         RefreshToken currentSession = new RefreshToken();
         currentSession.setId(10L);
         currentSession.setSessionId("session-current");
-        currentSession.setToken("db-refresh-current");
+        currentSession.setToken("refresh-current");
 
-        RefreshToken otherSession = new RefreshToken();
-        otherSession.setId(20L);
-        otherSession.setSessionId("session-other");
-        otherSession.setToken("db-refresh-other");
-
-        when(jwtUtil.getEmail("refresh-current")).thenReturn("user@example.com");
-        when(refreshRepository.findAllByEmailOrderByIdDesc("user@example.com"))
-                .thenReturn(List.of(otherSession, currentSession));
-        when(authSessionService.resolveCurrentSessionToken(List.of(otherSession, currentSession), request))
-                .thenReturn(currentSession);
+        when(refreshRepository.findAllByToken("refresh-current")).thenReturn(List.of(currentSession));
 
         ResponseEntity<ApiResponse> result = apiController.logout(request, response);
 
@@ -113,33 +104,23 @@ class APIControllerLogoutTest {
                 .anyMatch(header -> header.startsWith("Authorization=") && header.contains("Max-Age=0"));
         assertThat(result.getHeaders().get(HttpHeaders.SET_COOKIE))
                 .anyMatch(header -> header.startsWith("Refresh=") && header.contains("Max-Age=0"));
-        verify(refreshRepository).delete(currentSession);
-        verify(refreshRepository, never()).deleteAll(anyList());
+        verify(refreshRepository).deleteAll(List.of(currentSession));
+        verify(refreshRepository, never()).delete(currentSession);
     }
 
     @Test
-    @DisplayName("logout는 현재 세션 해석에 실패하면 refresh token 값 기준 삭제로 폴백한다")
-    void logout_fallsBackToTokenMatchWhenCurrentSessionIsNotResolved() {
+    @DisplayName("logout는 refresh token row가 없으면 세션 삭제를 건너뛴다")
+    void logout_skipsRefreshDeletionWhenTokenRowIsMissing() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie("Refresh", "refresh-current"));
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        RefreshToken matchedByToken = new RefreshToken();
-        matchedByToken.setId(10L);
-        matchedByToken.setToken("refresh-current");
-
-        when(jwtUtil.getEmail("refresh-current")).thenReturn("user@example.com");
-        when(refreshRepository.findAllByEmailOrderByIdDesc("user@example.com"))
-                .thenReturn(List.of());
-        when(authSessionService.resolveCurrentSessionToken(List.of(), request))
-                .thenReturn(null);
         when(refreshRepository.findAllByToken("refresh-current"))
-                .thenReturn(List.of(matchedByToken));
+                .thenReturn(List.of());
 
         ResponseEntity<ApiResponse> result = apiController.logout(request, response);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
-        verify(refreshRepository).deleteAll(List.of(matchedByToken));
-        verify(refreshRepository, never()).delete(matchedByToken);
+        verify(refreshRepository, never()).deleteAll(List.of());
     }
 }

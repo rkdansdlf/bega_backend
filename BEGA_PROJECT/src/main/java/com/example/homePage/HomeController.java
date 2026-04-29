@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 public class HomeController {
 
     private final HomePageFacadeService homePageFacadeService;
+    private final HomePageGameService homePageGameService;
 
     @GetMapping("/bootstrap")
     public ResponseEntity<HomeBootstrapResponseDto> getBootstrap(
@@ -45,6 +46,32 @@ public class HomeController {
         } catch (Exception e) {
             log.warn("Widgets failed for date={}, returning empty fallback: {}", selectedDate, e.getMessage());
             return ResponseEntity.ok(normalizeWidgetsResponse(selectedDate, seasonYear, null));
+        }
+    }
+
+    @GetMapping("/navigation")
+    public ResponseEntity<HomeScopedNavigationDto> getNavigation(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(defaultValue = "regular") String scope,
+            @RequestParam(required = false) Integer seasonYear) {
+        LocalDate selectedDate = date == null ? LocalDate.now() : date;
+        try {
+            return ResponseEntity.ok(homePageGameService.getScopedNavigation(selectedDate, scope, seasonYear));
+        } catch (ManualBaseballDataRequiredException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("Scoped home navigation failed for date={}, scope={}, seasonYear={}: {}",
+                    selectedDate,
+                    scope,
+                    seasonYear,
+                    e.getMessage());
+            return ResponseEntity.ok(HomeScopedNavigationDto.builder()
+                    .resolvedDate(null)
+                    .prevGameDate(null)
+                    .nextGameDate(null)
+                    .hasPrev(false)
+                    .hasNext(false)
+                    .build());
         }
     }
 

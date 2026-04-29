@@ -8,6 +8,9 @@ import org.springframework.stereotype.Service;
 @Service
 public class AuthSecurityMonitoringService {
 
+    private static final String METRIC_NAME = "auth_security_events_total";
+    private static final String NO_CODE = "NONE";
+
     private final MeterRegistry meterRegistry;
     private final Counter invalidOriginTotal;
     private final Counter tokenRejectTotal;
@@ -20,45 +23,38 @@ public class AuthSecurityMonitoringService {
 
     public AuthSecurityMonitoringService(MeterRegistry meterRegistry) {
         this.meterRegistry = meterRegistry;
-        this.invalidOriginTotal = Counter.builder("auth_security_events_total")
-                .description("Invalid origin attempts on authenticated API calls")
-                .tag("event", "INVALID_ORIGIN")
-                .register(meterRegistry);
-
-        this.tokenRejectTotal = Counter.builder("auth_security_events_total")
-                .description("Rejected JWT / auth token attempts")
-                .tag("event", "TOKEN_REJECT")
-                .register(meterRegistry);
-
-        this.unsignedOauth2CookieTotal = Counter.builder("auth_security_events_total")
-                .description("Invalid or unsigned OAuth2 request cookie usage")
-                .tag("event", "UNSIGNED_OAUTH2_COOKIE")
-                .register(meterRegistry);
-
-        this.oauth2StateRejectTotal = Counter.builder("auth_security_events_total")
-                .description("OAuth2 state lookup or payload rejection")
-                .tag("event", "OAUTH2_STATE_REJECT")
-                .register(meterRegistry);
-
-        this.oauth2LinkRejectTotal = Counter.builder("auth_security_events_total")
-                .description("OAuth2 link ticket or link state rejection")
-                .tag("event", "OAUTH2_LINK_REJECT")
-                .register(meterRegistry);
-
-        this.oauth2LinkConflictTotal = Counter.builder("auth_security_events_total")
-                .description("OAuth2 link conflict attempts")
-                .tag("event", "OAUTH2_LINK_CONFLICT")
-                .register(meterRegistry);
-
-        this.authRateLimitRejectTotal = Counter.builder("auth_security_events_total")
-                .description("Rejected authentication-related requests due to rate limiting")
-                .tag("event", "AUTH_RATE_LIMIT_REJECT")
-                .register(meterRegistry);
-
-        this.passwordResetSuppressedTotal = Counter.builder("auth_security_events_total")
-                .description("Suppressed password reset requests for enumeration-resistant handling")
-                .tag("event", "PASSWORD_RESET_SUPPRESSED")
-                .register(meterRegistry);
+        this.invalidOriginTotal = counter(
+                "INVALID_ORIGIN",
+                NO_CODE,
+                "Invalid origin attempts on authenticated API calls");
+        this.tokenRejectTotal = counter(
+                "TOKEN_REJECT",
+                NO_CODE,
+                "Rejected JWT / auth token attempts");
+        this.unsignedOauth2CookieTotal = counter(
+                "UNSIGNED_OAUTH2_COOKIE",
+                NO_CODE,
+                "Invalid or unsigned OAuth2 request cookie usage");
+        this.oauth2StateRejectTotal = counter(
+                "OAUTH2_STATE_REJECT",
+                NO_CODE,
+                "OAuth2 state lookup or payload rejection");
+        this.oauth2LinkRejectTotal = counter(
+                "OAUTH2_LINK_REJECT",
+                NO_CODE,
+                "OAuth2 link ticket or link state rejection");
+        this.oauth2LinkConflictTotal = counter(
+                "OAUTH2_LINK_CONFLICT",
+                NO_CODE,
+                "OAuth2 link conflict attempts");
+        this.authRateLimitRejectTotal = counter(
+                "AUTH_RATE_LIMIT_REJECT",
+                NO_CODE,
+                "Rejected authentication-related requests due to rate limiting");
+        this.passwordResetSuppressedTotal = counter(
+                "PASSWORD_RESET_SUPPRESSED",
+                NO_CODE,
+                "Suppressed password reset requests for enumeration-resistant handling");
     }
 
     public void recordInvalidOrigin() {
@@ -94,11 +90,19 @@ public class AuthSecurityMonitoringService {
     }
 
     public void recordRefreshReissueReject(String code) {
-        meterRegistry.counter(
-                        "auth_security_events_total",
-                        "event", "REFRESH_REISSUE_REJECT",
-                        "code", normalizeCode(code))
+        counter(
+                "REFRESH_REISSUE_REJECT",
+                normalizeCode(code),
+                "Rejected refresh token reissue attempts")
                 .increment();
+    }
+
+    private Counter counter(String event, String code, String description) {
+        return Counter.builder(METRIC_NAME)
+                .description(description)
+                .tag("event", event)
+                .tag("code", normalizeCode(code))
+                .register(meterRegistry);
     }
 
     private String normalizeCode(String code) {

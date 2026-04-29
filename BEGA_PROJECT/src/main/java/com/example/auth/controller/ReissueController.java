@@ -9,8 +9,10 @@ import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.AuthSessionMetadataResolver;
 import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.auth.service.RefreshTokenReuseDetector;
+import com.example.auth.service.RefreshTokenRevocationService;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InvalidAuthorException;
+import com.example.common.exception.RefreshTokenRevokeFailedException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.ResponseCookie;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -41,11 +43,13 @@ public class ReissueController {
     private final AuthSessionService authSessionService;
     private final AuthSecurityMonitoringService authSecurityMonitoringService;
     private final RefreshTokenReuseDetector refreshTokenReuseDetector;
+    private final RefreshTokenRevocationService refreshTokenRevocationService;
 
     public ReissueController(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository,
             AuthCookieUtil authCookieUtil, AuthSessionService authSessionService,
             AuthSecurityMonitoringService authSecurityMonitoringService,
-            RefreshTokenReuseDetector refreshTokenReuseDetector) {
+            RefreshTokenReuseDetector refreshTokenReuseDetector,
+            RefreshTokenRevocationService refreshTokenRevocationService) {
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
         this.userRepository = userRepository;
@@ -53,6 +57,7 @@ public class ReissueController {
         this.authSessionService = authSessionService;
         this.authSecurityMonitoringService = authSecurityMonitoringService;
         this.refreshTokenReuseDetector = refreshTokenReuseDetector;
+        this.refreshTokenRevocationService = refreshTokenRevocationService;
     }
 
     @PostMapping("/reissue")
@@ -91,17 +96,8 @@ public class ReissueController {
             throw rejectBadRequest("REFRESH_TOKEN_EXPIRED", "Refresh Token이 만료되었습니다.", request, null, null);
         }
 
-        // DB에서 Refresh Token 확인
-
-        // 토큰에서 이메일 가져오기
-        String email = jwtUtil.getEmail(refreshToken);
-
-        // 가져온 이메일을 통해 DB에서 RefreshToken 엔티티 찾기
-        List<RefreshToken> existTokens = refreshRepository.findAllByEmailOrderByIdDesc(email);
-        final String finalRefreshToken = refreshToken;
-        Optional<RefreshToken> matchedToken = existTokens.stream()
-                .filter(item -> finalRefreshToken.equals(item.getToken()))
-                .findFirst();
+        List<RefreshToken> matchedTokens = refreshRepository.findAllByToken(refreshToken);
+        Optional<RefreshToken> matchedToken = matchedTokens.stream().findFirst();
 
         if (matchedToken.isEmpty()) {
             // [Security Fix - Medium #4] 재사용 탐지:
@@ -110,31 +106,28 @@ public class ReissueController {
             Optional<Long> reuseUserId = refreshTokenReuseDetector.findReuseUserId(refreshToken);
             if (reuseUserId.isPresent()) {
                 Long reusedUserId = reuseUserId.get();
+                RefreshTokenRevocationService.RevokedRefreshSessions revokedSessions;
                 try {
-                    userRepository.findById(reusedUserId).ifPresent(affected -> {
-                        affected.setTokenVersion(
-                                Optional.ofNullable(affected.getTokenVersion()).orElse(0) + 1);
-                        userRepository.save(affected);
-                    });
-                    refreshRepository.deleteByEmail(email);
-                } catch (Exception cleanup) {
-                    log.warn("Failed to revoke sessions after refresh reuse detection: {}", cleanup.getMessage());
+                    revokedSessions = refreshTokenRevocationService.revokeAllSessionsAfterReuse(reusedUserId);
+                } catch (RefreshTokenRevokeFailedException e) {
+                    authSecurityMonitoringService.recordRefreshReissueReject(RefreshTokenRevokeFailedException.CODE);
+                    logReissueReject(RefreshTokenRevokeFailedException.CODE, request, null, reusedUserId);
+                    throw e;
                 }
                 authSecurityMonitoringService.recordRefreshReissueReject("REFRESH_TOKEN_REUSE_DETECTED");
-                logReissueReject("REFRESH_TOKEN_REUSE_DETECTED", request, email, reusedUserId);
+                logReissueReject("REFRESH_TOKEN_REUSE_DETECTED", request, revokedSessions.email(), reusedUserId);
                 throw new BadRequestBusinessException(
                         "REFRESH_TOKEN_REUSE_DETECTED",
                         "보안 경고: 재사용이 감지되어 모든 세션이 종료되었습니다. 다시 로그인해주세요.");
             }
             // 해당 이메일로 등록된 Refresh Token이 DB에 없으면 띄우기
-            throw rejectBadRequest("REFRESH_TOKEN_NOT_FOUND", "잘못된 Refresh Token입니다.", request, email, null);
+            throw rejectBadRequest("REFRESH_TOKEN_NOT_FOUND", "잘못된 Refresh Token입니다.", request, null, null);
         }
 
         RefreshToken existToken = matchedToken.get();
+        String email = existToken.getEmail();
 
         // 새로운 Access Token 및 Refresh Token 생성
-        String role = jwtUtil.getRole(refreshToken);
-
         Long userId = jwtUtil.getUserId(refreshToken);
         if (userId == null) {
             throw rejectBadRequest("INVALID_REFRESH_TOKEN", "유효하지 않은 Refresh Token입니다.", request, email, null);
@@ -151,13 +144,13 @@ public class ReissueController {
 
         // userId와 role의 순서를 교정함 (email, userId, role, expiredMs)
         int tokenVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
-        String newAccessToken = jwtUtil.createJwt(email, role, userId, accessTokenExpiredMs, tokenVersion);
+        String newAccessToken = jwtUtil.createJwt(user.getEmail(), user.getRole(), userId, accessTokenExpiredMs, tokenVersion);
 
         // userId와 role의 순서를 교정함 (email, userId, role)
         AuthSessionService.IssuedRefreshSession issuedRefreshSession = authSessionService.rotateRefreshSession(
                 existToken,
-                email,
-                role,
+                user.getEmail(),
+                user.getRole(),
                 userId,
                 tokenVersion,
                 request,

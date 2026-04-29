@@ -408,10 +408,18 @@ public class CheerFeedService {
         return new PageImpl<>(Objects.requireNonNull(content), pageable, totalElements);
     }
 
+    /**
+     * Hybrid hot feed candidate cap.
+     * 개인화(team/follow affinity) 점수가 사용자별로 달라 사전 ZADD로 대체할 수 없는 구조이지만,
+     * 후보 풀이 너무 크면 EntityGraph 적용된 1000건 가량을 매 호출에 in-memory 스코어링 + DB EAGER 조인으로 처리하게 된다.
+     * 일반 사용 시나리오(상위 100~200건 내 노출)를 가정하고 cap을 절반으로 낮춰 worst-case 부하를 완화한다.
+     */
+    private static final int HYBRID_HOT_FEED_CANDIDATE_CAP = 499;
+
     private Page<PostSummaryRes> getHybridHotPosts(Pageable pageable, UserEntity me) {
         int start = (int) pageable.getOffset();
         int end = start + pageable.getPageSize() - 1;
-        int candidateEnd = Math.min(999, end + 200);
+        int candidateEnd = Math.min(HYBRID_HOT_FEED_CANDIDATE_CAP, end + 200);
 
         Set<Long> candidateIds = redisPostService.getHotPostIds(0, candidateEnd, PopularFeedAlgorithm.TIME_DECAY);
         long totalElements = redisPostService.getHotListSize(PopularFeedAlgorithm.TIME_DECAY);
