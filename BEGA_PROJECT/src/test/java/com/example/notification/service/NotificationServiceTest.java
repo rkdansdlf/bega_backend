@@ -3,6 +3,7 @@ package com.example.notification.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -15,9 +16,13 @@ import jakarta.persistence.Column;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import com.example.common.exception.AuthenticationRequiredException;
@@ -57,13 +62,39 @@ class NotificationServiceTest {
     void getMyNotifications_returnsNotificationList() {
         Notification n1 = buildNotification(1L, 10L, Notification.NotificationType.APPLICATION_RECEIVED, "제목1", "메시지1");
         Notification n2 = buildNotification(2L, 10L, Notification.NotificationType.POST_COMMENT, "제목2", "메시지2");
-        when(notificationRepository.findByUserIdOrderByCreatedAtDesc(10L)).thenReturn(List.of(n1, n2));
+        when(notificationRepository.findByUserIdOrderByCreatedAtDesc(eq(10L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(n1, n2)));
 
         List<NotificationDTO.Response> result = notificationService.getMyNotifications(10L);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getTitle()).isEqualTo("제목1");
         assertThat(result.get(1).getType()).isEqualTo(Notification.NotificationType.POST_COMMENT);
+    }
+
+    @Test
+    void getMyNotifications_defaultsToFirstPageOf30() {
+        when(notificationRepository.findByUserIdOrderByCreatedAtDesc(eq(10L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        notificationService.getMyNotifications(10L);
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(notificationRepository).findByUserIdOrderByCreatedAtDesc(eq(10L), pageableCaptor.capture());
+        Pageable captured = pageableCaptor.getValue();
+        assertThat(captured.getPageNumber()).isZero();
+        assertThat(captured.getPageSize()).isEqualTo(NotificationService.DEFAULT_NOTIFICATION_PAGE_SIZE);
+    }
+
+    @Test
+    void getMyNotifications_passesThroughCustomPageable() {
+        Pageable custom = PageRequest.of(2, 10);
+        when(notificationRepository.findByUserIdOrderByCreatedAtDesc(eq(10L), eq(custom)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        notificationService.getMyNotifications(10L, custom);
+
+        verify(notificationRepository).findByUserIdOrderByCreatedAtDesc(10L, custom);
     }
 
     @Test

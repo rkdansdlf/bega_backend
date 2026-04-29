@@ -80,6 +80,8 @@ class HomePageGameServiceTest {
         assertThat(games).hasSize(1);
         assertThat(games.get(0).getLeagueType()).isEqualTo("KOREAN_SERIES");
         assertThat(games.get(0).getGameInfo()).isEqualTo("한국시리즈");
+        assertThat(games.get(0).getGameDate()).isEqualTo("2025-10-28");
+        assertThat(games.get(0).getSourceDate()).isEqualTo("2025-10-28");
     }
 
     @Test
@@ -236,7 +238,16 @@ class HomePageGameServiceTest {
         LocalDate startDate = LocalDate.of(2026, 4, 13);
         LocalDate endDate = startDate.plusDays(7);
 
-        when(gameRepository.findAllByDateRange(startDate, endDate)).thenReturn(List.of());
+        when(gameRepository.findScheduledGamesByDateRange(startDate, endDate, List.of(
+                "SCHEDULED",
+                "READY",
+                "UPCOMING",
+                "NOT_STARTED",
+                "PRE_GAME",
+                "BEFORE_GAME",
+                "POSTPONED",
+                "CANCELLED",
+                "CANCEL"))).thenReturn(List.of());
 
         List<HomePageScheduledGameDto> scheduledGames = homePageGameService.getScheduledGamesWindow(startDate, endDate);
 

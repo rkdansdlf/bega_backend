@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
-        "spring.jwt.secret=test-jwt-secret-32-characters-long",
+        "spring.jwt.secret=test-jwt-secret-64-characters-long-for-hs512-signature-tests-key-1234567890",
         "spring.jwt.refresh-expiration=86400000",
         "spring.datasource.url=jdbc:h2:mem:login_signup_flow;DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
         "spring.datasource.driver-class-name=org.h2.Driver",
@@ -78,7 +78,7 @@ class LoginSignupFlowIntegrationTest {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String createdEmail = "signup-login-" + suffix + "@example.com";
         String handle = "@Flow" + suffix.substring(0, 6);
-        String password = "Test1234!";
+        String password = "TestPassword123!";
 
         String signupPayload = objectMapper.writeValueAsString(Map.of(
                 "name", "Signup Flow User",
@@ -140,7 +140,7 @@ class LoginSignupFlowIntegrationTest {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String createdEmail = "signup-availability-" + suffix + "@example.com";
         String mixedCaseHandle = "@Slug" + suffix.substring(0, 4);
-        String password = "Test1234!";
+        String password = "TestPassword123!";
 
         String signupPayload = objectMapper.writeValueAsString(Map.of(
                 "name", "Signup Availability User",
@@ -187,7 +187,7 @@ class LoginSignupFlowIntegrationTest {
                         .content(duplicateEmailPayload))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("DUPLICATE_EMAIL"))
-                .andExpect(jsonPath("$.data.email").value(createdEmail));
+                .andExpect(jsonPath("$.data").doesNotExist());
 
         mockMvc.perform(get("/api/auth/check-handle")
                         .param("handle", " Fresh_" + suffix.substring(0, 4)))

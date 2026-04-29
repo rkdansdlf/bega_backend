@@ -21,7 +21,7 @@ class RateLimitServiceTest {
     @Test
     void redisFailureFallsOpenByDefault() {
         RateLimitService service = new RateLimitService(redisTemplate);
-        when(redisTemplate.execute(any(), anyList(), anyString(), anyString(), anyString()))
+        when(redisTemplate.execute(any(), anyList(), anyString(), anyString(), anyString(), anyString()))
                 .thenThrow(new RuntimeException("redis down"));
 
         assertThat(service.isAllowed("rate:test", 10, 60)).isTrue();
@@ -30,7 +30,7 @@ class RateLimitServiceTest {
     @Test
     void redisFailureFailsClosedForProtectedAuthEndpoints() {
         RateLimitService service = new RateLimitService(redisTemplate);
-        when(redisTemplate.execute(any(), anyList(), anyString(), anyString(), anyString()))
+        when(redisTemplate.execute(any(), anyList(), anyString(), anyString(), anyString(), anyString()))
                 .thenThrow(new RuntimeException("redis down"));
 
         assertThat(service.isAllowed("rate:test", 10, 60, true)).isFalse();

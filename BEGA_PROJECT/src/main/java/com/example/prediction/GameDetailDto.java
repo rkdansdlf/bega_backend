@@ -6,6 +6,7 @@ import com.example.kbo.entity.GameMetadataEntity;
 import com.example.kbo.entity.GameSummaryEntity;
 import com.example.kbo.repository.GameDetailHeaderProjection;
 import com.example.kbo.util.GameStatusResolver;
+import com.example.kbo.util.GameSummaryDisplayPolicy;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -132,6 +133,7 @@ public class GameDetailDto {
         }
 
         return summaries.stream()
+                .filter(GameSummaryDisplayPolicy::isDisplayable)
                 .map(GameSummaryDto::fromEntity)
                 .collect(Collectors.toList());
     }

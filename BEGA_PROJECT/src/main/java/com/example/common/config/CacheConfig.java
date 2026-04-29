@@ -49,6 +49,7 @@ public class CacheConfig {
         public static final String POST_IMAGE_URLS = "postImageUrls";
         public static final String USER_RANK = "userRank";           // 리더보드 랭킹 (per-user, season rank only)
         public static final String USER_STATS = "userStats";          // 리더보드 전체 통계 (per-user, 4x rank counts)
+        public static final String PREDICTION_USER_STATS = "predictionUserStats"; // 예측 적중률/스트릭 통계 (per-user)
         public static final String PREDICTION_VOTE_STATUS = "predictionVoteStatus";
         public static final String RANKING_PREDICTION_CONTEXT = "rankingPredictionContext";
         public static final String RANKING_SHARE_IDS = "rankingShareIds";
@@ -142,6 +143,8 @@ public class CacheConfig {
                 cacheConfigs.put(POST_IMAGE_URLS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(50))));
                 cacheConfigs.put(USER_STATS,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
+                cacheConfigs.put(PREDICTION_USER_STATS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
                 cacheConfigs.put(RANKING_PREDICTION_CONTEXT,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));

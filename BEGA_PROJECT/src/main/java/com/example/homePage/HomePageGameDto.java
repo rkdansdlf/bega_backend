@@ -12,6 +12,8 @@ import lombok.NoArgsConstructor;
 public class HomePageGameDto {
 
 	private String gameId;
+    private String gameDate;
+    private String sourceDate;
     private String time;
     private String stadium;
     private String gameStatus;	 	// SCHEDULED, COMPLETED 등

@@ -9,7 +9,7 @@ spring:
       - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
       - io.awspring.cloud.autoconfigure.s3.S3AutoConfiguration
   jwt:
-    secret: test-jwt-secret-32-characters-long
+    secret: test-jwt-secret-64-characters-long-for-hs512-signature-tests-key-1234567890
     refresh-expiration: 86400000
   data:
     redis:

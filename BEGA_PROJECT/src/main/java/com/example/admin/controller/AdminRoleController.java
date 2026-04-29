@@ -15,8 +15,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 /**
  * 어드민 역할 관리 API 컨트롤러
  * SUPER_ADMIN 전용 엔드포인트
@@ -69,24 +67,14 @@ public class AdminRoleController {
     }
 
     /**
-     * 감사 로그 조회 (전체)
-     * GET /api/admin/roles/audit-logs
+     * 감사 로그 조회 (페이징)
+     * GET /api/admin/roles/audit-logs?page=0&size=20
+     *
+     * 비페이징 엔드포인트(/audit-logs)는 운영 시 전체 테이블 스캔 위험으로 제거됨.
+     * 기존 비페이징 호출도 page/size 파라미터 없이 그대로 호출하면 size=20 기본값으로 동작.
      */
     @GetMapping("/audit-logs")
     public ResponseEntity<ApiResponse> getAuditLogs(
-            @AuthenticationPrincipal Long adminId) {
-
-        List<AuditLogDto> logs = adminRoleService.getAuditLogs(adminId);
-
-        return ResponseEntity.ok(ApiResponse.success("감사 로그 조회 성공", logs));
-    }
-
-    /**
-     * 감사 로그 조회 (페이징)
-     * GET /api/admin/roles/audit-logs/paged?page=0&size=20
-     */
-    @GetMapping("/audit-logs/paged")
-    public ResponseEntity<ApiResponse> getAuditLogsPaged(
             @AuthenticationPrincipal Long adminId,
             @PageableDefault(size = 20) Pageable pageable) {
 

@@ -11,6 +11,8 @@ import com.example.profile.storage.dto.ProfileImageDto;
 import com.example.profile.storage.validator.ProfileImageValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -18,6 +20,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.Objects;
 import java.util.regex.Pattern;
 import java.util.UUID;
+
+import static com.example.common.config.CacheConfig.SIGNED_URLS;
 
 /**
  * 프로필 이미지 업로드 서비스
@@ -41,6 +45,7 @@ public class ProfileImageService {
     private static final String FEED_V3_SEGMENT = "feed-v3";
     private static final String MEDIA_PROFILE_PREFIX = "media/profile/";
     private static final String MEDIA_PROFILE_FEED_PREFIX = "media/profile-feed/";
+    private static final String SIGNED_URL_CACHE_KEY_PREFIX = "profile:";
 
 
     private final StorageStrategy storageStrategy;
@@ -49,6 +54,7 @@ public class ProfileImageService {
     private final UserRepository userRepository;
     private final com.example.common.image.ImageUtil imageUtil;
     private final com.example.common.image.ImageOptimizationMetricsService metricsService;
+    private final CacheManager cacheManager;
 
     /**
      * 프로필 이미지 업로드 (최적화된 트랜잭션 처리)
@@ -369,16 +375,62 @@ public class ProfileImageService {
     }
 
     private String generateProfileImageUrl(String storagePath) {
+        if (storagePath == null || storagePath.isBlank()) {
+            return null;
+        }
+
+        Cache cache = cacheManager.getCache(SIGNED_URLS);
+        String cacheKey = SIGNED_URL_CACHE_KEY_PREFIX + storagePath;
+        if (cache != null) {
+            String cached = getCachedSignedUrl(cache, cacheKey);
+            if (cached != null && !cached.isBlank()) {
+                return cached;
+            }
+        }
+
         try {
             String url = storageStrategy.getUrl(config.getProfileBucket(), storagePath, config.getSignedUrlTtlSeconds())
                     .block();
             if (url == null || url.isBlank()) {
                 return null;
             }
+            if (cache != null) {
+                cacheSignedUrl(cache, cacheKey, url);
+            }
             return url;
         } catch (Exception e) {
             log.warn("프로필 이미지 URL 생성 실패: path={}, error={}", storagePath, e.getMessage());
             return null;
+        }
+    }
+
+    private String getCachedSignedUrl(Cache cache, String cacheKey) {
+        try {
+            return cache.get(cacheKey, String.class);
+        } catch (RuntimeException e) {
+            log.warn("프로필 Signed URL 캐시 조회 실패. 캐시 엔트리를 비우고 재생성합니다: key={}", cacheKey, e);
+            safeEvictCacheEntry(cache, cacheKey);
+            return null;
+        }
+    }
+
+    private void cacheSignedUrl(Cache cache, String cacheKey, String url) {
+        try {
+            cache.put(cacheKey, url);
+        } catch (RuntimeException e) {
+            log.warn("프로필 Signed URL 캐시 저장 실패. 응답은 계속 진행합니다: key={}", cacheKey, e);
+            safeEvictCacheEntry(cache, cacheKey);
+        }
+    }
+
+    private void safeEvictCacheEntry(Cache cache, Object key) {
+        if (cache == null || key == null) {
+            return;
+        }
+        try {
+            cache.evict(key);
+        } catch (RuntimeException e) {
+            log.warn("프로필 Signed URL 캐시 무효화 실패: key={}", key, e);
         }
     }
 

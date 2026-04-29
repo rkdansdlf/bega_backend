@@ -51,7 +51,7 @@ public class CheckInRecordService {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
 
-    @Value("${app.frontend.url:http://localhost:3000}")
+    @Value("${app.frontend.url:http://localhost:5176}")
     private String frontendBaseUrl;
 
     @lombok.Data
@@ -338,7 +338,7 @@ public class CheckInRecordService {
 
     private String buildCheckInUrl(Long partyId, String sessionId) {
         String baseUrl = (frontendBaseUrl == null || frontendBaseUrl.isBlank())
-                ? "http://localhost:3000"
+                ? "http://localhost:5176"
                 : frontendBaseUrl.trim();
         if (baseUrl.endsWith("/")) {
             baseUrl = baseUrl.substring(0, baseUrl.length() - 1);

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -99,6 +100,9 @@ class UserServiceTest {
 
     @Mock
     private AuthSessionService authSessionService;
+
+    @Mock
+    private LoginAttemptService loginAttemptService;
 
     @Mock
     private MediaLinkService mediaLinkService;
@@ -554,6 +558,8 @@ class UserServiceTest {
         assertEquals("access-token", result.accessToken());
         assertEquals("refresh-token", result.refreshToken());
         assertEquals(1L, result.profileData().get("id"));
+        verify(loginAttemptService).enforceBeforeAuthentication(eq("user@example.com"), isNull(), isNull());
+        verify(loginAttemptService).recordSuccessfulLogin(eq("user@example.com"), isNull());
         verify(accountSecurityService).handleSuccessfulLogin(eq(user), any());
     }
 
@@ -568,6 +574,7 @@ class UserServiceTest {
 
         assertThrows(InvalidCredentialsException.class,
                 () -> userService.authenticateAndGetToken("user@example.com", "wrong"));
+        verify(loginAttemptService).recordFailedAttempt(eq("user@example.com"), eq(user), isNull());
         verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
         verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
     }
@@ -580,6 +587,7 @@ class UserServiceTest {
                 () -> userService.authenticateAndGetToken("missing@example.com", "raw-password"));
 
         assertEquals("INVALID_CREDENTIALS", exception.getCode());
+        verify(loginAttemptService).recordFailedAttempt(eq("missing@example.com"), isNull(), isNull());
         verify(bCryptPasswordEncoder).matches(eq("raw-password"), any());
         verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
         verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());

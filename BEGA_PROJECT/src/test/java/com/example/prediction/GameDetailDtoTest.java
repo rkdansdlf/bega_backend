@@ -3,6 +3,7 @@ package com.example.prediction;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.kbo.entity.GameInningScoreEntity;
+import com.example.kbo.entity.GameSummaryEntity;
 import com.example.kbo.repository.GameDetailHeaderProjection;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -196,6 +197,82 @@ class GameDetailDtoTest {
         );
 
         assertThat(detail.getGameStatus()).isEqualTo("DRAW");
+    }
+
+    @Test
+    void shouldHideStructuredInternalSummaryTypes() {
+        GameDetailDto detail = GameDetailDto.from(
+                header(
+                        "COMPLETED",
+                        LocalDate.now().minusDays(1),
+                        LocalTime.of(14, 0),
+                        1,
+                        9
+                ),
+                List.of(),
+                List.of(
+                        GameSummaryEntity.builder()
+                                .gameId("20260419HHLT0")
+                                .summaryType("결승타")
+                                .playerName("김태연")
+                                .detailText("5회말 결승타")
+                                .build(),
+                        GameSummaryEntity.builder()
+                                .gameId("20260419HHLT0")
+                                .summaryType("리뷰_WPA")
+                                .playerName("기록")
+                                .detailText("{\"game_id\":\"20260419HHLT0\"}")
+                                .build(),
+                        GameSummaryEntity.builder()
+                                .gameId("20260419HHLT0")
+                                .summaryType(" 프리뷰 ")
+                                .playerName("기록")
+                                .detailText("{\"game_id\":\"20260419HHLT0\"}")
+                                .build()
+                )
+        );
+
+        assertThat(detail.getSummary())
+                .extracting(GameSummaryDto::getType)
+                .containsExactly("결승타");
+    }
+
+    @Test
+    void shouldHideStructuredJsonSummaryDetailsAndBlankRows() {
+        GameDetailDto detail = GameDetailDto.from(
+                header(
+                        "COMPLETED",
+                        LocalDate.now().minusDays(1),
+                        LocalTime.of(14, 0),
+                        1,
+                        9
+                ),
+                List.of(),
+                List.of(
+                        GameSummaryEntity.builder()
+                                .gameId("20260419HHLT0")
+                                .summaryType("기타")
+                                .playerName("기록")
+                                .detailText("[{\"inning\":\"5회말\"}]")
+                                .build(),
+                        GameSummaryEntity.builder()
+                                .gameId("20260419HHLT0")
+                                .summaryType(null)
+                                .playerName("기록")
+                                .detailText("타자 기록")
+                                .build(),
+                        GameSummaryEntity.builder()
+                                .gameId("20260419HHLT0")
+                                .summaryType("홈런")
+                                .playerName("레이예스")
+                                .detailText("3회말 우월 홈런")
+                                .build()
+                )
+        );
+
+        assertThat(detail.getSummary())
+                .extracting(GameSummaryDto::getType)
+                .containsExactly("홈런");
     }
 
     private GameDetailHeaderProjection header(

@@ -73,9 +73,9 @@ class AllowedOriginResolverTest {
         List<String> origins = resolver.resolve();
 
         assertThat(origins)
-                .contains("http://localhost:5173")
-                .contains("http://127.0.0.1:4173")
-                .contains("http://host.docker.internal:5173");
+                .contains("http://localhost:5176")
+                .contains("http://127.0.0.1:5176")
+                .contains("http://host.docker.internal:5177");
         assertThat(origins)
                 .doesNotContain("https://begabaseball.xyz")
                 .doesNotContain("https://*.frontend-dfl.pages.dev");

@@ -35,8 +35,8 @@ class PasswordResetControllerValidationTest {
                         .content("""
                                 {
                                   "token": "valid-token",
-                                  "newPassword": "Password1!",
-                                  "confirmPassword": "Password2!"
+                                  "newPassword": "Password12345!",
+                                  "confirmPassword": "Password12346!"
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
