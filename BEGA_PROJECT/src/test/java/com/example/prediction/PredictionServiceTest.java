@@ -76,12 +76,14 @@ class PredictionServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    private BaseballDataIntegrityGuard baseballDataIntegrityGuard;
+
     private PredictionService predictionService;
 
     @BeforeEach
     void setUp() {
         LeagueStageResolver leagueStageResolver = new LeagueStageResolver(gameRepository);
-        BaseballDataIntegrityGuard baseballDataIntegrityGuard = mock(BaseballDataIntegrityGuard.class);
+        baseballDataIntegrityGuard = mock(BaseballDataIntegrityGuard.class);
         CacheManager cacheManager = new ConcurrentMapCacheManager(CacheConfig.PREDICTION_VOTE_STATUS);
         PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
         lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
@@ -317,6 +319,63 @@ class PredictionServiceTest {
     }
 
     @Test
+    void getMatchesByDateShouldReturnEmptyForCanonicalOffDay() {
+        LocalDate targetDate = LocalDate.of(2026, 4, 27);
+        CanonicalAdjacentGameDatesProjection adjacentDates = mock(CanonicalAdjacentGameDatesProjection.class);
+
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(
+                org.mockito.ArgumentMatchers.eq(targetDate),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(List.of());
+        when(adjacentDates.getPrevDate()).thenReturn(LocalDate.of(2026, 4, 26));
+        when(adjacentDates.getNextDate()).thenReturn(LocalDate.of(2026, 4, 28));
+        when(gameRepository.findCanonicalAdjacentGameDates(
+                org.mockito.ArgumentMatchers.eq(targetDate),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(adjacentDates);
+
+        List<MatchDto> matches = predictionService.getMatchesByDate(targetDate);
+
+        assertThat(matches).isEmpty();
+        verify(baseballDataIntegrityGuard, never()).ensurePredictionDateMatches(
+                eq("prediction.matches_by_date"),
+                eq(targetDate),
+                anyList());
+    }
+
+    @Test
+    void getMatchDayNavigationShouldReturnEmptyGamesForCanonicalOffDay() {
+        LocalDate targetDate = LocalDate.of(2026, 4, 27);
+        LocalDate prevDate = LocalDate.of(2026, 4, 26);
+        LocalDate nextDate = LocalDate.of(2026, 4, 28);
+        CanonicalAdjacentGameDatesProjection adjacentDates = mock(CanonicalAdjacentGameDatesProjection.class);
+
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(
+                org.mockito.ArgumentMatchers.eq(targetDate),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(List.of());
+        when(adjacentDates.getPrevDate()).thenReturn(prevDate);
+        when(adjacentDates.getNextDate()).thenReturn(nextDate);
+        when(gameRepository.findCanonicalAdjacentGameDates(
+                org.mockito.ArgumentMatchers.eq(targetDate),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(adjacentDates);
+
+        MatchDayNavigationResponseDto response = predictionService.getMatchDayNavigation(targetDate);
+
+        assertThat(response.getDate()).isEqualTo(targetDate);
+        assertThat(response.getGames()).isEmpty();
+        assertThat(response.getPrevDate()).isEqualTo(prevDate);
+        assertThat(response.getNextDate()).isEqualTo(nextDate);
+        assertThat(response.isHasPrev()).isTrue();
+        assertThat(response.isHasNext()).isTrue();
+        verify(baseballDataIntegrityGuard, never()).ensurePredictionDateMatches(
+                eq("prediction.matches_by_date"),
+                eq(targetDate),
+                anyList());
+    }
+
+    @Test
     void getMatchesByDateShouldUpgradeToKoreanSeriesUsingActualFirstGameDateWhenConfiguredStartMissing() {
         LocalDate targetDate = LocalDate.of(2025, 10, 29);
         MatchRangeProjection postseason = buildRangeMatch("202510290001", targetDate, "HH", "LG", 20254, 4, 3);
@@ -522,6 +581,41 @@ class PredictionServiceTest {
         assertThat(response.getSummary().get(0).getDetail()).isEqualTo("결승타");
         verify(gameRepository, never()).findByGameId("202603200001");
         verify(gameMetadataRepository, never()).findByGameId("202603200001");
+    }
+
+    @Test
+    void getGameDetailShouldHideStructuredInternalSummaryTypes() {
+        GameDetailHeaderProjection detailHeader = buildGameDetailHeader("20260419HHLT0", LocalDate.of(2026, 4, 19));
+        GameSummaryEntity winningHit = GameSummaryEntity.builder()
+                .gameId("20260419HHLT0")
+                .summaryType("결승타")
+                .playerName("김태연")
+                .detailText("5회말 결승타")
+                .build();
+        GameSummaryEntity reviewWpa = GameSummaryEntity.builder()
+                .gameId("20260419HHLT0")
+                .summaryType("리뷰_WPA")
+                .playerName("기록")
+                .detailText("{\"game_id\":\"20260419HHLT0\"}")
+                .build();
+        GameSummaryEntity preview = GameSummaryEntity.builder()
+                .gameId("20260419HHLT0")
+                .summaryType("프리뷰")
+                .playerName("기록")
+                .detailText("{\"game_id\":\"20260419HHLT0\"}")
+                .build();
+
+        when(gameRepository.findGameDetailHeaderByGameId("20260419HHLT0")).thenReturn(Optional.of(detailHeader));
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc("20260419HHLT0"))
+                .thenReturn(List.of());
+        when(gameSummaryRepository.findAllByGameIdOrderBySummaryTypeAscIdAsc("20260419HHLT0"))
+                .thenReturn(List.of(winningHit, reviewWpa, preview));
+
+        GameDetailDto response = predictionService.getGameDetail("20260419HHLT0");
+
+        assertThat(response.getSummary())
+                .extracting(GameSummaryDto::getType)
+                .containsExactly("결승타");
     }
 
     @Test

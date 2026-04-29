@@ -41,7 +41,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class JWTFilterTokenTypeTest {
 
-    private static final String SECRET = "0123456789abcdef0123456789abcdef";
+    private static final String SECRET =
+            "test-jwt-secret-64-characters-long-for-hs512-signature-tests-key-1234567890";
 
     @Mock
     private TokenBlacklistService tokenBlacklistService;
@@ -61,7 +62,7 @@ class JWTFilterTokenTypeTest {
         jwtUtil = new JWTUtil(SECRET, 1000L * 60 * 60 * 24 * 7);
         ReflectionTestUtils.setField(jwtUtil, "accessExpirationTime", 7_200_000L);
         jwtUtil.validateSecret();
-        jwtFilter = new JWTFilter(jwtUtil, false, List.of("http://localhost:5173"), tokenBlacklistService,
+        jwtFilter = new JWTFilter(jwtUtil, List.of("http://localhost:5176"), tokenBlacklistService,
                 userRepository, securityMonitoringService);
         secretKey = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
 
@@ -97,6 +98,24 @@ class JWTFilterTokenTypeTest {
     }
 
     @Test
+    @DisplayName("X-Debug-Role 헤더가 포함된 요청은 차단된다")
+    void debugRoleHeader_isRejected() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/protected/resource");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+        request.addHeader("X-Debug-Role", "ROLE_ADMIN");
+        request.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+        assertThat(response.getContentAsString()).contains("DEBUG_ROLE_HEADER_DISABLED");
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
     @DisplayName("link token은 인증에 사용되지 않는다")
     void linkToken_isRejectedForAuthentication() throws Exception {
         String linkToken = jwtUtil.createLinkToken(1L, 60_000L);
@@ -125,7 +144,7 @@ class JWTFilterTokenTypeTest {
                 .claim("user_id", 1L)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + 60_000L))
-                .signWith(secretKey)
+                .signWith(secretKey, Jwts.SIG.HS512)
                 .compact();
 
         executeFilter(legacyToken);
@@ -146,7 +165,7 @@ class JWTFilterTokenTypeTest {
                 .claim("user_id", 99L)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + 60_000L))
-                .signWith(secretKey)
+                .signWith(secretKey, Jwts.SIG.HS512)
                 .compact();
 
         executeFilter(legacyLinkToken);
@@ -221,8 +240,8 @@ class JWTFilterTokenTypeTest {
 
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/protected/resource");
         request.addHeader("Authorization", "Bearer " + accessToken);
-        request.addHeader("Origin", "http://localhost:5173");
-        request.addHeader("Referer", "http://localhost:5173/protected/resource");
+        request.addHeader("Origin", "http://localhost:5176");
+        request.addHeader("Referer", "http://localhost:5176/protected/resource");
         MockHttpServletResponse response = new MockHttpServletResponse();
         DummyFilterChain chain = new DummyFilterChain();
 

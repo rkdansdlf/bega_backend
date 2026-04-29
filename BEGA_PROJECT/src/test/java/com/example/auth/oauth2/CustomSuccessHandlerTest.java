@@ -111,7 +111,7 @@ class CustomSuccessHandlerTest {
                 oAuth2StateService,
                 new AuthCookieUtil(false),
                 authSessionService);
-        ReflectionTestUtils.setField(customSuccessHandler, "frontendUrl", "http://localhost:5173");
+        ReflectionTestUtils.setField(customSuccessHandler, "frontendUrl", "http://localhost:5176");
     }
 
     @Test
@@ -154,8 +154,8 @@ class CustomSuccessHandlerTest {
                 .isEqualTo(LocalDate.now(ZoneId.of("Asia/Seoul")));
         assertThat(user.getLastLoginDate()).isNotNull().isAfterOrEqualTo(firstLoginAt);
 
-        assertThat(firstResponse.getRedirectedUrl()).isEqualTo("http://localhost:5173/oauth/callback?state=state-one");
-        assertThat(secondResponse.getRedirectedUrl()).isEqualTo("http://localhost:5173/oauth/callback?state=state-two");
+        assertThat(firstResponse.getRedirectedUrl()).isEqualTo("http://localhost:5176/oauth/callback?state=state-one");
+        assertThat(secondResponse.getRedirectedUrl()).isEqualTo("http://localhost:5176/oauth/callback?state=state-two");
         assertThat(firstResponse.getHeaders(HttpHeaders.SET_COOKIE))
                 .anyMatch(header -> header.startsWith("Authorization="))
                 .anyMatch(header -> header.startsWith("Refresh="));
@@ -195,7 +195,7 @@ class CustomSuccessHandlerTest {
         customSuccessHandler.onAuthenticationSuccess(request, response, authentication);
 
         assertThat(response.getRedirectedUrl())
-                .isEqualTo("http://localhost:5173/oauth/callback?state=linked-state&status=linked");
+                .isEqualTo("http://localhost:5176/oauth/callback?state=linked-state&status=linked");
         verify(accountSecurityService).recordProviderLinked(1L, "google");
         verify(accountSecurityService, never()).handleSuccessfulLogin(eq(user), any());
     }

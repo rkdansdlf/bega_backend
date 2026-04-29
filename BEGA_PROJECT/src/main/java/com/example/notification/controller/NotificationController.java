@@ -3,10 +3,11 @@ package com.example.notification.controller;
 import com.example.notification.dto.NotificationDTO;
 import com.example.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -17,10 +18,12 @@ public class NotificationController {
 
     private final NotificationService notificationService;
 
-    // 내 알림 목록 조회
+    // 내 알림 목록 조회 (page/size 미지정 시 최근 30건만 반환)
     @GetMapping("/my")
-    public ResponseEntity<List<NotificationDTO.Response>> getMyNotifications(@AuthenticationPrincipal Long userId) {
-        List<NotificationDTO.Response> notifications = notificationService.getMyNotifications(userId);
+    public ResponseEntity<List<NotificationDTO.Response>> getMyNotifications(
+            @AuthenticationPrincipal Long userId,
+            @PageableDefault(size = NotificationService.DEFAULT_NOTIFICATION_PAGE_SIZE) Pageable pageable) {
+        List<NotificationDTO.Response> notifications = notificationService.getMyNotifications(userId, pageable);
         return ResponseEntity.ok(notifications);
     }
 

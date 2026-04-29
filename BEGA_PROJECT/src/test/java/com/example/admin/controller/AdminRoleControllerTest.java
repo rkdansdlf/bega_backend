@@ -67,23 +67,13 @@ class AdminRoleControllerTest {
     }
 
     @Test
-    @DisplayName("감사 로그를 조회한다")
-    void getAuditLogs_returnsList() {
-        when(adminRoleService.getAuditLogs(42L)).thenReturn(List.of());
-
-        ResponseEntity<ApiResponse> result = controller.getAuditLogs(42L);
-
-        assertThat(result.getBody().isSuccess()).isTrue();
-    }
-
-    @Test
     @DisplayName("감사 로그를 페이징으로 조회한다")
-    void getAuditLogsPaged_returnsPage() {
+    void getAuditLogs_returnsPage() {
         Pageable pageable = PageRequest.of(0, 20);
         Page<AuditLogDto> page = new PageImpl<>(List.of());
         when(adminRoleService.getAuditLogsPaged(42L, pageable)).thenReturn(page);
 
-        ResponseEntity<ApiResponse> result = controller.getAuditLogsPaged(42L, pageable);
+        ResponseEntity<ApiResponse> result = controller.getAuditLogs(42L, pageable);
 
         assertThat(result.getBody().isSuccess()).isTrue();
     }

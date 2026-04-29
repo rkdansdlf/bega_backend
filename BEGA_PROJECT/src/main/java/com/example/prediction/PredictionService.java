@@ -25,6 +25,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -146,6 +148,13 @@ public class PredictionService {
         List<MatchRangeProjection> matches = gameRepository.findCanonicalRangeProjectionByGameDate(
                 date,
                 QUERYABLE_TEAM_CODES);
+        if (matches.isEmpty()) {
+            CanonicalAdjacentGameDatesProjection adjacentDates =
+                    gameRepository.findCanonicalAdjacentGameDates(date, QUERYABLE_TEAM_CODES);
+            if (isCanonicalOffDay(adjacentDates)) {
+                return List.of();
+            }
+        }
         baseballDataIntegrityGuard.ensurePredictionDateMatches("prediction.matches_by_date", date, matches);
 
         return Objects.requireNonNull(matches.stream()
@@ -156,9 +165,27 @@ public class PredictionService {
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public MatchDayNavigationResponseDto getMatchDayNavigation(LocalDate date) {
         LocalDate targetDate = Objects.requireNonNull(date, "조회 날짜가 올바르지 않습니다.");
-        List<MatchDto> matches = getMatchesByDate(targetDate);
+        List<MatchRangeProjection> rawMatches = gameRepository.findCanonicalRangeProjectionByGameDate(
+                targetDate,
+                QUERYABLE_TEAM_CODES);
         CanonicalAdjacentGameDatesProjection adjacentDates =
                 gameRepository.findCanonicalAdjacentGameDates(targetDate, QUERYABLE_TEAM_CODES);
+
+        if (rawMatches.isEmpty() && !isCanonicalOffDay(adjacentDates)) {
+            baseballDataIntegrityGuard.ensurePredictionDateMatches(
+                    "prediction.matches_by_date",
+                    targetDate,
+                    rawMatches);
+        } else if (!rawMatches.isEmpty()) {
+            baseballDataIntegrityGuard.ensurePredictionDateMatches(
+                    "prediction.matches_by_date",
+                    targetDate,
+                    rawMatches);
+        }
+
+        List<MatchDto> matches = rawMatches.stream()
+                .map(this::toMatchDto)
+                .collect(Collectors.toList());
         LocalDate prevDate = adjacentDates == null ? null : adjacentDates.getPrevDate();
         LocalDate nextDate = adjacentDates == null ? null : adjacentDates.getNextDate();
 
@@ -170,6 +197,12 @@ public class PredictionService {
                 prevDate != null,
                 nextDate != null
         );
+    }
+
+    private boolean isCanonicalOffDay(CanonicalAdjacentGameDatesProjection adjacentDates) {
+        return adjacentDates != null
+                && adjacentDates.getPrevDate() != null
+                && adjacentDates.getNextDate() != null;
     }
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
@@ -487,6 +520,14 @@ public class PredictionService {
 
         List<GameSummaryEntity> summaries = gameSummaryRepository
                 .findAllByGameIdOrderBySummaryTypeAscIdAsc(gameId);
+        baseballDataIntegrityGuard.ensurePredictionGameSummaryRecords(
+                "prediction.game_detail.summary",
+                gameId,
+                detailHeader.getGameDate(),
+                detailHeader.getGameStatus(),
+                detailHeader.getHomeScore(),
+                detailHeader.getAwayScore(),
+                summaries);
 
         return Objects.requireNonNull(GameDetailDto.from(detailHeader, inningScores, summaries));
     }
@@ -850,6 +891,7 @@ public class PredictionService {
         }
     }
 
+    @CacheEvict(value = CacheConfig.PREDICTION_USER_STATS, key = "#userId")
     public void vote(Long userId, PredictionRequestDto request) {
         String gameId = normalizeGameId(request == null ? null : request.getGameId());
         String votedTeam = normalizeVotedTeam(request == null ? null : request.getVotedTeam());
@@ -1198,6 +1240,12 @@ public class PredictionService {
                 || normalizedMessage.contains("duplicate key");
     }
 
+    /**
+     * 사용자의 예측 적중률/스트릭 집계.
+     * 사용자별 누적 예측이 수천 건에 이를 수 있어 결과를 5분간 Redis(PREDICTION_USER_STATS)에 캐시한다.
+     * 새 투표 발생 시 vote() 종료 시점에 동일 키를 evict 한다.
+     */
+    @Cacheable(value = CacheConfig.PREDICTION_USER_STATS, key = "#userId", unless = "#result == null")
     @Transactional(readOnly = true, transactionManager = "transactionManager")
     public UserPredictionStatsDto getUserStats(Long userId) {
         List<PredictionStatsRowProjection> predictions = predictionRepository

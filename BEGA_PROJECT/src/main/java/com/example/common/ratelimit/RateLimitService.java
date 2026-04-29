@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -28,8 +29,8 @@ public class RateLimitService {
             "redis.call('zremrangebyscore', key, 0, clearBefore) " +
             "local currentCount = redis.call('zcard', key) " +
             "if currentCount < limit then " +
-            "  redis.call('zadd', key, now, now) " +
-            "  redis.call('expire', key, window) " +
+            "  redis.call('zadd', key, now, ARGV[4]) " +
+            "  redis.call('expire', key, math.ceil(window / 1000)) " +
             "  return 1 " +
             "else " +
             "  return 0 " +
@@ -50,16 +51,19 @@ public class RateLimitService {
     }
 
     public boolean isAllowed(String key, int limit, int window, boolean failClosed) {
-        long now = Instant.now().getEpochSecond();
+        long now = Instant.now().toEpochMilli();
+        long windowMillis = window * 1000L;
         List<String> keys = Collections.singletonList(key);
+        String member = now + ":" + UUID.randomUUID();
 
         try {
             Long result = redisTemplate.execute(
                     Objects.requireNonNull(limitScript),
                     Objects.requireNonNull(keys),
                     String.valueOf(now),
-                    String.valueOf(window),
-                    String.valueOf(limit));
+                    String.valueOf(windowMillis),
+                    String.valueOf(limit),
+                    member);
             return result != null && result == 1L;
         } catch (Exception e) {
             log.error("Error executing rate limit script for key {}: {}", key, e.getMessage());

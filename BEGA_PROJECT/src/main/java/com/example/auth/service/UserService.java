@@ -42,7 +42,6 @@ import com.example.common.exception.TeamNotFoundException;
 import com.example.common.exception.DuplicateEmailException;
 import com.example.common.exception.DuplicateNameException;
 import com.example.common.exception.InvalidCredentialsException;
-import com.example.common.exception.SocialLoginRequiredException;
 
 import com.example.profile.storage.service.ProfileImageService;
 import com.example.media.service.MediaLinkService;
@@ -79,6 +78,7 @@ public class UserService {
     private final AccountDeletionService accountDeletionService;
     private final AccountSecurityService accountSecurityService;
     private final AuthSessionService authSessionService;
+    private final LoginAttemptService loginAttemptService;
 
     public UserService(UserRepository userRepository,
             TeamRepository teamRepository,
@@ -92,7 +92,8 @@ public class UserService {
             MediaLinkService mediaLinkService,
             AccountDeletionService accountDeletionService,
             AccountSecurityService accountSecurityService,
-            AuthSessionService authSessionService) {
+            AuthSessionService authSessionService,
+            LoginAttemptService loginAttemptService) {
         this.userRepository = userRepository;
         this.teamRepository = teamRepository;
         this.refreshRepository = refreshRepository;
@@ -107,6 +108,7 @@ public class UserService {
         this.accountDeletionService = accountDeletionService;
         this.accountSecurityService = accountSecurityService;
         this.authSessionService = authSessionService;
+        this.loginAttemptService = loginAttemptService;
     }
 
     public JWTUtil getJWTUtil() {
@@ -173,13 +175,8 @@ public class UserService {
      * 로컬 회원가입 충돌 처리
      */
     private void handleLocalSignupConflict(UserEntity existingUser) {
-        if (existingUser.isOAuth2User()) {
-            log.warn("Attempted Local Signup with existing Social Account");
-            throw new SocialLoginRequiredException();
-        } else {
-            log.warn("Attempted Local Signup with existing Local Account");
-            throw new DuplicateEmailException(existingUser.getEmail());
-        }
+        log.warn("Attempted Local Signup with existing account: userId={}", existingUser.getId());
+        throw new DuplicateEmailException(existingUser.getEmail());
     }
 
     /**
@@ -300,11 +297,21 @@ public class UserService {
 
     @Transactional
     public LoginResult authenticateAndGetToken(String email, String password, HttpServletRequest request) {
+        return authenticateAndGetToken(email, password, null, request);
+    }
+
+    @Transactional
+    public LoginResult authenticateAndGetToken(
+            String email,
+            String password,
+            String captchaToken,
+            HttpServletRequest request) {
         // [Security Fix - Critical #3] User Enumeration 방지:
         // - 존재하지 않는 이메일도 동일하게 더미 해시와 matches()를 호출해 응답 시간을 평탄화한다.
         // - 실패 원인(이메일 없음 / 비밀번호 불일치 / 소셜 전용 / 비활성 / 잠금 / 삭제예약)과 무관하게
         //   외부에는 동일한 메시지로 응답해 계정 상태를 추론할 수 없도록 한다.
         String normalizedEmail = normalizeEmail(email);
+        loginAttemptService.enforceBeforeAuthentication(normalizedEmail, captchaToken, request);
         String rawPassword = password == null ? "" : password;
         UserEntity user = userRepository.findByEmail(normalizedEmail).orElse(null);
         String storedHash = user != null ? user.getPassword() : null;
@@ -312,10 +319,13 @@ public class UserService {
         boolean passwordOk = passwordEncoder.matches(rawPassword, hashToCompare);
 
         if (user == null || storedHash == null || !passwordOk || !isLoginAuthorValid(user)) {
+            loginAttemptService.recordFailedAttempt(normalizedEmail, user, request);
             throw new InvalidCredentialsException();
         }
 
+        clearExpiredLockIfNecessary(user);
         upgradePasswordHashIfNecessary(user, rawPassword, storedHash);
+        loginAttemptService.recordSuccessfulLogin(normalizedEmail, request);
 
         // 일일 출석 보너스 체크
         int currentCheerPoints = checkAndApplyDailyLoginBonus(Objects.requireNonNull(user));
@@ -724,6 +734,14 @@ public class UserService {
         }
 
         return user.getLockExpiresAt().isBefore(LocalDateTime.now());
+    }
+
+    private void clearExpiredLockIfNecessary(UserEntity user) {
+        if (user.isLocked() && user.getLockExpiresAt() != null && user.getLockExpiresAt().isBefore(LocalDateTime.now())) {
+            user.setLocked(false);
+            user.setLockExpiresAt(null);
+            userRepository.save(user);
+        }
     }
 
     /**

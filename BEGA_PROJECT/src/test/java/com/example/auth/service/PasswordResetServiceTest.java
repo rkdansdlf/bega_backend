@@ -1,6 +1,7 @@
 package com.example.auth.service;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -14,6 +15,9 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.PasswordResetTokenRepository;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserRepository;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
@@ -96,6 +100,8 @@ class PasswordResetServiceTest {
                 .password("hashed-password")
                 .build();
         ArgumentCaptor<PasswordResetToken> tokenCaptor = ArgumentCaptor.forClass(PasswordResetToken.class);
+        ArgumentCaptor<String> rawTokenCaptor = ArgumentCaptor.forClass(String.class);
+        LocalDateTime beforeRequest = LocalDateTime.now();
 
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
 
@@ -106,8 +112,16 @@ class PasswordResetServiceTest {
         verify(tokenRepository).save(tokenCaptor.capture());
         verify(emailService).sendPasswordResetEmail(
                 eq("user@example.com"),
-                eq(tokenCaptor.getValue().getToken()),
+                rawTokenCaptor.capture(),
                 eq("/mypage?view=accountSettings"));
+
+        PasswordResetToken savedToken = tokenCaptor.getValue();
+        String rawToken = rawTokenCaptor.getValue();
+        assertThat(rawToken).matches("[A-Za-z0-9_-]{43}");
+        assertThat(savedToken.getToken()).isEqualTo(sha256Hex(rawToken));
+        assertThat(savedToken.getToken()).doesNotContain(rawToken);
+        assertThat(savedToken.getExpiryDate()).isAfterOrEqualTo(beforeRequest.plusMinutes(15).minusSeconds(1));
+        assertThat(savedToken.getExpiryDate()).isBeforeOrEqualTo(LocalDateTime.now().plusMinutes(15).plusSeconds(1));
     }
 
     @Test
@@ -122,24 +136,41 @@ class PasswordResetServiceTest {
                 .password("old-password")
                 .tokenVersion(4)
                 .build();
+        String rawToken = "reset-token";
+        String tokenHash = sha256Hex(rawToken);
         PasswordResetToken resetToken = PasswordResetToken.builder()
-                .token("reset-token")
+                .token(tokenHash)
                 .user(user)
                 .expiryDate(LocalDateTime.now().plusMinutes(10))
                 .used(false)
                 .build();
         PasswordResetConfirmDto request = new PasswordResetConfirmDto(
-                "reset-token",
+                rawToken,
                 "NewPassword1!",
                 "NewPassword1!");
 
-        when(tokenRepository.findByToken("reset-token")).thenReturn(Optional.of(resetToken));
+        when(tokenRepository.findByToken(tokenHash)).thenReturn(Optional.of(resetToken));
         when(passwordEncoder.encode("NewPassword1!")).thenReturn("encoded-password");
 
         passwordResetService.confirmPasswordReset(request);
 
+        assertThat(resetToken.isUsed()).isTrue();
+        assertThat(resetToken.getToken()).startsWith("used:");
+        assertThat(resetToken.getToken()).doesNotContain(rawToken);
+        assertThat(user.getTokenVersion()).isEqualTo(5);
+        assertThat(user.getPassword()).isEqualTo("encoded-password");
         verify(userRepository).save(user);
         verify(refreshRepository).deleteByEmail("user@example.com");
         verify(tokenRepository).save(resetToken);
+    }
+
+    private String sha256Hex(String token) {
+        try {
+            byte[] hashed = MessageDigest.getInstance("SHA-256")
+                    .digest(String.valueOf(token).getBytes(StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(hashed);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }

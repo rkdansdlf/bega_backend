@@ -27,11 +27,13 @@ class HomeControllerTest {
 
     private MockMvc mockMvc;
     private HomePageFacadeService homePageFacadeService;
+    private HomePageGameService homePageGameService;
 
     @BeforeEach
     void setUp() {
         homePageFacadeService = mock(HomePageFacadeService.class);
-        HomeController controller = new HomeController(homePageFacadeService);
+        homePageGameService = mock(HomePageGameService.class);
+        HomeController controller = new HomeController(homePageFacadeService, homePageGameService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -106,6 +108,30 @@ class HomeControllerTest {
                 .andExpect(jsonPath("$.data.scope").value("home.schedule"))
                 .andExpect(jsonPath("$.data.blocking").value(true))
                 .andExpect(jsonPath("$.data.missingItems[0].key").value("season_league_context"));
+    }
+
+    @Test
+    @DisplayName("홈 scoped navigation 응답은 /api/home/navigation에서 반환된다")
+    void getNavigationReturnsScopedNavigation() throws Exception {
+        LocalDate selectedDate = LocalDate.of(2026, 4, 27);
+        given(homePageGameService.getScopedNavigation(eq(selectedDate), eq("regular"), isNull()))
+                .willReturn(HomeScopedNavigationDto.builder()
+                        .resolvedDate("2026-04-28")
+                        .prevGameDate("2026-04-26")
+                        .nextGameDate("2026-04-28")
+                        .hasPrev(true)
+                        .hasNext(true)
+                        .build());
+
+        mockMvc.perform(get("/api/home/navigation")
+                        .param("date", "2026-04-27")
+                        .param("scope", "regular"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resolvedDate").value("2026-04-28"))
+                .andExpect(jsonPath("$.prevGameDate").value("2026-04-26"))
+                .andExpect(jsonPath("$.nextGameDate").value("2026-04-28"))
+                .andExpect(jsonPath("$.hasPrev").value(true))
+                .andExpect(jsonPath("$.hasNext").value(true));
     }
 
     @Test

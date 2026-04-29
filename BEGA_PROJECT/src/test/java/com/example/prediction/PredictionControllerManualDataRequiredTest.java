@@ -60,4 +60,32 @@ class PredictionControllerManualDataRequiredTest {
                 .andExpect(jsonPath("$.data.missingItems[0].key").value("game_date"))
                 .andExpect(jsonPath("$.data.missingItems[0].expected_format").value("YYYY-MM-DD"));
     }
+
+    @Test
+    @DisplayName("prediction detail API는 주요 기록 누락을 수동 야구 데이터 요청 계약으로 반환한다")
+    void getMatchDetailReturnsManualBaseballDataRequiredPayload() throws Exception {
+        given(predictionService.getGameDetail(eq("20260419HHLT0")))
+                .willThrow(new ManualBaseballDataRequiredException(
+                        new ManualBaseballDataRequest(
+                                "prediction.game_detail.summary",
+                                List.of(new ManualBaseballDataMissingItem(
+                                        "game_summary",
+                                        "경기 주요 기록",
+                                        "완료 경기의 주요 기록 row가 없습니다.",
+                                        "game_summary.summary_type, player_name, detail_text")),
+                                "다음 야구 데이터가 필요합니다: 경기 ID=20260419HHLT0, 경기 주요 기록",
+                                true
+                        )));
+
+        mockMvc.perform(get("/api/matches/20260419HHLT0"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("MANUAL_BASEBALL_DATA_REQUIRED"))
+                .andExpect(jsonPath("$.message").value("야구 데이터 준비가 필요합니다. 운영자가 데이터를 제공하면 다시 확인할 수 있습니다."))
+                .andExpect(jsonPath("$.data.scope").value("prediction.game_detail.summary"))
+                .andExpect(jsonPath("$.data.blocking").value(true))
+                .andExpect(jsonPath("$.data.missingItems[0].key").value("game_summary"))
+                .andExpect(jsonPath("$.data.missingItems[0].expected_format")
+                        .value("game_summary.summary_type, player_name, detail_text"));
+    }
 }

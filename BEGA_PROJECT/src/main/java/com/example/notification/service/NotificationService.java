@@ -6,6 +6,8 @@ import com.example.notification.exception.NotificationNotFoundException;
 import com.example.notification.repository.NotificationRepository;
 import com.example.common.exception.AuthenticationRequiredException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
@@ -65,11 +67,20 @@ public class NotificationService {
 
     }
 
-    // 사용자 알림 목록 조회 (Principal 버전)
+    // 사용자 알림 목록 조회 — 기본 30건만 반환 (오래된 알림 무제한 로딩 방지)
+    public static final int DEFAULT_NOTIFICATION_PAGE_SIZE = 30;
+
     @Transactional(readOnly = true)
     public List<NotificationDTO.Response> getMyNotifications(@NonNull Long userId) {
+        return getMyNotifications(userId, PageRequest.of(0, DEFAULT_NOTIFICATION_PAGE_SIZE));
+    }
+
+    @Transactional(readOnly = true)
+    public List<NotificationDTO.Response> getMyNotifications(@NonNull Long userId, @NonNull Pageable pageable) {
         ensureAuthenticatedUser(userId);
-        return Objects.requireNonNull(notificationRepository.findByUserIdOrderByCreatedAtDesc(userId)
+        return Objects.requireNonNull(notificationRepository
+                .findByUserIdOrderByCreatedAtDesc(userId, pageable)
+                .getContent()
                 .stream()
                 .map(NotificationDTO.Response::from)
                 .collect(Collectors.toList()));

@@ -18,24 +18,9 @@ import java.util.List;
 public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
 
     /**
-     * 최신순으로 감사 로그 조회
-     */
-    List<AuditLog> findAllByOrderByCreatedAtDesc();
-
-    /**
      * 페이징 지원 최신순 조회
      */
     Page<AuditLog> findAllByOrderByCreatedAtDesc(Pageable pageable);
-
-    /**
-     * 특정 관리자의 작업 로그 조회
-     */
-    List<AuditLog> findByAdminIdOrderByCreatedAtDesc(Long adminId);
-
-    /**
-     * 특정 대상 사용자의 변경 이력 조회
-     */
-    List<AuditLog> findByTargetUserIdOrderByCreatedAtDesc(Long targetUserId);
 
     /**
      * 기간별 로그 조회

@@ -6,7 +6,9 @@ import com.example.ai.service.AiProxyService.ProxyStreamResponse;
 import com.example.ai.service.CoachAutoBriefMonitoringService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -23,6 +25,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 @RestController
 @RequestMapping("/api/ai")
 @RequiredArgsConstructor
+@Slf4j
 public class AiProxyController {
 
     private final AiProxyService aiProxyService;
@@ -52,13 +55,26 @@ public class AiProxyController {
         long startNanos = System.nanoTime();
 
         try {
+            log.info("Coach analyze proxy start request_mode={}", requestMode);
             ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/coach/analyze", payload);
+            log.info(
+                    "Coach analyze upstream stream established request_mode={} status={} header_wait_ms={}",
+                    requestMode,
+                    proxyResponse.status().value(),
+                    elapsedMillis(startNanos));
             return toCoachAnalyzeStreamResponse(proxyResponse, requestMode, startNanos);
         } catch (RuntimeException exception) {
+            int statusCode = coachAutoBriefMonitoringService.resolveStatusCode(exception);
             coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
                     requestMode,
-                    coachAutoBriefMonitoringService.resolveStatusCode(exception),
+                    statusCode,
                     System.nanoTime() - startNanos);
+            log.warn(
+                    "Coach analyze proxy failed before stream request_mode={} status={} elapsed_ms={} error={}",
+                    requestMode,
+                    statusCode,
+                    elapsedMillis(startNanos),
+                    exception.toString());
             throw exception;
         }
     }
@@ -161,6 +177,11 @@ public class AiProxyController {
                             requestMode,
                             proxyResponse.status().value(),
                             System.nanoTime() - startNanos);
+                    log.info(
+                            "Coach analyze proxy error response completed request_mode={} status={} elapsed_ms={}",
+                            requestMode,
+                            proxyResponse.status().value(),
+                            elapsedMillis(startNanos));
                 }
             };
         } else {
@@ -172,12 +193,23 @@ public class AiProxyController {
                             requestMode,
                             proxyResponse.status().value(),
                             System.nanoTime() - startNanos);
+                    log.warn(
+                            "Coach analyze stream interrupted request_mode={} status={} elapsed_ms={} error={}",
+                            requestMode,
+                            proxyResponse.status().value(),
+                            elapsedMillis(startNanos),
+                            exception.toString());
                     throw exception;
                 }
                 coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
                         requestMode,
                         proxyResponse.status().value(),
                         System.nanoTime() - startNanos);
+                log.info(
+                        "Coach analyze stream completed request_mode={} status={} elapsed_ms={}",
+                        requestMode,
+                        proxyResponse.status().value(),
+                        elapsedMillis(startNanos));
             };
         }
 
@@ -192,6 +224,10 @@ public class AiProxyController {
             return path;
         }
         return path + "?" + queryString;
+    }
+
+    private long elapsedMillis(long startNanos) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
     }
 
 }

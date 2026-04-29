@@ -1,6 +1,7 @@
 package com.example.mate.repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -25,6 +26,9 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
 
     // 파티별 승인된 신청 목록
     List<PartyApplication> findByPartyIdAndIsApprovedTrue(Long partyId);
+
+    // 여러 파티의 승인된 신청 목록 (스케줄러 N+1 방지용 bulk 조회)
+    List<PartyApplication> findByPartyIdInAndIsApprovedTrue(Collection<Long> partyIds);
 
     // 파티별 대기중인 신청 목록
     List<PartyApplication> findByPartyIdAndIsApprovedFalseAndIsRejectedFalse(Long partyId);
