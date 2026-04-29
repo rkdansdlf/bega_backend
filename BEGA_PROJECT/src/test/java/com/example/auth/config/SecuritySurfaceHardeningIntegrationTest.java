@@ -9,14 +9,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.assertj.core.api.Assertions.assertThat;
-
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.availability.AvailabilityChangeEvent;
+import org.springframework.boot.availability.LivenessState;
+import org.springframework.boot.availability.ReadinessState;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -29,7 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
         "spring.profiles.active=test",
-        "spring.jwt.secret=test-jwt-secret-32-characters-long",
+        "spring.jwt.secret=test-jwt-secret-64-characters-long-for-hs512-signature-tests-key-1234567890",
         "spring.jwt.refresh-expiration=86400000",
         "spring.datasource.url=jdbc:h2:mem:security_surface_hardening;DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
         "spring.datasource.driver-class-name=org.h2.Driver",
@@ -38,6 +42,7 @@ import org.springframework.web.bind.annotation.RestController;
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "spring.flyway.enabled=false",
         "spring.jpa.open-in-view=false",
+        "management.endpoint.health.probes.enabled=true",
         "jobrunr.background-job-server.enabled=false",
         "jobrunr.dashboard.enabled=false",
         "storage.type=oci",
@@ -67,13 +72,38 @@ class SecuritySurfaceHardeningIntegrationTest {
     }
 
     @Test
+    @DisplayName("CORS preflight should reject X-Debug-Role as an allowed request header")
+    void corsPreflight_rejectsDebugRoleHeader() throws Exception {
+        mockMvc.perform(options("/api/auth/login")
+                        .header(HttpHeaders.ORIGIN, "https://www.begabaseball.xyz")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "X-Debug-Role"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("CORS preflight should expose only the explicit allowed header set")
+    void corsPreflight_exposesExplicitAllowedHeadersOnly() throws Exception {
+        mockMvc.perform(options("/api/auth/login")
+                        .header(HttpHeaders.ORIGIN, "https://www.begabaseball.xyz")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
+                                "Authorization, Content-Type, X-XSRF-TOKEN"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS,
+                        Matchers.not(Matchers.containsString("X-Debug-Role"))));
+    }
+
+    @Test
     @DisplayName("unauthenticated mypage should still include CORS headers for configured production frontend origin")
     void mypageUnauthorized_includesCorsHeadersForConfiguredProductionFrontendOrigin() throws Exception {
         mockMvc.perform(get("/api/auth/mypage")
                         .header(HttpHeaders.ORIGIN, "https://www.begabaseball.xyz"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://www.begabaseball.xyz"))
-                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS,
+                        Matchers.not(Matchers.containsString("Set-Cookie"))));
     }
 
     @Test
@@ -313,8 +343,34 @@ class SecuritySurfaceHardeningIntegrationTest {
                 .andExpect(content().string("dashboard-ok"));
     }
 
+    @Test
+    @DisplayName("only liveness and readiness health endpoints should be public")
+    void actuatorHealthEndpoints_areNarrowed() throws Exception {
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/actuator/health/liveness"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/actuator/health")
+                        .with(user("admin").roles("ADMIN")))
+                .andExpect(result -> assertThat(result.getResponse().getStatus())
+                        .isNotIn(401, 403));
+    }
+
     @TestConfiguration
     static class DashboardProbeConfig {
+
+        @Bean
+        ApplicationRunner publishReadyAvailabilityState(ApplicationContext applicationContext) {
+            return args -> {
+                AvailabilityChangeEvent.publish(applicationContext, LivenessState.CORRECT);
+                AvailabilityChangeEvent.publish(applicationContext, ReadinessState.ACCEPTING_TRAFFIC);
+            };
+        }
 
         @Bean
         DashboardProbeController dashboardProbeController() {

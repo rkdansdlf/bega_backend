@@ -22,7 +22,7 @@ public class ClientErrorAlertingService {
     private final ClientErrorMonitoringProperties monitoringProperties;
     private final List<ClientErrorAlertSender> alertSenders;
 
-    @Value("${app.frontend.url:http://localhost:3000}")
+    @Value("${app.frontend.url:http://localhost:5176}")
     private String frontendUrl;
 
     @Scheduled(fixedRateString = "${app.client-error-monitoring.alerts.poll-interval-ms:60000}")

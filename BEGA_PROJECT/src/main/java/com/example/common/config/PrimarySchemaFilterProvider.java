@@ -22,6 +22,8 @@ public class PrimarySchemaFilterProvider implements SchemaFilterProvider {
             "game_metadata",
             "game_summary",
             "game_inning_scores",
+            "game_events",
+            "game_play_by_play",
             "player_season_batting",
             "player_season_pitching"
     );

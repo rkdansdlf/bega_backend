@@ -1,8 +1,8 @@
 package com.example.mypage.dto;
 
 import com.example.common.validation.PasswordMatches;
+import com.example.common.validation.ValidPassword;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -14,7 +14,7 @@ public class ChangePasswordRequest {
     private String currentPassword;
 
     @NotBlank(message = "새 비밀번호를 입력해주세요.")
-    @Size(min = 8, max = 100, message = "비밀번호는 8자 이상이어야 합니다.")
+    @ValidPassword
     private String newPassword;
 
     @NotBlank(message = "비밀번호 확인을 입력해주세요.")

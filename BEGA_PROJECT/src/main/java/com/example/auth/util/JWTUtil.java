@@ -1,9 +1,14 @@
 package com.example.auth.util;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.security.Keys;
+import io.jsonwebtoken.security.MacAlgorithm;
 import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.MalformedJwtException;
+import io.jsonwebtoken.UnsupportedJwtException;
 
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
@@ -13,11 +18,14 @@ import org.springframework.stereotype.Component;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.crypto.SecretKey;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
 import java.util.Date;
 import java.util.HexFormat;
+import java.util.Map;
 
 @Slf4j
 @Component
@@ -28,6 +36,12 @@ public class JWTUtil {
     private static final String SESSION_ID_CLAIM = "session_id";
     private static final String TYPE_ACCESS = "access";
     private static final String TYPE_LINK = "link";
+    private static final MacAlgorithm SIGNATURE_ALGORITHM = Jwts.SIG.HS512;
+    private static final String SIGNATURE_ALGORITHM_ID = "HS512";
+    private static final int MIN_HS512_SECRET_BYTES = 64;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final TypeReference<Map<String, Object>> JWT_HEADER_TYPE = new TypeReference<>() {
+    };
 
     private final String secret;
     private final SecretKey secretKey;
@@ -38,19 +52,30 @@ public class JWTUtil {
     public JWTUtil(@Value("${spring.jwt.secret}") String secret,
             @Value("${spring.jwt.refresh-expiration}") long refreshExpirationTime) {
         this.secret = secret;
-        this.secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        this.secretKey = Keys.hmacShaKeyFor(validateAndGetSecretBytes(secret));
         this.refreshExpirationTime = refreshExpirationTime;
     }
 
     @PostConstruct
     public void validateSecret() {
-        if (secret == null || secret.isBlank() || secret.length() < 32) {
-            throw new IllegalStateException(
-                    "JWT secret is not configured properly. It must be at least 32 characters long.");
-        }
+        validateAndGetSecretBytes(secret);
         if (accessExpirationTime <= 0) {
             throw new IllegalStateException("JWT access expiration must be a positive value.");
         }
+    }
+
+    private byte[] validateAndGetSecretBytes(String rawSecret) {
+        if (rawSecret == null || rawSecret.isBlank()) {
+            throw new IllegalStateException(
+                    "JWT secret is not configured properly. It must be at least 64 bytes long for HS512.");
+        }
+
+        byte[] secretBytes = rawSecret.getBytes(StandardCharsets.UTF_8);
+        if (secretBytes.length < MIN_HS512_SECRET_BYTES) {
+            throw new IllegalStateException(
+                    "JWT secret is not configured properly. It must be at least 64 bytes long for HS512.");
+        }
+        return secretBytes;
     }
 
     // Access Token 생성
@@ -62,13 +87,12 @@ public class JWTUtil {
     public String createJwt(String email, String role, Long userId, long expiredMs, Integer tokenVersion) {
         return Jwts.builder()
                 .claim(TOKEN_TYPE_CLAIM, TYPE_ACCESS)
-                .claim("email", email)
                 .claim("role", role)
                 .claim("user_id", userId)
                 .claim(TOKEN_VERSION_CLAIM, tokenVersion == null ? 0 : tokenVersion)
                 .issuedAt(new Date(System.currentTimeMillis()))
                 .expiration(new Date(System.currentTimeMillis() + expiredMs))
-                .signWith(secretKey)
+                .signWith(secretKey, SIGNATURE_ALGORITHM)
                 .compact();
     }
 
@@ -78,10 +102,9 @@ public class JWTUtil {
                 .claim(TOKEN_TYPE_CLAIM, TYPE_LINK)
                 .claim("user_id", userId)
                 .claim("role", "LINK_MODE") // 호환성을 위해 유지하되, Filter에서 type 체크로 차단됨
-                .claim("email", "link-action") // 호환성을 위해 유지
                 .issuedAt(new Date(System.currentTimeMillis()))
                 .expiration(new Date(System.currentTimeMillis() + expiredMs))
-                .signWith(secretKey)
+                .signWith(secretKey, SIGNATURE_ALGORITHM)
                 .compact();
     }
 
@@ -97,7 +120,6 @@ public class JWTUtil {
     public String createRefreshToken(String email, String role, Long userId, Integer tokenVersion, String sessionId) {
         io.jsonwebtoken.JwtBuilder builder = Jwts.builder()
                 .claim(TOKEN_TYPE_CLAIM, "refresh")
-                .claim("email", email)
                 .claim("role", role)
                 .claim("user_id", userId)
                 .claim(TOKEN_VERSION_CLAIM, tokenVersion == null ? 0 : tokenVersion)
@@ -109,7 +131,7 @@ public class JWTUtil {
         }
 
         return builder
-                .signWith(secretKey)
+                .signWith(secretKey, SIGNATURE_ALGORITHM)
                 .compact();
     }
 
@@ -133,13 +155,33 @@ public class JWTUtil {
     @Cacheable(value = "jwtUserCache", key = "T(com.example.auth.util.JWTUtil).hashKey(#token)")
     public Claims getClaims(String token) {
         try {
+            validateSignatureAlgorithm(token);
             return Jwts.parser()
                     .verifyWith(secretKey)
+                    .sig().add(SIGNATURE_ALGORITHM).and()
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
         } catch (ExpiredJwtException e) {
             return e.getClaims();
+        }
+    }
+
+    private void validateSignatureAlgorithm(String token) {
+        String[] parts = token == null ? new String[0] : token.split("\\.", -1);
+        if (parts.length != 3 || parts[0].isBlank()) {
+            throw new MalformedJwtException("Malformed JWT");
+        }
+
+        try {
+            byte[] headerBytes = Base64.getUrlDecoder().decode(parts[0]);
+            Map<String, Object> header = OBJECT_MAPPER.readValue(headerBytes, JWT_HEADER_TYPE);
+            Object algorithm = header.get("alg");
+            if (!SIGNATURE_ALGORITHM_ID.equals(algorithm)) {
+                throw new UnsupportedJwtException("Unsupported JWT signature algorithm");
+            }
+        } catch (IllegalArgumentException | IOException e) {
+            throw new MalformedJwtException("Malformed JWT header", e);
         }
     }
 

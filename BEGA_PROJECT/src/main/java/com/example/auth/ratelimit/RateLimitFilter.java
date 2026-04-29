@@ -1,9 +1,10 @@
 package com.example.auth.ratelimit;
 
-import io.github.bucket4j.Bandwidth;
-import io.github.bucket4j.Bucket;
-import io.github.bucket4j.ConsumptionProbe;
-import io.github.bucket4j.Refill;
+import com.example.auth.service.AuthSecurityMonitoringService;
+import com.example.common.dto.ApiResponse;
+import com.example.common.ratelimit.RateLimitService;
+import com.example.common.web.ClientIpResolver;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -15,23 +16,20 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * [Security Fix - High #1] 인증 엔드포인트에 대한 IP 기반 Rate Limiting.
  * A04 — Insecure Design / CWE-307 (Improper Restriction of Excessive Authentication Attempts)
  *
- * <p>Bucket4j 기반 in-memory Token Bucket 알고리즘. 다중 인스턴스 배포 시
- * Redis-backed 분산 카운터로 업그레이드 필요.</p>
+ * <p>기존 Redis 기반 RateLimitService를 사용해 다중 인스턴스에서도 동일하게 동작한다.</p>
  *
  * <p>보호 대상:
  * <ul>
- *   <li>POST /api/auth/login — 5 req/min per IP</li>
- *   <li>POST /api/auth/signup — 3 req/min per IP</li>
+ *   <li>POST /api/auth/login — 3 req/min per IP</li>
+ *   <li>POST /api/auth/signup — 3 req/hour per IP</li>
  *   <li>POST /api/auth/password-reset/request — 3 req/hour per IP</li>
  *   <li>POST /api/auth/password/reset/request — 3 req/hour per IP (legacy alias)</li>
  * </ul>
@@ -41,17 +39,27 @@ import java.util.concurrent.ConcurrentMap;
 public class RateLimitFilter extends OncePerRequestFilter {
 
     private static final List<RateLimitRule> RULES = List.of(
-            new RateLimitRule("POST", "/api/auth/login",
-                    Bandwidth.classic(5, Refill.greedy(5, Duration.ofMinutes(1)))),
-            new RateLimitRule("POST", "/api/auth/signup",
-                    Bandwidth.classic(3, Refill.greedy(3, Duration.ofMinutes(1)))),
-            new RateLimitRule("POST", "/api/auth/password-reset/request",
-                    Bandwidth.classic(3, Refill.greedy(3, Duration.ofHours(1)))),
-            new RateLimitRule("POST", "/api/auth/password/reset/request",
-                    Bandwidth.classic(3, Refill.greedy(3, Duration.ofHours(1))))
+            new RateLimitRule("POST", "/api/auth/login", "auth:login", 3, 60),
+            new RateLimitRule("POST", "/api/auth/signup", "auth:signup", 3, 3600),
+            new RateLimitRule("POST", "/api/auth/password-reset/request", "auth:password-reset-request", 3, 3600),
+            new RateLimitRule("POST", "/api/auth/password/reset/request", "auth:password-reset-request", 3, 3600)
     );
 
-    private final ConcurrentMap<String, Bucket> buckets = new ConcurrentHashMap<>();
+    private final RateLimitService rateLimitService;
+    private final ClientIpResolver clientIpResolver;
+    private final AuthSecurityMonitoringService authSecurityMonitoringService;
+    private final ObjectMapper objectMapper;
+
+    public RateLimitFilter(
+            RateLimitService rateLimitService,
+            ClientIpResolver clientIpResolver,
+            AuthSecurityMonitoringService authSecurityMonitoringService,
+            ObjectMapper objectMapper) {
+        this.rateLimitService = Objects.requireNonNull(rateLimitService);
+        this.clientIpResolver = Objects.requireNonNull(clientIpResolver);
+        this.authSecurityMonitoringService = Objects.requireNonNull(authSecurityMonitoringService);
+        this.objectMapper = Objects.requireNonNull(objectMapper);
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -63,18 +71,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
 
         String clientIp = resolveClientIp(request);
-        String key = rule.path + "|" + clientIp;
-        Bucket bucket = buckets.computeIfAbsent(key, k -> Bucket.builder().addLimit(rule.bandwidth).build());
-
-        ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
-        if (probe.isConsumed()) {
-            response.setHeader("X-RateLimit-Remaining", String.valueOf(probe.getRemainingTokens()));
+        String key = rule.redisKey(clientIp);
+        if (rateLimitService.isAllowed(key, rule.limit, rule.windowSeconds, true)) {
             chain.doFilter(request, response);
             return;
         }
 
-        long retryAfterSeconds = Math.max(1L, probe.getNanosToWaitForRefill() / 1_000_000_000L);
-        log.warn("Rate limit exceeded path={} ip={} retryAfter={}s", rule.path, clientIp, retryAfterSeconds);
+        long retryAfterSeconds = Math.max(1L, rule.windowSeconds);
+        authSecurityMonitoringService.recordAuthRateLimitReject();
+        log.warn("Rate limit exceeded path={} ip={} key={} retryAfter={}s",
+                rule.path, clientIp, key, retryAfterSeconds);
         writeTooManyRequests(response, retryAfterSeconds);
     }
 
@@ -90,19 +96,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     private String resolveClientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            int comma = forwarded.indexOf(',');
-            String first = (comma > 0 ? forwarded.substring(0, comma) : forwarded).trim();
-            if (!first.isBlank()) {
-                return first;
-            }
-        }
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) {
-            return realIp.trim();
-        }
-        return Objects.requireNonNullElse(request.getRemoteAddr(), "unknown");
+        return clientIpResolver.resolveOrUnknown(request);
     }
 
     private void writeTooManyRequests(HttpServletResponse response, long retryAfterSeconds) throws IOException {
@@ -110,23 +104,23 @@ public class RateLimitFilter extends OncePerRequestFilter {
         response.setHeader("Retry-After", String.valueOf(retryAfterSeconds));
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
-        response.getWriter().write(
-                "{\"success\":false,\"code\":\"RATE_LIMITED\"," +
-                        "\"message\":\"요청이 너무 많습니다. 잠시 후 다시 시도해주세요.\"," +
-                        "\"retryAfterSeconds\":" + retryAfterSeconds + "}");
+        objectMapper.writeValue(response.getWriter(),
+                ApiResponse.error(
+                        "RATE_LIMITED",
+                        "너무 많은 요청을 보냈습니다. 잠시 후 다시 시도해주세요.",
+                        Map.of("retryAfterSeconds", retryAfterSeconds)));
     }
 
-    /** 테스트에서 버킷 상태를 초기화하기 위한 훅. */
-    public void resetBuckets() {
-        buckets.clear();
-    }
-
-    private record RateLimitRule(String method, String path, Bandwidth bandwidth) {
+    private record RateLimitRule(String method, String path, String ruleKey, int limit, int windowSeconds) {
         RateLimitRule {
             Objects.requireNonNull(method);
             Objects.requireNonNull(path);
-            Objects.requireNonNull(bandwidth);
+            Objects.requireNonNull(ruleKey);
             HttpMethod.valueOf(method);
+        }
+
+        String redisKey(String clientIp) {
+            return String.format("rate:limit:%s:%s:%s:%s", ruleKey, method, path, clientIp);
         }
     }
 }

@@ -6,6 +6,7 @@ import com.example.auth.service.AuthSessionMetadataResolver;
 import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.auth.service.RefreshTokenReuseDetector;
+import com.example.auth.service.RefreshTokenRevocationService;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.RefreshRepository;
@@ -59,6 +60,9 @@ class ReissueControllerTokenTypeTest {
     @Mock
     private RefreshTokenReuseDetector refreshTokenReuseDetector;
 
+    @Mock
+    private RefreshTokenRevocationService refreshTokenRevocationService;
+
     private AuthSessionService authSessionService;
     private ReissueController reissueController;
     private MockMvc mockMvc;
@@ -79,7 +83,8 @@ class ReissueControllerTokenTypeTest {
                 authCookieUtil,
                 authSessionService,
                 authSecurityMonitoringService,
-                refreshTokenReuseDetector);
+                refreshTokenReuseDetector,
+                refreshTokenRevocationService);
         mockMvc = MockMvcBuilders.standaloneSetup(reissueController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -134,13 +139,12 @@ class ReissueControllerTokenTypeTest {
                 .locked(false)
                 .tokenVersion(0)
                 .email("user@test.com")
+                .role("ROLE_USER")
                 .build();
 
         when(jwtUtil.getTokenType("refresh-token")).thenReturn("refresh");
         when(jwtUtil.isExpired("refresh-token")).thenReturn(false);
-        when(jwtUtil.getEmail("refresh-token")).thenReturn("user@test.com");
-        when(refreshRepository.findAllByEmailOrderByIdDesc("user@test.com")).thenReturn(List.of(stored));
-        when(jwtUtil.getRole("refresh-token")).thenReturn("ROLE_USER");
+        when(refreshRepository.findAllByToken("refresh-token")).thenReturn(List.of(stored));
         when(jwtUtil.getUserId("refresh-token")).thenReturn(1L);
         when(jwtUtil.getTokenVersion("refresh-token")).thenReturn(0);
         when(jwtUtil.getAccessTokenExpirationTime()).thenReturn(1000L * 60 * 60 * 2);

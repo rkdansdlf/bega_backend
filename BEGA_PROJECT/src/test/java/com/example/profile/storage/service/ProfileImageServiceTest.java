@@ -24,6 +24,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.web.multipart.MultipartFile;
 import reactor.core.publisher.Mono;
 
@@ -51,12 +53,19 @@ class ProfileImageServiceTest {
     @Mock
     private MultipartFile multipartFile;
 
+    @Mock
+    private CacheManager cacheManager;
+
+    @Mock
+    private Cache signedUrlCache;
+
     @InjectMocks
     private ProfileImageService profileImageService;
 
     @BeforeEach
     void setUp() {
         lenient().when(config.getSignedUrlTtlSeconds()).thenReturn(518400);
+        lenient().when(cacheManager.getCache("signedUrls")).thenReturn(signedUrlCache);
     }
 
     @Test
@@ -278,6 +287,42 @@ class ProfileImageServiceTest {
         // Then
         assertThat(resolved).isEqualTo(signedUrl);
         verify(storageStrategy).getUrl(profileBucket, "profiles/7/avatar.webp", 518400);
+    }
+
+    @Test
+    @DisplayName("Signed URL 캐시 hit 시 OCI 호출을 건너뛴다")
+    void getProfileImageUrl_cacheHitSkipsStorageCall() {
+        String profileBucket = "profile-images";
+        String storagePath = "profiles/7/avatar.webp";
+        String cachedUrl = "https://signed.example.com/profiles/7/avatar.webp?cached=1";
+
+        when(config.getProfileBucket()).thenReturn(profileBucket);
+        when(signedUrlCache.get("profile:" + storagePath, String.class)).thenReturn(cachedUrl);
+
+        String resolved = profileImageService.getProfileImageUrl(storagePath);
+
+        assertThat(resolved).isEqualTo(cachedUrl);
+        verify(storageStrategy, never()).getUrl(eq(profileBucket), eq(storagePath), eq(518400));
+        verify(signedUrlCache, never()).put(any(), any());
+    }
+
+    @Test
+    @DisplayName("Signed URL 캐시 miss 시 OCI 호출 후 캐시에 저장한다")
+    void getProfileImageUrl_cacheMissPopulatesCache() {
+        String profileBucket = "profile-images";
+        String storagePath = "profiles/7/avatar.webp";
+        String freshUrl = "https://signed.example.com/profiles/7/avatar.webp?fresh=1";
+
+        when(config.getProfileBucket()).thenReturn(profileBucket);
+        when(signedUrlCache.get("profile:" + storagePath, String.class)).thenReturn(null);
+        when(storageStrategy.getUrl(profileBucket, storagePath, 518400))
+                .thenReturn(Mono.just(freshUrl));
+
+        String resolved = profileImageService.getProfileImageUrl(storagePath);
+
+        assertThat(resolved).isEqualTo(freshUrl);
+        verify(storageStrategy).getUrl(profileBucket, storagePath, 518400);
+        verify(signedUrlCache).put("profile:" + storagePath, freshUrl);
     }
 
     @Test

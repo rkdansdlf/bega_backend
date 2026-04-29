@@ -136,9 +136,6 @@ dependencies {
     // Caffeine Cache
     implementation 'com.github.ben-manes.caffeine:caffeine'
 
-    // [Security Fix - High #1] Rate Limiting (Bucket4j)
-    implementation 'com.bucket4j:bucket4j-core:8.10.1'
-    
     // JobRunr (Spring Boot 3)
     implementation 'org.jobrunr:jobrunr-spring-boot-3-starter:7.2.0'
     

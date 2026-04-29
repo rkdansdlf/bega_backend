@@ -193,7 +193,7 @@ class GlobalExceptionHandlerTest {
     @Test
     void illegalArgument_returnsBadRequest() {
         var ex = new IllegalArgumentException("잘못된 입력입니다.");
-        var response = handler.handleBadRequestExceptions(ex);
+        var response = handler.handleIllegalArgumentException(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
@@ -205,13 +205,14 @@ class GlobalExceptionHandlerTest {
     @Test
     void illegalState_returnsBadRequest() {
         var ex = new IllegalStateException("요청 상태가 올바르지 않습니다.");
-        var response = handler.handleBadRequestExceptions(ex);
+        var response = handler.handleIllegalStateException(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.isSuccess()).isFalse();
         assertThat(body.getCode()).isEqualTo("BAD_REQUEST");
-        assertThat(body.getMessage()).isEqualTo("요청 상태가 올바르지 않습니다.");
+        // [Security] IllegalStateException은 내부 상태 오류 메시지가 노출되지 않도록 일반 메시지로 대체됨
+        assertThat(body.getMessage()).isEqualTo("요청을 처리할 수 없습니다.");
     }
 
     @Test

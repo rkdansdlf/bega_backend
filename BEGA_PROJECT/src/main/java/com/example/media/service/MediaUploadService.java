@@ -88,7 +88,13 @@ public class MediaUploadService {
                 presignedUpload.requiredHeaders());
     }
 
-    @Transactional
+    /**
+     * NOTE: finalizeUpload는 의도적으로 메서드 레벨 @Transactional을 사용하지 않습니다.
+     * 메서드 전체를 단일 트랜잭션으로 감싸면 OCI Object Storage의 download/upload/delete
+     * 동기 호출(수백 ms)이 끝날 때까지 HikariCP 커넥션을 점유합니다. prod 풀(30)을 빠르게
+     * 고갈시킬 수 있어, OCI I/O는 트랜잭션 밖에서 실행하고 DB 변경(findById/save)은
+     * Spring Data JPA가 메서드별로 자동 생성하는 짧은 트랜잭션에 위임합니다.
+     */
     public FinalizeMediaUploadResponse finalizeUpload(Long userId, Long assetId) {
         MediaAsset asset = mediaAssetRepository.findById(assetId)
                 .orElseThrow(() -> new NotFoundBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드 대상을 찾을 수 없습니다."));
