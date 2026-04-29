@@ -19,11 +19,6 @@ public class PasswordResetController {
 
     private final PasswordResetService passwordResetService;
 
-    @com.example.common.ratelimit.RateLimit(
-            limit = 5,
-            window = 900,
-            key = "auth:password-reset-request",
-            failClosed = true)
     @PostMapping("/request")
     public ResponseEntity<ApiResponse> requestPasswordReset(
             @Valid @RequestBody PasswordResetRequestDto request) {
