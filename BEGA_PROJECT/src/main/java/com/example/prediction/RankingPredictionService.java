@@ -177,6 +177,17 @@ public class RankingPredictionService {
 		return SeasonUtils.getCurrentPredictionSeason();
 	}
 
+	@Transactional(readOnly = true, transactionManager = "transactionManager")
+	public RankingPredictionInitDto getInitData(String userIdString) {
+		ensurePredictionPeriodOpen();
+		int seasonYear = SeasonUtils.getCurrentPredictionSeason();
+		RankingPredictionResponseDto saved = rankingPredictionRepository
+				.findByUserIdAndSeasonYear(userIdString, seasonYear)
+				.map(this::convertToResponseDto)
+				.orElse(null);
+		return new RankingPredictionInitDto(seasonYear, saved);
+	}
+
 	private UserEntity findUserByShareId(String shareId) {
 		if (shareId == null || shareId.isBlank()) {
 			throw new IllegalArgumentException("공유 식별자가 필요합니다.");

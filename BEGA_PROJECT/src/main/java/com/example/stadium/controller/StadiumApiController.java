@@ -53,7 +53,7 @@ public class StadiumApiController {
         if (category != null && !category.isEmpty()) {
             return ResponseEntity.ok(stadiumService.getPlacesByStadiumAndCategory(stadiumId, category));
         } else {
-            return ResponseEntity.ok(stadiumService.getStadiumDetail(stadiumId).getPlaces());
+            return ResponseEntity.ok(stadiumService.getPlacesByStadium(stadiumId));
         }
     }
 
