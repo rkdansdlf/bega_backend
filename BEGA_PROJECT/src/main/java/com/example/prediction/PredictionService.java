@@ -43,7 +43,10 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -110,6 +113,7 @@ public class PredictionService {
         this.transactionManager = transactionManager;
     }
 
+    @Cacheable(value = CacheConfig.RECENT_COMPLETED_GAMES, key = "'all'")
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<MatchDto> getRecentCompletedGames() {
         LocalDate today = LocalDate.now();
@@ -137,8 +141,9 @@ public class PredictionService {
                 QUERYABLE_TEAM_CODES);
         baseballDataIntegrityGuard.ensurePredictionRangeMatches("prediction.past_games", matches);
 
+        Map<String, Integer> seriesGameNos = computeSeriesGameNos(matches);
         return Objects.requireNonNull(matches.stream()
-                .map(this::toMatchDto)
+                .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList()));
     }
 
@@ -157,8 +162,9 @@ public class PredictionService {
         }
         baseballDataIntegrityGuard.ensurePredictionDateMatches("prediction.matches_by_date", date, matches);
 
+        Map<String, Integer> seriesGameNos = computeSeriesGameNos(matches);
         return Objects.requireNonNull(matches.stream()
-                .map(this::toMatchDto)
+                .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList()));
     }
 
@@ -183,8 +189,9 @@ public class PredictionService {
                     rawMatches);
         }
 
+        Map<String, Integer> seriesGameNos = computeSeriesGameNos(rawMatches);
         List<MatchDto> matches = rawMatches.stream()
-                .map(this::toMatchDto)
+                .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList());
         LocalDate prevDate = adjacentDates == null ? null : adjacentDates.getPrevDate();
         LocalDate nextDate = adjacentDates == null ? null : adjacentDates.getNextDate();
@@ -226,8 +233,9 @@ public class PredictionService {
                 pageSize);
         baseballDataIntegrityGuard.ensurePredictionRangeMatches("prediction.matches_by_range", matches);
 
+        Map<String, Integer> seriesGameNos = computeSeriesGameNos(matches);
         return Objects.requireNonNull(matches.stream()
-                .map(this::toMatchDto)
+                .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList()));
     }
 
@@ -249,9 +257,10 @@ public class PredictionService {
                 "prediction.matches_by_range",
                 matches.getContent());
 
+        Map<String, Integer> seriesGameNos = computeSeriesGameNos(matches.getContent());
         return new MatchRangePageResponseDto(
                 matches.getContent().stream()
-                        .map(this::toMatchDto)
+                        .map(m -> toMatchDto(m, seriesGameNos))
                         .collect(Collectors.toList()),
                 matches.getNumber(),
                 matches.getSize(),
@@ -276,7 +285,7 @@ public class PredictionService {
         );
     }
 
-    private MatchDto toMatchDto(MatchRangeProjection match) {
+    private MatchDto toMatchDto(MatchRangeProjection match, Map<String, Integer> seriesGameNos) {
         Integer leagueTypeCode = leagueStageResolver.resolveEffectiveLeagueTypeCode(
                 match.getRawLeagueTypeCode(),
                 match.getGameDate(),
@@ -290,6 +299,7 @@ public class PredictionService {
                 match.getHomeScore(),
                 match.getAwayScore(),
                 hasKnownScore);
+        Integer seriesGameNo = seriesGameNos != null ? seriesGameNos.get(match.getGameId()) : null;
         return MatchDto.builder()
                 .gameId(match.getGameId())
                 .gameDate(match.getGameDate())
@@ -309,8 +319,46 @@ public class PredictionService {
                 .seasonId(match.getSeasonId())
                 .leagueType(mapLeagueType(leagueTypeCode))
                 .postSeasonSeries(mapPostSeasonSeries(leagueTypeCode))
-                .seriesGameNo(match.getSeriesGameNo())
+                .seriesGameNo(seriesGameNo)
                 .build();
+    }
+
+    /**
+     * 포스트시즌 경기(rawLeagueTypeCode 2~5)의 seriesGameNo를 Java에서 계산합니다.
+     * DB 상관 서브쿼리를 제거한 대신 쿼리 결과 목록(game_date ASC, game_id ASC 정렬)을
+     * 순회하며 같은 시즌/팀 조합 내 누적 경기 번호를 계산합니다.
+     * 정규 시즌 경기(code 0,1)는 null을 반환합니다.
+     */
+    private Map<String, Integer> computeSeriesGameNos(List<MatchRangeProjection> matches) {
+        if (matches == null || matches.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        // key: "seasonId:teamA:teamB" (팀 코드 정렬), value: 누적 게임 수
+        Map<String, Integer> seriesCounter = new HashMap<>();
+        Map<String, Integer> result = new HashMap<>();
+        for (MatchRangeProjection m : matches) {
+            Integer code = m.getRawLeagueTypeCode();
+            if (code == null || code < 2 || code > 5) {
+                continue; // 포스트시즌 외에는 계산 불필요
+            }
+            String gameId = m.getGameId();
+            if (gameId == null) continue;
+            Integer seasonId = m.getSeasonId();
+            String homeTeam = m.getHomeTeam();
+            String awayTeam = m.getAwayTeam();
+            if (seasonId == null || homeTeam == null || awayTeam == null) {
+                continue;
+            }
+            String teamA = homeTeam.trim().toUpperCase(Locale.ROOT);
+            String teamB = awayTeam.trim().toUpperCase(Locale.ROOT);
+            // 정렬하여 팀 순서에 무관한 키 생성
+            String seriesKey = seasonId + ":" + (teamA.compareTo(teamB) <= 0
+                    ? teamA + ":" + teamB
+                    : teamB + ":" + teamA);
+            int gameNo = seriesCounter.merge(seriesKey, 1, Integer::sum);
+            result.put(gameId, gameNo);
+        }
+        return result;
     }
 
     private String mapLeagueType(Integer leagueTypeCode) {
@@ -500,6 +548,7 @@ public class PredictionService {
         return new CanonicalRangeRequest(effectiveStartDate, endDate, pageable);
     }
 
+    @Cacheable(value = CacheConfig.GAME_DETAIL, key = "#gameId")
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public GameDetailDto getGameDetail(String gameId) {
         baseballDataIntegrityGuard.requireValidGame("prediction.game_detail", gameId);
@@ -1144,6 +1193,32 @@ public class PredictionService {
                 @Override
                 public void afterCommit() {
                     cache.evict(normalizedGameId);
+                    // Re-warm cache immediately to prevent thundering herd on popular games
+                    try {
+                        PredictionVoteCountsProjection voteCounts =
+                                predictionRepository.findVoteCountsByGameId(normalizedGameId);
+                        Long homeVotes = voteCounts != null && voteCounts.getHomeVotes() != null
+                                ? voteCounts.getHomeVotes() : 0L;
+                        Long awayVotes = voteCounts != null && voteCounts.getAwayVotes() != null
+                                ? voteCounts.getAwayVotes() : 0L;
+                        Long totalVotes = homeVotes + awayVotes;
+                        int homePercentage = totalVotes > 0
+                                ? (int) Math.round((homeVotes * 100.0) / totalVotes) : 0;
+                        int awayPercentage = totalVotes > 0
+                                ? (int) Math.round((awayVotes * 100.0) / totalVotes) : 0;
+                        PredictionResponseDto warmed = PredictionResponseDto.builder()
+                                .gameId(normalizedGameId)
+                                .homeVotes(homeVotes)
+                                .awayVotes(awayVotes)
+                                .totalVotes(totalVotes)
+                                .homePercentage(homePercentage)
+                                .awayPercentage(awayPercentage)
+                                .build();
+                        cacheVoteStatus(normalizedGameId, warmed);
+                    } catch (Exception e) {
+                        log.debug("투표 현황 캐시 워밍 실패. 다음 요청 시 DB에서 조회됩니다: gameId={}",
+                                normalizedGameId);
+                    }
                 }
             });
             return;
@@ -1273,27 +1348,30 @@ public class PredictionService {
                 .stream()
                 .collect(Collectors.toMap(PredictionStatsGameProjection::getGameId, PredictionStatsGameProjection::getWinner));
 
+        // 집계 루프 (전체 순회, 총 완료 + 정답 수)
         int totalFinished = 0;
         int correctCount = 0;
-        int currentStreak = 0;
-        boolean streakBroken = false;
-
         for (PredictionStatsRowProjection prediction : predictions) {
             String actualWinner = winnerByGameId.get(prediction.getGameId());
-            if (actualWinner == null) {
-                continue;
-            }
-
+            if (actualWinner == null) continue;
             totalFinished++;
-            boolean isCorrect = prediction.getVotedTeam().equalsIgnoreCase(actualWinner);
-
-            if (isCorrect) {
+            if (prediction.getVotedTeam().equalsIgnoreCase(actualWinner)) {
                 correctCount++;
-                if (!streakBroken) {
-                    currentStreak++;
-                }
+            }
+        }
+
+        // 스트릭 루프 (최근 50개 완료 경기만, 최신순으로 정렬됨)
+        int currentStreak = 0;
+        int finishedForStreak = 0;
+        for (PredictionStatsRowProjection prediction : predictions) {
+            if (finishedForStreak >= 50) break;
+            String actualWinner = winnerByGameId.get(prediction.getGameId());
+            if (actualWinner == null) continue;
+            finishedForStreak++;
+            if (prediction.getVotedTeam().equalsIgnoreCase(actualWinner)) {
+                currentStreak++;
             } else {
-                streakBroken = true;
+                break;
             }
         }
 
