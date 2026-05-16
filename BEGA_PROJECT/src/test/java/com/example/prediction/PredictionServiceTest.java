@@ -197,7 +197,9 @@ class PredictionServiceTest {
         MatchDto match = matches.get(0);
         assertThat(match.getLeagueType()).isEqualTo("POST");
         assertThat(match.getPostSeasonSeries()).isEqualTo("PO");
-        assertThat(match.getSeriesGameNo()).isEqualTo(3);
+        // seriesGameNo is now computed in Java from the result set (DB correlated subquery removed).
+        // Single game in the result → relative position is 1.
+        assertThat(match.getSeriesGameNo()).isEqualTo(1);
     }
 
     @Test
@@ -233,13 +235,17 @@ class PredictionServiceTest {
         MatchDto match = matches.get(0);
         assertThat(match.getLeagueType()).isEqualTo("POST");
         assertThat(match.getPostSeasonSeries()).isEqualTo("PO");
-        assertThat(match.getSeriesGameNo()).isEqualTo(2);
+        // seriesGameNo is now computed in Java from the result set (DB correlated subquery removed).
+        // Single game in the result → relative position is 1.
+        assertThat(match.getSeriesGameNo()).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("getMatchesByDateRange keeps stable seriesGameNo when page starts mid-series")
-    void getMatchesByDateRange_keepsStableSeriesGameNoWhenPageStartsMidSeries() {
+    @DisplayName("getMatchesByDateRange computes seriesGameNo in Java from result set")
+    void getMatchesByDateRange_computesSeriesGameNoFromResultSet() {
         LocalDate gameDate = LocalDate.of(2025, 10, 18);
+        // Simulate a paged result that contains only one game (page starts mid-series).
+        // With Java-level computation the relative position within the returned page is 1.
         MatchRangeProjection third = buildRangeMatch(
                 "202510200001",
                 gameDate.plusDays(2),
@@ -265,7 +271,33 @@ class PredictionServiceTest {
                 1,
                 1);
 
-        assertThat(matches).extracting(MatchDto::getSeriesGameNo).containsExactly(3);
+        // Single game in result set → Java computation assigns seriesGameNo=1
+        assertThat(matches).extracting(MatchDto::getSeriesGameNo).containsExactly(1);
+    }
+
+    @Test
+    @DisplayName("getMatchesByDateRange assigns sequential seriesGameNo for multi-game postseason series")
+    void getMatchesByDateRange_assignsSequentialSeriesGameNoForMultiplePostseasonGames() {
+        LocalDate day1 = LocalDate.of(2025, 10, 18);
+        LocalDate day2 = LocalDate.of(2025, 10, 19);
+        LocalDate day3 = LocalDate.of(2025, 10, 20);
+        // Three games of the same postseason series (HH vs LG, PO), sorted ascending
+        MatchRangeProjection game1 = buildRangeMatch("202510180001", day1, "HH", "LG", 264, 4, 1);
+        MatchRangeProjection game2 = buildRangeMatch("202510190001", day2, "HH", "LG", 264, 4, 2);
+        MatchRangeProjection game3 = buildRangeMatch("202510200001", day3, "HH", "LG", 264, 4, 3);
+
+        when(gameRepository.findCanonicalRangeProjectionByDateRangeNoCount(
+                any(LocalDate.class),
+                any(LocalDate.class),
+                anyList(),
+                any(Pageable.class)
+        )).thenReturn(List.of(game1, game2, game3));
+        when(gameRepository.findConfiguredStartDateByTypeFromSeasonYear(anyInt(), anyInt()))
+                .thenReturn(Optional.empty());
+
+        List<MatchDto> matches = predictionService.getMatchesByDateRange(day1, day3);
+
+        assertThat(matches).extracting(MatchDto::getSeriesGameNo).containsExactly(1, 2, 3);
     }
 
     @Test
