@@ -54,6 +54,10 @@ public class CacheConfig {
         public static final String RANKING_PREDICTION_CONTEXT = "rankingPredictionContext";
         public static final String RANKING_SHARE_IDS = "rankingShareIds";
 
+        public static final String STADIUM_PLACES = "stadiumPlaces";
+        public static final String GAME_DETAIL = "gameDetail";
+        public static final String RECENT_COMPLETED_GAMES = "recentCompletedGames";
+
         // L2 전용 캐시 (Redis only) - 라이브 데이터 (추후 확장용)
         public static final String LIVE_GAME_SCORE = "liveGameScore";
         public static final String LIVE_GAME_STATUS = "liveGameStatus";
@@ -134,6 +138,9 @@ public class CacheConfig {
                 cacheConfigs.put(TEAM_RANKINGS, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
                 cacheConfigs.put(GAME_SCHEDULE, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(1))));
                 cacheConfigs.put(STADIUMS, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofHours(1))));
+                cacheConfigs.put(STADIUM_PLACES, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofHours(1))));
+                cacheConfigs.put(GAME_DETAIL, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(30))));
+                cacheConfigs.put(RECENT_COMPLETED_GAMES, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(15))));
                 cacheConfigs.put(LEAGUE_DATES, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofHours(1))));
                 cacheConfigs.put(TEAM_DATA, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(30))));
                 cacheConfigs.put(HOME_BOOTSTRAP,
@@ -147,7 +154,7 @@ public class CacheConfig {
                 cacheConfigs.put(PREDICTION_USER_STATS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
                 cacheConfigs.put(RANKING_PREDICTION_CONTEXT,
-                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(60))));
                 cacheConfigs.put(RANKING_SHARE_IDS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(30))));
 
@@ -157,7 +164,7 @@ public class CacheConfig {
                 cacheConfigs.put(LIVE_GAME_STATUS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(5))));
                 cacheConfigs.put(PREDICTION_VOTE_STATUS,
-                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(5))));
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(30))));
 
                 return RedisCacheManager.builder(Objects.requireNonNull(connectionFactory))
                                 .cacheDefaults(defaultConfig)
