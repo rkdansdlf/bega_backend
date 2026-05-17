@@ -6,6 +6,7 @@ import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.service.CheerService;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import com.example.mate.service.PartyService;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.Year;
@@ -34,13 +35,14 @@ public class HomePageFacadeService {
     private final CheerService cheerService;
     private final PartyService partyService;
     private final Duration sectionTimeout;
+    private final Clock clock;
 
     @Autowired
     public HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
             PartyService partyService) {
-        this(homePageGameService, cheerService, partyService, DEFAULT_SECTION_TIMEOUT);
+        this(homePageGameService, cheerService, partyService, DEFAULT_SECTION_TIMEOUT, Clock.systemDefaultZone());
     }
 
     HomePageFacadeService(
@@ -48,12 +50,22 @@ public class HomePageFacadeService {
             CheerService cheerService,
             PartyService partyService,
             Duration sectionTimeout) {
+        this(homePageGameService, cheerService, partyService, sectionTimeout, Clock.systemDefaultZone());
+    }
+
+    HomePageFacadeService(
+            HomePageGameService homePageGameService,
+            CheerService cheerService,
+            PartyService partyService,
+            Duration sectionTimeout,
+            Clock clock) {
         this.homePageGameService = homePageGameService;
         this.cheerService = cheerService;
         this.partyService = partyService;
         this.sectionTimeout = (sectionTimeout == null || sectionTimeout.isZero() || sectionTimeout.isNegative())
                 ? DEFAULT_SECTION_TIMEOUT
                 : sectionTimeout;
+        this.clock = clock == null ? Clock.systemDefaultZone() : clock;
     }
 
     @Transactional(readOnly = true)
@@ -273,7 +285,9 @@ public class HomePageFacadeService {
 
     private List<HomePageScheduledGameDto> safeGetScheduledGamesWindow(LocalDate date) {
         try {
-            return homePageGameService.getScheduledGamesWindow(date, date.plusDays(7));
+            LocalDate today = LocalDate.now(clock);
+            LocalDate windowStartDate = date.isBefore(today) ? today : date;
+            return homePageGameService.getScheduledGamesWindow(windowStartDate, windowStartDate.plusDays(7));
         } catch (ManualBaseballDataRequiredException e) {
             throw e;
         } catch (Exception e) {
