@@ -162,7 +162,7 @@ public class PredictionService {
         }
         baseballDataIntegrityGuard.ensurePredictionDateMatches("prediction.matches_by_date", date, matches);
 
-        Map<String, Integer> seriesGameNos = computeSeriesGameNos(matches);
+        Map<String, Integer> seriesGameNos = computeSeriesGameNos(matches, true);
         return Objects.requireNonNull(matches.stream()
                 .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList()));
@@ -189,7 +189,7 @@ public class PredictionService {
                     rawMatches);
         }
 
-        Map<String, Integer> seriesGameNos = computeSeriesGameNos(rawMatches);
+        Map<String, Integer> seriesGameNos = computeSeriesGameNos(rawMatches, true);
         List<MatchDto> matches = rawMatches.stream()
                 .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList());
@@ -330,6 +330,10 @@ public class PredictionService {
      * 정규 시즌 경기(code 0,1)는 null을 반환합니다.
      */
     private Map<String, Integer> computeSeriesGameNos(List<MatchRangeProjection> matches) {
+        return computeSeriesGameNos(matches, false);
+    }
+
+    private Map<String, Integer> computeSeriesGameNos(List<MatchRangeProjection> matches, boolean useProjectedSeriesGameNo) {
         if (matches == null || matches.isEmpty()) {
             return Collections.emptyMap();
         }
@@ -343,6 +347,11 @@ public class PredictionService {
             }
             String gameId = m.getGameId();
             if (gameId == null) continue;
+            Integer projectedSeriesGameNo = useProjectedSeriesGameNo ? m.getSeriesGameNo() : null;
+            if (projectedSeriesGameNo != null) {
+                result.put(gameId, projectedSeriesGameNo);
+                continue;
+            }
             Integer seasonId = m.getSeasonId();
             String homeTeam = m.getHomeTeam();
             String awayTeam = m.getAwayTeam();

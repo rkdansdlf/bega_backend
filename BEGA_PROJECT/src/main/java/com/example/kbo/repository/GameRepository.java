@@ -132,7 +132,30 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
           dr.away_pitcher AS "awayPitcher",
           dr.season_id AS "seasonId",
           dr.raw_league_type_code AS "rawLeagueTypeCode",
-          NULL AS "seriesGameNo",
+          CASE
+              WHEN dr.raw_league_type_code BETWEEN 2 AND 5 THEN (
+                  SELECT CAST(COUNT(*) AS INTEGER)
+                  FROM game sg
+                  WHERE sg.season_id = dr.season_id
+                    AND sg.is_dummy IS NOT TRUE
+                    AND sg.game_id NOT LIKE 'MOCK%'
+                    AND sg.home_team IN :canonicalTeams
+                    AND sg.away_team IN :canonicalTeams
+                    AND CASE
+                        WHEN UPPER(TRIM(sg.home_team)) <= UPPER(TRIM(sg.away_team)) THEN UPPER(TRIM(sg.home_team))
+                        ELSE UPPER(TRIM(sg.away_team))
+                    END = dr.team_a
+                    AND CASE
+                        WHEN UPPER(TRIM(sg.home_team)) <= UPPER(TRIM(sg.away_team)) THEN UPPER(TRIM(sg.away_team))
+                        ELSE UPPER(TRIM(sg.home_team))
+                    END = dr.team_b
+                    AND (
+                        sg.game_date < dr.game_date
+                        OR (sg.game_date = dr.game_date AND sg.game_id <= dr.game_id)
+                    )
+              )
+              ELSE NULL
+          END AS "seriesGameNo",
           dr.game_status AS "gameStatus",
           dr.start_time AS "startTime"
       FROM date_rows dr
