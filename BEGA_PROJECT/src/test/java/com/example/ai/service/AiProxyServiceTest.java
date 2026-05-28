@@ -193,6 +193,20 @@ class AiProxyServiceTest {
     }
 
     @Test
+    void forwardJsonStreamConnectionFailureMapsToBadGateway() {
+        AiProxyService service = newService(Duration.ofSeconds(1), "stream-token", "http://localhost:1");
+
+        assertThatThrownBy(() -> service.forwardJsonStream("/ai/coach/analyze", "{\"test\":true}"))
+                .isInstanceOf(AiProxyException.class)
+                .satisfies(throwable -> {
+                    AiProxyException ex = (AiProxyException) throwable;
+                    assertThat(ex.getStatus().value()).isEqualTo(502);
+                    assertThat(ex.getCode()).isEqualTo("AI_UPSTREAM_CONNECTION_FAILED");
+                    assertThat(ex.getMessage()).isEqualTo("AI 서비스 연결에 실패했습니다.");
+                });
+    }
+
+    @Test
     void writeStreamStopsCleanlyOnBrokenPipe() {
         AiProxyService service = newService(Duration.ofSeconds(5), "stream-token", "http://localhost:1");
         DefaultDataBufferFactory bufferFactory = new DefaultDataBufferFactory();

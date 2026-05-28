@@ -98,6 +98,35 @@ class AiServiceSettingsTest {
     }
 
     @Test
+    void prodProfileLoopbackServiceUrlFailsValidation() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+
+        AiServiceSettings settings = new AiServiceSettings(environment, "http://localhost:8001", "configured-token", tempDir);
+
+        assertThatThrownBy(settings::validateForStartup)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("loopback ai.service-url");
+    }
+
+    @Test
+    void prodProfileLoopbackServiceUrlCanBeExplicitlyAllowed() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+
+        AiServiceSettings settings = new AiServiceSettings(
+                environment,
+                "http://localhost:8001",
+                "configured-token",
+                tempDir,
+                true);
+
+        settings.validateForStartup();
+
+        assertThat(settings.getResolvedServiceUrl()).isEqualTo("http://localhost:8001");
+    }
+
+    @Test
     void prodProfileExplicitValuesArePreserved() {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("prod");
