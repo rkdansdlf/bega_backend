@@ -719,12 +719,11 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
   @Query(value = """
       SELECT MIN(g.game_date)
       FROM game g
-      JOIN kbo_seasons s ON (
-          g.season_id = s.season_id
-          OR (g.season_id IS NULL AND s.season_year = EXTRACT(YEAR FROM g.game_date))
-      )
-      WHERE COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
-        AND COALESCE(s.league_type_code, 0) = 0
+      JOIN kbo_seasons s ON g.season_id = s.season_id
+      WHERE s.season_year = :seasonYear
+        AND s.league_type_code = 0
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
       """, nativeQuery = true)
   Optional<LocalDate> findFirstRegularSeasonDate(@Param("seasonYear") int seasonYear);
 
@@ -737,12 +736,11 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
   @Query(value = """
       SELECT MIN(g.game_date)
       FROM game g
-      JOIN kbo_seasons s ON (
-          g.season_id = s.season_id
-          OR (g.season_id IS NULL AND s.season_year = EXTRACT(YEAR FROM g.game_date))
-      )
-      WHERE COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
-        AND COALESCE(s.league_type_code, 0) = 2
+      JOIN kbo_seasons s ON g.season_id = s.season_id
+      WHERE s.season_year = :seasonYear
+        AND s.league_type_code = 2
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
       """, nativeQuery = true)
   Optional<LocalDate> findFirstPostseasonDate(@Param("seasonYear") int seasonYear);
 
@@ -755,12 +753,11 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
   @Query(value = """
       SELECT MIN(g.game_date)
       FROM game g
-      JOIN kbo_seasons s ON (
-          g.season_id = s.season_id
-          OR (g.season_id IS NULL AND s.season_year = EXTRACT(YEAR FROM g.game_date))
-      )
-      WHERE COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
-        AND COALESCE(s.league_type_code, 0) = 5
+      JOIN kbo_seasons s ON g.season_id = s.season_id
+      WHERE s.season_year = :seasonYear
+        AND s.league_type_code = 5
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
       """, nativeQuery = true)
   Optional<LocalDate> findFirstKoreanSeriesDate(@Param("seasonYear") int seasonYear);
 

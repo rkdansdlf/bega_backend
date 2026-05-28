@@ -23,7 +23,7 @@ public class BaseballConstants {
         Map.entry("고척", "고척스카이돔"),
         Map.entry("잠실", "잠실 야구장"),
         Map.entry("광주", "광주-기아 챔피언스 필드"),
-        Map.entry("대전", "대전 한화생명 이글스 파크"),
+        Map.entry("대전", "대전 한화생명볼파크"),
         Map.entry("청주", "청주 야구장"),
         Map.entry("울산", "울산 문수 야구장"),
         Map.entry("수원", "수원 kt wiz 파크"),
