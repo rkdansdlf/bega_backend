@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -54,6 +56,28 @@ class HomePageGameServiceTest {
                 leagueStageResolver,
                 baseballDataIntegrityGuard
         );
+    }
+
+    @Test
+    @DisplayName("리그 시작일은 운영자 제공 kbo_seasons 시작일을 우선 사용한다")
+    void getLeagueStartDates_prefersConfiguredSeasonStartDates() {
+        int seasonYear = LocalDate.now().getYear();
+
+        when(gameRepository.findConfiguredStartDateByTypeFromSeasonYear(0, seasonYear))
+                .thenReturn(Optional.of(LocalDate.of(seasonYear, 3, 28)));
+        when(gameRepository.findConfiguredStartDateByTypeFromSeasonYear(2, seasonYear))
+                .thenReturn(Optional.of(LocalDate.of(seasonYear, 10, 6)));
+        when(gameRepository.findConfiguredStartDateByTypeFromSeasonYear(5, seasonYear))
+                .thenReturn(Optional.of(LocalDate.of(seasonYear, 10, 26)));
+
+        LeagueStartDatesDto startDates = homePageGameService.getLeagueStartDates();
+
+        assertThat(startDates.getRegularSeasonStart()).isEqualTo(seasonYear + "-03-28");
+        assertThat(startDates.getPostseasonStart()).isEqualTo(seasonYear + "-10-06");
+        assertThat(startDates.getKoreanSeriesStart()).isEqualTo(seasonYear + "-10-26");
+        verify(gameRepository, never()).findFirstRegularSeasonDate(seasonYear);
+        verify(gameRepository, never()).findFirstPostseasonDate(seasonYear);
+        verify(gameRepository, never()).findFirstKoreanSeriesDate(seasonYear);
     }
 
     @Test

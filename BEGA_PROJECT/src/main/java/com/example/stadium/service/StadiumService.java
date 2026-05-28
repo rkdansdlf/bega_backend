@@ -63,21 +63,29 @@ public class StadiumService {
         return getStadiumDetail(stadium.getStadiumId());
     }
 
+    @Cacheable(value = STADIUM_PLACES, key = "#stadiumId + ':' + #category")
     public List<PlaceDto> getPlacesByStadiumAndCategory(String stadiumId, String category) {
-        // 변경: findByStadiumStadiumIdAndCategory → findByStadium_StadiumIdAndCategory
         return placeRepository.findByStadium_StadiumIdAndCategory(stadiumId, category).stream()
                 .map(this::convertPlaceToDto)
                 .collect(Collectors.toList());
     }
 
+    @Cacheable(value = STADIUM_PLACES, key = "#stadiumName + ':' + #category")
     public List<PlaceDto> getPlacesByStadiumNameAndCategory(String stadiumName, String category) {
         return placeRepository.findByStadiumNameAndCategory(stadiumName, category).stream()
                 .map(this::convertPlaceToDto)
                 .collect(Collectors.toList());
     }
 
+    @Cacheable(value = STADIUM_PLACES, key = "#stadiumId + ':all'")
+    public List<PlaceDto> getPlacesByStadium(String stadiumId) {
+        return placeRepository.findByStadiumIdWithSort(stadiumId).stream()
+                .map(this::convertPlaceToDto)
+                .collect(Collectors.toList());
+    }
+
     public List<PlaceDto> getAllPlaces() {
-        return placeRepository.findAll().stream()
+        return placeRepository.findAllWithStadium().stream()
                 .map(this::convertPlaceToDto)
                 .collect(Collectors.toList());
     }

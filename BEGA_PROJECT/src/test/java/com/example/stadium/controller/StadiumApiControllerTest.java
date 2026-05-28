@@ -46,40 +46,31 @@ class StadiumApiControllerTest {
     }
 
     @Test
-    @DisplayName("카테고리 파라미터가 없으면 구장 상세의 places를 반환한다")
-    void getPlacesByStadium_withoutCategory_returnsDetailPlaces() {
+    @DisplayName("카테고리 파라미터가 없으면 stadium 전용 places 조회를 호출한다")
+    void getPlacesByStadium_withoutCategory_callsPlacesByStadium() {
         List<PlaceDto> places = List.of(
                 PlaceDto.builder().id(2L).name("픽업존").category("delivery").build()
         );
-        StadiumDetailDto detail = StadiumDetailDto.builder()
-                .stadiumId("JAMSIL")
-                .places(places)
-                .build();
-
-        when(stadiumService.getStadiumDetail("JAMSIL")).thenReturn(detail);
+        when(stadiumService.getPlacesByStadium("JAMSIL")).thenReturn(places);
 
         ResponseEntity<List<PlaceDto>> response = stadiumApiController.getPlacesByStadium("JAMSIL", null);
 
         assertThat(response.getBody()).isEqualTo(places);
-        verify(stadiumService).getStadiumDetail("JAMSIL");
+        verify(stadiumService).getPlacesByStadium("JAMSIL");
     }
 
     @Test
-    @DisplayName("카테고리 파라미터가 빈 문자열이면 구장 상세의 places를 반환한다")
-    void getPlacesByStadium_withBlankCategory_returnsDetailPlaces() {
+    @DisplayName("카테고리 파라미터가 빈 문자열이면 stadium 전용 places 조회를 호출한다")
+    void getPlacesByStadium_withBlankCategory_callsPlacesByStadium() {
         List<PlaceDto> places = List.of(
                 PlaceDto.builder().id(2L).name("픽업존").category("delivery").build()
         );
-        StadiumDetailDto detail = StadiumDetailDto.builder()
-                .stadiumId("JAMSIL")
-                .places(places)
-                .build();
-        when(stadiumService.getStadiumDetail("JAMSIL")).thenReturn(detail);
+        when(stadiumService.getPlacesByStadium("JAMSIL")).thenReturn(places);
 
         ResponseEntity<List<PlaceDto>> response = stadiumApiController.getPlacesByStadium("JAMSIL", "");
 
         assertThat(response.getBody()).isEqualTo(places);
-        verify(stadiumService).getStadiumDetail("JAMSIL");
+        verify(stadiumService).getPlacesByStadium("JAMSIL");
     }
 
     @Test

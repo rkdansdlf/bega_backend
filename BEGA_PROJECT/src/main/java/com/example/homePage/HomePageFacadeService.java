@@ -6,6 +6,8 @@ import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.service.CheerService;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import com.example.mate.service.PartyService;
+import jakarta.annotation.PreDestroy;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.Year;
@@ -18,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
@@ -29,18 +32,41 @@ import org.springframework.transaction.annotation.Transactional;
 public class HomePageFacadeService {
 
     private static final Duration DEFAULT_SECTION_TIMEOUT = Duration.ofSeconds(6);
+    private static final String SECTION_TIMEOUT_PROPERTY = "${app.home.bootstrap.section-timeout-ms:6000}";
 
     private final HomePageGameService homePageGameService;
     private final CheerService cheerService;
     private final PartyService partyService;
     private final Duration sectionTimeout;
+    private final Clock clock;
+    private final ExecutorService sectionExecutor;
+
+    public HomePageFacadeService(
+            HomePageGameService homePageGameService,
+            CheerService cheerService,
+            PartyService partyService) {
+        this(
+                homePageGameService,
+                cheerService,
+                partyService,
+                DEFAULT_SECTION_TIMEOUT,
+                Clock.systemDefaultZone(),
+                Executors.newVirtualThreadPerTaskExecutor());
+    }
 
     @Autowired
     public HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService) {
-        this(homePageGameService, cheerService, partyService, DEFAULT_SECTION_TIMEOUT);
+            PartyService partyService,
+            @Value(SECTION_TIMEOUT_PROPERTY) long sectionTimeoutMs) {
+        this(
+                homePageGameService,
+                cheerService,
+                partyService,
+                Duration.ofMillis(sectionTimeoutMs),
+                Clock.systemDefaultZone(),
+                Executors.newVirtualThreadPerTaskExecutor());
     }
 
     HomePageFacadeService(
@@ -48,60 +74,99 @@ public class HomePageFacadeService {
             CheerService cheerService,
             PartyService partyService,
             Duration sectionTimeout) {
+        this(
+                homePageGameService,
+                cheerService,
+                partyService,
+                sectionTimeout,
+                Clock.systemDefaultZone(),
+                Executors.newVirtualThreadPerTaskExecutor());
+    }
+
+    HomePageFacadeService(
+            HomePageGameService homePageGameService,
+            CheerService cheerService,
+            PartyService partyService,
+            Duration sectionTimeout,
+            Clock clock) {
+        this(
+                homePageGameService,
+                cheerService,
+                partyService,
+                sectionTimeout,
+                clock,
+                Executors.newVirtualThreadPerTaskExecutor());
+    }
+
+    HomePageFacadeService(
+            HomePageGameService homePageGameService,
+            CheerService cheerService,
+            PartyService partyService,
+            Duration sectionTimeout,
+            Clock clock,
+            ExecutorService sectionExecutor) {
         this.homePageGameService = homePageGameService;
         this.cheerService = cheerService;
         this.partyService = partyService;
         this.sectionTimeout = (sectionTimeout == null || sectionTimeout.isZero() || sectionTimeout.isNegative())
                 ? DEFAULT_SECTION_TIMEOUT
                 : sectionTimeout;
+        this.clock = clock == null ? Clock.systemDefaultZone() : clock;
+        this.sectionExecutor = sectionExecutor == null
+                ? Executors.newVirtualThreadPerTaskExecutor()
+                : sectionExecutor;
     }
 
     @Transactional(readOnly = true)
     public HomeBootstrapResponseDto getBootstrap(LocalDate date) {
+        LocalDate selectedDate = date == null ? LocalDate.now(clock) : date;
         long bootstrapStartedAt = System.nanoTime();
 
-        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            SectionTask<LeagueStartDatesDto> leagueStartDatesTask =
-                    submitSection(executor, "leagueStartDates", () -> safeGetLeagueStartDates(date));
-            SectionTask<HomeScheduleNavigationDto> navigationTask =
-                    submitSection(executor, "navigation", () -> safeGetNavigation(date));
-            SectionTask<List<HomePageGameDto>> gamesTask =
-                    submitSection(executor, "games", () -> safeGetGames(date));
-            SectionTask<List<HomePageScheduledGameDto>> scheduledGamesTask =
-                    submitSection(executor, "scheduledGamesWindow", () -> safeGetScheduledGamesWindow(date));
+        SectionTask<LeagueStartDatesDto> leagueStartDatesTask =
+                submitSection(sectionExecutor, "leagueStartDates", () -> safeGetLeagueStartDates(selectedDate));
+        SectionTask<HomeScheduleNavigationDto> navigationTask =
+                submitSection(sectionExecutor, "navigation", () -> safeGetNavigation(selectedDate));
+        SectionTask<List<HomePageGameDto>> gamesTask =
+                submitSection(sectionExecutor, "games", () -> safeGetGames(selectedDate));
+        SectionTask<List<HomePageScheduledGameDto>> scheduledGamesTask =
+                submitSection(sectionExecutor, "scheduledGamesWindow", () -> safeGetScheduledGamesWindow(selectedDate));
 
-            SectionResult<HomeScheduleNavigationDto> navigationResult =
-                    awaitSection(date, navigationTask, buildFallbackNavigation());
-            SectionResult<List<HomePageGameDto>> gamesResult =
-                    awaitSection(date, gamesTask, List.of());
-            SectionResult<List<HomePageScheduledGameDto>> scheduledGamesResult =
-                    awaitSection(date, scheduledGamesTask, List.of());
-            SectionResult<LeagueStartDatesDto> leagueStartDatesResult =
-                    awaitSection(date, leagueStartDatesTask, buildFallbackLeagueStartDates(date));
+        SectionResult<HomeScheduleNavigationDto> navigationResult =
+                awaitSection(selectedDate, navigationTask, buildFallbackNavigation());
+        SectionResult<List<HomePageGameDto>> gamesResult =
+                awaitSection(selectedDate, gamesTask, List.of());
+        SectionResult<List<HomePageScheduledGameDto>> scheduledGamesResult =
+                awaitSection(selectedDate, scheduledGamesTask, List.of());
+        SectionResult<LeagueStartDatesDto> leagueStartDatesResult =
+                awaitSection(selectedDate, leagueStartDatesTask, buildFallbackLeagueStartDates(selectedDate));
 
-            HomeBootstrapResponseDto response = HomeBootstrapResponseDto.builder()
-                    .selectedDate(date.toString())
-                    .leagueStartDates(leagueStartDatesResult.value())
-                    .navigation(navigationResult.value())
-                    .games(gamesResult.value())
-                    .scheduledGamesWindow(scheduledGamesResult.value())
-                    .build();
+        HomeBootstrapResponseDto response = HomeBootstrapResponseDto.builder()
+                .selectedDate(selectedDate.toString())
+                .leagueStartDates(leagueStartDatesResult.value())
+                .navigation(navigationResult.value())
+                .games(gamesResult.value())
+                .scheduledGamesWindow(scheduledGamesResult.value())
+                .build();
 
-            int timedOutSections = 0;
-            timedOutSections += leagueStartDatesResult.timedOut() ? 1 : 0;
-            timedOutSections += navigationResult.timedOut() ? 1 : 0;
-            timedOutSections += gamesResult.timedOut() ? 1 : 0;
-            timedOutSections += scheduledGamesResult.timedOut() ? 1 : 0;
+        int timedOutSections = 0;
+        timedOutSections += leagueStartDatesResult.timedOut() ? 1 : 0;
+        timedOutSections += navigationResult.timedOut() ? 1 : 0;
+        timedOutSections += gamesResult.timedOut() ? 1 : 0;
+        timedOutSections += scheduledGamesResult.timedOut() ? 1 : 0;
 
-            log.info(
-                    "event=home_bootstrap_completed date={} totalElapsedMs={} sectionTimeoutMs={} timedOutSections={}",
-                    date,
-                    elapsedMillis(bootstrapStartedAt),
-                    sectionTimeout.toMillis(),
-                    timedOutSections);
+        log.info(
+                "event=home_bootstrap_completed date={} totalElapsedMs={} sectionTimeoutMs={} timedOutSections={}",
+                selectedDate,
+                elapsedMillis(bootstrapStartedAt),
+                sectionTimeout.toMillis(),
+                timedOutSections);
 
-            return response;
-        }
+        return response;
+    }
+
+    @PreDestroy
+    void shutdownSectionExecutor() {
+        sectionExecutor.shutdownNow();
     }
 
     @Cacheable(value = HOME_WIDGETS, key = "#date.toString() + ':' + (#seasonYear == null ? 'auto' : #seasonYear.toString())")
@@ -155,7 +220,7 @@ public class HomePageFacadeService {
         long elapsedBeforeWaitMs = elapsedMillis(task.startedAtNanos());
         long remainingTimeoutMs = sectionTimeout.toMillis() - elapsedBeforeWaitMs;
         if (remainingTimeoutMs <= 0) {
-            task.future().cancel(true);
+            task.future().cancel(false);
             log.warn(
                     "event=home_bootstrap_section_timed_out date={} section={} elapsedMs={} timeoutMs={}",
                     date,
@@ -176,7 +241,7 @@ public class HomePageFacadeService {
                     sectionTimeout.toMillis());
             return new SectionResult<>(value, false, elapsedMs);
         } catch (TimeoutException ex) {
-            task.future().cancel(true);
+            task.future().cancel(false);
             long elapsedMs = elapsedMillis(task.startedAtNanos());
             log.warn(
                     "event=home_bootstrap_section_timed_out date={} section={} elapsedMs={} timeoutMs={}",
@@ -254,6 +319,8 @@ public class HomePageFacadeService {
     private LeagueStartDatesDto safeGetLeagueStartDates(LocalDate date) {
         try {
             return homePageGameService.getLeagueStartDates();
+        } catch (ManualBaseballDataRequiredException e) {
+            throw e;
         } catch (Exception e) {
             log.warn("Failed to load league start dates: {}", e.getMessage());
             return buildFallbackLeagueStartDates(date);
@@ -273,7 +340,9 @@ public class HomePageFacadeService {
 
     private List<HomePageScheduledGameDto> safeGetScheduledGamesWindow(LocalDate date) {
         try {
-            return homePageGameService.getScheduledGamesWindow(date, date.plusDays(7));
+            LocalDate today = LocalDate.now(clock);
+            LocalDate windowStartDate = date.isBefore(today) ? today : date;
+            return homePageGameService.getScheduledGamesWindow(windowStartDate, windowStartDate.plusDays(7));
         } catch (ManualBaseballDataRequiredException e) {
             throw e;
         } catch (Exception e) {

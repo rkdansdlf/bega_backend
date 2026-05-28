@@ -280,8 +280,23 @@ public class AiProxyService {
     }
 
     private AiProxyException mapRequestFailure(String uri, WebClientRequestException e) {
-        log.error("AI upstream connection failed. uri={} message={}", uri, e.getMessage(), e);
+        Throwable rootCause = rootCause(e);
+        log.error(
+                "AI upstream connection failed. uri={} target={} causeClass={} causeMessage={}",
+                uri,
+                aiServiceSettings.sanitizedServiceTarget(),
+                rootCause.getClass().getName(),
+                rootCause.getMessage(),
+                e);
         return new AiProxyException(HttpStatus.BAD_GATEWAY, "AI_UPSTREAM_CONNECTION_FAILED", "AI 서비스 연결에 실패했습니다.");
+    }
+
+    private Throwable rootCause(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current == null ? throwable : current;
     }
 
     private RuntimeException mapBlockingFailure(String uri, IllegalStateException e) {
