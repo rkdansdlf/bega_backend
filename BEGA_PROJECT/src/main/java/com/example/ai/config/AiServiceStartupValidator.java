@@ -15,6 +15,11 @@ public class AiServiceStartupValidator implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        log.info(
+                "AI startup target configured. profiles={} target={}",
+                aiServiceSettings.activeProfilesLabel(),
+                aiServiceSettings.sanitizedServiceTarget());
+
         aiServiceSettings.validateForStartup();
 
         if (aiServiceSettings.isProdProfile()) {
