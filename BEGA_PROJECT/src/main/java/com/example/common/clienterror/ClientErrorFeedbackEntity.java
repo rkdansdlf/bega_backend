@@ -37,7 +37,7 @@ public class ClientErrorFeedbackEntity {
     private String eventId;
 
     @JdbcTypeCode(SqlTypes.LONG32VARCHAR)
-    @Column(nullable = false)
+    @Column(name = "feedback_comment", nullable = false)
     private String comment;
 
     @Column(name = "action_taken", nullable = false, length = 64)
