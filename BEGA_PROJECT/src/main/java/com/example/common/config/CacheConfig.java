@@ -141,7 +141,7 @@ public class CacheConfig {
                 cacheConfigs.put(STADIUM_PLACES, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofHours(1))));
                 cacheConfigs.put(GAME_DETAIL, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(30))));
                 cacheConfigs.put(RECENT_COMPLETED_GAMES, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(15))));
-                cacheConfigs.put(LEAGUE_DATES, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofHours(1))));
+                cacheConfigs.put(LEAGUE_DATES, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofHours(12))));
                 cacheConfigs.put(TEAM_DATA, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(30))));
                 cacheConfigs.put(HOME_BOOTSTRAP,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(60))));

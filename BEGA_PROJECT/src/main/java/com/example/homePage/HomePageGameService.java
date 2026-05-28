@@ -322,31 +322,28 @@ public class HomePageGameService {
     }
 
     // 리그 시작 날짜 조회
-    @Cacheable(value = LEAGUE_DATES, key = "T(java.time.LocalDate).now().getYear()")
+    @Cacheable(value = LEAGUE_DATES, key = "T(java.time.LocalDate).now().getYear()", sync = true)
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public LeagueStartDatesDto getLeagueStartDates() {
         LocalDate now = LocalDate.now();
         int seasonYear = now.getYear();
 
-        // DB에서 각 리그의 첫 경기 날짜 조회
+        // kbo_seasons의 운영자 제공 시작일을 먼저 사용하고, 없을 때만 game 집계 쿼리로 보정한다.
         LocalDate regularStart = gameRepository
-                .findFirstRegularSeasonDate(seasonYear)
-                .or(() -> gameRepository.findConfiguredStartDateByTypeFromSeasonYear(0, seasonYear))
-                .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(0, seasonYear))
+                .findConfiguredStartDateByTypeFromSeasonYear(0, seasonYear)
+                .or(() -> gameRepository.findFirstRegularSeasonDate(seasonYear))
                 .or(() -> gameRepository.findLatestStartDateByTypeAsOf(0, now))
                 .orElse(now);
 
         LocalDate postseasonStart = gameRepository
-                .findFirstPostseasonDate(seasonYear)
-                .or(() -> gameRepository.findConfiguredStartDateByTypeFromSeasonYear(2, seasonYear))
-                .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(2, seasonYear))
+                .findConfiguredStartDateByTypeFromSeasonYear(2, seasonYear)
+                .or(() -> gameRepository.findFirstPostseasonDate(seasonYear))
                 .or(() -> gameRepository.findLatestStartDateByTypeAsOf(2, now))
                 .orElse(null);
 
         LocalDate koreanSeriesStart = gameRepository
-                .findFirstKoreanSeriesDate(seasonYear)
-                .or(() -> gameRepository.findConfiguredStartDateByTypeFromSeasonYear(5, seasonYear))
-                .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(5, seasonYear))
+                .findConfiguredStartDateByTypeFromSeasonYear(5, seasonYear)
+                .or(() -> gameRepository.findFirstKoreanSeriesDate(seasonYear))
                 .or(() -> gameRepository.findLatestStartDateByTypeAsOf(5, now))
                 .orElse(null);
 
