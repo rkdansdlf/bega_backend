@@ -151,8 +151,9 @@ public class RankingPredictionService {
 
 		Map<String, Integer> currentRankMap = extractRankMap(gameRepository.findTeamRankingsBySeason(seasonYear));
 		Map<String, Integer> lastRankMap = extractRankMap(gameRepository.findTeamRankingsBySeason(seasonYear - 1));
+		// findAll() 대신 CANONICAL_TEAM_CODES에 해당하는 10개 팀만 조회 (불필요한 행 로드 방지)
 		Map<String, String> teamNameMap = new HashMap<>();
-		homePageTeamRepository.findAll().forEach(t -> teamNameMap.put(t.getTeamId(), t.getTeamName()));
+		homePageTeamRepository.findAllById(CANONICAL_TEAM_CODES).forEach(t -> teamNameMap.put(t.getTeamId(), t.getTeamName()));
 
 		RankingPredictionContextSnapshot snapshot = new RankingPredictionContextSnapshot(
 				currentRankMap,
@@ -175,6 +176,17 @@ public class RankingPredictionService {
 	public int getCurrentSeason() {
 		ensurePredictionPeriodOpen();
 		return SeasonUtils.getCurrentPredictionSeason();
+	}
+
+	@Transactional(readOnly = true, transactionManager = "transactionManager")
+	public RankingPredictionInitDto getInitData(String userIdString) {
+		ensurePredictionPeriodOpen();
+		int seasonYear = SeasonUtils.getCurrentPredictionSeason();
+		RankingPredictionResponseDto saved = rankingPredictionRepository
+				.findByUserIdAndSeasonYear(userIdString, seasonYear)
+				.map(this::convertToResponseDto)
+				.orElse(null);
+		return new RankingPredictionInitDto(seasonYear, saved);
 	}
 
 	private UserEntity findUserByShareId(String shareId) {

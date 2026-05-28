@@ -82,7 +82,7 @@ class RankingPredictionServiceTest {
         when(userRepository.findById(7L)).thenReturn(Optional.of(user));
         when(gameRepository.findTeamRankingsBySeason(2026)).thenReturn(List.of());
         when(gameRepository.findTeamRankingsBySeason(2025)).thenReturn(List.of());
-        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(homePageTeamRepository.findAllById(any())).thenReturn(List.of());
 
         RankingPredictionResponseDto response = rankingPredictionService.getPrediction("7", 2026);
 
@@ -109,7 +109,7 @@ class RankingPredictionServiceTest {
                 .thenReturn(Optional.of(prediction));
         when(gameRepository.findTeamRankingsBySeason(2026)).thenReturn(List.of());
         when(gameRepository.findTeamRankingsBySeason(2025)).thenReturn(List.of());
-        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(homePageTeamRepository.findAllById(any())).thenReturn(List.of());
 
         RankingPredictionResponseDto response = rankingPredictionService.getPredictionByShareIdAndSeason(
                 uniqueId.toString(),
@@ -145,7 +145,7 @@ class RankingPredictionServiceTest {
         when(userRepository.findById(7L)).thenReturn(Optional.of(user));
         when(gameRepository.findTeamRankingsBySeason(2026)).thenReturn(List.<Object[]>of(new Object[] { 1, "LG" }));
         when(gameRepository.findTeamRankingsBySeason(2025)).thenReturn(List.<Object[]>of(new Object[] { 3, "LG" }));
-        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(homePageTeamRepository.findAllById(any())).thenReturn(List.of());
 
         RankingPredictionResponseDto first = rankingPredictionService.getPrediction("7", 2026);
         RankingPredictionResponseDto second = rankingPredictionService.getPrediction("7", 2026);
@@ -154,7 +154,7 @@ class RankingPredictionServiceTest {
         assertThat(second.getShareId()).isEqualTo(uniqueId.toString());
         org.mockito.Mockito.verify(gameRepository, org.mockito.Mockito.times(1)).findTeamRankingsBySeason(2026);
         org.mockito.Mockito.verify(gameRepository, org.mockito.Mockito.times(1)).findTeamRankingsBySeason(2025);
-        org.mockito.Mockito.verify(homePageTeamRepository, org.mockito.Mockito.times(1)).findAll();
+        org.mockito.Mockito.verify(homePageTeamRepository, org.mockito.Mockito.times(1)).findAllById(any());
         org.mockito.Mockito.verify(userRepository, org.mockito.Mockito.times(1)).findById(7L);
     }
 
@@ -182,7 +182,7 @@ class RankingPredictionServiceTest {
         when(userRepository.findById(7L)).thenReturn(Optional.of(user));
         when(gameRepository.findTeamRankingsBySeason(2026)).thenReturn(List.of());
         when(gameRepository.findTeamRankingsBySeason(2025)).thenReturn(List.of());
-        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(homePageTeamRepository.findAllById(any())).thenReturn(List.of());
 
         RankingPredictionService localService = new RankingPredictionService(
                 rankingPredictionRepository,
@@ -224,7 +224,7 @@ class RankingPredictionServiceTest {
         when(userRepository.findById(7L)).thenReturn(Optional.of(user));
         when(gameRepository.findTeamRankingsBySeason(2026)).thenReturn(List.of());
         when(gameRepository.findTeamRankingsBySeason(2025)).thenReturn(List.of());
-        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(homePageTeamRepository.findAllById(any())).thenReturn(List.of());
 
         RankingPredictionService localService = new RankingPredictionService(
                 rankingPredictionRepository,

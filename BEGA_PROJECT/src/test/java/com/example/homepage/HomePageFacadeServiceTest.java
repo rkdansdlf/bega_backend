@@ -2,8 +2,11 @@ package com.example.homepage;
 
 import com.example.cheerboard.service.CheerService;
 import com.example.mate.service.PartyService;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -22,6 +25,9 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class HomePageFacadeServiceTest {
 
+    private static final Clock FIXED_CLOCK =
+            Clock.fixed(Instant.parse("2026-03-01T00:00:00Z"), ZoneId.of("Asia/Seoul"));
+
     @Mock
     private HomePageGameService homePageGameService;
 
@@ -35,7 +41,12 @@ class HomePageFacadeServiceTest {
 
     @BeforeEach
     void setUp() {
-        homePageFacadeService = new HomePageFacadeService(homePageGameService, cheerService, partyService);
+        homePageFacadeService = new HomePageFacadeService(
+                homePageGameService,
+                cheerService,
+                partyService,
+                Duration.ofSeconds(6),
+                FIXED_CLOCK);
     }
 
     @Test
@@ -206,7 +217,7 @@ class HomePageFacadeServiceTest {
     @DisplayName("bootstrap은 특정 섹션이 timeout되어도 기본값으로 응답한다")
     void getBootstrapFallsBackWhenSectionTimesOut() throws Exception {
         HomePageFacadeService timeoutAwareService =
-                new HomePageFacadeService(homePageGameService, cheerService, partyService, Duration.ofMillis(20));
+                new HomePageFacadeService(homePageGameService, cheerService, partyService, Duration.ofMillis(20), FIXED_CLOCK);
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
 
         when(homePageGameService.getLeagueStartDates()).thenAnswer(invocation -> {
@@ -237,5 +248,48 @@ class HomePageFacadeServiceTest {
         assertThat(response.getGames()).isEmpty();
         assertThat(response.getScheduledGamesWindow()).isEmpty();
         assertThat(elapsedMs).isLessThan(250L);
+    }
+
+    @Test
+    @DisplayName("bootstrap은 과거 날짜 조회 시 예정 경기 윈도를 오늘부터 조회한다")
+    void getBootstrapUsesTodayForScheduledWindowWhenSelectedDateIsPast() {
+        Clock fixedMayClock = Clock.fixed(Instant.parse("2026-05-15T00:00:00Z"), ZoneId.of("Asia/Seoul"));
+        HomePageFacadeService mayService = new HomePageFacadeService(
+                homePageGameService,
+                cheerService,
+                partyService,
+                Duration.ofSeconds(6),
+                fixedMayClock);
+        LocalDate selectedDate = LocalDate.of(2026, 5, 13);
+        LocalDate today = LocalDate.of(2026, 5, 15);
+        LeagueStartDatesDto leagueStartDates = LeagueStartDatesDto.builder()
+                .regularSeasonStart("2026-03-21")
+                .postseasonStart("2026-10-06")
+                .koreanSeriesStart("2026-10-26")
+                .build();
+
+        when(homePageGameService.getLeagueStartDates()).thenReturn(leagueStartDates);
+        when(homePageGameService.getScheduleNavigation(selectedDate)).thenReturn(ScheduleNavigationDto.builder()
+                .prevGameDate(LocalDate.of(2026, 5, 12))
+                .nextGameDate(LocalDate.of(2026, 5, 14))
+                .hasPrev(true)
+                .hasNext(true)
+                .build());
+        when(homePageGameService.getGamesByDate(selectedDate)).thenReturn(List.of(HomePageGameDto.builder()
+                .gameId("20260513LGSK0")
+                .gameDate("2026-05-13")
+                .leagueType("REGULAR")
+                .gameStatus("COMPLETED")
+                .homeScore(4)
+                .awayScore(2)
+                .build()));
+        when(homePageGameService.getScheduledGamesWindow(eq(today), eq(today.plusDays(7))))
+                .thenReturn(List.of());
+
+        HomeBootstrapResponseDto response = mayService.getBootstrap(selectedDate);
+
+        assertThat(response.getSelectedDate()).isEqualTo("2026-05-13");
+        assertThat(response.getGames()).hasSize(1);
+        verify(homePageGameService).getScheduledGamesWindow(today, today.plusDays(7));
     }
 }

@@ -14,7 +14,9 @@ RUN sed -i 's/\r$//' gradlew
 RUN chmod +x gradlew
 
 # 소스 코드를 복사하기 전에 의존성을 먼저 다운로드하여 Docker 캐시 효율을 높입니다.
+# --configuration annotationProcessor: Spring Boot configuration processor 등 어노테이션 프로세서 포함
 # build.gradle이 변경되지 않으면 이 단계는 캐시된 레이어를 사용합니다.
+RUN ./gradlew dependencies --configuration annotationProcessor || true
 RUN ./gradlew dependencies
 
 COPY src src

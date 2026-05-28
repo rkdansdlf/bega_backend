@@ -1,6 +1,7 @@
 package com.example.ai.config;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -27,13 +28,22 @@ public class AiServiceSettings {
     private final String rawServiceUrl;
     private final String rawInternalToken;
     private final Path workspaceRoot;
+    private final boolean allowLoopbackServiceUrlInProd;
 
     @Autowired
     public AiServiceSettings(
             Environment environment,
             @org.springframework.beans.factory.annotation.Value("${ai.service-url:}") String rawServiceUrl,
-            @org.springframework.beans.factory.annotation.Value("${ai.internal-token:}") String rawInternalToken) {
-        this(environment, rawServiceUrl, rawInternalToken, detectWorkspaceRoot());
+            @org.springframework.beans.factory.annotation.Value("${ai.internal-token:}") String rawInternalToken,
+            @org.springframework.beans.factory.annotation.Value("${app.ai.proxy.allow-loopback-service-url-in-prod:false}") boolean allowLoopbackServiceUrlInProd) {
+        this(environment, rawServiceUrl, rawInternalToken, detectWorkspaceRoot(), allowLoopbackServiceUrlInProd);
+    }
+
+    public AiServiceSettings(
+            Environment environment,
+            String rawServiceUrl,
+            String rawInternalToken) {
+        this(environment, rawServiceUrl, rawInternalToken, detectWorkspaceRoot(), false);
     }
 
     AiServiceSettings(
@@ -41,10 +51,20 @@ public class AiServiceSettings {
             String rawServiceUrl,
             String rawInternalToken,
             Path workspaceRoot) {
+        this(environment, rawServiceUrl, rawInternalToken, workspaceRoot, false);
+    }
+
+    AiServiceSettings(
+            Environment environment,
+            String rawServiceUrl,
+            String rawInternalToken,
+            Path workspaceRoot,
+            boolean allowLoopbackServiceUrlInProd) {
         this.environment = environment;
         this.rawServiceUrl = rawServiceUrl;
         this.rawInternalToken = rawInternalToken;
         this.workspaceRoot = workspaceRoot;
+        this.allowLoopbackServiceUrlInProd = allowLoopbackServiceUrlInProd;
     }
 
     public String getResolvedServiceUrl() {
@@ -102,6 +122,27 @@ public class AiServiceSettings {
         return normalizedBase + normalizedPath;
     }
 
+    public String sanitizedServiceTarget() {
+        String baseUrl = getResolvedServiceUrl();
+        if (!StringUtils.hasText(baseUrl)) {
+            return "not-configured";
+        }
+
+        try {
+            URI uri = URI.create(baseUrl.trim());
+            String host = uri.getHost();
+            if (!StringUtils.hasText(host)) {
+                return "invalid-url";
+            }
+
+            String scheme = StringUtils.hasText(uri.getScheme()) ? uri.getScheme() : "unknown";
+            int port = uri.getPort();
+            return port > 0 ? scheme + "://" + host + ":" + port : scheme + "://" + host;
+        } catch (IllegalArgumentException e) {
+            return "invalid-url";
+        }
+    }
+
     public boolean isProdProfile() {
         return Arrays.stream(environment.getActiveProfiles())
                 .anyMatch(profile -> "prod".equalsIgnoreCase(profile));
@@ -141,6 +182,30 @@ public class AiServiceSettings {
         if (!StringUtils.hasText(getResolvedInternalToken())) {
             throw new IllegalStateException(
                     "prod profile requires ai.internal-token (set AI_INTERNAL_TOKEN)");
+        }
+
+        if (!allowLoopbackServiceUrlInProd && isLoopbackServiceUrl(getResolvedServiceUrl())) {
+            throw new IllegalStateException(
+                    "prod profile rejects loopback ai.service-url; set AI_SERVICE_URL to the AI service host or explicitly set app.ai.proxy.allow-loopback-service-url-in-prod=true");
+        }
+    }
+
+    private boolean isLoopbackServiceUrl(String serviceUrl) {
+        try {
+            URI uri = URI.create(serviceUrl.trim());
+            String host = uri.getHost();
+            if (!StringUtils.hasText(host)) {
+                return false;
+            }
+
+            String normalizedHost = host.trim().toLowerCase();
+            return "localhost".equals(normalizedHost)
+                    || "127.0.0.1".equals(normalizedHost)
+                    || "::1".equals(normalizedHost)
+                    || "[::1]".equals(normalizedHost)
+                    || "0:0:0:0:0:0:0:1".equals(normalizedHost);
+        } catch (IllegalArgumentException e) {
+            return false;
         }
     }
 

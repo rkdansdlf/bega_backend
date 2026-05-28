@@ -100,8 +100,8 @@ public class HomePageController {
         LocalDate today = LocalDate.now();
         return LeagueStartDatesDto.builder()
                 .regularSeasonStart(today.toString())
-                .postseasonStart(today.toString())
-                .koreanSeriesStart(today.toString())
+                .postseasonStart(null)
+                .koreanSeriesStart(null)
                 .build();
     }
 

@@ -68,6 +68,13 @@ public class RankingPredictionController {
 		return ResponseEntity.ok(prediction);
 	}
 
+	@PreAuthorize("isAuthenticated()")
+	@GetMapping("/init")
+	public ResponseEntity<RankingPredictionInitDto> getInit(Principal principal) {
+		Principal authenticatedPrincipal = requirePrincipal(principal);
+		return ResponseEntity.ok(rankingPredictionService.getInitData(authenticatedPrincipal.getName()));
+	}
+
 	// 공유용 예측 조회 (로그인 불필요)
 	@PreAuthorize("permitAll()")
 	@GetMapping("/share/{shareId}/{seasonYear}")

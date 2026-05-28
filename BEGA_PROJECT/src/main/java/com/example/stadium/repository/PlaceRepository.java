@@ -10,17 +10,19 @@ import java.util.List;
 @Repository
 public interface PlaceRepository extends JpaRepository<Place, Long> {
 
-    
-    List<Place> findByStadium_StadiumId(String stadiumId);
-  
-    List<Place> findByStadium_StadiumIdAndCategory(String stadiumId, String category);
+    @Query("SELECT p FROM Place p LEFT JOIN FETCH p.stadium s WHERE s.stadiumId = :stadiumId")
+    List<Place> findByStadium_StadiumId(@Param("stadiumId") String stadiumId);
 
-    @Query(value = "SELECT * FROM public.places WHERE stadium_id = :stadiumId " +
-                   "ORDER BY category, rating DESC NULLS LAST", nativeQuery = true)
+    @Query("SELECT p FROM Place p LEFT JOIN FETCH p.stadium s WHERE s.stadiumId = :stadiumId AND p.category = :category")
+    List<Place> findByStadium_StadiumIdAndCategory(@Param("stadiumId") String stadiumId, @Param("category") String category);
+
+    @Query("SELECT p FROM Place p LEFT JOIN FETCH p.stadium s WHERE s.stadiumId = :stadiumId ORDER BY p.category ASC NULLS LAST, p.rating DESC NULLS LAST")
     List<Place> findByStadiumIdWithSort(@Param("stadiumId") String stadiumId);
 
-    @Query("SELECT p FROM Place p JOIN p.stadium s " +
-           "WHERE s.stadiumName = :stadiumName AND p.category = :category")
-    List<Place> findByStadiumNameAndCategory(@Param("stadiumName") String stadiumName, 
+    @Query("SELECT p FROM Place p JOIN FETCH p.stadium s WHERE s.stadiumName = :stadiumName AND p.category = :category")
+    List<Place> findByStadiumNameAndCategory(@Param("stadiumName") String stadiumName,
                                              @Param("category") String category);
+
+    @Query("SELECT p FROM Place p LEFT JOIN FETCH p.stadium")
+    List<Place> findAllWithStadium();
 }
