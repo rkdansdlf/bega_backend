@@ -207,6 +207,8 @@ app:
       # 기본값은 false. dev/local에서만 필요 시 APP_AI_PROXY_PUBLIC_IN_DEV=true로 명시적으로 엽니다.
       public-in-dev: ${APP_AI_PROXY_PUBLIC_IN_DEV:false}
       request-timeout-seconds: ${APP_AI_PROXY_REQUEST_TIMEOUT_SECONDS:180}
+      health-timeout-ms: ${APP_AI_PROXY_HEALTH_TIMEOUT_MS:1000}
+      allow-loopback-service-url-in-prod: ${APP_AI_PROXY_ALLOW_LOOPBACK_SERVICE_URL_IN_PROD:false}
   observability:
     # 기본값은 false. local compose observability 확인이 필요할 때만 명시적으로 엽니다.
     public-prometheus-endpoint: ${APP_OBSERVABILITY_PUBLIC_PROMETHEUS_ENDPOINT:false}
@@ -485,6 +487,10 @@ management:
   health:
     jobrunr:
       enabled: false
+
+ai:
+  service-url: ${AI_SERVICE_URL:}
+  internal-token: ${AI_INTERNAL_TOKEN:}
 
 ---
 # 'local' 프로필: 로컬 테스트 환경 (H2 In-Memory)

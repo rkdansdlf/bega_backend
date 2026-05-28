@@ -308,6 +308,16 @@
       "description": "Request timeout for proxied AI calls in seconds."
     },
     {
+      "name": "app.ai.proxy.health-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Timeout for the backend AI upstream health check in milliseconds."
+    },
+    {
+      "name": "app.ai.proxy.allow-loopback-service-url-in-prod",
+      "type": "java.lang.Boolean",
+      "description": "Whether prod profile may use a loopback AI service URL."
+    },
+    {
       "name": "app.trusted-proxies",
       "type": "java.lang.String",
       "description": "Comma-separated trusted proxy IPs or CIDRs."

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
@@ -90,7 +91,7 @@ class HomePageControllerTest {
     }
 
     @Test
-    @DisplayName("리그 시작일 조회 실패 시 오늘 날짜 fallback을 반환한다")
+    @DisplayName("리그 시작일 조회 실패 시 정규시즌 fallback만 반환한다")
     void getLeagueStartDatesReturnsTodayFallback() throws Exception {
         String today = LocalDate.now().toString();
         given(homePageGameService.getLeagueStartDates())
@@ -99,8 +100,8 @@ class HomePageControllerTest {
         mockMvc.perform(get("/api/kbo/league-start-dates"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.regularSeasonStart").value(today))
-                .andExpect(jsonPath("$.postseasonStart").value(today))
-                .andExpect(jsonPath("$.koreanSeriesStart").value(today));
+                .andExpect(jsonPath("$.postseasonStart").value(nullValue()))
+                .andExpect(jsonPath("$.koreanSeriesStart").value(nullValue()));
     }
 
     @Test
