@@ -21,7 +21,10 @@ RUN ./gradlew dependencies
 
 COPY src src
 
-RUN ./gradlew clean build -x test
+# 1GB RAM 서버에서 Gradle 데몬이 스왑을 과도하게 사용하지 않도록 힙을 제한합니다.
+# -Xmx400m: 컴파일에 충분한 상한 / --no-daemon: 데몬 오버헤드 제거
+ENV GRADLE_OPTS="-Xmx400m -Xms64m -XX:+UseSerialGC -Dfile.encoding=UTF-8"
+RUN ./gradlew clean build -x test --no-daemon
 
 # Copy only a single bootable jar produced by Spring Boot and ensure deterministic output.
 RUN jar_file="$(ls /build/build/libs | grep -v 'plain\.jar' | grep '\.jar$' | head -n 1)" && \

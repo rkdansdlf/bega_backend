@@ -42,6 +42,30 @@ class ClientErrorMigrationSqlTest {
                 .contains("delivery_status VARCHAR2(20 CHAR) NOT NULL");
     }
 
+    @Test
+    @DisplayName("PostgreSQL client error feedback rename migration maps comment -> feedback_comment safely")
+    void postgresClientErrorFeedbackRenameMigrationIsSafe() throws IOException {
+        String sql = loadSql("db/migration_postgresql/V146__rename_client_error_feedback_comment_column.sql").toLowerCase();
+
+        assertThat(sql)
+                .contains("rename column comment to feedback_comment")
+                .contains("and column_name = 'comment'")
+                .contains("and column_name = 'feedback_comment'")
+                .contains("to_regclass('public.client_error_feedback') is not null");
+    }
+
+    @Test
+    @DisplayName("Oracle client error feedback rename migration maps COMMENT -> feedback_comment safely")
+    void oracleClientErrorFeedbackRenameMigrationIsSafe() throws IOException {
+        String sql = loadSql("db/migration/V142__rename_client_error_feedback_comment_column.sql").toLowerCase();
+
+        assertThat(sql)
+                .contains("rename column \"comment\" to feedback_comment")
+                .contains("upper(column_name) = 'comment'")
+                .contains("upper(column_name) = 'feedback_comment'")
+                .contains("v_has_comment > 0 and v_has_feedback_comment = 0");
+    }
+
     private String loadSql(String resourcePath) throws IOException {
         ClassPathResource resource = new ClassPathResource(resourcePath);
         try (var inputStream = resource.getInputStream()) {
