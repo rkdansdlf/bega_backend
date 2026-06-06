@@ -132,6 +132,7 @@ public class PrimaryOracleJpaConfig {
 				jpaProperties.put("hibernate.type.preferred_json_jdbc_type", Types.CLOB);
 				jpaProperties.put("hibernate.type.preferred_uuid_jdbc_type", Types.VARCHAR);
 			}
+			// Metadata access is disabled, so keep an explicit dialect for stable test/CI boot.
 			String hibernateDialect = resolveHibernateDialect(primaryProperties.getUrl());
 			if (!isBlank(hibernateDialect)) {
 				jpaProperties.put("hibernate.dialect", hibernateDialect);
