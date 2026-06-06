@@ -30,7 +30,7 @@ class HomeBootstrapWarmupServiceTest {
 
         service.warmupTodayBootstrap();
 
-        verify(homePageFacadeService).getBootstrap(LocalDate.of(2026, 5, 15));
+        verify(homePageFacadeService).refreshBootstrap(LocalDate.of(2026, 5, 15));
     }
 
     @Test

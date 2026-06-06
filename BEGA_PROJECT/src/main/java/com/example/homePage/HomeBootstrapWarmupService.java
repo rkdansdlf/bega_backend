@@ -42,7 +42,7 @@ public class HomeBootstrapWarmupService {
 
         LocalDate today = LocalDate.now(clock);
         try {
-            homePageFacadeService.getBootstrap(today);
+            homePageFacadeService.refreshBootstrap(today);
             log.info("event=home_bootstrap_warmup_completed date={}", today);
         } catch (ManualBaseballDataRequiredException ex) {
             Object data = ex.getData();
