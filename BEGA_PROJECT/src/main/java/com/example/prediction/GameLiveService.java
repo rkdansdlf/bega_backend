@@ -78,9 +78,7 @@ public class GameLiveService {
             return List.of();
         }
 
-        List<GameEntity> games = gameIds.stream()
-                .map(gameId -> baseballDataIntegrityGuard.requireValidGame("prediction.live_summary", gameId))
-                .toList();
+        List<GameEntity> games = baseballDataIntegrityGuard.requireValidGames("prediction.live_summary", gameIds);
         Map<String, GameEventEntity> latestByGameId = new LinkedHashMap<>();
         gameEventRepository.findLatestByGameIds(gameIds).forEach(event -> {
             if (event == null || event.getGameId() == null) {
