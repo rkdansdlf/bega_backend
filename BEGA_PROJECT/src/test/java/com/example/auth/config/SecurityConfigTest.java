@@ -1,9 +1,11 @@
 package com.example.auth.config;
 
 import com.example.ai.config.AiServiceSettings;
+import com.example.ai.filter.AiProxyRequestLimitFilter;
 import com.example.common.config.AllowedOriginResolver;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -154,6 +156,19 @@ class SecurityConfigTest {
         setPrivateField(securityConfig, "publicAiProxyInDevEnabled", true);
 
         assertThat(securityConfig.allowUnauthenticatedAiProxy()).isFalse();
+    }
+
+    @Test
+    @DisplayName("AI request-limit servlet auto-registration is disabled")
+    void aiProxyRequestLimitFilterRegistration_disablesServletAutoRegistration() {
+        SecurityConfig securityConfig = newSecurityConfig("dev");
+        AiProxyRequestLimitFilter filter = mock(AiProxyRequestLimitFilter.class);
+
+        FilterRegistrationBean<AiProxyRequestLimitFilter> registration =
+                securityConfig.aiProxyRequestLimitFilterRegistration(filter);
+
+        assertThat(registration.isEnabled()).isFalse();
+        assertThat(registration.getFilter()).isSameAs(filter);
     }
 
     @Test

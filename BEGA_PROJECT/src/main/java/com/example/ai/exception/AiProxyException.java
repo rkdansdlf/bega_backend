@@ -8,4 +8,8 @@ public class AiProxyException extends BusinessException {
     public AiProxyException(HttpStatus status, String code, String message) {
         super(status, code, message);
     }
+
+    public AiProxyException(HttpStatus status, String code, String message, Object data) {
+        super(status, code, message, data);
+    }
 }

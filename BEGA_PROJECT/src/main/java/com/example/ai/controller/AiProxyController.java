@@ -1,5 +1,6 @@
 package com.example.ai.controller;
 
+import com.example.ai.config.AiProxyRequestLimits;
 import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
 import com.example.ai.service.AiProxyService.ProxyStreamResponse;
@@ -30,27 +31,32 @@ public class AiProxyController {
 
     private final AiProxyService aiProxyService;
     private final CoachAutoBriefMonitoringService coachAutoBriefMonitoringService;
+    private final AiProxyRequestLimits requestLimits;
 
     @PostMapping("/chat/completion")
     public ResponseEntity<byte[]> chatCompletion(@RequestBody String payload) {
+        requestLimits.validateChatJson(payload);
         ProxyByteResponse proxyResponse = aiProxyService.forwardJson("/ai/chat/completion", payload);
         return toByteResponse(proxyResponse);
     }
 
     @PostMapping("/chat/stream")
     public ResponseEntity<StreamingResponseBody> chatStream(@RequestBody String payload) {
+        requestLimits.validateChatJson(payload);
         ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/chat/stream", payload);
         return toStreamResponse(proxyResponse);
     }
 
     @PostMapping("/chat/voice")
     public ResponseEntity<byte[]> chatVoice(@RequestPart("file") MultipartFile file) {
+        requestLimits.validateVoiceUpload(file);
         ProxyByteResponse proxyResponse = aiProxyService.forwardMultipart("/ai/chat/voice", file);
         return toByteResponse(proxyResponse);
     }
 
     @PostMapping("/coach/analyze")
     public ResponseEntity<StreamingResponseBody> coachAnalyze(@RequestBody String payload) {
+        requestLimits.validateCoachJson(payload);
         String requestMode = coachAutoBriefMonitoringService.extractRequestMode(payload);
         long startNanos = System.nanoTime();
 
@@ -117,6 +123,7 @@ public class AiProxyController {
     @PostMapping("/release-decision/draft")
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<byte[]> releaseDecisionDraft(@RequestBody String payload) {
+        requestLimits.validateAdminJson(payload);
         ProxyByteResponse proxyResponse = aiProxyService.forwardJson("/ai/release-decision/draft", payload);
         return toByteResponse(proxyResponse);
     }
@@ -124,6 +131,7 @@ public class AiProxyController {
     @PostMapping("/release-decision/evaluate")
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<byte[]> releaseDecisionEvaluate(@RequestBody String payload) {
+        requestLimits.validateAdminJson(payload);
         ProxyByteResponse proxyResponse = aiProxyService.forwardJson("/ai/release-decision/evaluate", payload);
         return toByteResponse(proxyResponse);
     }
@@ -131,6 +139,7 @@ public class AiProxyController {
     @PostMapping("/release-decision/save")
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<byte[]> releaseDecisionSave(@RequestBody String payload) {
+        requestLimits.validateAdminJson(payload);
         ProxyByteResponse proxyResponse = aiProxyService.forwardJson("/ai/release-decision/save", payload);
         return toByteResponse(proxyResponse);
     }
