@@ -77,6 +77,16 @@ class ApplicationPropertyCompatibilityTest {
                 .contains("max-chat-persistence-json-bytes: ${APP_AI_PROXY_MAX_CHAT_PERSISTENCE_JSON_BYTES:131072}");
     }
 
+    @Test
+    void applicationYmlDefinesHomeBootstrapLatencyEnvKeys() throws IOException {
+        String applicationYml = readApplicationYml();
+
+        assertThat(applicationYml)
+                .contains("section-timeout-ms: ${APP_HOME_BOOTSTRAP_SECTION_TIMEOUT_MS:2500}")
+                .contains("enabled: ${APP_HOME_BOOTSTRAP_WARMUP_ENABLED:true}")
+                .contains("fixed-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_FIXED_DELAY_MS:50000}");
+    }
+
     private String readApplicationYml() throws IOException {
         return Files.readString(Path.of("src/main/resources/application.yml"), StandardCharsets.UTF_8);
     }

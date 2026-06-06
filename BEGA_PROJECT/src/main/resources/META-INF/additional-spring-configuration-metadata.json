@@ -41,6 +41,21 @@
       "description": "Backend self URL settings."
     },
     {
+      "name": "app.home",
+      "type": "java.lang.Object",
+      "description": "Home page bootstrap and latency settings."
+    },
+    {
+      "name": "app.home.bootstrap",
+      "type": "java.lang.Object",
+      "description": "Home bootstrap aggregation settings."
+    },
+    {
+      "name": "app.home.bootstrap.warmup",
+      "type": "java.lang.Object",
+      "description": "Scheduled home bootstrap cache warm-up settings."
+    },
+    {
       "name": "app.flyway",
       "type": "java.lang.Object",
       "description": "Application-level Flyway safety controls."
@@ -291,6 +306,21 @@
       "name": "app.backend.url",
       "type": "java.lang.String",
       "description": "Public backend URL."
+    },
+    {
+      "name": "app.home.bootstrap.section-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Maximum wait time per home bootstrap section before returning that section's fallback payload."
+    },
+    {
+      "name": "app.home.bootstrap.warmup.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the backend periodically warms the server-today home bootstrap cache."
+    },
+    {
+      "name": "app.home.bootstrap.warmup.fixed-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Fixed delay in milliseconds between home bootstrap warm-up attempts."
     },
     {
       "name": "app.flyway.auto-repair",

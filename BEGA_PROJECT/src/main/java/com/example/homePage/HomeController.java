@@ -1,37 +1,69 @@
 package com.example.homepage;
 
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.Timer;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @RestController
 @RequestMapping("/api/home")
-@RequiredArgsConstructor
 public class HomeController {
+
+    private static final List<String> HOME_BOOTSTRAP_CORE_SECTIONS = List.of(
+            "leagueStartDates",
+            "navigation",
+            "games",
+            "scheduledGamesWindow");
 
     private final HomePageFacadeService homePageFacadeService;
     private final HomePageGameService homePageGameService;
+    private final MeterRegistry meterRegistry;
+
+    public HomeController(HomePageFacadeService homePageFacadeService, HomePageGameService homePageGameService) {
+        this(homePageFacadeService, homePageGameService, Metrics.globalRegistry);
+    }
+
+    @Autowired
+    public HomeController(
+            HomePageFacadeService homePageFacadeService,
+            HomePageGameService homePageGameService,
+            MeterRegistry meterRegistry) {
+        this.homePageFacadeService = homePageFacadeService;
+        this.homePageGameService = homePageGameService;
+        this.meterRegistry = meterRegistry == null ? Metrics.globalRegistry : meterRegistry;
+    }
 
     @GetMapping("/bootstrap")
     public ResponseEntity<HomeBootstrapResponseDto> getBootstrap(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         LocalDate selectedDate = date == null ? LocalDate.now() : date;
+        long startedAtNanos = System.nanoTime();
+        String result = "success";
+        int statusCode = 200;
         try {
             return ResponseEntity.ok(homePageFacadeService.getBootstrap(selectedDate));
         } catch (ManualBaseballDataRequiredException e) {
+            result = "manual_data_required";
+            statusCode = 409;
             throw e;
         } catch (Exception e) {
+            result = "fallback";
             log.warn("Bootstrap failed for date={}, returning empty fallback: {}", selectedDate, e.getMessage());
             return ResponseEntity.ok(buildEmptyBootstrap(selectedDate));
+        } finally {
+            recordBootstrapRequestDuration(result, statusCode, System.nanoTime() - startedAtNanos);
         }
     }
 
@@ -111,6 +143,12 @@ public class HomeController {
                         .build())
                 .games(List.of())
                 .scheduledGamesWindow(List.of())
+                .loadState(HomeBootstrapLoadStateDto.builder()
+                        .isFallback(true)
+                        .timedOut(false)
+                        .timedOutSections(List.of())
+                        .failedSections(HOME_BOOTSTRAP_CORE_SECTIONS)
+                        .build())
                 .build();
     }
 
@@ -139,5 +177,34 @@ public class HomeController {
         int month = selectedDate.getMonthValue();
         int day = selectedDate.getDayOfMonth();
         return month >= 11 || month <= 2 || (month == 3 && day < 22);
+    }
+
+    private void recordBootstrapRequestDuration(String result, int statusCode, long durationNanos) {
+        if (durationNanos < 0) {
+            return;
+        }
+
+        Timer.builder("home_bootstrap_request_duration_seconds")
+                .description("Home bootstrap request duration")
+                .publishPercentileHistogram()
+                .tags(
+                        "result", normalizeMetricTag(result),
+                        "status_group", normalizeStatusGroup(statusCode))
+                .register(meterRegistry)
+                .record(durationNanos, TimeUnit.NANOSECONDS);
+    }
+
+    private String normalizeMetricTag(String value) {
+        if (value == null || value.isBlank()) {
+            return "unknown";
+        }
+        return value.trim().toLowerCase();
+    }
+
+    private String normalizeStatusGroup(int statusCode) {
+        if (statusCode < 100) {
+            return "unknown";
+        }
+        return (statusCode / 100) + "xx";
     }
 }

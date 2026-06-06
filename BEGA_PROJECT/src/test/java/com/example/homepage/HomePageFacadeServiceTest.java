@@ -50,6 +50,14 @@ class HomePageFacadeServiceTest {
     }
 
     @Test
+    @DisplayName("bootstrap cache key는 선택 날짜와 서버 기준 오늘을 함께 포함한다")
+    void buildBootstrapCacheKeyIncludesSelectedDateAndToday() {
+        String cacheKey = homePageFacadeService.buildBootstrapCacheKey(LocalDate.of(2026, 3, 15));
+
+        assertThat(cacheKey).isEqualTo("2026-03-15:today:2026-03-01");
+    }
+
+    @Test
     @DisplayName("bootstrap은 핵심 일정 데이터를 집계해 응답한다")
     void getBootstrapUsesPreviousSeasonRankingsDuringOffSeason() {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
@@ -73,6 +81,10 @@ class HomePageFacadeServiceTest {
         assertThat(response.getLeagueStartDates().getRegularSeasonStart()).isEqualTo("2026-03-22");
         assertThat(response.getGames()).isEmpty();
         assertThat(response.getScheduledGamesWindow()).isEmpty();
+        assertThat(response.getLoadState().getIsFallback()).isFalse();
+        assertThat(response.getLoadState().getTimedOut()).isFalse();
+        assertThat(response.getLoadState().getTimedOutSections()).isEmpty();
+        assertThat(response.getLoadState().getFailedSections()).isEmpty();
     }
 
     @Test
@@ -247,7 +259,40 @@ class HomePageFacadeServiceTest {
         assertThat(response.getNavigation().isHasNext()).isTrue();
         assertThat(response.getGames()).isEmpty();
         assertThat(response.getScheduledGamesWindow()).isEmpty();
+        assertThat(response.getLoadState().getIsFallback()).isTrue();
+        assertThat(response.getLoadState().getTimedOut()).isTrue();
+        assertThat(response.getLoadState().getTimedOutSections()).containsExactly("leagueStartDates");
+        assertThat(response.getLoadState().getFailedSections()).containsExactly("leagueStartDates");
         assertThat(elapsedMs).isLessThan(250L);
+    }
+
+    @Test
+    @DisplayName("bootstrap은 특정 섹션이 실패하면 섹션 fallback metadata를 함께 반환한다")
+    void getBootstrapMarksFailedSectionsWhenSectionThrows() {
+        LocalDate selectedDate = LocalDate.of(2026, 3, 15);
+
+        when(homePageGameService.getLeagueStartDates()).thenReturn(LeagueStartDatesDto.builder()
+                .regularSeasonStart("2026-03-22")
+                .postseasonStart("2026-10-06")
+                .koreanSeriesStart("2026-10-26")
+                .build());
+        when(homePageGameService.getScheduleNavigation(selectedDate)).thenReturn(ScheduleNavigationDto.builder()
+                .prevGameDate(LocalDate.of(2026, 3, 14))
+                .nextGameDate(LocalDate.of(2026, 3, 16))
+                .hasPrev(true)
+                .hasNext(true)
+                .build());
+        when(homePageGameService.getGamesByDate(selectedDate)).thenThrow(new IllegalStateException("games unavailable"));
+        when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
+                .thenReturn(List.of());
+
+        HomeBootstrapResponseDto response = homePageFacadeService.getBootstrap(selectedDate);
+
+        assertThat(response.getGames()).isEmpty();
+        assertThat(response.getLoadState().getIsFallback()).isTrue();
+        assertThat(response.getLoadState().getTimedOut()).isFalse();
+        assertThat(response.getLoadState().getTimedOutSections()).isEmpty();
+        assertThat(response.getLoadState().getFailedSections()).containsExactly("games");
     }
 
     @Test

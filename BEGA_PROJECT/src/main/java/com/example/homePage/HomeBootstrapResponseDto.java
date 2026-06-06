@@ -17,4 +17,5 @@ public class HomeBootstrapResponseDto {
     private HomeScheduleNavigationDto navigation;
     private List<HomePageGameDto> games;
     private List<HomePageScheduledGameDto> scheduledGamesWindow;
+    private HomeBootstrapLoadStateDto loadState;
 }

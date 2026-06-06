@@ -200,6 +200,12 @@ app:
   backend:
     # Canonical env key: APP_BACKEND_URL.
     url: ${APP_BACKEND_URL:http://localhost:8080}
+  home:
+    bootstrap:
+      section-timeout-ms: ${APP_HOME_BOOTSTRAP_SECTION_TIMEOUT_MS:2500}
+      warmup:
+        enabled: ${APP_HOME_BOOTSTRAP_WARMUP_ENABLED:true}
+        fixed-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_FIXED_DELAY_MS:50000}
   flyway:
     auto-repair: ${APP_FLYWAY_AUTO_REPAIR:false}
   ai:
