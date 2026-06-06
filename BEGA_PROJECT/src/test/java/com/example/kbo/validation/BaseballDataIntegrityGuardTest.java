@@ -4,6 +4,7 @@ import com.example.kbo.entity.GameEntity;
 import com.example.kbo.entity.GameSummaryEntity;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.MatchRangeProjection;
+import com.example.kbo.repository.SeasonInfoProjection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,11 +14,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -164,5 +167,64 @@ class BaseballDataIntegrityGuardTest {
                 null,
                 List.of()))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("경기 ID 목록 검증은 일괄 조회를 사용하고 요청 순서를 유지한다")
+    void requireValidGamesUsesBatchLookupAndPreservesRequestOrder() {
+        LocalDate gameDate = LocalDate.now().plusDays(1);
+        GameEntity first = validGame("GAME-1", gameDate);
+        GameEntity second = validGame("GAME-2", gameDate);
+        SeasonInfoProjection seasonInfo = seasonInfo(gameDate.getYear());
+        when(gameRepository.findByGameIdIn(List.of("GAME-1", "GAME-2"))).thenReturn(List.of(second, first));
+        when(gameRepository.findSeasonInfoBySeasonId(gameDate.getYear())).thenReturn(Optional.of(seasonInfo));
+
+        List<GameEntity> games = baseballDataIntegrityGuard.requireValidGames(
+                "prediction.live_summary",
+                List.of("GAME-1", "GAME-2"));
+
+        assertThat(games).containsExactly(first, second);
+        verify(gameRepository).findByGameIdIn(List.of("GAME-1", "GAME-2"));
+    }
+
+    @Test
+    @DisplayName("경기 ID 목록 검증은 누락 row를 기존 수동 데이터 요청 계약으로 반환한다")
+    void requireValidGamesThrowsManualDataRequestWhenAnyGameIsMissing() {
+        LocalDate gameDate = LocalDate.now().plusDays(1);
+        GameEntity first = validGame("GAME-1", gameDate);
+        SeasonInfoProjection seasonInfo = seasonInfo(gameDate.getYear());
+        when(gameRepository.findByGameIdIn(List.of("GAME-1", "GAME-MISSING"))).thenReturn(List.of(first));
+        when(gameRepository.findSeasonInfoBySeasonId(gameDate.getYear())).thenReturn(Optional.of(seasonInfo));
+
+        assertThatThrownBy(() -> baseballDataIntegrityGuard.requireValidGames(
+                "prediction.live_summary",
+                List.of("GAME-1", "GAME-MISSING")))
+                .isInstanceOf(ManualBaseballDataRequiredException.class)
+                .satisfies((throwable) -> {
+                    ManualBaseballDataRequiredException exception = (ManualBaseballDataRequiredException) throwable;
+                    ManualBaseballDataRequest request = (ManualBaseballDataRequest) exception.getData();
+                    assertThat(request.scope()).isEqualTo("prediction.live_summary");
+                    assertThat(request.operatorMessage()).contains("GAME-MISSING");
+                    assertThat(request.missingItems()).extracting(ManualBaseballDataMissingItem::key)
+                            .containsExactly("game_id", "season_league_context");
+                });
+    }
+
+    private GameEntity validGame(String gameId, LocalDate gameDate) {
+        return GameEntity.builder()
+                .gameId(gameId)
+                .gameDate(gameDate)
+                .homeTeam("LG")
+                .awayTeam("KT")
+                .seasonId(gameDate.getYear())
+                .gameStatus("SCHEDULED")
+                .build();
+    }
+
+    private SeasonInfoProjection seasonInfo(int seasonYear) {
+        SeasonInfoProjection seasonInfo = mock(SeasonInfoProjection.class);
+        when(seasonInfo.getSeasonYear()).thenReturn(seasonYear);
+        when(seasonInfo.getLeagueTypeCode()).thenReturn(0);
+        return seasonInfo;
     }
 }

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
@@ -132,8 +133,8 @@ class GameLiveServiceTest {
     void liveSummariesPreserveRequestOrderAndUseLatestEvents() {
         GameEntity first = game("GAME-5", LocalDate.now(), "LIVE", 0, 0);
         GameEntity second = game("GAME-6", LocalDate.now().plusDays(1), "SCHEDULED", null, null);
-        when(baseballDataIntegrityGuard.requireValidGame("prediction.live_summary", "GAME-5")).thenReturn(first);
-        when(baseballDataIntegrityGuard.requireValidGame("prediction.live_summary", "GAME-6")).thenReturn(second);
+        when(baseballDataIntegrityGuard.requireValidGames("prediction.live_summary", List.of("GAME-5", "GAME-6")))
+                .thenReturn(List.of(first, second));
         when(gameEventRepository.findLatestByGameIds(List.of("GAME-5", "GAME-6")))
                 .thenReturn(List.of(event("GAME-5", 7, 2, "BOTTOM", 4, 3, "홈런")));
 
@@ -143,6 +144,7 @@ class GameLiveServiceTest {
         assertThat(summaries.get(0).getHomeScore()).isEqualTo(4);
         assertThat(summaries.get(0).getLastEventSeq()).isEqualTo(7);
         assertThat(summaries.get(1).getGameStatus()).isEqualTo("SCHEDULED");
+        verify(baseballDataIntegrityGuard).requireValidGames("prediction.live_summary", List.of("GAME-5", "GAME-6"));
     }
 
     private GameEntity game(String gameId, LocalDate gameDate, String status, Integer homeScore, Integer awayScore) {
