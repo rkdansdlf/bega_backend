@@ -1,6 +1,5 @@
 package com.example.homepage;
 
-import static com.example.common.config.CacheConfig.HOME_BOOTSTRAP;
 import static com.example.common.config.CacheConfig.HOME_WIDGETS;
 
 import com.example.cheerboard.dto.PostSummaryRes;
@@ -45,6 +44,7 @@ public class HomePageFacadeService {
     private final HomePageGameService homePageGameService;
     private final CheerService cheerService;
     private final PartyService partyService;
+    private final HomeBootstrapCacheService homeBootstrapCacheService;
     private final Duration sectionTimeout;
     private final Clock clock;
     private final ExecutorService sectionExecutor;
@@ -58,6 +58,7 @@ public class HomePageFacadeService {
                 homePageGameService,
                 cheerService,
                 partyService,
+                null,
                 DEFAULT_SECTION_TIMEOUT,
                 Clock.systemDefaultZone(),
                 Executors.newVirtualThreadPerTaskExecutor(),
@@ -69,12 +70,14 @@ public class HomePageFacadeService {
             HomePageGameService homePageGameService,
             CheerService cheerService,
             PartyService partyService,
+            HomeBootstrapCacheService homeBootstrapCacheService,
             @Value(SECTION_TIMEOUT_PROPERTY) long sectionTimeoutMs,
             MeterRegistry meterRegistry) {
         this(
                 homePageGameService,
                 cheerService,
                 partyService,
+                homeBootstrapCacheService,
                 Duration.ofMillis(sectionTimeoutMs),
                 Clock.systemDefaultZone(),
                 Executors.newVirtualThreadPerTaskExecutor(),
@@ -90,6 +93,7 @@ public class HomePageFacadeService {
                 homePageGameService,
                 cheerService,
                 partyService,
+                null,
                 sectionTimeout,
                 Clock.systemDefaultZone(),
                 Executors.newVirtualThreadPerTaskExecutor(),
@@ -106,6 +110,7 @@ public class HomePageFacadeService {
                 homePageGameService,
                 cheerService,
                 partyService,
+                null,
                 sectionTimeout,
                 clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
@@ -123,6 +128,7 @@ public class HomePageFacadeService {
                 homePageGameService,
                 cheerService,
                 partyService,
+                null,
                 sectionTimeout,
                 clock,
                 sectionExecutor,
@@ -133,6 +139,7 @@ public class HomePageFacadeService {
             HomePageGameService homePageGameService,
             CheerService cheerService,
             PartyService partyService,
+            HomeBootstrapCacheService homeBootstrapCacheService,
             Duration sectionTimeout,
             Clock clock,
             ExecutorService sectionExecutor,
@@ -140,6 +147,7 @@ public class HomePageFacadeService {
         this.homePageGameService = homePageGameService;
         this.cheerService = cheerService;
         this.partyService = partyService;
+        this.homeBootstrapCacheService = homeBootstrapCacheService;
         this.sectionTimeout = (sectionTimeout == null || sectionTimeout.isZero() || sectionTimeout.isNegative())
                 ? DEFAULT_SECTION_TIMEOUT
                 : sectionTimeout;
@@ -150,9 +158,23 @@ public class HomePageFacadeService {
         this.meterRegistry = meterRegistry == null ? Metrics.globalRegistry : meterRegistry;
     }
 
-    @Cacheable(value = HOME_BOOTSTRAP, key = "#root.target.buildBootstrapCacheKey(#date)", sync = true)
-    @Transactional(readOnly = true)
     public HomeBootstrapResponseDto getBootstrap(LocalDate date) {
+        LocalDate selectedDate = date == null ? LocalDate.now(clock) : date;
+        if (homeBootstrapCacheService == null) {
+            return loadBootstrapUncached(selectedDate);
+        }
+        return homeBootstrapCacheService.getOrLoad(selectedDate, () -> loadBootstrapUncached(selectedDate));
+    }
+
+    HomeBootstrapResponseDto refreshBootstrap(LocalDate date) {
+        LocalDate selectedDate = date == null ? LocalDate.now(clock) : date;
+        if (homeBootstrapCacheService == null) {
+            return loadBootstrapUncached(selectedDate);
+        }
+        return homeBootstrapCacheService.refresh(selectedDate, () -> loadBootstrapUncached(selectedDate));
+    }
+
+    HomeBootstrapResponseDto loadBootstrapUncached(LocalDate date) {
         LocalDate selectedDate = date == null ? LocalDate.now(clock) : date;
         long bootstrapStartedAt = System.nanoTime();
 
@@ -203,6 +225,9 @@ public class HomePageFacadeService {
     }
 
     public String buildBootstrapCacheKey(LocalDate date) {
+        if (homeBootstrapCacheService != null) {
+            return homeBootstrapCacheService.buildCacheKey(date);
+        }
         LocalDate selectedDate = date == null ? LocalDate.now(clock) : date;
         LocalDate today = LocalDate.now(clock);
         return selectedDate + ":today:" + today;
