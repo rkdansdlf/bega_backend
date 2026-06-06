@@ -39,6 +39,8 @@ public class AuthCookieUtil {
     }
 
     private ResponseCookie build(String name, String value, long maxAgeSeconds) {
+        rejectResponseDelimiter("cookie name", name);
+        rejectResponseDelimiter("cookie value", value);
         return ResponseCookie.from(name, value != null ? value : "")
                 .httpOnly(true)
                 .secure(secureCookie)
@@ -46,5 +48,11 @@ public class AuthCookieUtil {
                 .maxAge(maxAgeSeconds)
                 .sameSite("Lax")
                 .build();
+    }
+
+    private void rejectResponseDelimiter(String fieldName, String value) {
+        if (value != null && (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0)) {
+            throw new IllegalArgumentException(fieldName + " must not contain CR or LF characters");
+        }
     }
 }

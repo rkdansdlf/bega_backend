@@ -114,11 +114,9 @@ public class JWTFilter extends OncePerRequestFilter {
             return;
         }
 
-        boolean aiProxyRequest = requestUri != null && requestUri.startsWith("/api/ai/");
-
         // 🚨 CSRF 방지: Referer 체크 (상태 변경 요청에 대해)
         String method = request.getMethod();
-        if (!aiProxyRequest && !method.equals("GET") && !method.equals("HEAD") && !method.equals("OPTIONS")) {
+        if (!method.equals("GET") && !method.equals("HEAD") && !method.equals("OPTIONS")) {
             String referer = request.getHeader("Referer");
             String origin = request.getHeader("Origin");
 

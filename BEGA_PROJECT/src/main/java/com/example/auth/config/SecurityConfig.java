@@ -1,8 +1,8 @@
 package com.example.auth.config;
 
-import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -239,12 +239,11 @@ public class SecurityConfig {
         /**
          * [Security Fix - High #3] Content Security Policy 정책.
          * Kakao Maps/OAuth, Google OAuth, OCI Object Storage 이미지를 허용한다.
-         * 'unsafe-inline' 스타일/스크립트는 현 프론트(React + inline styles) 호환성을 위해
-         * 임시 허용하며, prod에서는 unsafe-eval을 허용하지 않는다.
+         * prod에서는 inline script와 unsafe-eval을 허용하지 않는다.
          */
         String buildContentSecurityPolicy() {
                 String scriptPolicy = isProdProfile()
-                                ? "script-src 'self' 'unsafe-inline' "
+                                ? "script-src 'self' "
                                                 + "https://dapi.kakao.com https://t1.daumcdn.net "
                                                 + "https://accounts.google.com https://apis.google.com"
                                 : "script-src 'self' 'unsafe-inline' 'unsafe-eval' "

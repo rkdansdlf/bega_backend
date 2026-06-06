@@ -103,6 +103,28 @@ class SecurityConfigTest {
     }
 
     @Test
+    @DisplayName("prod CSP should reject inline scripts and unsafe eval")
+    void buildContentSecurityPolicy_prodRejectsInlineScripts() {
+        SecurityConfig securityConfig = newSecurityConfig("prod");
+
+        String csp = securityConfig.buildContentSecurityPolicy();
+
+        assertThat(csp).contains("script-src 'self'");
+        assertThat(csp).doesNotContain("script-src 'self' 'unsafe-inline'");
+        assertThat(csp).doesNotContain("'unsafe-eval'");
+    }
+
+    @Test
+    @DisplayName("dev CSP should keep development script compatibility")
+    void buildContentSecurityPolicy_devKeepsDevelopmentScriptCompatibility() {
+        SecurityConfig securityConfig = newSecurityConfig("dev");
+
+        String csp = securityConfig.buildContentSecurityPolicy();
+
+        assertThat(csp).contains("script-src 'self' 'unsafe-inline' 'unsafe-eval'");
+    }
+
+    @Test
     @DisplayName("public API endpoints should not expose email-to-id mapping")
     void publicApiEndpoints_excludeEmailToId() throws Exception {
         String[] publicApiEndpoints = getPrivateStaticStringArray("PUBLIC_API_ENDPOINTS");

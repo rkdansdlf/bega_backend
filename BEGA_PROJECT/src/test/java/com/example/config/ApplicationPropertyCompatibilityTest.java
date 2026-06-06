@@ -78,6 +78,17 @@ class ApplicationPropertyCompatibilityTest {
     }
 
     @Test
+    void applicationYmlDefinesTomcatUploadTimeoutEnvKeys() throws IOException {
+        String applicationYml = readApplicationYml();
+
+        assertThat(applicationYml)
+                .contains("keep-alive-timeout: ${SERVER_TOMCAT_KEEP_ALIVE_TIMEOUT:20000}")
+                .contains("max-keep-alive-requests: ${SERVER_TOMCAT_MAX_KEEP_ALIVE_REQUESTS:100}")
+                .contains("connection-upload-timeout-ms: ${SERVER_TOMCAT_CONNECTION_UPLOAD_TIMEOUT_MS:60000}")
+                .contains("upload-timeout-enabled: ${SERVER_TOMCAT_UPLOAD_TIMEOUT_ENABLED:true}");
+    }
+
+    @Test
     void applicationYmlDefinesHomeBootstrapLatencyEnvKeys() throws IOException {
         String applicationYml = readApplicationYml();
 

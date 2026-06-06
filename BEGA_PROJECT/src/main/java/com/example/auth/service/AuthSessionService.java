@@ -343,6 +343,12 @@ public class AuthSessionService {
         if (sessionId == null || sessionId.isBlank()) {
             return null;
         }
-        return sessionId.trim();
+        String normalized = sessionId.trim();
+        for (int i = 0; i < normalized.length(); i++) {
+            if (Character.isISOControl(normalized.charAt(i))) {
+                return null;
+            }
+        }
+        return normalized;
     }
 }

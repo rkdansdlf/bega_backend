@@ -61,7 +61,7 @@ public class ClientErrorLoggingService {
                     .normalizedEndpoint(normalizedEndpoint)
                     .occurredAt(ClientErrorSupport.parseOccurredAt(request.timestamp()))
                     .sessionId(ClientErrorSupport.sanitize(request.sessionId(), 128))
-                    .userId(authenticatedUserId != null ? authenticatedUserId : request.userId())
+                    .userId(authenticatedUserId)
                     .fingerprint(fingerprint)
                     .feedbackCount(0)
                     .build());

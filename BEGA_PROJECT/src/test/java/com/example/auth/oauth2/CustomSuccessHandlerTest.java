@@ -200,6 +200,69 @@ class CustomSuccessHandlerTest {
         verify(accountSecurityService, never()).handleSuccessfulLogin(eq(user), any());
     }
 
+    @Test
+    @DisplayName("OAuth2 state가 CRLF를 포함해도 리다이렉트 Location 값은 인코딩된다")
+    void onAuthenticationSuccess_encodesStateInRedirect() throws ServletException, IOException {
+        UserEntity user = UserEntity.builder()
+                .id(1L)
+                .uniqueId(UUID.randomUUID())
+                .email("oauth-user@example.com")
+                .name("OAuth User")
+                .handle("@oauthuser")
+                .role("ROLE_USER")
+                .provider("GOOGLE")
+                .cheerPoints(0)
+                .build();
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(jwtUtil.createJwt(anyString(), anyString(), anyLong(), anyLong(), any()))
+                .thenReturn("access-token");
+        when(authSessionService.issueRefreshToken(anyString(), anyString(), anyLong(), any(), any()))
+                .thenReturn("refresh-token");
+        when(jwtUtil.getRefreshTokenExpirationTime()).thenReturn(604_800_000L);
+        when(oAuth2StateService.saveState(1L)).thenReturn("state\r\nSet-Cookie: admin=true");
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        customSuccessHandler.onAuthenticationSuccess(buildRequest(), response, buildAuthentication());
+
+        assertThat(response.getRedirectedUrl())
+                .isEqualTo("http://localhost:5176/oauth/callback?state=state%0D%0ASet-Cookie%3A+admin%3Dtrue");
+        assertThat(response.getHeader(HttpHeaders.LOCATION)).doesNotContain("\r", "\n");
+    }
+
+    @Test
+    @DisplayName("OAuth2 linkFlow state가 CRLF를 포함해도 linked 리다이렉트 Location 값은 인코딩된다")
+    void onAuthenticationSuccess_encodesLinkFlowStateInRedirect() throws ServletException, IOException {
+        UserEntity user = UserEntity.builder()
+                .id(1L)
+                .uniqueId(UUID.randomUUID())
+                .email("oauth-user@example.com")
+                .name("OAuth User")
+                .handle("@oauthuser")
+                .role("ROLE_USER")
+                .provider("GOOGLE")
+                .build();
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(jwtUtil.createJwt(anyString(), anyString(), anyLong(), anyLong(), any()))
+                .thenReturn("access-token");
+        when(authSessionService.issueRefreshToken(anyString(), anyString(), anyLong(), any(), any()))
+                .thenReturn("refresh-token");
+        when(jwtUtil.getRefreshTokenExpirationTime()).thenReturn(604_800_000L);
+        when(oAuth2StateService.saveState(1L)).thenReturn("linked\r\nSet-Cookie: admin=true");
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        customSuccessHandler.onAuthenticationSuccess(buildRequest(), response, buildAuthentication(true));
+
+        assertThat(response.getRedirectedUrl())
+                .isEqualTo("http://localhost:5176/oauth/callback?state=linked%0D%0ASet-Cookie%3A+admin%3Dtrue&status=linked");
+        assertThat(response.getHeader(HttpHeaders.LOCATION)).doesNotContain("\r", "\n");
+        verify(accountSecurityService).recordProviderLinked(1L, "google");
+    }
+
     private Authentication buildAuthentication() {
         return buildAuthentication(false);
     }
