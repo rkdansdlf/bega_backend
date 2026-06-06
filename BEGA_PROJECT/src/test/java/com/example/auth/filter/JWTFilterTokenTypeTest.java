@@ -230,6 +230,62 @@ class JWTFilterTokenTypeTest {
     }
 
     @Test
+    @DisplayName("AI 프록시 변경 요청도 JWT가 있으면 Origin/Referer 검증 대상이다")
+    void aiProxyMutableRequestWithJwtWithoutOrigin_isRejectedByCsrfCheck() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/ai/chat/completion");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DummyFilterChain chain = new DummyFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isFalse();
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+        assertThat(response.getContentAsString()).contains("CSRF Protection");
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("AI 프록시 변경 요청의 Origin이 허용되지 않으면 JWT 인증 전에 차단한다")
+    void aiProxyMutableRequestWithJwtAndInvalidOrigin_isRejectedByCsrfCheck() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/ai/chat/completion");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+        request.addHeader("Origin", "http://evil.test");
+        request.addHeader("Referer", "http://evil.test/ai");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DummyFilterChain chain = new DummyFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isFalse();
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+        assertThat(response.getContentAsString()).contains("CSRF Protection");
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("AI 프록시 변경 요청의 Origin이 허용되면 JWT 인증 후 통과한다")
+    void aiProxyMutableRequestWithJwtAndAllowedOrigin_isAccepted() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/ai/chat/completion");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+        request.addHeader("Origin", "http://localhost:5176");
+        request.addHeader("Referer", "http://localhost:5176/ai");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DummyFilterChain chain = new DummyFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isTrue();
+        assertThat(response.getStatus()).isNotEqualTo(HttpStatus.FORBIDDEN.value());
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        assertThat(authentication).isNotNull();
+        assertThat(authentication.getPrincipal()).isEqualTo(1L);
+    }
+
+    @Test
     @DisplayName("블랙리스트 조회 실패 시 변경 요청은 401로 차단한다")
     void blacklistLookupFailure_rejectsMutableRequestWith401() throws Exception {
         String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);

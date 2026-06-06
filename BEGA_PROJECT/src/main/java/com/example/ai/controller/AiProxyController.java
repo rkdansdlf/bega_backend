@@ -5,6 +5,7 @@ import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
 import com.example.ai.service.AiProxyService.ProxyStreamResponse;
 import com.example.ai.service.CoachAutoBriefMonitoringService;
+import com.example.common.ratelimit.RateLimit;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
@@ -34,6 +35,7 @@ public class AiProxyController {
     private final AiProxyRequestLimits requestLimits;
 
     @PostMapping("/chat/completion")
+    @RateLimit(limit = 60, window = 60, key = "ai:chat", failClosed = true)
     public ResponseEntity<byte[]> chatCompletion(@RequestBody String payload) {
         requestLimits.validateChatJson(payload);
         ProxyByteResponse proxyResponse = aiProxyService.forwardJson("/ai/chat/completion", payload);
@@ -41,6 +43,7 @@ public class AiProxyController {
     }
 
     @PostMapping("/chat/stream")
+    @RateLimit(limit = 60, window = 60, key = "ai:chat", failClosed = true)
     public ResponseEntity<StreamingResponseBody> chatStream(@RequestBody String payload) {
         requestLimits.validateChatJson(payload);
         ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/chat/stream", payload);
@@ -48,6 +51,7 @@ public class AiProxyController {
     }
 
     @PostMapping("/chat/voice")
+    @RateLimit(limit = 20, window = 60, key = "ai:chat_voice", failClosed = true)
     public ResponseEntity<byte[]> chatVoice(@RequestPart("file") MultipartFile file) {
         requestLimits.validateVoiceUpload(file);
         ProxyByteResponse proxyResponse = aiProxyService.forwardMultipart("/ai/chat/voice", file);
@@ -55,6 +59,7 @@ public class AiProxyController {
     }
 
     @PostMapping("/coach/analyze")
+    @RateLimit(limit = 25, window = 60, key = "ai:coach", failClosed = true)
     public ResponseEntity<StreamingResponseBody> coachAnalyze(@RequestBody String payload) {
         requestLimits.validateCoachJson(payload);
         String requestMode = coachAutoBriefMonitoringService.extractRequestMode(payload);

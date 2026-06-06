@@ -7,7 +7,9 @@ import com.example.ai.service.AiProxyService.ProxyByteResponse;
 import com.example.ai.service.AiProxyService.ProxyStreamResponse;
 import com.example.ai.service.CoachAutoBriefMonitoringService;
 import com.example.common.exception.GlobalExceptionHandler;
+import com.example.common.ratelimit.RateLimit;
 import java.io.OutputStream;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -22,6 +24,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import reactor.core.publisher.Flux;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -403,6 +406,19 @@ class AiProxyControllerTest {
         verify(aiProxyService, never()).forwardJson(eq("/ai/release-decision/draft"), any());
     }
 
+    @Test
+    @DisplayName("AI 프록시 공개 사용자 엔드포인트는 fail-closed rate limit을 사용한다")
+    void aiProxyUserEndpointsHaveFailClosedRateLimits() throws Exception {
+        assertRateLimit("chatCompletion", new Class<?>[] {String.class}, 60, "ai:chat");
+        assertRateLimit("chatStream", new Class<?>[] {String.class}, 60, "ai:chat");
+        assertRateLimit(
+                "chatVoice",
+                new Class<?>[] {org.springframework.web.multipart.MultipartFile.class},
+                20,
+                "ai:chat_voice");
+        assertRateLimit("coachAnalyze", new Class<?>[] {String.class}, 25, "ai:coach");
+    }
+
     private MockMvc mockMvcWithLimits(AiProxyRequestLimits requestLimits) {
         AiProxyController controller = new AiProxyController(
                 aiProxyService,
@@ -411,5 +427,17 @@ class AiProxyControllerTest {
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
+    }
+
+    private void assertRateLimit(String methodName, Class<?>[] parameterTypes, int expectedLimit, String expectedKey)
+            throws Exception {
+        Method method = AiProxyController.class.getMethod(methodName, parameterTypes);
+        RateLimit rateLimit = method.getAnnotation(RateLimit.class);
+
+        assertThat(rateLimit).isNotNull();
+        assertThat(rateLimit.limit()).isEqualTo(expectedLimit);
+        assertThat(rateLimit.window()).isEqualTo(60);
+        assertThat(rateLimit.key()).isEqualTo(expectedKey);
+        assertThat(rateLimit.failClosed()).isTrue();
     }
 }

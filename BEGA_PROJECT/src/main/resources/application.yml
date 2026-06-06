@@ -126,6 +126,8 @@ server:
       min-spare: ${SERVER_TOMCAT_THREADS_MIN_SPARE:20}
     accept-count: ${SERVER_TOMCAT_ACCEPT_COUNT:100}
     connection-timeout: ${SERVER_TOMCAT_CONNECTION_TIMEOUT:20000}
+    keep-alive-timeout: ${SERVER_TOMCAT_KEEP_ALIVE_TIMEOUT:20000}
+    max-keep-alive-requests: ${SERVER_TOMCAT_MAX_KEEP_ALIVE_REQUESTS:100}
 
 # JobRunr 설정
 org:
@@ -176,6 +178,11 @@ kbo:
 
 # 애플리케이션 공통 설정
 app:
+  tomcat:
+    # Spring Boot does not expose Tomcat's upload body read timeout directly.
+    # TomcatUploadTimeoutConfig maps these values to connectionUploadTimeout / disableUploadTimeout.
+    connection-upload-timeout-ms: ${SERVER_TOMCAT_CONNECTION_UPLOAD_TIMEOUT_MS:60000}
+    upload-timeout-enabled: ${SERVER_TOMCAT_UPLOAD_TIMEOUT_ENABLED:true}
   mail:
     enabled: ${APP_MAIL_ENABLED:false}
   client-error-monitoring:

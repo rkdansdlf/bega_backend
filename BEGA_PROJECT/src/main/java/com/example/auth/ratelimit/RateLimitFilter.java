@@ -21,7 +21,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * [Security Fix - High #1] 인증 엔드포인트에 대한 IP 기반 Rate Limiting.
+ * [Security Fix - High #1] 인증 엔드포인트와 공개 텔레메트리에 대한 IP 기반 Rate Limiting.
  * A04 — Insecure Design / CWE-307 (Improper Restriction of Excessive Authentication Attempts)
  *
  * <p>기존 Redis 기반 RateLimitService를 사용해 다중 인스턴스에서도 동일하게 동작한다.</p>
@@ -32,6 +32,8 @@ import java.util.Objects;
  *   <li>POST /api/auth/signup — 3 req/hour per IP</li>
  *   <li>POST /api/auth/password-reset/request — 3 req/hour per IP</li>
  *   <li>POST /api/auth/password/reset/request — 3 req/hour per IP (legacy alias)</li>
+ *   <li>POST /api/client-errors — 120 req/min per IP</li>
+ *   <li>POST /api/client-errors/feedback — 30 req/min per IP</li>
  * </ul>
  */
 @Slf4j
@@ -42,7 +44,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
             new RateLimitRule("POST", "/api/auth/login", "auth:login", 3, 60),
             new RateLimitRule("POST", "/api/auth/signup", "auth:signup", 3, 3600),
             new RateLimitRule("POST", "/api/auth/password-reset/request", "auth:password-reset-request", 3, 3600),
-            new RateLimitRule("POST", "/api/auth/password/reset/request", "auth:password-reset-request", 3, 3600)
+            new RateLimitRule("POST", "/api/auth/password/reset/request", "auth:password-reset-request", 3, 3600),
+            new RateLimitRule("POST", "/api/client-errors", "telemetry:client-error", 120, 60),
+            new RateLimitRule("POST", "/api/client-errors/feedback", "telemetry:client-feedback", 30, 60)
     );
 
     private final RateLimitService rateLimitService;
@@ -78,7 +82,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
 
         long retryAfterSeconds = Math.max(1L, rule.windowSeconds);
-        authSecurityMonitoringService.recordAuthRateLimitReject();
+        if (rule.recordsAuthMonitoring()) {
+            authSecurityMonitoringService.recordAuthRateLimitReject();
+        }
         log.warn("Rate limit exceeded path={} ip={} key={} retryAfter={}s",
                 rule.path, clientIp, key, retryAfterSeconds);
         writeTooManyRequests(response, retryAfterSeconds);
@@ -121,6 +127,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
         String redisKey(String clientIp) {
             return String.format("rate:limit:%s:%s:%s:%s", ruleKey, method, path, clientIp);
+        }
+
+        boolean recordsAuthMonitoring() {
+            return ruleKey.startsWith("auth:");
         }
     }
 }

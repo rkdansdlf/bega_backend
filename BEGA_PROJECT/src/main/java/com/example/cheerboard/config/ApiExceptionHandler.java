@@ -31,6 +31,8 @@ import com.example.common.exception.RepostSelfNotAllowedException;
 import com.example.common.exception.RepostTargetNotFoundException;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -43,6 +45,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * Cheerboard API 전용 예외 핸들러.
  */
 @RestControllerAdvice(basePackages = "com.example.cheerboard")
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @Slf4j
 public class ApiExceptionHandler {
 

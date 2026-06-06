@@ -11,6 +11,11 @@
       "description": "Mail delivery toggles for the backend."
     },
     {
+      "name": "app.tomcat",
+      "type": "java.lang.Object",
+      "description": "Application-level embedded Tomcat hardening settings."
+    },
+    {
       "name": "app.client-error-monitoring",
       "type": "com.example.common.clienterror.ClientErrorMonitoringProperties",
       "description": "Client error monitoring retention and alerting settings."
@@ -326,6 +331,16 @@
       "name": "app.flyway.auto-repair",
       "type": "java.lang.Boolean",
       "description": "Whether application-level Flyway repair should be enabled."
+    },
+    {
+      "name": "app.tomcat.connection-upload-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Socket read timeout in milliseconds while Tomcat is reading a request body upload."
+    },
+    {
+      "name": "app.tomcat.upload-timeout-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the backend enables Tomcat's separate upload body read timeout."
     },
     {
       "name": "app.ai.proxy.public-in-dev",

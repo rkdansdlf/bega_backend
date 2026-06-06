@@ -174,6 +174,26 @@ class CookieAuthorizationRequestRepositoryTest {
     }
 
     @Test
+    @DisplayName("서명된 oauth2_auth_request 쿠키가 변조되면 null 처리")
+    void loadAuthorizationRequest_returnsNullForTamperedSignedCookie() {
+        MockHttpServletRequest saveRequest = new MockHttpServletRequest();
+        MockHttpServletResponse saveResponse = new MockHttpServletResponse();
+        repository.saveAuthorizationRequest(createAuthorizationRequest("raw-state-tamper"), saveRequest, saveResponse);
+        String originalCookieValue = extractCookieValue(
+                saveResponse,
+                CookieAuthorizationRequestRepository.OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME);
+        String tamperedCookieValue = tamperLastCharacter(originalCookieValue);
+
+        MockHttpServletRequest callbackRequest = new MockHttpServletRequest();
+        callbackRequest.setCookies(new Cookie(
+                CookieAuthorizationRequestRepository.OAUTH2_AUTHORIZATION_REQUEST_COOKIE_NAME,
+                tamperedCookieValue));
+
+        assertThat(repository.loadAuthorizationRequest(callbackRequest)).isNull();
+        verify(securityMonitoringService).recordUnsignedOauth2Cookie();
+    }
+
+    @Test
     @DisplayName("link ticket 없이 link 모드면 저장 실패 사유를 남긴다")
     void saveAuthorizationRequest_recordsFailureWhenLinkTicketMissing() {
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -214,5 +234,11 @@ class CookieAuthorizationRequestRepositoryTest {
                     return end > start ? header.substring(start, end) : header.substring(start);
                 })
                 .orElseThrow(() -> new IllegalStateException("쿠키가 존재하지 않습니다: " + cookieName));
+    }
+
+    private String tamperLastCharacter(String value) {
+        char last = value.charAt(value.length() - 1);
+        char replacement = last == 'A' ? 'B' : 'A';
+        return value.substring(0, value.length() - 1) + replacement;
     }
 }
