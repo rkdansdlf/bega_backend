@@ -1,5 +1,6 @@
 package com.example.auth.config;
 
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -27,6 +28,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.example.ai.config.AiServiceSettings;
+import com.example.ai.filter.AiProxyRequestLimitFilter;
 import com.example.common.config.AllowedOriginResolver;
 import com.example.auth.oauth2.CustomOAuth2UserService;
 import com.example.auth.oauth2.CustomSuccessHandler;
@@ -403,7 +405,19 @@ public class SecurityConfig {
         }
 
         @Bean
-        public SecurityFilterChain filterChain(HttpSecurity http, JWTFilter jwtFilter, RateLimitFilter rateLimitFilter) throws Exception {
+        public FilterRegistrationBean<AiProxyRequestLimitFilter> aiProxyRequestLimitFilterRegistration(
+                        AiProxyRequestLimitFilter filter) {
+                FilterRegistrationBean<AiProxyRequestLimitFilter> registration = new FilterRegistrationBean<>(filter);
+                registration.setEnabled(false);
+                return registration;
+        }
+
+        @Bean
+        public SecurityFilterChain filterChain(
+                        HttpSecurity http,
+                        JWTFilter jwtFilter,
+                        RateLimitFilter rateLimitFilter,
+                        AiProxyRequestLimitFilter aiProxyRequestLimitFilter) throws Exception {
                 final boolean publicAiProxyInDev = allowUnauthenticatedAiProxy();
 
                 // CORS 활성화 및 CSRF 비활성화 (JWT 토큰 기반 인증이므로 CSRF 비활성화)
@@ -455,7 +469,11 @@ public class SecurityConfig {
 
                 // [Security Fix - High #1] Rate Limiting 필터는 JWTFilter보다 먼저 실행.
                 // JWTFilter는 Spring Security에 등록된 순서가 없어 기준으로 사용할 수 없으므로
-                // 동일하게 UsernamePasswordAuthenticationFilter 앞에 배치하되, 등록 순서로 RateLimit → JWT 순서를 보장.
+                // 동일하게 UsernamePasswordAuthenticationFilter 앞에 배치하되,
+                // 등록 순서로 AI payload limit → RateLimit → JWT 순서를 보장.
+                http
+                                .addFilterBefore(aiProxyRequestLimitFilter, UsernamePasswordAuthenticationFilter.class);
+
                 http
                                 .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class);
 

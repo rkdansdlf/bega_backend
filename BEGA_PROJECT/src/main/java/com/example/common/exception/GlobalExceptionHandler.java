@@ -1,6 +1,8 @@
 package com.example.common.exception;
 
 import com.example.cheerboard.service.CheerServiceConstants;
+import com.example.ai.config.AiProxyRequestLimits;
+import com.example.ai.exception.AiProxyPayloadTooLargeException;
 import com.example.common.dto.ApiResponse;
 import com.example.kbo.exception.TicketAnalysisException;
 import jakarta.validation.ConstraintViolation;
@@ -34,6 +36,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -104,6 +107,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse> handleHttpMessageNotReadableException(HttpMessageNotReadableException e) {
+        AiProxyPayloadTooLargeException payloadTooLarge = findAiPayloadTooLarge(e);
+        if (payloadTooLarge != null) {
+            return buildAiPayloadTooLargeResponse(payloadTooLarge);
+        }
         return buildValidationErrorResponse(Map.of(GLOBAL_ERROR_KEY, "요청 본문 형식이 올바르지 않습니다."));
     }
 
@@ -121,10 +128,26 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
     public ResponseEntity<ApiResponse> handleMaxUploadSizeExceededException(
             org.springframework.web.multipart.MaxUploadSizeExceededException e) {
+        AiProxyPayloadTooLargeException payloadTooLarge = findAiPayloadTooLarge(e);
+        if (payloadTooLarge != null) {
+            return buildAiPayloadTooLargeResponse(payloadTooLarge);
+        }
         log.warn("MaxUploadSizeExceededException: {}", e.getMessage());
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error("MAX_UPLOAD_SIZE_EXCEEDED", "파일 크기가 제한을 초과했습니다. (최대 10MB)"));
+    }
+
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<ApiResponse> handleMultipartException(MultipartException e) {
+        AiProxyPayloadTooLargeException payloadTooLarge = findAiPayloadTooLarge(e);
+        if (payloadTooLarge != null) {
+            return buildAiPayloadTooLargeResponse(payloadTooLarge);
+        }
+        log.warn("MultipartException: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error("MULTIPART_REQUEST_INVALID", "multipart 요청을 처리할 수 없습니다."));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
@@ -254,6 +277,28 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error(VALIDATION_ERROR_CODE, VALIDATION_ERROR_MESSAGE, resolvedErrors));
+    }
+
+    private ResponseEntity<ApiResponse> buildAiPayloadTooLargeResponse(AiProxyPayloadTooLargeException e) {
+        long maxBytes = e.getMaxBytes();
+        log.warn("AI proxy request payload exceeded maxBytes={}", maxBytes);
+        return ResponseEntity
+                .status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(ApiResponse.error(
+                        AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE,
+                        "AI 요청 본문이 너무 큽니다.",
+                        Map.of("maxBytes", maxBytes)));
+    }
+
+    private AiProxyPayloadTooLargeException findAiPayloadTooLarge(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof AiProxyPayloadTooLargeException payloadTooLarge) {
+                return payloadTooLarge;
+            }
+            current = current.getCause();
+        }
+        return null;
     }
 
     private ResponseEntity<ApiResponse> buildTemporaryDatabaseErrorResponse(String logMessage, Exception e) {

@@ -1,5 +1,6 @@
 package com.example.ai.controller;
 
+import com.example.ai.config.AiProxyRequestLimits;
 import com.example.ai.exception.AiProxyException;
 import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
@@ -15,6 +16,7 @@ import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -27,9 +29,11 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -47,7 +51,10 @@ class AiProxyControllerTest {
     void setup() {
         aiProxyService = mock(AiProxyService.class);
         coachAutoBriefMonitoringService = mock(CoachAutoBriefMonitoringService.class);
-        AiProxyController controller = new AiProxyController(aiProxyService, coachAutoBriefMonitoringService);
+        AiProxyController controller = new AiProxyController(
+                aiProxyService,
+                coachAutoBriefMonitoringService,
+                new AiProxyRequestLimits(4096, 4096, 1024 * 1024, 1024 * 1024 + 65536, 256 * 1024, 128 * 1024));
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -329,5 +336,80 @@ class AiProxyControllerTest {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("AI_UPSTREAM_TIMEOUT"))
                 .andExpect(jsonPath("$.message").value("AI 응답 시간이 초과되었습니다."));
+    }
+
+    @Test
+    @DisplayName("chat completion payload가 backend 한도를 넘으면 upstream 호출 전 413을 반환한다")
+    void chatCompletionOversizedPayloadReturns413BeforeProxyForwarding() throws Exception {
+        MockMvc limitedMockMvc = mockMvcWithLimits(
+                new AiProxyRequestLimits(8, 4096, 1024 * 1024, 1024 * 1024 + 65536, 256 * 1024, 128 * 1024));
+
+        limitedMockMvc.perform(post("/api/ai/chat/completion")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"too long\"}"))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE));
+
+        verify(aiProxyService, never()).forwardJson(any(), any());
+    }
+
+    @Test
+    @DisplayName("coach analyze payload가 backend 한도를 넘으면 upstream 호출 전 413을 반환한다")
+    void coachAnalyzeOversizedPayloadReturns413BeforeProxyForwarding() throws Exception {
+        MockMvc limitedMockMvc = mockMvcWithLimits(
+                new AiProxyRequestLimits(4096, 8, 1024 * 1024, 1024 * 1024 + 65536, 256 * 1024, 128 * 1024));
+
+        limitedMockMvc.perform(post("/api/ai/coach/analyze")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\"}"))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE));
+
+        verify(aiProxyService, never()).forwardJsonStream(any(), any());
+    }
+
+    @Test
+    @DisplayName("voice upload가 backend 한도를 넘으면 upstream 호출 전 413을 반환한다")
+    void chatVoiceOversizedUploadReturns413BeforeProxyForwarding() throws Exception {
+        MockMvc limitedMockMvc = mockMvcWithLimits(new AiProxyRequestLimits(4096, 4096, 4, 1024, 256 * 1024, 128 * 1024));
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "voice.wav",
+                "audio/wav",
+                new byte[] {1, 2, 3, 4, 5});
+
+        limitedMockMvc.perform(multipart("/api/ai/chat/voice").file(file))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE));
+
+        verify(aiProxyService, never()).forwardMultipart(any(), any());
+    }
+
+    @Test
+    @DisplayName("release decision admin payload가 backend 한도를 넘으면 upstream 호출 전 413을 반환한다")
+    void releaseDecisionDraftOversizedPayloadReturns413BeforeProxyForwarding() throws Exception {
+        MockMvc limitedMockMvc = mockMvcWithLimits(new AiProxyRequestLimits(4096, 4096, 1024 * 1024, 1024 * 1024, 8, 128 * 1024));
+
+        limitedMockMvc.perform(post("/api/ai/release-decision/draft")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scenario\":\"prediction_stage2\"}"))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE));
+
+        verify(aiProxyService, never()).forwardJson(eq("/ai/release-decision/draft"), any());
+    }
+
+    private MockMvc mockMvcWithLimits(AiProxyRequestLimits requestLimits) {
+        AiProxyController controller = new AiProxyController(
+                aiProxyService,
+                coachAutoBriefMonitoringService,
+                requestLimits);
+        return MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
     }
 }

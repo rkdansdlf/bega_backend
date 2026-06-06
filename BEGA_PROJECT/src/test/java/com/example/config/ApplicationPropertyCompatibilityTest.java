@@ -64,6 +64,19 @@ class ApplicationPropertyCompatibilityTest {
                 .contains("cookie-secret: ${OAUTH2_COOKIE_SECRET:local-runtime-cookie-signing-secret}");
     }
 
+    @Test
+    void applicationYmlDefinesAiProxyBodyLimitEnvKeys() throws IOException {
+        String applicationYml = readApplicationYml();
+
+        assertThat(applicationYml)
+                .contains("max-chat-json-bytes: ${APP_AI_PROXY_MAX_CHAT_JSON_BYTES:12288}")
+                .contains("max-coach-json-bytes: ${APP_AI_PROXY_MAX_COACH_JSON_BYTES:65536}")
+                .contains("max-voice-upload-bytes: ${APP_AI_PROXY_MAX_VOICE_UPLOAD_BYTES:10485760}")
+                .contains("max-voice-request-bytes: ${APP_AI_PROXY_MAX_VOICE_REQUEST_BYTES:10551296}")
+                .contains("max-admin-json-bytes: ${APP_AI_PROXY_MAX_ADMIN_JSON_BYTES:262144}")
+                .contains("max-chat-persistence-json-bytes: ${APP_AI_PROXY_MAX_CHAT_PERSISTENCE_JSON_BYTES:131072}");
+    }
+
     private String readApplicationYml() throws IOException {
         return Files.readString(Path.of("src/main/resources/application.yml"), StandardCharsets.UTF_8);
     }

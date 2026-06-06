@@ -318,6 +318,36 @@
       "description": "Whether prod profile may use a loopback AI service URL."
     },
     {
+      "name": "app.ai.proxy.max-chat-json-bytes",
+      "type": "java.lang.Long",
+      "description": "Maximum JSON request body size for backend AI chat proxy endpoints."
+    },
+    {
+      "name": "app.ai.proxy.max-coach-json-bytes",
+      "type": "java.lang.Long",
+      "description": "Maximum JSON request body size for backend AI coach analyze proxy endpoint."
+    },
+    {
+      "name": "app.ai.proxy.max-voice-upload-bytes",
+      "type": "java.lang.Long",
+      "description": "Maximum multipart file size accepted by backend AI voice proxy endpoint."
+    },
+    {
+      "name": "app.ai.proxy.max-voice-request-bytes",
+      "type": "java.lang.Long",
+      "description": "Maximum multipart request envelope size accepted by backend AI voice proxy endpoint."
+    },
+    {
+      "name": "app.ai.proxy.max-admin-json-bytes",
+      "type": "java.lang.Long",
+      "description": "Maximum JSON request body size for backend admin AI proxy endpoints."
+    },
+    {
+      "name": "app.ai.proxy.max-chat-persistence-json-bytes",
+      "type": "java.lang.Long",
+      "description": "Maximum JSON request body size for backend AI chat persistence endpoints."
+    },
+    {
       "name": "app.trusted-proxies",
       "type": "java.lang.String",
       "description": "Comma-separated trusted proxy IPs or CIDRs."

@@ -1,7 +1,13 @@
 package com.example.auth.config;
 
+import com.example.ai.chat.dto.StoredChatMessage;
+import com.example.ai.chat.entity.AiChatMessageRole;
+import com.example.ai.chat.entity.AiChatMessageStatus;
+import com.example.ai.chat.service.AiChatPersistenceService;
 import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
+import com.example.common.ratelimit.RateLimitService;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -10,6 +16,10 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -17,13 +27,20 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.charset.StandardCharsets;
 
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -46,7 +63,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "oci.s3.access-key=test-access-key",
         "oci.s3.secret-key=test-secret-key",
         "oci.s3.bucket=test-bucket",
-        "oci.s3.region=ap-seoul-1"
+        "oci.s3.region=ap-seoul-1",
+        "app.ai.proxy.max-admin-json-bytes=16",
+        "app.ai.proxy.max-voice-request-bytes=16",
+        "app.ai.proxy.max-chat-persistence-json-bytes=128"
 })
 @DisplayName("AI proxy security integration tests (default mode)")
 class AiProxySecurityIntegrationTest {
@@ -62,9 +82,16 @@ class AiProxySecurityIntegrationTest {
     @MockitoBean
     private AiProxyService aiProxyService;
 
+    @MockitoBean
+    private RateLimitService rateLimitService;
+
+    @MockitoBean
+    private AiChatPersistenceService aiChatPersistenceService;
+
     @BeforeEach
     void setUp() {
-        reset(aiProxyService);
+        reset(aiProxyService, rateLimitService, aiChatPersistenceService);
+        given(rateLimitService.isAllowed(anyString(), anyInt(), anyInt(), anyBoolean())).willReturn(true);
         given(aiProxyService.forwardJson(eq("/ai/chat/completion"), eq(PAYLOAD)))
                 .willReturn(new ProxyByteResponse(HttpStatus.OK, new HttpHeaders(), RESPONSE_BODY));
         given(aiProxyService.forwardGet(eq("/ai/release-decision/presets")))
@@ -80,6 +107,33 @@ class AiProxySecurityIntegrationTest {
                 .andExpect(status().isUnauthorized());
 
         verifyNoInteractions(aiProxyService);
+    }
+
+    @Test
+    @DisplayName("request-limit filter rejects oversized unauthenticated AI requests before auth and rate limit")
+    void chatCompletion_rejectsOversizedUnauthenticatedRequestBeforeSecurityFlow() throws Exception {
+        mockMvc.perform(post(CHAT_ENDPOINT)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(oversizedChatPayload()))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.code").value("AI_PROXY_PAYLOAD_TOO_LARGE"));
+
+        verifyNoInteractions(aiProxyService);
+        verify(rateLimitService, never()).isAllowed(anyString(), anyInt(), anyInt(), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("request-limit filter rejects oversized authenticated AI requests before proxy forwarding")
+    void chatCompletion_rejectsOversizedAuthenticatedRequestBeforeProxyForwarding() throws Exception {
+        mockMvc.perform(post(CHAT_ENDPOINT)
+                        .with(user("tester").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(oversizedChatPayload()))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.code").value("AI_PROXY_PAYLOAD_TOO_LARGE"));
+
+        verifyNoInteractions(aiProxyService);
+        verify(rateLimitService, never()).isAllowed(anyString(), anyInt(), anyInt(), anyBoolean());
     }
 
     @Test
@@ -116,5 +170,81 @@ class AiProxySecurityIntegrationTest {
                 .andExpect(content().bytes(RESPONSE_BODY));
 
         verify(aiProxyService).forwardGet("/ai/release-decision/presets");
+    }
+
+    @Test
+    @DisplayName("request-limit filter rejects oversized admin release decision POST before proxy forwarding")
+    void releaseDecisionDraft_rejectsOversizedAdminRequestBeforeProxyForwarding() throws Exception {
+        mockMvc.perform(post("/api/ai/release-decision/draft")
+                        .with(user("admin").roles("ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scenario\":\"prediction_stage2\"}"))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.code").value("AI_PROXY_PAYLOAD_TOO_LARGE"));
+
+        verifyNoInteractions(aiProxyService);
+        verify(rateLimitService, never()).isAllowed(anyString(), anyInt(), anyInt(), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("request-limit filter rejects oversized voice multipart envelope before proxy forwarding")
+    void chatVoice_rejectsOversizedMultipartEnvelopeBeforeProxyForwarding() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "voice.wav",
+                "audio/wav",
+                new byte[] {1, 2, 3, 4});
+
+        mockMvc.perform(multipart("/api/ai/chat/voice")
+                        .file(file)
+                        .with(user("tester").roles("USER")))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.code").value("AI_PROXY_PAYLOAD_TOO_LARGE"));
+
+        verifyNoInteractions(aiProxyService);
+        verify(rateLimitService, never()).isAllowed(anyString(), anyInt(), anyInt(), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("normal AI chat persistence message request still succeeds")
+    void chatPersistence_allowsNormalUserMessageRequest() throws Exception {
+        given(aiChatPersistenceService.addUserMessage(eq(1L), eq(7L), org.mockito.ArgumentMatchers.any()))
+                .willReturn(new StoredChatMessage(
+                        100L,
+                        7L,
+                        AiChatMessageRole.USER,
+                        AiChatMessageStatus.COMPLETED,
+                        "hello",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        false,
+                        Instant.now(),
+                        Instant.now()));
+
+        mockMvc.perform(post("/api/ai/chat/sessions/7/messages/user")
+                        .with(authentication(UsernamePasswordAuthenticationToken.authenticated(
+                                1L,
+                                "n/a",
+                                AuthorityUtils.createAuthorityList("ROLE_USER"))))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"hello\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true));
+    }
+
+    private String oversizedChatPayload() {
+        return "{\"question\":\"" + "x".repeat(12_500) + "\"}";
     }
 }

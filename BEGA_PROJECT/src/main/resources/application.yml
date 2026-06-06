@@ -209,6 +209,12 @@ app:
       request-timeout-seconds: ${APP_AI_PROXY_REQUEST_TIMEOUT_SECONDS:180}
       health-timeout-ms: ${APP_AI_PROXY_HEALTH_TIMEOUT_MS:1000}
       allow-loopback-service-url-in-prod: ${APP_AI_PROXY_ALLOW_LOOPBACK_SERVICE_URL_IN_PROD:false}
+      max-chat-json-bytes: ${APP_AI_PROXY_MAX_CHAT_JSON_BYTES:12288}
+      max-coach-json-bytes: ${APP_AI_PROXY_MAX_COACH_JSON_BYTES:65536}
+      max-voice-upload-bytes: ${APP_AI_PROXY_MAX_VOICE_UPLOAD_BYTES:10485760}
+      max-voice-request-bytes: ${APP_AI_PROXY_MAX_VOICE_REQUEST_BYTES:10551296}
+      max-admin-json-bytes: ${APP_AI_PROXY_MAX_ADMIN_JSON_BYTES:262144}
+      max-chat-persistence-json-bytes: ${APP_AI_PROXY_MAX_CHAT_PERSISTENCE_JSON_BYTES:131072}
   observability:
     # 기본값은 false. local compose observability 확인이 필요할 때만 명시적으로 엽니다.
     public-prometheus-endpoint: ${APP_OBSERVABILITY_PUBLIC_PROMETHEUS_ENDPOINT:false}

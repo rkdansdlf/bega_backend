@@ -23,15 +23,20 @@ import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
+import com.example.ai.config.AiProxyRequestLimits;
+import com.example.ai.exception.AiProxyPayloadTooLargeException;
 import com.example.common.dto.ApiResponse;
 import com.example.mate.exception.TossPaymentException;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.mock.http.MockHttpInputMessage;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.server.ResponseStatusException;
 
 class GlobalExceptionHandlerTest {
@@ -213,6 +218,33 @@ class GlobalExceptionHandlerTest {
         assertThat(body.getCode()).isEqualTo("BAD_REQUEST");
         // [Security] IllegalStateException은 내부 상태 오류 메시지가 노출되지 않도록 일반 메시지로 대체됨
         assertThat(body.getMessage()).isEqualTo("요청을 처리할 수 없습니다.");
+    }
+
+    @Test
+    void httpMessageNotReadableWithAiPayloadTooLargeCause_returnsPayloadTooLarge() {
+        var ex = new HttpMessageNotReadableException(
+                "AI body too large",
+                new AiProxyPayloadTooLargeException(8L),
+                new MockHttpInputMessage(new byte[0]));
+
+        var response = handler.handleHttpMessageNotReadableException(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE);
+        assertThat(body.getData()).isEqualTo(Map.of("maxBytes", 8L));
+    }
+
+    @Test
+    void multipartExceptionWithAiPayloadTooLargeCause_returnsPayloadTooLarge() {
+        var ex = new MultipartException("AI multipart too large", new AiProxyPayloadTooLargeException(16L));
+
+        var response = handler.handleMultipartException(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+        var body = assertInstanceOf(ApiResponse.class, response.getBody());
+        assertThat(body.getCode()).isEqualTo(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE);
+        assertThat(body.getData()).isEqualTo(Map.of("maxBytes", 16L));
     }
 
     @Test
