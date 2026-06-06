@@ -73,6 +73,12 @@ class HomeControllerTest {
                                 .leagueBadge("정규시즌")
                                 .time("18:30")
                                 .build()))
+                        .loadState(HomeBootstrapLoadStateDto.builder()
+                                .isFallback(false)
+                                .timedOut(false)
+                                .timedOutSections(List.of())
+                                .failedSections(List.of())
+                                .build())
                         .build());
 
         mockMvc.perform(get("/api/home/bootstrap").param("date", "2026-03-15"))
@@ -81,7 +87,32 @@ class HomeControllerTest {
                 .andExpect(jsonPath("$.navigation.prevGameDate").value("2026-03-14"))
                 .andExpect(jsonPath("$.games[0].gameId").value("20260315LGSS0"))
                 .andExpect(jsonPath("$.scheduledGamesWindow[0].sourceDate").value("2026-03-16"))
-                .andExpect(jsonPath("$.scheduledGamesWindow[0].leagueBadge").value("정규시즌"));
+                .andExpect(jsonPath("$.scheduledGamesWindow[0].leagueBadge").value("정규시즌"))
+                .andExpect(jsonPath("$.loadState.isFallback").value(false))
+                .andExpect(jsonPath("$.loadState.timedOut").value(false))
+                .andExpect(jsonPath("$.loadState.timedOutSections").isArray())
+                .andExpect(jsonPath("$.loadState.failedSections").isArray());
+    }
+
+    @Test
+    @DisplayName("홈 bootstrap 서비스 실패 fallback은 loadState에 모든 핵심 섹션 실패를 표시한다")
+    void getBootstrapFallbackMarksAllCoreSectionsFailed() throws Exception {
+        LocalDate selectedDate = LocalDate.of(2026, 3, 15);
+        given(homePageFacadeService.getBootstrap(eq(selectedDate)))
+                .willThrow(new IllegalStateException("db unavailable"));
+
+        mockMvc.perform(get("/api/home/bootstrap").param("date", "2026-03-15"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.selectedDate").value("2026-03-15"))
+                .andExpect(jsonPath("$.games").isArray())
+                .andExpect(jsonPath("$.scheduledGamesWindow").isArray())
+                .andExpect(jsonPath("$.loadState.isFallback").value(true))
+                .andExpect(jsonPath("$.loadState.timedOut").value(false))
+                .andExpect(jsonPath("$.loadState.timedOutSections").isEmpty())
+                .andExpect(jsonPath("$.loadState.failedSections[0]").value("leagueStartDates"))
+                .andExpect(jsonPath("$.loadState.failedSections[1]").value("navigation"))
+                .andExpect(jsonPath("$.loadState.failedSections[2]").value("games"))
+                .andExpect(jsonPath("$.loadState.failedSections[3]").value("scheduledGamesWindow"));
     }
 
     @Test

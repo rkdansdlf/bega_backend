@@ -59,6 +59,20 @@ class HomePageGameServiceTest {
     }
 
     @Test
+    @DisplayName("홈 일정 캐시 키는 기존 날짜별 경기 캐시와 충돌하지 않도록 prefix를 포함한다")
+    void homeScheduleCacheKeysUseScopedPrefixes() {
+        LocalDate selectedDate = LocalDate.of(2026, 4, 13);
+        LocalDate endDate = LocalDate.of(2026, 4, 20);
+
+        assertThat(homePageGameService.buildScheduledGamesWindowCacheKey(selectedDate, endDate))
+                .isEqualTo("scheduledWindow:2026-04-13:2026-04-20");
+        assertThat(homePageGameService.buildScheduleNavigationCacheKey(selectedDate))
+                .isEqualTo("navigation:2026-04-13");
+        assertThat(homePageGameService.buildScopedNavigationCacheKey(selectedDate, "SCHEDULED", 2026))
+                .isEqualTo("scopedNavigation:2026-04-13:scheduled:2026");
+    }
+
+    @Test
     @DisplayName("리그 시작일은 운영자 제공 kbo_seasons 시작일을 우선 사용한다")
     void getLeagueStartDates_prefersConfiguredSeasonStartDates() {
         int seasonYear = LocalDate.now().getYear();

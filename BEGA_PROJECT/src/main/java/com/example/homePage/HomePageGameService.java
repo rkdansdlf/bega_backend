@@ -90,6 +90,21 @@ public class HomePageGameService {
         return teamMap.getOrDefault(teamId, new HomePageTeam());
     }
 
+    public String buildScheduledGamesWindowCacheKey(LocalDate startDate, LocalDate endDate) {
+        return "scheduledWindow:" + startDate + ":" + endDate;
+    }
+
+    public String buildScheduleNavigationCacheKey(LocalDate date) {
+        return "navigation:" + date;
+    }
+
+    public String buildScopedNavigationCacheKey(LocalDate date, String scope, Integer seasonYear) {
+        LocalDate anchorDate = date == null ? LocalDate.now() : date;
+        String normalizedScope = normalizeNavigationScope(scope);
+        String normalizedSeasonYear = seasonYear == null ? "auto" : seasonYear.toString();
+        return "scopedNavigation:" + anchorDate + ":" + normalizedScope + ":" + normalizedSeasonYear;
+    }
+
     @Cacheable(value = GAME_SCHEDULE, key = "#date.toString()")
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<HomePageGameDto> getGamesByDate(LocalDate date) {
@@ -114,6 +129,7 @@ public class HomePageGameService {
                 .collect(Collectors.toList());
     }
 
+    @Cacheable(value = GAME_SCHEDULE, key = "#root.target.buildScheduledGamesWindowCacheKey(#startDate, #endDate)")
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<HomePageScheduledGameDto> getScheduledGamesWindow(LocalDate startDate, LocalDate endDate) {
         List<GameEntity> games = gameRepository.findScheduledGamesByDateRange(
@@ -372,6 +388,7 @@ public class HomePageGameService {
     }
 
     // 날짜 네비게이션 정보 조회
+    @Cacheable(value = GAME_SCHEDULE, key = "#root.target.buildScheduleNavigationCacheKey(#date)")
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public ScheduleNavigationDto getScheduleNavigation(LocalDate date) {
         LocalDate prev = gameRepository.findPrevGameDate(date).orElse(null);
@@ -385,6 +402,7 @@ public class HomePageGameService {
                 .build();
     }
 
+    @Cacheable(value = GAME_SCHEDULE, key = "#root.target.buildScopedNavigationCacheKey(#date, #scope, #seasonYear)")
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public HomeScopedNavigationDto getScopedNavigation(LocalDate date, String scope, Integer seasonYear) {
         LocalDate anchorDate = date == null ? LocalDate.now() : date;
