@@ -548,6 +548,8 @@ public class SecurityConfig {
                                                 .authenticated()
                                                 .requestMatchers(HttpMethod.GET, "/api/predictions/status/**")
                                                 .permitAll()
+                                                .requestMatchers(HttpMethod.GET, "/api/predictions/bootstrap")
+                                                .permitAll()
                                                 .requestMatchers(HttpMethod.GET, "/api/predictions/ranking/current-season")
                                                 .permitAll()
                                                 .requestMatchers(HttpMethod.GET, "/api/predictions/ranking/share/**")

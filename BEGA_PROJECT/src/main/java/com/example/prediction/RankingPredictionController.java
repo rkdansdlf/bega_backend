@@ -1,7 +1,6 @@
 package com.example.prediction;
 
 import java.security.Principal;
-import java.util.Map;
 import java.util.regex.Pattern;
 
 import com.example.common.exception.AuthenticationRequiredException;
@@ -35,16 +34,16 @@ public class RankingPredictionController {
 
 	@PreAuthorize("permitAll()")
 	@GetMapping("/current-season")
-	public ResponseEntity<?> getCurrentSeason() {
+	public ResponseEntity<RankingPredictionCurrentSeasonDto> getCurrentSeason() {
 		int currentSeason = rankingPredictionService.getCurrentSeason();
-		return ResponseEntity.ok(Map.of("seasonYear", currentSeason));
+		return ResponseEntity.ok(new RankingPredictionCurrentSeasonDto(currentSeason));
 	}
 
 	// 예측 저장 요청
 
 	@PreAuthorize("isAuthenticated()")
 	@PostMapping
-	public ResponseEntity<?> savePrediction(
+	public ResponseEntity<RankingPredictionResponseDto> savePrediction(
 			Principal principal, @Valid @RequestBody RankingPredictionRequestDto requestDto) {
 		Principal authenticatedPrincipal = requirePrincipal(principal);
 		RankingPredictionResponseDto savedDto = rankingPredictionService.savePrediction(
@@ -78,7 +77,7 @@ public class RankingPredictionController {
 	// 공유용 예측 조회 (로그인 불필요)
 	@PreAuthorize("permitAll()")
 	@GetMapping("/share/{shareId}/{seasonYear}")
-	public ResponseEntity<?> getSharedPrediction(
+	public ResponseEntity<RankingPredictionResponseDto> getSharedPrediction(
 			@PathVariable String shareId,
 			@PathVariable int seasonYear) {
 
