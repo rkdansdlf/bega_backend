@@ -2,9 +2,12 @@ package com.example.prediction;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-public record RankingPredictionInitDto(
+public record PredictionBootstrapErrorDto(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
-        int seasonYear,
+        String message,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
-        RankingPredictionResponseDto saved
-) {}
+        Integer status,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
+        String code
+) {
+}
