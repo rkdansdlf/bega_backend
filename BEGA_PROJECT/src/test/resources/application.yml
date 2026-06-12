@@ -59,6 +59,13 @@ ai:
   service-url: http://localhost:8001
 
 app:
+  home:
+    bootstrap:
+      warmup:
+        enabled: false
+  prediction:
+    warmup:
+      enabled: false
   ai:
     coach-auto-brief:
       monitoring:

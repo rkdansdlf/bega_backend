@@ -51,6 +51,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
@@ -86,6 +87,7 @@ public class PredictionService {
             .collect(Collectors.toList());
     private static final int MAX_VOTE_RETRY_ATTEMPTS = 2;
     private static final long MAX_SNAPSHOT_SYNC_RANGE_DAYS = 31;
+    private static final long MATCH_DAY_SLOW_LOG_THRESHOLD_MS = 1000L;
     private static final String MATCH_NOT_FOUND_CODE = "MATCH_NOT_FOUND";
 
     public PredictionService(
@@ -168,8 +170,10 @@ public class PredictionService {
                 .collect(Collectors.toList()));
     }
 
+    @Cacheable(value = CacheConfig.PREDICTION_MATCH_DAY, key = "#date.toString()", sync = true)
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public MatchDayNavigationResponseDto getMatchDayNavigation(LocalDate date) {
+        long startedAtNanos = System.nanoTime();
         LocalDate targetDate = Objects.requireNonNull(date, "조회 날짜가 올바르지 않습니다.");
         List<MatchRangeProjection> rawMatches = gameRepository.findCanonicalRangeProjectionByGameDate(
                 targetDate,
@@ -196,6 +200,7 @@ public class PredictionService {
         LocalDate prevDate = adjacentDates == null ? null : adjacentDates.getPrevDate();
         LocalDate nextDate = adjacentDates == null ? null : adjacentDates.getNextDate();
 
+        logSlowMatchDayNavigationMiss(startedAtNanos, targetDate, matches.size(), prevDate, nextDate);
         return new MatchDayNavigationResponseDto(
                 targetDate,
                 matches,
@@ -204,6 +209,26 @@ public class PredictionService {
                 prevDate != null,
                 nextDate != null
         );
+    }
+
+    private void logSlowMatchDayNavigationMiss(
+            long startedAtNanos,
+            LocalDate targetDate,
+            int matchCount,
+            LocalDate prevDate,
+            LocalDate nextDate) {
+        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
+        if (elapsedMs < MATCH_DAY_SLOW_LOG_THRESHOLD_MS) {
+            return;
+        }
+
+        log.warn(
+                "prediction.match_day.slow_cache_miss date={} elapsedMs={} matchCount={} hasPrev={} hasNext={}",
+                targetDate,
+                elapsedMs,
+                matchCount,
+                prevDate != null,
+                nextDate != null);
     }
 
     private boolean isCanonicalOffDay(CanonicalAdjacentGameDatesProjection adjacentDates) {

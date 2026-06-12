@@ -213,6 +213,19 @@ app:
       warmup:
         enabled: ${APP_HOME_BOOTSTRAP_WARMUP_ENABLED:true}
         fixed-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_FIXED_DELAY_MS:50000}
+        partial-retry-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_PARTIAL_RETRY_DELAY_MS:500}
+        section-timeout-ms: ${APP_HOME_BOOTSTRAP_WARMUP_SECTION_TIMEOUT_MS:8000}
+    widgets:
+      section-timeout-ms: ${APP_HOME_WIDGETS_SECTION_TIMEOUT_MS:1200}
+  prediction:
+    warmup:
+      enabled: ${APP_PREDICTION_WARMUP_ENABLED:true}
+      fixed-delay-ms: ${APP_PREDICTION_WARMUP_FIXED_DELAY_MS:50000}
+      initial-delay-ms: ${APP_PREDICTION_WARMUP_INITIAL_DELAY_MS:7000}
+      detail:
+        enabled: ${APP_PREDICTION_WARMUP_DETAIL_ENABLED:true}
+      vote-status:
+        enabled: ${APP_PREDICTION_WARMUP_VOTE_STATUS_ENABLED:true}
   flyway:
     auto-repair: ${APP_FLYWAY_AUTO_REPAIR:false}
   ai:

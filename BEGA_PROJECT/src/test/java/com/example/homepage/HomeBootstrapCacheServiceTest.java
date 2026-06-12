@@ -101,6 +101,34 @@ class HomeBootstrapCacheServiceTest {
     }
 
     @Test
+    @DisplayName("section 실패 목록이 있으면 fallback flag가 false여도 cache에 저장하지 않는다")
+    void getOrLoadSkipsBootstrapStoreWhenFailedSectionsArePresent() {
+        ConcurrentMapCacheManager cacheManager = new ConcurrentMapCacheManager(HOME_BOOTSTRAP);
+        HomeBootstrapCacheService service =
+                new HomeBootstrapCacheService(cacheManager, FIXED_CLOCK, new SimpleMeterRegistry());
+        LocalDate selectedDate = LocalDate.of(2026, 6, 7);
+        String cacheKey = service.buildCacheKey(selectedDate);
+
+        service.getOrLoad(selectedDate, () -> sampleResponse(false, false, List.of(), List.of("games")));
+
+        assertThat(cacheManager.getCache(HOME_BOOTSTRAP).get(cacheKey)).isNull();
+    }
+
+    @Test
+    @DisplayName("section timeout 목록이 있으면 timeout flag가 false여도 cache에 저장하지 않는다")
+    void getOrLoadSkipsBootstrapStoreWhenTimedOutSectionsArePresent() {
+        ConcurrentMapCacheManager cacheManager = new ConcurrentMapCacheManager(HOME_BOOTSTRAP);
+        HomeBootstrapCacheService service =
+                new HomeBootstrapCacheService(cacheManager, FIXED_CLOCK, new SimpleMeterRegistry());
+        LocalDate selectedDate = LocalDate.of(2026, 6, 7);
+        String cacheKey = service.buildCacheKey(selectedDate);
+
+        service.getOrLoad(selectedDate, () -> sampleResponse(false, false, List.of("games"), List.of()));
+
+        assertThat(cacheManager.getCache(HOME_BOOTSTRAP).get(cacheKey)).isNull();
+    }
+
+    @Test
     @DisplayName("cache lookup 실패는 loader fallback으로 처리하고 성공 응답은 저장을 시도한다")
     void getOrLoadFallsBackToLoaderWhenCacheLookupFails() {
         CacheManager cacheManager = mock(CacheManager.class);
@@ -140,6 +168,18 @@ class HomeBootstrapCacheServiceTest {
     }
 
     private HomeBootstrapResponseDto sampleResponse(boolean fallback, boolean timedOut) {
+        return sampleResponse(
+                fallback,
+                timedOut,
+                timedOut ? List.of("games") : List.of(),
+                fallback ? List.of("games") : List.of());
+    }
+
+    private HomeBootstrapResponseDto sampleResponse(
+            boolean fallback,
+            boolean timedOut,
+            List<String> timedOutSections,
+            List<String> failedSections) {
         return HomeBootstrapResponseDto.builder()
                 .selectedDate("2026-06-07")
                 .leagueStartDates(LeagueStartDatesDto.builder()
@@ -174,8 +214,8 @@ class HomeBootstrapCacheServiceTest {
                 .loadState(HomeBootstrapLoadStateDto.builder()
                         .isFallback(fallback)
                         .timedOut(timedOut)
-                        .timedOutSections(timedOut ? List.of("games") : List.of())
-                        .failedSections(fallback ? List.of("games") : List.of())
+                        .timedOutSections(timedOutSections)
+                        .failedSections(failedSections)
                         .build())
                 .build();
     }

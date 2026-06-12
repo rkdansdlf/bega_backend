@@ -7,6 +7,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
@@ -105,7 +106,7 @@ public class HomeBootstrapCacheService {
     private void storeIfCacheable(String cacheKey, HomeBootstrapResponseDto response, String operation) {
         if (!isCacheable(response)) {
             recordCacheEvent(operation, "skipped");
-            log.warn("event=home_bootstrap_cache_store_skipped key={} operation={}", cacheKey, operation);
+            log.info("event=home_bootstrap_cache_store_skipped key={} operation={}", cacheKey, operation);
             return;
         }
 
@@ -151,8 +152,15 @@ public class HomeBootstrapCacheService {
         if (response == null || response.getLoadState() == null) {
             return false;
         }
-        return !Boolean.TRUE.equals(response.getLoadState().getIsFallback())
-                && !Boolean.TRUE.equals(response.getLoadState().getTimedOut());
+        HomeBootstrapLoadStateDto loadState = response.getLoadState();
+        return !Boolean.TRUE.equals(loadState.getIsFallback())
+                && !Boolean.TRUE.equals(loadState.getTimedOut())
+                && !hasSections(loadState.getTimedOutSections())
+                && !hasSections(loadState.getFailedSections());
+    }
+
+    private boolean hasSections(List<String> sections) {
+        return sections != null && !sections.isEmpty();
     }
 
     private void recordCacheEvent(String operation, String result) {

@@ -61,6 +61,31 @@
       "description": "Scheduled home bootstrap cache warm-up settings."
     },
     {
+      "name": "app.home.widgets",
+      "type": "java.lang.Object",
+      "description": "Home widgets aggregation settings."
+    },
+    {
+      "name": "app.prediction",
+      "type": "java.lang.Object",
+      "description": "Prediction page bootstrap and warm-up settings."
+    },
+    {
+      "name": "app.prediction.warmup",
+      "type": "java.lang.Object",
+      "description": "Scheduled prediction cache warm-up settings."
+    },
+    {
+      "name": "app.prediction.warmup.detail",
+      "type": "java.lang.Object",
+      "description": "Prediction game detail warm-up settings."
+    },
+    {
+      "name": "app.prediction.warmup.vote-status",
+      "type": "java.lang.Object",
+      "description": "Prediction aggregate vote status warm-up settings."
+    },
+    {
       "name": "app.flyway",
       "type": "java.lang.Object",
       "description": "Application-level Flyway safety controls."
@@ -326,6 +351,46 @@
       "name": "app.home.bootstrap.warmup.fixed-delay-ms",
       "type": "java.lang.Long",
       "description": "Fixed delay in milliseconds between home bootstrap warm-up attempts."
+    },
+    {
+      "name": "app.home.bootstrap.warmup.partial-retry-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Delay in milliseconds before retrying a partial home bootstrap warm-up response."
+    },
+    {
+      "name": "app.home.bootstrap.warmup.section-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Maximum wait time per home bootstrap section during scheduled warm-up refresh."
+    },
+    {
+      "name": "app.home.widgets.section-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Maximum wait time per home widgets section before returning that section's fallback payload."
+    },
+    {
+      "name": "app.prediction.warmup.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the backend periodically warms server-today prediction schedule data."
+    },
+    {
+      "name": "app.prediction.warmup.fixed-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Fixed delay in milliseconds between prediction warm-up attempts."
+    },
+    {
+      "name": "app.prediction.warmup.initial-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Initial delay in milliseconds before the first prediction warm-up attempt."
+    },
+    {
+      "name": "app.prediction.warmup.detail.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether prediction warm-up should load game detail resources."
+    },
+    {
+      "name": "app.prediction.warmup.vote-status.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether prediction warm-up should load aggregate vote status resources."
     },
     {
       "name": "app.flyway.auto-repair",

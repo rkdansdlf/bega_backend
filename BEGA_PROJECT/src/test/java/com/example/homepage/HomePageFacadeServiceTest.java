@@ -18,7 +18,10 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -172,6 +175,7 @@ class HomePageFacadeServiceTest {
         assertThat(response.getRankingSnapshot().getRankingSourceMessage()).isEqualTo("2025 시즌 순위 데이터");
         assertThat(response.getRankingSnapshot().isOffSeason()).isTrue();
         assertThat(response.getRankingSnapshot().getRankings()).hasSize(1);
+        assertThat(homePageFacadeService.isUncacheableWidgetsResponse(response)).isFalse();
         verify(partyService).getFeaturedMateCards(selectedDate, 4);
     }
 
@@ -204,6 +208,48 @@ class HomePageFacadeServiceTest {
     }
 
     @Test
+    @DisplayName("랭킹 스냅샷 cache service가 있으면 facade는 cache를 통해 조회한다")
+    void getRankingSnapshotDelegatesToRankingSnapshotCacheService() {
+        LocalDate selectedDate = LocalDate.of(2026, 3, 15);
+        HomeRankingSnapshotCacheService rankingSnapshotCacheService = mock(HomeRankingSnapshotCacheService.class);
+        HomePageFacadeService cachedService = new HomePageFacadeService(
+                homePageGameService,
+                cheerService,
+                partyService,
+                null,
+                rankingSnapshotCacheService,
+                Duration.ofSeconds(6),
+                Duration.ofSeconds(6),
+                FIXED_CLOCK,
+                null,
+                null);
+        HomeRankingSnapshotDto cachedSnapshot = HomeRankingSnapshotDto.builder()
+                .rankingSeasonYear(2024)
+                .rankingSourceMessage("2024 시즌 순위 데이터")
+                .isOffSeason(false)
+                .rankings(List.of(HomePageTeamRankingDto.builder()
+                        .rank(1)
+                        .teamId("LG")
+                        .teamName("LG 트윈스")
+                        .wins(80)
+                        .losses(50)
+                        .draws(2)
+                        .winRate("0.615")
+                        .games(132)
+                        .gamesBehind(0.0)
+                        .build()))
+                .build();
+        when(rankingSnapshotCacheService.getOrLoad(eq(selectedDate), eq(2024), any()))
+                .thenReturn(cachedSnapshot);
+
+        HomeRankingSnapshotDto response = cachedService.getRankingSnapshot(selectedDate, 2024);
+
+        assertThat(response).isSameAs(cachedSnapshot);
+        verify(rankingSnapshotCacheService).getOrLoad(eq(selectedDate), eq(2024), any());
+        verify(homePageGameService, never()).getTeamRankings(2024);
+    }
+
+    @Test
     @DisplayName("widgets 자동 랭킹 fallback은 비시즌이면 이전 시즌 라벨을 유지한다")
     void getWidgetsKeepsPreviousSeasonLabelWhenAutoRankingFallbackOccursDuringOffSeason() {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
@@ -223,6 +269,94 @@ class HomePageFacadeServiceTest {
         assertThat(response.getRankingSnapshot().getRankingSourceMessage()).isEqualTo("순위 데이터를 불러오지 못했습니다.");
         assertThat(response.getRankingSnapshot().isOffSeason()).isTrue();
         assertThat(response.getRankingSnapshot().getRankings()).isEmpty();
+        assertThat(homePageFacadeService.isUncacheableWidgetsResponse(response)).isTrue();
+    }
+
+    @Test
+    @DisplayName("widgets는 랭킹 스냅샷이 지연되면 fallback으로 빠르게 응답한다")
+    void getWidgetsFallsBackWhenRankingSnapshotTimesOut() {
+        HomePageFacadeService timeoutAwareService =
+                new HomePageFacadeService(homePageGameService, cheerService, partyService, Duration.ofMillis(80), FIXED_CLOCK);
+        LocalDate selectedDate = LocalDate.of(2026, 3, 15);
+        when(cheerService.getHotPostsPublic(PageRequest.of(0, 3), "HYBRID"))
+                .thenReturn(new PageImpl<>(List.of()));
+        when(partyService.getFeaturedMateCards(selectedDate, 4)).thenReturn(List.of());
+        when(homePageGameService.getLeagueStartDates()).thenReturn(LeagueStartDatesDto.builder()
+                .regularSeasonStart("2026-03-22")
+                .postseasonStart("2026-10-06")
+                .koreanSeriesStart("2026-10-26")
+                .build());
+        when(homePageGameService.getTeamRankings(2025)).thenAnswer(invocation -> {
+            Thread.sleep(200);
+            return List.of(HomePageTeamRankingDto.builder()
+                    .rank(1)
+                    .teamId("LG")
+                    .teamName("LG 트윈스")
+                    .wins(80)
+                    .losses(50)
+                    .draws(2)
+                    .winRate("0.615")
+                    .games(132)
+                    .gamesBehind(0.0)
+                    .build());
+        });
+
+        long startedAt = System.nanoTime();
+        HomeWidgetsResponseDto response = timeoutAwareService.getWidgets(selectedDate, null);
+        long elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
+
+        assertThat(response.getHotCheerPosts()).isEmpty();
+        assertThat(response.getFeaturedMates()).isEmpty();
+        assertThat(response.getRankingSnapshot().getRankingSeasonYear()).isEqualTo(2025);
+        assertThat(response.getRankingSnapshot().getRankingSourceMessage()).isEqualTo("순위 데이터를 불러오지 못했습니다.");
+        assertThat(response.getRankingSnapshot().isOffSeason()).isTrue();
+        assertThat(response.getRankingSnapshot().getRankings()).isEmpty();
+        assertThat(timeoutAwareService.isUncacheableWidgetsResponse(response)).isTrue();
+        assertThat(elapsedMs).isLessThan(250L);
+    }
+
+    @Test
+    @DisplayName("widgets는 메이트 카드가 지연되면 해당 섹션만 fallback으로 빠르게 응답한다")
+    void getWidgetsFallsBackWhenFeaturedMatesTimeOut() {
+        HomePageFacadeService timeoutAwareService =
+                new HomePageFacadeService(homePageGameService, cheerService, partyService, Duration.ofMillis(80), FIXED_CLOCK);
+        LocalDate selectedDate = LocalDate.of(2026, 3, 15);
+        when(cheerService.getHotPostsPublic(PageRequest.of(0, 3), "HYBRID"))
+                .thenReturn(new PageImpl<>(List.of()));
+        when(partyService.getFeaturedMateCards(selectedDate, 4)).thenAnswer(invocation -> {
+            Thread.sleep(200);
+            return List.of(FeaturedMateCardDto.builder()
+                    .id(99L)
+                    .teamId("LG")
+                    .gameDate("2026-03-16")
+                    .gameTime("18:30")
+                    .stadium("잠실야구장")
+                    .section("1루 내야")
+                    .homeTeam("LG")
+                    .awayTeam("SS")
+                    .currentParticipants(1)
+                    .maxParticipants(4)
+                    .build());
+        });
+        when(homePageGameService.getLeagueStartDates()).thenReturn(LeagueStartDatesDto.builder()
+                .regularSeasonStart("2026-03-22")
+                .postseasonStart("2026-10-06")
+                .koreanSeriesStart("2026-10-26")
+                .build());
+        when(homePageGameService.getTeamRankings(2025)).thenReturn(List.of());
+        when(homePageGameService.getTeamRankings(2024)).thenReturn(List.of());
+
+        long startedAt = System.nanoTime();
+        HomeWidgetsResponseDto response = timeoutAwareService.getWidgets(selectedDate, null);
+        long elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
+
+        assertThat(response.getHotCheerPosts()).isEmpty();
+        assertThat(response.getFeaturedMates()).isEmpty();
+        assertThat(response.getRankingSnapshot().getRankingSeasonYear()).isEqualTo(2025);
+        assertThat(response.getRankingSnapshot().getRankingSourceMessage()).isEqualTo("현재 시즌과 전시즌(전년도) 데이터가 없습니다.");
+        assertThat(response.getRankingSnapshot().isOffSeason()).isTrue();
+        assertThat(response.getRankingSnapshot().getRankings()).isEmpty();
+        assertThat(elapsedMs).isLessThan(250L);
     }
 
     @Test
@@ -264,6 +398,56 @@ class HomePageFacadeServiceTest {
         assertThat(response.getLoadState().getTimedOutSections()).containsExactly("leagueStartDates");
         assertThat(response.getLoadState().getFailedSections()).containsExactly("leagueStartDates");
         assertThat(elapsedMs).isLessThan(250L);
+    }
+
+    @Test
+    @DisplayName("bootstrap은 이전 대기 섹션이 timeout되어도 이미 완료된 다음 섹션을 timeout 처리하지 않는다")
+    void getBootstrapUsesCompletedLaterSectionsAfterEarlierSectionTimeout() {
+        HomePageFacadeService timeoutAwareService =
+                new HomePageFacadeService(homePageGameService, cheerService, partyService, Duration.ofMillis(40), FIXED_CLOCK);
+        LocalDate selectedDate = LocalDate.of(2026, 3, 15);
+
+        when(homePageGameService.getLeagueStartDates()).thenReturn(LeagueStartDatesDto.builder()
+                .regularSeasonStart("2026-03-22")
+                .postseasonStart("2026-10-06")
+                .koreanSeriesStart("2026-10-26")
+                .build());
+        when(homePageGameService.getScheduleNavigation(selectedDate)).thenAnswer(invocation -> {
+            Thread.sleep(100);
+            return ScheduleNavigationDto.builder()
+                    .prevGameDate(LocalDate.of(2026, 3, 14))
+                    .nextGameDate(LocalDate.of(2026, 3, 16))
+                    .hasPrev(true)
+                    .hasNext(true)
+                    .build();
+        });
+        when(homePageGameService.getGamesByDate(selectedDate)).thenReturn(List.of(HomePageGameDto.builder()
+                .gameId("20260315LGSS0")
+                .gameDate("2026-03-15")
+                .leagueType("REGULAR")
+                .homeTeam("LG")
+                .awayTeam("SS")
+                .build()));
+        when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
+                .thenReturn(List.of(HomePageScheduledGameDto.builder()
+                        .gameId("20260316LGSS0")
+                        .sourceDate("2026-03-16")
+                        .leagueBadge("정규시즌")
+                        .time("18:30")
+                        .homeTeam("LG")
+                        .awayTeam("SS")
+                        .build()));
+
+        HomeBootstrapResponseDto response = timeoutAwareService.getBootstrap(selectedDate);
+
+        assertThat(response.getNavigation().isHasPrev()).isFalse();
+        assertThat(response.getGames()).hasSize(1);
+        assertThat(response.getScheduledGamesWindow()).hasSize(1);
+        assertThat(response.getLeagueStartDates().getRegularSeasonStart()).isEqualTo("2026-03-22");
+        assertThat(response.getLoadState().getIsFallback()).isTrue();
+        assertThat(response.getLoadState().getTimedOut()).isTrue();
+        assertThat(response.getLoadState().getTimedOutSections()).containsExactly("navigation");
+        assertThat(response.getLoadState().getFailedSections()).containsExactly("navigation");
     }
 
     @Test
