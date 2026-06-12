@@ -91,7 +91,8 @@ class HomeControllerTest {
                 .andExpect(jsonPath("$.loadState.isFallback").value(false))
                 .andExpect(jsonPath("$.loadState.timedOut").value(false))
                 .andExpect(jsonPath("$.loadState.timedOutSections").isArray())
-                .andExpect(jsonPath("$.loadState.failedSections").isArray());
+                .andExpect(jsonPath("$.loadState.failedSections").isArray())
+                .andExpect(jsonPath("$.rankingSnapshot").doesNotExist());
     }
 
     @Test
@@ -112,7 +113,8 @@ class HomeControllerTest {
                 .andExpect(jsonPath("$.loadState.failedSections[0]").value("leagueStartDates"))
                 .andExpect(jsonPath("$.loadState.failedSections[1]").value("navigation"))
                 .andExpect(jsonPath("$.loadState.failedSections[2]").value("games"))
-                .andExpect(jsonPath("$.loadState.failedSections[3]").value("scheduledGamesWindow"));
+                .andExpect(jsonPath("$.loadState.failedSections[3]").value("scheduledGamesWindow"))
+                .andExpect(jsonPath("$.rankingSnapshot").doesNotExist());
     }
 
     @Test

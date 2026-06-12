@@ -21,6 +21,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,17 +36,25 @@ import org.springframework.transaction.annotation.Transactional;
 public class HomePageFacadeService {
 
     private static final Duration DEFAULT_SECTION_TIMEOUT = Duration.ofMillis(2500);
+    private static final Duration DEFAULT_WIDGETS_SECTION_TIMEOUT = Duration.ofMillis(1200);
     private static final String SECTION_TIMEOUT_PROPERTY = "${app.home.bootstrap.section-timeout-ms:2500}";
+    private static final String WIDGETS_SECTION_TIMEOUT_PROPERTY = "${app.home.widgets.section-timeout-ms:1200}";
+    private static final String RANKING_FALLBACK_SOURCE_MESSAGE = "순위 데이터를 불러오지 못했습니다.";
     private static final String SECTION_LEAGUE_START_DATES = "leagueStartDates";
     private static final String SECTION_NAVIGATION = "navigation";
     private static final String SECTION_GAMES = "games";
     private static final String SECTION_SCHEDULED_GAMES_WINDOW = "scheduledGamesWindow";
+    private static final String SECTION_HOT_CHEER_POSTS = "hotCheerPosts";
+    private static final String SECTION_FEATURED_MATES = "featuredMates";
+    private static final String SECTION_RANKING_SNAPSHOT = "rankingSnapshot";
 
     private final HomePageGameService homePageGameService;
     private final CheerService cheerService;
     private final PartyService partyService;
     private final HomeBootstrapCacheService homeBootstrapCacheService;
+    private final HomeRankingSnapshotCacheService homeRankingSnapshotCacheService;
     private final Duration sectionTimeout;
+    private final Duration widgetsSectionTimeout;
     private final Clock clock;
     private final ExecutorService sectionExecutor;
     private final MeterRegistry meterRegistry;
@@ -59,7 +68,9 @@ public class HomePageFacadeService {
                 cheerService,
                 partyService,
                 null,
+                null,
                 DEFAULT_SECTION_TIMEOUT,
+                DEFAULT_WIDGETS_SECTION_TIMEOUT,
                 Clock.systemDefaultZone(),
                 Executors.newVirtualThreadPerTaskExecutor(),
                 Metrics.globalRegistry);
@@ -71,14 +82,18 @@ public class HomePageFacadeService {
             CheerService cheerService,
             PartyService partyService,
             HomeBootstrapCacheService homeBootstrapCacheService,
+            HomeRankingSnapshotCacheService homeRankingSnapshotCacheService,
             @Value(SECTION_TIMEOUT_PROPERTY) long sectionTimeoutMs,
+            @Value(WIDGETS_SECTION_TIMEOUT_PROPERTY) long widgetsSectionTimeoutMs,
             MeterRegistry meterRegistry) {
         this(
                 homePageGameService,
                 cheerService,
                 partyService,
                 homeBootstrapCacheService,
+                homeRankingSnapshotCacheService,
                 Duration.ofMillis(sectionTimeoutMs),
+                Duration.ofMillis(widgetsSectionTimeoutMs),
                 Clock.systemDefaultZone(),
                 Executors.newVirtualThreadPerTaskExecutor(),
                 meterRegistry);
@@ -94,6 +109,8 @@ public class HomePageFacadeService {
                 cheerService,
                 partyService,
                 null,
+                null,
+                sectionTimeout,
                 sectionTimeout,
                 Clock.systemDefaultZone(),
                 Executors.newVirtualThreadPerTaskExecutor(),
@@ -111,6 +128,8 @@ public class HomePageFacadeService {
                 cheerService,
                 partyService,
                 null,
+                null,
+                sectionTimeout,
                 sectionTimeout,
                 clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
@@ -129,6 +148,8 @@ public class HomePageFacadeService {
                 cheerService,
                 partyService,
                 null,
+                null,
+                sectionTimeout,
                 sectionTimeout,
                 clock,
                 sectionExecutor,
@@ -140,7 +161,9 @@ public class HomePageFacadeService {
             CheerService cheerService,
             PartyService partyService,
             HomeBootstrapCacheService homeBootstrapCacheService,
+            HomeRankingSnapshotCacheService homeRankingSnapshotCacheService,
             Duration sectionTimeout,
+            Duration widgetsSectionTimeout,
             Clock clock,
             ExecutorService sectionExecutor,
             MeterRegistry meterRegistry) {
@@ -148,9 +171,15 @@ public class HomePageFacadeService {
         this.cheerService = cheerService;
         this.partyService = partyService;
         this.homeBootstrapCacheService = homeBootstrapCacheService;
+        this.homeRankingSnapshotCacheService = homeRankingSnapshotCacheService;
         this.sectionTimeout = (sectionTimeout == null || sectionTimeout.isZero() || sectionTimeout.isNegative())
                 ? DEFAULT_SECTION_TIMEOUT
                 : sectionTimeout;
+        this.widgetsSectionTimeout = (widgetsSectionTimeout == null
+                || widgetsSectionTimeout.isZero()
+                || widgetsSectionTimeout.isNegative())
+                ? DEFAULT_WIDGETS_SECTION_TIMEOUT
+                : widgetsSectionTimeout;
         this.clock = clock == null ? Clock.systemDefaultZone() : clock;
         this.sectionExecutor = sectionExecutor == null
                 ? Executors.newVirtualThreadPerTaskExecutor()
@@ -167,15 +196,25 @@ public class HomePageFacadeService {
     }
 
     HomeBootstrapResponseDto refreshBootstrap(LocalDate date) {
+        return refreshBootstrap(date, sectionTimeout);
+    }
+
+    HomeBootstrapResponseDto refreshBootstrap(LocalDate date, Duration overrideSectionTimeout) {
         LocalDate selectedDate = date == null ? LocalDate.now(clock) : date;
+        Duration effectiveSectionTimeout = normalizeSectionTimeout(overrideSectionTimeout);
         if (homeBootstrapCacheService == null) {
-            return loadBootstrapUncached(selectedDate);
+            return loadBootstrapUncached(selectedDate, effectiveSectionTimeout);
         }
-        return homeBootstrapCacheService.refresh(selectedDate, () -> loadBootstrapUncached(selectedDate));
+        return homeBootstrapCacheService.refresh(selectedDate, () -> loadBootstrapUncached(selectedDate, effectiveSectionTimeout));
     }
 
     HomeBootstrapResponseDto loadBootstrapUncached(LocalDate date) {
+        return loadBootstrapUncached(date, sectionTimeout);
+    }
+
+    HomeBootstrapResponseDto loadBootstrapUncached(LocalDate date, Duration overrideSectionTimeout) {
         LocalDate selectedDate = date == null ? LocalDate.now(clock) : date;
+        Duration effectiveSectionTimeout = normalizeSectionTimeout(overrideSectionTimeout);
         long bootstrapStartedAt = System.nanoTime();
 
         SectionTask<LeagueStartDatesDto> leagueStartDatesTask = submitSection(
@@ -192,13 +231,13 @@ public class HomePageFacadeService {
                 submitSection(sectionExecutor, SECTION_SCHEDULED_GAMES_WINDOW, () -> getScheduledGamesWindowForBootstrap(selectedDate));
 
         SectionResult<HomeScheduleNavigationDto> navigationResult =
-                awaitSection(selectedDate, navigationTask, buildFallbackNavigation());
+                awaitSection(selectedDate, navigationTask, buildFallbackNavigation(), effectiveSectionTimeout);
         SectionResult<List<HomePageGameDto>> gamesResult =
-                awaitSection(selectedDate, gamesTask, List.of());
+                awaitSection(selectedDate, gamesTask, List.of(), effectiveSectionTimeout);
         SectionResult<List<HomePageScheduledGameDto>> scheduledGamesResult =
-                awaitSection(selectedDate, scheduledGamesTask, List.of());
+                awaitSection(selectedDate, scheduledGamesTask, List.of(), effectiveSectionTimeout);
         SectionResult<LeagueStartDatesDto> leagueStartDatesResult =
-                awaitSection(selectedDate, leagueStartDatesTask, buildFallbackLeagueStartDates(selectedDate));
+                awaitSection(selectedDate, leagueStartDatesTask, buildFallbackLeagueStartDates(selectedDate), effectiveSectionTimeout);
         HomeBootstrapLoadStateDto loadState = buildBootstrapLoadState(List.of(
                 leagueStartDatesResult,
                 navigationResult,
@@ -218,7 +257,7 @@ public class HomePageFacadeService {
                 "event=home_bootstrap_completed date={} totalElapsedMs={} sectionTimeoutMs={} timedOutSections={}",
                 selectedDate,
                 elapsedMillis(bootstrapStartedAt),
-                sectionTimeout.toMillis(),
+                effectiveSectionTimeout.toMillis(),
                 loadState.getTimedOutSections().size());
 
         return response;
@@ -238,36 +277,86 @@ public class HomePageFacadeService {
         sectionExecutor.shutdownNow();
     }
 
-    @Cacheable(value = HOME_WIDGETS, key = "#date.toString() + ':' + (#seasonYear == null ? 'auto' : #seasonYear.toString())")
+    @Cacheable(
+            value = HOME_WIDGETS,
+            key = "#date.toString() + ':' + (#seasonYear == null ? 'auto' : #seasonYear.toString())",
+            unless = "#root.target.isUncacheableWidgetsResponse(#result)")
     @Transactional(readOnly = true)
     public HomeWidgetsResponseDto getWidgets(LocalDate date, Integer seasonYear) {
-        List<PostSummaryRes> hotPosts;
-        try {
-            hotPosts = cheerService
-                    .getHotPostsPublic(PageRequest.of(0, 3), "HYBRID")
-                    .getContent();
-        } catch (Exception e) {
-            log.warn("Failed to load hot cheer posts: {}", e.getMessage());
-            hotPosts = List.of();
-        }
+        LocalDate selectedDate = date == null ? LocalDate.now(clock) : date;
+        SectionTask<List<PostSummaryRes>> hotPostsTask =
+                submitSection(sectionExecutor, SECTION_HOT_CHEER_POSTS, this::loadHotPosts);
+        SectionTask<List<FeaturedMateCardDto>> featuredMatesTask =
+                submitSection(sectionExecutor, SECTION_FEATURED_MATES, () -> loadFeaturedMates(selectedDate));
+        SectionTask<HomeRankingSnapshotDto> rankingSnapshotTask =
+                submitSection(sectionExecutor, SECTION_RANKING_SNAPSHOT, () -> getRankingSnapshot(selectedDate, seasonYear));
 
-        List<FeaturedMateCardDto> featuredMates;
-        try {
-            featuredMates = partyService.getFeaturedMateCards(date, 4);
-        } catch (Exception e) {
-            log.warn("Failed to load featured mates: {}", e.getMessage());
-            featuredMates = List.of();
-        }
+        List<PostSummaryRes> hotPosts = awaitWidgetSection(
+                selectedDate,
+                seasonYear,
+                hotPostsTask,
+                List::of,
+                ignored -> "success");
+        List<FeaturedMateCardDto> featuredMates = awaitWidgetSection(
+                selectedDate,
+                seasonYear,
+                featuredMatesTask,
+                List::of,
+                ignored -> "success");
+        HomeRankingSnapshotDto rankingSnapshot = awaitWidgetSection(
+                selectedDate,
+                seasonYear,
+                rankingSnapshotTask,
+                () -> buildFastFallbackRankingSnapshot(selectedDate, seasonYear),
+                ranking -> isFallbackRankingSnapshot(ranking) ? "fallback" : "success");
 
         return HomeWidgetsResponseDto.builder()
                 .hotCheerPosts(hotPosts)
                 .featuredMates(featuredMates)
-                .rankingSnapshot(getRankingSnapshot(date, seasonYear))
+                .rankingSnapshot(rankingSnapshot)
                 .build();
+    }
+
+    private List<PostSummaryRes> loadHotPosts() {
+        try {
+            return cheerService
+                    .getHotPostsPublic(PageRequest.of(0, 3), "HYBRID")
+                    .getContent();
+        } catch (Exception e) {
+            log.warn("Failed to load hot cheer posts: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private List<FeaturedMateCardDto> loadFeaturedMates(LocalDate date) {
+        try {
+            return partyService.getFeaturedMateCards(date, 4);
+        } catch (Exception e) {
+            log.warn("Failed to load featured mates: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    public boolean isUncacheableWidgetsResponse(HomeWidgetsResponseDto response) {
+        if (response == null || response.getRankingSnapshot() == null) {
+            return true;
+        }
+        return isFallbackRankingSnapshot(response.getRankingSnapshot());
     }
 
     @Transactional(readOnly = true)
     public HomeRankingSnapshotDto getRankingSnapshot(LocalDate date, Integer seasonYear) {
+        LocalDate selectedDate = date == null ? LocalDate.now(clock) : date;
+        if (homeRankingSnapshotCacheService != null) {
+            return homeRankingSnapshotCacheService.getOrLoad(
+                    selectedDate,
+                    seasonYear,
+                    () -> loadRankingSnapshotUncached(selectedDate, seasonYear));
+        }
+        return loadRankingSnapshotUncached(selectedDate, seasonYear);
+    }
+
+    HomeRankingSnapshotDto loadRankingSnapshotUncached(LocalDate date, Integer seasonYear) {
         try {
             LeagueStartDatesDto startDates = seasonYear == null ? safeGetLeagueStartDates(date) : null;
             return seasonYear == null
@@ -285,10 +374,17 @@ public class HomePageFacadeService {
         return new SectionTask<>(name, executor.submit(supplier::get), System.nanoTime());
     }
 
-    private <T> SectionResult<T> awaitSection(LocalDate date, SectionTask<T> task, T fallbackValue) {
+    private <T> SectionResult<T> awaitSection(
+            LocalDate date,
+            SectionTask<T> task,
+            T fallbackValue,
+            Duration sectionTimeout) {
         long elapsedBeforeWaitMs = elapsedMillis(task.startedAtNanos());
         long remainingTimeoutMs = sectionTimeout.toMillis() - elapsedBeforeWaitMs;
         if (remainingTimeoutMs <= 0) {
+            if (task.future().isDone()) {
+                return getCompletedBootstrapSection(date, task, fallbackValue, sectionTimeout);
+            }
             task.future().cancel(false);
             recordSectionDuration(task.name(), "timeout", elapsedNanos(task.startedAtNanos()));
             log.warn(
@@ -322,6 +418,50 @@ public class HomePageFacadeService {
                     elapsedMs,
                     sectionTimeout.toMillis());
             return new SectionResult<>(task.name(), fallbackValue, true, true, elapsedMs);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            long elapsedMs = elapsedMillis(task.startedAtNanos());
+            recordSectionDuration(task.name(), "interrupted", elapsedNanos(task.startedAtNanos()));
+            log.warn(
+                    "event=home_bootstrap_section_interrupted date={} section={} elapsedMs={}",
+                    date,
+                    task.name(),
+                    elapsedMs);
+            return new SectionResult<>(task.name(), fallbackValue, false, true, elapsedMs);
+        } catch (ExecutionException ex) {
+            long elapsedMs = elapsedMillis(task.startedAtNanos());
+            Throwable cause = ex.getCause();
+            if (cause instanceof ManualBaseballDataRequiredException manualDataRequiredException) {
+                recordSectionDuration(task.name(), "manual_data_required", elapsedNanos(task.startedAtNanos()));
+                throw manualDataRequiredException;
+            }
+            recordSectionDuration(task.name(), "failed", elapsedNanos(task.startedAtNanos()));
+            log.warn(
+                    "event=home_bootstrap_section_failed date={} section={} elapsedMs={} cause={}",
+                    date,
+                    task.name(),
+                    elapsedMs,
+                    cause == null ? ex.getMessage() : cause.getMessage());
+            return new SectionResult<>(task.name(), fallbackValue, false, true, elapsedMs);
+        }
+    }
+
+    private <T> SectionResult<T> getCompletedBootstrapSection(
+            LocalDate date,
+            SectionTask<T> task,
+            T fallbackValue,
+            Duration sectionTimeout) {
+        try {
+            T value = task.future().get();
+            long elapsedMs = elapsedMillis(task.startedAtNanos());
+            recordSectionDuration(task.name(), "success", elapsedNanos(task.startedAtNanos()));
+            log.info(
+                    "event=home_bootstrap_section_completed date={} section={} elapsedMs={} timeoutMs={}",
+                    date,
+                    task.name(),
+                    elapsedMs,
+                    sectionTimeout.toMillis());
+            return new SectionResult<>(task.name(), value, false, false, elapsedMs);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             long elapsedMs = elapsedMillis(task.startedAtNanos());
@@ -409,6 +549,12 @@ public class HomePageFacadeService {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
     }
 
+    private Duration normalizeSectionTimeout(Duration timeout) {
+        return timeout == null || timeout.isZero() || timeout.isNegative()
+                ? DEFAULT_SECTION_TIMEOUT
+                : timeout;
+    }
+
     private long elapsedNanos(long startedAtNanos) {
         return System.nanoTime() - startedAtNanos;
     }
@@ -428,11 +574,146 @@ public class HomePageFacadeService {
                 .record(durationNanos, TimeUnit.NANOSECONDS);
     }
 
+    private void recordWidgetsSectionDuration(String section, String result, long durationNanos) {
+        if (durationNanos < 0) {
+            return;
+        }
+
+        Timer.builder("home_widgets_section_duration_seconds")
+                .description("Home widgets section duration")
+                .publishPercentileHistogram()
+                .tags(
+                        "section", normalizeMetricTag(section),
+                        "result", normalizeMetricTag(result))
+                .register(meterRegistry)
+                .record(durationNanos, TimeUnit.NANOSECONDS);
+    }
+
     private String normalizeMetricTag(String value) {
         if (value == null || value.isBlank()) {
             return "unknown";
         }
         return value.trim().toLowerCase();
+    }
+
+    private <T> T awaitWidgetSection(
+            LocalDate date,
+            Integer seasonYear,
+            SectionTask<T> task,
+            Supplier<T> fallbackSupplier,
+            Function<T, String> resultClassifier) {
+        long elapsedBeforeWaitMs = elapsedMillis(task.startedAtNanos());
+        long remainingTimeoutMs = widgetsSectionTimeout.toMillis() - elapsedBeforeWaitMs;
+        if (remainingTimeoutMs <= 0) {
+            if (task.future().isDone()) {
+                return getCompletedWidgetSection(date, seasonYear, task, fallbackSupplier, resultClassifier);
+            }
+            task.future().cancel(false);
+            recordWidgetsSectionDuration(task.name(), "timeout", elapsedNanos(task.startedAtNanos()));
+            log.warn(
+                    "event=home_widgets_section_timed_out date={} seasonYear={} section={} elapsedMs={} timeoutMs={}",
+                    date,
+                    seasonYear,
+                    task.name(),
+                    elapsedBeforeWaitMs,
+                    widgetsSectionTimeout.toMillis());
+            return fallbackSupplier.get();
+        }
+
+        try {
+            T value = task.future().get(remainingTimeoutMs, TimeUnit.MILLISECONDS);
+            recordWidgetsSectionDuration(
+                    task.name(),
+                    resultClassifier.apply(value),
+                    elapsedNanos(task.startedAtNanos()));
+            return value;
+        } catch (TimeoutException ex) {
+            task.future().cancel(false);
+            recordWidgetsSectionDuration(task.name(), "timeout", elapsedNanos(task.startedAtNanos()));
+            log.warn(
+                    "event=home_widgets_section_timed_out date={} seasonYear={} section={} elapsedMs={} timeoutMs={}",
+                    date,
+                    seasonYear,
+                    task.name(),
+                    elapsedMillis(task.startedAtNanos()),
+                    widgetsSectionTimeout.toMillis());
+            return fallbackSupplier.get();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            recordWidgetsSectionDuration(task.name(), "interrupted", elapsedNanos(task.startedAtNanos()));
+            log.warn(
+                    "event=home_widgets_section_interrupted date={} seasonYear={} section={} elapsedMs={}",
+                    date,
+                    seasonYear,
+                    task.name(),
+                    elapsedMillis(task.startedAtNanos()));
+            return fallbackSupplier.get();
+        } catch (ExecutionException ex) {
+            Throwable cause = ex.getCause();
+            recordWidgetsSectionDuration(task.name(), "failed", elapsedNanos(task.startedAtNanos()));
+            log.warn(
+                    "event=home_widgets_section_failed date={} seasonYear={} section={} elapsedMs={} reason={}",
+                    date,
+                    seasonYear,
+                    task.name(),
+                    elapsedMillis(task.startedAtNanos()),
+                    cause == null ? ex.getMessage() : cause.getMessage());
+            return fallbackSupplier.get();
+        }
+    }
+
+    private <T> T getCompletedWidgetSection(
+            LocalDate date,
+            Integer seasonYear,
+            SectionTask<T> task,
+            Supplier<T> fallbackSupplier,
+            Function<T, String> resultClassifier) {
+        try {
+            T value = task.future().get();
+            recordWidgetsSectionDuration(
+                    task.name(),
+                    resultClassifier.apply(value),
+                    elapsedNanos(task.startedAtNanos()));
+            return value;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            recordWidgetsSectionDuration(task.name(), "interrupted", elapsedNanos(task.startedAtNanos()));
+            log.warn(
+                    "event=home_widgets_section_interrupted date={} seasonYear={} section={} elapsedMs={}",
+                    date,
+                    seasonYear,
+                    task.name(),
+                    elapsedMillis(task.startedAtNanos()));
+            return fallbackSupplier.get();
+        } catch (ExecutionException ex) {
+            Throwable cause = ex.getCause();
+            recordWidgetsSectionDuration(task.name(), "failed", elapsedNanos(task.startedAtNanos()));
+            log.warn(
+                    "event=home_widgets_section_failed date={} seasonYear={} section={} elapsedMs={} reason={}",
+                    date,
+                    seasonYear,
+                    task.name(),
+                    elapsedMillis(task.startedAtNanos()),
+                    cause == null ? ex.getMessage() : cause.getMessage());
+            return fallbackSupplier.get();
+        }
+    }
+
+    private boolean isFallbackRankingSnapshot(HomeRankingSnapshotDto rankingSnapshot) {
+        return rankingSnapshot == null
+                || RANKING_FALLBACK_SOURCE_MESSAGE.equals(rankingSnapshot.getRankingSourceMessage());
+    }
+
+    private HomeRankingSnapshotDto buildFastFallbackRankingSnapshot(LocalDate date, Integer seasonYear) {
+        return seasonYear == null
+                ? buildFallbackRankingSnapshot(date, (LeagueStartDatesDto) null)
+                : buildExplicitSeasonFallbackRankingSnapshot(seasonYear);
+    }
+
+    private HomeRankingSnapshotDto buildFallbackRankingSnapshot(LocalDate date, Integer seasonYear) {
+        return seasonYear == null
+                ? buildFallbackRankingSnapshot(date, safeGetLeagueStartDates(date))
+                : buildExplicitSeasonFallbackRankingSnapshot(seasonYear);
     }
 
     private LeagueStartDatesDto safeGetLeagueStartDates(LocalDate date) {
