@@ -120,6 +120,10 @@ spring:
 #   max-threads는 사실상 무시된다. graceful shutdown은 두 모드 모두에서 유효.
 server:
   shutdown: graceful
+  compression:
+    enabled: ${SERVER_COMPRESSION_ENABLED:true}
+    mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json,application/xml
+    min-response-size: ${SERVER_COMPRESSION_MIN_RESPONSE_SIZE:1024}
   tomcat:
     threads:
       max: ${SERVER_TOMCAT_THREADS_MAX:200}
