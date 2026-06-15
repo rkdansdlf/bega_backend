@@ -89,13 +89,27 @@ class ApplicationPropertyCompatibilityTest {
     }
 
     @Test
+    void applicationYmlEnablesResponseCompressionForJsonAndFrontendAssets() throws IOException {
+        String applicationYml = readApplicationYml();
+
+        assertThat(applicationYml)
+                .contains("compression:")
+                .contains("enabled: ${SERVER_COMPRESSION_ENABLED:true}")
+                .contains("mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json,application/xml")
+                .contains("min-response-size: ${SERVER_COMPRESSION_MIN_RESPONSE_SIZE:1024}");
+    }
+
+    @Test
     void applicationYmlDefinesHomeBootstrapLatencyEnvKeys() throws IOException {
         String applicationYml = readApplicationYml();
 
         assertThat(applicationYml)
                 .contains("section-timeout-ms: ${APP_HOME_BOOTSTRAP_SECTION_TIMEOUT_MS:2500}")
                 .contains("enabled: ${APP_HOME_BOOTSTRAP_WARMUP_ENABLED:true}")
-                .contains("fixed-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_FIXED_DELAY_MS:50000}");
+                .contains("fixed-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_FIXED_DELAY_MS:50000}")
+                .contains("partial-retry-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_PARTIAL_RETRY_DELAY_MS:500}")
+                .contains("section-timeout-ms: ${APP_HOME_BOOTSTRAP_WARMUP_SECTION_TIMEOUT_MS:8000}")
+                .contains("section-timeout-ms: ${APP_HOME_WIDGETS_SECTION_TIMEOUT_MS:1200}");
     }
 
     private String readApplicationYml() throws IOException {
