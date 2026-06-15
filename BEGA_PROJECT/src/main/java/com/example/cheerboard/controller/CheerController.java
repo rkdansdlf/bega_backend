@@ -84,6 +84,13 @@ public class CheerController {
         return svc.listFollowingPosts(pageable);
     }
 
+    @GetMapping("/me/posts")
+    @PreAuthorize("isAuthenticated()")
+    public Page<PostSummaryRes> listMyPosts(
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return svc.listMyPosts(pageable);
+    }
+
     @PostMapping(value = "/posts/{id}/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("isAuthenticated()")
     @RateLimit(limit = 10, window = 60, key = "image:cheer")

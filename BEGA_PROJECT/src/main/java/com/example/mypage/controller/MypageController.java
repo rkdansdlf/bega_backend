@@ -73,7 +73,7 @@ public class MypageController {
                                                 ? userEntity.getFavoriteTeamId()
                                                 : "없음")
                                 .profileImageUrl(profileImageService
-                                                .getProfileImageUrl(userEntity.getProfileImageUrl()))
+                                                .getProfileImageUrlForUser(userEntity.getId(), userEntity.getProfileImageUrl()))
                                 .createdAt(userEntity.getCreatedAt() != null
                                                 ? userEntity.getCreatedAt()
                                                                 .atZone(java.time.ZoneId.of("Asia/Seoul"))
@@ -122,7 +122,9 @@ public class MypageController {
 
                 Map<String, Object> responseMap = new HashMap<>();
                 responseMap.put("profileImageUrl",
-                                profileImageService.getProfileImageUrl(updatedEntity.getProfileImageUrl()));
+                                profileImageService.getProfileImageUrlForUser(
+                                                updatedEntity.getId(),
+                                                updatedEntity.getProfileImageUrl()));
                 responseMap.put("name", updatedEntity.getName());
                 responseMap.put("handle", updatedEntity.getHandle());
                 responseMap.put("email", updatedEntity.getEmail());

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -13,7 +14,9 @@ import static org.mockito.Mockito.when;
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
 import com.example.cheerboard.storage.strategy.StoredObject;
+import com.example.cheerboard.storage.strategy.StoredObjectMetadata;
 import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 import com.example.common.image.ImageOptimizationMetricsService;
 import com.example.common.image.ImageUtil;
 import com.example.media.dto.MediaCleanupTargetReport;
@@ -89,12 +92,14 @@ class MediaUploadServiceTest {
                 .uploadExpiresAt(LocalDateTime.now().plusHours(1))
                 .build();
 
-        when(mediaAssetRepository.findById(11L)).thenReturn(Optional.of(asset));
+        when(mediaAssetRepository.findByIdAndOwnerUserId(11L, 7L)).thenReturn(Optional.of(asset));
         when(mediaAssetRepository.findByDerivedFrom_Id(11L)).thenReturn(Optional.empty());
         when(mediaAssetRepository.save(any(MediaAsset.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(storageConfig.getProfileBucket()).thenReturn("profile-bucket");
         when(storageConfig.getSignedUrlTtlSeconds()).thenReturn(600);
         when(storageStrategy.exists("profile-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(true));
+        when(storageStrategy.head("profile-bucket", asset.getStagingObjectKey()))
+                .thenReturn(Mono.just(new StoredObjectMetadata((long) originalBytes.length, "image/png")));
         when(storageStrategy.download("profile-bucket", asset.getStagingObjectKey()))
                 .thenReturn(Mono.just(new StoredObject(originalBytes, "image/png")));
         when(validationService.getActualDimension(originalBytes)).thenReturn(new ImageUtil.ImageDimension(800, 800));
@@ -145,11 +150,13 @@ class MediaUploadServiceTest {
                 .uploadExpiresAt(LocalDateTime.now().plusHours(1))
                 .build();
 
-        when(mediaAssetRepository.findById(21L)).thenReturn(Optional.of(asset));
+        when(mediaAssetRepository.findByIdAndOwnerUserId(21L, 9L)).thenReturn(Optional.of(asset));
         when(mediaAssetRepository.findByDerivedFrom_Id(21L)).thenReturn(Optional.empty());
         when(mediaAssetRepository.save(any(MediaAsset.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
         when(storageStrategy.exists("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(true));
+        when(storageStrategy.head("diary-bucket", asset.getStagingObjectKey()))
+                .thenReturn(Mono.just(new StoredObjectMetadata((long) originalBytes.length, "image/png")));
         when(storageStrategy.download("diary-bucket", asset.getStagingObjectKey()))
                 .thenReturn(Mono.just(new StoredObject(originalBytes, "image/png")));
         when(validationService.getActualDimension(originalBytes)).thenReturn(new ImageUtil.ImageDimension(1200, 900));
@@ -165,6 +172,72 @@ class MediaUploadServiceTest {
         assertEquals("MEDIA_UPLOAD_METADATA_MISMATCH", exception.getCode());
         assertEquals(MediaAssetStatus.DELETED, asset.getStatus());
         verify(metricsService).recordMediaFinalize("DIARY", "failure");
+    }
+
+    @Test
+    @DisplayName("media finalize는 oversized staged object를 다운로드 전에 거부한다")
+    void finalizeUpload_rejectsOversizedStagedObjectBeforeDownload() {
+        MediaAsset asset = MediaAsset.builder()
+                .id(22L)
+                .ownerUserId(9L)
+                .domain(MediaDomain.DIARY)
+                .status(MediaAssetStatus.PENDING)
+                .originalFileName("diary.png")
+                .declaredContentType("image/png")
+                .declaredBytes(20L * 1024L * 1024L)
+                .declaredWidth(1200)
+                .declaredHeight(900)
+                .stagingObjectKey("media/staging/diary/9/22-diary.png")
+                .uploadExpiresAt(LocalDateTime.now().plusHours(1))
+                .build();
+        StoredObjectMetadata metadata = new StoredObjectMetadata(20L * 1024L * 1024L, "image/png");
+
+        when(mediaAssetRepository.findByIdAndOwnerUserId(22L, 9L)).thenReturn(Optional.of(asset));
+        when(mediaAssetRepository.findByDerivedFrom_Id(22L)).thenReturn(Optional.empty());
+        when(mediaAssetRepository.save(any(MediaAsset.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
+        when(storageStrategy.exists("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(true));
+        when(storageStrategy.head("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(metadata));
+        when(storageStrategy.delete("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.empty());
+        doThrow(new BadRequestBusinessException("INVALID_MEDIA_FILE_SIZE", "too large"))
+                .when(validationService)
+                .validateStoredObjectMetadata(asset, metadata);
+
+        BadRequestBusinessException exception = assertThrows(
+                BadRequestBusinessException.class,
+                () -> mediaUploadService.finalizeUpload(9L, 22L));
+
+        assertEquals("INVALID_MEDIA_FILE_SIZE", exception.getCode());
+        assertEquals(MediaAssetStatus.DELETED, asset.getStatus());
+        verify(storageStrategy, never()).download(any(), any());
+        verify(metricsService).recordMediaFinalize("DIARY", "failure");
+    }
+
+    @Test
+    @DisplayName("media finalize는 타인 asset을 없는 업로드처럼 처리한다")
+    void finalizeUpload_rejectsNonOwnedAssetAsNotFound() {
+        when(mediaAssetRepository.findByIdAndOwnerUserId(31L, 8L)).thenReturn(Optional.empty());
+
+        NotFoundBusinessException exception = assertThrows(
+                NotFoundBusinessException.class,
+                () -> mediaUploadService.finalizeUpload(8L, 31L));
+
+        assertEquals("MEDIA_ASSET_NOT_FOUND", exception.getCode());
+        verify(storageStrategy, never()).exists(any(), any());
+    }
+
+    @Test
+    @DisplayName("media delete는 타인 asset을 없는 업로드처럼 처리하고 링크 검사 전에 멈춘다")
+    void deleteUpload_rejectsNonOwnedAssetAsNotFound() {
+        when(mediaAssetRepository.findByIdAndOwnerUserId(41L, 8L)).thenReturn(Optional.empty());
+
+        NotFoundBusinessException exception = assertThrows(
+                NotFoundBusinessException.class,
+                () -> mediaUploadService.deleteUpload(8L, 41L));
+
+        assertEquals("MEDIA_ASSET_NOT_FOUND", exception.getCode());
+        verify(mediaAssetLinkRepository, never()).existsByAssetId(any());
+        verify(storageStrategy, never()).delete(any(), any());
     }
 
     @Test

@@ -26,6 +26,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.handler;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
@@ -105,6 +106,35 @@ class CheerControllerTest {
         Page<PostSummaryRes> result = controller.listFollowing(pageable);
 
         assertThat(result).isEqualTo(page);
+    }
+
+    @Test
+    @DisplayName("내가 작성한 응원석 게시글 목록을 조회한다")
+    void listMyPosts_returnsPage() {
+        Page<PostSummaryRes> page = new PageImpl<>(List.of());
+        when(svc.listMyPosts(pageable)).thenReturn(page);
+
+        Page<PostSummaryRes> result = controller.listMyPosts(pageable);
+
+        assertThat(result).isEqualTo(page);
+        verify(svc).listMyPosts(pageable);
+    }
+
+    @Test
+    @DisplayName("내가 작성한 응원석 게시글 URL은 404 없이 매핑된다")
+    void listMyPosts_exactRouteIsMapped() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver())
+                .build();
+        when(svc.listMyPosts(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/api/cheer/me/posts")
+                        .param("page", "0")
+                        .param("size", "10"))
+                .andExpect(handler().handlerType(CheerController.class))
+                .andExpect(handler().methodName("listMyPosts"));
+
+        verify(svc).listMyPosts(any(Pageable.class));
     }
 
     @Test

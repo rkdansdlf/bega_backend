@@ -86,12 +86,8 @@ public class DmRoomService {
     @Transactional(readOnly = true)
     public DmRoom getAccessibleRoom(Long roomId, Long currentUserId) {
         long userId = requireCurrentUserId(currentUserId);
-        DmRoom room = dmRoomRepository.findById(roomId)
+        DmRoom room = dmRoomRepository.findAccessibleByIdAndParticipantId(roomId, userId)
                 .orElseThrow(() -> new NotFoundBusinessException("DM_ROOM_NOT_FOUND", "대화방을 찾을 수 없습니다."));
-
-        if (!isParticipant(room, userId)) {
-            throw new ForbiddenBusinessException("DM_ACCESS_DENIED", "대화방 참여자만 접근할 수 있습니다.");
-        }
 
         ensureNoBlock(userId, resolveTargetUserId(room, userId));
         return room;
@@ -103,8 +99,7 @@ public class DmRoomService {
             return false;
         }
 
-        return dmRoomRepository.findById(roomId)
-                .filter(room -> isParticipant(room, currentUserId))
+        return dmRoomRepository.findAccessibleByIdAndParticipantId(roomId, currentUserId)
                 .filter(room -> !userBlockRepository.existsBidirectionalBlock(currentUserId, resolveTargetUserId(room, currentUserId)))
                 .isPresent();
     }
@@ -136,17 +131,17 @@ public class DmRoomService {
                 .name(user.getName())
                 .handle(user.getHandle())
                 .favoriteTeam(user.getFavoriteTeamId())
-                .profileImageUrl(resolveProfileImageUrl(user.getProfileImageUrl()))
+                .profileImageUrl(resolveProfileImageUrl(user.getId(), user.getProfileImageUrl()))
                 .build();
     }
 
-    private String resolveProfileImageUrl(String profileImageUrl) {
+    private String resolveProfileImageUrl(Long ownerUserId, String profileImageUrl) {
         if (profileImageUrl == null || profileImageUrl.isBlank()) {
             return null;
         }
 
         try {
-            return profileImageService.getProfileImageUrl(profileImageUrl);
+            return profileImageService.getProfileImageUrlForUser(ownerUserId, profileImageUrl);
         } catch (Exception e) {
             log.warn("Failed to resolve DM target profile image: {}", e.getMessage());
             return null;
@@ -170,11 +165,6 @@ public class DmRoomService {
         if (userBlockRepository.existsBidirectionalBlock(currentUserId, targetUserId)) {
             throw new ForbiddenBusinessException("DM_BLOCKED", "차단 관계인 사용자와는 메시지를 주고받을 수 없습니다.");
         }
-    }
-
-    private boolean isParticipant(DmRoom room, Long currentUserId) {
-        return room.getParticipantOneId().equals(currentUserId)
-                || room.getParticipantTwoId().equals(currentUserId);
     }
 
     private long requireCurrentUserId(Long currentUserId) {

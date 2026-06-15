@@ -8,6 +8,7 @@ import com.example.auth.repository.UserBlockRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.util.HandleNormalizer;
 import com.example.cheerboard.config.CurrentUser;
+import com.example.profile.storage.service.ProfileImageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +28,7 @@ public class BlockService {
     private final UserRepository userRepo;
     private final FollowService followService;
     private final CurrentUser currentUser;
+    private final ProfileImageService profileImageService;
 
     /**
      * 차단 토글 (차단/차단해제)
@@ -119,7 +121,10 @@ public class BlockService {
         UserEntity me = currentUser.get();
         Page<UserEntity> blockedUsers = blockRepo.findBlockedByBlockerId(Objects.requireNonNull(me.getId()), pageable);
 
-        return blockedUsers.map(user -> UserFollowSummaryDto.fromPrivate(user, false));
+        return blockedUsers.map(user -> UserFollowSummaryDto.fromPrivate(
+                user,
+                false,
+                profileImageService.getProfileImageUrlForUser(user.getId(), user.getProfileImageUrl())));
     }
 
     private UserEntity findUserByHandleOrThrow(String handle) {

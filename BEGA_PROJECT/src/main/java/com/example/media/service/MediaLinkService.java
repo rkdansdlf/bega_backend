@@ -108,7 +108,7 @@ public class MediaLinkService {
                 throw new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요.");
             }
             if (!Objects.equals(asset.getOwnerUserId(), userId)) {
-                throw new BadRequestBusinessException("MEDIA_ASSET_OWNER_MISMATCH", "다른 사용자의 이미지에는 접근할 수 없습니다.");
+                throw new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요.");
             }
             if (domain == MediaDomain.PROFILE) {
                 if (asset.getDomain() != MediaDomain.PROFILE) {

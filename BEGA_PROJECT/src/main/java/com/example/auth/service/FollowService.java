@@ -12,6 +12,7 @@ import com.example.auth.util.HandleNormalizer;
 import com.example.cheerboard.config.CurrentUser;
 import com.example.notification.entity.Notification;
 import com.example.notification.service.NotificationService;
+import com.example.profile.storage.service.ProfileImageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -35,6 +36,7 @@ public class FollowService {
     private final UserRepository userRepo;
     private final CurrentUser currentUser;
     private final NotificationService notificationService;
+    private final ProfileImageService profileImageService;
 
     /**
      * 팔로우 토글 (팔로우/언팔로우)
@@ -222,7 +224,10 @@ public class FollowService {
         }
 
         final Set<Long> finalMyFollowingIds = myFollowingIds;
-        return followers.map(user -> UserFollowSummaryDto.fromPublic(user, finalMyFollowingIds.contains(user.getId())));
+        return followers.map(user -> UserFollowSummaryDto.fromPublic(
+                user,
+                finalMyFollowingIds.contains(user.getId()),
+                resolveProfileImageUrl(user)));
     }
 
     @Transactional(readOnly = true)
@@ -250,7 +255,10 @@ public class FollowService {
         }
 
         final Set<Long> finalMyFollowingIds = myFollowingIds;
-        return following.map(user -> UserFollowSummaryDto.fromPublic(user, finalMyFollowingIds.contains(user.getId())));
+        return following.map(user -> UserFollowSummaryDto.fromPublic(
+                user,
+                finalMyFollowingIds.contains(user.getId()),
+                resolveProfileImageUrl(user)));
     }
 
     @Transactional(readOnly = true)
@@ -328,5 +336,12 @@ public class FollowService {
                 .flatMap(Optional::stream)
                 .findFirst()
                 .orElseThrow(() -> new NoSuchElementException("사용자를 찾을 수 없습니다."));
+    }
+
+    private String resolveProfileImageUrl(UserEntity user) {
+        if (user == null) {
+            return null;
+        }
+        return profileImageService.getProfileImageUrlForUser(user.getId(), user.getProfileImageUrl());
     }
 }

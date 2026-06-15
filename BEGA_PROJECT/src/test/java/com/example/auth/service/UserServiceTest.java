@@ -159,7 +159,13 @@ class UserServiceTest {
         UserEntity user = baseUser("https://cdn.example.com/old.png");
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(profileImageService.normalizeProfileStoragePath("https://cdn.example.com/old.png"))
+                .thenReturn("https://cdn.example.com/old.png");
         when(profileImageService.normalizeProfileStoragePath("https://cdn.example.com/new.png"))
+                .thenReturn("https://cdn.example.com/new.png");
+        when(profileImageService.getProfileImageUrlForUser(1L, "https://cdn.example.com/old.png"))
+                .thenReturn("https://cdn.example.com/old.png");
+        when(profileImageService.normalizeProfileStoragePathForUser(1L, "https://cdn.example.com/new.png"))
                 .thenReturn("profiles/1/new.webp");
         when(mediaLinkService.syncProfileLinks(1L, "profiles/1/new.webp"))
                 .thenReturn(new MediaLinkService.ProfileLinkResult("profiles/1/new.webp", null));
@@ -183,21 +189,21 @@ class UserServiceTest {
     void getPublicUserProfileByHandle_resolvesProfileImageUrl() {
         UserEntity user = baseUser("https://cdn.example.com/old.png");
         when(userRepository.findByHandle("@user")).thenReturn(Optional.of(user));
-        when(profileImageService.getProfileImageUrl("https://cdn.example.com/old.png"))
+        when(profileImageService.getProfileImageUrlForUser(1L, "https://cdn.example.com/old.png"))
                 .thenReturn("https://cdn.example.com/old.png?v=resolved");
 
         PublicUserProfileDto result = userService.getPublicUserProfileByHandle("@user", null);
 
         assertEquals("@user", result.getHandle());
         assertEquals("https://cdn.example.com/old.png?v=resolved", result.getProfileImageUrl());
-        verify(profileImageService).getProfileImageUrl("https://cdn.example.com/old.png");
+        verify(profileImageService).getProfileImageUrlForUser(1L, "https://cdn.example.com/old.png");
     }
 
     @Test
     void getPublicUserProfileByHandle_normalizesMixedCaseHandleToLowercase() {
         UserEntity user = baseUser("https://cdn.example.com/old.png");
         when(userRepository.findByHandle("@user")).thenReturn(Optional.of(user));
-        when(profileImageService.getProfileImageUrl("https://cdn.example.com/old.png"))
+        when(profileImageService.getProfileImageUrlForUser(1L, "https://cdn.example.com/old.png"))
                 .thenReturn("https://cdn.example.com/old.png?v=resolved");
 
         PublicUserProfileDto result = userService.getPublicUserProfileByHandle("@User", null);
@@ -210,7 +216,7 @@ class UserServiceTest {
     void getPublicUserProfileByHandle_decodesPercentEncodedHandle() {
         UserEntity user = baseUser("https://cdn.example.com/old.png");
         when(userRepository.findByHandle("@user")).thenReturn(Optional.of(user));
-        when(profileImageService.getProfileImageUrl("https://cdn.example.com/old.png"))
+        when(profileImageService.getProfileImageUrlForUser(1L, "https://cdn.example.com/old.png"))
                 .thenReturn("https://cdn.example.com/old.png?v=resolved");
 
         PublicUserProfileDto result = userService.getPublicUserProfileByHandle("%40User", null);
@@ -225,7 +231,7 @@ class UserServiceTest {
         user.setHandle("user");
         when(userRepository.findByHandle("@user")).thenReturn(Optional.empty());
         when(userRepository.findByHandle("user")).thenReturn(Optional.of(user));
-        when(profileImageService.getProfileImageUrl("https://cdn.example.com/old.png"))
+        when(profileImageService.getProfileImageUrlForUser(1L, "https://cdn.example.com/old.png"))
                 .thenReturn("https://cdn.example.com/old.png?v=resolved");
 
         PublicUserProfileDto result = userService.getPublicUserProfileByHandle("%40User", null);
@@ -243,7 +249,7 @@ class UserServiceTest {
         PublicUserProfileDto result = userService.getPublicUserProfileByHandle("@user", null);
 
         assertEquals(null, result.getProfileImageUrl());
-        verify(profileImageService, never()).getProfileImageUrl(any());
+        verify(profileImageService, never()).getProfileImageUrlForUser(any(), any());
     }
 
     @Test

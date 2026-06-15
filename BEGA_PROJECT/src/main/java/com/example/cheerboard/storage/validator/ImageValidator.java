@@ -131,7 +131,14 @@ public class ImageValidator {
     }
 
     private void validateDimensions(MultipartFile file) {
-        ImageUtil.ImageDimension imageDimension = imageUtil.getImageDimension(file);
+        ImageUtil.ImageDimension imageDimension;
+        try {
+            // ImageReader probing confirms the bytes are a supported image and exposes
+            // dimensions before expensive full decode/optimization work.
+            imageDimension = imageUtil.getImageDimension(file);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.", ex);
+        }
         int longSide = Math.max(imageDimension.width(), imageDimension.height());
         long totalPixels = (long) imageDimension.width() * imageDimension.height();
 

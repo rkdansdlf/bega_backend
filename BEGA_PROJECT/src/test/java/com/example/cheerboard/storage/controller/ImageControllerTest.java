@@ -50,7 +50,7 @@ class ImageControllerTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"))
-                .andExpect(jsonPath("$.message").value("forbidden"));
+                .andExpect(jsonPath("$.message").value("접근 권한이 없습니다."));
     }
 
     @Test
