@@ -2,11 +2,15 @@ package com.example.BegaDiary.Entity;
 
 import java.util.Map;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class DiaryStatisticsDto {
     private Integer totalCount;
     private Integer totalWins;
@@ -24,6 +28,11 @@ public class DiaryStatisticsDto {
     // 구장/달 통계
     private String mostVisitedStadium;
     private Integer mostVisitedCount;
+    private Map<Integer, Integer> monthlyVisitCounts;
+    private Map<String, Integer> stadiumVisitCounts;
+    private Integer homeVisitCount;
+    private Integer awayVisitCount;
+    private Integer scheduledCount;
     private String happiestMonth;
     private Integer happiestCount;
     private String firstDiaryDate;
@@ -52,6 +61,8 @@ public class DiaryStatisticsDto {
 
     @Data
     @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class OpponentStats {
         private int wins;
         private int losses;
@@ -61,6 +72,8 @@ public class DiaryStatisticsDto {
 
     @Data
     @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class DayStats {
         private int count;
         private int wins;

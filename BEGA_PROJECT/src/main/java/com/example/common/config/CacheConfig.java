@@ -64,6 +64,9 @@ public class CacheConfig {
         public static final String LIVE_GAME_SCORE = "liveGameScore";
         public static final String LIVE_GAME_STATUS = "liveGameStatus";
 
+        // L1 전용 캐시 - 사용자 단위 통계는 짧은 TTL의 인스턴스 로컬 캐시로 충분하다.
+        public static final String DIARY_STATS = "diaryStats";
+
         /**
          * Primary CacheManager: L1(Caffeine) + L2(Redis) 조합
          * 캐시 조회 시 Caffeine을 먼저 확인하고, 없으면 Redis에서 조회
@@ -107,6 +110,12 @@ public class CacheConfig {
 
                 // jwtUserCache는 토큰 claims용 민감 캐시이므로 별도 짧은 TTL을 적용한다.
                 manager.registerCustomCache(JWT_USER_CACHE,
+                                Caffeine.newBuilder()
+                                                .maximumSize(1000)
+                                                .expireAfterWrite(60, TimeUnit.SECONDS)
+                                                .recordStats()
+                                                .build());
+                manager.registerCustomCache(DIARY_STATS,
                                 Caffeine.newBuilder()
                                                 .maximumSize(1000)
                                                 .expireAfterWrite(60, TimeUnit.SECONDS)
@@ -170,7 +179,7 @@ public class CacheConfig {
                 cacheConfigs.put(LIVE_GAME_STATUS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(5))));
                 cacheConfigs.put(PREDICTION_VOTE_STATUS,
-                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(30))));
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(60))));
 
                 return RedisCacheManager.builder(Objects.requireNonNull(connectionFactory))
                                 .cacheDefaults(defaultConfig)

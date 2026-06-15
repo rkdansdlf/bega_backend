@@ -2,17 +2,11 @@ package com.example.BegaDiary.Service;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -25,6 +19,7 @@ import com.example.BegaDiary.Entity.SeatViewPhoto.ClassificationLabel;
 import com.example.BegaDiary.Entity.SeatViewPhoto.ModerationStatus;
 import com.example.BegaDiary.Entity.SeatViewPhoto.SourceType;
 import com.example.BegaDiary.Entity.SeatViewPhotoDto;
+import com.example.BegaDiary.Exception.DiaryNotFoundException;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Repository.SeatViewPhotoRepository;
 import com.example.admin.dto.AdminSeatViewActionReq;
@@ -60,8 +55,7 @@ public class SeatViewService {
             throw new IllegalArgumentException("업로드한 이미지와 저장 경로 수가 일치하지 않습니다.");
         }
 
-        BegaDiary diary = diaryRepository.findById(diaryId)
-                .orElseThrow(() -> new IllegalArgumentException("다이어리를 찾을 수 없습니다."));
+        BegaDiary diary = requireOwnedDiary(diaryId, userId);
 
         return createCandidatesInternal(diary, userId, images, storagePaths, sourceTypes);
     }
@@ -76,29 +70,28 @@ public class SeatViewService {
             return List.of();
         }
 
-        BegaDiary diary = diaryRepository.findById(diaryId)
-                .orElseThrow(() -> new IllegalArgumentException("다이어리를 찾을 수 없습니다."));
+        BegaDiary diary = requireOwnedDiary(diaryId, userId);
+        List<String> normalizedStoragePaths = imageService.normalizeDiaryStoragePathsForWrite(
+                storagePaths,
+                userId,
+                diaryId,
+                true);
 
-        List<MultipartFile> images = new ArrayList<>(storagePaths.size());
-        for (String storagePath : storagePaths) {
-            byte[] bytes = imageService.downloadDiaryImageBytes(storagePath);
+        List<MultipartFile> images = new ArrayList<>(normalizedStoragePaths.size());
+        for (String storagePath : normalizedStoragePaths) {
+            byte[] bytes = imageService.downloadDiaryImageBytesForUser(storagePath, userId, diaryId);
             String filename = storagePath != null && storagePath.contains("/")
                     ? storagePath.substring(storagePath.lastIndexOf('/') + 1)
                     : "seat-view.jpg";
             images.add(new ByteArrayMultipartFile(filename, "image/jpeg", bytes));
         }
 
-        return createCandidatesInternal(diary, userId, images, storagePaths, sourceTypes);
+        return createCandidatesInternal(diary, userId, images, normalizedStoragePaths, sourceTypes);
     }
 
     @Transactional
     public List<SeatViewCandidateDto> submitSelections(Long diaryId, Long userId, List<Long> candidateIds) {
-        BegaDiary diary = diaryRepository.findById(diaryId)
-                .orElseThrow(() -> new IllegalArgumentException("다이어리를 찾을 수 없습니다."));
-
-        if (!Objects.equals(diary.getUser().getId(), userId)) {
-            throw new AccessDeniedException("본인의 시야뷰 후보만 제출할 수 있습니다.");
-        }
+        BegaDiary diary = requireOwnedDiary(diaryId, userId);
         if (!hasSeatMetadata(diary)) {
             throw new IllegalArgumentException("좌석 정보를 입력한 뒤 시야뷰를 제출해주세요.");
         }
@@ -229,16 +222,11 @@ public class SeatViewService {
     }
 
     private List<SeatViewCandidateDto> toCandidateDtos(List<SeatViewPhoto> candidates) {
-        List<String> paths = candidates.stream()
-                .map(SeatViewPhoto::getStoragePath)
-                .toList();
-        Map<String, String> signedUrlMap = signPaths(paths);
-
         return candidates.stream()
                 .map(candidate -> SeatViewCandidateDto.builder()
                         .id(candidate.getId())
                         .storagePath(candidate.getStoragePath())
-                        .previewUrl(signedUrlMap.getOrDefault(candidate.getStoragePath(), candidate.getStoragePath()))
+                        .previewUrl(signPath(candidate))
                         .sourceType(candidate.getSourceType().name())
                         .aiSuggestedLabel(candidate.getAiSuggestedLabel() != null ? candidate.getAiSuggestedLabel().name() : null)
                         .aiConfidence(candidate.getAiConfidence())
@@ -247,16 +235,22 @@ public class SeatViewService {
                 .toList();
     }
 
-    private List<SeatViewPhotoDto> toPublicDtos(List<SeatViewPhoto> approved, int limit) {
-        List<String> paths = approved.stream()
-                .map(SeatViewPhoto::getStoragePath)
-                .toList();
-        Map<String, String> signedUrlMap = signPaths(paths);
+    private BegaDiary requireOwnedDiary(Long diaryId, Long userId) {
+        if (diaryId == null) {
+            throw new IllegalArgumentException("Diary ID cannot be null");
+        }
+        if (userId == null) {
+            throw new DiaryNotFoundException(diaryId);
+        }
+        return diaryRepository.findByIdAndUserId(diaryId, userId)
+                .orElseThrow(() -> new DiaryNotFoundException(diaryId));
+    }
 
+    private List<SeatViewPhotoDto> toPublicDtos(List<SeatViewPhoto> approved, int limit) {
         return approved.stream()
                 .limit(limit)
                 .map(photo -> SeatViewPhotoDto.builder()
-                        .photoUrl(signedUrlMap.getOrDefault(photo.getStoragePath(), photo.getStoragePath()))
+                        .photoUrl(signPath(photo))
                         .stadium(photo.getDiary().getStadium())
                         .section(photo.getDiary().getSection())
                         .block(photo.getDiary().getBlock())
@@ -266,21 +260,19 @@ public class SeatViewService {
     }
 
     private List<SeatViewPhotoDto> toLegacyPublicDtos(List<BegaDiary> diaries, int limit) {
-        List<String> flattenedPaths = diaries.stream()
-                .filter(diary -> diary.getPhotoUrls() != null)
-                .flatMap(diary -> diary.getPhotoUrls().stream())
-                .limit(limit)
-                .toList();
-        Map<String, String> signedUrlMap = signPaths(flattenedPaths);
-
         List<SeatViewPhotoDto> result = new ArrayList<>();
         for (BegaDiary diary : diaries) {
             if (diary.getPhotoUrls() == null) {
                 continue;
             }
+            Long ownerUserId = diary.getUser() != null ? diary.getUser().getId() : null;
             for (String path : diary.getPhotoUrls()) {
+                String signedUrl = signPath(path, ownerUserId, diary.getId());
+                if (signedUrl == null) {
+                    continue;
+                }
                 result.add(SeatViewPhotoDto.builder()
-                        .photoUrl(signedUrlMap.getOrDefault(path, path))
+                        .photoUrl(signedUrl)
                         .stadium(diary.getStadium())
                         .section(diary.getSection())
                         .block(diary.getBlock())
@@ -295,8 +287,7 @@ public class SeatViewService {
     }
 
     private AdminSeatViewDto toAdminDto(SeatViewPhoto photo) {
-        String signedUrl = signPaths(List.of(photo.getStoragePath()))
-                .getOrDefault(photo.getStoragePath(), photo.getStoragePath());
+        String signedUrl = signPath(photo);
         BegaDiary diary = photo.getDiary();
 
         return AdminSeatViewDto.builder()
@@ -327,31 +318,31 @@ public class SeatViewService {
                 .build();
     }
 
-    private Map<String, String> signPaths(List<String> storagePaths) {
-        if (storagePaths == null || storagePaths.isEmpty()) {
-            return Map.of();
+    private String signPath(SeatViewPhoto photo) {
+        if (photo == null) {
+            return null;
         }
+        BegaDiary diary = photo.getDiary();
+        Long diaryId = diary != null ? diary.getId() : null;
+        return signPath(photo.getStoragePath(), photo.getUserId(), diaryId);
+    }
 
-        List<String> signedUrls;
+    private String signPath(String storagePath, Long userId, Long diaryId) {
+        if (!StringUtils.hasText(storagePath)) {
+            return null;
+        }
         try {
-            signedUrls = imageService.getDiaryImageSignedUrls(storagePaths).block();
+            List<String> signedUrls = imageService
+                    .getDiaryImageSignedUrls(List.of(storagePath), userId, diaryId)
+                    .block();
+            if (signedUrls == null || signedUrls.isEmpty()) {
+                return null;
+            }
+            return signedUrls.get(0);
         } catch (Exception ex) {
-            log.warn("Seat-view signed URL generation failed. cause={}", ex.getMessage());
-            signedUrls = null;
+            log.warn("Seat-view signed URL generation skipped. path={} cause={}", storagePath, ex.getMessage());
+            return null;
         }
-        if (signedUrls == null || signedUrls.isEmpty()) {
-            return storagePaths.stream()
-                    .collect(Collectors.toMap(path -> path, path -> path, (left, right) -> left, LinkedHashMap::new));
-        }
-
-        Map<String, String> signedUrlMap = new HashMap<>();
-        for (int index = 0; index < storagePaths.size() && index < signedUrls.size(); index++) {
-            signedUrlMap.put(storagePaths.get(index), signedUrls.get(index));
-        }
-        for (String path : storagePaths) {
-            signedUrlMap.putIfAbsent(path, path);
-        }
-        return signedUrlMap;
     }
 
     private SourceType resolveSourceType(List<SourceType> sourceTypes, int index) {

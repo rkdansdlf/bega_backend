@@ -5,6 +5,8 @@ import static org.mockito.Mockito.mock;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.cache.Cache;
+import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.cache.support.CompositeCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -25,14 +27,21 @@ class CacheConfigTest {
                         new GenericJackson2JsonRedisSerializer()));
 
         assertThat(caffeineCacheManager.getCacheNames())
-                .containsExactlyInAnyOrder(CacheConfig.JWT_USER_CACHE, CacheConfig.SIGNED_URLS)
+                .containsExactlyInAnyOrder(CacheConfig.JWT_USER_CACHE, CacheConfig.SIGNED_URLS, CacheConfig.DIARY_STATS)
                 .doesNotContain(
                         CacheConfig.HOME_BOOTSTRAP,
                         CacheConfig.HOME_WIDGETS,
+                        CacheConfig.HOME_RANKING_SNAPSHOT,
+                        CacheConfig.PREDICTION_MATCH_DAY,
                         CacheConfig.TEAM_RANKINGS,
                         CacheConfig.USER_STATS);
+        Cache diaryStatsCache = caffeineCacheManager.getCache(CacheConfig.DIARY_STATS);
+        assertThat(diaryStatsCache).isInstanceOf(CaffeineCache.class);
+        assertThat(cacheManager.getCache(CacheConfig.DIARY_STATS)).isSameAs(diaryStatsCache);
         assertThat(caffeineCacheManager.getCache(CacheConfig.HOME_BOOTSTRAP)).isNull();
         assertThat(cacheManager.getCache(CacheConfig.HOME_BOOTSTRAP)).isNotNull();
+        assertThat(cacheManager.getCache(CacheConfig.HOME_RANKING_SNAPSHOT)).isNotNull();
+        assertThat(cacheManager.getCache(CacheConfig.PREDICTION_MATCH_DAY)).isNotNull();
         assertThat(cacheManager.getCache(CacheConfig.USER_STATS)).isNotNull();
     }
 }
