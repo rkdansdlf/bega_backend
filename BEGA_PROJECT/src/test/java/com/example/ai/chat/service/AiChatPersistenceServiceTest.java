@@ -13,6 +13,7 @@ import com.example.ai.chat.repository.AiChatFavoriteRepository;
 import com.example.ai.chat.repository.AiChatMessageRepository;
 import com.example.ai.chat.repository.AiChatSessionRepository;
 import com.example.common.exception.ForbiddenBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
@@ -130,11 +131,23 @@ class AiChatPersistenceServiceTest {
                 .content("응답을 취소했습니다.")
                 .build();
         when(favoriteRepository.findByUserIdAndMessage_Id(1L, 200L)).thenReturn(Optional.empty());
-        when(messageRepository.findById(200L)).thenReturn(Optional.of(message));
+        when(messageRepository.findByIdAndSession_UserId(200L, 1L)).thenReturn(Optional.of(message));
 
         assertThatThrownBy(() -> service.addFavorite(1L, 200L))
                 .isInstanceOf(ForbiddenBusinessException.class)
                 .hasMessageContaining("완료된 assistant 메시지");
+
+        verify(favoriteRepository, never()).save(any(AiChatFavorite.class));
+    }
+
+    @Test
+    void addFavorite_treatsNonOwnedMessageAsNotFound() {
+        when(favoriteRepository.findByUserIdAndMessage_Id(1L, 200L)).thenReturn(Optional.empty());
+        when(messageRepository.findByIdAndSession_UserId(200L, 1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.addFavorite(1L, 200L))
+                .isInstanceOf(NotFoundBusinessException.class)
+                .hasMessageContaining("메시지를 찾을 수 없습니다.");
 
         verify(favoriteRepository, never()).save(any(AiChatFavorite.class));
     }
@@ -254,7 +267,7 @@ class AiChatPersistenceServiceTest {
                 .updatedAt(now)
                 .build();
         when(favoriteRepository.findByUserIdAndMessage_Id(1L, 200L)).thenReturn(Optional.empty());
-        when(messageRepository.findById(200L)).thenReturn(Optional.of(assistant));
+        when(messageRepository.findByIdAndSession_UserId(200L, 1L)).thenReturn(Optional.of(assistant));
         when(messageRepository.findTopBySession_IdAndIdLessThanAndRoleOrderByIdDesc(
                 10L, 200L, AiChatMessageRole.USER)).thenReturn(Optional.of(user));
         when(favoriteRepository.save(any(AiChatFavorite.class))).thenAnswer(invocation -> {

@@ -259,9 +259,10 @@ class AiProxyControllerTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.TEXT_EVENT_STREAM);
         headers.add("X-Accel-Buffering", "no");
-        String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\"}";
+        String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\",\"analysis_type\":\"game_review\"}";
         DefaultDataBufferFactory bufferFactory = new DefaultDataBufferFactory();
         given(coachAutoBriefMonitoringService.extractRequestMode(eq(payload))).willReturn("manual_detail");
+        given(coachAutoBriefMonitoringService.extractAnalysisType(eq(payload))).willReturn("game_review");
 
         given(aiProxyService.forwardJsonStream(eq("/ai/coach/analyze"), eq(payload)))
                 .willReturn(new ProxyStreamResponse(
@@ -290,7 +291,7 @@ class AiProxyControllerTest {
                 .andExpect(content().string(containsString("event: meta")))
                 .andExpect(content().string(containsString("data: [DONE]")));
 
-        verify(coachAutoBriefMonitoringService).recordCoachAnalyzeDuration(eq("manual_detail"), eq(200), anyLong());
+        verify(coachAutoBriefMonitoringService).recordCoachAnalyzeDuration(eq("manual_detail"), eq("game_review"), eq(200), anyLong());
     }
 
     @Test
@@ -298,9 +299,10 @@ class AiProxyControllerTest {
     void coachAnalyzeUpstreamFailureReturnsStandardizedErrorResponse() throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\"}";
+        String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\",\"analysis_type\":\"game_review\"}";
         String responseBody = "{\"success\":false,\"code\":\"AI_UPSTREAM_UNAVAILABLE\",\"message\":\"AI 서비스가 현재 사용할 수 없습니다.\"}";
         given(coachAutoBriefMonitoringService.extractRequestMode(eq(payload))).willReturn("manual_detail");
+        given(coachAutoBriefMonitoringService.extractAnalysisType(eq(payload))).willReturn("game_review");
 
         given(aiProxyService.forwardJsonStream(eq("/ai/coach/analyze"), eq(payload)))
                 .willReturn(new ProxyStreamResponse(
@@ -319,7 +321,7 @@ class AiProxyControllerTest {
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().json(responseBody));
 
-        verify(coachAutoBriefMonitoringService).recordCoachAnalyzeDuration(eq("manual_detail"), eq(503), anyLong());
+        verify(coachAutoBriefMonitoringService).recordCoachAnalyzeDuration(eq("manual_detail"), eq("game_review"), eq(503), anyLong());
     }
 
     @Test
@@ -338,7 +340,7 @@ class AiProxyControllerTest {
                 .andExpect(status().isGatewayTimeout())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("AI_UPSTREAM_TIMEOUT"))
-                .andExpect(jsonPath("$.message").value("AI 응답 시간이 초과되었습니다."));
+                .andExpect(jsonPath("$.message").value("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
     }
 
     @Test

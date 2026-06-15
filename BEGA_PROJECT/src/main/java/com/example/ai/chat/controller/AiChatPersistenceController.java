@@ -1,10 +1,14 @@
 package com.example.ai.chat.controller;
 
+import com.example.ai.chat.dto.ChatFavoriteItem;
+import com.example.ai.chat.dto.ChatSessionSummary;
 import com.example.ai.chat.dto.CreateAssistantChatMessageRequest;
 import com.example.ai.chat.dto.CreateUserChatMessageRequest;
+import com.example.ai.chat.dto.StoredChatMessage;
 import com.example.ai.chat.service.AiChatPersistenceService;
 import com.example.common.dto.ApiResponse;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,21 +29,21 @@ public class AiChatPersistenceController {
     private final AiChatPersistenceService aiChatPersistenceService;
 
     @GetMapping("/sessions")
-    public ResponseEntity<ApiResponse> listSessions(@AuthenticationPrincipal Long currentUserId) {
+    public ResponseEntity<ApiResponse<List<ChatSessionSummary>>> listSessions(@AuthenticationPrincipal Long currentUserId) {
         return ResponseEntity.ok(ApiResponse.success(
                 "AI 채팅 세션 목록 조회 성공",
                 aiChatPersistenceService.listSessions(currentUserId)));
     }
 
     @PostMapping("/sessions")
-    public ResponseEntity<ApiResponse> createSession(@AuthenticationPrincipal Long currentUserId) {
+    public ResponseEntity<ApiResponse<ChatSessionSummary>> createSession(@AuthenticationPrincipal Long currentUserId) {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(
                 "AI 채팅 세션 생성 성공",
                 aiChatPersistenceService.createSession(currentUserId)));
     }
 
     @GetMapping("/sessions/{sessionId}/messages")
-    public ResponseEntity<ApiResponse> listMessages(
+    public ResponseEntity<ApiResponse<List<StoredChatMessage>>> listMessages(
             @AuthenticationPrincipal Long currentUserId,
             @PathVariable Long sessionId) {
         return ResponseEntity.ok(ApiResponse.success(
@@ -48,7 +52,7 @@ public class AiChatPersistenceController {
     }
 
     @PostMapping("/sessions/{sessionId}/messages/user")
-    public ResponseEntity<ApiResponse> addUserMessage(
+    public ResponseEntity<ApiResponse<StoredChatMessage>> addUserMessage(
             @AuthenticationPrincipal Long currentUserId,
             @PathVariable Long sessionId,
             @Valid @RequestBody CreateUserChatMessageRequest request) {
@@ -58,7 +62,7 @@ public class AiChatPersistenceController {
     }
 
     @PostMapping("/sessions/{sessionId}/messages/assistant")
-    public ResponseEntity<ApiResponse> addAssistantMessage(
+    public ResponseEntity<ApiResponse<StoredChatMessage>> addAssistantMessage(
             @AuthenticationPrincipal Long currentUserId,
             @PathVariable Long sessionId,
             @Valid @RequestBody CreateAssistantChatMessageRequest request) {
@@ -68,7 +72,7 @@ public class AiChatPersistenceController {
     }
 
     @DeleteMapping("/sessions/{sessionId}")
-    public ResponseEntity<ApiResponse> deleteSession(
+    public ResponseEntity<ApiResponse<Void>> deleteSession(
             @AuthenticationPrincipal Long currentUserId,
             @PathVariable Long sessionId) {
         aiChatPersistenceService.deleteSession(currentUserId, sessionId);
@@ -76,14 +80,14 @@ public class AiChatPersistenceController {
     }
 
     @GetMapping("/favorites")
-    public ResponseEntity<ApiResponse> listFavorites(@AuthenticationPrincipal Long currentUserId) {
+    public ResponseEntity<ApiResponse<List<ChatFavoriteItem>>> listFavorites(@AuthenticationPrincipal Long currentUserId) {
         return ResponseEntity.ok(ApiResponse.success(
                 "AI 채팅 즐겨찾기 조회 성공",
                 aiChatPersistenceService.listFavorites(currentUserId)));
     }
 
     @PostMapping("/favorites/{messageId}")
-    public ResponseEntity<ApiResponse> addFavorite(
+    public ResponseEntity<ApiResponse<ChatFavoriteItem>> addFavorite(
             @AuthenticationPrincipal Long currentUserId,
             @PathVariable Long messageId) {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(
@@ -92,7 +96,7 @@ public class AiChatPersistenceController {
     }
 
     @DeleteMapping("/favorites/{messageId}")
-    public ResponseEntity<ApiResponse> removeFavorite(
+    public ResponseEntity<ApiResponse<Void>> removeFavorite(
             @AuthenticationPrincipal Long currentUserId,
             @PathVariable Long messageId) {
         aiChatPersistenceService.removeFavorite(currentUserId, messageId);
