@@ -419,13 +419,18 @@ public class UserService {
             return;
         }
 
-        String normalizedPath = profileImageService.normalizeProfileStoragePath(imageUrl);
         String currentPath = profileImageService.normalizeProfileStoragePath(user.getProfileImageUrl());
-        if (Objects.equals(currentPath, normalizedPath)) {
-            user.setProfileImageUrl(normalizedPath);
+        String requestedPath = profileImageService.normalizeProfileStoragePath(imageUrl);
+        if (Objects.equals(currentPath, requestedPath)) {
+            user.setProfileImageUrl(requestedPath);
+            return;
+        }
+        String resolvedCurrentUrl = profileImageService.getProfileImageUrlForUser(user.getId(), user.getProfileImageUrl());
+        if (Objects.equals(resolvedCurrentUrl, imageUrl)) {
             return;
         }
 
+        String normalizedPath = profileImageService.normalizeProfileStoragePathForUser(user.getId(), imageUrl);
         MediaLinkService.ProfileLinkResult linkResult = mediaLinkService.syncProfileLinks(user.getId(), normalizedPath);
         user.setProfileImageUrl(linkResult.profileObjectKey() != null ? linkResult.profileObjectKey() : normalizedPath);
         user.setProfileFeedImageUrl(linkResult.profileFeedObjectKey());
@@ -623,7 +628,7 @@ public class UserService {
                 .name(user.getName())
                 .handle(user.getHandle())
                 .favoriteTeam(user.getFavoriteTeamId())
-                .profileImageUrl(resolvePublicProfileImageUrl(user.getProfileImageUrl()))
+                .profileImageUrl(resolvePublicProfileImageUrl(user.getId(), user.getProfileImageUrl()))
                 .bio(user.getBio())
                 .cheerPoints(user.getCheerPoints())
                 .build();
@@ -668,12 +673,12 @@ public class UserService {
         throw new AccessDeniedException("비공개 계정의 프로필은 팔로워만 조회할 수 있습니다.");
     }
 
-    private String resolvePublicProfileImageUrl(String profileImageUrl) {
+    private String resolvePublicProfileImageUrl(Long ownerUserId, String profileImageUrl) {
         if (profileImageUrl == null || profileImageUrl.isBlank()) {
             return null;
         }
         try {
-            return profileImageService.getProfileImageUrl(profileImageUrl);
+            return profileImageService.getProfileImageUrlForUser(ownerUserId, profileImageUrl);
         } catch (Exception e) {
             log.warn("Failed to resolve public profile image URL: {}", e.getMessage());
             return null;

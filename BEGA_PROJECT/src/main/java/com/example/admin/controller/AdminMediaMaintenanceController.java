@@ -1,6 +1,9 @@
 package com.example.admin.controller;
 
 import com.example.common.dto.ApiResponse;
+import com.example.media.dto.MediaBackfillReport;
+import com.example.media.dto.MediaCleanupReport;
+import com.example.media.dto.MediaSmokeReport;
 import com.example.media.entity.MediaCleanupTarget;
 import com.example.media.entity.MediaDomain;
 import com.example.media.service.MediaMaintenanceService;
@@ -24,7 +27,7 @@ public class AdminMediaMaintenanceController {
     private final MediaMaintenanceService mediaMaintenanceService;
 
     @PostMapping("/smoke")
-    public ResponseEntity<ApiResponse> runSmoke(
+    public ResponseEntity<ApiResponse<MediaSmokeReport>> runSmoke(
             @RequestParam(defaultValue = "10") int sampleLimit,
             @RequestParam(required = false) String domains) {
         return ResponseEntity.ok(ApiResponse.success(
@@ -33,7 +36,7 @@ public class AdminMediaMaintenanceController {
     }
 
     @PostMapping("/backfill")
-    public ResponseEntity<ApiResponse> backfillExistingData(
+    public ResponseEntity<ApiResponse<MediaBackfillReport>> backfillExistingData(
             @RequestParam(defaultValue = "false") boolean apply,
             @RequestParam(defaultValue = "200") int batchSize,
             @RequestParam(required = false) String domains,
@@ -48,7 +51,7 @@ public class AdminMediaMaintenanceController {
     }
 
     @PostMapping("/cleanup")
-    public ResponseEntity<ApiResponse> runCleanup(
+    public ResponseEntity<ApiResponse<MediaCleanupReport>> runCleanup(
             @RequestParam(required = false) String targets) {
         return ResponseEntity.ok(ApiResponse.success(
                 "공통 미디어 cleanup을 실행했습니다.",

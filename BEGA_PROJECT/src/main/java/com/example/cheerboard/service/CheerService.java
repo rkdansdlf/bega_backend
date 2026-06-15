@@ -100,6 +100,12 @@ public class CheerService {
     }
 
     @Transactional(readOnly = true)
+    public Page<PostSummaryRes> listMyPosts(Pageable pageable) {
+        UserEntity me = current.get();
+        return feedService.listMyPosts(pageable, me);
+    }
+
+    @Transactional(readOnly = true)
     public Page<PostSummaryRes> listByUserHandle(String handle, Pageable pageable) {
         UserEntity me = current.getOrNull();
         return feedService.listByUserHandle(handle, pageable, me);

@@ -204,7 +204,7 @@ class GlobalExceptionHandlerTest {
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.isSuccess()).isFalse();
         assertThat(body.getCode()).isEqualTo("BAD_REQUEST");
-        assertThat(body.getMessage()).isEqualTo("잘못된 입력입니다.");
+        assertThat(body.getMessage()).isEqualTo("잘못된 요청입니다.");
     }
 
     @Test
@@ -212,12 +212,11 @@ class GlobalExceptionHandlerTest {
         var ex = new IllegalStateException("요청 상태가 올바르지 않습니다.");
         var response = handler.handleIllegalStateException(ex);
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.isSuccess()).isFalse();
-        assertThat(body.getCode()).isEqualTo("BAD_REQUEST");
-        // [Security] IllegalStateException은 내부 상태 오류 메시지가 노출되지 않도록 일반 메시지로 대체됨
-        assertThat(body.getMessage()).isEqualTo("요청을 처리할 수 없습니다.");
+        assertThat(body.getCode()).isEqualTo("INTERNAL_SERVER_ERROR");
+        assertThat(body.getMessage()).isEqualTo("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
     }
 
     @Test
@@ -266,7 +265,7 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.getCode()).isEqualTo("SERVICE_UNAVAILABLE");
-        assertThat(body.getMessage()).isEqualTo("AI service URL is not configured");
+        assertThat(body.getMessage()).isEqualTo("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
     }
 
     @Test
@@ -278,6 +277,6 @@ class GlobalExceptionHandlerTest {
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.isSuccess()).isFalse();
         assertThat(body.getCode()).isEqualTo("FORBIDDEN");
-        assertThat(body.getMessage()).isEqualTo("본인의 일기만 조회할 수 있습니다.");
+        assertThat(body.getMessage()).isEqualTo("접근 권한이 없습니다.");
     }
 }

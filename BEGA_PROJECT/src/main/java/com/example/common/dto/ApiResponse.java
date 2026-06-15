@@ -10,42 +10,42 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class ApiResponse {
+public class ApiResponse<T> {
     private boolean success;
     private String message;
-    private Object data;
+    private T data;
     private String code;
     private Map<String, String> errors;
 
-    public static ApiResponse success(String message) {
-        return new ApiResponse(true, message, null, null, null);
+    public static ApiResponse<Void> success(String message) {
+        return new ApiResponse<>(true, message, null, null, null);
     }
 
-    public static ApiResponse success(String message, Object data) {
-        return new ApiResponse(true, message, data, null, null);
+    public static <T> ApiResponse<T> success(String message, T data) {
+        return new ApiResponse<>(true, message, data, null, null);
     }
 
-    public static ApiResponse error(String message) {
-        return new ApiResponse(false, message, null, "ERROR", null);
+    public static ApiResponse<Void> error(String message) {
+        return new ApiResponse<>(false, message, null, "ERROR", null);
     }
 
-    public static ApiResponse error(String message, Object data) {
-        return new ApiResponse(false, message, data, "ERROR", null);
+    public static <T> ApiResponse<T> error(String message, T data) {
+        return new ApiResponse<>(false, message, data, "ERROR", null);
     }
 
-    public static ApiResponse error(String code, String message) {
-        return new ApiResponse(false, message, null, code, null);
+    public static ApiResponse<Void> error(String code, String message) {
+        return new ApiResponse<>(false, message, null, code, null);
     }
 
-    public static ApiResponse error(String code, String message, Object data) {
-        return new ApiResponse(false, message, data, code, null);
+    public static <T> ApiResponse<T> error(String code, String message, T data) {
+        return new ApiResponse<>(false, message, data, code, null);
     }
 
-    public static ApiResponse error(String code, String message, Map<String, String> errors) {
-        return new ApiResponse(false, message, null, code, errors);
+    public static ApiResponse<Void> error(String code, String message, Map<String, String> errors) {
+        return new ApiResponse<>(false, message, null, code, errors);
     }
 
-    public static ApiResponse error(String code, String message, Object data, Map<String, String> errors) {
-        return new ApiResponse(false, message, data, code, errors);
+    public static <T> ApiResponse<T> error(String code, String message, T data, Map<String, String> errors) {
+        return new ApiResponse<>(false, message, data, code, errors);
     }
 }

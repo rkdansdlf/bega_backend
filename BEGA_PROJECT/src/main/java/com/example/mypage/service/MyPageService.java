@@ -6,6 +6,7 @@ import com.example.kbo.entity.TeamEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.kbo.repository.TeamRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
+import com.example.profile.storage.service.ProfileImageService;
 
 import java.util.Objects;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,7 @@ public class MyPageService {
 
     private final UserRepository userRepository;
     private final TeamRepository teamRepository;
+    private final ProfileImageService profileImageService;
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ISO_DATE;
 
@@ -33,7 +35,9 @@ public class MyPageService {
         // Entity 데이터를 DTO로 매핑
         String teamId = user.getFavoriteTeam() != null ? user.getFavoriteTeam().getTeamId() : null;
 
-        String profileImageUrl = repairProfileUrl(user.getProfileImageUrl());
+        String profileImageUrl = profileImageService.getProfileImageUrlForUser(
+                user.getId(),
+                user.getProfileImageUrl());
 
         return Objects.requireNonNull(UserProfileDto.builder()
                 .id(user.getId())
@@ -73,7 +77,19 @@ public class MyPageService {
 
         // 프로필 이미지 URL 업데이트
         if (updateDto.getProfileImageUrl() != null) {
-            user.setProfileImageUrl(updateDto.getProfileImageUrl());
+            String currentPath = profileImageService.normalizeProfileStoragePath(user.getProfileImageUrl());
+            String requestedPath = profileImageService.normalizeProfileStoragePath(updateDto.getProfileImageUrl());
+            if (Objects.equals(currentPath, requestedPath)) {
+                user.setProfileImageUrl(requestedPath);
+            } else if (Objects.equals(
+                    profileImageService.getProfileImageUrlForUser(user.getId(), user.getProfileImageUrl()),
+                    updateDto.getProfileImageUrl())) {
+                user.setProfileImageUrl(user.getProfileImageUrl());
+            } else {
+                user.setProfileImageUrl(profileImageService.normalizeProfileStoragePathForUser(
+                        user.getId(),
+                        updateDto.getProfileImageUrl()));
+            }
         }
 
         // 변경 사항을 DB에 저장
@@ -83,28 +99,4 @@ public class MyPageService {
         return Objects.requireNonNull(getProfileByEmail(email));
     }
 
-    /**
-     * Signed URL (전송량 초과로 402 오류 발생 시)을 Public URL로 변환하여 복구합니다.
-     * 예: .../object/sign/profile-images/path?token=... ->
-     * .../object/public/profile-images/path
-     */
-    private String repairProfileUrl(String url) {
-        if (url == null || url.isEmpty()) {
-            return null;
-        }
-        // 이미 Public URL이거나 외부 URL인 경우 패스
-        if (url.contains("/object/public/")) {
-            return url;
-        }
-
-        // Signed URL 패턴 감지 (/object/sign/)
-        if (url.contains("/object/sign/")) {
-            // 토큰 파라미터 제거 (Query String 제거)
-            String urlWithoutToken = url.split("\\?")[0];
-            // /sign/을 /public/으로 치환
-            return urlWithoutToken.replace("/object/sign/", "/object/public/");
-        }
-
-        return url;
-    }
 }
