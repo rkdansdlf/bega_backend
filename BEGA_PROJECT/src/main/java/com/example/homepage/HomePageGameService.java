@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import javax.sql.DataSource;
@@ -307,19 +308,21 @@ public class HomePageGameService {
 		};
 	}
 
-    // v_team_rank_all 뷰에서 순위 데이터를 가져오도록 수정
     @Cacheable(value = TEAM_RANKINGS, key = "#seasonYear", unless = "#result == null || #result.isEmpty()")
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<HomePageTeamRankingDto> getTeamRankings(int seasonYear) {
-        List<Object[]> results = gameRepository.findTeamRankingsBySeason(seasonYear);
-        if (log.isDebugEnabled()) {
-            log.debug("Team rankings query completed - seasonYear={}, source=primary, count={}", seasonYear, results.size());
-        }
+        LocalDate seasonStart = LocalDate.of(seasonYear, 1, 1);
+        LocalDate nextSeasonStart = LocalDate.of(seasonYear + 1, 1, 1);
+        long fastStartedAt = System.nanoTime();
+        List<Object[]> results = gameRepository.findTeamRankingsBySeasonFast(
+                seasonYear,
+                seasonStart,
+                nextSeasonStart);
+        logTeamRankingQueryCompleted(seasonYear, "fast", results.size(), fastStartedAt);
         if (results.isEmpty()) {
+            long legacyStartedAt = System.nanoTime();
             results = gameRepository.findTeamRankingsBySeasonFallback(seasonYear);
-            if (log.isDebugEnabled()) {
-                log.debug("Team rankings query completed - seasonYear={}, source=fallback, count={}", seasonYear, results.size());
-            }
+            logTeamRankingQueryCompleted(seasonYear, "legacy", results.size(), legacyStartedAt);
         }
 
         return results.stream()
@@ -335,6 +338,25 @@ public class HomePageGameService {
                         .gamesBehind(row[8] == null ? null : ((Number) row[8]).doubleValue()) // games_behind (numeric)
                         .build())
                 .collect(Collectors.toList());
+    }
+
+    private void logTeamRankingQueryCompleted(int seasonYear, String source, int rankingCount, long startedAtNanos) {
+        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
+        if (elapsedMs >= 500L) {
+            log.warn(
+                    "event=home_team_rankings_query_completed seasonYear={} source={} rankingCount={} elapsedMs={}",
+                    seasonYear,
+                    source,
+                    rankingCount,
+                    elapsedMs);
+            return;
+        }
+        log.info(
+                "event=home_team_rankings_query_completed seasonYear={} source={} rankingCount={} elapsedMs={}",
+                seasonYear,
+                source,
+                rankingCount,
+                elapsedMs);
     }
 
     // 리그 시작 날짜 조회

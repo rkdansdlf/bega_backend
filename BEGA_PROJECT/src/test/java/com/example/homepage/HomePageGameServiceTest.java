@@ -95,6 +95,70 @@ class HomePageGameServiceTest {
     }
 
     @Test
+    @DisplayName("팀 순위 조회는 fast season range 쿼리를 우선 사용한다")
+    void getTeamRankingsUsesFastSeasonRangeQuery() {
+        when(gameRepository.findTeamRankingsBySeasonFast(
+                2026,
+                LocalDate.of(2026, 1, 1),
+                LocalDate.of(2027, 1, 1)))
+                .thenReturn(List.<Object[]>of(new Object[] {
+                        1,
+                        "LG",
+                        "LG",
+                        80,
+                        50,
+                        2,
+                        "0.615",
+                        132,
+                        0.0
+                }));
+
+        List<HomePageTeamRankingDto> rankings = homePageGameService.getTeamRankings(2026);
+
+        assertThat(rankings).hasSize(1);
+        assertThat(rankings.get(0).getRank()).isEqualTo(1);
+        assertThat(rankings.get(0).getTeamId()).isEqualTo("LG");
+        assertThat(rankings.get(0).getTeamName()).isEqualTo("LG");
+        assertThat(rankings.get(0).getWins()).isEqualTo(80);
+        assertThat(rankings.get(0).getLosses()).isEqualTo(50);
+        assertThat(rankings.get(0).getDraws()).isEqualTo(2);
+        assertThat(rankings.get(0).getWinRate()).isEqualTo("0.615");
+        assertThat(rankings.get(0).getGames()).isEqualTo(132);
+        assertThat(rankings.get(0).getGamesBehind()).isEqualTo(0.0);
+        verify(gameRepository, never()).findTeamRankingsBySeasonFallback(2026);
+    }
+
+    @Test
+    @DisplayName("fast 팀 순위 결과가 비어 있으면 legacy fallback 쿼리를 사용한다")
+    void getTeamRankingsFallsBackToLegacyWhenFastQueryIsEmpty() {
+        when(gameRepository.findTeamRankingsBySeasonFast(
+                2025,
+                LocalDate.of(2025, 1, 1),
+                LocalDate.of(2026, 1, 1)))
+                .thenReturn(List.of());
+        when(gameRepository.findTeamRankingsBySeasonFallback(2025))
+                .thenReturn(List.<Object[]>of(new Object[] {
+                        2,
+                        "KT",
+                        "KT",
+                        75,
+                        57,
+                        1,
+                        "0.568",
+                        133,
+                        4.5
+                }));
+
+        List<HomePageTeamRankingDto> rankings = homePageGameService.getTeamRankings(2025);
+
+        assertThat(rankings).hasSize(1);
+        assertThat(rankings.get(0).getRank()).isEqualTo(2);
+        assertThat(rankings.get(0).getTeamId()).isEqualTo("KT");
+        assertThat(rankings.get(0).getGamesBehind()).isEqualTo(4.5);
+        verify(gameRepository).findTeamRankingsBySeasonFallback(2025);
+    }
+
+    @Test
     @DisplayName("league_type_code=5 인 경우 KOREAN_SERIES로 매핑된다")
     void getGamesByDate_koreanSeriesFromSeasonType() {
         LocalDate date = LocalDate.of(2025, 10, 28);
