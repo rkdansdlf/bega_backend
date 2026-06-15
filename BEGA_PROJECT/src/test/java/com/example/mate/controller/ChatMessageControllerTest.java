@@ -12,7 +12,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
-import java.security.Principal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,16 +30,14 @@ class ChatMessageControllerTest {
     @InjectMocks
     private ChatMessageController controller;
 
-    private final Principal principal = () -> "42";
-
     @Test
     @DisplayName("메시지 전송 시 201을 반환하고 WebSocket으로 브로드캐스트한다")
     void sendMessage_returns201AndBroadcasts() {
         ChatMessageDTO.Request req = ChatMessageDTO.Request.builder().partyId(5L).message("hi").build();
         ChatMessageDTO.Response resp = ChatMessageDTO.Response.builder().id(1L).partyId(5L).message("hi").build();
-        when(chatMessageService.sendMessage(req, principal)).thenReturn(resp);
+        when(chatMessageService.sendMessage(req, 42L)).thenReturn(resp);
 
-        ResponseEntity<?> result = controller.sendMessage(req, principal);
+        ResponseEntity<?> result = controller.sendMessage(req, 42L);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(result.getBody()).isEqualTo(resp);
@@ -51,9 +48,9 @@ class ChatMessageControllerTest {
     @DisplayName("파티별 메시지 목록을 조회한다")
     void getMessagesByPartyId_returnsList() {
         ChatMessageDTO.Response resp = ChatMessageDTO.Response.builder().id(1L).build();
-        when(chatMessageService.getMessagesByPartyId(5L, principal)).thenReturn(List.of(resp));
+        when(chatMessageService.getMessagesByPartyId(5L, 42L)).thenReturn(List.of(resp));
 
-        ResponseEntity<?> result = controller.getMessagesByPartyId(5L, principal);
+        ResponseEntity<?> result = controller.getMessagesByPartyId(5L, 42L);
 
         assertThat((List<?>) result.getBody()).hasSize(1);
     }
@@ -62,9 +59,9 @@ class ChatMessageControllerTest {
     @DisplayName("최신 메시지가 있으면 200을 반환한다")
     void getLatestMessage_whenExists_returnsMessage() {
         ChatMessageDTO.Response resp = ChatMessageDTO.Response.builder().id(1L).build();
-        when(chatMessageService.getLatestMessage(5L, principal)).thenReturn(resp);
+        when(chatMessageService.getLatestMessage(5L, 42L)).thenReturn(resp);
 
-        ResponseEntity<?> result = controller.getLatestMessage(5L, principal);
+        ResponseEntity<?> result = controller.getLatestMessage(5L, 42L);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(result.getBody()).isEqualTo(resp);
@@ -73,9 +70,9 @@ class ChatMessageControllerTest {
     @Test
     @DisplayName("최신 메시지가 없으면 204를 반환한다")
     void getLatestMessage_whenNull_returns204() {
-        when(chatMessageService.getLatestMessage(5L, principal)).thenReturn(null);
+        when(chatMessageService.getLatestMessage(5L, 42L)).thenReturn(null);
 
-        ResponseEntity<?> result = controller.getLatestMessage(5L, principal);
+        ResponseEntity<?> result = controller.getLatestMessage(5L, 42L);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
     }

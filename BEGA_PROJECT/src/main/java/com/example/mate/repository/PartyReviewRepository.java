@@ -32,6 +32,8 @@ public interface PartyReviewRepository extends JpaRepository<PartyReview, Long> 
      */
     List<PartyReview> findByRevieweeId(Long revieweeId);
 
+    List<PartyReview> findTop2ByRevieweeIdOrderByCreatedAtDesc(Long revieweeId);
+
     /**
      * 중복 리뷰 방지를 위한 존재 여부 확인
      */

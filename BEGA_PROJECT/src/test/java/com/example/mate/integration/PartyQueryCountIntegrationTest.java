@@ -11,13 +11,19 @@ import com.example.auth.repository.UserRepository;
 import com.example.kbo.service.TicketVerificationTokenStore;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
+import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.PartyReview;
+import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PartyReviewRepository;
+import com.example.mate.service.MateHistoryMetricsService;
+import com.example.mate.service.PartyMapper;
 import com.example.mate.service.PartyService;
 import com.example.mate.support.MateTestFixtureFactory;
 import com.example.support.HibernateQueryCountSupport;
 import com.example.support.HibernateStatisticsTestConfig;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -28,9 +34,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.TestPropertySource;
 import com.example.notification.service.NotificationService;
@@ -41,8 +50,11 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 @DataJpaTest
 @Import({
         PartyService.class,
+        PartyMapper.class,
+        MateHistoryMetricsService.class,
         PublicVisibilityVerifier.class,
-        HibernateStatisticsTestConfig.class
+        HibernateStatisticsTestConfig.class,
+        PartyQueryCountIntegrationTest.MetricsTestConfig.class
 })
 @TestPropertySource(properties = {
         "spring.datasource.url=jdbc:h2:mem:party_query_count;DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
@@ -58,6 +70,14 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 })
 class PartyQueryCountIntegrationTest {
 
+    @TestConfiguration
+    static class MetricsTestConfig {
+        @Bean
+        MeterRegistry meterRegistry() {
+            return new SimpleMeterRegistry();
+        }
+    }
+
     @Autowired
     private PartyService partyService;
 
@@ -69,6 +89,9 @@ class PartyQueryCountIntegrationTest {
 
     @Autowired
     private PartyReviewRepository partyReviewRepository;
+
+    @Autowired
+    private PartyApplicationRepository partyApplicationRepository;
 
     @Autowired
     @Qualifier("entityManagerFactory")
@@ -89,6 +112,7 @@ class PartyQueryCountIntegrationTest {
     void setUp() {
         mockMvc = MockMvcBuilders.standaloneSetup(new com.example.mate.controller.PartyController(partyService)).build();
         partyReviewRepository.deleteAll();
+        partyApplicationRepository.deleteAll();
         partyRepository.deleteAll();
         userRepository.deleteAll();
     }
@@ -144,6 +168,38 @@ class PartyQueryCountIntegrationTest {
     }
 
     @Test
+    @DisplayName("my party history keeps query count bounded across hosted and approved parties")
+    void getMyPartyHistory_keepsPrepareStatementCountBoundedAcrossMultipleParties() {
+        UserEntity me = userRepository.save(MateTestFixtureFactory.user("history-me@example.com", "History Me"));
+        UserEntity otherHost = userRepository.save(MateTestFixtureFactory.user("history-other@example.com", "History Other"));
+
+        Party hostedParty = partyRepository.save(buildParty(me, "호스트 파티", LocalDate.of(2026, 6, 1), LocalTime.of(18, 30)));
+        Party approvedParty = partyRepository.save(buildParty(otherHost, "승인 참여 파티", LocalDate.of(2026, 6, 2), LocalTime.of(18, 30)));
+        Party anotherApprovedParty = partyRepository.save(buildParty(otherHost, "두 번째 승인 참여 파티", LocalDate.of(2026, 6, 3), LocalTime.of(18, 30)));
+
+        partyApplicationRepository.save(createApplication(approvedParty, me));
+        partyApplicationRepository.save(createApplication(anotherApprovedParty, me));
+
+        userRepository.flush();
+        partyRepository.flush();
+        partyApplicationRepository.flush();
+
+        Statistics statistics = HibernateQueryCountSupport.reset(entityManagerFactory);
+
+        Page<PartyDTO.HistoryResponse> page = partyService.getMyPartyHistory(
+                me.getId(),
+                "all",
+                PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt")
+                        .and(Sort.by(Sort.Direction.DESC, "id"))));
+
+        assertThat(page.getContent()).hasSize(3);
+        assertThat(page.getContent())
+                .extracting(PartyDTO.HistoryResponse::getId)
+                .contains(anotherApprovedParty.getId(), approvedParty.getId(), hostedParty.getId());
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(3);
+    }
+
+    @Test
     @DisplayName("public party list API keeps query count bounded across multiple parties")
     void getAllPartiesApi_keepsPrepareStatementCountBoundedAcrossMultipleParties() throws Exception {
         UserEntity firstHost = userRepository.save(MateTestFixtureFactory.user("api-host-one@example.com", "API Host One"));
@@ -193,5 +249,21 @@ class PartyQueryCountIntegrationTest {
         party.setDescription(description);
         party.setSearchText("잠실 LG OB 1루 " + host.getName() + " " + description);
         return party;
+    }
+
+    private PartyApplication createApplication(Party party, UserEntity applicant) {
+        return PartyApplication.builder()
+                .partyId(party.getId())
+                .applicantId(applicant.getId())
+                .applicantName(applicant.getName())
+                .applicantBadge(Party.BadgeType.NEW)
+                .applicantRating(5.0)
+                .message("같이 응원하고 싶습니다.")
+                .depositAmount(0)
+                .isPaid(false)
+                .isApproved(true)
+                .isRejected(false)
+                .paymentType(PartyApplication.PaymentType.DEPOSIT)
+                .build();
     }
 }

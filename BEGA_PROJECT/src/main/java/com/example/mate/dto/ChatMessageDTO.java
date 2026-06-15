@@ -1,6 +1,7 @@
 package com.example.mate.dto;
 
 import com.example.mate.entity.ChatMessage;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -17,6 +18,7 @@ public class ChatMessageDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateChatMessageRequest")
     public static class Request {
         @NotNull(message = "파티 ID는 필수입니다.")
         private Long partyId;
@@ -36,6 +38,7 @@ public class ChatMessageDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateChatMessageResponse")
     public static class Response {
         private Long id;
         private Long partyId;

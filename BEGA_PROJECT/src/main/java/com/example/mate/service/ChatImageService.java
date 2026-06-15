@@ -2,10 +2,12 @@ package com.example.mate.service;
 
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
+import com.example.cheerboard.storage.validator.ImageValidator;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InternalServerBusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.example.media.service.MediaObjectKeyGuard;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -21,6 +23,8 @@ public class ChatImageService {
     private final StorageConfig storageConfig;
     private final com.example.common.image.ImageUtil imageUtil;
     private final com.example.common.image.ImageOptimizationMetricsService metricsService;
+    private final ImageValidator imageValidator;
+    private final MediaObjectKeyGuard mediaObjectKeyGuard;
 
     public UploadResult uploadChatImage(Long userId, MultipartFile file) {
         metricsService.recordRequest("mate_chat");
@@ -59,7 +63,7 @@ public class ChatImageService {
         }
     }
 
-    public String resolveChatImageUrl(String pathOrUrl) {
+    String resolveChatImageUrlUnchecked(String pathOrUrl) {
         if (pathOrUrl == null || pathOrUrl.isBlank()) {
             return null;
         }
@@ -86,6 +90,22 @@ public class ChatImageService {
         return pathOrUrl;
     }
 
+    public String resolveChatImageUrlForUser(Long ownerUserId, String pathOrUrl) {
+        if (pathOrUrl == null || pathOrUrl.isBlank()) {
+            return null;
+        }
+
+        String normalizedPath = normalizeChatStoragePath(pathOrUrl);
+        if (normalizedPath == null || normalizedPath.isBlank() || isHttpUrl(normalizedPath)) {
+            return null;
+        }
+        if (!mediaObjectKeyGuard.canReadChatKey(normalizedPath, ownerUserId)) {
+            log.warn("채팅 이미지 URL 생성 건너뜀: owner mismatch path={}", normalizedPath);
+            return null;
+        }
+        return generateSignedUrl(normalizedPath);
+    }
+
     public String normalizeChatStoragePath(String pathOrUrl) {
         if (!StringUtils.hasText(pathOrUrl)) {
             return null;
@@ -108,32 +128,29 @@ public class ChatImageService {
         return normalized;
     }
 
+    public String normalizeChatStoragePathForUser(Long userId, String pathOrUrl) {
+        if (StringUtils.hasText(pathOrUrl) && isHttpUrl(pathOrUrl.strip())) {
+            throw new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요.");
+        }
+
+        String normalized = normalizeChatStoragePath(pathOrUrl);
+        if (!StringUtils.hasText(normalized)) {
+            return null;
+        }
+        mediaObjectKeyGuard.requireChatWriteKey(normalized, userId);
+        return normalized;
+    }
+
     private void validateFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             metricsService.recordReject("mate_chat", "file_required");
             throw new BadRequestBusinessException("CHAT_IMAGE_FILE_REQUIRED", "업로드할 파일이 없습니다.");
         }
-        if (file.getSize() > storageConfig.getMaxImageBytes()) {
-            metricsService.recordReject("mate_chat", "file_too_large");
-            throw new BadRequestBusinessException("CHAT_IMAGE_FILE_TOO_LARGE", "이미지 크기는 5MB 이하여야 합니다.");
-        }
-        String contentType = file.getContentType();
-        if (contentType == null || !contentType.startsWith("image/")) {
-            metricsService.recordReject("mate_chat", "invalid_type");
-            throw new BadRequestBusinessException("CHAT_IMAGE_INVALID_TYPE", "이미지 파일만 업로드 가능합니다.");
-        }
-        com.example.common.image.ImageUtil.ImageDimension imageDimension = imageUtil.getImageDimension(file);
-        int longSide = Math.max(imageDimension.width(), imageDimension.height());
-        long totalPixels = (long) imageDimension.width() * imageDimension.height();
-        if (longSide > storageConfig.getMaxImageLongSidePixels()) {
-            metricsService.recordReject("mate_chat", "long_side_exceeded");
-            throw new BadRequestBusinessException("CHAT_IMAGE_DIMENSION_TOO_LARGE",
-                    "이미지의 긴 변은 4096px 이하여야 합니다.");
-        }
-        if (totalPixels > storageConfig.getMaxImageTotalPixels()) {
-            metricsService.recordReject("mate_chat", "total_pixels_exceeded");
-            throw new BadRequestBusinessException("CHAT_IMAGE_DIMENSION_TOO_LARGE",
-                    "이미지 총 픽셀 수는 16000000 이하여야 합니다.");
+        try {
+            imageValidator.validateFile(file);
+        } catch (IllegalArgumentException e) {
+            metricsService.recordReject("mate_chat", "invalid_file");
+            throw new BadRequestBusinessException("CHAT_IMAGE_INVALID_FILE", e.getMessage());
         }
     }
 

@@ -2,11 +2,17 @@ package com.example.mate.controller;
 
 // Force IDE re-index
 
+import com.example.common.exception.AuthenticationRequiredException;
 import com.example.mate.dto.PartyReviewDTO;
 import com.example.mate.service.PartyReviewService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -21,11 +27,16 @@ public class PartyReviewController {
     /**
      * 리뷰 작성
      */
+    @Operation(summary = "Mate review create")
+    @ApiResponse(
+            responseCode = "201",
+            description = "Created",
+            content = @Content(schema = @Schema(implementation = PartyReviewDTO.Response.class)))
     @PostMapping
-    public ResponseEntity<?> createReview(
+    public ResponseEntity<PartyReviewDTO.Response> createReview(
             @RequestBody PartyReviewDTO.Request request,
-            java.security.Principal principal) {
-        PartyReviewDTO.Response response = partyReviewService.createReview(request, principal);
+            @AuthenticationPrincipal Long userId) {
+        PartyReviewDTO.Response response = partyReviewService.createReview(request, requireUserId(userId));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -33,8 +44,17 @@ public class PartyReviewController {
      * 파티별 리뷰 조회
      */
     @GetMapping("/party/{partyId}")
-    public ResponseEntity<List<PartyReviewDTO.Response>> getReviewsByParty(@PathVariable Long partyId) {
-        List<PartyReviewDTO.Response> reviews = partyReviewService.getReviewsByParty(partyId);
+    public ResponseEntity<List<PartyReviewDTO.Response>> getReviewsByParty(
+            @PathVariable Long partyId,
+            @AuthenticationPrincipal Long userId) {
+        List<PartyReviewDTO.Response> reviews = partyReviewService.getReviewsByParty(partyId, requireUserId(userId));
         return ResponseEntity.ok(reviews);
+    }
+
+    private Long requireUserId(Long userId) {
+        if (userId == null) {
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
+        }
+        return userId;
     }
 }

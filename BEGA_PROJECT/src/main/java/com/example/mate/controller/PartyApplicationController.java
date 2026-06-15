@@ -1,5 +1,6 @@
 package com.example.mate.controller;
 
+import com.example.common.exception.AuthenticationRequiredException;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.service.PartyApplicationService;
 import jakarta.validation.Valid;
@@ -7,9 +8,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.security.Principal;
 import java.util.List;
 
 @RestController
@@ -21,107 +22,125 @@ public class PartyApplicationController {
 
     // 신청 생성 — applicantId는 인증 principal에서 파생
     @PostMapping
-    public ResponseEntity<?> createApplication(
+    public ResponseEntity<PartyApplicationDTO.Response> createApplication(
             @Valid @RequestBody PartyApplicationDTO.Request request,
-            Principal principal) {
-        PartyApplicationDTO.Response response = applicationService.createApplication(request, principal);
+            @AuthenticationPrincipal Long userId) {
+        Long authenticatedUserId = requireUserId(userId);
+        PartyApplicationDTO.Response response = applicationService.createApplication(request, authenticatedUserId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     // 파티별 신청 목록 조회
     @GetMapping("/party/{partyId}")
-    public ResponseEntity<?> getApplicationsByPartyId(
+    public ResponseEntity<List<PartyApplicationDTO.Response>> getApplicationsByPartyId(
             @PathVariable Long partyId,
-            Principal principal) {
-        List<PartyApplicationDTO.Response> applications = applicationService.getApplicationsByPartyId(partyId, principal);
+            @AuthenticationPrincipal Long userId) {
+        List<PartyApplicationDTO.Response> applications = applicationService.getApplicationsByPartyId(
+                partyId,
+                requireUserId(userId));
         return ResponseEntity.ok(applications);
     }
 
     // 특정 파티에 대한 내 신청 단건 조회
     @GetMapping("/party/{partyId}/mine")
-    public ResponseEntity<?> getMyApplicationByPartyId(
+    public ResponseEntity<PartyApplicationDTO.Response> getMyApplicationByPartyId(
             @PathVariable Long partyId,
-            Principal principal) {
-        PartyApplicationDTO.Response application = applicationService.getMyApplicationByPartyId(partyId, principal);
+            @AuthenticationPrincipal Long userId) {
+        PartyApplicationDTO.Response application = applicationService.getMyApplicationByPartyId(
+                partyId,
+                requireUserId(userId));
         return ResponseEntity.ok(application);
     }
 
     // 내 신청 목록 조회 (로그인 사용자 기준)
     @GetMapping("/my")
-    public ResponseEntity<?> getMyApplications(Principal principal) {
-        List<PartyApplicationDTO.Response> applications = applicationService.getMyApplications(principal);
+    public ResponseEntity<List<PartyApplicationDTO.Response>> getMyApplications(@AuthenticationPrincipal Long userId) {
+        List<PartyApplicationDTO.Response> applications = applicationService.getMyApplications(requireUserId(userId));
         return ResponseEntity.ok(applications);
     }
 
     // 대기중인 신청 목록 조회 (호스트 전용)
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/party/{partyId}/pending")
-    public ResponseEntity<?> getPendingApplications(
+    public ResponseEntity<List<PartyApplicationDTO.Response>> getPendingApplications(
             @PathVariable Long partyId,
-            Principal principal) {
-        List<PartyApplicationDTO.Response> applications = applicationService.getPendingApplications(partyId, principal);
+            @AuthenticationPrincipal Long userId) {
+        List<PartyApplicationDTO.Response> applications = applicationService.getPendingApplications(
+                partyId,
+                requireUserId(userId));
         return ResponseEntity.ok(applications);
     }
 
     // 승인된 신청 목록 조회 (호스트 전용)
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/party/{partyId}/approved")
-    public ResponseEntity<?> getApprovedApplications(
+    public ResponseEntity<List<PartyApplicationDTO.Response>> getApprovedApplications(
             @PathVariable Long partyId,
-            Principal principal) {
-        List<PartyApplicationDTO.Response> applications = applicationService.getApprovedApplications(partyId, principal);
+            @AuthenticationPrincipal Long userId) {
+        List<PartyApplicationDTO.Response> applications = applicationService.getApprovedApplications(
+                partyId,
+                requireUserId(userId));
         return ResponseEntity.ok(applications);
     }
 
     // 거절된 신청 목록 조회 (호스트 전용)
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/party/{partyId}/rejected")
-    public ResponseEntity<?> getRejectedApplications(
+    public ResponseEntity<List<PartyApplicationDTO.Response>> getRejectedApplications(
             @PathVariable Long partyId,
-            Principal principal) {
-        List<PartyApplicationDTO.Response> applications = applicationService.getRejectedApplications(partyId, principal);
+            @AuthenticationPrincipal Long userId) {
+        List<PartyApplicationDTO.Response> applications = applicationService.getRejectedApplications(
+                partyId,
+                requireUserId(userId));
         return ResponseEntity.ok(applications);
     }
 
     // 신청 승인
     @PostMapping("/{applicationId}/approve")
-    public ResponseEntity<?> approveApplication(
+    public ResponseEntity<PartyApplicationDTO.Response> approveApplication(
             @PathVariable Long applicationId,
-            Principal principal) {
-        PartyApplicationDTO.Response response = applicationService.approveApplication(applicationId, principal);
+            @AuthenticationPrincipal Long userId) {
+        PartyApplicationDTO.Response response = applicationService.approveApplication(applicationId, requireUserId(userId));
         return ResponseEntity.ok(response);
     }
 
     // 신청 거절
     @PostMapping("/{applicationId}/reject")
-    public ResponseEntity<?> rejectApplication(
+    public ResponseEntity<PartyApplicationDTO.Response> rejectApplication(
             @PathVariable Long applicationId,
-            Principal principal) {
-        PartyApplicationDTO.Response response = applicationService.rejectApplication(applicationId, principal);
+            @AuthenticationPrincipal Long userId) {
+        PartyApplicationDTO.Response response = applicationService.rejectApplication(applicationId, requireUserId(userId));
         return ResponseEntity.ok(response);
     }
 
     // 신청 취소 — applicantId는 인증 principal에서 파생
     @PostMapping("/{applicationId}/cancel")
-    public ResponseEntity<?> cancelApplicationWithReason(
+    public ResponseEntity<PartyApplicationDTO.CancelResponse> cancelApplicationWithReason(
             @PathVariable Long applicationId,
             @RequestBody(required = false) PartyApplicationDTO.CancelRequest request,
-            Principal principal) {
+            @AuthenticationPrincipal Long userId) {
         PartyApplicationDTO.CancelRequest cancelRequest = request != null
                 ? request
                 : PartyApplicationDTO.CancelRequest.builder().build();
         PartyApplicationDTO.CancelResponse response = applicationService.cancelApplication(
                 applicationId,
-                principal,
+                requireUserId(userId),
                 cancelRequest);
         return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/{applicationId}")
-    public ResponseEntity<?> cancelApplication(
+    public ResponseEntity<Void> cancelApplication(
             @PathVariable Long applicationId,
-            Principal principal) {
-        applicationService.cancelApplication(applicationId, principal);
+            @AuthenticationPrincipal Long userId) {
+        applicationService.cancelApplication(applicationId, requireUserId(userId));
         return ResponseEntity.noContent().build();
+    }
+
+    private Long requireUserId(Long userId) {
+        if (userId == null) {
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
+        }
+        return userId;
     }
 }

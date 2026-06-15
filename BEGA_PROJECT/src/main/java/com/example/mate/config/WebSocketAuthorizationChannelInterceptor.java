@@ -17,8 +17,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 import com.example.dm.service.DmRoomService;
-import com.example.mate.entity.Party;
-import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -36,7 +34,6 @@ public class WebSocketAuthorizationChannelInterceptor implements ChannelIntercep
     private static final String LEGACY_NOTIFICATION_TOPIC_PREFIX = "/topic/notifications/";
 
     private final PartyRepository partyRepository;
-    private final PartyApplicationRepository partyApplicationRepository;
     private final DmRoomService dmRoomService;
 
     @Override
@@ -168,18 +165,6 @@ public class WebSocketAuthorizationChannelInterceptor implements ChannelIntercep
     }
 
     private boolean isPartyMember(Long userId, Long partyId) {
-        return partyRepository.findById(partyId)
-                .map(party -> isHost(userId, party) || isApprovedParticipant(userId, partyId))
-                .orElse(false);
-    }
-
-    private boolean isHost(Long userId, Party party) {
-        return party != null && party.getHostId() != null && party.getHostId().equals(userId);
-    }
-
-    private boolean isApprovedParticipant(Long userId, Long partyId) {
-        return partyApplicationRepository.findByPartyIdAndApplicantId(partyId, userId)
-                .map(application -> Boolean.TRUE.equals(application.getIsApproved()))
-                .orElse(false);
+        return partyRepository.findAccessibleByIdAndParticipantId(partyId, userId).isPresent();
     }
 }

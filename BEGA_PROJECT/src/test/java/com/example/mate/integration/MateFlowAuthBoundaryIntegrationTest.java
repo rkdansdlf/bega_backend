@@ -109,6 +109,10 @@ class MateFlowAuthBoundaryIntegrationTest {
         UserEntity approved = userRepository.save(MateTestFixtureFactory.user(APPROVED_EMAIL, "Auth Approved"));
         UserEntity pending = userRepository.save(MateTestFixtureFactory.user(PENDING_EMAIL, "Auth Pending"));
         UserEntity outsider = userRepository.save(MateTestFixtureFactory.user(OUTSIDER_EMAIL, "Auth Outsider"));
+        MateTestTokenHelper.register(host);
+        MateTestTokenHelper.register(approved);
+        MateTestTokenHelper.register(pending);
+        MateTestTokenHelper.register(outsider);
 
         userProviderRepository.save(MateTestFixtureFactory.socialProvider(host, "kakao"));
         userProviderRepository.save(MateTestFixtureFactory.socialProvider(approved, "naver"));
@@ -193,13 +197,13 @@ class MateFlowAuthBoundaryIntegrationTest {
                         .with(MateTestTokenHelper.principalAs(PENDING_EMAIL))
                         .contentType("application/json")
                         .content(pendingMessageBody))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
         mockMvc.perform(get("/api/chat/party/{partyId}", party.getId())
                         .with(MateTestTokenHelper.principalAs(PENDING_EMAIL)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
         mockMvc.perform(get("/api/chat/party/{partyId}/latest", party.getId())
                         .with(MateTestTokenHelper.principalAs(PENDING_EMAIL)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
 
         String outsiderMessageBody = objectMapper.writeValueAsString(Map.of(
                 "partyId", party.getId(),
@@ -209,9 +213,9 @@ class MateFlowAuthBoundaryIntegrationTest {
                         .with(MateTestTokenHelper.principalAs(OUTSIDER_EMAIL))
                         .contentType("application/json")
                         .content(outsiderMessageBody))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
         mockMvc.perform(get("/api/chat/party/{partyId}", party.getId())
                         .with(MateTestTokenHelper.principalAs(OUTSIDER_EMAIL)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 }

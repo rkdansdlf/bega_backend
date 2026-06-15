@@ -1,12 +1,12 @@
 package com.example.mate.controller;
 
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.mate.dto.ChatReadDTO;
 import com.example.mate.service.ChatMessageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-
-import java.security.Principal;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/chat")
@@ -17,15 +17,31 @@ public class ChatReadController {
 
     // 특정 파티 채팅방 읽음 처리
     @PostMapping("/party/{partyId}/read")
-    public ResponseEntity<?> updateReadTimestamp(@PathVariable Long partyId, Principal principal) {
-        chatMessageService.updateChatReadTimestamp(partyId, principal);
-        return ResponseEntity.ok(Map.of("success", true, "message", "채팅 읽음 처리 완료"));
+    public ResponseEntity<ChatReadDTO.ReadTimestampResponse> updateReadTimestamp(
+            @PathVariable Long partyId,
+            @AuthenticationPrincipal Long userId) {
+        chatMessageService.updateChatReadTimestamp(partyId, requireUserId(userId));
+        return ResponseEntity.ok(ChatReadDTO.ReadTimestampResponse.builder()
+                .success(true)
+                .message("채팅 읽음 처리 완료")
+                .build());
     }
 
     // 전체 안 읽은 메시지 수 조회
     @GetMapping("/my/unread-counts")
-    public ResponseEntity<?> getTotalUnreadCount(Principal principal) {
-        long count = chatMessageService.getTotalUnreadCount(principal);
-        return ResponseEntity.ok(Map.of("success", true, "data", count));
+    public ResponseEntity<ChatReadDTO.UnreadCountResponse> getTotalUnreadCount(
+            @AuthenticationPrincipal Long userId) {
+        long count = chatMessageService.getTotalUnreadCount(requireUserId(userId));
+        return ResponseEntity.ok(ChatReadDTO.UnreadCountResponse.builder()
+                .success(true)
+                .data(count)
+                .build());
+    }
+
+    private Long requireUserId(Long userId) {
+        if (userId == null) {
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
+        }
+        return userId;
     }
 }

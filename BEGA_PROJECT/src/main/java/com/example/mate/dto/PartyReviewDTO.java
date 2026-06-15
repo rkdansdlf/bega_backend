@@ -3,6 +3,7 @@ package com.example.mate.dto;
 // Force IDE re-index
 
 import com.example.mate.entity.PartyReview;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -16,6 +17,7 @@ public class PartyReviewDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateReviewCreateRequest")
     public static class Request {
         private Long partyId;
         private String revieweeHandle;
@@ -27,6 +29,7 @@ public class PartyReviewDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateReviewResponse")
     public static class Response {
         private Long id;
         private Long partyId;

@@ -5,6 +5,7 @@ import com.example.auth.repository.UserRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.entity.UserProvider;
 import com.example.auth.service.PublicVisibilityVerifier;
+import com.example.common.exception.BadRequestBusinessException;
 import com.example.homepage.FeaturedMateCardDto;
 import com.example.kbo.dto.TicketInfo;
 import com.example.kbo.service.TicketVerificationTokenStore;
@@ -12,16 +13,18 @@ import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.exception.PartyFullException;
+import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PartyReviewRepository;
 import com.example.notification.service.NotificationService;
 import com.example.profile.storage.service.ProfileImageService;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
@@ -81,12 +84,33 @@ class PartyServiceTest {
         @Mock
         private TicketVerificationTokenStore ticketVerificationTokenStore;
 
-        @InjectMocks
+        private PartyMapper partyMapper;
+        private SimpleMeterRegistry mateHistoryMeterRegistry;
+
         private PartyService partyService;
 
         @BeforeEach
         void setUp() {
+                mateHistoryMeterRegistry = new SimpleMeterRegistry();
+                MateHistoryMetricsService mateHistoryMetricsService = new MateHistoryMetricsService(mateHistoryMeterRegistry);
+                partyMapper = new PartyMapper(
+                                userRepository,
+                                partyRepository,
+                                applicationRepository,
+                                partyReviewRepository,
+                                profileImageService);
+                partyService = new PartyService(
+                                partyRepository,
+                                userRepository,
+                                applicationRepository,
+                                partyMapper,
+                                userProviderRepository,
+                                publicVisibilityVerifier,
+                                ticketVerificationTokenStore,
+                                notificationService,
+                                mateHistoryMetricsService);
                 lenient().when(publicVisibilityVerifier.canAccess(any(), any())).thenReturn(true);
+                lenient().when(userRepository.findAllById(any())).thenReturn(List.of());
                 lenient().when(partyReviewRepository.findRatingSummariesByRevieweeIds(any())).thenReturn(List.of());
         }
 
@@ -216,13 +240,13 @@ class PartyServiceTest {
                 Party party = createParty(101L, 77L,
                                 "https://zyofzvnkputevakepbdm.supabase.co/storage/v1/object/sign/profile-images/profiles/77/old.png");
                 when(partyRepository.findById(101L)).thenReturn(Optional.of(party));
-                when(profileImageService.getProfileImageUrl("https://zyofzvnkputevakepbdm.supabase.co/storage/v1/object/sign/profile-images/profiles/77/old.png"))
+                when(profileImageService.getProfileImageUrlForUser(77L, "https://zyofzvnkputevakepbdm.supabase.co/storage/v1/object/sign/profile-images/profiles/77/old.png"))
                                 .thenReturn("https://oci.example/profiles/77/latest.png");
 
                 PartyDTO.PublicResponse response = partyService.getPartyById(101L, null);
 
                 assertThat(response.getHostProfileImageUrl()).isEqualTo("https://oci.example/profiles/77/latest.png");
-                verify(profileImageService).getProfileImageUrl(
+                verify(profileImageService).getProfileImageUrlForUser(77L,
                                 "https://zyofzvnkputevakepbdm.supabase.co/storage/v1/object/sign/profile-images/profiles/77/old.png");
                 verify(userRepository, never()).findProfileImageUrlById(77L);
         }
@@ -232,13 +256,27 @@ class PartyServiceTest {
         void getPartyById_usesPartyHostProfileImageWhenAlreadyValid() {
                 Party party = createParty(102L, 55L, "profiles/55/current.png");
                 when(partyRepository.findById(102L)).thenReturn(Optional.of(party));
-                when(profileImageService.getProfileImageUrl("profiles/55/current.png"))
+                when(profileImageService.getProfileImageUrlForUser(55L, "profiles/55/current.png"))
                                 .thenReturn("https://oci.example/profiles/55/current.png");
 
                 PartyDTO.PublicResponse response = partyService.getPartyById(102L, null);
 
                 assertThat(response.getHostProfileImageUrl()).isEqualTo("https://oci.example/profiles/55/current.png");
                 verify(userRepository, never()).findProfileImageUrlById(55L);
+        }
+
+        @Test
+        @DisplayName("getPartyById public response includes host handle")
+        void getPartyById_publicResponseIncludesHostHandle() {
+                Party party = createParty(105L, 92L, null);
+                when(partyRepository.findById(105L)).thenReturn(Optional.of(party));
+                when(userRepository.findAllById(any())).thenReturn(List.of(
+                                UserEntity.builder().id(92L).handle("testuser").name("Host 92").email("host92@example.com").build()));
+                when(profileImageService.getProfileImageUrlForUser(92L, null)).thenReturn(null);
+
+                PartyDTO.PublicResponse response = partyService.getPartyById(105L, null);
+
+                assertThat(response.getHostHandle()).isEqualTo("testuser");
         }
 
         @Test
@@ -267,7 +305,7 @@ class PartyServiceTest {
                                 any(),
                                 any(Pageable.class)))
                                 .thenReturn(new PageImpl<>(List.of(party)));
-                when(profileImageService.getProfileImageUrl(null)).thenReturn(null);
+                when(profileImageService.getProfileImageUrlForUser(91L, null)).thenReturn(null);
                 when(partyReviewRepository.findRatingSummariesByRevieweeIds(any()))
                                 .thenReturn(List.of(ratingSummary(91L, 4.4, 2L)));
 
@@ -299,7 +337,7 @@ class PartyServiceTest {
                 when(userRepository.findAllById(any())).thenReturn(List.of(
                                 UserEntity.builder().id(11L).handle("@host11").name("Host 11").email("host11@example.com").build(),
                                 UserEntity.builder().id(12L).handle("@host12").name("Host 12").email("host12@example.com").build()));
-                when(profileImageService.getProfileImageUrl(any())).thenReturn(null);
+                when(profileImageService.getProfileImageUrlForUser(any(), any())).thenReturn(null);
 
                 Page<PartyDTO.PublicResponse> result = partyService.getAllParties(
                                 null,
@@ -351,8 +389,79 @@ class PartyServiceTest {
                 assertThat(result.get(0).getTeamId()).isEqualTo("KT");
                 assertThat(result.get(0).getStadium()).isEqualTo("수원");
                 assertThat(result.get(0).getSection()).isEqualTo("응원석");
-                verify(profileImageService, never()).getProfileImageUrl(any());
+                verify(profileImageService, never()).getProfileImageUrlForUser(any(), any());
                 verify(userRepository, never()).findById(any());
+        }
+
+        @Test
+        @DisplayName("getMyPartyHistory returns lightweight paged history responses")
+        void getMyPartyHistory_returnsPagedHistoryResponses() {
+                Party party = createParty(801L, 42L, null);
+                when(partyRepository.findMyHistory(eq(42L), isNull(), any(Pageable.class)))
+                                .thenReturn(new PageImpl<>(List.of(party), PageRequest.of(0, 20), 1));
+
+                Page<PartyDTO.HistoryResponse> result = partyService.getMyPartyHistory(
+                                42L,
+                                "all",
+                                PageRequest.of(0, 20));
+
+                assertThat(result.getTotalElements()).isEqualTo(1);
+                assertThat(result.getContent()).hasSize(1);
+                assertThat(result.getContent().get(0).getId()).isEqualTo(801L);
+                assertThat(result.getContent().get(0).getStadium()).isEqualTo("수원");
+                assertThat(mateHistoryTimer("all", "success").count()).isEqualTo(1L);
+                verify(partyRepository).findMyHistory(eq(42L), isNull(), any(Pageable.class));
+                verify(profileImageService, never()).getProfileImageUrlForUser(any(), any());
+        }
+
+        @Test
+        @DisplayName("getMyPartyHistory maps completed group to completed statuses")
+        void getMyPartyHistory_completedGroupMapsStatuses() {
+                when(partyRepository.findMyHistory(eq(42L), anyList(), any(Pageable.class)))
+                                .thenReturn(Page.empty());
+
+                partyService.getMyPartyHistory(42L, "completed", PageRequest.of(0, 20));
+
+                verify(partyRepository).findMyHistory(
+                                eq(42L),
+                                argThat(statuses -> statuses.equals(List.of(
+                                                Party.PartyStatus.COMPLETED,
+                                                Party.PartyStatus.CHECKED_IN))),
+                                any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("getMyPartyHistory maps ongoing group to active statuses")
+        void getMyPartyHistory_ongoingGroupMapsStatuses() {
+                when(partyRepository.findMyHistory(eq(42L), anyList(), any(Pageable.class)))
+                                .thenReturn(Page.empty());
+
+                partyService.getMyPartyHistory(42L, "ongoing", PageRequest.of(0, 20));
+
+                verify(partyRepository).findMyHistory(
+                                eq(42L),
+                                argThat(statuses -> statuses.equals(List.of(
+                                                Party.PartyStatus.PENDING,
+                                                Party.PartyStatus.MATCHED))),
+                                any(Pageable.class));
+        }
+
+        @Test
+        @DisplayName("getMyPartyHistory rejects unsupported group")
+        void getMyPartyHistory_invalidGroupThrows() {
+                assertThrows(
+                                BadRequestBusinessException.class,
+                                () -> partyService.getMyPartyHistory(42L, "archived", PageRequest.of(0, 20)));
+
+                assertThat(mateHistoryTimer("invalid", "failure").count()).isEqualTo(1L);
+                verify(partyRepository, never()).findMyHistory(any(), any(), any());
+        }
+
+        private Timer mateHistoryTimer(String group, String result) {
+                return mateHistoryMeterRegistry.get(MateHistoryMetricsService.REQUEST_DURATION_METRIC)
+                                .tag("group", group)
+                                .tag("result", result)
+                                .timer();
         }
 
         // ========== incrementParticipants() ==========
@@ -397,6 +506,71 @@ class PartyServiceTest {
 
                 assertThat(result).hasSize(1);
                 verify(publicVisibilityVerifier).validate(host, 99L, "파티");
+        }
+
+        @Test
+        @DisplayName("updateParty - 호스트는 파티를 수정할 수 있다")
+        void updateParty_hostCanUpdateParty() {
+                Party party = createParty(700L, 10L, null);
+                PartyDTO.UpdateRequest request = PartyDTO.UpdateRequest.builder()
+                                .description("수정된 소개글입니다.")
+                                .maxParticipants(5)
+                                .build();
+
+                when(partyRepository.findByIdAndHostId(700L, 10L)).thenReturn(Optional.of(party));
+                when(applicationRepository.countByPartyIdAndIsApprovedTrue(700L)).thenReturn(0L);
+                when(partyRepository.save(any(Party.class))).thenAnswer(inv -> inv.getArgument(0));
+
+                PartyDTO.Response response = partyService.updateParty(700L, request, 10L);
+
+                assertThat(response.getDescription()).isEqualTo("수정된 소개글입니다.");
+                assertThat(response.getMaxParticipants()).isEqualTo(5);
+                verify(partyRepository).findByIdAndHostId(700L, 10L);
+                verify(partyRepository, never()).findById(700L);
+        }
+
+        @Test
+        @DisplayName("updateParty - 비호스트는 없는 파티처럼 처리한다")
+        void updateParty_nonHostIsTreatedAsNotFound() {
+                PartyDTO.UpdateRequest request = PartyDTO.UpdateRequest.builder()
+                                .description("수정된 소개글입니다.")
+                                .build();
+
+                when(partyRepository.findByIdAndHostId(700L, 99L)).thenReturn(Optional.empty());
+
+                assertThrows(PartyNotFoundException.class, () -> partyService.updateParty(700L, request, 99L));
+
+                verify(partyRepository).findByIdAndHostId(700L, 99L);
+                verify(partyRepository, never()).findById(700L);
+                verify(partyRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("deleteParty - 호스트는 파티를 삭제할 수 있다")
+        void deleteParty_hostCanDeleteParty() {
+                Party party = createParty(701L, 10L, null);
+
+                when(partyRepository.findByIdAndHostId(701L, 10L)).thenReturn(Optional.of(party));
+                when(applicationRepository.findByPartyIdAndIsApprovedTrue(701L)).thenReturn(List.of());
+                when(applicationRepository.findByPartyId(701L)).thenReturn(List.of());
+
+                partyService.deleteParty(701L, 10L);
+
+                verify(partyRepository).findByIdAndHostId(701L, 10L);
+                verify(partyRepository, never()).findById(701L);
+                verify(partyRepository).delete(party);
+        }
+
+        @Test
+        @DisplayName("deleteParty - 비호스트는 없는 파티처럼 처리한다")
+        void deleteParty_nonHostIsTreatedAsNotFound() {
+                when(partyRepository.findByIdAndHostId(701L, 99L)).thenReturn(Optional.empty());
+
+                assertThrows(PartyNotFoundException.class, () -> partyService.deleteParty(701L, 99L));
+
+                verify(partyRepository).findByIdAndHostId(701L, 99L);
+                verify(partyRepository, never()).findById(701L);
+                verify(partyRepository, never()).delete(any());
         }
 
         // ========== handleUserDeletion() ==========
