@@ -78,13 +78,19 @@ class PredictionServiceTest {
 
     private BaseballDataIntegrityGuard baseballDataIntegrityGuard;
 
+    private CacheManager cacheManager;
+
     private PredictionService predictionService;
 
     @BeforeEach
     void setUp() {
         LeagueStageResolver leagueStageResolver = new LeagueStageResolver(gameRepository);
         baseballDataIntegrityGuard = mock(BaseballDataIntegrityGuard.class);
-        CacheManager cacheManager = new ConcurrentMapCacheManager(CacheConfig.PREDICTION_VOTE_STATUS);
+        cacheManager = new ConcurrentMapCacheManager(
+                CacheConfig.PREDICTION_VOTE_STATUS,
+                CacheConfig.GAME_DETAIL,
+                CacheConfig.PREDICTION_MATCH_DAY,
+                CacheConfig.RECENT_COMPLETED_GAMES);
         PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
         lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         predictionService = new PredictionService(
@@ -1047,6 +1053,30 @@ class PredictionServiceTest {
                 .build();
     }
 
+    private void seedPredictionGameCaches(String gameId, LocalDate gameDate) {
+        Cache gameDetailCache = cacheManager.getCache(CacheConfig.GAME_DETAIL);
+        Cache matchDayCache = cacheManager.getCache(CacheConfig.PREDICTION_MATCH_DAY);
+        Cache recentCompletedGamesCache = cacheManager.getCache(CacheConfig.RECENT_COMPLETED_GAMES);
+
+        gameDetailCache.put(gameId, "stale-detail");
+        if (gameDate != null) {
+            matchDayCache.put(gameDate.toString(), "stale-day");
+        }
+        recentCompletedGamesCache.put("all", "stale-recent");
+    }
+
+    private void assertPredictionGameCachesEvicted(String gameId, LocalDate gameDate) {
+        Cache gameDetailCache = cacheManager.getCache(CacheConfig.GAME_DETAIL);
+        Cache matchDayCache = cacheManager.getCache(CacheConfig.PREDICTION_MATCH_DAY);
+        Cache recentCompletedGamesCache = cacheManager.getCache(CacheConfig.RECENT_COMPLETED_GAMES);
+
+        assertThat(gameDetailCache.get(gameId)).isNull();
+        if (gameDate != null) {
+            assertThat(matchDayCache.get(gameDate.toString())).isNull();
+        }
+        assertThat(recentCompletedGamesCache.get("all")).isNull();
+    }
+
     private GameDetailHeaderProjection buildGameDetailHeader(String gameId, LocalDate gameDate) {
         GameDetailHeaderProjection header = mock(GameDetailHeaderProjection.class);
         lenient().when(header.getGameId()).thenReturn(gameId);
@@ -1103,6 +1133,7 @@ class PredictionServiceTest {
         setField(home1, "teamCode", "LG");
         setField(home1, "runs", 0);
         setField(home1, "isExtra", false);
+        seedPredictionGameCaches(gameId, game.getGameDate());
 
         int saved = predictionService.upsertInningScores(gameId, List.of(away1, home1));
 
@@ -1112,6 +1143,7 @@ class PredictionServiceTest {
         assertThat(game.getGameStatus()).isEqualTo("COMPLETED");
         assertThat(game.getWinningTeam()).isEqualTo("KT");
         assertThat(game.getWinningScore()).isEqualTo(2);
+        assertPredictionGameCachesEvicted(gameId, game.getGameDate());
         verify(gameInningScoreRepository).deleteAllByGameId(gameId);
         verify(gameInningScoreRepository).saveAll(anyList());
         verify(gameRepository).saveAndFlush(game);
@@ -1211,6 +1243,7 @@ class PredictionServiceTest {
                 GameInningScoreEntity.builder().gameId(gameId).inning(3).teamSide("away").runs(1).build(),
                 GameInningScoreEntity.builder().gameId(gameId).inning(5).teamSide("home").runs(4).build()
         ));
+        seedPredictionGameCaches(gameId, game.getGameDate());
 
         GameScoreSyncResultDto result = predictionService.syncGameSnapshot(gameId);
 
@@ -1222,6 +1255,7 @@ class PredictionServiceTest {
         assertThat(result.gameStatus()).isEqualTo("COMPLETED");
         assertThat(result.winningTeam()).isEqualTo("LG");
         assertThat(result.winningScore()).isEqualTo(4);
+        assertPredictionGameCachesEvicted(gameId, game.getGameDate());
         verify(gameRepository).saveAndFlush(game);
     }
 
