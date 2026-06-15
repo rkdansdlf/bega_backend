@@ -638,6 +638,7 @@ public class PredictionService {
 
         gameInningScoreRepository.saveAll(entities);
         synchronizeGameScoreSnapshot(game, scores);
+        evictPredictionGameCachesAfterCommit(game);
         log.info("Upserted {} inning score records for gameId={}", entities.size(), gameId);
         return entities.size();
     }
@@ -682,6 +683,7 @@ public class PredictionService {
             applyGameScoreSnapshot(game, homeScore, awayScore);
             gameRepository.saveAndFlush(game);
         }
+        evictPredictionGameCachesAfterCommit(game);
 
         return new GameScoreSyncResultDto(
                 game.getGameId(),
@@ -1289,6 +1291,42 @@ public class PredictionService {
             log.warn("캐시 엔트리 무효화 실패: cache={}, key={}, reason={}",
                     cacheName, key, summarizeCacheFailure(e));
         }
+    }
+
+    private void evictPredictionGameCachesAfterCommit(GameEntity game) {
+        if (game == null) {
+            return;
+        }
+
+        Runnable evictCaches = () -> evictPredictionGameCaches(game);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    evictCaches.run();
+                }
+            });
+            return;
+        }
+
+        evictCaches.run();
+    }
+
+    private void evictPredictionGameCaches(GameEntity game) {
+        if (game == null) {
+            return;
+        }
+
+        Cache gameDetailCache = cacheManager.getCache(CacheConfig.GAME_DETAIL);
+        safeEvictCacheEntry(gameDetailCache, game.getGameId(), CacheConfig.GAME_DETAIL);
+
+        if (game.getGameDate() != null) {
+            Cache matchDayCache = cacheManager.getCache(CacheConfig.PREDICTION_MATCH_DAY);
+            safeEvictCacheEntry(matchDayCache, game.getGameDate().toString(), CacheConfig.PREDICTION_MATCH_DAY);
+        }
+
+        Cache recentCompletedGamesCache = cacheManager.getCache(CacheConfig.RECENT_COMPLETED_GAMES);
+        safeEvictCacheEntry(recentCompletedGamesCache, "all", CacheConfig.RECENT_COMPLETED_GAMES);
     }
 
     private void validateVoteOpen(GameEntity game) {

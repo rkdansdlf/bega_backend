@@ -3,11 +3,14 @@ package com.example.prediction;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -24,8 +27,10 @@ import org.springframework.data.domain.Pageable;
 
 import com.example.kbo.entity.GameEntity;
 import com.example.kbo.entity.GameEventEntity;
+import com.example.kbo.entity.GameInningScoreEntity;
 import com.example.kbo.repository.GameDetailHeaderProjection;
 import com.example.kbo.repository.GameEventRepository;
+import com.example.kbo.repository.GameInningScoreRepository;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
 import com.example.kbo.validation.ManualBaseballDataRequest;
@@ -41,13 +46,26 @@ class GameLiveServiceTest {
     private GameEventRepository gameEventRepository;
 
     @Mock
+    private GameInningScoreRepository gameInningScoreRepository;
+
+    @Mock
     private BaseballDataIntegrityGuard baseballDataIntegrityGuard;
+
+    @Mock
+    private PredictionLiveMetricsService predictionLiveMetricsService;
 
     private GameLiveService gameLiveService;
 
     @BeforeEach
     void setUp() {
-        gameLiveService = new GameLiveService(gameRepository, gameEventRepository, baseballDataIntegrityGuard);
+        gameLiveService = new GameLiveService(
+                gameRepository,
+                gameEventRepository,
+                gameInningScoreRepository,
+                baseballDataIntegrityGuard,
+                predictionLiveMetricsService);
+        lenient().when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc(anyString()))
+                .thenReturn(List.of());
     }
 
     @Test
@@ -91,6 +109,31 @@ class GameLiveServiceTest {
 
         assertThat(snapshot.getEvents()).extracting(GameLiveEventDto::getEventSeq).containsExactly(8, 9);
         assertThat(snapshot.getLastEventSeq()).isEqualTo(9);
+    }
+
+    @Test
+    void liveSnapshotIncludesInningScoresAndFallsBackToInningTotalsWithoutEvents() {
+        GameEntity game = game("GAME-INNING", LocalDate.now(), "LIVE", null, null);
+        GameDetailHeaderProjection header = header("GAME-INNING", LocalTime.of(18, 30));
+        when(baseballDataIntegrityGuard.requireValidGame("prediction.live_snapshot", "GAME-INNING")).thenReturn(game);
+        when(gameRepository.findGameDetailHeaderByGameId("GAME-INNING")).thenReturn(Optional.of(header));
+        when(gameEventRepository.findByGameIdOrderByEventSeqDesc(eq("GAME-INNING"), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(gameEventRepository.findFirstByGameIdOrderByEventSeqDesc("GAME-INNING")).thenReturn(Optional.empty());
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc("GAME-INNING")).thenReturn(List.of(
+                GameInningScoreEntity.builder().gameId("GAME-INNING").inning(1).teamSide("away").teamCode("KT").runs(2).build(),
+                GameInningScoreEntity.builder().gameId("GAME-INNING").inning(1).teamSide("home").teamCode("LG").runs(1).build()
+        ));
+
+        GameLiveSnapshotDto snapshot = gameLiveService.getLiveSnapshot("GAME-INNING", null, 50);
+
+        assertThat(snapshot.getHomeScore()).isEqualTo(1);
+        assertThat(snapshot.getAwayScore()).isEqualTo(2);
+        assertThat(snapshot.getEvents()).isEmpty();
+        assertThat(snapshot.getInningScores()).hasSize(2);
+        assertThat(snapshot.getInningScores())
+                .extracting(GameInningScoreDto::getInning, GameInningScoreDto::getTeamSide, GameInningScoreDto::getRuns)
+                .containsExactly(tuple(1, "away", 2), tuple(1, "home", 1));
     }
 
     @Test
