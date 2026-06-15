@@ -2,6 +2,7 @@ package com.example.auth.controller;
 
 import com.example.auth.dto.OAuth2StateData;
 import com.example.auth.dto.PolicyConsentSubmitDto;
+import com.example.auth.dto.PolicyRequiredResponseDto;
 import com.example.auth.service.OAuth2StateService;
 import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.exception.InternalServerBusinessException;
@@ -12,13 +13,11 @@ import com.example.auth.dto.AvailabilityCheckResponseDto;
 import com.example.auth.dto.LoginDto;
 import com.example.auth.dto.SignupDto;
 import com.example.auth.service.AuthRegistrationService;
-import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.PolicyConsentService;
 import com.example.auth.service.UserService;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.util.AuthCookieUtil;
-import com.example.auth.util.LogMaskingUtil;
 import com.example.common.web.ClientIpResolver;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
@@ -55,7 +54,6 @@ public class APIController {
     private final RefreshRepository refreshRepository;
     private final AuthCookieUtil authCookieUtil;
     private final ClientIpResolver clientIpResolver;
-    private final AuthSessionService authSessionService;
 
     public APIController(UserService userService,
             AuthRegistrationService authRegistrationService,
@@ -65,8 +63,7 @@ public class APIController {
             com.example.auth.service.TokenBlacklistService tokenBlacklistService,
             RefreshRepository refreshRepository,
             AuthCookieUtil authCookieUtil,
-            ClientIpResolver clientIpResolver,
-            AuthSessionService authSessionService) {
+            ClientIpResolver clientIpResolver) {
         this.userService = userService;
         this.authRegistrationService = authRegistrationService;
         this.policyConsentService = policyConsentService;
@@ -76,14 +73,13 @@ public class APIController {
         this.refreshRepository = refreshRepository;
         this.authCookieUtil = authCookieUtil;
         this.clientIpResolver = clientIpResolver;
-        this.authSessionService = authSessionService;
     }
 
     /**
      * 일반 회원가입
      */
     @PostMapping("/signup")
-    public ResponseEntity<ApiResponse> signUp(@Valid @RequestBody SignupDto signupDto, HttpServletRequest request) {
+    public ResponseEntity<ApiResponse<Void>> signUp(@Valid @RequestBody SignupDto signupDto, HttpServletRequest request) {
         authRegistrationService.register(
                 signupDto,
                 clientIpResolver.resolveOrUnknown(request),
@@ -94,14 +90,14 @@ public class APIController {
     }
 
     @GetMapping("/policies/required")
-    public ResponseEntity<ApiResponse> getRequiredPolicies() {
+    public ResponseEntity<ApiResponse<PolicyRequiredResponseDto>> getRequiredPolicies() {
         return ResponseEntity.ok(ApiResponse.success(
                 "필수 정책 목록 조회 성공",
                 policyConsentService.getRequiredPolicyResponse()));
     }
 
     @PostMapping("/policies/consents")
-    public ResponseEntity<ApiResponse> submitPolicyConsents(
+    public ResponseEntity<ApiResponse<Map<String, Object>>> submitPolicyConsents(
             @AuthenticationPrincipal Long userId,
             @Valid @RequestBody PolicyConsentSubmitDto consentSubmitDto,
             HttpServletRequest request) {
@@ -129,7 +125,7 @@ public class APIController {
      * 로그인
      */
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse> login(
+    public ResponseEntity<ApiResponse<Map<String, Object>>> login(
             @Valid @RequestBody LoginDto loginDto,
             HttpServletRequest request,
             HttpServletResponse response) {
@@ -162,7 +158,7 @@ public class APIController {
 
     @RateLimit(limit = 20, window = 60)
     @GetMapping("/check-handle")
-    public ResponseEntity<ApiResponse> checkHandle(@RequestParam("handle") String handle) {
+    public ResponseEntity<ApiResponse<AvailabilityCheckResponseDto>> checkHandle(@RequestParam("handle") String handle) {
         AvailabilityCheckResponseDto availability = userService.checkHandleAvailability(handle);
         if (!availability.available()) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
@@ -184,7 +180,7 @@ public class APIController {
      */
     @RateLimit(limit = 20, window = 60)
     @GetMapping("/check-name")
-    public ResponseEntity<ApiResponse> checkName(
+    public ResponseEntity<ApiResponse<Map<String, Object>>> checkName(
             @AuthenticationPrincipal Long userId,
             @RequestParam("name") String name) {
         Long authenticatedUserId = requireAuthenticatedUserId(userId);
@@ -197,7 +193,7 @@ public class APIController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<ApiResponse> logout(HttpServletRequest request, HttpServletResponse response) {
+    public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest request, HttpServletResponse response) {
         Long accessUserId = null;
         String accessToken = null;
         Cookie[] cookies = request.getCookies();

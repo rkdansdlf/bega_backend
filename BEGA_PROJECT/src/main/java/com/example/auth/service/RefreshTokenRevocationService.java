@@ -24,6 +24,11 @@ public class RefreshTokenRevocationService {
 
     @Transactional
     public RevokedRefreshSessions revokeAllSessionsAfterReuse(Long userId) {
+        return revokeAllSessionsForUser(userId);
+    }
+
+    @Transactional
+    public RevokedRefreshSessions revokeAllSessionsForUser(Long userId) {
         if (userId == null) {
             throw new RefreshTokenRevokeFailedException();
         }
@@ -46,7 +51,7 @@ public class RefreshTokenRevocationService {
         } catch (RefreshTokenRevokeFailedException e) {
             throw e;
         } catch (RuntimeException e) {
-            log.warn("Failed to revoke refresh sessions after reuse detection: userId={}", userId, e);
+            log.warn("Failed to revoke refresh sessions: userId={}", userId, e);
             throw new RefreshTokenRevokeFailedException(e);
         }
     }

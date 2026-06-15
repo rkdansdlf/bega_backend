@@ -9,7 +9,6 @@ import static org.mockito.Mockito.lenient;
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.service.AuthRegistrationService;
-import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.OAuth2StateService;
 import com.example.auth.service.PolicyConsentService;
 import com.example.auth.service.TokenBlacklistService;
@@ -60,9 +59,6 @@ class APIControllerLogoutTest {
     private ClientIpResolver clientIpResolver;
 
     @Mock
-    private AuthSessionService authSessionService;
-
-    @Mock
     private JWTUtil jwtUtil;
 
     private APIController apiController;
@@ -78,8 +74,7 @@ class APIControllerLogoutTest {
                 tokenBlacklistService,
                 refreshRepository,
                 new AuthCookieUtil(false),
-                clientIpResolver,
-                authSessionService);
+                clientIpResolver);
         lenient().when(userService.getJWTUtil()).thenReturn(jwtUtil);
     }
 
@@ -97,7 +92,7 @@ class APIControllerLogoutTest {
 
         when(refreshRepository.findAllByToken("refresh-current")).thenReturn(List.of(currentSession));
 
-        ResponseEntity<ApiResponse> result = apiController.logout(request, response);
+        ResponseEntity<ApiResponse<Void>> result = apiController.logout(request, response);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(result.getHeaders().get(HttpHeaders.SET_COOKIE))
@@ -118,7 +113,7 @@ class APIControllerLogoutTest {
         when(refreshRepository.findAllByToken("refresh-current"))
                 .thenReturn(List.of());
 
-        ResponseEntity<ApiResponse> result = apiController.logout(request, response);
+        ResponseEntity<ApiResponse<Void>> result = apiController.logout(request, response);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
         verify(refreshRepository, never()).deleteAll(List.of());

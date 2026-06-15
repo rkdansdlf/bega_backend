@@ -63,7 +63,7 @@ class APIControllerCheckNameTest {
     void checkName_returnsSuccessWhenAvailable() {
         when(userService.ensureNameAvailable(1L, " new-name ")).thenReturn("new-name");
 
-        ResponseEntity<ApiResponse> response = apiController.checkName(1L, " new-name ");
+        ResponseEntity<ApiResponse<Map<String, Object>>> response = apiController.checkName(1L, " new-name ");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
@@ -100,7 +100,7 @@ class APIControllerCheckNameTest {
         when(userService.checkHandleAvailability(" @Slugger "))
                 .thenReturn(new AvailabilityCheckResponseDto(true, "@slugger"));
 
-        ResponseEntity<ApiResponse> response = apiController.checkHandle(" @Slugger ");
+        ResponseEntity<ApiResponse<AvailabilityCheckResponseDto>> response = apiController.checkHandle(" @Slugger ");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
@@ -114,7 +114,7 @@ class APIControllerCheckNameTest {
         when(userService.checkHandleAvailability("@slugger"))
                 .thenReturn(new AvailabilityCheckResponseDto(false, "@slugger"));
 
-        ResponseEntity<ApiResponse> response = apiController.checkHandle("@slugger");
+        ResponseEntity<ApiResponse<AvailabilityCheckResponseDto>> response = apiController.checkHandle("@slugger");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody()).isNotNull();

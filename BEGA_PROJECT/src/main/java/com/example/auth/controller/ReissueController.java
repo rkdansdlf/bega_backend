@@ -18,6 +18,7 @@ import org.springframework.http.ResponseCookie;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.extern.slf4j.Slf4j;
 
 import com.example.common.dto.ApiResponse;
@@ -61,6 +62,7 @@ public class ReissueController {
     }
 
     @PostMapping("/reissue")
+    @Transactional
     public ResponseEntity<ApiResponse> reissue(HttpServletRequest request, HttpServletResponse response) {
 
         // Refresh Token 추출
@@ -96,7 +98,7 @@ public class ReissueController {
             throw rejectBadRequest("REFRESH_TOKEN_EXPIRED", "Refresh Token이 만료되었습니다.", request, null, null);
         }
 
-        List<RefreshToken> matchedTokens = refreshRepository.findAllByToken(refreshToken);
+        List<RefreshToken> matchedTokens = refreshRepository.findAllByTokenForUpdate(refreshToken);
         Optional<RefreshToken> matchedToken = matchedTokens.stream().findFirst();
 
         if (matchedToken.isEmpty()) {
