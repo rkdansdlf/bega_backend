@@ -26,6 +26,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.GameResponseDto;
+import com.example.BegaDiary.Exception.DiaryNotFoundException;
 import com.example.BegaDiary.Service.BegaDiaryService;
 import com.example.BegaDiary.Service.BegaGameService;
 import com.example.BegaDiary.Service.SeatViewService;
@@ -79,7 +80,7 @@ class DiaryControllerTest {
     @Test
     @DisplayName("예상 밖 이미지 업로드 실패는 표준 IMAGE_PROCESSING_ERROR 응답으로 감싼다")
     void uploadImages_wrapsUnexpectedFailures() throws Exception {
-        when(diaryService.getDiaryEntityById(1L)).thenReturn(ownedDiary(1L));
+        when(diaryService.getOwnedDiaryEntity(1L, 1L)).thenReturn(ownedDiary(1L));
         when(imageService.uploadDiaryImages(eq(1L), eq(1L), anyList()))
                 .thenReturn(Mono.error(new RuntimeException("upload failed")));
 
@@ -89,15 +90,30 @@ class DiaryControllerTest {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("IMAGE_PROCESSING_ERROR"))
-                .andExpect(jsonPath("$.message").value("이미지 처리 중 오류가 발생했습니다: upload failed"));
+                .andExpect(jsonPath("$.message").value("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
 
         verifyNoInteractions(seatViewService);
     }
 
     @Test
+    @DisplayName("본인 소유가 아닌 다이어리 이미지 업로드는 스토리지 호출 전에 404로 중단한다")
+    void uploadImages_rejectsNonOwnedDiaryBeforeStorageUpload() throws Exception {
+        when(diaryService.getOwnedDiaryEntity(1L, 1L)).thenThrow(new DiaryNotFoundException(1L));
+
+        mockMvc.perform(multipart("/api/diary/{id}/images", 1L)
+                        .file(imageFile())
+                        .principal(() -> "1"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("DIARY_NOT_FOUND"));
+
+        verifyNoInteractions(imageService, seatViewService);
+    }
+
+    @Test
     @DisplayName("잘못된 sourceTypes 값은 표준 400 응답을 반환한다")
     void uploadImages_rejectsInvalidSourceTypes() throws Exception {
-        when(diaryService.getDiaryEntityById(1L)).thenReturn(ownedDiary(1L));
+        when(diaryService.getOwnedDiaryEntity(1L, 1L)).thenReturn(ownedDiary(1L));
         when(imageService.uploadDiaryImages(eq(1L), eq(1L), anyList()))
                 .thenReturn(Mono.just(List.of("diary/1/1/test.webp")));
 
