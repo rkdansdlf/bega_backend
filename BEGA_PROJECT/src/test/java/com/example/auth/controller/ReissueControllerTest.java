@@ -132,7 +132,7 @@ class ReissueControllerTest {
         when(authSessionService.extractRefreshToken(request)).thenReturn("valid-token");
         when(jwtUtil.getTokenType("valid-token")).thenReturn("refresh");
         when(jwtUtil.isExpired("valid-token")).thenReturn(false);
-        when(refreshRepository.findAllByToken("valid-token")).thenReturn(List.of());
+        when(refreshRepository.findAllByTokenForUpdate("valid-token")).thenReturn(List.of());
         when(refreshTokenReuseDetector.findReuseUserId("valid-token")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> controller.reissue(request, response))
@@ -151,7 +151,7 @@ class ReissueControllerTest {
         when(authSessionService.extractRefreshToken(request)).thenReturn("reused-token");
         when(jwtUtil.getTokenType("reused-token")).thenReturn("refresh");
         when(jwtUtil.isExpired("reused-token")).thenReturn(false);
-        when(refreshRepository.findAllByToken("reused-token")).thenReturn(List.of());
+        when(refreshRepository.findAllByTokenForUpdate("reused-token")).thenReturn(List.of());
         when(refreshTokenReuseDetector.findReuseUserId("reused-token")).thenReturn(Optional.of(42L));
         when(refreshTokenRevocationService.revokeAllSessionsAfterReuse(42L))
                 .thenReturn(new RefreshTokenRevocationService.RevokedRefreshSessions(42L, "user@test.com"));
@@ -176,7 +176,7 @@ class ReissueControllerTest {
         when(authSessionService.extractRefreshToken(request)).thenReturn("reused-token");
         when(jwtUtil.getTokenType("reused-token")).thenReturn("refresh");
         when(jwtUtil.isExpired("reused-token")).thenReturn(false);
-        when(refreshRepository.findAllByToken("reused-token")).thenReturn(List.of());
+        when(refreshRepository.findAllByTokenForUpdate("reused-token")).thenReturn(List.of());
         when(refreshTokenReuseDetector.findReuseUserId("reused-token")).thenReturn(Optional.of(42L));
         when(refreshTokenRevocationService.revokeAllSessionsAfterReuse(42L))
                 .thenThrow(new RefreshTokenRevokeFailedException());
@@ -212,7 +212,7 @@ class ReissueControllerTest {
         when(jwtUtil.isExpired("valid-token")).thenReturn(false);
         when(jwtUtil.getUserId("valid-token")).thenReturn(42L);
         when(jwtUtil.getTokenVersion("valid-token")).thenReturn(0);
-        when(refreshRepository.findAllByToken("valid-token")).thenReturn(List.of(rt));
+        when(refreshRepository.findAllByTokenForUpdate("valid-token")).thenReturn(List.of(rt));
         when(userRepository.findById(42L)).thenReturn(Optional.of(user));
 
         assertThatThrownBy(() -> controller.reissue(request, response))
@@ -246,7 +246,7 @@ class ReissueControllerTest {
         when(jwtUtil.getAccessTokenExpirationTime()).thenReturn(7200000L);
         when(jwtUtil.getRefreshTokenExpirationTime()).thenReturn(86400000L);
         when(jwtUtil.createJwt("test@test.com", "ROLE_USER", 42L, 7200000L, 0)).thenReturn("new-access");
-        when(refreshRepository.findAllByToken("valid-token")).thenReturn(List.of(rt));
+        when(refreshRepository.findAllByTokenForUpdate("valid-token")).thenReturn(List.of(rt));
         when(userRepository.findById(42L)).thenReturn(Optional.of(user));
 
         AuthSessionService.IssuedRefreshSession issued = new AuthSessionService.IssuedRefreshSession("new-refresh", "sess");
@@ -256,6 +256,16 @@ class ReissueControllerTest {
         ResponseEntity<ApiResponse> result = controller.reissue(request, response);
 
         assertThat(result.getBody().isSuccess()).isTrue();
-        assertThat(response.getHeaders("Set-Cookie")).isNotEmpty();
+        assertThat(response.getHeaders("Set-Cookie"))
+                .anySatisfy(header -> assertThat(header)
+                        .startsWith("Authorization=new-access")
+                        .contains("HttpOnly")
+                        .contains("Path=/")
+                        .contains("SameSite=Lax"))
+                .anySatisfy(header -> assertThat(header)
+                        .startsWith("Refresh=new-refresh")
+                        .contains("HttpOnly")
+                        .contains("Path=/")
+                        .contains("SameSite=Lax"));
     }
 }

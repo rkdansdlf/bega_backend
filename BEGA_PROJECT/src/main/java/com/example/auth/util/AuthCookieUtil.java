@@ -41,6 +41,8 @@ public class AuthCookieUtil {
     private ResponseCookie build(String name, String value, long maxAgeSeconds) {
         rejectResponseDelimiter("cookie name", name);
         rejectResponseDelimiter("cookie value", value);
+        // Access and refresh tokens are intentionally HttpOnly cookies. Frontend code
+        // never needs to read token values directly; requests rely on credentialed CORS.
         return ResponseCookie.from(name, value != null ? value : "")
                 .httpOnly(true)
                 .secure(secureCookie)

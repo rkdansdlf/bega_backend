@@ -229,7 +229,19 @@ public class JWTFilter extends OncePerRequestFilter {
                 return;
             }
 
-            Collection<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role));
+            String currentRole = authenticatedUser.getRole();
+            if (currentRole == null || currentRole.isBlank() || !Objects.equals(currentRole, role)) {
+                securityMonitoringService.recordTokenReject();
+                markInvalidAuthor(request, "토큰 권한 정보가 최신 계정 권한과 일치하지 않습니다. 다시 로그인해주세요.");
+                if (mutableRequest) {
+                    sendInvalidAuthorResponse(response, "토큰 권한 정보가 최신 계정 권한과 일치하지 않습니다. 다시 로그인해주세요.");
+                    return;
+                }
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            Collection<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(currentRole));
 
             UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                     userId, // Principal로 설정

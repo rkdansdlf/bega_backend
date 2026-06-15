@@ -98,6 +98,22 @@ class JWTFilterTokenTypeTest {
     }
 
     @Test
+    @DisplayName("토큰 role이 현재 DB role과 다르면 인증에 사용하지 않는다")
+    void tokenRoleMismatch_isRejectedForAuthentication() throws Exception {
+        String staleAdminToken = jwtUtil.createJwt("user@test.com", "ROLE_ADMIN", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/protected/resource");
+        request.addHeader("Authorization", "Bearer " + staleAdminToken);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DummyFilterChain chain = new DummyFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isTrue();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        assertThat(request.getAttribute("INVALID_AUTHOR")).isEqualTo(true);
+    }
+
+    @Test
     @DisplayName("X-Debug-Role 헤더가 포함된 요청은 차단된다")
     void debugRoleHeader_isRejected() throws Exception {
         String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
@@ -189,6 +205,25 @@ class JWTFilterTokenTypeTest {
 
         assertThat(chain.invoked).isTrue();
         assertThat(response.getStatus()).isNotEqualTo(HttpStatus.FORBIDDEN.value());
+    }
+
+    @Test
+    @DisplayName("/api/auth/reissue 경로는 Authorization 토큰이 있어도 필터 체인을 통과한다")
+    void authReissuePathWithAuthorization_isNotBlockedByJwtFilter() throws Exception {
+        String staleAccessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/auth/reissue");
+        request.addHeader("Referer", "http://evil.test/home");
+        request.addHeader("Origin", "http://evil.test");
+        request.addHeader("Authorization", "Bearer " + staleAccessToken);
+
+        DummyFilterChain chain = new DummyFilterChain();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isTrue();
+        assertThat(response.getStatus()).isNotEqualTo(HttpStatus.FORBIDDEN.value());
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
     @Test

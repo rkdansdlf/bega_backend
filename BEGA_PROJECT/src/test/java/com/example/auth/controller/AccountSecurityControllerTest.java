@@ -6,6 +6,8 @@ import com.example.auth.service.AccountDeletionService;
 import com.example.auth.service.AccountSecurityService;
 import com.example.common.dto.ApiResponse;
 import com.example.common.exception.AuthenticationRequiredException;
+import com.example.mypage.dto.AccountSecurityEventDto;
+import com.example.mypage.dto.TrustedDeviceDto;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,7 +40,7 @@ class AccountSecurityControllerTest {
     void getSecurityEvents_returnsSuccess() {
         when(accountSecurityService.getSecurityEvents(42L)).thenReturn(List.of());
 
-        ResponseEntity<ApiResponse> result = controller.getSecurityEvents(42L);
+        ResponseEntity<ApiResponse<List<AccountSecurityEventDto>>> result = controller.getSecurityEvents(42L);
 
         assertThat(result.getBody().isSuccess()).isTrue();
     }
@@ -55,7 +57,7 @@ class AccountSecurityControllerTest {
     void getTrustedDevices_returnsSuccess() {
         when(accountSecurityService.getTrustedDevices(42L)).thenReturn(List.of());
 
-        ResponseEntity<ApiResponse> result = controller.getTrustedDevices(42L);
+        ResponseEntity<ApiResponse<List<TrustedDeviceDto>>> result = controller.getTrustedDevices(42L);
 
         assertThat(result.getBody().isSuccess()).isTrue();
     }
@@ -63,7 +65,7 @@ class AccountSecurityControllerTest {
     @Test
     @DisplayName("신뢰 기기를 해제한다")
     void deleteTrustedDevice_returnsSuccess() {
-        ResponseEntity<ApiResponse> result = controller.deleteTrustedDevice(42L, 1L);
+        ResponseEntity<ApiResponse<Void>> result = controller.deleteTrustedDevice(42L, 1L);
 
         assertThat(result.getBody().isSuccess()).isTrue();
         verify(accountSecurityService).revokeTrustedDevice(42L, 1L);
@@ -75,7 +77,7 @@ class AccountSecurityControllerTest {
         AccountDeletionRecoveryInfoDto info = AccountDeletionRecoveryInfoDto.builder().build();
         when(accountDeletionService.getRecoveryInfo("token123")).thenReturn(info);
 
-        ResponseEntity<ApiResponse> result = controller.getDeletionRecoveryInfo("token123");
+        ResponseEntity<ApiResponse<AccountDeletionRecoveryInfoDto>> result = controller.getDeletionRecoveryInfo("token123");
 
         assertThat(result.getBody().getData()).isEqualTo(info);
     }
@@ -86,7 +88,7 @@ class AccountSecurityControllerTest {
         AccountDeletionRecoveryRequestDto req = new AccountDeletionRecoveryRequestDto();
         req.setToken("token123");
 
-        ResponseEntity<ApiResponse> result = controller.recoverDeletedAccount(req);
+        ResponseEntity<ApiResponse<Void>> result = controller.recoverDeletedAccount(req);
 
         assertThat(result.getBody().isSuccess()).isTrue();
         verify(accountDeletionService).recoverAccount("token123");
