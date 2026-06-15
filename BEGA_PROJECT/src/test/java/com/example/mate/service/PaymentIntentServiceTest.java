@@ -106,8 +106,9 @@ class PaymentIntentServiceTest {
                                 .ticketPrice(10000)
                                 .build();
 
-                when(paymentIntentRepository.findByIdForUpdate(100L)).thenReturn(java.util.Optional.of(intent));
                 given(userService.getUserIdByEmail("test@example.com")).willReturn(applicantId);
+                when(paymentIntentRepository.findByIdAndApplicantIdForUpdate(100L, applicantId))
+                                .thenReturn(java.util.Optional.of(intent));
                 given(userService.isSocialVerified(applicantId)).willReturn(true);
                 given(applicationRepository.findByOrderIdForUpdate("MATE-1-10-1000"))
                                 .willReturn(java.util.Optional.empty());

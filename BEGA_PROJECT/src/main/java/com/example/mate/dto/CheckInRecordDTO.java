@@ -1,6 +1,7 @@
 package com.example.mate.dto;
 
 import com.example.mate.entity.CheckInRecord;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -19,6 +20,7 @@ public class CheckInRecordDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateCheckInRequest")
     public static class Request {
         @NotNull(message = "파티 ID는 필수입니다.")
         private Long partyId;
@@ -38,6 +40,7 @@ public class CheckInRecordDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateCheckInQrSessionRequest")
     public static class QrSessionRequest {
         @NotNull(message = "파티 ID는 필수입니다.")
         private Long partyId;
@@ -47,6 +50,7 @@ public class CheckInRecordDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateCheckInQrSessionResponse")
     public static class QrSessionResponse {
         private String sessionId;
         private Long partyId;
@@ -59,6 +63,7 @@ public class CheckInRecordDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateCheckInResponse")
     public static class Response {
         private Long id;
         private Long partyId;

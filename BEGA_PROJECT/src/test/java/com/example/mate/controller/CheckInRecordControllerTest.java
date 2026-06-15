@@ -11,7 +11,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
-import java.security.Principal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,16 +25,16 @@ class CheckInRecordControllerTest {
     @InjectMocks
     private CheckInRecordController controller;
 
-    private final Principal principal = () -> "42";
+    private final Long userId = 42L;
 
     @Test
     @DisplayName("체크인 시 201을 반환한다")
     void checkIn_returns201() {
         CheckInRecordDTO.Request req = CheckInRecordDTO.Request.builder().partyId(5L).build();
         CheckInRecordDTO.Response resp = CheckInRecordDTO.Response.builder().id(1L).build();
-        when(checkInRecordService.checkIn(req, principal)).thenReturn(resp);
+        when(checkInRecordService.checkIn(req, userId)).thenReturn(resp);
 
-        ResponseEntity<?> result = controller.checkIn(req, principal);
+        ResponseEntity<?> result = controller.checkIn(req, userId);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(result.getBody()).isEqualTo(resp);
@@ -46,9 +45,9 @@ class CheckInRecordControllerTest {
     void createQrSession_returns201() {
         CheckInRecordDTO.QrSessionRequest req = CheckInRecordDTO.QrSessionRequest.builder().partyId(5L).build();
         CheckInRecordDTO.QrSessionResponse resp = CheckInRecordDTO.QrSessionResponse.builder().sessionId("abc").build();
-        when(checkInRecordService.createQrSession(req, principal)).thenReturn(resp);
+        when(checkInRecordService.createQrSession(req, userId)).thenReturn(resp);
 
-        ResponseEntity<?> result = controller.createQrSession(req, principal);
+        ResponseEntity<?> result = controller.createQrSession(req, userId);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.CREATED);
     }
@@ -57,9 +56,9 @@ class CheckInRecordControllerTest {
     @DisplayName("파티별 체크인 기록을 조회한다")
     void getCheckInsByPartyId_returnsList() {
         CheckInRecordDTO.Response resp = CheckInRecordDTO.Response.builder().id(1L).build();
-        when(checkInRecordService.getCheckInsByPartyId(5L, principal)).thenReturn(List.of(resp));
+        when(checkInRecordService.getCheckInsByPartyId(5L, userId)).thenReturn(List.of(resp));
 
-        ResponseEntity<List<CheckInRecordDTO.Response>> result = controller.getCheckInsByPartyId(5L, principal);
+        ResponseEntity<List<CheckInRecordDTO.Response>> result = controller.getCheckInsByPartyId(5L, userId);
 
         assertThat(result.getBody()).hasSize(1);
     }
@@ -67,9 +66,9 @@ class CheckInRecordControllerTest {
     @Test
     @DisplayName("사용자별 체크인 기록을 조회한다")
     void getCheckInsByUserId_returnsList() {
-        when(checkInRecordService.getCheckInsByUserId(42L, principal)).thenReturn(List.of());
+        when(checkInRecordService.getCheckInsByUserId(42L, userId)).thenReturn(List.of());
 
-        ResponseEntity<List<CheckInRecordDTO.Response>> result = controller.getCheckInsByUserId(42L, principal);
+        ResponseEntity<List<CheckInRecordDTO.Response>> result = controller.getCheckInsByUserId(42L, userId);
 
         assertThat(result.getBody()).isEmpty();
     }
@@ -77,9 +76,9 @@ class CheckInRecordControllerTest {
     @Test
     @DisplayName("파티별 체크인 인원 수를 조회한다")
     void getCheckInCount_returnsCount() {
-        when(checkInRecordService.getCheckInCount(5L, principal)).thenReturn(3L);
+        when(checkInRecordService.getCheckInCount(5L, userId)).thenReturn(3L);
 
-        ResponseEntity<Long> result = controller.getCheckInCount(5L, principal);
+        ResponseEntity<Long> result = controller.getCheckInCount(5L, userId);
 
         assertThat(result.getBody()).isEqualTo(3L);
     }
@@ -87,9 +86,9 @@ class CheckInRecordControllerTest {
     @Test
     @DisplayName("체크인 여부를 확인한다")
     void isCheckedIn_returnsBoolean() {
-        when(checkInRecordService.isCheckedIn(5L, principal)).thenReturn(true);
+        when(checkInRecordService.isCheckedIn(5L, userId)).thenReturn(true);
 
-        ResponseEntity<Boolean> result = controller.isCheckedIn(5L, principal);
+        ResponseEntity<Boolean> result = controller.isCheckedIn(5L, userId);
 
         assertThat(result.getBody()).isTrue();
     }

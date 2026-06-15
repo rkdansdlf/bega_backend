@@ -2,6 +2,9 @@ package com.example.mate.dto;
 
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.PaymentFlowType;
+import com.example.mate.entity.PaymentIntent;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,6 +16,7 @@ public class TossPaymentDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MatePaymentPrepareRequest")
     public static class PrepareClientRequest {
         private Long partyId;
         @Builder.Default
@@ -24,6 +28,7 @@ public class TossPaymentDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MatePaymentPrepareResponse")
     public static class PrepareResponse {
         private Long intentId;
         private String orderId;
@@ -50,6 +55,7 @@ public class TossPaymentDTO {
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
+    @Schema(name = "MatePaymentConfirmProviderResponse")
     public static class ConfirmResponse {
         private String paymentKey;
         private String orderId;
@@ -72,6 +78,7 @@ public class TossPaymentDTO {
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
+    @Schema(name = "MatePaymentCancelProviderResponse")
     public static class CancelResponse {
         private String paymentKey;
         private String status;
@@ -95,6 +102,7 @@ public class TossPaymentDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MatePaymentConfirmRequest")
     public static class ClientConfirmRequest {
         // Toss 결제 승인 정보
         private String paymentKey;
@@ -110,5 +118,25 @@ public class TossPaymentDTO {
         private Boolean ticketVerified;
         private String ticketImageUrl;
         private PartyApplication.PaymentType paymentType;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @Schema(name = "MatePaymentCancelIntentRequest")
+    public static class CancelIntentRequest {
+        @Size(max = 200, message = "취소 사유는 200자 이내로 입력해주세요.")
+        private String cancelReason;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @Schema(name = "MatePaymentCancelIntentResponse")
+    public static class CancelIntentResponse {
+        private Long intentId;
+        private PaymentIntent.IntentStatus status;
     }
 }

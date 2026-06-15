@@ -161,9 +161,14 @@ public class SecurityConfig {
         private static final String[] PUBLIC_PARTY_GET_ENDPOINTS = {
                         "/api/parties",
                         "/api/parties/search",
+                        "/api/parties/search-terms/popular",
                         "/api/parties/status/*",
                         "/api/parties/profile/*",
                         "/api/parties/upcoming"
+        };
+
+        private static final String[] PUBLIC_PARTY_SEARCH_TERM_GET_ENDPOINTS = {
+                        "/api/parties/search-terms/popular"
         };
 
         /** 관리자 전용 엔드포인트 */
@@ -384,6 +389,8 @@ public class SecurityConfig {
                 configuration.setAllowCredentials(true);
                 configuration.setMaxAge(3600L);
 
+                // Do not expose Set-Cookie or Authorization to browser JavaScript.
+                // Cookies are set by the browser from credentialed CORS responses.
                 configuration.setExposedHeaders(List.of("Content-Disposition"));
 
                 UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -561,6 +568,10 @@ public class SecurityConfig {
                                                 // 6. 공개 GET 요청 엔드포인트
                                                 .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                                                 .requestMatchers(HttpMethod.GET, PUBLIC_PARTY_GET_ENDPOINTS).permitAll()
+                                                .requestMatchers(HttpMethod.GET, PUBLIC_PARTY_SEARCH_TERM_GET_ENDPOINTS)
+                                                .permitAll()
+                                                .requestMatchers(HttpMethod.POST, "/api/parties/search-terms")
+                                                .authenticated()
 
                                                 // 7. 공개 API 엔드포인트 (구체적 인증 경로 먼저, 와일드카드 이전)
                                                 .requestMatchers(HttpMethod.POST, "/api/stadiums/*/favorite")

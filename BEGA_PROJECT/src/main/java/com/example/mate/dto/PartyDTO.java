@@ -1,6 +1,7 @@
 package com.example.mate.dto;
 
 import com.example.mate.entity.Party;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -13,7 +14,9 @@ import lombok.Builder;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.List;
 
 public class PartyDTO {
 
@@ -21,6 +24,7 @@ public class PartyDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MatePartyCreateRequest")
     public static class Request {
         private String teamId;
 
@@ -64,6 +68,9 @@ public class PartyDTO {
         @Min(value = 0, message = "티켓 가격은 0원 이상이어야 합니다.")
         private Integer ticketPrice;
 
+        @Min(value = 0, message = "예약금은 0원 이상이어야 합니다.")
+        private Integer reservationDepositAmount;
+
         @Size(max = 50, message = "예매번호는 50자 이하여야 합니다.")
         private String reservationNumber;
 
@@ -76,6 +83,7 @@ public class PartyDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MatePartyPublicResponse")
     public static class PublicResponse {
         private Long id;
         private String hostHandle;
@@ -100,6 +108,8 @@ public class PartyDTO {
         private Party.PartyStatus status;
         private Integer price;
         private Integer ticketPrice;
+        private Integer reservationDepositAmount;
+        private HostTrustMetrics hostTrustMetrics;
         private Instant createdAt;
         private Instant updatedAt;
 
@@ -128,6 +138,8 @@ public class PartyDTO {
                     .status(response.getStatus())
                     .price(response.getPrice())
                     .ticketPrice(response.getTicketPrice())
+                    .reservationDepositAmount(response.getReservationDepositAmount())
+                    .hostTrustMetrics(response.getHostTrustMetrics())
                     .createdAt(response.getCreatedAt())
                     .updatedAt(response.getUpdatedAt())
                     .build();
@@ -138,6 +150,52 @@ public class PartyDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MatePartyHistoryResponse")
+    public static class HistoryResponse {
+        private Long id;
+        private Long hostId;
+        private String hostHandle;
+        private String teamId;
+        private Party.CheeringSide cheeringSide;
+        private LocalDate gameDate;
+        private LocalTime gameTime;
+        private String stadium;
+        private String homeTeam;
+        private String awayTeam;
+        private String section;
+        private Integer maxParticipants;
+        private Integer currentParticipants;
+        private String description;
+        private Party.PartyStatus status;
+        private Instant createdAt;
+
+        public static HistoryResponse from(Party party) {
+            return HistoryResponse.builder()
+                    .id(party.getId())
+                    .hostId(party.getHostId())
+                    .hostHandle(null)
+                    .teamId(party.getTeamId())
+                    .cheeringSide(party.getCheeringSide())
+                    .gameDate(party.getGameDate())
+                    .gameTime(party.getGameTime())
+                    .stadium(party.getStadium())
+                    .homeTeam(party.getHomeTeam())
+                    .awayTeam(party.getAwayTeam())
+                    .section(party.getSection())
+                    .maxParticipants(party.getMaxParticipants())
+                    .currentParticipants(party.getCurrentParticipants())
+                    .description(party.getDescription())
+                    .status(party.getStatus())
+                    .createdAt(party.getCreatedAt())
+                    .build();
+        }
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @Schema(name = "MatePartyResponse")
     public static class Response {
         private Long id;
         private Long hostId;
@@ -164,6 +222,8 @@ public class PartyDTO {
         private Party.PartyStatus status;
         private Integer price;
         private Integer ticketPrice;
+        private Integer reservationDepositAmount;
+        private HostTrustMetrics hostTrustMetrics;
         private String reservationNumber;
         private Instant createdAt;
         private Instant updatedAt;
@@ -193,6 +253,7 @@ public class PartyDTO {
                     .status(party.getStatus())
                     .price(party.getPrice())
                     .ticketPrice(party.getTicketPrice())
+                    .reservationDepositAmount(party.getReservationDepositAmount())
                     .reservationNumber(party.getReservationNumber())
                     .createdAt(party.getCreatedAt())
                     .updatedAt(party.getUpdatedAt())
@@ -204,6 +265,7 @@ public class PartyDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MatePartyUpdateRequest")
     public static class UpdateRequest {
         private Party.PartyStatus status;
 
@@ -222,6 +284,45 @@ public class PartyDTO {
 
         @Min(value = 0, message = "티켓 가격은 0원 이상이어야 합니다.")
         private Integer ticketPrice;
+
+        @Min(value = 0, message = "예약금은 0원 이상이어야 합니다.")
+        private Integer reservationDepositAmount;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @Schema(name = "MateHostTrustMetrics")
+    public static class HostTrustMetrics {
+        private Integer averageResponseMinutes;
+        private LocalDateTime lastActiveAt;
+        private Long completedMateCount;
+        private Long recentNoShowCount;
+        private List<ReviewKeywordSummary> reviewKeywordSummary;
+        private List<HostReviewSnippet> recentHostReviews;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @Schema(name = "MateReviewKeywordSummary")
+    public static class ReviewKeywordSummary {
+        private String label;
+        private Long count;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @Schema(name = "MateHostReviewSnippet")
+    public static class HostReviewSnippet {
+        private String reviewerHandle;
+        private Integer rating;
+        private String comment;
+        private Instant createdAt;
     }
 
     @Data

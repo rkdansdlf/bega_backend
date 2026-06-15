@@ -16,6 +16,7 @@ import org.springframework.security.web.access.intercept.RequestAuthorizationCon
 import java.lang.reflect.Field;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -26,6 +27,8 @@ class SecurityConfigTest {
     @DisplayName("PUBLIC_PARTY_GET_ENDPOINTS should expose public party read routes")
     void publicPartyGetEndpointsContainsPartiesRoutes() throws Exception {
         String[] publicPartyGetEndpoints = getPrivateStaticStringArray("PUBLIC_PARTY_GET_ENDPOINTS");
+        String[] publicPartySearchTermGetEndpoints =
+                getPrivateStaticStringArray("PUBLIC_PARTY_SEARCH_TERM_GET_ENDPOINTS");
 
         assertThat(publicPartyGetEndpoints).contains(
                 "/api/parties",
@@ -33,6 +36,9 @@ class SecurityConfigTest {
                 "/api/parties/status/*",
                 "/api/parties/profile/*",
                 "/api/parties/upcoming");
+        assertThat(publicPartySearchTermGetEndpoints).contains("/api/parties/search-terms/popular");
+        assertThatThrownBy(() -> getPrivateStaticStringArray("PUBLIC_PARTY_SEARCH_TERM_POST_ENDPOINTS"))
+                .isInstanceOf(NoSuchFieldException.class);
     }
 
     @Test

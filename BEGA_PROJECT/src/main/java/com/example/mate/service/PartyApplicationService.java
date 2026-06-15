@@ -13,7 +13,6 @@ import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.exception.PartyApplicationNotFoundException;
 import com.example.mate.exception.PartyFullException;
 import com.example.mate.exception.PartyNotFoundException;
-import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PaymentIntentRepository;
@@ -60,13 +59,24 @@ public class PartyApplicationService {
     private boolean requireSocialVerification;
 
     /**
-     * 신청 생성 (Principal 기반 — 컨트롤러에서 호출)
-     * applicantId는 JWT principal에서 파생하여 스푸핑 방지
+     * 신청 생성 (Principal 기반 legacy adapter)
      */
     @Transactional
     public PartyApplicationDTO.Response createApplication(PartyApplicationDTO.Request request, Principal principal) {
+        return createApplication(request, resolveUserId(principal), principal.getName());
+    }
+
+    @Transactional
+    public PartyApplicationDTO.Response createApplication(PartyApplicationDTO.Request request, Long userId) {
+        return createApplication(request, userId, null);
+    }
+
+    private PartyApplicationDTO.Response createApplication(
+            PartyApplicationDTO.Request request,
+            Long userId,
+            String principalName) {
         try {
-            ApplicationCreationContext context = prepareCreationContext(request, principal);
+            ApplicationCreationContext context = prepareCreationContext(request, userId, principalName);
             validateFullPaymentPolicy(request, context.party());
             ApplicationPaymentSnapshot paymentSnapshot = resolveApplicationPaymentSnapshot(request, context.party());
 
@@ -91,9 +101,9 @@ public class PartyApplicationService {
             notifyHostOnApplicationSafely(context.party(), context.applicantName(), savedApplication.getPartyId());
             return toResponse(savedApplication);
         } catch (RuntimeException e) {
-            log.error("[Application] createApplication failed: partyId={}, principal={}, paymentType={}",
+            log.error("[Application] createApplication failed: partyId={}, userId={}, paymentType={}",
                     request.getPartyId(),
-                    principal != null ? principal.getName() : null,
+                    userId,
                     request.getPaymentType(),
                     e);
             throw e;
@@ -122,7 +132,25 @@ public class PartyApplicationService {
             PartyApplication.PaymentType forcedPaymentType) {
         return createOrGetApplicationWithPayment(
                 request,
-                principal,
+                resolveUserId(principal),
+                principal.getName(),
+                paymentKey,
+                orderId,
+                confirmedAmount,
+                forcedPaymentType).response();
+    }
+
+    @Transactional
+    public PartyApplicationDTO.Response createApplicationWithPayment(
+            PartyApplicationDTO.Request request,
+            Long userId,
+            String paymentKey,
+            String orderId,
+            Integer confirmedAmount,
+            PartyApplication.PaymentType forcedPaymentType) {
+        return createOrGetApplicationWithPayment(
+                request,
+                userId,
                 paymentKey,
                 orderId,
                 confirmedAmount,
@@ -133,6 +161,42 @@ public class PartyApplicationService {
     public PaymentCreationResult createOrGetApplicationWithPayment(
             PartyApplicationDTO.Request request,
             Principal principal,
+            String paymentKey,
+            String orderId,
+            Integer confirmedAmount,
+            PartyApplication.PaymentType forcedPaymentType) {
+        return createOrGetApplicationWithPayment(
+                request,
+                resolveUserId(principal),
+                principal.getName(),
+                paymentKey,
+                orderId,
+                confirmedAmount,
+                forcedPaymentType);
+    }
+
+    @Transactional
+    public PaymentCreationResult createOrGetApplicationWithPayment(
+            PartyApplicationDTO.Request request,
+            Long applicantId,
+            String paymentKey,
+            String orderId,
+            Integer confirmedAmount,
+            PartyApplication.PaymentType forcedPaymentType) {
+        return createOrGetApplicationWithPayment(
+                request,
+                applicantId,
+                null,
+                paymentKey,
+                orderId,
+                confirmedAmount,
+                forcedPaymentType);
+    }
+
+    private PaymentCreationResult createOrGetApplicationWithPayment(
+            PartyApplicationDTO.Request request,
+            Long applicantId,
+            String principalName,
             String paymentKey,
             String orderId,
             Integer confirmedAmount,
@@ -149,7 +213,7 @@ public class PartyApplicationService {
 
         paymentIntentRepository.findByOrderIdForUpdate(orderId);
 
-        Long applicantId = resolveUserId(principal);
+        requireUserId(applicantId);
         PartyApplication applicantIdExisting = resolveExistingPaymentApplication(orderId, paymentKey, applicantId);
         if (applicantIdExisting != null) {
             return new PaymentCreationResult(
@@ -161,7 +225,7 @@ public class PartyApplicationService {
             request.setMessage("함께 즐거운 관람 부탁드립니다!");
         }
 
-        ApplicationCreationContext context = prepareCreationContext(request, principal);
+        ApplicationCreationContext context = prepareCreationContext(request, applicantId, principalName);
         PartyApplication contextExisting = resolveExistingPaymentApplication(orderId, paymentKey,
                 context.applicantId());
         if (contextExisting != null) {
@@ -208,16 +272,16 @@ public class PartyApplicationService {
     // 파티별 신청 목록 조회
     @Transactional(readOnly = true)
     public List<PartyApplicationDTO.Response> getApplicationsByPartyId(Long partyId, Principal principal) {
-        Long requesterId = resolveUserId(principal);
-        Party party = partyRepository.findById(java.util.Objects.requireNonNull(partyId))
-                .orElseThrow(() -> new PartyNotFoundException(partyId));
+        return getApplicationsByPartyId(partyId, resolveUserId(principal));
+    }
 
-        if (!party.getHostId().equals(requesterId)) {
-            throw new UnauthorizedAccessException("파티 호스트만 신청 목록을 조회할 수 있습니다.");
-        }
+    @Transactional(readOnly = true)
+    public List<PartyApplicationDTO.Response> getApplicationsByPartyId(Long partyId, Long userId) {
+        Long requesterId = requireUserId(userId);
+        Party party = requireHostedParty(partyId, requesterId);
 
         List<PartyApplicationDTO.Response> responses = Objects
-                .requireNonNull(applicationRepository.findByPartyId(partyId).stream()
+                .requireNonNull(applicationRepository.findByPartyId(party.getId()).stream()
                         .map(this::toResponse)
                         .collect(Collectors.toList()));
         paymentTransactionService.enrichResponses(responses);
@@ -227,7 +291,12 @@ public class PartyApplicationService {
     // 특정 파티에 대한 내 신청 단건 조회
     @Transactional(readOnly = true)
     public PartyApplicationDTO.Response getMyApplicationByPartyId(Long partyId, Principal principal) {
-        Long applicantId = resolveUserId(principal);
+        return getMyApplicationByPartyId(partyId, resolveUserId(principal));
+    }
+
+    @Transactional(readOnly = true)
+    public PartyApplicationDTO.Response getMyApplicationByPartyId(Long partyId, Long userId) {
+        Long applicantId = requireUserId(userId);
         PartyApplicationDTO.Response response = applicationRepository.findByPartyIdAndApplicantId(partyId, applicantId)
                 .map(this::toResponse)
                 .orElse(null);
@@ -246,26 +315,25 @@ public class PartyApplicationService {
     // 내 신청 목록 조회 (Principal 기반)
     @Transactional(readOnly = true)
     public List<PartyApplicationDTO.Response> getMyApplications(Principal principal) {
-        Long userId = resolveUserId(principal);
-        return Objects.requireNonNull(getApplicationsByApplicantId(userId));
+        return getMyApplications(resolveUserId(principal));
     }
 
-    // 파티 호스트 검증 헬퍼 — pending/approved/rejected 목록 조회 시 재사용
-    private void validatePartyHost(Long partyId, Principal principal) {
-        Long requesterId = resolveUserId(principal);
-        Party party = partyRepository.findById(java.util.Objects.requireNonNull(partyId))
-                .orElseThrow(() -> new PartyNotFoundException(partyId));
-        if (!party.getHostId().equals(requesterId)) {
-            throw new UnauthorizedAccessException("파티 호스트만 신청 목록을 조회할 수 있습니다.");
-        }
+    @Transactional(readOnly = true)
+    public List<PartyApplicationDTO.Response> getMyApplications(Long userId) {
+        return Objects.requireNonNull(getApplicationsByApplicantId(requireUserId(userId)));
     }
 
     // 대기중인 신청 목록 조회 (호스트 전용)
     @Transactional(readOnly = true)
     public List<PartyApplicationDTO.Response> getPendingApplications(Long partyId, Principal principal) {
-        validatePartyHost(partyId, principal);
+        return getPendingApplications(partyId, resolveUserId(principal));
+    }
+
+    @Transactional(readOnly = true)
+    public List<PartyApplicationDTO.Response> getPendingApplications(Long partyId, Long userId) {
+        Party party = requireHostedParty(partyId, requireUserId(userId));
         return Objects.requireNonNull(
-                applicationRepository.findByPartyIdAndIsApprovedFalseAndIsRejectedFalse(partyId).stream()
+                applicationRepository.findByPartyIdAndIsApprovedFalseAndIsRejectedFalse(party.getId()).stream()
                         .map(this::toResponse)
                         .collect(Collectors.toList()));
     }
@@ -273,8 +341,13 @@ public class PartyApplicationService {
     // 승인된 신청 목록 조회 (호스트 전용)
     @Transactional(readOnly = true)
     public List<PartyApplicationDTO.Response> getApprovedApplications(Long partyId, Principal principal) {
-        validatePartyHost(partyId, principal);
-        return Objects.requireNonNull(applicationRepository.findByPartyIdAndIsApprovedTrue(partyId).stream()
+        return getApprovedApplications(partyId, resolveUserId(principal));
+    }
+
+    @Transactional(readOnly = true)
+    public List<PartyApplicationDTO.Response> getApprovedApplications(Long partyId, Long userId) {
+        Party party = requireHostedParty(partyId, requireUserId(userId));
+        return Objects.requireNonNull(applicationRepository.findByPartyIdAndIsApprovedTrue(party.getId()).stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList()));
     }
@@ -282,8 +355,13 @@ public class PartyApplicationService {
     // 거절된 신청 목록 조회 (호스트 전용)
     @Transactional(readOnly = true)
     public List<PartyApplicationDTO.Response> getRejectedApplications(Long partyId, Principal principal) {
-        validatePartyHost(partyId, principal);
-        return Objects.requireNonNull(applicationRepository.findByPartyIdAndIsRejectedTrue(partyId).stream()
+        return getRejectedApplications(partyId, resolveUserId(principal));
+    }
+
+    @Transactional(readOnly = true)
+    public List<PartyApplicationDTO.Response> getRejectedApplications(Long partyId, Long userId) {
+        Party party = requireHostedParty(partyId, requireUserId(userId));
+        return Objects.requireNonNull(applicationRepository.findByPartyIdAndIsRejectedTrue(party.getId()).stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList()));
     }
@@ -291,16 +369,13 @@ public class PartyApplicationService {
     // 신청 승인
     @Transactional
     public PartyApplicationDTO.Response approveApplication(Long applicationId, Principal principal) {
-        Long hostId = resolveUserId(principal);
-        PartyApplication application = applicationRepository.findById(java.util.Objects.requireNonNull(applicationId))
-                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+        return approveApplication(applicationId, resolveUserId(principal));
+    }
 
-        Party party = partyRepository.findById(application.getPartyId())
-                .orElseThrow(() -> new PartyNotFoundException(application.getPartyId()));
-
-        if (!party.getHostId().equals(hostId)) {
-            throw new UnauthorizedAccessException("파티 호스트만 신청을 승인할 수 있습니다.");
-        }
+    @Transactional
+    public PartyApplicationDTO.Response approveApplication(Long applicationId, Long userId) {
+        Long hostId = requireUserId(userId);
+        PartyApplication application = requireHostedApplication(applicationId, hostId);
 
         if (application.getIsApproved()) {
             throw new InvalidApplicationStatusException("이미 승인된 신청입니다.");
@@ -335,16 +410,13 @@ public class PartyApplicationService {
     // 신청 거절
     @Transactional
     public PartyApplicationDTO.Response rejectApplication(Long applicationId, Principal principal) {
-        Long hostId = resolveUserId(principal);
-        PartyApplication application = applicationRepository.findById(java.util.Objects.requireNonNull(applicationId))
-                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+        return rejectApplication(applicationId, resolveUserId(principal));
+    }
 
-        Party party = partyRepository.findById(application.getPartyId())
-                .orElseThrow(() -> new PartyNotFoundException(application.getPartyId()));
-
-        if (!party.getHostId().equals(hostId)) {
-            throw new UnauthorizedAccessException("파티 호스트만 신청을 거절할 수 있습니다.");
-        }
+    @Transactional
+    public PartyApplicationDTO.Response rejectApplication(Long applicationId, Long userId) {
+        Long hostId = requireUserId(userId);
+        PartyApplication application = requireHostedApplication(applicationId, hostId);
 
         if (application.getIsApproved()) {
             throw new InvalidApplicationStatusException("승인된 신청은 거절할 수 없습니다.");
@@ -388,7 +460,12 @@ public class PartyApplicationService {
     // 신청 취소 (신청자가 취소) — Principal 기반
     @Transactional
     public void cancelApplication(Long applicationId, Principal principal) {
-        cancelApplication(applicationId, principal, PartyApplicationDTO.CancelRequest.builder()
+        cancelApplication(applicationId, resolveUserId(principal));
+    }
+
+    @Transactional
+    public void cancelApplication(Long applicationId, Long userId) {
+        cancelApplication(applicationId, userId, PartyApplicationDTO.CancelRequest.builder()
                 .cancelReasonType(CancelReasonType.BUYER_CHANGED_MIND)
                 .build());
     }
@@ -398,16 +475,16 @@ public class PartyApplicationService {
             Long applicationId,
             Principal principal,
             PartyApplicationDTO.CancelRequest cancelRequest) {
-        // Principal에서 applicantId 파생
-        Long applicantId = resolveUserId(principal);
+        return cancelApplication(applicationId, resolveUserId(principal), cancelRequest);
+    }
 
-        PartyApplication application = applicationRepository.findById(java.util.Objects.requireNonNull(applicationId))
-                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
-
-        // 본인 확인
-        if (!application.getApplicantId().equals(applicantId)) {
-            throw new UnauthorizedAccessException("본인의 신청만 취소할 수 있습니다.");
-        }
+    @Transactional
+    public PartyApplicationDTO.CancelResponse cancelApplication(
+            Long applicationId,
+            Long userId,
+            PartyApplicationDTO.CancelRequest cancelRequest) {
+        Long applicantId = requireUserId(userId);
+        PartyApplication application = requireApplicantApplication(applicationId, applicantId);
 
         // 거절된 신청은 취소 불필요
         if (application.getIsRejected()) {
@@ -452,15 +529,33 @@ public class PartyApplicationService {
 
     @Transactional(readOnly = true)
     public PartyApplication getApplicationEntity(Long applicationId) {
+        // Trusted internal use only. User-facing flows must use owner-scoped helpers.
         return Objects.requireNonNull(applicationRepository.findById(java.util.Objects.requireNonNull(applicationId))
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId)));
     }
 
-    private ApplicationCreationContext prepareCreationContext(PartyApplicationDTO.Request request,
-            Principal principal) {
-        Long applicantId = resolveUserId(principal);
-        String applicantName = resolveUserName(principal, applicantId);
-        log.info("[Application] Resolved applicantId={} from principal={}", applicantId, principal.getName());
+    private Party requireHostedParty(Long partyId, Long hostId) {
+        return partyRepository.findByIdAndHostId(java.util.Objects.requireNonNull(partyId), hostId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+    }
+
+    private PartyApplication requireHostedApplication(Long applicationId, Long hostId) {
+        return applicationRepository.findByIdAndPartyHostId(java.util.Objects.requireNonNull(applicationId), hostId)
+                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+    }
+
+    private PartyApplication requireApplicantApplication(Long applicationId, Long applicantId) {
+        return applicationRepository.findByIdAndApplicantId(java.util.Objects.requireNonNull(applicationId), applicantId)
+                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+    }
+
+    private ApplicationCreationContext prepareCreationContext(
+            PartyApplicationDTO.Request request,
+            Long applicantId,
+            String principalName) {
+        requireUserId(applicantId);
+        String applicantName = resolveUserName(principalName, applicantId);
+        log.info("[Application] Resolved applicantId={}", applicantId);
 
         if (requireSocialVerification && !userService.isSocialVerified(applicantId)) {
             throw new com.example.common.exception.IdentityVerificationRequiredException(
@@ -582,8 +677,11 @@ public class PartyApplicationService {
             return new ApplicationPaymentSnapshot(sellingPrice, PartyApplication.PaymentType.FULL);
         }
 
+        Integer reservationDepositAmount = party.getReservationDepositAmount();
         Integer ticketPrice = party.getTicketPrice();
-        int baselineAmount = ticketPrice != null ? ticketPrice : 0;
+        int baselineAmount = reservationDepositAmount != null && reservationDepositAmount > 0
+                ? reservationDepositAmount
+                : (ticketPrice != null ? ticketPrice : 0);
         if (baselineAmount < 0) {
             throw new InvalidApplicationStatusException("직거래 파티의 티켓 가격이 올바르지 않습니다.");
         }
@@ -630,16 +728,25 @@ public class PartyApplicationService {
         if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
             throw new AuthenticationRequiredException("인증 정보가 없습니다.");
         }
-        return userService.getUserIdByEmail(principal.getName());
+        String principalName = principal.getName();
+        try {
+            return Long.valueOf(principalName);
+        } catch (NumberFormatException ignored) {
+            return userService.getUserIdByEmail(principalName);
+        }
     }
 
-    private String resolveUserName(Principal principal, Long userId) {
-        if (principal != null
-                && principal.getName() != null
-                && !principal.getName().isBlank()
-                && principal.getName().contains("@")) {
+    private Long requireUserId(Long userId) {
+        if (userId == null) {
+            throw new AuthenticationRequiredException("인증 정보가 없습니다.");
+        }
+        return userId;
+    }
+
+    private String resolveUserName(String principalName, Long userId) {
+        if (principalName != null && !principalName.isBlank() && principalName.contains("@")) {
             try {
-                return userService.findUserByEmail(principal.getName()).getName();
+                return userService.findUserByEmail(principalName).getName();
             } catch (RuntimeException ignored) {
                 // principal name이 email이 아닌 userId일 수 있어 ID 조회로 fallback
             }

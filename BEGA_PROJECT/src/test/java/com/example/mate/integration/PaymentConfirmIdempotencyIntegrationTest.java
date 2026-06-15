@@ -132,6 +132,8 @@ class PaymentConfirmIdempotencyIntegrationTest {
 
         UserEntity host = userRepository.save(MateTestFixtureFactory.user(HOST_EMAIL, "Confirm Host"));
         UserEntity applicant = userRepository.save(MateTestFixtureFactory.user(APPLICANT_EMAIL, "Confirm Applicant"));
+        MateTestTokenHelper.register(host);
+        MateTestTokenHelper.register(applicant);
         userProviderRepository.save(MateTestFixtureFactory.socialProvider(host, "kakao"));
         userProviderRepository.save(MateTestFixtureFactory.socialProvider(applicant, "naver"));
     }

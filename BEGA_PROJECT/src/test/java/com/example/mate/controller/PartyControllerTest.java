@@ -15,7 +15,6 @@ import org.springframework.data.domain.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
-import java.security.Principal;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -34,8 +33,6 @@ class PartyControllerTest {
     @InjectMocks
     private PartyController partyController;
 
-    private final Principal principal = () -> "42";
-
     // ── createParty ──
 
     @Test
@@ -43,13 +40,13 @@ class PartyControllerTest {
     void createParty_returns201WithResponse() {
         PartyDTO.Request request = PartyDTO.Request.builder().teamId("KIA").build();
         PartyDTO.Response response = PartyDTO.Response.builder().id(1L).teamId("KIA").build();
-        when(partyService.createParty(request, principal)).thenReturn(response);
+        when(partyService.createParty(request, 42L)).thenReturn(response);
 
-        ResponseEntity<?> result = partyController.createParty(request, principal);
+        ResponseEntity<?> result = partyController.createParty(request, 42L);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(result.getBody()).isEqualTo(response);
-        verify(partyService).createParty(request, principal);
+        verify(partyService).createParty(request, 42L);
     }
 
     // ── getAllParties ──
@@ -106,6 +103,23 @@ class PartyControllerTest {
 
         verify(partyService).getAllParties(isNull(), isNull(), isNull(), isNull(),
                 argThat(p -> p.getSort().getOrderFor("createdAt").getDirection() == Sort.Direction.ASC),
+                isNull(), isNull());
+    }
+
+    @Test
+    @DisplayName("허용되지 않은 정렬 필드는 createdAt으로 대체하고 page size는 30으로 제한한다")
+    void getAllParties_rejectsUnsupportedSortAndCapsPageSize() {
+        Page<PartyDTO.PublicResponse> page = new PageImpl<>(List.of());
+        when(partyService.getAllParties(isNull(), isNull(), isNull(), isNull(),
+                any(Pageable.class), isNull(), isNull()))
+                .thenReturn(page);
+
+        partyController.getAllParties(null, null, null, null, null, 0, 100, "description", "desc", null);
+
+        verify(partyService).getAllParties(isNull(), isNull(), isNull(), isNull(),
+                argThat(p -> p.getPageSize() == 30
+                        && p.getSort().getOrderFor("createdAt") != null
+                        && p.getSort().getOrderFor("description") == null),
                 isNull(), isNull());
     }
 
@@ -204,6 +218,48 @@ class PartyControllerTest {
     }
 
     @Test
+    @DisplayName("내 메이트 내역 조회 시 페이징 조건으로 서비스를 호출한다")
+    void getMyPartyHistory_returnsPagedResponse() {
+        PartyDTO.HistoryResponse resp = PartyDTO.HistoryResponse.builder().id(1L).build();
+        Page<PartyDTO.HistoryResponse> page = new PageImpl<>(List.of(resp), PageRequest.of(0, 20), 1);
+        when(partyService.getMyPartyHistory(eq(42L), eq("all"), any(Pageable.class))).thenReturn(page);
+
+        ResponseEntity<Page<PartyDTO.HistoryResponse>> result =
+                partyController.getMyPartyHistory("all", 0, 20, 42L);
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(result.getBody().getContent()).hasSize(1);
+        verify(partyService).getMyPartyHistory(
+                eq(42L),
+                eq("all"),
+                argThat(p -> p.getPageNumber() == 0
+                        && p.getPageSize() == 20
+                        && p.getSort().getOrderFor("createdAt").getDirection() == Sort.Direction.DESC
+                        && p.getSort().getOrderFor("id").getDirection() == Sort.Direction.DESC));
+    }
+
+    @Test
+    @DisplayName("내 메이트 내역 조회는 page를 0 이상, size를 최대 50으로 제한한다")
+    void getMyPartyHistory_clampsPageAndSize() {
+        Page<PartyDTO.HistoryResponse> page = new PageImpl<>(List.of(), PageRequest.of(0, 50), 0);
+        when(partyService.getMyPartyHistory(eq(42L), eq("ongoing"), any(Pageable.class))).thenReturn(page);
+
+        partyController.getMyPartyHistory("ongoing", -3, 999, 42L);
+
+        verify(partyService).getMyPartyHistory(
+                eq(42L),
+                eq("ongoing"),
+                argThat(p -> p.getPageNumber() == 0 && p.getPageSize() == 50));
+    }
+
+    @Test
+    @DisplayName("내 메이트 내역 조회 시 userId가 null이면 AuthenticationRequiredException을 던진다")
+    void getMyPartyHistory_nullUserId_throwsAuthException() {
+        assertThatThrownBy(() -> partyController.getMyPartyHistory("all", 0, 20, null))
+                .isInstanceOf(AuthenticationRequiredException.class);
+    }
+
+    @Test
     @DisplayName("userId가 null이면 AuthenticationRequiredException을 던진다")
     void getMyParties_nullUserId_throwsAuthException() {
         assertThatThrownBy(() -> partyController.getMyParties(null))
@@ -217,12 +273,12 @@ class PartyControllerTest {
     void updateParty_returnsUpdatedResponse() {
         PartyDTO.UpdateRequest request = PartyDTO.UpdateRequest.builder().description("updated").build();
         PartyDTO.Response response = PartyDTO.Response.builder().id(1L).description("updated").build();
-        when(partyService.updateParty(1L, request, principal)).thenReturn(response);
+        when(partyService.updateParty(1L, request, 42L)).thenReturn(response);
 
-        ResponseEntity<?> result = partyController.updateParty(1L, request, principal);
+        ResponseEntity<?> result = partyController.updateParty(1L, request, 42L);
 
         assertThat(result.getBody()).isEqualTo(response);
-        verify(partyService).updateParty(1L, request, principal);
+        verify(partyService).updateParty(1L, request, 42L);
     }
 
     // ── deleteParty ──
@@ -230,9 +286,9 @@ class PartyControllerTest {
     @Test
     @DisplayName("파티 삭제 시 204 상태코드를 반환한다")
     void deleteParty_returns204NoContent() {
-        ResponseEntity<?> result = partyController.deleteParty(1L, principal);
+        ResponseEntity<?> result = partyController.deleteParty(1L, 42L);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-        verify(partyService).deleteParty(1L, principal);
+        verify(partyService).deleteParty(1L, 42L);
     }
 }

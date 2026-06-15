@@ -22,7 +22,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 
-import java.security.Principal;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,7 +58,7 @@ class PaymentControllerTest {
 
     @Test
     void confirmTossPayment_usesServerAmountAndForcesDepositType() {
-        Principal principal = () -> "test@example.com";
+        Long userId = 10L;
 
         TossPaymentDTO.ClientConfirmRequest request = TossPaymentDTO.ClientConfirmRequest.builder()
                 .paymentKey("pk_test")
@@ -91,14 +90,13 @@ class PaymentControllerTest {
                 .paymentType(PartyApplication.PaymentType.DEPOSIT)
                 .build();
 
-        given(paymentIntentService.resolveUserId(principal)).willReturn(10L);
         given(paymentIntentService.findExistingApplicationResponse("MATE-1-10-1708500000000", 10L))
                 .willReturn(Optional.empty());
-        given(paymentIntentService.resolveIntentForConfirm(request, principal)).willReturn(intent);
+        given(paymentIntentService.resolveIntentForConfirm(request, userId)).willReturn(intent);
         given(tossPaymentService.confirmPayment("pk_test", "MATE-1-10-1708500000000", 35000)).willReturn(tossResponse);
         given(applicationService.createOrGetApplicationWithPayment(
                 any(PartyApplicationDTO.Request.class),
-                eq(principal),
+                eq(userId),
                 eq("payment_key"),
                 eq("MATE-1-10-1708500000000"),
                 eq(35000),
@@ -109,7 +107,7 @@ class PaymentControllerTest {
         given(paymentTransactionService.createOrGetOnConfirm(any(PartyApplication.class), eq(intent), eq("payment_key")))
                 .willReturn(PaymentTransaction.builder().id(1L).build());
 
-        var response = paymentController.confirmTossPayment(request, principal);
+        var response = paymentController.confirmTossPayment(request, userId);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(response.getBody()).isEqualTo(created);
@@ -117,7 +115,7 @@ class PaymentControllerTest {
         ArgumentCaptor<PartyApplicationDTO.Request> appReqCaptor = ArgumentCaptor.forClass(PartyApplicationDTO.Request.class);
         verify(applicationService).createOrGetApplicationWithPayment(
                 appReqCaptor.capture(),
-                eq(principal),
+                eq(userId),
                 eq("payment_key"),
                 eq("MATE-1-10-1708500000000"),
                 eq(35000),
@@ -134,7 +132,7 @@ class PaymentControllerTest {
 
     @Test
     void confirmTossPayment_returnsExistingApplicationForIdempotentRetry() {
-        Principal principal = () -> "test@example.com";
+        Long userId = 10L;
 
         TossPaymentDTO.ClientConfirmRequest request = TossPaymentDTO.ClientConfirmRequest.builder()
                 .paymentKey("pk_test")
@@ -147,24 +145,24 @@ class PaymentControllerTest {
                 .partyId(1L)
                 .build();
 
-        given(paymentIntentService.resolveUserId(principal)).willReturn(10L);
         given(paymentIntentService.findExistingApplicationResponse("MATE-1-10-1708500000000", 10L))
                 .willReturn(Optional.of(existing));
         given(paymentTransactionService.findByOrderId("MATE-1-10-1708500000000"))
                 .willReturn(Optional.empty());
 
-        var response = paymentController.confirmTossPayment(request, principal);
+        var response = paymentController.confirmTossPayment(request, userId);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isEqualTo(existing);
 
-        verify(paymentIntentService, never()).resolveIntentForConfirm(any(), any());
+        verify(paymentIntentService, never())
+                .resolveIntentForConfirm(any(TossPaymentDTO.ClientConfirmRequest.class), any(Long.class));
         verify(tossPaymentService, never()).confirmPayment(any(), any(), any());
     }
 
     @Test
     void confirmTossPayment_rejectsRetryWhenExistingTransactionFlowMismatched() {
-        Principal principal = () -> "test@example.com";
+        Long userId = 10L;
 
         TossPaymentDTO.ClientConfirmRequest request = TossPaymentDTO.ClientConfirmRequest.builder()
                 .paymentKey("pk_test")
@@ -179,7 +177,6 @@ class PaymentControllerTest {
                 .paymentType(PartyApplication.PaymentType.DEPOSIT)
                 .build();
 
-        given(paymentIntentService.resolveUserId(principal)).willReturn(10L);
         given(paymentIntentService.findExistingApplicationResponse("MATE-1-10-1708500000000", 10L))
                 .willReturn(Optional.of(existing));
         given(paymentTransactionService.findByOrderId("MATE-1-10-1708500000000"))
@@ -189,7 +186,7 @@ class PaymentControllerTest {
                         .flowType(PaymentFlowType.SELLING_FULL)
                         .build()));
 
-        assertThatThrownBy(() -> paymentController.confirmTossPayment(request, principal))
+        assertThatThrownBy(() -> paymentController.confirmTossPayment(request, userId))
                 .isInstanceOf(TossPaymentException.class)
                 .hasMessageContaining("기존 결제 트랜잭션")
                 .extracting("code")
@@ -198,7 +195,7 @@ class PaymentControllerTest {
 
     @Test
     void confirmTossPayment_applicationSaveFails_triggersCompensation() {
-        Principal principal = () -> "test@example.com";
+        Long userId = 10L;
 
         TossPaymentDTO.ClientConfirmRequest request = TossPaymentDTO.ClientConfirmRequest.builder()
                 .paymentKey("pk_test")
@@ -222,21 +219,20 @@ class PaymentControllerTest {
         TossPaymentDTO.ConfirmResponse tossResponse = new TossPaymentDTO.ConfirmResponse(
                 "payment_key", "MATE-1-10-1708500000000", "DONE", 35000, "카드");
 
-        given(paymentIntentService.resolveUserId(principal)).willReturn(10L);
         given(paymentIntentService.findExistingApplicationResponse("MATE-1-10-1708500000000", 10L))
                 .willReturn(Optional.empty());
-        given(paymentIntentService.resolveIntentForConfirm(request, principal)).willReturn(intent);
+        given(paymentIntentService.resolveIntentForConfirm(request, userId)).willReturn(intent);
         given(tossPaymentService.confirmPayment("pk_test", "MATE-1-10-1708500000000", 35000)).willReturn(tossResponse);
         given(applicationService.createOrGetApplicationWithPayment(
                 any(PartyApplicationDTO.Request.class),
-                eq(principal),
+                eq(userId),
                 eq("payment_key"),
                 eq("MATE-1-10-1708500000000"),
                 eq(35000),
                 eq(PartyApplication.PaymentType.DEPOSIT)))
                 .willThrow(new IllegalStateException("save failed"));
 
-        assertThatThrownBy(() -> paymentController.confirmTossPayment(request, principal))
+        assertThatThrownBy(() -> paymentController.confirmTossPayment(request, userId))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("save failed");
 
@@ -251,7 +247,7 @@ class PaymentControllerTest {
                 .partyId(1L)
                 .build();
 
-        assertThatThrownBy(() -> paymentController.prepareTossPayment(request, () -> "test@example.com"))
+        assertThatThrownBy(() -> paymentController.prepareTossPayment(request, 10L))
                 .isInstanceOf(TossPaymentException.class)
                 .hasMessageContaining("직거래 모드")
                 .extracting("code")
