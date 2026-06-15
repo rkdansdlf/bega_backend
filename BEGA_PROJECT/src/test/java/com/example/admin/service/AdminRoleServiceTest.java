@@ -5,6 +5,7 @@ import com.example.admin.entity.AuditLog;
 import com.example.admin.repository.AuditLogRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.service.RefreshTokenRevocationService;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -36,6 +37,39 @@ class AdminRoleServiceTest {
 
     @Mock
     private AuditLogRepository auditLogRepository;
+
+    @Mock
+    private RefreshTokenRevocationService refreshTokenRevocationService;
+
+    @Test
+    @DisplayName("promoteToAdmin revokes existing sessions so stale user tokens cannot remain authoritative")
+    void promoteToAdmin_revokesExistingSessions() {
+        UserEntity admin = user(1L, "admin@example.com", "Admin", "ROLE_SUPER_ADMIN");
+        UserEntity target = user(2L, "target@example.com", "Target", "ROLE_USER");
+        when(userRepository.findById(1L)).thenReturn(Optional.of(admin));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(target));
+
+        adminRoleService.promoteToAdmin(1L, 2L, "promotion");
+
+        assertThat(target.getRole()).isEqualTo("ROLE_ADMIN");
+        verify(userRepository).save(target);
+        verify(refreshTokenRevocationService).revokeAllSessionsForUser(2L);
+    }
+
+    @Test
+    @DisplayName("demoteToUser revokes existing sessions so stale admin tokens cannot remain authoritative")
+    void demoteToUser_revokesExistingSessions() {
+        UserEntity admin = user(1L, "admin@example.com", "Admin", "ROLE_SUPER_ADMIN");
+        UserEntity target = user(2L, "target@example.com", "Target", "ROLE_ADMIN");
+        when(userRepository.findById(1L)).thenReturn(Optional.of(admin));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(target));
+
+        adminRoleService.demoteToUser(1L, 2L, "demotion");
+
+        assertThat(target.getRole()).isEqualTo("ROLE_USER");
+        verify(userRepository).save(target);
+        verify(refreshTokenRevocationService).revokeAllSessionsForUser(2L);
+    }
 
     @Test
     @DisplayName("getAuditLogsPaged batches distinct users into one repository lookup")

@@ -20,8 +20,8 @@ public class AdminMaintenanceController {
 
     @PostMapping("/cheer-posts/cleanup")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse> cleanupSoftDeletedCheerPosts() {
+    public ResponseEntity<ApiResponse<Void>> cleanupSoftDeletedCheerPosts() {
         cheerStorageScheduler.cleanupDeletedPosts();
-        return ResponseEntity.ok(ApiResponse.success("Soft deleted 응원 게시글 정리 작업을 실행했습니다.", null));
+        return ResponseEntity.ok(ApiResponse.success("Soft deleted 응원 게시글 정리 작업을 실행했습니다."));
     }
 }

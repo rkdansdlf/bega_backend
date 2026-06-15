@@ -33,7 +33,7 @@ public class AdminRoleController {
      * POST /api/admin/roles/users/{userId}/promote
      */
     @PostMapping("/users/{userId}/promote")
-    public ResponseEntity<ApiResponse> promoteToAdmin(
+    public ResponseEntity<ApiResponse<RoleChangeResponseDto>> promoteToAdmin(
             @AuthenticationPrincipal Long adminId,
             @PathVariable Long userId,
             @RequestBody(required = false) RoleChangeRequestDto request) {
@@ -52,7 +52,7 @@ public class AdminRoleController {
      * POST /api/admin/roles/users/{userId}/demote
      */
     @PostMapping("/users/{userId}/demote")
-    public ResponseEntity<ApiResponse> demoteToUser(
+    public ResponseEntity<ApiResponse<RoleChangeResponseDto>> demoteToUser(
             @AuthenticationPrincipal Long adminId,
             @PathVariable Long userId,
             @RequestBody(required = false) RoleChangeRequestDto request) {
@@ -74,7 +74,7 @@ public class AdminRoleController {
      * 기존 비페이징 호출도 page/size 파라미터 없이 그대로 호출하면 size=20 기본값으로 동작.
      */
     @GetMapping("/audit-logs")
-    public ResponseEntity<ApiResponse> getAuditLogs(
+    public ResponseEntity<ApiResponse<Page<AuditLogDto>>> getAuditLogs(
             @AuthenticationPrincipal Long adminId,
             @PageableDefault(size = 20) Pageable pageable) {
 

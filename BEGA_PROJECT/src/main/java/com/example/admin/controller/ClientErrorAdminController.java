@@ -27,7 +27,7 @@ public class ClientErrorAdminController {
     private final ClientErrorAdminService clientErrorAdminService;
 
     @GetMapping("/dashboard")
-    public ResponseEntity<ApiResponse> getDashboard(
+    public ResponseEntity<ApiResponse<ClientErrorDashboardDto>> getDashboard(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to) {
         ClientErrorDashboardDto dashboard = clientErrorAdminService.getDashboard(from, to);
@@ -35,7 +35,7 @@ public class ClientErrorAdminController {
     }
 
     @GetMapping("/events")
-    public ResponseEntity<ApiResponse> getEvents(
+    public ResponseEntity<ApiResponse<ClientErrorEventPageDto>> getEvents(
             @RequestParam(required = false) String bucket,
             @RequestParam(required = false) String source,
             @RequestParam(required = false) String statusGroup,
@@ -61,7 +61,7 @@ public class ClientErrorAdminController {
     }
 
     @GetMapping("/events/{eventId}")
-    public ResponseEntity<ApiResponse> getEventDetail(@PathVariable String eventId) {
+    public ResponseEntity<ApiResponse<ClientErrorEventDetailDto>> getEventDetail(@PathVariable String eventId) {
         ClientErrorEventDetailDto detail = clientErrorAdminService.getEventDetail(eventId);
         return ResponseEntity.ok(ApiResponse.success("클라이언트 에러 이벤트 상세 조회 성공", detail));
     }
