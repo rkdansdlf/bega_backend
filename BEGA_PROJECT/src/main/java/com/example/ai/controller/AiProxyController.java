@@ -63,26 +63,30 @@ public class AiProxyController {
     public ResponseEntity<StreamingResponseBody> coachAnalyze(@RequestBody String payload) {
         requestLimits.validateCoachJson(payload);
         String requestMode = coachAutoBriefMonitoringService.extractRequestMode(payload);
+        String analysisType = coachAutoBriefMonitoringService.extractAnalysisType(payload);
         long startNanos = System.nanoTime();
 
         try {
-            log.info("Coach analyze proxy start request_mode={}", requestMode);
+            log.info("Coach analyze proxy start request_mode={} analysis_type={}", requestMode, analysisType);
             ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/coach/analyze", payload);
             log.info(
-                    "Coach analyze upstream stream established request_mode={} status={} header_wait_ms={}",
+                    "Coach analyze upstream stream established request_mode={} analysis_type={} status={} header_wait_ms={}",
                     requestMode,
+                    analysisType,
                     proxyResponse.status().value(),
                     elapsedMillis(startNanos));
-            return toCoachAnalyzeStreamResponse(proxyResponse, requestMode, startNanos);
+            return toCoachAnalyzeStreamResponse(proxyResponse, requestMode, analysisType, startNanos);
         } catch (RuntimeException exception) {
             int statusCode = coachAutoBriefMonitoringService.resolveStatusCode(exception);
             coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
                     requestMode,
+                    analysisType,
                     statusCode,
                     System.nanoTime() - startNanos);
             log.warn(
-                    "Coach analyze proxy failed before stream request_mode={} status={} elapsed_ms={} error={}",
+                    "Coach analyze proxy failed before stream request_mode={} analysis_type={} status={} elapsed_ms={} error={}",
                     requestMode,
+                    analysisType,
                     statusCode,
                     elapsedMillis(startNanos),
                     exception.toString());
@@ -176,6 +180,7 @@ public class AiProxyController {
     private ResponseEntity<StreamingResponseBody> toCoachAnalyzeStreamResponse(
             ProxyStreamResponse proxyResponse,
             String requestMode,
+            String analysisType,
             long startNanos) {
         HttpHeaders headers = new HttpHeaders();
         headers.putAll(proxyResponse.headers());
@@ -189,11 +194,13 @@ public class AiProxyController {
                 } finally {
                     coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
                             requestMode,
+                            analysisType,
                             proxyResponse.status().value(),
                             System.nanoTime() - startNanos);
                     log.info(
-                            "Coach analyze proxy error response completed request_mode={} status={} elapsed_ms={}",
+                            "Coach analyze proxy error response completed request_mode={} analysis_type={} status={} elapsed_ms={}",
                             requestMode,
+                            analysisType,
                             proxyResponse.status().value(),
                             elapsedMillis(startNanos));
                 }
@@ -205,11 +212,13 @@ public class AiProxyController {
                 } catch (IOException | RuntimeException exception) {
                     coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
                             requestMode,
+                            analysisType,
                             proxyResponse.status().value(),
                             System.nanoTime() - startNanos);
                     log.warn(
-                            "Coach analyze stream interrupted request_mode={} status={} elapsed_ms={} error={}",
+                            "Coach analyze stream interrupted request_mode={} analysis_type={} status={} elapsed_ms={} error={}",
                             requestMode,
+                            analysisType,
                             proxyResponse.status().value(),
                             elapsedMillis(startNanos),
                             exception.toString());
@@ -217,11 +226,13 @@ public class AiProxyController {
                 }
                 coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
                         requestMode,
+                        analysisType,
                         proxyResponse.status().value(),
                         System.nanoTime() - startNanos);
                 log.info(
-                        "Coach analyze stream completed request_mode={} status={} elapsed_ms={}",
+                        "Coach analyze stream completed request_mode={} analysis_type={} status={} elapsed_ms={}",
                         requestMode,
+                        analysisType,
                         proxyResponse.status().value(),
                         elapsedMillis(startNanos));
             };
