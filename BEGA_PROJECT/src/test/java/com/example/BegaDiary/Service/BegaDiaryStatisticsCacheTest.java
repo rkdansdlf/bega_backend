@@ -264,7 +264,7 @@ class BegaDiaryStatisticsCacheTest {
             String homeTeam,
             String awayTeam,
             BegaDiary.DiaryType type) {
-        return new TestDiaryStatisticsRow(diaryDate, winning, type, stadium, mood, homeTeam, awayTeam);
+        return new TestDiaryStatisticsRow(diaryDate, winning, type, stadium, mood, homeTeam, awayTeam, "LG");
     }
 
     private record TestDiaryStatisticsRow(
@@ -274,7 +274,8 @@ class BegaDiaryStatisticsCacheTest {
             String stadium,
             BegaDiary.DiaryEmoji mood,
             String homeTeam,
-            String awayTeam) implements DiaryStatisticsRow {
+            String awayTeam,
+            String favoriteTeamId) implements DiaryStatisticsRow {
 
         @Override
         public LocalDate getDiaryDate() {
@@ -309,6 +310,11 @@ class BegaDiaryStatisticsCacheTest {
         @Override
         public String getAwayTeam() {
             return awayTeam;
+        }
+
+        @Override
+        public String getFavoriteTeamId() {
+            return favoriteTeamId;
         }
     }
 

@@ -16,35 +16,46 @@ import org.springframework.stereotype.Service;
 @Service
 public class HomeBootstrapWarmupService {
 
-    private static final int MAX_WARMUP_ATTEMPTS = 2;
+    private static final int DEFAULT_MAX_WARMUP_ATTEMPTS = 2;
     private static final Duration DEFAULT_PARTIAL_RETRY_DELAY = Duration.ofMillis(500);
     private static final Duration DEFAULT_WARMUP_SECTION_TIMEOUT = Duration.ofSeconds(8);
 
     private final HomePageFacadeService homePageFacadeService;
     private final Clock clock;
     private final boolean enabled;
+    private final boolean rankingWarmupEnabled;
     private final Duration partialRetryDelay;
     private final Duration warmupSectionTimeout;
+    private final int maxWarmupAttempts;
 
     @Autowired
     public HomeBootstrapWarmupService(
             HomePageFacadeService homePageFacadeService,
             @Value("${app.home.bootstrap.warmup.enabled:true}") boolean enabled,
+            @Value("${app.home.bootstrap.warmup.ranking.enabled:true}") boolean rankingWarmupEnabled,
             @Value("${app.home.bootstrap.warmup.partial-retry-delay-ms:500}") long partialRetryDelayMs,
-            @Value("${app.home.bootstrap.warmup.section-timeout-ms:8000}") long warmupSectionTimeoutMs) {
+            @Value("${app.home.bootstrap.warmup.section-timeout-ms:8000}") long warmupSectionTimeoutMs,
+            @Value("${app.home.bootstrap.warmup.max-attempts:2}") int maxWarmupAttempts) {
         this(
                 homePageFacadeService,
                 Clock.systemDefaultZone(),
                 enabled,
                 Duration.ofMillis(partialRetryDelayMs),
-                Duration.ofMillis(warmupSectionTimeoutMs));
+                Duration.ofMillis(warmupSectionTimeoutMs),
+                rankingWarmupEnabled,
+                maxWarmupAttempts);
     }
 
     HomeBootstrapWarmupService(
             HomePageFacadeService homePageFacadeService,
             Clock clock,
             boolean enabled) {
-        this(homePageFacadeService, clock, enabled, DEFAULT_PARTIAL_RETRY_DELAY, DEFAULT_WARMUP_SECTION_TIMEOUT);
+        this(
+                homePageFacadeService,
+                clock,
+                enabled,
+                DEFAULT_PARTIAL_RETRY_DELAY,
+                DEFAULT_WARMUP_SECTION_TIMEOUT);
     }
 
     HomeBootstrapWarmupService(
@@ -61,18 +72,40 @@ public class HomeBootstrapWarmupService {
             boolean enabled,
             Duration partialRetryDelay,
             Duration warmupSectionTimeout) {
+        this(
+                homePageFacadeService,
+                clock,
+                enabled,
+                partialRetryDelay,
+                warmupSectionTimeout,
+                true,
+                DEFAULT_MAX_WARMUP_ATTEMPTS);
+    }
+
+    HomeBootstrapWarmupService(
+            HomePageFacadeService homePageFacadeService,
+            Clock clock,
+            boolean enabled,
+            Duration partialRetryDelay,
+            Duration warmupSectionTimeout,
+            boolean rankingWarmupEnabled,
+            int maxWarmupAttempts) {
         this.homePageFacadeService = homePageFacadeService;
         this.clock = clock == null ? Clock.systemDefaultZone() : clock;
         this.enabled = enabled;
+        this.rankingWarmupEnabled = rankingWarmupEnabled;
         this.partialRetryDelay = partialRetryDelay == null || partialRetryDelay.isNegative()
                 ? Duration.ZERO
                 : partialRetryDelay;
         this.warmupSectionTimeout = warmupSectionTimeout == null || warmupSectionTimeout.isZero() || warmupSectionTimeout.isNegative()
                 ? DEFAULT_WARMUP_SECTION_TIMEOUT
                 : warmupSectionTimeout;
+        this.maxWarmupAttempts = Math.max(1, maxWarmupAttempts);
     }
 
-    @Scheduled(fixedDelayString = "${app.home.bootstrap.warmup.fixed-delay-ms:50000}", initialDelay = 5000)
+    @Scheduled(
+            fixedDelayString = "${app.home.bootstrap.warmup.fixed-delay-ms:50000}",
+            initialDelayString = "${app.home.bootstrap.warmup.initial-delay-ms:5000}")
     public void warmupTodayBootstrap() {
         if (!enabled) {
             return;
@@ -81,7 +114,7 @@ public class HomeBootstrapWarmupService {
         LocalDate today = LocalDate.now(clock);
         try {
             HomeBootstrapResponseDto response = null;
-            for (int attempt = 1; attempt <= MAX_WARMUP_ATTEMPTS; attempt++) {
+            for (int attempt = 1; attempt <= maxWarmupAttempts; attempt++) {
                 response = homePageFacadeService.refreshBootstrap(today, warmupSectionTimeout);
                 if (isComplete(response)) {
                     warmupTodayRankingSnapshot(today);
@@ -96,7 +129,7 @@ public class HomeBootstrapWarmupService {
                         timedOutSections(response),
                         failedSections(response));
 
-                if (attempt < MAX_WARMUP_ATTEMPTS) {
+                if (attempt < maxWarmupAttempts) {
                     sleepBeforeRetry();
                 }
             }
@@ -104,7 +137,7 @@ public class HomeBootstrapWarmupService {
             log.warn(
                     "event=home_bootstrap_warmup_completed_partial date={} attempts={} timedOutSections={} failedSections={}",
                     today,
-                    MAX_WARMUP_ATTEMPTS,
+                    maxWarmupAttempts,
                     timedOutSections(response),
                     failedSections(response));
             warmupTodayRankingSnapshot(today);
@@ -121,6 +154,11 @@ public class HomeBootstrapWarmupService {
     }
 
     private void warmupTodayRankingSnapshot(LocalDate today) {
+        if (!rankingWarmupEnabled) {
+            log.info("event=home_ranking_snapshot_warmup_skipped date={} reason=disabled", today);
+            return;
+        }
+
         try {
             HomeRankingSnapshotDto snapshot = homePageFacadeService.getRankingSnapshot(today, null);
             int rankingCount = snapshot == null || snapshot.getRankings() == null ? 0 : snapshot.getRankings().size();

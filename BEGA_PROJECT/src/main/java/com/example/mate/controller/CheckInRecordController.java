@@ -1,6 +1,6 @@
 package com.example.mate.controller;
 
-import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.web.AuthenticatedUserIds;
 import com.example.mate.dto.CheckInRecordDTO;
 import com.example.mate.service.CheckInRecordService;
 import jakarta.validation.Valid;
@@ -24,7 +24,7 @@ public class CheckInRecordController {
     public ResponseEntity<CheckInRecordDTO.Response> checkIn(
             @Valid @RequestBody CheckInRecordDTO.Request request,
             @AuthenticationPrincipal Long userId) {
-        CheckInRecordDTO.Response response = checkInRecordService.checkIn(request, requireUserId(userId));
+        CheckInRecordDTO.Response response = checkInRecordService.checkIn(request, AuthenticatedUserIds.require(userId));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -33,7 +33,7 @@ public class CheckInRecordController {
     public ResponseEntity<CheckInRecordDTO.QrSessionResponse> createQrSession(
             @Valid @RequestBody CheckInRecordDTO.QrSessionRequest request,
             @AuthenticationPrincipal Long userId) {
-        CheckInRecordDTO.QrSessionResponse response = checkInRecordService.createQrSession(request, requireUserId(userId));
+        CheckInRecordDTO.QrSessionResponse response = checkInRecordService.createQrSession(request, AuthenticatedUserIds.require(userId));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -44,7 +44,7 @@ public class CheckInRecordController {
             @AuthenticationPrincipal Long userId) {
         List<CheckInRecordDTO.Response> records = checkInRecordService.getCheckInsByPartyId(
                 partyId,
-                requireUserId(userId));
+                AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(records);
     }
 
@@ -55,7 +55,7 @@ public class CheckInRecordController {
             @AuthenticationPrincipal Long requesterUserId) {
         List<CheckInRecordDTO.Response> records = checkInRecordService.getCheckInsByUserId(
                 userId,
-                requireUserId(requesterUserId));
+                AuthenticatedUserIds.require(requesterUserId));
         return ResponseEntity.ok(records);
     }
 
@@ -64,7 +64,7 @@ public class CheckInRecordController {
     public ResponseEntity<Long> getCheckInCount(
             @PathVariable Long partyId,
             @AuthenticationPrincipal Long userId) {
-        long count = checkInRecordService.getCheckInCount(partyId, requireUserId(userId));
+        long count = checkInRecordService.getCheckInCount(partyId, AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(count);
     }
 
@@ -75,12 +75,5 @@ public class CheckInRecordController {
             @AuthenticationPrincipal Long userId) {
         boolean isCheckedIn = checkInRecordService.isCheckedIn(partyId, userId);
         return ResponseEntity.ok(isCheckedIn);
-    }
-
-    private Long requireUserId(Long userId) {
-        if (userId == null) {
-            throw new AuthenticationRequiredException("인증이 필요합니다.");
-        }
-        return userId;
     }
 }

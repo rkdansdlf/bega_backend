@@ -5,7 +5,8 @@ BEGIN
       INTO v_count
       FROM user_tab_cols
      WHERE table_name = 'BEGA_DIARY'
-       AND column_name = 'WINNING';
+       AND column_name = 'WINNING'
+       AND nullable = 'N';
 
     IF v_count > 0 THEN
         EXECUTE IMMEDIATE 'ALTER TABLE bega_diary MODIFY (winning NULL)';

@@ -1,9 +1,14 @@
 package com.example.prediction;
 
 import com.example.common.exception.BusinessException;
+import com.example.kbo.validation.ManualBaseballDataRequest;
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import jakarta.annotation.PreDestroy;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -17,8 +22,11 @@ import org.springframework.stereotype.Service;
 @Service
 public class PredictionBootstrapService {
 
+    private static final Duration MANUAL_DATA_NEGATIVE_CACHE_TTL = Duration.ofSeconds(60);
+
     private final PredictionService predictionService;
     private final ExecutorService bootstrapExecutor;
+    private final ConcurrentMap<String, CachedManualDataFailure> manualDataFailureCache = new ConcurrentHashMap<>();
 
     @Autowired
     public PredictionBootstrapService(PredictionService predictionService) {
@@ -32,7 +40,15 @@ public class PredictionBootstrapService {
 
     public PredictionBootstrapResponseDto getBootstrap(LocalDate date, String gameId) {
         long startedAtNanos = System.nanoTime();
-        MatchDayNavigationResponseDto schedule = predictionService.getMatchDayNavigation(date);
+        String manualDataCacheKey = manualDataCacheKey(date);
+        throwCachedManualDataException(manualDataCacheKey);
+        MatchDayNavigationResponseDto schedule;
+        try {
+            schedule = predictionService.getMatchDayNavigation(date);
+        } catch (ManualBaseballDataRequiredException e) {
+            cacheManualDataException(manualDataCacheKey, e);
+            throw e;
+        }
         String selectedGameId = normalizeGameId(gameId);
         boolean selectedGameFound = selectedGameId != null && containsGameId(schedule.getGames(), selectedGameId);
 
@@ -131,6 +147,35 @@ public class PredictionBootstrapService {
                 .anyMatch(game -> game != null && gameId.equals(game.getGameId()));
     }
 
+    private String manualDataCacheKey(LocalDate date) {
+        return "predictionBootstrap:date:" + date;
+    }
+
+    private void throwCachedManualDataException(String cacheKey) {
+        CachedManualDataFailure cached = manualDataFailureCache.get(cacheKey);
+        if (cached == null) {
+            return;
+        }
+        long nowNanos = System.nanoTime();
+        if (nowNanos - cached.expiresAtNanos() >= 0) {
+            manualDataFailureCache.remove(cacheKey, cached);
+            return;
+        }
+        throw new ManualBaseballDataRequiredException(cached.request());
+    }
+
+    private void cacheManualDataException(String cacheKey, ManualBaseballDataRequiredException exception) {
+        Object data = exception.getData();
+        if (!(data instanceof ManualBaseballDataRequest request)) {
+            return;
+        }
+        manualDataFailureCache.put(
+                cacheKey,
+                new CachedManualDataFailure(
+                        request,
+                        System.nanoTime() + MANUAL_DATA_NEGATIVE_CACHE_TTL.toNanos()));
+    }
+
     private void logBootstrapElapsed(
             long startedAtNanos,
             LocalDate date,
@@ -150,5 +195,8 @@ public class PredictionBootstrapService {
                 detail == null ? null : detail.ok(),
                 voteStatus == null ? null : voteStatus.ok(),
                 elapsedMs);
+    }
+
+    private record CachedManualDataFailure(ManualBaseballDataRequest request, long expiresAtNanos) {
     }
 }

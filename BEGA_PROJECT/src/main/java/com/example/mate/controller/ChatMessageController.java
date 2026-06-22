@@ -1,6 +1,6 @@
 package com.example.mate.controller;
 
-import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.web.AuthenticatedUserIds;
 import com.example.mate.dto.ChatMessageDTO;
 import com.example.mate.service.ChatMessageService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -37,7 +37,7 @@ public class ChatMessageController {
     public ResponseEntity<ChatMessageDTO.Response> sendMessage(
             @Valid @RequestBody ChatMessageDTO.Request request,
             @AuthenticationPrincipal Long userId) {
-        ChatMessageDTO.Response response = chatMessageService.sendMessage(request, requireUserId(userId));
+        ChatMessageDTO.Response response = chatMessageService.sendMessage(request, AuthenticatedUserIds.require(userId));
         messagingTemplate.convertAndSend("/topic/party/" + response.getPartyId(), response);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -52,7 +52,7 @@ public class ChatMessageController {
     public ResponseEntity<List<ChatMessageDTO.Response>> getMessagesByPartyId(
             @PathVariable Long partyId,
             @AuthenticationPrincipal Long userId) {
-        List<ChatMessageDTO.Response> messages = chatMessageService.getMessagesByPartyId(partyId, requireUserId(userId));
+        List<ChatMessageDTO.Response> messages = chatMessageService.getMessagesByPartyId(partyId, AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(messages);
     }
 
@@ -69,17 +69,10 @@ public class ChatMessageController {
     public ResponseEntity<ChatMessageDTO.Response> getLatestMessage(
             @PathVariable Long partyId,
             @AuthenticationPrincipal Long userId) {
-        ChatMessageDTO.Response message = chatMessageService.getLatestMessage(partyId, requireUserId(userId));
+        ChatMessageDTO.Response message = chatMessageService.getLatestMessage(partyId, AuthenticatedUserIds.require(userId));
         if (message != null) {
             return ResponseEntity.ok(message);
         }
         return ResponseEntity.noContent().build();
-    }
-
-    private Long requireUserId(Long userId) {
-        if (userId == null) {
-            throw new AuthenticationRequiredException("인증이 필요합니다.");
-        }
-        return userId;
     }
 }

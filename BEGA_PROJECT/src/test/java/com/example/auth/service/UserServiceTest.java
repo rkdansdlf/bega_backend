@@ -550,6 +550,7 @@ class UserServiceTest {
         user.setEnabled(true);
         user.setLocked(false);
 
+        when(userRepository.findLoginPasswordByEmail("user@example.com")).thenReturn(Optional.of(loginPassword("ENCODED")));
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
         when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
         when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -566,7 +567,8 @@ class UserServiceTest {
         assertEquals(1L, result.profileData().get("id"));
         verify(loginAttemptService).enforceBeforeAuthentication(eq("user@example.com"), isNull(), isNull());
         verify(loginAttemptService).recordSuccessfulLogin(eq("user@example.com"), isNull());
-        verify(accountSecurityService).handleSuccessfulLogin(eq(user), any());
+        verify(accountSecurityService).handleSuccessfulLoginAsync(eq(user), any());
+        verify(accountSecurityService, never()).handleSuccessfulLogin(eq(user), any());
     }
 
     @Test
@@ -575,6 +577,7 @@ class UserServiceTest {
         user.setPassword("ENCODED");
         user.setEnabled(true);
 
+        when(userRepository.findLoginPasswordByEmail("user@example.com")).thenReturn(Optional.of(loginPassword("ENCODED")));
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
         when(bCryptPasswordEncoder.matches("wrong", "ENCODED")).thenReturn(false);
 
@@ -587,14 +590,19 @@ class UserServiceTest {
 
     @Test
     void authenticateAndGetToken_runsPasswordCheckForMissingUser() {
-        when(userRepository.findByEmail("missing@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findLoginPasswordByEmail("missing@example.com")).thenReturn(Optional.empty());
 
         InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
                 () -> userService.authenticateAndGetToken("missing@example.com", "raw-password"));
+        InvalidCredentialsException second = assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("missing@example.com", "raw-password"));
 
         assertEquals("INVALID_CREDENTIALS", exception.getCode());
-        verify(loginAttemptService).recordFailedAttempt(eq("missing@example.com"), isNull(), isNull());
-        verify(bCryptPasswordEncoder).matches(eq("raw-password"), any());
+        assertEquals("INVALID_CREDENTIALS", second.getCode());
+        verify(userRepository, times(1)).findLoginPasswordByEmail("missing@example.com");
+        verify(loginAttemptService, times(2)).recordFailedAttempt(eq("missing@example.com"), isNull(), isNull());
+        verify(bCryptPasswordEncoder, times(2)).matches(eq("raw-password"), any());
+        verify(userRepository, never()).findByEmail("missing@example.com");
         verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
         verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
         verify(userRepository, never()).save(any(UserEntity.class));
@@ -607,6 +615,7 @@ class UserServiceTest {
         user.setEnabled(true);
         user.setLocked(false);
 
+        when(userRepository.findLoginPasswordByEmail("user@example.com")).thenReturn(Optional.of(loginPassword(null)));
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
 
         InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
@@ -626,6 +635,7 @@ class UserServiceTest {
         user.setEnabled(false);
         user.setLocked(false);
 
+        when(userRepository.findLoginPasswordByEmail("user@example.com")).thenReturn(Optional.of(loginPassword("ENCODED")));
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
         when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
 
@@ -647,6 +657,7 @@ class UserServiceTest {
         user.setLocked(true);
         user.setLockExpiresAt(null);
 
+        when(userRepository.findLoginPasswordByEmail("user@example.com")).thenReturn(Optional.of(loginPassword("ENCODED")));
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
         when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
 
@@ -668,6 +679,7 @@ class UserServiceTest {
         user.setLocked(false);
         user.setPendingDeletion(true);
 
+        when(userRepository.findLoginPasswordByEmail("user@example.com")).thenReturn(Optional.of(loginPassword("ENCODED")));
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
         when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
 
@@ -697,6 +709,20 @@ class UserServiceTest {
         when(userRepository.findById(999L)).thenReturn(Optional.empty());
 
         assertThrows(UserNotFoundException.class, () -> userService.findUserById(999L));
+    }
+
+    private UserRepository.LoginPasswordProjection loginPassword(String password) {
+        return new UserRepository.LoginPasswordProjection() {
+            @Override
+            public Long getId() {
+                return 1L;
+            }
+
+            @Override
+            public String getPassword() {
+                return password;
+            }
+        };
     }
 
     private UserEntity baseUser(String profileImageUrl) {

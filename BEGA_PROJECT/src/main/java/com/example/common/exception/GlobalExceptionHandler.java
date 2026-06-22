@@ -1,6 +1,7 @@
 package com.example.common.exception;
 
 import com.example.cheerboard.service.CheerServiceConstants;
+import com.example.cheerboard.service.CheerRepostConstraintDetector;
 import com.example.ai.config.AiProxyRequestLimits;
 import com.example.ai.exception.AiProxyPayloadTooLargeException;
 import com.example.common.dto.ApiResponse;
@@ -159,7 +160,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         String message = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
-        if (isRepostDuplicateViolation(message)) {
+        if (CheerRepostConstraintDetector.isDuplicateViolation(message)) {
             return ResponseEntity
                     .status(HttpStatus.CONFLICT)
                     .body(ApiResponse.error(CheerServiceConstants.REPOST_CONFLICT_CODE, CheerServiceConstants.REPOST_CONFLICT_ERROR));
@@ -444,15 +445,4 @@ public class GlobalExceptionHandler {
         return message;
     }
 
-    private boolean isRepostDuplicateViolation(String message) {
-        if (message == null) {
-            return false;
-        }
-        String lower = message.toLowerCase();
-        return lower.contains("uq_cheer_post_simple_repost")
-                || (lower.contains("duplicate key") && lower.contains("repost_type") && lower.contains("repost_of_id"))
-                || (lower.contains("repost_of_id") && lower.contains("repost_type"))
-                || (lower.contains("cheer_post_repost") && lower.contains("duplicate key"))
-                || (lower.contains("cheer_post_repost_pkey"));
-    }
 }

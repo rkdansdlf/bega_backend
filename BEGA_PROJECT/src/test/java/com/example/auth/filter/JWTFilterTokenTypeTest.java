@@ -3,7 +3,6 @@ package com.example.auth.filter;
 import com.example.auth.service.TokenBlacklistService;
 import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.auth.repository.UserRepository;
-import com.example.auth.entity.UserEntity;
 import com.example.auth.util.JWTUtil;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -67,15 +66,8 @@ class JWTFilterTokenTypeTest {
         secretKey = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
 
         Mockito.lenient().when(tokenBlacklistService.isBlacklisted(anyString())).thenReturn(false);
-        Mockito.lenient().when(userRepository.findById(Mockito.anyLong())).thenReturn(Optional.of(
-                UserEntity.builder()
-                        .id(1L)
-                        .enabled(true)
-                        .locked(false)
-                        .tokenVersion(0)
-                        .role("ROLE_USER")
-                        .build()
-        ));
+        Mockito.lenient().when(userRepository.findUsableRoleByIdAndTokenVersion(Mockito.eq(1L), Mockito.any()))
+                .thenReturn(Optional.of("ROLE_USER"));
         SecurityContextHolder.clearContext();
     }
 
@@ -95,6 +87,8 @@ class JWTFilterTokenTypeTest {
         assertThat(authentication).isNotNull();
         assertThat(authentication.getPrincipal()).isEqualTo(1L);
         assertThat(authentication.getAuthorities()).extracting("authority").containsExactly("ROLE_USER");
+        Mockito.verify(userRepository).findUsableRoleByIdAndTokenVersion(1L, 0);
+        Mockito.verify(userRepository, Mockito.never()).findById(Mockito.anyLong());
     }
 
     @Test
@@ -111,6 +105,26 @@ class JWTFilterTokenTypeTest {
         assertThat(chain.invoked).isTrue();
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         assertThat(request.getAttribute("INVALID_AUTHOR")).isEqualTo(true);
+        Mockito.verify(userRepository, Mockito.never()).findById(Mockito.anyLong());
+    }
+
+    @Test
+    @DisplayName("토큰 버전이 현재 계정 버전과 다르면 인증에 사용하지 않는다")
+    void staleTokenVersion_isRejectedForAuthentication() throws Exception {
+        String staleToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L, 1);
+        Mockito.when(userRepository.findUsableRoleByIdAndTokenVersion(1L, 1)).thenReturn(Optional.empty());
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/protected/resource");
+        request.addHeader("Authorization", "Bearer " + staleToken);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DummyFilterChain chain = new DummyFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isTrue();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        assertThat(request.getAttribute("INVALID_AUTHOR")).isEqualTo(true);
+        Mockito.verify(userRepository).findUsableRoleByIdAndTokenVersion(1L, 1);
+        Mockito.verify(userRepository, Mockito.never()).findById(Mockito.anyLong());
     }
 
     @Test

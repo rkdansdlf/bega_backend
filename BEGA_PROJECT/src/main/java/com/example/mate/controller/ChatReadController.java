@@ -1,6 +1,6 @@
 package com.example.mate.controller;
 
-import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.web.AuthenticatedUserIds;
 import com.example.mate.dto.ChatReadDTO;
 import com.example.mate.service.ChatMessageService;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +20,7 @@ public class ChatReadController {
     public ResponseEntity<ChatReadDTO.ReadTimestampResponse> updateReadTimestamp(
             @PathVariable Long partyId,
             @AuthenticationPrincipal Long userId) {
-        chatMessageService.updateChatReadTimestamp(partyId, requireUserId(userId));
+        chatMessageService.updateChatReadTimestamp(partyId, AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(ChatReadDTO.ReadTimestampResponse.builder()
                 .success(true)
                 .message("채팅 읽음 처리 완료")
@@ -31,17 +31,10 @@ public class ChatReadController {
     @GetMapping("/my/unread-counts")
     public ResponseEntity<ChatReadDTO.UnreadCountResponse> getTotalUnreadCount(
             @AuthenticationPrincipal Long userId) {
-        long count = chatMessageService.getTotalUnreadCount(requireUserId(userId));
+        long count = chatMessageService.getTotalUnreadCount(AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(ChatReadDTO.UnreadCountResponse.builder()
                 .success(true)
                 .data(count)
                 .build());
-    }
-
-    private Long requireUserId(Long userId) {
-        if (userId == null) {
-            throw new AuthenticationRequiredException("인증이 필요합니다.");
-        }
-        return userId;
     }
 }

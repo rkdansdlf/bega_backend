@@ -4,11 +4,11 @@ import com.example.auth.dto.OAuth2StateData;
 import com.example.auth.dto.PolicyConsentSubmitDto;
 import com.example.auth.dto.PolicyRequiredResponseDto;
 import com.example.auth.service.OAuth2StateService;
-import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.exception.InternalServerBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
 import com.example.common.dto.ApiResponse;
 import com.example.common.ratelimit.RateLimit;
+import com.example.common.web.AuthenticatedUserIds;
 import com.example.auth.dto.AvailabilityCheckResponseDto;
 import com.example.auth.dto.LoginDto;
 import com.example.auth.dto.SignupDto;
@@ -101,7 +101,7 @@ public class APIController {
             @AuthenticationPrincipal Long userId,
             @Valid @RequestBody PolicyConsentSubmitDto consentSubmitDto,
             HttpServletRequest request) {
-        Long authenticatedUserId = requireAuthenticatedUserId(userId);
+        Long authenticatedUserId = AuthenticatedUserIds.require(userId);
 
         policyConsentService.validateRequiredConsents(consentSubmitDto.getPolicyConsents());
         policyConsentService.recordRequiredConsents(
@@ -183,7 +183,7 @@ public class APIController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> checkName(
             @AuthenticationPrincipal Long userId,
             @RequestParam("name") String name) {
-        Long authenticatedUserId = requireAuthenticatedUserId(userId);
+        Long authenticatedUserId = AuthenticatedUserIds.require(userId);
         String normalizedName = userService.ensureNameAvailable(authenticatedUserId, name);
         return ResponseEntity.ok(ApiResponse.success(
                 "사용 가능한 닉네임입니다.",
@@ -305,19 +305,12 @@ public class APIController {
         ));
     }
 
-    private Long requireAuthenticatedUserId(Long userId) {
-        if (userId == null) {
-            throw new AuthenticationRequiredException("인증이 필요합니다.");
-        }
-        return userId;
-    }
-
     private Long resolveAuthenticatedUserIdFromContext() {
         Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext()
                 .getAuthentication();
         if (authentication != null && authentication.getPrincipal() instanceof Long userId) {
             return userId;
         }
-        throw new AuthenticationRequiredException("로그인이 필요합니다.");
+        return AuthenticatedUserIds.require(null, "로그인이 필요합니다.");
     }
 }

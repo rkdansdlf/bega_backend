@@ -78,7 +78,7 @@ class CheerInteractionServiceTest {
         CheerPost post = CheerPost.builder().id(postId).author(author).likeCount(0).build();
 
         mockWriteEnabledAuthor(me);
-        when(postRepo.findByIdForInteractionWrite(postId)).thenReturn(Optional.of(post));
+        when(postRepo.findByIdForWrite(postId)).thenReturn(Optional.of(post));
         doNothing().when(publicVisibilityVerifier).validate(author, userId, "게시글");
         when(blockService.hasBidirectionalBlock(userId, author.getId())).thenReturn(false);
         lenient().when(userRepo.findById(anyLong())).thenReturn(Optional.of(author));
@@ -137,7 +137,7 @@ class CheerInteractionServiceTest {
         CheerPost post = CheerPost.builder().id(postId).author(author).build();
 
         mockWriteEnabledAuthor(me);
-        when(postRepo.findByIdForInteractionWrite(postId)).thenReturn(Optional.of(post));
+        when(postRepo.findByIdForWrite(postId)).thenReturn(Optional.of(post));
         doThrow(new org.springframework.security.access.AccessDeniedException("비공개 계정"))
                 .when(publicVisibilityVerifier).validate(author, userId, "게시글");
 

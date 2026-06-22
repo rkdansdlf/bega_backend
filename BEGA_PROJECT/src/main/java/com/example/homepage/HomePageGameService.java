@@ -4,7 +4,6 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.Year;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,10 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-import com.example.kbo.entity.GameEntity;
-import com.example.kbo.entity.GameMetadataEntity;
-import com.example.kbo.repository.GameMetadataRepository;
 import com.example.kbo.repository.GameRepository;
+import com.example.kbo.repository.MatchRangeProjection;
 import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
 import com.example.kbo.util.GameStatusResolver;
@@ -40,6 +37,7 @@ public class HomePageGameService {
 
     private static final String DEFAULT_GAME_TIME = "18:30";
     private static final DateTimeFormatter GAME_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+    private static final List<String> CANONICAL_TEAMS = List.of("SS", "LT", "LG", "DB", "KIA", "KH", "HH", "SSG", "NC", "KT");
     private static final String SCOPE_POSTSEASON = "postseason";
     private static final String SCOPE_KOREAN_SERIES = "koreanseries";
     private static final String SCOPE_SCHEDULED = "scheduled";
@@ -66,7 +64,6 @@ public class HomePageGameService {
     private static final List<String> STANDARD_NAVIGATION_EXCLUDED_STATUSES = SCHEDULED_WINDOW_STATUSES;
 
     private final GameRepository gameRepository;
-    private final GameMetadataRepository gameMetadataRepository;
 	private final HomePageTeamRepository homePageTeamRepository;
     @Qualifier("stadiumDataSource")
     private final DataSource stadiumDataSource;
@@ -109,9 +106,9 @@ public class HomePageGameService {
     @Cacheable(value = GAME_SCHEDULE, key = "#date.toString()")
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<HomePageGameDto> getGamesByDate(LocalDate date) {
-        List<GameEntity> games = gameRepository.findByGameDate(date);
+        List<MatchRangeProjection> games = gameRepository.findCanonicalRangeProjectionByGameDate(date, CANONICAL_TEAMS);
         if (games.isEmpty()) {
-            List<GameEntity> jdbcFallbackGames = findGamesByDateWithJdbc(date);
+            List<MatchRangeProjection> jdbcFallbackGames = findGameProjectionsByDateWithJdbc(date);
             if (!jdbcFallbackGames.isEmpty()) {
                 log.warn("GameRepository returned empty list but JDBC fallback found {} rows for date={}",
                         jdbcFallbackGames.size(),
@@ -122,33 +119,28 @@ public class HomePageGameService {
         if (games.isEmpty()) {
             return List.of();
         }
-        baseballDataIntegrityGuard.ensureHomeGamesByDate("home.schedule", date, games);
-        Map<String, LocalTime> startTimes = loadStartTimes(games);
+        baseballDataIntegrityGuard.ensurePredictionDateMatches("home.schedule", date, games);
 
         return games.stream()
-                .map(game -> convertToDto(game, startTimes.get(game.getGameId())))
+                .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
 
     @Cacheable(value = GAME_SCHEDULE, key = "#root.target.buildScheduledGamesWindowCacheKey(#startDate, #endDate)")
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<HomePageScheduledGameDto> getScheduledGamesWindow(LocalDate startDate, LocalDate endDate) {
-        List<GameEntity> games = gameRepository.findScheduledGamesByDateRange(
+        List<MatchRangeProjection> games = gameRepository.findScheduledWindowProjectionByDateRange(
                 startDate,
                 endDate,
-                SCHEDULED_WINDOW_STATUSES);
+                SCHEDULED_WINDOW_STATUSES,
+                CANONICAL_TEAMS);
         if (games.isEmpty()) {
             return List.of();
         }
-        baseballDataIntegrityGuard.ensureHomeScheduledWindow(
-                "home.scheduled_window",
-                startDate,
-                endDate,
-                games);
-        Map<String, LocalTime> startTimes = loadStartTimes(games);
+        baseballDataIntegrityGuard.ensurePredictionRangeMatches("home.scheduled_window", games);
         return games.stream()
                 .map(game -> {
-                    HomePageGameDto baseDto = convertToDto(game, startTimes.get(game.getGameId()));
+                    HomePageGameDto baseDto = convertToDto(game);
                     return HomePageScheduledGameDto.builder()
                             .gameId(baseDto.getGameId())
                             .time(baseDto.getTime())
@@ -170,7 +162,7 @@ public class HomePageGameService {
                 .collect(Collectors.toList());
     }
 
-    private HomePageGameDto convertToDto(GameEntity game, LocalTime startTime) {
+    private HomePageGameDto convertToDto(MatchRangeProjection game) {
 		HomePageTeam homeTeam = getTeam(game.getHomeTeam());
 		HomePageTeam awayTeam = getTeam(game.getAwayTeam());
         String resolvedHomeTeamId = resolveTeamId(game.getHomeTeam(), homeTeam.getTeamId());
@@ -193,7 +185,7 @@ public class HomePageGameService {
         String effectiveGameStatus = GameStatusResolver.resolveEffectiveStatus(
                 game.getGameStatus(),
                 game.getGameDate(),
-                startTime,
+                game.getStartTime(),
                 homeScore,
                 awayScore,
                 hasKnownScore
@@ -213,34 +205,10 @@ public class HomePageGameService {
                 .awayTeamFull(resolvedAwayTeamName)
                 .homeScore(homeScore)
                 .awayScore(awayScore)
-                .time(formatGameTime(startTime))
+                .time(formatGameTime(game.getStartTime()))
                 .leagueType(leagueType)
                 .gameInfo(gameInfo)
                 .build();
-    }
-
-    private Map<String, LocalTime> loadStartTimes(List<GameEntity> games) {
-        if (games == null || games.isEmpty()) {
-            return Map.of();
-        }
-
-        List<String> gameIds = games.stream()
-                .map(GameEntity::getGameId)
-                .filter(gameId -> gameId != null && !gameId.isBlank())
-                .distinct()
-                .collect(Collectors.toList());
-        if (gameIds.isEmpty()) {
-            return Map.of();
-        }
-
-        Map<String, LocalTime> startTimes = new HashMap<>();
-        for (GameMetadataEntity metadata : gameMetadataRepository.findAllById(gameIds)) {
-            if (metadata.getGameId() == null || metadata.getStartTime() == null) {
-                continue;
-            }
-            startTimes.putIfAbsent(metadata.getGameId(), metadata.getStartTime());
-        }
-        return startTimes;
     }
 
     private String formatGameTime(LocalTime startTime) {
@@ -287,8 +255,12 @@ public class HomePageGameService {
         };
     }
 
-	private String determineLeagueType(GameEntity game) {
-		Integer leagueTypeCode = leagueStageResolver.resolveEffectiveLeagueTypeCode(game);
+	private String determineLeagueType(MatchRangeProjection game) {
+		Integer leagueTypeCode = leagueStageResolver.resolveEffectiveLeagueTypeCode(
+                game.getRawLeagueTypeCode(),
+                game.getGameDate(),
+                game.getSeasonId(),
+                game.getGameId());
 		if (leagueTypeCode == null
 				&& game != null
 				&& game.getSeasonId() != null
@@ -546,49 +518,140 @@ public class HomePageGameService {
         return resolvedTeamId;
     }
 
-    private List<GameEntity> findGamesByDateWithJdbc(LocalDate date) {
+    private List<MatchRangeProjection> findGameProjectionsByDateWithJdbc(LocalDate date) {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(stadiumDataSource);
         return jdbcTemplate.query(
                 """
                         SELECT
-                          id,
-                          game_id,
-                          game_date,
-                          stadium,
-                          home_team,
-                          away_team,
-                          home_score,
-                          away_score,
-                          winning_team,
-                          winning_score,
-                          season_id,
-                          stadium_id,
-                          game_status,
-                          is_dummy,
-                          home_pitcher,
-                          away_pitcher
-                        FROM game
-                        WHERE game_date = ?
-                        ORDER BY game_id
+                          g.game_id,
+                          g.game_date,
+                          g.stadium,
+                          g.home_team,
+                          g.away_team,
+                          g.home_score,
+                          g.away_score,
+                          g.is_dummy,
+                          g.home_pitcher,
+                          g.away_pitcher,
+                          g.season_id,
+                          g.game_status,
+                          gm.start_time
+                        FROM game g
+                        LEFT JOIN game_metadata gm ON gm.game_id = g.game_id
+                        WHERE g.game_date = ?
+                          AND g.is_dummy IS NOT TRUE
+                          AND g.game_id NOT LIKE 'MOCK%'
+                        ORDER BY g.game_id
                         """,
-                (rs, rowNum) -> GameEntity.builder()
-                        .id(rs.getLong("id"))
-                        .gameId(rs.getString("game_id"))
-                        .gameDate(rs.getDate("game_date").toLocalDate())
-                        .stadium(rs.getString("stadium"))
-                        .homeTeam(rs.getString("home_team"))
-                        .awayTeam(rs.getString("away_team"))
-                        .homeScore((Integer) rs.getObject("home_score"))
-                        .awayScore((Integer) rs.getObject("away_score"))
-                        .winningTeam(rs.getString("winning_team"))
-                        .winningScore((Integer) rs.getObject("winning_score"))
-                        .seasonId((Integer) rs.getObject("season_id"))
-                        .stadiumId(rs.getString("stadium_id"))
-                        .gameStatus(rs.getString("game_status"))
-                        .isDummy((Boolean) rs.getObject("is_dummy"))
-                        .homePitcher(rs.getString("home_pitcher"))
-                        .awayPitcher(rs.getString("away_pitcher"))
-                        .build(),
+                (rs, rowNum) -> new JdbcMatchRangeProjection(
+                        rs.getString("game_id"),
+                        rs.getDate("game_date") == null ? null : rs.getDate("game_date").toLocalDate(),
+                        rs.getString("stadium"),
+                        rs.getString("home_team"),
+                        rs.getString("away_team"),
+                        (Integer) rs.getObject("home_score"),
+                        (Integer) rs.getObject("away_score"),
+                        (Boolean) rs.getObject("is_dummy"),
+                        rs.getString("home_pitcher"),
+                        rs.getString("away_pitcher"),
+                        (Integer) rs.getObject("season_id"),
+                        null,
+                        null,
+                        rs.getString("game_status"),
+                        rs.getObject("start_time", LocalTime.class)),
                 java.sql.Date.valueOf(date));
+    }
+
+    private record JdbcMatchRangeProjection(
+            String gameId,
+            LocalDate gameDate,
+            String stadium,
+            String homeTeam,
+            String awayTeam,
+            Integer homeScore,
+            Integer awayScore,
+            Boolean isDummy,
+            String homePitcher,
+            String awayPitcher,
+            Integer seasonId,
+            Integer rawLeagueTypeCode,
+            Integer seriesGameNo,
+            String gameStatus,
+            LocalTime startTime) implements MatchRangeProjection {
+
+        @Override
+        public String getGameId() {
+            return gameId;
+        }
+
+        @Override
+        public LocalDate getGameDate() {
+            return gameDate;
+        }
+
+        @Override
+        public String getStadium() {
+            return stadium;
+        }
+
+        @Override
+        public String getHomeTeam() {
+            return homeTeam;
+        }
+
+        @Override
+        public String getAwayTeam() {
+            return awayTeam;
+        }
+
+        @Override
+        public Integer getHomeScore() {
+            return homeScore;
+        }
+
+        @Override
+        public Integer getAwayScore() {
+            return awayScore;
+        }
+
+        @Override
+        public Boolean getIsDummy() {
+            return isDummy;
+        }
+
+        @Override
+        public String getHomePitcher() {
+            return homePitcher;
+        }
+
+        @Override
+        public String getAwayPitcher() {
+            return awayPitcher;
+        }
+
+        @Override
+        public Integer getSeasonId() {
+            return seasonId;
+        }
+
+        @Override
+        public Integer getRawLeagueTypeCode() {
+            return rawLeagueTypeCode;
+        }
+
+        @Override
+        public Integer getSeriesGameNo() {
+            return seriesGameNo;
+        }
+
+        @Override
+        public String getGameStatus() {
+            return gameStatus;
+        }
+
+        @Override
+        public LocalTime getStartTime() {
+            return startTime;
+        }
     }
 }

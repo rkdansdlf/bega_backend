@@ -1,10 +1,10 @@
 package com.example.auth.controller;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 import com.example.auth.util.AuthCookieUtil;
+import com.example.auth.util.AccountStatusUtil;
 import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.AuthSessionMetadataResolver;
 import com.example.auth.service.AuthSecurityMonitoringService;
@@ -206,28 +206,11 @@ public class ReissueController {
             return false;
         }
 
-        if (!user.isEnabled() || !isAccountUsable(user)) {
+        if (!user.isEnabled() || !AccountStatusUtil.isAccountUsable(user)) {
             return false;
         }
 
-        int currentTokenVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
-        if (tokenVersionInToken == null) {
-            return currentTokenVersion == 0;
-        }
-
-        return currentTokenVersion == tokenVersionInToken;
-    }
-
-    private boolean isAccountUsable(UserEntity user) {
-        if (!user.isLocked()) {
-            return true;
-        }
-
-        if (user.getLockExpiresAt() == null) {
-            return false;
-        }
-
-        return user.getLockExpiresAt().isBefore(LocalDateTime.now());
+        return AccountStatusUtil.hasMatchingTokenVersion(user, tokenVersionInToken);
     }
 
 }

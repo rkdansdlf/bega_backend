@@ -1,11 +1,16 @@
 package com.example.prediction;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.common.exception.NotFoundBusinessException;
+import com.example.kbo.validation.ManualBaseballDataMissingItem;
+import com.example.kbo.validation.ManualBaseballDataRequest;
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -131,6 +136,30 @@ class PredictionBootstrapServiceTest {
         assertThat(response.voteStatus()).isNull();
         verify(predictionService, never()).getGameDetail("20260607LGKT0");
         verify(predictionService, never()).getVoteStatus("20260607LGKT0");
+    }
+
+    @Test
+    void getBootstrapShouldNegativeCacheManualDataRequiredScheduleFailure() {
+        LocalDate date = LocalDate.of(2026, 6, 18);
+        ManualBaseballDataRequiredException manualDataRequired =
+                new ManualBaseballDataRequiredException(new ManualBaseballDataRequest(
+                        "prediction.matches_by_date",
+                        List.of(new ManualBaseballDataMissingItem(
+                                "season_league_context",
+                                "시즌/리그 컨텍스트",
+                                "경기의 시즌/리그 컨텍스트가 비어 있습니다.",
+                                "season_id, league_type")),
+                        "다음 야구 데이터가 필요합니다: 경기 ID=20260618HHNC0",
+                        true));
+
+        when(predictionService.getMatchDayNavigation(date)).thenThrow(manualDataRequired);
+
+        assertThatThrownBy(() -> service.getBootstrap(date, null))
+                .isInstanceOf(ManualBaseballDataRequiredException.class);
+        assertThatThrownBy(() -> service.getBootstrap(date, null))
+                .isInstanceOf(ManualBaseballDataRequiredException.class);
+
+        verify(predictionService, times(1)).getMatchDayNavigation(date);
     }
 
     private MatchDayNavigationResponseDto schedule(LocalDate date, List<MatchDto> games) {

@@ -31,12 +31,9 @@ import com.example.media.entity.MediaDomain;
 import com.example.media.service.MediaLinkService;
 import com.example.notification.service.NotificationService;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -44,7 +41,6 @@ import org.springframework.web.util.HtmlUtils;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -99,9 +95,9 @@ public class CheerPostService {
         log.debug("createPost - requested authorId={} normalizedTeamId={}", me != null ? me.getId() : null,
                 normalizedTeamId);
 
-        UserEntity author = resolveWriteAuthor(me);
+        UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
         // 저장 직전 재검증(토큰/계정 상태 동기화 갱신)
-        author = ensureAuthorRecordStillExists(author);
+        author = CheerAuthorWriteGuard.ensureAuthorRecordStillExists(author, userRepo);
 
         String normalizedContent = sanitizeRequiredPostContent(req.content());
 
@@ -130,7 +126,7 @@ public class CheerPostService {
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
                 try {
-                    ensureAuthorRecordStillExists(author);
+                    CheerAuthorWriteGuard.ensureAuthorRecordStillExists(author, userRepo);
                 } catch (InvalidAuthorException invalidAuthor) {
                     throw invalidAuthor;
                 }
@@ -153,7 +149,7 @@ public class CheerPostService {
 
     @Transactional
     public PostDetailRes updatePost(Long id, UpdatePostReq req, UserEntity me) {
-        UserEntity author = resolveWriteAuthor(me);
+        UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
         CheerPost post = findPostById(id);
         permissionValidator.validateOwnerOrAdmin(author, post.getAuthor(), "게시글 수정");
         String normalizedContent = sanitizeRequiredPostContent(req.content());
@@ -226,7 +222,7 @@ public class CheerPostService {
     // data
     @Transactional
     public CheerPost updatePostEntity(Long id, UpdatePostReq req, UserEntity me) {
-        UserEntity author = resolveWriteAuthor(me);
+        UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
         CheerPost post = findPostById(id);
         permissionValidator.validateOwnerOrAdmin(author, post.getAuthor(), "게시글 수정");
         String normalizedContent = sanitizeRequiredPostContent(req.content());
@@ -274,7 +270,7 @@ public class CheerPostService {
 
     @Transactional
     public RepostToggleResponse toggleRepost(Long postId, UserEntity me) {
-        UserEntity author = resolveWriteAuthor(me);
+        UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
         try {
             CheerPost original = resolveRepostActionTarget(author, postId, false);
 
@@ -305,12 +301,12 @@ public class CheerPostService {
             updateHotScore(original);
             return new RepostToggleResponse(true, readRepostCount(original.getId()));
         } catch (DataIntegrityViolationException ex) {
-            if (isRepostDuplicateViolation(ex)) {
+            if (CheerRepostConstraintDetector.isDuplicateViolation(ex)) {
                 CheerPost original = resolveRepostActionTarget(author, postId, false);
                 return getSimpleRepostState(author, original);
             }
             if (isDeletedAuthorReference(ex)) {
-                ensureAuthorRecordStillExists(author);
+                CheerAuthorWriteGuard.ensureAuthorRecordStillExists(author, userRepo);
             }
             throw ex;
         }
@@ -318,7 +314,7 @@ public class CheerPostService {
 
     @Transactional
     public CheerPost createQuoteRepost(Long originalPostId, QuoteRepostReq req, UserEntity me) {
-        UserEntity author = resolveWriteAuthor(me);
+        UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
         CheerPost original = resolveRepostActionTarget(author, originalPostId, true);
 
         AIModerationService.ModerationResult modResult = moderationService.checkContent(req.content());
@@ -349,7 +345,7 @@ public class CheerPostService {
             return Objects.requireNonNull(quoteRepost);
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
-                ensureAuthorRecordStillExists(author);
+                CheerAuthorWriteGuard.ensureAuthorRecordStillExists(author, userRepo);
             }
             throw ex;
         }
@@ -357,7 +353,7 @@ public class CheerPostService {
 
     @Transactional
     public RepostToggleResponse cancelRepost(Long repostId, UserEntity me) {
-        UserEntity author = resolveWriteAuthor(me);
+        UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
 
         try {
             CheerPost repost = findPostById(repostId);
@@ -379,7 +375,7 @@ public class CheerPostService {
             return new RepostToggleResponse(false, original == null ? 0 : readRepostCount(original.getId()));
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
-                ensureAuthorRecordStillExists(author);
+                CheerAuthorWriteGuard.ensureAuthorRecordStillExists(author, userRepo);
             }
             throw ex;
         }
@@ -425,120 +421,6 @@ public class CheerPostService {
             throw new RepostNotAllowedException(REPOST_QUOTE_NOT_ALLOWED_CODE, REPOST_QUOTE_NOT_ALLOWED_ERROR);
         }
         validateRepostTargetPolicy(actor, resolvedTarget);
-    }
-
-    // --- Helpers ---
-
-    private UserEntity resolveWriteAuthor(UserEntity me) {
-        if (me == null || me.getId() == null) {
-            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-        }
-
-        Long principalUserId = getAuthenticationUserId();
-        if (principalUserId != null && !principalUserId.equals(me.getId())) {
-            log.warn("resolveWriteAuthor - token principal mismatch. meId={}, principalId={}", me.getId(),
-                    principalUserId);
-            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-        }
-
-        log.debug("resolveWriteAuthor - loading user for write with lock. userId={}", me.getId());
-        UserEntity author = userRepo.findByIdForWrite(me.getId())
-                .orElseThrow(() -> new InvalidAuthorException(
-                        "인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요."));
-        ensureAuthorRecordStillExists(author);
-
-        try {
-            entityManager.refresh(author);
-        } catch (EntityNotFoundException e) {
-            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-        }
-
-        return author;
-    }
-
-    private UserEntity ensureAuthorRecordStillExists(UserEntity author) {
-        if (author == null || author.getId() == null) {
-            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-        }
-
-        Integer tokenVersion = getAuthenticationTokenVersion();
-
-        if (tokenVersion == null) {
-            boolean hasUsableAuthor = userRepo.lockUsableAuthorForWrite(author.getId()).isPresent();
-            if (!hasUsableAuthor) {
-                throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-            }
-        } else {
-            boolean hasUsableAuthor = userRepo.lockUsableAuthorForWriteWithTokenVersion(author.getId(), tokenVersion)
-                    .isPresent();
-            if (!hasUsableAuthor) {
-                throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-            }
-        }
-
-        UserEntity freshAuthor = userRepo.findByIdForWrite(author.getId())
-                .orElseThrow(() -> new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요."));
-
-        if (tokenVersion != null) {
-            int currentTokenVersion = freshAuthor.getTokenVersion() == null ? 0 : freshAuthor.getTokenVersion();
-            if (currentTokenVersion != tokenVersion) {
-                throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-            }
-        }
-
-        if (!freshAuthor.isEnabled() || !isAccountUsableForWrite(freshAuthor)) {
-            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-        }
-
-        return Objects.requireNonNull(freshAuthor);
-    }
-
-    private boolean isAccountUsableForWrite(UserEntity user) {
-        if (!user.isLocked()) {
-            return true;
-        }
-        if (user.getLockExpiresAt() == null) {
-            return false;
-        }
-        return user.getLockExpiresAt().isBefore(LocalDateTime.now());
-    }
-
-    private Long getAuthenticationUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null)
-            return null;
-        Object principal = authentication.getPrincipal();
-        if (principal == null)
-            return null;
-        if (principal instanceof Long userId)
-            return userId;
-        if (principal instanceof String userId) {
-            try {
-                return Long.valueOf(userId);
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    private Integer getAuthenticationTokenVersion() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null)
-            return null;
-        Object details = authentication.getDetails();
-        if (details == null)
-            return null;
-        if (details instanceof Integer version)
-            return version;
-        if (details instanceof Long version)
-            return version.intValue();
-        if (details instanceof Map<?, ?> map) {
-            Object val = map.get("tokenVersion");
-            if (val instanceof Integer v)
-                return v;
-        }
-        return null;
     }
 
     private boolean isDeletedAuthorReference(DataIntegrityViolationException ex) {
@@ -887,19 +769,6 @@ public class CheerPostService {
         } catch (Exception e) {
             log.warn("리포스트 알림 생성 실패: postId={}, error={}", originalPost.getId(), e.getMessage());
         }
-    }
-
-    private boolean isRepostDuplicateViolation(DataIntegrityViolationException ex) {
-        String message = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
-        if (message == null) {
-            return false;
-        }
-        String lower = message.toLowerCase();
-        return lower.contains("uq_cheer_post_simple_repost")
-                || (lower.contains("duplicate key") && lower.contains("repost_type") && lower.contains("repost_of_id"))
-                || (lower.contains("repost_of_id") && lower.contains("repost_type"))
-                || (lower.contains("cheer_post_repost") && lower.contains("duplicate key"))
-                || (lower.contains("cheer_post_repost_pkey"));
     }
 
     private int readRepostCount(Long postId) {

@@ -27,7 +27,11 @@ class CacheConfigTest {
                         new GenericJackson2JsonRedisSerializer()));
 
         assertThat(caffeineCacheManager.getCacheNames())
-                .containsExactlyInAnyOrder(CacheConfig.JWT_USER_CACHE, CacheConfig.SIGNED_URLS, CacheConfig.DIARY_STATS)
+                .containsExactlyInAnyOrder(
+                        CacheConfig.JWT_USER_CACHE,
+                        CacheConfig.SIGNED_URLS,
+                        CacheConfig.DIARY_STATS,
+                        CacheConfig.PREDICTION_MATCH_RANGE)
                 .doesNotContain(
                         CacheConfig.HOME_BOOTSTRAP,
                         CacheConfig.HOME_WIDGETS,
@@ -38,6 +42,9 @@ class CacheConfigTest {
         Cache diaryStatsCache = caffeineCacheManager.getCache(CacheConfig.DIARY_STATS);
         assertThat(diaryStatsCache).isInstanceOf(CaffeineCache.class);
         assertThat(cacheManager.getCache(CacheConfig.DIARY_STATS)).isSameAs(diaryStatsCache);
+        Cache predictionMatchRangeCache = caffeineCacheManager.getCache(CacheConfig.PREDICTION_MATCH_RANGE);
+        assertThat(predictionMatchRangeCache).isInstanceOf(CaffeineCache.class);
+        assertThat(cacheManager.getCache(CacheConfig.PREDICTION_MATCH_RANGE)).isSameAs(predictionMatchRangeCache);
         assertThat(caffeineCacheManager.getCache(CacheConfig.HOME_BOOTSTRAP)).isNull();
         assertThat(cacheManager.getCache(CacheConfig.HOME_BOOTSTRAP)).isNotNull();
         assertThat(cacheManager.getCache(CacheConfig.HOME_RANKING_SNAPSHOT)).isNotNull();
