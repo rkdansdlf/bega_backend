@@ -1,6 +1,6 @@
 package com.example.mate.controller;
 
-import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.web.AuthenticatedUserIds;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.service.PartyApplicationService;
 import jakarta.validation.Valid;
@@ -25,7 +25,7 @@ public class PartyApplicationController {
     public ResponseEntity<PartyApplicationDTO.Response> createApplication(
             @Valid @RequestBody PartyApplicationDTO.Request request,
             @AuthenticationPrincipal Long userId) {
-        Long authenticatedUserId = requireUserId(userId);
+        Long authenticatedUserId = AuthenticatedUserIds.require(userId);
         PartyApplicationDTO.Response response = applicationService.createApplication(request, authenticatedUserId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -37,7 +37,7 @@ public class PartyApplicationController {
             @AuthenticationPrincipal Long userId) {
         List<PartyApplicationDTO.Response> applications = applicationService.getApplicationsByPartyId(
                 partyId,
-                requireUserId(userId));
+                AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(applications);
     }
 
@@ -48,14 +48,14 @@ public class PartyApplicationController {
             @AuthenticationPrincipal Long userId) {
         PartyApplicationDTO.Response application = applicationService.getMyApplicationByPartyId(
                 partyId,
-                requireUserId(userId));
+                AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(application);
     }
 
     // 내 신청 목록 조회 (로그인 사용자 기준)
     @GetMapping("/my")
     public ResponseEntity<List<PartyApplicationDTO.Response>> getMyApplications(@AuthenticationPrincipal Long userId) {
-        List<PartyApplicationDTO.Response> applications = applicationService.getMyApplications(requireUserId(userId));
+        List<PartyApplicationDTO.Response> applications = applicationService.getMyApplications(AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(applications);
     }
 
@@ -67,7 +67,7 @@ public class PartyApplicationController {
             @AuthenticationPrincipal Long userId) {
         List<PartyApplicationDTO.Response> applications = applicationService.getPendingApplications(
                 partyId,
-                requireUserId(userId));
+                AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(applications);
     }
 
@@ -79,7 +79,7 @@ public class PartyApplicationController {
             @AuthenticationPrincipal Long userId) {
         List<PartyApplicationDTO.Response> applications = applicationService.getApprovedApplications(
                 partyId,
-                requireUserId(userId));
+                AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(applications);
     }
 
@@ -91,7 +91,7 @@ public class PartyApplicationController {
             @AuthenticationPrincipal Long userId) {
         List<PartyApplicationDTO.Response> applications = applicationService.getRejectedApplications(
                 partyId,
-                requireUserId(userId));
+                AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(applications);
     }
 
@@ -100,7 +100,7 @@ public class PartyApplicationController {
     public ResponseEntity<PartyApplicationDTO.Response> approveApplication(
             @PathVariable Long applicationId,
             @AuthenticationPrincipal Long userId) {
-        PartyApplicationDTO.Response response = applicationService.approveApplication(applicationId, requireUserId(userId));
+        PartyApplicationDTO.Response response = applicationService.approveApplication(applicationId, AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(response);
     }
 
@@ -109,7 +109,7 @@ public class PartyApplicationController {
     public ResponseEntity<PartyApplicationDTO.Response> rejectApplication(
             @PathVariable Long applicationId,
             @AuthenticationPrincipal Long userId) {
-        PartyApplicationDTO.Response response = applicationService.rejectApplication(applicationId, requireUserId(userId));
+        PartyApplicationDTO.Response response = applicationService.rejectApplication(applicationId, AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(response);
     }
 
@@ -124,7 +124,7 @@ public class PartyApplicationController {
                 : PartyApplicationDTO.CancelRequest.builder().build();
         PartyApplicationDTO.CancelResponse response = applicationService.cancelApplication(
                 applicationId,
-                requireUserId(userId),
+                AuthenticatedUserIds.require(userId),
                 cancelRequest);
         return ResponseEntity.ok(response);
     }
@@ -133,14 +133,7 @@ public class PartyApplicationController {
     public ResponseEntity<Void> cancelApplication(
             @PathVariable Long applicationId,
             @AuthenticationPrincipal Long userId) {
-        applicationService.cancelApplication(applicationId, requireUserId(userId));
+        applicationService.cancelApplication(applicationId, AuthenticatedUserIds.require(userId));
         return ResponseEntity.noContent().build();
-    }
-
-    private Long requireUserId(Long userId) {
-        if (userId == null) {
-            throw new AuthenticationRequiredException("인증이 필요합니다.");
-        }
-        return userId;
     }
 }

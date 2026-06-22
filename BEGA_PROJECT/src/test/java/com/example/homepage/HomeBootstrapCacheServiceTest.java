@@ -73,59 +73,114 @@ class HomeBootstrapCacheServiceTest {
     }
 
     @Test
-    @DisplayName("fallback bootstrap 응답은 cache에 저장하지 않는다")
-    void getOrLoadSkipsFallbackBootstrapStore() {
+    @DisplayName("fallback bootstrap 응답은 짧은 TTL cache에 저장해 반복 DB 조회를 막는다")
+    void getOrLoadStoresFallbackBootstrapToStopRepeatedDbLoad() {
         ConcurrentMapCacheManager cacheManager = new ConcurrentMapCacheManager(HOME_BOOTSTRAP);
         HomeBootstrapCacheService service =
                 new HomeBootstrapCacheService(cacheManager, FIXED_CLOCK, new SimpleMeterRegistry());
         LocalDate selectedDate = LocalDate.of(2026, 6, 7);
         String cacheKey = service.buildCacheKey(selectedDate);
+        AtomicInteger loaderCalls = new AtomicInteger();
+        HomeBootstrapResponseDto fallbackResponse = sampleResponse(true, false);
 
-        service.getOrLoad(selectedDate, () -> sampleResponse(true, false));
+        HomeBootstrapResponseDto firstResponse = service.getOrLoad(selectedDate, () -> {
+            loaderCalls.incrementAndGet();
+            return fallbackResponse;
+        });
+        HomeBootstrapResponseDto secondResponse = service.getOrLoad(selectedDate, () -> {
+            loaderCalls.incrementAndGet();
+            return sampleResponse(false, false);
+        });
 
-        assertThat(cacheManager.getCache(HOME_BOOTSTRAP).get(cacheKey)).isNull();
+        assertThat(firstResponse).isSameAs(fallbackResponse);
+        assertThat(secondResponse).isSameAs(fallbackResponse);
+        assertThat(loaderCalls).hasValue(1);
+        assertThat(cacheManager.getCache(HOME_BOOTSTRAP).get(cacheKey, HomeBootstrapResponseDto.class))
+                .isSameAs(fallbackResponse);
     }
 
     @Test
-    @DisplayName("timeout bootstrap 응답은 cache에 저장하지 않는다")
-    void getOrLoadSkipsTimedOutBootstrapStore() {
+    @DisplayName("timeout bootstrap 응답은 짧은 TTL cache에 저장해 반복 timeout cascade를 막는다")
+    void getOrLoadStoresTimedOutBootstrapToStopRepeatedTimeoutCascade() {
         ConcurrentMapCacheManager cacheManager = new ConcurrentMapCacheManager(HOME_BOOTSTRAP);
         HomeBootstrapCacheService service =
                 new HomeBootstrapCacheService(cacheManager, FIXED_CLOCK, new SimpleMeterRegistry());
         LocalDate selectedDate = LocalDate.of(2026, 6, 7);
         String cacheKey = service.buildCacheKey(selectedDate);
+        AtomicInteger loaderCalls = new AtomicInteger();
+        HomeBootstrapResponseDto timedOutResponse = sampleResponse(false, true);
 
-        service.getOrLoad(selectedDate, () -> sampleResponse(false, true));
+        HomeBootstrapResponseDto firstResponse = service.getOrLoad(selectedDate, () -> {
+            loaderCalls.incrementAndGet();
+            return timedOutResponse;
+        });
+        HomeBootstrapResponseDto secondResponse = service.getOrLoad(selectedDate, () -> {
+            loaderCalls.incrementAndGet();
+            return sampleResponse(false, false);
+        });
 
-        assertThat(cacheManager.getCache(HOME_BOOTSTRAP).get(cacheKey)).isNull();
+        assertThat(firstResponse).isSameAs(timedOutResponse);
+        assertThat(secondResponse).isSameAs(timedOutResponse);
+        assertThat(loaderCalls).hasValue(1);
+        assertThat(cacheManager.getCache(HOME_BOOTSTRAP).get(cacheKey, HomeBootstrapResponseDto.class))
+                .isSameAs(timedOutResponse);
     }
 
     @Test
-    @DisplayName("section 실패 목록이 있으면 fallback flag가 false여도 cache에 저장하지 않는다")
-    void getOrLoadSkipsBootstrapStoreWhenFailedSectionsArePresent() {
+    @DisplayName("section 실패 목록이 있어도 bootstrap 응답을 cache에 저장한다")
+    void getOrLoadStoresBootstrapWhenFailedSectionsArePresent() {
         ConcurrentMapCacheManager cacheManager = new ConcurrentMapCacheManager(HOME_BOOTSTRAP);
         HomeBootstrapCacheService service =
                 new HomeBootstrapCacheService(cacheManager, FIXED_CLOCK, new SimpleMeterRegistry());
         LocalDate selectedDate = LocalDate.of(2026, 6, 7);
         String cacheKey = service.buildCacheKey(selectedDate);
+        HomeBootstrapResponseDto failedSectionResponse = sampleResponse(false, false, List.of(), List.of("games"));
 
-        service.getOrLoad(selectedDate, () -> sampleResponse(false, false, List.of(), List.of("games")));
+        service.getOrLoad(selectedDate, () -> failedSectionResponse);
 
-        assertThat(cacheManager.getCache(HOME_BOOTSTRAP).get(cacheKey)).isNull();
+        assertThat(cacheManager.getCache(HOME_BOOTSTRAP).get(cacheKey, HomeBootstrapResponseDto.class))
+                .isSameAs(failedSectionResponse);
     }
 
     @Test
-    @DisplayName("section timeout 목록이 있으면 timeout flag가 false여도 cache에 저장하지 않는다")
-    void getOrLoadSkipsBootstrapStoreWhenTimedOutSectionsArePresent() {
+    @DisplayName("section timeout 목록이 있어도 bootstrap 응답을 cache에 저장한다")
+    void getOrLoadStoresBootstrapWhenTimedOutSectionsArePresent() {
         ConcurrentMapCacheManager cacheManager = new ConcurrentMapCacheManager(HOME_BOOTSTRAP);
         HomeBootstrapCacheService service =
                 new HomeBootstrapCacheService(cacheManager, FIXED_CLOCK, new SimpleMeterRegistry());
         LocalDate selectedDate = LocalDate.of(2026, 6, 7);
         String cacheKey = service.buildCacheKey(selectedDate);
+        HomeBootstrapResponseDto timedOutSectionResponse =
+                sampleResponse(false, false, List.of("games"), List.of());
 
-        service.getOrLoad(selectedDate, () -> sampleResponse(false, false, List.of("games"), List.of()));
+        service.getOrLoad(selectedDate, () -> timedOutSectionResponse);
 
-        assertThat(cacheManager.getCache(HOME_BOOTSTRAP).get(cacheKey)).isNull();
+        assertThat(cacheManager.getCache(HOME_BOOTSTRAP).get(cacheKey, HomeBootstrapResponseDto.class))
+                .isSameAs(timedOutSectionResponse);
+    }
+
+    @Test
+    @DisplayName("cache에 남아있는 partial bootstrap 응답은 TTL 동안 재사용한다")
+    void getOrLoadReusesCachedPartialBootstrapWithinTtl() {
+        ConcurrentMapCacheManager cacheManager = new ConcurrentMapCacheManager(HOME_BOOTSTRAP);
+        HomeBootstrapCacheService service =
+                new HomeBootstrapCacheService(cacheManager, FIXED_CLOCK, new SimpleMeterRegistry());
+        LocalDate selectedDate = LocalDate.of(2026, 6, 7);
+        String cacheKey = service.buildCacheKey(selectedDate);
+        HomeBootstrapResponseDto staleResponse = sampleResponse(false, true);
+        HomeBootstrapResponseDto recoveredResponse = sampleResponse(false, false);
+        cacheManager.getCache(HOME_BOOTSTRAP).put(cacheKey, staleResponse);
+        AtomicInteger loaderCalls = new AtomicInteger();
+
+        HomeBootstrapResponseDto response = service.getOrLoad(selectedDate, () -> {
+            loaderCalls.incrementAndGet();
+            return recoveredResponse;
+        });
+
+        assertThat(response).isSameAs(staleResponse);
+        assertThat(loaderCalls).hasValue(0);
+        assertThat(cacheManager.getCache(HOME_BOOTSTRAP).get(cacheKey, HomeBootstrapResponseDto.class))
+                .isSameAs(staleResponse);
     }
 
     @Test

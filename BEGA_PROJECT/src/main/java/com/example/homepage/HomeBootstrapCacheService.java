@@ -7,7 +7,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import java.time.Clock;
 import java.time.LocalDate;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
@@ -44,17 +43,26 @@ public class HomeBootstrapCacheService {
 
         CacheLookup firstLookup = lookup(cacheKey);
         if (firstLookup.value() != null) {
-            recordCacheEvent("lookup", "hit");
-            return firstLookup.value();
+            if (isCacheable(firstLookup.value())) {
+                recordCacheEvent("lookup", "hit");
+                return firstLookup.value();
+            }
+            recordCacheEvent("lookup", "stale");
+            evict(cacheKey, "evict_stale");
+        } else {
+            recordCacheEvent("lookup", firstLookup.error() ? "error" : "miss");
         }
-        recordCacheEvent("lookup", firstLookup.error() ? "error" : "miss");
 
         Object lock = keyLocks.computeIfAbsent(cacheKey, ignored -> new Object());
         synchronized (lock) {
             CacheLookup secondLookup = lookup(cacheKey);
             if (secondLookup.value() != null) {
-                recordCacheEvent("lookup", "hit");
-                return secondLookup.value();
+                if (isCacheable(secondLookup.value())) {
+                    recordCacheEvent("lookup", "hit");
+                    return secondLookup.value();
+                }
+                recordCacheEvent("lookup", "stale");
+                evict(cacheKey, "evict_stale");
             }
             if (secondLookup.error()) {
                 recordCacheEvent("lookup", "error");
@@ -129,6 +137,26 @@ public class HomeBootstrapCacheService {
         }
     }
 
+    private void evict(String cacheKey, String operation) {
+        Cache cache = getHomeBootstrapCache(operation, cacheKey);
+        if (cache == null) {
+            return;
+        }
+
+        try {
+            cache.evict(cacheKey);
+            recordCacheEvent(operation, "success");
+        } catch (RuntimeException ex) {
+            recordCacheEvent(operation, "error");
+            log.warn(
+                    "event=home_bootstrap_cache_evict_failed cache={} key={} operation={} reason={}",
+                    HOME_BOOTSTRAP,
+                    cacheKey,
+                    operation,
+                    summarize(ex));
+        }
+    }
+
     private Cache getHomeBootstrapCache(String operation, String cacheKey) {
         try {
             Cache cache = cacheManager.getCache(HOME_BOOTSTRAP);
@@ -149,18 +177,7 @@ public class HomeBootstrapCacheService {
     }
 
     private boolean isCacheable(HomeBootstrapResponseDto response) {
-        if (response == null || response.getLoadState() == null) {
-            return false;
-        }
-        HomeBootstrapLoadStateDto loadState = response.getLoadState();
-        return !Boolean.TRUE.equals(loadState.getIsFallback())
-                && !Boolean.TRUE.equals(loadState.getTimedOut())
-                && !hasSections(loadState.getTimedOutSections())
-                && !hasSections(loadState.getFailedSections());
-    }
-
-    private boolean hasSections(List<String> sections) {
-        return sections != null && !sections.isEmpty();
+        return response != null && response.getLoadState() != null;
     }
 
     private void recordCacheEvent(String operation, String result) {

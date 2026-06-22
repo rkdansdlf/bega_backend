@@ -4,11 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.util.JWTUtil;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -53,22 +56,18 @@ class AuthSessionServiceTest {
                 LocalDateTime.now());
         RefreshToken existingToken = new RefreshToken();
         existingToken.setEmail("user@example.com");
+        existingToken.setToken("existing-refresh-token");
         existingToken.setSessionId("session\r\nadmin=true");
         existingToken.setDeviceType("desktop");
         existingToken.setDeviceLabel("Desktop");
         existingToken.setBrowser("Chrome");
         existingToken.setOs("macOS");
         existingToken.setIp("127.0.0.1");
+        request.setCookies(new Cookie("Refresh", "existing-refresh-token"));
 
-        when(refreshRepository.findAllByEmailOrderByIdDesc("user@example.com"))
+        when(refreshRepository.findAllByToken("existing-refresh-token"))
                 .thenReturn(List.of(existingToken));
         when(authSessionMetadataResolver.resolve(any(HttpServletRequest.class))).thenReturn(metadata);
-        when(authSessionMetadataResolver.normalizeText(anyString(), anyString()))
-                .thenAnswer(invocation -> {
-                    String value = invocation.getArgument(0);
-                    String fallback = invocation.getArgument(1);
-                    return value == null || value.isBlank() ? fallback : value.trim();
-                });
 
         AuthSessionService.PreparedRefreshSession prepared = authSessionService.prepareRefreshSession(
                 "user@example.com",
@@ -77,6 +76,70 @@ class AuthSessionServiceTest {
         assertThat(prepared.sessionId()).doesNotContain("\r", "\n");
         assertThat(prepared.sessionId()).isNotEqualTo("session\r\nadmin=true");
         assertThat(prepared.matchedToken()).isSameAs(existingToken);
+        verify(refreshRepository, never()).findAllByEmailOrderByIdDesc(anyString());
+    }
+
+    @Test
+    @DisplayName("refresh 쿠키가 없는 로그인은 이메일 기준 refresh token 전체 목록을 읽지 않는다")
+    void prepareRefreshSession_withoutRefreshCookieSkipsEmailTokenHistoryLookup() {
+        AuthSessionService authSessionService = new AuthSessionService(
+                refreshRepository,
+                jwtUtil,
+                authSessionMetadataResolver,
+                refreshTokenReuseDetector);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
+                "desktop",
+                "Desktop",
+                "Chrome",
+                "macOS",
+                "127.0.0.1",
+                LocalDateTime.now());
+
+        when(authSessionMetadataResolver.resolve(any(HttpServletRequest.class))).thenReturn(metadata);
+
+        AuthSessionService.PreparedRefreshSession prepared = authSessionService.prepareRefreshSession(
+                "user@example.com",
+                request);
+
+        assertThat(prepared.matchedToken()).isNull();
+        assertThat(prepared.sessionId()).isNotBlank();
+        verify(refreshRepository, never()).findAllByEmailOrderByIdDesc(anyString());
+    }
+
+    @Test
+    @DisplayName("refresh 쿠키가 있는 로그인은 token 인덱스 조회로 현재 세션만 찾는다")
+    void prepareRefreshSession_withRefreshCookieUsesTokenLookupInsteadOfEmailTokenHistory() {
+        AuthSessionService authSessionService = new AuthSessionService(
+                refreshRepository,
+                jwtUtil,
+                authSessionMetadataResolver,
+                refreshTokenReuseDetector);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setCookies(new Cookie("Refresh", "cookie-refresh-token"));
+        AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
+                "desktop",
+                "Desktop",
+                "Chrome",
+                "macOS",
+                "127.0.0.1",
+                LocalDateTime.now());
+        RefreshToken existingToken = new RefreshToken();
+        existingToken.setEmail("user@example.com");
+        existingToken.setToken("cookie-refresh-token");
+        existingToken.setSessionId("session-123");
+
+        when(authSessionMetadataResolver.resolve(any(HttpServletRequest.class))).thenReturn(metadata);
+        when(refreshRepository.findAllByToken("cookie-refresh-token")).thenReturn(List.of(existingToken));
+
+        AuthSessionService.PreparedRefreshSession prepared = authSessionService.prepareRefreshSession(
+                "user@example.com",
+                request);
+
+        assertThat(prepared.sessionId()).isEqualTo("session-123");
+        assertThat(prepared.matchedToken()).isSameAs(existingToken);
+        verify(refreshRepository).findAllByToken("cookie-refresh-token");
+        verify(refreshRepository, never()).findAllByEmailOrderByIdDesc(anyString());
     }
 
     @Test

@@ -478,12 +478,11 @@ public class BegaDiaryService {
         Map<String, DiaryStatisticsDto.OpponentStats> opponentStatsMap = new java.util.HashMap<>();
         Map<String, DiaryStatisticsDto.DayStats> dayStatsMap = new java.util.HashMap<>();
 
-        // Assuming current user's favorite team is consistent for simplicity
-        // In a real scenario, we might want to store "my team" in the diary entity
-        UserEntity user = userRepository.findById(userId).orElse(null);
-        String myTeamCode = (user != null && user.getFavoriteTeam() != null) ? user.getFavoriteTeam().getTeamId() : "";
-        if (myTeamCode == null)
-            myTeamCode = "";
+        String myTeamCode = diaries.stream()
+                .map(DiaryStatisticsRow::getFavoriteTeamId)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse("");
         final String favoriteTeamCode = myTeamCode;
         int homeVisitCount = favoriteTeamCode.isEmpty() ? 0 : (int) currentYearAttendedDiaries.stream()
                 .filter(diary -> favoriteTeamCode.equals(diary.getHomeTeam()))

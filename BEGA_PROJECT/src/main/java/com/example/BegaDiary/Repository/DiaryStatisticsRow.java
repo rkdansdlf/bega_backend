@@ -21,4 +21,6 @@ public interface DiaryStatisticsRow {
     String getHomeTeam();
 
     String getAwayTeam();
+
+    String getFavoriteTeamId();
 }

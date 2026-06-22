@@ -1,7 +1,7 @@
 package com.example.mate.controller;
 
 import com.example.common.dto.ApiResponse;
-import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.web.AuthenticatedUserIds;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.PaymentIntent;
@@ -60,7 +60,7 @@ public class PaymentController {
             @AuthenticationPrincipal Long userId) {
         ensureTossPaymentEnabled();
 
-        TossPaymentDTO.PrepareResponse response = paymentIntentService.prepareIntent(request, requireUserId(userId));
+        TossPaymentDTO.PrepareResponse response = paymentIntentService.prepareIntent(request, AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(response);
     }
 
@@ -90,7 +90,7 @@ public class PaymentController {
         log.info("[Payment] Toss 결제 승인 요청: orderId={}, partyId={}, intentId={}",
                 request.getOrderId(), request.getPartyId(), request.getIntentId());
 
-        Long applicantId = requireUserId(userId);
+        Long applicantId = AuthenticatedUserIds.require(userId);
         PartyApplicationDTO.Response existingByOrderId = resolveExistingResponseOrThrow(request, applicantId);
         if (existingByOrderId != null) {
             PaymentIntent existingIntent = paymentIntentService.findIntentByOrderId(request.getOrderId()).orElse(null);
@@ -399,7 +399,7 @@ public class PaymentController {
             @AuthenticationPrincipal Long userId) {
         ensureTossPaymentEnabled();
 
-        Long authenticatedUserId = requireUserId(userId);
+        Long authenticatedUserId = AuthenticatedUserIds.require(userId);
         String reason = request != null ? request.getCancelReason() : null;
 
         log.info("[Payment] 결제 취소 요청: intentId={}, userId={}", intentId, authenticatedUserId);
@@ -443,12 +443,5 @@ public class PaymentController {
 
     private TossPaymentException paymentServiceUnavailable(String code, String message) {
         return new TossPaymentException(code, message, HttpStatus.SERVICE_UNAVAILABLE);
-    }
-
-    private Long requireUserId(Long userId) {
-        if (userId == null) {
-            throw new AuthenticationRequiredException("인증이 필요합니다.");
-        }
-        return userId;
     }
 }

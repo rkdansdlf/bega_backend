@@ -106,6 +106,31 @@ class PredictionWarmupServiceTest {
         verify(predictionService).getVoteStatus(secondGameId);
     }
 
+    @Test
+    void warmupTodayPredictionDataShouldHonorMaxGamesPerRunThrottle() {
+        PredictionService predictionService = Mockito.mock(PredictionService.class);
+        PredictionWarmupService service = new PredictionWarmupService(
+                predictionService,
+                FIXED_CLOCK,
+                true,
+                true,
+                true,
+                1);
+        LocalDate today = LocalDate.of(2026, 6, 7);
+        String firstGameId = "20260607HHLT0";
+        String secondGameId = "20260607LGKT0";
+        when(predictionService.getMatchDayNavigation(today))
+                .thenReturn(schedule(today, List.of(match(firstGameId), match(secondGameId))));
+
+        service.warmupTodayPredictionData();
+
+        verify(predictionService).getMatchDayNavigation(today);
+        verify(predictionService).getGameDetail(firstGameId);
+        verify(predictionService).getVoteStatus(firstGameId);
+        verify(predictionService, never()).getGameDetail(secondGameId);
+        verify(predictionService, never()).getVoteStatus(secondGameId);
+    }
+
     private MatchDayNavigationResponseDto schedule(LocalDate date, List<MatchDto> games) {
         return new MatchDayNavigationResponseDto(
                 date,

@@ -164,7 +164,8 @@ class CustomSuccessHandlerTest {
                 .anyMatch(header -> header.startsWith("Refresh="));
 
         verify(userRepository, times(2)).save(user);
-        verify(accountSecurityService, times(2)).handleSuccessfulLogin(eq(user), any());
+        verify(accountSecurityService, times(2)).handleSuccessfulLoginAsync(eq(user), any());
+        verify(accountSecurityService, never()).handleSuccessfulLogin(eq(user), any());
     }
 
     @Test
@@ -197,6 +198,7 @@ class CustomSuccessHandlerTest {
         assertThat(response.getRedirectedUrl())
                 .isEqualTo("http://localhost:5176/oauth/callback?state=linked-state&status=linked");
         verify(accountSecurityService).recordProviderLinked(1L, "google");
+        verify(accountSecurityService, never()).handleSuccessfulLoginAsync(eq(user), any());
         verify(accountSecurityService, never()).handleSuccessfulLogin(eq(user), any());
     }
 

@@ -19,19 +19,22 @@ public class PredictionWarmupService {
     private final boolean enabled;
     private final boolean detailWarmupEnabled;
     private final boolean voteStatusWarmupEnabled;
+    private final int maxGamesPerRun;
 
     @Autowired
     public PredictionWarmupService(
             PredictionService predictionService,
             @Value("${app.prediction.warmup.enabled:true}") boolean enabled,
             @Value("${app.prediction.warmup.detail.enabled:true}") boolean detailWarmupEnabled,
-            @Value("${app.prediction.warmup.vote-status.enabled:true}") boolean voteStatusWarmupEnabled) {
+            @Value("${app.prediction.warmup.vote-status.enabled:true}") boolean voteStatusWarmupEnabled,
+            @Value("${app.prediction.warmup.max-games-per-run:0}") int maxGamesPerRun) {
         this(
                 predictionService,
                 Clock.systemDefaultZone(),
                 enabled,
                 detailWarmupEnabled,
-                voteStatusWarmupEnabled);
+                voteStatusWarmupEnabled,
+                maxGamesPerRun);
     }
 
     PredictionWarmupService(
@@ -40,11 +43,28 @@ public class PredictionWarmupService {
             boolean enabled,
             boolean detailWarmupEnabled,
             boolean voteStatusWarmupEnabled) {
+        this(
+                predictionService,
+                clock,
+                enabled,
+                detailWarmupEnabled,
+                voteStatusWarmupEnabled,
+                0);
+    }
+
+    PredictionWarmupService(
+            PredictionService predictionService,
+            Clock clock,
+            boolean enabled,
+            boolean detailWarmupEnabled,
+            boolean voteStatusWarmupEnabled,
+            int maxGamesPerRun) {
         this.predictionService = predictionService;
         this.clock = clock == null ? Clock.systemDefaultZone() : clock;
         this.enabled = enabled;
         this.detailWarmupEnabled = detailWarmupEnabled;
         this.voteStatusWarmupEnabled = voteStatusWarmupEnabled;
+        this.maxGamesPerRun = maxGamesPerRun <= 0 ? Integer.MAX_VALUE : maxGamesPerRun;
     }
 
     @Scheduled(
@@ -62,12 +82,17 @@ public class PredictionWarmupService {
             List<MatchDto> games = schedule.getGames() == null ? List.of() : schedule.getGames();
             int detailWarmCount = 0;
             int voteStatusWarmCount = 0;
+            int gamesVisited = 0;
 
             for (MatchDto game : games) {
                 String gameId = game == null ? null : game.getGameId();
                 if (gameId == null || gameId.isBlank()) {
                     continue;
                 }
+                if (gamesVisited >= maxGamesPerRun) {
+                    break;
+                }
+                gamesVisited++;
 
                 if (detailWarmupEnabled && warmDetail(gameId)) {
                     detailWarmCount++;

@@ -2,7 +2,7 @@ package com.example.mate.controller;
 
 // Force IDE re-index
 
-import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.web.AuthenticatedUserIds;
 import com.example.mate.dto.PartyReviewDTO;
 import com.example.mate.service.PartyReviewService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -36,7 +36,7 @@ public class PartyReviewController {
     public ResponseEntity<PartyReviewDTO.Response> createReview(
             @RequestBody PartyReviewDTO.Request request,
             @AuthenticationPrincipal Long userId) {
-        PartyReviewDTO.Response response = partyReviewService.createReview(request, requireUserId(userId));
+        PartyReviewDTO.Response response = partyReviewService.createReview(request, AuthenticatedUserIds.require(userId));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -47,14 +47,7 @@ public class PartyReviewController {
     public ResponseEntity<List<PartyReviewDTO.Response>> getReviewsByParty(
             @PathVariable Long partyId,
             @AuthenticationPrincipal Long userId) {
-        List<PartyReviewDTO.Response> reviews = partyReviewService.getReviewsByParty(partyId, requireUserId(userId));
+        List<PartyReviewDTO.Response> reviews = partyReviewService.getReviewsByParty(partyId, AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(reviews);
-    }
-
-    private Long requireUserId(Long userId) {
-        if (userId == null) {
-            throw new AuthenticationRequiredException("인증이 필요합니다.");
-        }
-        return userId;
     }
 }

@@ -16,6 +16,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.auth.entity.UserEntity;
 import com.example.kbo.entity.GameEntity;
+import com.example.kbo.entity.TeamEntity;
 
 @DataJpaTest
 @DisplayName("BegaDiaryRepository tests")
@@ -30,7 +31,8 @@ class BegaDiaryRepositoryTest {
     @Test
     @DisplayName("statistics projection rows map diary and game fields in diary date order")
     void findStatisticsRowsByUserIdOrderByDiaryDateDesc_mapsProjectionFields() {
-        UserEntity user = persistUser("diary-projection@example.test");
+        TeamEntity favoriteTeam = persistTeam("LG");
+        UserEntity user = persistUser("diary-projection@example.test", favoriteTeam);
         GameEntity firstGame = persistGame("DIARY-PROJECTION-1", LocalDate.of(2026, 4, 1), "LG", "KT");
         GameEntity secondGame = persistGame("DIARY-PROJECTION-2", LocalDate.of(2026, 4, 2), "SSG", "LG");
 
@@ -49,12 +51,26 @@ class BegaDiaryRepositoryTest {
         assertThat(rows.get(0).getMood()).isEqualTo(BegaDiary.DiaryEmoji.ANGRY);
         assertThat(rows.get(0).getHomeTeam()).isEqualTo("SSG");
         assertThat(rows.get(0).getAwayTeam()).isEqualTo("LG");
+        assertThat(rows.get(0).getFavoriteTeamId()).isEqualTo("LG");
         assertThat(rows.get(1).getWinning()).isEqualTo(BegaDiary.DiaryWinning.WIN);
         assertThat(rows.get(1).getHomeTeam()).isEqualTo("LG");
         assertThat(rows.get(1).getAwayTeam()).isEqualTo("KT");
+        assertThat(rows.get(1).getFavoriteTeamId()).isEqualTo("LG");
     }
 
-    private UserEntity persistUser(String email) {
+    private TeamEntity persistTeam(String teamId) {
+        TeamEntity team = TeamEntity.builder()
+                .teamId(teamId)
+                .teamName(teamId + " Twins")
+                .teamShortName(teamId)
+                .city("Seoul")
+                .stadiumName("Jamsil")
+                .color("#c30452")
+                .build();
+        return entityManager.persist(team);
+    }
+
+    private UserEntity persistUser(String email, TeamEntity favoriteTeam) {
         UserEntity user = UserEntity.builder()
                 .uniqueId(UUID.randomUUID())
                 .handle("@" + UUID.randomUUID().toString().replace("-", "").substring(0, 8))
@@ -63,6 +79,7 @@ class BegaDiaryRepositoryTest {
                 .password("encoded-password")
                 .role("ROLE_USER")
                 .provider("LOCAL")
+                .favoriteTeam(favoriteTeam)
                 .createdAt(LocalDateTime.now())
                 .build();
         return entityManager.persist(user);

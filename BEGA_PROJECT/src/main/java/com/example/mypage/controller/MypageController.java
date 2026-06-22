@@ -1,12 +1,12 @@
 package com.example.mypage.controller;
 
 import com.example.common.dto.ApiResponse;
-import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.ConflictBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
 import com.example.common.exception.UnauthorizedBusinessException;
 import com.example.common.exception.UserNotFoundException;
+import com.example.common.web.AuthenticatedUserIds;
 import com.example.auth.entity.UserEntity;
 import com.example.mypage.dto.UserProfileDto;
 import com.example.mypage.dto.DeviceSessionDto;
@@ -102,7 +102,7 @@ public class MypageController {
         public ResponseEntity<ApiResponse> updateMyProfile(
                         @AuthenticationPrincipal Long userId,
                         @Valid @RequestBody UserProfileDto updateDto) {
-                Long authenticatedUserId = requireAuthenticatedUserId(userId);
+                Long authenticatedUserId = AuthenticatedUserIds.require(userId);
                 if (updateDto.getName() == null || updateDto.getName().trim().isEmpty()) {
                         throw new BadRequestBusinessException("PROFILE_NAME_REQUIRED", "이름/닉네임은 필수 입력 항목입니다.");
                 }
@@ -144,7 +144,7 @@ public class MypageController {
         public ResponseEntity<ApiResponse> changePassword(
                         @AuthenticationPrincipal Long userId,
                         @Valid @RequestBody com.example.mypage.dto.ChangePasswordRequest request) {
-                Long authenticatedUserId = requireAuthenticatedUserId(userId);
+                Long authenticatedUserId = AuthenticatedUserIds.require(userId);
                 requireAuthenticatedUser(authenticatedUserId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)");
                 userService.changePassword(authenticatedUserId, request.getCurrentPassword(), request.getNewPassword());
 
@@ -164,7 +164,7 @@ public class MypageController {
         public ResponseEntity<ApiResponse> deleteAccount(
                         @AuthenticationPrincipal Long userId,
                         @RequestBody(required = false) com.example.mypage.dto.DeleteAccountRequest request) {
-                Long authenticatedUserId = requireAuthenticatedUserId(userId);
+                Long authenticatedUserId = AuthenticatedUserIds.require(userId);
                 requireAuthenticatedUser(authenticatedUserId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)");
 
                 String password = request != null ? request.getPassword() : null;
@@ -186,7 +186,7 @@ public class MypageController {
          */
         @GetMapping("/providers")
         public ResponseEntity<ApiResponse> getConnectedProviders(@AuthenticationPrincipal Long userId) {
-                Long authenticatedUserId = requireAuthenticatedUserId(userId);
+                Long authenticatedUserId = AuthenticatedUserIds.require(userId);
                 requireAuthenticatedUser(authenticatedUserId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)");
                 java.util.List<com.example.mypage.dto.UserProviderDto> providers = userService
                                 .getConnectedProviders(authenticatedUserId);
@@ -200,7 +200,7 @@ public class MypageController {
         public ResponseEntity<ApiResponse> unlinkProvider(
                         @AuthenticationPrincipal Long userId,
                         @PathVariable String provider) {
-                Long authenticatedUserId = requireAuthenticatedUserId(userId);
+                Long authenticatedUserId = AuthenticatedUserIds.require(userId);
                 requireAuthenticatedUser(authenticatedUserId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)");
                 userService.unlinkProvider(authenticatedUserId, provider);
                 return ResponseEntity.ok(ApiResponse.success("계정 연동이 해제되었습니다."));
@@ -307,15 +307,8 @@ public class MypageController {
                 return ResponseEntity.ok(ApiResponse.success("현재 기기 제외 다른 기기 로그아웃이 완료되었습니다."));
         }
 
-        private Long requireAuthenticatedUserId(Long userId) {
-                if (userId == null) {
-                        throw new AuthenticationRequiredException("인증이 필요합니다.");
-                }
-                return userId;
-        }
-
         private UserEntity requireAuthenticatedUser(Long userId, String notFoundMessage) {
-                Long authenticatedUserId = requireAuthenticatedUserId(userId);
+                Long authenticatedUserId = AuthenticatedUserIds.require(userId);
                 try {
                         return userService.findUserById(authenticatedUserId);
                 } catch (UserNotFoundException ex) {

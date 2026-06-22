@@ -52,6 +52,7 @@ public class CacheConfig {
         public static final String USER_STATS = "userStats";          // 리더보드 전체 통계 (per-user, 4x rank counts)
         public static final String PREDICTION_USER_STATS = "predictionUserStats"; // 예측 적중률/스트릭 통계 (per-user)
         public static final String PREDICTION_MATCH_DAY = "predictionMatchDay";
+        public static final String PREDICTION_MATCH_RANGE = "predictionMatchRange";
         public static final String PREDICTION_VOTE_STATUS = "predictionVoteStatus";
         public static final String RANKING_PREDICTION_CONTEXT = "rankingPredictionContext";
         public static final String RANKING_SHARE_IDS = "rankingShareIds";
@@ -121,6 +122,12 @@ public class CacheConfig {
                                                 .expireAfterWrite(60, TimeUnit.SECONDS)
                                                 .recordStats()
                                                 .build());
+                manager.registerCustomCache(PREDICTION_MATCH_RANGE,
+                                Caffeine.newBuilder()
+                                                .maximumSize(1000)
+                                                .expireAfterWrite(30, TimeUnit.SECONDS)
+                                                .recordStats()
+                                                .build());
 
                 return manager;
         }
@@ -168,6 +175,8 @@ public class CacheConfig {
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
                 cacheConfigs.put(PREDICTION_MATCH_DAY,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(60))));
+                cacheConfigs.put(PREDICTION_MATCH_RANGE,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(30))));
                 cacheConfigs.put(RANKING_PREDICTION_CONTEXT,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(60))));
                 cacheConfigs.put(RANKING_SHARE_IDS,

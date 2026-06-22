@@ -49,6 +49,19 @@ class ApplicationPropertyCompatibilityTest {
     }
 
     @Test
+    void devProfileDisablesHibernateSchemaManagementAgainstSharedPostgres() throws IOException {
+        String applicationYml = readApplicationYml();
+
+        assertThat(applicationYml)
+                .contains("generate-ddl: false")
+                .contains("ddl-auto: none")
+                .contains("\"[hibernate.default_schema]\": public")
+                .contains("\"[hibernate.boot.allow_jdbc_metadata_access]\": false")
+                .contains("\"[hibernate.temp.use_jdbc_metadata_defaults]\": false")
+                .contains("\"[hibernate.connection.driver_class]\": org.postgresql.Driver");
+    }
+
+    @Test
     void applicationYmlDoesNotUseDevOAuth2CookieSecretFallback() throws IOException {
         String applicationYml = readApplicationYml();
 
@@ -107,9 +120,37 @@ class ApplicationPropertyCompatibilityTest {
                 .contains("section-timeout-ms: ${APP_HOME_BOOTSTRAP_SECTION_TIMEOUT_MS:2500}")
                 .contains("enabled: ${APP_HOME_BOOTSTRAP_WARMUP_ENABLED:true}")
                 .contains("fixed-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_FIXED_DELAY_MS:50000}")
+                .contains("initial-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_INITIAL_DELAY_MS:5000}")
+                .contains("max-attempts: ${APP_HOME_BOOTSTRAP_WARMUP_MAX_ATTEMPTS:2}")
                 .contains("partial-retry-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_PARTIAL_RETRY_DELAY_MS:500}")
                 .contains("section-timeout-ms: ${APP_HOME_BOOTSTRAP_WARMUP_SECTION_TIMEOUT_MS:8000}")
+                .contains("enabled: ${APP_HOME_BOOTSTRAP_WARMUP_RANKING_ENABLED:true}")
                 .contains("section-timeout-ms: ${APP_HOME_WIDGETS_SECTION_TIMEOUT_MS:1200}");
+    }
+
+    @Test
+    void applicationYmlDefinesBackgroundWarmupThrottleEnvKeys() throws IOException {
+        String applicationYml = readApplicationYml();
+
+        assertThat(applicationYml)
+                .contains("max-games-per-run: ${APP_PREDICTION_WARMUP_MAX_GAMES_PER_RUN:0}")
+                .contains("fixed-delay-ms: ${APP_LEADERBOARD_GAME_RESULT_SCHEDULER_FIXED_DELAY_MS:600000}")
+                .contains("initial-delay-ms: ${APP_LEADERBOARD_GAME_RESULT_SCHEDULER_INITIAL_DELAY_MS:600000}")
+                .contains("yesterday-cron: \"${APP_LEADERBOARD_GAME_RESULT_SCHEDULER_YESTERDAY_CRON:0 0 2 * * *}\"");
+    }
+
+    @Test
+    void applicationYmlDefinesDevDbHotPathPrewarmEnvKeys() throws IOException {
+        String applicationYml = readApplicationYml();
+
+        assertThat(applicationYml)
+                .contains("enabled: ${APP_DEV_DB_HOT_PATH_PREWARM_ENABLED:false}")
+                .contains("connections: ${APP_DEV_DB_HOT_PATH_PREWARM_CONNECTIONS:1}")
+                .contains("timeout-ms: ${APP_DEV_DB_HOT_PATH_PREWARM_TIMEOUT_MS:30000}")
+                .contains("login-email: ${APP_DEV_DB_HOT_PATH_PREWARM_LOGIN_EMAIL:latency-prewarm@example.invalid}")
+                .contains("range-start-date: ${APP_DEV_DB_HOT_PATH_PREWARM_RANGE_START_DATE:2026-06-18}")
+                .contains("range-end-date: ${APP_DEV_DB_HOT_PATH_PREWARM_RANGE_END_DATE:2026-06-24}")
+                .contains("season-id: ${APP_DEV_DB_HOT_PATH_PREWARM_SEASON_ID:2026}");
     }
 
     private String readApplicationYml() throws IOException {

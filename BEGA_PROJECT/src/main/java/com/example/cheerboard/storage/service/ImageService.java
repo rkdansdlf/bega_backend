@@ -720,7 +720,7 @@ public class ImageService {
     }
 
     private CheerPost findPostByIdForImageWrite(Long postId) {
-        return postRepo.findByIdForImageWrite(Objects.requireNonNull(postId))
+        return postRepo.findByIdForWrite(Objects.requireNonNull(postId))
                 .orElseThrow(() -> new NotFoundBusinessException("CHEER_POST_NOT_FOUND", "게시글을 찾을 수 없습니다."));
     }
 

@@ -140,7 +140,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         // Refresh Token 생성
         String refreshToken = authSessionService.issueRefreshToken(userEmail, role, userId, tokenVersion, request);
-        accountSecurityService.handleSuccessfulLogin(userEntity, request);
+        accountSecurityService.handleSuccessfulLoginAsync(userEntity, request);
 
         // 쿠키에 토큰 저장
         int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);

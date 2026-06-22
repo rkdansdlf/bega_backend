@@ -38,9 +38,12 @@ public interface BegaDiaryRepository extends JpaRepository<BegaDiary, Long> {
                          d.stadium AS stadium,
                          d.mood AS mood,
                          g.homeTeam AS homeTeam,
-                         g.awayTeam AS awayTeam
+                         g.awayTeam AS awayTeam,
+                         ft.teamId AS favoriteTeamId
                      FROM BegaDiary d
                      LEFT JOIN d.game g
+                     LEFT JOIN d.user u
+                     LEFT JOIN u.favoriteTeam ft
                      WHERE d.user.id = :userId
                      ORDER BY d.diaryDate DESC
                      """)

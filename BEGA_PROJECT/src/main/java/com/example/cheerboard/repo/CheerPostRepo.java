@@ -21,67 +21,10 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
 
         @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
         @Query("SELECT p FROM CheerPost p WHERE p.id = :postId")
-        Optional<CheerPost> findByIdForImageWrite(@Param("postId") Long postId);
-
-        @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
-        @Query("SELECT p FROM CheerPost p WHERE p.id = :postId")
-        Optional<CheerPost> findByIdForInteractionWrite(@Param("postId") Long postId);
+        Optional<CheerPost> findByIdForWrite(@Param("postId") Long postId);
 
         @EntityGraph(attributePaths = { "author", "team", "repostOf", "repostOf.author", "repostOf.team" })
         Page<CheerPost> findByTeam_TeamIdOrderByCreatedAtDesc(String teamId, Pageable pageable);
-
-        @EntityGraph(attributePaths = { "author", "team", "repostOf", "repostOf.author", "repostOf.team" })
-        @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.teamId = :teamId) " +
-                        "AND (:postType IS NULL OR p.postType = :postType) " +
-                        "AND (p.repostType IS NULL OR p.repostType != 'SIMPLE') " +
-                        "AND p.author.id NOT IN :excludedIds " +
-                        "ORDER BY CASE WHEN p.postType = 'NOTICE' AND p.createdAt > :cutoffDate THEN 0 ELSE 1 END, p.createdAt DESC")
-        Page<CheerPost> findAllOrderByPostTypeAndCreatedAt(@Param("teamId") String teamId,
-                        @Param("postType") com.example.cheerboard.domain.PostType postType,
-                        @Param("cutoffDate") java.time.Instant cutoffDate,
-                        @Param("excludedIds") Collection<Long> excludedIds,
-                        Pageable pageable);
-
-        @EntityGraph(attributePaths = { "author", "team", "repostOf", "repostOf.author", "repostOf.team" })
-        @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.teamId = :teamId) " +
-                        "AND (:postType IS NULL OR p.postType = :postType) " +
-                        "AND (p.repostType IS NULL OR p.repostType != 'SIMPLE') " +
-                        "ORDER BY CASE WHEN p.postType = 'NOTICE' AND p.createdAt > :cutoffDate THEN 0 ELSE 1 END, p.createdAt DESC")
-        Page<CheerPost> findAllOrderByPostTypeAndCreatedAtNoExcluded(@Param("teamId") String teamId,
-                        @Param("postType") com.example.cheerboard.domain.PostType postType,
-                        @Param("cutoffDate") java.time.Instant cutoffDate,
-                        Pageable pageable);
-
-        @EntityGraph(attributePaths = { "author", "team", "repostOf", "repostOf.author", "repostOf.team" })
-        @Query("SELECT p FROM CheerPost p WHERE LOWER(CAST(p.content AS String)) LIKE LOWER(CONCAT('%', :q, '%')) " +
-                        "AND (:teamId IS NULL OR p.team.teamId = :teamId) " +
-                        "AND (p.repostType IS NULL OR p.repostType != 'SIMPLE') " +
-                        "AND p.author.id NOT IN :excludedIds")
-        Page<CheerPost> search(@Param("q") String q, @Param("teamId") String teamId,
-                        @Param("excludedIds") Collection<Long> excludedIds, Pageable pageable);
-
-        @EntityGraph(attributePaths = { "author", "team", "repostOf", "repostOf.author", "repostOf.team" })
-        @Query("SELECT p FROM CheerPost p WHERE LOWER(CAST(p.content AS String)) LIKE LOWER(CONCAT('%', :q, '%')) " +
-                        "AND (:teamId IS NULL OR p.team.teamId = :teamId) " +
-                        "AND (p.repostType IS NULL OR p.repostType != 'SIMPLE')")
-        Page<CheerPost> searchNoExcluded(@Param("q") String q, @Param("teamId") String teamId, Pageable pageable);
-
-        @EntityGraph(attributePaths = { "author", "team", "repostOf", "repostOf.author", "repostOf.team" })
-        @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.teamId = :teamId) " +
-                        "AND (:postType IS NULL OR p.postType = :postType) " +
-                        "AND (p.repostType IS NULL OR p.repostType != 'SIMPLE') " +
-                        "AND p.author.id NOT IN :excludedIds")
-        Page<CheerPost> findByTeamIdAndPostType(@Param("teamId") String teamId,
-                        @Param("postType") com.example.cheerboard.domain.PostType postType,
-                        @Param("excludedIds") Collection<Long> excludedIds, Pageable pageable);
-
-        @EntityGraph(attributePaths = { "author", "team", "repostOf", "repostOf.author", "repostOf.team" })
-        @Query("SELECT p FROM CheerPost p WHERE (:teamId IS NULL OR p.team.teamId = :teamId) " +
-                        "AND (:postType IS NULL OR p.postType = :postType) " +
-                        "AND (p.repostType IS NULL OR p.repostType != 'SIMPLE')")
-        Page<CheerPost> findByTeamIdAndPostTypeNoExcluded(@Param("teamId") String teamId,
-                        @Param("postType") com.example.cheerboard.domain.PostType postType,
-                        Pageable pageable);
 
         /**
          * 조회수 증가 (UPDATE 쿼리만 실행)
@@ -97,6 +40,19 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
 
         @Query("SELECT p.likeCount FROM CheerPost p WHERE p.id = :postId")
         Integer findLikeCountById(@Param("postId") Long postId);
+
+        @Query("""
+                        SELECT
+                            p.id AS id,
+                            p.views AS views,
+                            p.likeCount AS likeCount,
+                            p.commentCount AS commentCount,
+                            p.repostCount AS repostCount,
+                            p.createdAt AS createdAt
+                        FROM CheerPost p
+                        WHERE p.id = :postId
+                        """)
+        Optional<CheerPostHotScoreProjection> findHotScoreProjectionById(@Param("postId") Long postId);
 
         @Modifying(clearAutomatically = true)
         @Query("UPDATE CheerPost p SET p.likeCount = p.likeCount + 1 WHERE p.id = :postId")

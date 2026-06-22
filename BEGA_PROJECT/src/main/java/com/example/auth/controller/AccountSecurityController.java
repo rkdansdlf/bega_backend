@@ -5,7 +5,7 @@ import com.example.auth.dto.AccountDeletionRecoveryRequestDto;
 import com.example.auth.service.AccountDeletionService;
 import com.example.auth.service.AccountSecurityService;
 import com.example.common.dto.ApiResponse;
-import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.web.AuthenticatedUserIds;
 import com.example.mypage.dto.AccountSecurityEventDto;
 import com.example.mypage.dto.TrustedDeviceDto;
 import jakarta.validation.Valid;
@@ -34,21 +34,21 @@ public class AccountSecurityController {
     public ResponseEntity<ApiResponse<List<AccountSecurityEventDto>>> getSecurityEvents(@AuthenticationPrincipal Long userId) {
         return ResponseEntity.ok(ApiResponse.success(
                 "최근 보안 활동 조회 성공",
-                accountSecurityService.getSecurityEvents(requireAuthenticatedUserId(userId))));
+                accountSecurityService.getSecurityEvents(AuthenticatedUserIds.require(userId))));
     }
 
     @GetMapping("/trusted-devices")
     public ResponseEntity<ApiResponse<List<TrustedDeviceDto>>> getTrustedDevices(@AuthenticationPrincipal Long userId) {
         return ResponseEntity.ok(ApiResponse.success(
                 "신뢰 기기 조회 성공",
-                accountSecurityService.getTrustedDevices(requireAuthenticatedUserId(userId))));
+                accountSecurityService.getTrustedDevices(AuthenticatedUserIds.require(userId))));
     }
 
     @DeleteMapping("/trusted-devices/{deviceId}")
     public ResponseEntity<ApiResponse<Void>> deleteTrustedDevice(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long deviceId) {
-        accountSecurityService.revokeTrustedDevice(requireAuthenticatedUserId(userId), deviceId);
+        accountSecurityService.revokeTrustedDevice(AuthenticatedUserIds.require(userId), deviceId);
         return ResponseEntity.ok(ApiResponse.success("신뢰 기기가 해제되었습니다. 현재 로그인 세션은 유지됩니다."));
     }
 
@@ -63,12 +63,5 @@ public class AccountSecurityController {
             @Valid @RequestBody AccountDeletionRecoveryRequestDto request) {
         accountDeletionService.recoverAccount(request.getToken());
         return ResponseEntity.ok(ApiResponse.success("계정 삭제 예약이 취소되었습니다."));
-    }
-
-    private Long requireAuthenticatedUserId(Long userId) {
-        if (userId == null) {
-            throw new AuthenticationRequiredException("인증이 필요합니다.");
-        }
-        return userId;
     }
 }

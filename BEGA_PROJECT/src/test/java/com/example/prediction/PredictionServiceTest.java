@@ -33,10 +33,15 @@ import com.example.kbo.repository.PredictionStatsGameProjection;
 import com.example.kbo.repository.GameSummaryRepository;
 import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
+import com.example.kbo.validation.ManualBaseballDataMissingItem;
+import com.example.kbo.validation.ManualBaseballDataOverrideService;
+import com.example.kbo.validation.ManualBaseballDataRequest;
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -47,6 +52,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.serializer.SerializationException;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -80,6 +87,8 @@ class PredictionServiceTest {
 
     private CacheManager cacheManager;
 
+    private PlatformTransactionManager transactionManager;
+
     private PredictionService predictionService;
 
     @BeforeEach
@@ -90,8 +99,9 @@ class PredictionServiceTest {
                 CacheConfig.PREDICTION_VOTE_STATUS,
                 CacheConfig.GAME_DETAIL,
                 CacheConfig.PREDICTION_MATCH_DAY,
-                CacheConfig.RECENT_COMPLETED_GAMES);
-        PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+                CacheConfig.RECENT_COMPLETED_GAMES,
+                CacheConfig.PREDICTION_MATCH_RANGE);
+        transactionManager = mock(PlatformTransactionManager.class);
         lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         predictionService = new PredictionService(
                 predictionRepository,
@@ -117,6 +127,66 @@ class PredictionServiceTest {
     }
 
     @Test
+    void getMatchesByDateShouldFailFastForConfiguredManualDataDate() {
+        LocalDate targetDate = LocalDate.of(2026, 6, 18);
+        PredictionService service = predictionServiceWithManualDataDates(targetDate);
+
+        ManualBaseballDataRequiredException exception = assertThrows(
+                ManualBaseballDataRequiredException.class,
+                () -> service.getMatchesByDate(targetDate));
+
+        assertThat(exception.getData()).isInstanceOf(ManualBaseballDataRequest.class);
+        ManualBaseballDataRequest request = (ManualBaseballDataRequest) exception.getData();
+        assertThat(request.scope()).isEqualTo("prediction.matches_by_date");
+        assertThat(request.missingItems())
+                .extracting(ManualBaseballDataMissingItem::key)
+                .containsExactly("game_status", "final_score");
+        verify(gameRepository, never()).findCanonicalRangeProjectionByGameDate(eq(targetDate), anyList());
+        verify(baseballDataIntegrityGuard, never())
+                .ensurePredictionDateMatches(eq("prediction.matches_by_date"), eq(targetDate), anyList());
+    }
+
+    @Test
+    void getMatchDayNavigationShouldFailFastForConfiguredManualDataDate() {
+        LocalDate targetDate = LocalDate.of(2026, 6, 18);
+        PredictionService service = predictionServiceWithManualDataDates(targetDate);
+
+        ManualBaseballDataRequiredException exception = assertThrows(
+                ManualBaseballDataRequiredException.class,
+                () -> service.getMatchDayNavigation(targetDate));
+
+        assertThat(exception.getData()).isInstanceOf(ManualBaseballDataRequest.class);
+        ManualBaseballDataRequest request = (ManualBaseballDataRequest) exception.getData();
+        assertThat(request.scope()).isEqualTo("prediction.matches_by_date");
+        verify(gameRepository, never()).findCanonicalRangeProjectionByGameDate(eq(targetDate), anyList());
+        verify(gameRepository, never()).findCanonicalAdjacentGameDates(eq(targetDate), anyList());
+        verify(baseballDataIntegrityGuard, never())
+                .ensurePredictionDateMatches(eq("prediction.matches_by_date"), eq(targetDate), anyList());
+    }
+
+    @Test
+    void getMatchesByDateRangeWithMetadataShouldFailFastForConfiguredManualDataDateInRange() {
+        LocalDate targetDate = LocalDate.of(2026, 6, 18);
+        LocalDate endDate = LocalDate.of(2026, 6, 24);
+        PredictionService service = predictionServiceWithManualDataDates(targetDate);
+
+        ManualBaseballDataRequiredException exception = assertThrows(
+                ManualBaseballDataRequiredException.class,
+                () -> service.getMatchesByDateRangeWithMetadata(targetDate, endDate, true, 0, 20));
+
+        assertThat(exception.getData()).isInstanceOf(ManualBaseballDataRequest.class);
+        ManualBaseballDataRequest request = (ManualBaseballDataRequest) exception.getData();
+        assertThat(request.scope()).isEqualTo("prediction.matches_by_range");
+        verify(gameRepository, never()).findCanonicalRangeProjectionByDateRange(
+                eq(targetDate),
+                eq(endDate),
+                anyList(),
+                any(Pageable.class));
+        verify(baseballDataIntegrityGuard, never())
+                .ensurePredictionRangeMatches(eq("prediction.matches_by_range"), anyList());
+    }
+
+    @Test
     void getMatchesByDateRangeShouldReturnEmptyWhenCanonicalMatchesAreEmpty() {
         LocalDate startDate = LocalDate.of(2026, 2, 1);
         LocalDate endDate = LocalDate.of(2026, 2, 28);
@@ -131,6 +201,159 @@ class PredictionServiceTest {
         List<MatchDto> matches = predictionService.getMatchesByDateRange(startDate, endDate);
 
         assertThat(matches).isEmpty();
+    }
+
+    @Test
+    void getMatchesByDateRangeWithMetadataShouldCacheManualDataRequiredForSameRange() {
+        LocalDate startDate = LocalDate.of(2026, 6, 16);
+        LocalDate endDate = LocalDate.of(2026, 6, 17);
+        MatchRangeProjection incomplete = buildRangeMatch(
+                "20260616HHNC0",
+                startDate,
+                "HH",
+                "NC",
+                20260,
+                0,
+                null);
+        PageRequest pageable = PageRequest.of(0, 20);
+        ManualBaseballDataRequest manualRequest = new ManualBaseballDataRequest(
+                "prediction.matches_by_range",
+                List.of(new ManualBaseballDataMissingItem(
+                        "20260616HHNC0",
+                        "20260616HHNC0",
+                        "missing game_status, final_score",
+                        "operator-provided final KBO game data")),
+                "운영자가 경기 결과 데이터를 수동으로 제공해야 합니다.",
+                true);
+
+        when(gameRepository.findCanonicalRangeProjectionByDateRange(
+                eq(startDate),
+                eq(endDate),
+                anyList(),
+                any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(incomplete), pageable, 1));
+        doThrow(new ManualBaseballDataRequiredException(manualRequest))
+                .when(baseballDataIntegrityGuard)
+                .ensurePredictionRangeMatches(eq("prediction.matches_by_range"), anyList());
+
+        ManualBaseballDataRequiredException first = assertThrows(
+                ManualBaseballDataRequiredException.class,
+                () -> predictionService.getMatchesByDateRangeWithMetadata(startDate, endDate, true, 0, 20));
+        ManualBaseballDataRequiredException second = assertThrows(
+                ManualBaseballDataRequiredException.class,
+                () -> predictionService.getMatchesByDateRangeWithMetadata(startDate, endDate, true, 0, 20));
+
+        assertThat(first.getData()).isEqualTo(manualRequest);
+        assertThat(second.getData()).isEqualTo(manualRequest);
+        verify(gameRepository, times(1)).findCanonicalRangeProjectionByDateRange(
+                eq(startDate),
+                eq(endDate),
+                anyList(),
+                any(Pageable.class));
+        verify(baseballDataIntegrityGuard, times(1))
+                .ensurePredictionRangeMatches(eq("prediction.matches_by_range"), anyList());
+    }
+
+    @Test
+    void getMatchesByDateShouldCacheManualDataRequiredForSameDate() {
+        LocalDate targetDate = LocalDate.of(2026, 6, 17);
+        MatchRangeProjection incomplete = buildRangeMatch(
+                "20260617HHNC0",
+                targetDate,
+                "HH",
+                "NC",
+                20260,
+                0,
+                null);
+        ManualBaseballDataRequest manualRequest = new ManualBaseballDataRequest(
+                "prediction.matches_by_date",
+                List.of(new ManualBaseballDataMissingItem(
+                        "20260617HHNC0",
+                        "20260617HHNC0",
+                        "missing game_status, final_score",
+                        "operator-provided final KBO game data")),
+                "운영자가 경기 결과 데이터를 수동으로 제공해야 합니다.",
+                true);
+
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(eq(targetDate), anyList()))
+                .thenReturn(List.of(incomplete));
+        doThrow(new ManualBaseballDataRequiredException(manualRequest))
+                .when(baseballDataIntegrityGuard)
+                .ensurePredictionDateMatches(eq("prediction.matches_by_date"), eq(targetDate), anyList());
+
+        ManualBaseballDataRequiredException first = assertThrows(
+                ManualBaseballDataRequiredException.class,
+                () -> predictionService.getMatchesByDate(targetDate));
+        ManualBaseballDataRequiredException second = assertThrows(
+                ManualBaseballDataRequiredException.class,
+                () -> predictionService.getMatchesByDate(targetDate));
+
+        assertThat(first.getData()).isEqualTo(manualRequest);
+        assertThat(second.getData()).isEqualTo(manualRequest);
+        verify(gameRepository, times(1)).findCanonicalRangeProjectionByGameDate(eq(targetDate), anyList());
+        verify(baseballDataIntegrityGuard, times(1))
+                .ensurePredictionDateMatches(eq("prediction.matches_by_date"), eq(targetDate), anyList());
+    }
+
+    @Test
+    void getMatchesByDateShouldCacheSuccessfulDateForSameRequest() {
+        LocalDate targetDate = LocalDate.of(2026, 6, 18);
+        MatchRangeProjection canonical = buildRangeMatch("20260618HHNC0", targetDate, "HH", "NC", 20260, 0, null);
+
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(eq(targetDate), anyList()))
+                .thenReturn(List.of(canonical));
+
+        List<MatchDto> first = predictionService.getMatchesByDate(targetDate);
+        List<MatchDto> second = predictionService.getMatchesByDate(targetDate);
+
+        assertThat(first).hasSize(1);
+        assertThat(second).hasSize(1);
+        assertThat(second.get(0).getGameId()).isEqualTo("20260618HHNC0");
+        verify(gameRepository, times(1)).findCanonicalRangeProjectionByGameDate(eq(targetDate), anyList());
+        verify(baseballDataIntegrityGuard, times(1))
+                .ensurePredictionDateMatches(eq("prediction.matches_by_date"), eq(targetDate), anyList());
+    }
+
+    @Test
+    void getMatchDayNavigationShouldCacheManualDataRequiredForSameDate() {
+        LocalDate targetDate = LocalDate.of(2026, 6, 18);
+        MatchRangeProjection incomplete = buildRangeMatch(
+                "20260618HHNC0",
+                targetDate,
+                "HH",
+                "NC",
+                20260,
+                0,
+                null);
+        ManualBaseballDataRequest manualRequest = new ManualBaseballDataRequest(
+                "prediction.matches_by_date",
+                List.of(new ManualBaseballDataMissingItem(
+                        "season_league_context",
+                        "시즌/리그 컨텍스트",
+                        "경기의 시즌/리그 컨텍스트가 비어 있습니다.",
+                        "season_id, league_type")),
+                "운영자가 경기 시즌 컨텍스트를 수동으로 제공해야 합니다.",
+                true);
+
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(eq(targetDate), anyList()))
+                .thenReturn(List.of(incomplete));
+        doThrow(new ManualBaseballDataRequiredException(manualRequest))
+                .when(baseballDataIntegrityGuard)
+                .ensurePredictionDateMatches(eq("prediction.matches_by_date"), eq(targetDate), anyList());
+
+        ManualBaseballDataRequiredException first = assertThrows(
+                ManualBaseballDataRequiredException.class,
+                () -> predictionService.getMatchDayNavigation(targetDate));
+        ManualBaseballDataRequiredException second = assertThrows(
+                ManualBaseballDataRequiredException.class,
+                () -> predictionService.getMatchDayNavigation(targetDate));
+
+        assertThat(first.getData()).isEqualTo(manualRequest);
+        assertThat(second.getData()).isEqualTo(manualRequest);
+        verify(gameRepository, times(1)).findCanonicalRangeProjectionByGameDate(eq(targetDate), anyList());
+        verify(gameRepository, never()).findCanonicalAdjacentGameDates(eq(targetDate), anyList());
+        verify(baseballDataIntegrityGuard, times(1))
+                .ensurePredictionDateMatches(eq("prediction.matches_by_date"), eq(targetDate), anyList());
     }
 
     @Test
@@ -150,6 +373,34 @@ class PredictionServiceTest {
 
         assertThat(matches).hasSize(1);
         assertThat(matches.get(0).getGameId()).isEqualTo("202602010002");
+    }
+
+    @Test
+    void getMatchesByDateRangeShouldCacheSuccessfulRangeForSameRequest() {
+        LocalDate startDate = LocalDate.now().plusDays(1);
+        LocalDate endDate = startDate.plusDays(6);
+        MatchRangeProjection canonical = buildRangeMatch("20260618HHNC0", startDate, "HH", "NC", 20260, 0, null);
+
+        when(gameRepository.findCanonicalRangeProjectionByDateRangeNoCount(
+                eq(startDate),
+                eq(endDate),
+                anyList(),
+                any(Pageable.class)
+        )).thenReturn(List.of(canonical));
+
+        List<MatchDto> first = predictionService.getMatchesByDateRange(startDate, endDate, false, 0, 20);
+        List<MatchDto> second = predictionService.getMatchesByDateRange(startDate, endDate, false, 0, 20);
+
+        assertThat(first).hasSize(1);
+        assertThat(second).hasSize(1);
+        assertThat(second.get(0).getGameId()).isEqualTo("20260618HHNC0");
+        verify(gameRepository, times(1)).findCanonicalRangeProjectionByDateRangeNoCount(
+                eq(startDate),
+                eq(endDate),
+                anyList(),
+                any(Pageable.class));
+        verify(baseballDataIntegrityGuard, times(1))
+                .ensurePredictionRangeMatches(eq("prediction.matches_by_range"), anyList());
     }
 
     @Test
@@ -1621,6 +1872,22 @@ class PredictionServiceTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> predictionService.upsertInningScores(gameId, List.of()));
+    }
+
+    private PredictionService predictionServiceWithManualDataDates(LocalDate... dates) {
+        return new PredictionService(
+                predictionRepository,
+                gameRepository,
+                gameMetadataRepository,
+                gameInningScoreRepository,
+                gameSummaryRepository,
+                voteFinalResultRepository,
+                userRepository,
+                new LeagueStageResolver(gameRepository),
+                baseballDataIntegrityGuard,
+                cacheManager,
+                transactionManager,
+                new ManualBaseballDataOverrideService(Set.of(dates)));
     }
 
     /** NoArgsConstructor DTO의 private 필드를 reflection으로 설정 */

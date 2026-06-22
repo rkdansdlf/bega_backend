@@ -122,6 +122,49 @@ class HomeBootstrapWarmupServiceTest {
         verifyNoMoreInteractions(homePageFacadeService);
     }
 
+    @Test
+    @DisplayName("ranking warm-up이 비활성화되면 bootstrap cache만 갱신한다")
+    void warmupTodayBootstrapSkipsRankingSnapshotWhenRankingWarmupDisabled() {
+        LocalDate today = LocalDate.of(2026, 5, 15);
+        HomeBootstrapWarmupService service = new HomeBootstrapWarmupService(
+                homePageFacadeService,
+                FIXED_CLOCK,
+                true,
+                Duration.ZERO,
+                WARMUP_SECTION_TIMEOUT,
+                false,
+                2);
+        when(homePageFacadeService.refreshBootstrap(today, WARMUP_SECTION_TIMEOUT))
+                .thenReturn(completeBootstrapResponse());
+
+        service.warmupTodayBootstrap();
+
+        verify(homePageFacadeService).refreshBootstrap(today, WARMUP_SECTION_TIMEOUT);
+        verifyNoMoreInteractions(homePageFacadeService);
+    }
+
+    @Test
+    @DisplayName("warm-up max-attempts가 1이면 partial 응답에도 재시도하지 않는다")
+    void warmupTodayBootstrapHonorsMaxAttemptsThrottle() {
+        LocalDate today = LocalDate.of(2026, 5, 15);
+        HomeBootstrapWarmupService service = new HomeBootstrapWarmupService(
+                homePageFacadeService,
+                FIXED_CLOCK,
+                true,
+                Duration.ZERO,
+                WARMUP_SECTION_TIMEOUT,
+                true,
+                1);
+        when(homePageFacadeService.refreshBootstrap(today, WARMUP_SECTION_TIMEOUT))
+                .thenReturn(partialBootstrapResponse());
+
+        service.warmupTodayBootstrap();
+
+        verify(homePageFacadeService).refreshBootstrap(today, WARMUP_SECTION_TIMEOUT);
+        verify(homePageFacadeService).getRankingSnapshot(today, null);
+        verifyNoMoreInteractions(homePageFacadeService);
+    }
+
     private HomeBootstrapResponseDto completeBootstrapResponse() {
         return HomeBootstrapResponseDto.builder()
                 .selectedDate("2026-05-15")

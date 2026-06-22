@@ -1,7 +1,7 @@
 package com.example.mate.controller;
 
-import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.ratelimit.RateLimit;
+import com.example.common.web.AuthenticatedUserIds;
 import com.example.mate.dto.MateSearchTermDTO;
 import com.example.mate.service.MateSearchTermService;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +31,7 @@ public class MateSearchTermController {
     public ResponseEntity<Void> recordSearchTerm(
             @RequestBody(required = false) MateSearchTermDTO.RecordRequest request,
             @AuthenticationPrincipal Long userId) {
-        requireUserId(userId);
+        AuthenticatedUserIds.require(userId);
         mateSearchTermService.recordSearchTerm(request == null ? null : request.getTerm());
         return ResponseEntity.noContent().build();
     }
@@ -40,12 +40,5 @@ public class MateSearchTermController {
     public ResponseEntity<List<MateSearchTermDTO.PopularResponse>> getPopularSearchTerms(
             @RequestParam(defaultValue = "5") Integer limit) {
         return ResponseEntity.ok(mateSearchTermService.getPopularTerms(limit));
-    }
-
-    private Long requireUserId(Long userId) {
-        if (userId == null) {
-            throw new AuthenticationRequiredException("인증이 필요합니다.");
-        }
-        return userId;
     }
 }

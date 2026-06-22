@@ -1,8 +1,8 @@
 package com.example.mate.controller;
 
 import com.example.common.dto.ApiResponse;
-import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.ratelimit.RateLimit;
+import com.example.common.web.AuthenticatedUserIds;
 import com.example.mate.dto.ChatImageDTO;
 import com.example.mate.service.ChatImageService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,9 +40,6 @@ public class ChatImageController {
     }
 
     private Long requireUserId(Long userId) {
-        if (userId == null) {
-            throw new AuthenticationRequiredException("로그인이 필요합니다.");
-        }
-        return userId;
+        return AuthenticatedUserIds.require(userId, "로그인이 필요합니다.");
     }
 }
