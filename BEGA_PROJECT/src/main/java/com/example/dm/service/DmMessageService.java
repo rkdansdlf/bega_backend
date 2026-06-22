@@ -6,6 +6,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.ForbiddenBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 import com.example.dm.dto.DmMessageDto;
 import com.example.dm.entity.DmMessage;
 import com.example.dm.repository.DmMessageRepository;
@@ -19,12 +21,14 @@ public class DmMessageService {
     private final DmMessageRepository dmMessageRepository;
     private final DmRoomService dmRoomService;
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<DmMessageDto.Response> getMessages(Long roomId, Long currentUserId) {
         dmRoomService.getAccessibleRoom(roomId, currentUserId);
-        return dmMessageRepository.findByRoomIdOrderByCreatedAtAsc(roomId).stream()
+        List<DmMessageDto.Response> messages = dmMessageRepository.findByRoomIdOrderByCreatedAtAsc(roomId).stream()
                 .map(DmMessageDto.Response::from)
                 .toList();
+        dmRoomService.markAsRead(roomId, currentUserId);
+        return messages;
     }
 
     @Transactional
@@ -49,6 +53,18 @@ public class DmMessageService {
                 .clientMessageId(blankToNull(request.getClientMessageId()))
                 .build());
         return DmMessageDto.Response.from(savedMessage);
+    }
+
+    @Transactional
+    public Long deleteMessage(Long messageId, Long currentUserId) {
+        DmMessage message = dmMessageRepository.findById(messageId)
+                .orElseThrow(() -> new NotFoundBusinessException("DM_MESSAGE_NOT_FOUND", "메시지를 찾을 수 없습니다."));
+        if (!message.getSenderId().equals(currentUserId)) {
+            throw new ForbiddenBusinessException("DM_DELETE_FORBIDDEN", "본인의 메시지만 삭제할 수 있습니다.");
+        }
+        Long roomId = message.getRoomId();
+        dmMessageRepository.delete(message);
+        return roomId;
     }
 
     private String normalizeContent(String content) {
