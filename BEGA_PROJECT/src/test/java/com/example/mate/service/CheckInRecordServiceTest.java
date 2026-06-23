@@ -6,9 +6,9 @@ import com.example.auth.service.UserService;
 import com.example.mate.dto.CheckInRecordDTO;
 import com.example.mate.entity.CheckInRecord;
 import com.example.mate.entity.Party;
+import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.repository.CheckInRecordRepository;
-import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +37,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -56,9 +57,6 @@ class CheckInRecordServiceTest {
 
     @Mock
     private UserRepository userRepository;
-
-    @Mock
-    private PartyApplicationRepository applicationRepository;
 
     @Mock
     private UserService userService;
@@ -88,7 +86,7 @@ class CheckInRecordServiceTest {
         doNothing().when(valueOperations).set(anyString(), anyString(), any(java.time.Duration.class));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(partyRepository.findByIdAndHostId(1L, 10L)).thenReturn(Optional.of(party));
 
         CheckInRecordDTO.QrSessionResponse response = checkInRecordService
                 .createQrSession(CheckInRecordDTO.QrSessionRequest.builder().partyId(1L).build(), principal);
@@ -108,17 +106,31 @@ class CheckInRecordServiceTest {
     }
 
     @Test
+    @DisplayName("createQrSession with userId skips email principal resolution")
+    void createQrSession_withUserIdSkipsEmailLookup() {
+        Party party = createParty(1L, 10L);
+        doNothing().when(valueOperations).set(anyString(), anyString(), any(java.time.Duration.class));
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(partyRepository.findByIdAndHostId(1L, 10L)).thenReturn(Optional.of(party));
+
+        CheckInRecordDTO.QrSessionResponse response = checkInRecordService
+                .createQrSession(CheckInRecordDTO.QrSessionRequest.builder().partyId(1L).build(), 10L);
+
+        assertThat(response.getPartyId()).isEqualTo(1L);
+        verify(userService, never()).getUserIdByEmail(anyString());
+    }
+
+    @Test
     @DisplayName("createQrSession rejects non-host issuer")
     void createQrSession_rejectsNonHostIssuer() {
         Principal principal = () -> "host@test.com";
-        Party party = createParty(1L, 55L);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(partyRepository.findByIdAndHostId(1L, 10L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> checkInRecordService.createQrSession(
                 CheckInRecordDTO.QrSessionRequest.builder().partyId(1L).build(), principal))
-                .isInstanceOf(UnauthorizedAccessException.class)
-                .hasMessageContaining("호스트만 QR 코드를 생성할 수 있습니다.");
+                .isInstanceOf(PartyNotFoundException.class);
+        verify(redisTemplate, never()).opsForValue();
     }
 
     @Test
@@ -127,7 +139,7 @@ class CheckInRecordServiceTest {
         Principal principal = () -> "host@test.com";
         Party party = createParty(1L, 10L);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
 
         CheckInRecordDTO.Request request = CheckInRecordDTO.Request.builder()
                 .partyId(1L)
@@ -145,7 +157,7 @@ class CheckInRecordServiceTest {
         Principal principal = () -> "host@test.com";
         Party party = createParty(1L, 10L);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
 
         CheckInRecordDTO.Request request = CheckInRecordDTO.Request.builder()
                 .partyId(1L)
@@ -170,7 +182,7 @@ class CheckInRecordServiceTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
         when(valueOperations.get(QR_SESSION_PREFIX + sessionId)).thenReturn(serializedPayload);
 
         CheckInRecordDTO.Request request = CheckInRecordDTO.Request.builder()
@@ -206,6 +218,7 @@ class CheckInRecordServiceTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
         when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
         when(valueOperations.get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + 1L)).thenReturn(sessionId);
         when(valueOperations.get(QR_SESSION_PREFIX + sessionId)).thenReturn(serializedPayload);
@@ -229,6 +242,112 @@ class CheckInRecordServiceTest {
     }
 
     @Test
+    @DisplayName("checkIn with userId skips email principal resolution")
+    void checkIn_withUserIdSkipsEmailLookup() throws Exception {
+        Party party = createParty(1L, 10L);
+        String sessionId = "active-session";
+        String serializedPayload = objectMapper.writeValueAsString(java.util.Map.of(
+                "partyId", 1L,
+                "generatedByUserId", 10L,
+                "createdAt", "2026-02-20T00:00:00Z",
+                "expiresAt", "2099-01-01T00:00:00Z"));
+
+        CheckInRecord savedRecord = CheckInRecord.builder()
+                .id(102L)
+                .partyId(1L)
+                .userId(20L)
+                .location("잠실야구장")
+                .checkedInAt(LocalDateTime.now())
+                .build();
+
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 20L)).thenReturn(Optional.of(party));
+        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(valueOperations.get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + 1L)).thenReturn(sessionId);
+        when(valueOperations.get(QR_SESSION_PREFIX + sessionId)).thenReturn(serializedPayload);
+        when(valueOperations.get(MANUAL_CODE_PREFIX + sessionId)).thenReturn("1234");
+        when(checkInRecordRepository.findByPartyIdAndUserId(1L, 20L)).thenReturn(Optional.empty());
+        when(checkInRecordRepository.save(any(CheckInRecord.class))).thenReturn(savedRecord);
+        when(checkInRecordRepository.countByPartyId(1L)).thenReturn(1L);
+        when(userRepository.findById(20L)).thenReturn(Optional.of(UserEntity.builder().id(20L).name("참여자").handle("@guest").build()));
+
+        CheckInRecordDTO.Request request = CheckInRecordDTO.Request.builder()
+                .partyId(1L)
+                .location("잠실야구장")
+                .manualCode("1234")
+                .build();
+
+        CheckInRecordDTO.Response response = checkInRecordService.checkIn(request, 20L);
+
+        assertThat(response.getId()).isEqualTo(102L);
+        assertThat(response.getUserHandle()).isEqualTo("@guest");
+        verify(userService, never()).getUserIdByEmail(anyString());
+    }
+
+    @Test
+    @DisplayName("checkIn allows approved participant through owner-scoped lookup")
+    void checkIn_allowsApprovedParticipant() throws Exception {
+        Principal principal = () -> "participant@test.com";
+        Party party = createParty(1L, 10L);
+        String sessionId = "active-session";
+        String serializedPayload = objectMapper.writeValueAsString(java.util.Map.of(
+                "partyId", 1L,
+                "generatedByUserId", 10L,
+                "createdAt", "2026-02-20T00:00:00Z",
+                "expiresAt", "2099-01-01T00:00:00Z"));
+
+        CheckInRecord savedRecord = CheckInRecord.builder()
+                .id(101L)
+                .partyId(1L)
+                .userId(20L)
+                .location("잠실야구장")
+                .checkedInAt(LocalDateTime.now())
+                .build();
+
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(userService.getUserIdByEmail("participant@test.com")).thenReturn(20L);
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 20L)).thenReturn(Optional.of(party));
+        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(valueOperations.get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + 1L)).thenReturn(sessionId);
+        when(valueOperations.get(QR_SESSION_PREFIX + sessionId)).thenReturn(serializedPayload);
+        when(valueOperations.get(MANUAL_CODE_PREFIX + sessionId)).thenReturn("1234");
+        when(checkInRecordRepository.findByPartyIdAndUserId(1L, 20L)).thenReturn(Optional.empty());
+        when(checkInRecordRepository.save(any(CheckInRecord.class))).thenReturn(savedRecord);
+        when(checkInRecordRepository.countByPartyId(1L)).thenReturn(1L);
+        when(userRepository.findById(20L)).thenReturn(Optional.of(UserEntity.builder().id(20L).name("참여자").handle("@guest").build()));
+
+        CheckInRecordDTO.Request request = CheckInRecordDTO.Request.builder()
+                .partyId(1L)
+                .location("잠실야구장")
+                .manualCode("1234")
+                .build();
+
+        CheckInRecordDTO.Response response = checkInRecordService.checkIn(request, principal);
+
+        assertThat(response.getId()).isEqualTo(101L);
+        assertThat(response.getUserHandle()).isEqualTo("@guest");
+    }
+
+    @Test
+    @DisplayName("checkIn treats non-participant party as unavailable before saving")
+    void checkIn_rejectsNonParticipantBeforeSaving() {
+        Principal principal = () -> "outsider@test.com";
+        when(userService.getUserIdByEmail("outsider@test.com")).thenReturn(77L);
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 77L)).thenReturn(Optional.empty());
+
+        CheckInRecordDTO.Request request = CheckInRecordDTO.Request.builder()
+                .partyId(1L)
+                .location("잠실야구장")
+                .manualCode("1234")
+                .build();
+
+        assertThatThrownBy(() -> checkInRecordService.checkIn(request, principal))
+                .isInstanceOf(PartyNotFoundException.class);
+        verify(checkInRecordRepository, never()).save(any(CheckInRecord.class));
+        verify(redisTemplate, never()).opsForValue();
+    }
+
+    @Test
     @DisplayName("checkIn rejects invalid manual code")
     void checkIn_rejectsInvalidManualCode() {
         Principal principal = () -> "host@test.com";
@@ -239,7 +358,7 @@ class CheckInRecordServiceTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
         when(valueOperations.get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + 1L)).thenReturn(sessionId);
         when(valueOperations.get(QR_SESSION_PREFIX + sessionId)).thenReturn(serializedPayload);
         when(valueOperations.get(MANUAL_CODE_PREFIX + sessionId)).thenReturn("9999");
@@ -266,7 +385,7 @@ class CheckInRecordServiceTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
         when(valueOperations.get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + 1L)).thenReturn(sessionId);
         when(valueOperations.get(QR_SESSION_PREFIX + sessionId)).thenReturn(serializedPayload);
 
@@ -289,7 +408,7 @@ class CheckInRecordServiceTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
         when(valueOperations.get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + 1L)).thenReturn(null);
 
         CheckInRecordDTO.Request request = CheckInRecordDTO.Request.builder()
@@ -304,24 +423,21 @@ class CheckInRecordServiceTest {
     }
 
     @Test
-    @DisplayName("getCheckInsByPartyId rejects non-member viewer")
-    void getCheckInsByPartyId_rejectsNonMemberViewer() {
+    @DisplayName("getCheckInsByPartyId treats non-host viewers as unavailable")
+    void getCheckInsByPartyId_rejectsNonHostViewer() {
         Principal principal = () -> "viewer@test.com";
-        Party party = createParty(1L, 10L);
 
         when(userService.getUserIdByEmail("viewer@test.com")).thenReturn(77L);
-        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
-        when(applicationRepository.findByPartyIdAndApplicantId(1L, 77L)).thenReturn(Optional.empty());
+        when(partyRepository.findByIdAndHostId(1L, 77L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> checkInRecordService.getCheckInsByPartyId(1L, principal))
-                .isInstanceOf(UnauthorizedAccessException.class)
-                .hasMessageContaining("파티 참여자만 체크인 현황을 조회할 수 있습니다.");
+                .isInstanceOf(PartyNotFoundException.class);
     }
 
     @Test
-    @DisplayName("getCheckInsByPartyId allows approved participant")
-    void getCheckInsByPartyId_allowsApprovedParticipant() {
-        Principal principal = () -> "viewer@test.com";
+    @DisplayName("getCheckInsByPartyId allows host")
+    void getCheckInsByPartyId_allowsHost() {
+        Principal principal = () -> "host@test.com";
         Party party = createParty(1L, 10L);
         CheckInRecord record = CheckInRecord.builder()
                 .id(9L)
@@ -331,15 +447,8 @@ class CheckInRecordServiceTest {
                 .checkedInAt(LocalDateTime.now())
                 .build();
 
-        when(userService.getUserIdByEmail("viewer@test.com")).thenReturn(77L);
-        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
-        when(applicationRepository.findByPartyIdAndApplicantId(1L, 77L))
-                .thenReturn(Optional.of(com.example.mate.entity.PartyApplication.builder()
-                        .id(55L)
-                        .partyId(1L)
-                        .applicantId(77L)
-                        .isApproved(true)
-                        .build()));
+        when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
+        when(partyRepository.findByIdAndHostId(1L, 10L)).thenReturn(Optional.of(party));
         when(checkInRecordRepository.findByPartyId(1L)).thenReturn(List.of(record));
         when(userRepository.findById(10L)).thenReturn(Optional.of(UserEntity.builder().id(10L).name("호스트").handle("@host").build()));
 
@@ -347,6 +456,78 @@ class CheckInRecordServiceTest {
 
         assertThat(responses).hasSize(1);
         assertThat(responses.get(0).getUserHandle()).isEqualTo("@host");
+    }
+
+    @Test
+    @DisplayName("getCheckInCount allows host")
+    void getCheckInCount_allowsHost() {
+        Principal principal = () -> "host@test.com";
+        Party party = createParty(1L, 10L);
+
+        when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
+        when(checkInRecordRepository.countByPartyId(1L)).thenReturn(2L);
+
+        long count = checkInRecordService.getCheckInCount(1L, principal);
+
+        assertThat(count).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("getCheckInCount with userId skips email principal resolution")
+    void getCheckInCount_withUserIdSkipsEmailLookup() {
+        Party party = createParty(1L, 10L);
+
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 20L)).thenReturn(Optional.of(party));
+        when(checkInRecordRepository.countByPartyId(1L)).thenReturn(2L);
+
+        long count = checkInRecordService.getCheckInCount(1L, 20L);
+
+        assertThat(count).isEqualTo(2L);
+        verify(userService, never()).getUserIdByEmail(anyString());
+    }
+
+    @Test
+    @DisplayName("getCheckInCount parses numeric principal before email lookup")
+    void getCheckInCount_withNumericPrincipalSkipsEmailLookup() {
+        Principal principal = () -> "20";
+        Party party = createParty(1L, 10L);
+
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 20L)).thenReturn(Optional.of(party));
+        when(checkInRecordRepository.countByPartyId(1L)).thenReturn(2L);
+
+        long count = checkInRecordService.getCheckInCount(1L, principal);
+
+        assertThat(count).isEqualTo(2L);
+        verify(userService, never()).getUserIdByEmail(anyString());
+    }
+
+    @Test
+    @DisplayName("getCheckInCount allows approved participant")
+    void getCheckInCount_allowsApprovedParticipant() {
+        Principal principal = () -> "participant@test.com";
+        Party party = createParty(1L, 10L);
+
+        when(userService.getUserIdByEmail("participant@test.com")).thenReturn(20L);
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 20L)).thenReturn(Optional.of(party));
+        when(checkInRecordRepository.countByPartyId(1L)).thenReturn(2L);
+
+        long count = checkInRecordService.getCheckInCount(1L, principal);
+
+        assertThat(count).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("getCheckInCount treats non-participant party as unavailable")
+    void getCheckInCount_rejectsNonParticipant() {
+        Principal principal = () -> "outsider@test.com";
+
+        when(userService.getUserIdByEmail("outsider@test.com")).thenReturn(77L);
+        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 77L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> checkInRecordService.getCheckInCount(1L, principal))
+                .isInstanceOf(PartyNotFoundException.class);
+        verify(checkInRecordRepository, never()).countByPartyId(1L);
     }
 
     @Test

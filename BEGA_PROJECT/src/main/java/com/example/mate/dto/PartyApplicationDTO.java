@@ -6,6 +6,7 @@ import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.CancelReasonType;
 import com.example.mate.entity.PaymentStatus;
 import com.example.mate.entity.SettlementStatus;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -22,6 +23,7 @@ public class PartyApplicationDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateApplicationCreateRequest")
     public static class Request {
         @NotNull(message = "파티 ID는 필수입니다.")
         private Long partyId;
@@ -35,9 +37,11 @@ public class PartyApplicationDTO {
         private PartyApplication.PaymentType paymentType;
         private Boolean ticketVerified; // Client-side flag (ignored for verification, used for UI)
 
+        @Schema(nullable = true)
         @Size(max = 2048, message = "티켓 이미지 URL은 2048자 이하여야 합니다.")
         private String ticketImageUrl;
 
+        @Schema(nullable = true)
         @Size(max = 128, message = "예매 인증 토큰은 128자 이하여야 합니다.")
         private String verificationToken; // Server-side proof from TicketVerificationTokenStore
     }
@@ -46,6 +50,7 @@ public class PartyApplicationDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateApplicationResponse")
     public static class Response {
         private Long id;
         private Long partyId;
@@ -110,6 +115,7 @@ public class PartyApplicationDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateApplicationCancelRequest")
     public static class CancelRequest {
         @Builder.Default
         private CancelReasonType cancelReasonType = CancelReasonType.BUYER_CHANGED_MIND;
@@ -120,6 +126,7 @@ public class PartyApplicationDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateApplicationCancelResponse")
     public static class CancelResponse {
         private Long applicationId;
         private Integer refundAmount;

@@ -15,9 +15,11 @@ import com.example.kbo.repository.GamePlayByPlayRepository;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class GameLiveRelayService {
 
     private static final int DEFAULT_RELAY_LIMIT = 50;
@@ -25,6 +27,7 @@ public class GameLiveRelayService {
 
     private final GamePlayByPlayRepository gamePlayByPlayRepository;
     private final BaseballDataIntegrityGuard baseballDataIntegrityGuard;
+    private final PredictionLiveMetricsService predictionLiveMetricsService;
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public GameRelaySnapshotDto getRelaySnapshot(String gameId, Integer afterId, Integer limit) {
@@ -33,6 +36,14 @@ public class GameLiveRelayService {
         List<GamePlayByPlayEntity> events = loadRelayEvents(gameId, afterId, normalizedLimit);
         GamePlayByPlayEntity latestRelay = gamePlayByPlayRepository.findFirstByGameIdOrderByIdDesc(gameId)
                 .orElse(null);
+        String result = latestRelay == null && events.isEmpty() ? "empty" : "ok";
+        predictionLiveMetricsService.recordLiveRelaySnapshot(result);
+        log.debug(
+                "prediction.live_relay.resolved gameId={} eventCount={} latestRelayId={} result={}",
+                gameId,
+                events.size(),
+                latestRelay == null ? null : latestRelay.getId(),
+                result);
 
         return GameRelaySnapshotDto.builder()
                 .gameId(gameId)

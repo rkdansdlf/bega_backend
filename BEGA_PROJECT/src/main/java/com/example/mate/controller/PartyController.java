@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 @Tag(name = "파티 매칭", description = "파티 생성, 조회, 신청, 체크인, 실시간 WebSocket 채팅")
 @RestController
@@ -29,12 +30,22 @@ import java.util.List;
 @RequiredArgsConstructor
 public class PartyController {
 
+    private static final int MAX_PAGE_SIZE = 30;
+    private static final int DEFAULT_HISTORY_PAGE_SIZE = 20;
+    private static final int MAX_HISTORY_PAGE_SIZE = 50;
+    private static final Set<String> ALLOWED_SORTS = Set.of("createdAt", "gameDate", "currentParticipants");
+
     private final PartyService partyService;
 
     // 파티 생성
     @PostMapping
-    public ResponseEntity<?> createParty(@Valid @RequestBody PartyDTO.Request request, java.security.Principal principal) {
-        PartyDTO.Response response = partyService.createParty(request, principal);
+    public ResponseEntity<PartyDTO.Response> createParty(
+            @Valid @RequestBody PartyDTO.Request request,
+            @AuthenticationPrincipal Long userId) {
+        if (userId == null) {
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
+        }
+        PartyDTO.Response response = partyService.createParty(request, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -54,7 +65,8 @@ public class PartyController {
         Party.PartyStatus parsedStatus = parsePartyStatus(status);
 
         Sort.Direction direction = sortDir.equalsIgnoreCase("asc") ? Sort.Direction.ASC : Sort.Direction.DESC;
-        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
+        String resolvedSortBy = sortBy != null && ALLOWED_SORTS.contains(sortBy) ? sortBy : "createdAt";
+        Pageable pageable = PageRequest.of(page, Math.min(size, MAX_PAGE_SIZE), Sort.by(direction, resolvedSortBy));
         Page<PartyDTO.PublicResponse> parties = partyService.getAllParties(
                 teamId,
                 stadium,
@@ -111,9 +123,31 @@ public class PartyController {
         return ResponseEntity.ok(parties);
     }
 
+    // 마이페이지 메이트 내역 조회 (호스트 + 승인된 참여자, 페이징)
+    @GetMapping("/my/history")
+    public ResponseEntity<Page<PartyDTO.HistoryResponse>> getMyPartyHistory(
+            @RequestParam(defaultValue = "all") String group,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal Long userId) {
+        if (userId == null) {
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
+        }
+
+        int safePage = Math.max(page, 0);
+        int safeSize = size <= 0 ? DEFAULT_HISTORY_PAGE_SIZE : Math.min(size, MAX_HISTORY_PAGE_SIZE);
+        Pageable pageable = PageRequest.of(
+                safePage,
+                safeSize,
+                Sort.by(Sort.Direction.DESC, "createdAt")
+                        .and(Sort.by(Sort.Direction.DESC, "id")));
+        Page<PartyDTO.HistoryResponse> parties = partyService.getMyPartyHistory(userId, group, pageable);
+        return ResponseEntity.ok(parties);
+    }
+
     // 내가 참여한 모든 파티 조회 (호스트 + 참여자) - Principal 기반
     @GetMapping("/my")
-    public ResponseEntity<?> getMyParties(@AuthenticationPrincipal Long userId) {
+    public ResponseEntity<List<PartyDTO.Response>> getMyParties(@AuthenticationPrincipal Long userId) {
         if (userId == null) {
             throw new AuthenticationRequiredException("인증이 필요합니다.");
         }
@@ -124,20 +158,26 @@ public class PartyController {
 
     // 파티 업데이트
     @PatchMapping("/{id}")
-    public ResponseEntity<?> updateParty(
+    public ResponseEntity<PartyDTO.Response> updateParty(
             @PathVariable Long id,
             @Valid @RequestBody PartyDTO.UpdateRequest request,
-            java.security.Principal principal) {
-        PartyDTO.Response response = partyService.updateParty(id, request, principal);
+            @AuthenticationPrincipal Long userId) {
+        if (userId == null) {
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
+        }
+        PartyDTO.Response response = partyService.updateParty(id, request, userId);
         return ResponseEntity.ok(response);
     }
 
     // 파티 삭제
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteParty(
+    public ResponseEntity<Void> deleteParty(
             @PathVariable Long id,
-            java.security.Principal principal) {
-        partyService.deleteParty(id, principal);
+            @AuthenticationPrincipal Long userId) {
+        if (userId == null) {
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
+        }
+        partyService.deleteParty(id, userId);
         return ResponseEntity.noContent().build();
     }
 

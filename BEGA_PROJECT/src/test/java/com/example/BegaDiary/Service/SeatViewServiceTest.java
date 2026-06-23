@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
@@ -17,7 +19,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.access.AccessDeniedException;
+import org.springframework.mock.web.MockMultipartFile;
 
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.SeatViewCandidateDto;
@@ -25,12 +27,14 @@ import com.example.BegaDiary.Entity.SeatViewPhoto;
 import com.example.BegaDiary.Entity.SeatViewPhoto.ClassificationLabel;
 import com.example.BegaDiary.Entity.SeatViewPhoto.ModerationStatus;
 import com.example.BegaDiary.Entity.SeatViewPhoto.SourceType;
+import com.example.BegaDiary.Exception.DiaryNotFoundException;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Repository.SeatViewPhotoRepository;
 import com.example.admin.dto.AdminSeatViewActionReq;
 import com.example.admin.dto.AdminSeatViewDto;
 import com.example.auth.entity.UserEntity;
 import com.example.cheerboard.storage.service.ImageService;
+import com.example.common.exception.BadRequestBusinessException;
 import com.example.leaderboard.dto.SeatViewRewardDto;
 import com.example.leaderboard.service.ScoringService;
 
@@ -60,10 +64,11 @@ class SeatViewServiceTest {
         BegaDiary diary = buildDiary(1L, 10L, "잠실", "1루", "A", "10");
         SeatViewPhoto photo = buildPhoto(100L, diary, 10L, SourceType.DIARY_UPLOAD);
 
-        when(diaryRepository.findById(1L)).thenReturn(Optional.of(diary));
+        when(diaryRepository.findByIdAndUserId(1L, 10L)).thenReturn(Optional.of(diary));
         when(seatViewPhotoRepository.findByDiaryIdAndUserId(1L, 10L)).thenReturn(List.of(photo));
         when(seatViewPhotoRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(imageService.getDiaryImageSignedUrls(anyList())).thenReturn(Mono.just(List.of("https://signed/path")));
+        when(imageService.getDiaryImageSignedUrls(anyList(), eq(10L), eq(1L)))
+                .thenReturn(Mono.just(List.of("https://signed/path")));
 
         List<SeatViewCandidateDto> result = seatViewService.submitSelections(1L, 10L, List.of(100L));
 
@@ -73,30 +78,85 @@ class SeatViewServiceTest {
 
     @Test
     void submitSelections_throwsWhenDiaryNotFound() {
-        when(diaryRepository.findById(99L)).thenReturn(Optional.empty());
+        when(diaryRepository.findByIdAndUserId(99L, 10L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> seatViewService.submitSelections(99L, 10L, List.of()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("다이어리");
+                .isInstanceOf(DiaryNotFoundException.class)
+                .hasMessageContaining("해당 다이어리를 찾을 수 없습니다.");
     }
 
     @Test
-    void submitSelections_throwsWhenNotOwner() {
-        BegaDiary diary = buildDiary(1L, 10L, "잠실", "1루", "A", "10");
-        when(diaryRepository.findById(1L)).thenReturn(Optional.of(diary));
+    void submitSelections_treatsNonOwnedDiaryAsNotFound() {
+        when(diaryRepository.findByIdAndUserId(1L, 999L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> seatViewService.submitSelections(1L, 999L, List.of()))
-                .isInstanceOf(AccessDeniedException.class);
+                .isInstanceOf(DiaryNotFoundException.class)
+                .hasMessageContaining("해당 다이어리를 찾을 수 없습니다.");
     }
 
     @Test
     void submitSelections_throwsWhenNoSeatMetadata() {
         BegaDiary diary = buildDiary(1L, 10L, "잠실", null, null, null);
-        when(diaryRepository.findById(1L)).thenReturn(Optional.of(diary));
+        when(diaryRepository.findByIdAndUserId(1L, 10L)).thenReturn(Optional.of(diary));
 
         assertThatThrownBy(() -> seatViewService.submitSelections(1L, 10L, List.of()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("좌석 정보");
+    }
+
+    @Test
+    void createCandidates_treatsNonOwnedDiaryAsNotFoundBeforeSave() {
+        when(diaryRepository.findByIdAndUserId(1L, 999L)).thenReturn(Optional.empty());
+        MockMultipartFile image = imageFile();
+
+        assertThatThrownBy(() -> seatViewService.createCandidates(
+                1L,
+                999L,
+                List.of(image),
+                List.of("diary/999/1/test.webp"),
+                List.of(SourceType.DIARY_UPLOAD)))
+                .isInstanceOf(DiaryNotFoundException.class)
+                .hasMessageContaining("해당 다이어리를 찾을 수 없습니다.");
+
+        verifyNoInteractions(seatViewPhotoRepository, seatViewClassificationService);
+    }
+
+    @Test
+    void createCandidatesFromStoragePaths_treatsNonOwnedDiaryAsNotFoundBeforeDownload() {
+        when(diaryRepository.findByIdAndUserId(1L, 999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> seatViewService.createCandidatesFromStoragePaths(
+                1L,
+                999L,
+                List.of("diary/999/1/test.webp"),
+                List.of(SourceType.DIARY_UPLOAD)))
+                .isInstanceOf(DiaryNotFoundException.class)
+                .hasMessageContaining("해당 다이어리를 찾을 수 없습니다.");
+
+        verifyNoInteractions(imageService, seatViewPhotoRepository, seatViewClassificationService);
+    }
+
+    @Test
+    void createCandidatesFromStoragePaths_rejectsCrossOwnerStoragePathBeforeDownload() {
+        BegaDiary diary = buildDiary(1L, 10L, "잠실", "1루", "A", "10");
+        when(diaryRepository.findByIdAndUserId(1L, 10L)).thenReturn(Optional.of(diary));
+        when(imageService.normalizeDiaryStoragePathsForWrite(
+                List.of("diary/999/1/test.webp"),
+                10L,
+                1L,
+                true))
+                .thenThrow(new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요."));
+
+        assertThatThrownBy(() -> seatViewService.createCandidatesFromStoragePaths(
+                1L,
+                10L,
+                List.of("diary/999/1/test.webp"),
+                List.of(SourceType.DIARY_UPLOAD)))
+                .isInstanceOf(BadRequestBusinessException.class)
+                .hasMessageContaining("업로드를 다시 완료");
+
+        verify(imageService, never()).downloadDiaryImageBytesForUser(any(), any(), any());
+        verifyNoInteractions(seatViewPhotoRepository, seatViewClassificationService);
     }
 
     // --- getAdminSeatView ---
@@ -106,7 +166,8 @@ class SeatViewServiceTest {
         BegaDiary diary = buildDiary(1L, 10L, "잠실", "1루", "A", "10");
         SeatViewPhoto photo = buildPhoto(100L, diary, 10L, SourceType.DIARY_UPLOAD);
         when(seatViewPhotoRepository.findDetailById(100L)).thenReturn(Optional.of(photo));
-        when(imageService.getDiaryImageSignedUrls(anyList())).thenReturn(Mono.just(List.of("https://signed/url")));
+        when(imageService.getDiaryImageSignedUrls(anyList(), eq(10L), eq(1L)))
+                .thenReturn(Mono.just(List.of("https://signed/url")));
 
         AdminSeatViewDto result = seatViewService.getAdminSeatView(100L);
 
@@ -133,7 +194,8 @@ class SeatViewServiceTest {
 
         when(seatViewPhotoRepository.findDetailById(100L)).thenReturn(Optional.of(photo));
         when(seatViewPhotoRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(imageService.getDiaryImageSignedUrls(anyList())).thenReturn(Mono.just(List.of("https://signed/url")));
+        when(imageService.getDiaryImageSignedUrls(anyList(), eq(10L), eq(1L)))
+                .thenReturn(Mono.just(List.of("https://signed/url")));
         when(seatViewPhotoRepository.findApprovedByDiaryId(eq(1L), eq(ModerationStatus.APPROVED), eq(ClassificationLabel.SEAT_VIEW)))
                 .thenReturn(List.of(photo));
         when(scoringService.processSeatViewReward(10L, 1L, "잠실"))
@@ -265,5 +327,9 @@ class SeatViewServiceTest {
         }
 
         return photo;
+    }
+
+    private MockMultipartFile imageFile() {
+        return new MockMultipartFile("images", "seat.webp", "image/webp", "image".getBytes());
     }
 }

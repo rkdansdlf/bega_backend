@@ -2,6 +2,7 @@ package com.example.mate.dto;
 
 import com.example.mate.entity.PayoutTransaction;
 import com.example.mate.entity.SettlementStatus;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,6 +16,7 @@ public class InternalSettlementDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateInternalSettlementPayoutResponse")
     public static class PayoutResponse {
         private Long payoutId;
         private SettlementStatus status;
@@ -37,4 +39,3 @@ public class InternalSettlementDTO {
         }
     }
 }
-

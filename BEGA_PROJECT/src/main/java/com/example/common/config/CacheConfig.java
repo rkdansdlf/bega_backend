@@ -46,10 +46,13 @@ public class CacheConfig {
         public static final String GAME_SCHEDULE = "gameSchedule";
         public static final String HOME_BOOTSTRAP = "homeBootstrap";
         public static final String HOME_WIDGETS = "homeWidgets";
+        public static final String HOME_RANKING_SNAPSHOT = "homeRankingSnapshot";
         public static final String POST_IMAGE_URLS = "postImageUrls";
         public static final String USER_RANK = "userRank";           // 리더보드 랭킹 (per-user, season rank only)
         public static final String USER_STATS = "userStats";          // 리더보드 전체 통계 (per-user, 4x rank counts)
         public static final String PREDICTION_USER_STATS = "predictionUserStats"; // 예측 적중률/스트릭 통계 (per-user)
+        public static final String PREDICTION_MATCH_DAY = "predictionMatchDay";
+        public static final String PREDICTION_MATCH_RANGE = "predictionMatchRange";
         public static final String PREDICTION_VOTE_STATUS = "predictionVoteStatus";
         public static final String RANKING_PREDICTION_CONTEXT = "rankingPredictionContext";
         public static final String RANKING_SHARE_IDS = "rankingShareIds";
@@ -61,6 +64,9 @@ public class CacheConfig {
         // L2 전용 캐시 (Redis only) - 라이브 데이터 (추후 확장용)
         public static final String LIVE_GAME_SCORE = "liveGameScore";
         public static final String LIVE_GAME_STATUS = "liveGameStatus";
+
+        // L1 전용 캐시 - 사용자 단위 통계는 짧은 TTL의 인스턴스 로컬 캐시로 충분하다.
+        public static final String DIARY_STATS = "diaryStats";
 
         /**
          * Primary CacheManager: L1(Caffeine) + L2(Redis) 조합
@@ -110,6 +116,18 @@ public class CacheConfig {
                                                 .expireAfterWrite(60, TimeUnit.SECONDS)
                                                 .recordStats()
                                                 .build());
+                manager.registerCustomCache(DIARY_STATS,
+                                Caffeine.newBuilder()
+                                                .maximumSize(1000)
+                                                .expireAfterWrite(60, TimeUnit.SECONDS)
+                                                .recordStats()
+                                                .build());
+                manager.registerCustomCache(PREDICTION_MATCH_RANGE,
+                                Caffeine.newBuilder()
+                                                .maximumSize(1000)
+                                                .expireAfterWrite(30, TimeUnit.SECONDS)
+                                                .recordStats()
+                                                .build());
 
                 return manager;
         }
@@ -147,12 +165,18 @@ public class CacheConfig {
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(60))));
                 cacheConfigs.put(HOME_WIDGETS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(45))));
+                cacheConfigs.put(HOME_RANKING_SNAPSHOT,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
                 cacheConfigs.put(POST_IMAGE_URLS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(50))));
                 cacheConfigs.put(USER_STATS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
                 cacheConfigs.put(PREDICTION_USER_STATS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(5))));
+                cacheConfigs.put(PREDICTION_MATCH_DAY,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(60))));
+                cacheConfigs.put(PREDICTION_MATCH_RANGE,
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(30))));
                 cacheConfigs.put(RANKING_PREDICTION_CONTEXT,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(60))));
                 cacheConfigs.put(RANKING_SHARE_IDS,
@@ -164,7 +188,7 @@ public class CacheConfig {
                 cacheConfigs.put(LIVE_GAME_STATUS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(5))));
                 cacheConfigs.put(PREDICTION_VOTE_STATUS,
-                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(30))));
+                                defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(60))));
 
                 return RedisCacheManager.builder(Objects.requireNonNull(connectionFactory))
                                 .cacheDefaults(defaultConfig)

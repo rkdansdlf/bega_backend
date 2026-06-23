@@ -9,6 +9,7 @@ import com.example.admin.repository.AuditLogRepository;
 import com.example.auth.entity.Role;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.service.RefreshTokenRevocationService;
 import com.example.common.exception.UserNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,7 @@ public class AdminRoleService {
 
         private final UserRepository userRepository;
         private final AuditLogRepository auditLogRepository;
+        private final RefreshTokenRevocationService refreshTokenRevocationService;
 
         /**
          * 사용자를 ADMIN으로 승격 (SUPER_ADMIN만 가능)
@@ -65,6 +67,7 @@ public class AdminRoleService {
                 String newRole = Role.ADMIN.getKey();
                 targetUser.setRole(newRole);
                 userRepository.save(targetUser);
+                refreshTokenRevocationService.revokeAllSessionsForUser(targetUserId);
 
                 // 6. 감사 로그 기록
                 AuditLog auditLog = AuditLog.builder()
@@ -129,6 +132,7 @@ public class AdminRoleService {
                 String newRole = Role.USER.getKey();
                 targetUser.setRole(newRole);
                 userRepository.save(targetUser);
+                refreshTokenRevocationService.revokeAllSessionsForUser(targetUserId);
 
                 // 8. 감사 로그 기록
                 AuditLog auditLog = AuditLog.builder()

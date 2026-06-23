@@ -93,11 +93,7 @@ public class DiaryController {
             Principal principal) {
         Long userId = requireUserId(principal);
 
-        // 소유자 검증: 해당 일기가 현재 사용자 소유인지 확인
-        BegaDiary ownerCheck = this.diaryService.getDiaryEntityById(diaryId);
-        if (!ownerCheck.getUser().getId().equals(userId)) {
-            throw new AccessDeniedException("본인의 일기에만 이미지를 업로드할 수 있습니다.");
-        }
+        diaryService.getOwnedDiaryEntity(diaryId, userId);
 
         List<String> storagePaths;
         try {
@@ -159,10 +155,6 @@ public class DiaryController {
             @RequestBody SeatViewCandidateCreateRequest request,
             Principal principal) {
         Long userId = requireUserId(principal);
-        BegaDiary ownerCheck = this.diaryService.getDiaryEntityById(diaryId);
-        if (!ownerCheck.getUser().getId().equals(userId)) {
-            throw new AccessDeniedException("본인의 일기에 대해서만 시야뷰 후보를 생성할 수 있습니다.");
-        }
         List<String> storagePaths = request != null && request.getStoragePaths() != null
                 ? request.getStoragePaths()
                 : List.of();

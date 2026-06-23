@@ -1,7 +1,7 @@
 package com.example.media.controller;
 
 import com.example.common.dto.ApiResponse;
-import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.web.AuthenticatedUserIds;
 import com.example.media.dto.FinalizeMediaUploadResponse;
 import com.example.media.dto.InitMediaUploadRequest;
 import com.example.media.dto.InitMediaUploadResponse;
@@ -30,7 +30,7 @@ public class MediaUploadController {
     public ResponseEntity<ApiResponse> initUpload(
             @AuthenticationPrincipal Long userId,
             @Valid @RequestBody InitMediaUploadRequest request) {
-        InitMediaUploadResponse response = mediaUploadService.initUpload(requireUserId(userId), request);
+        InitMediaUploadResponse response = mediaUploadService.initUpload(AuthenticatedUserIds.require(userId), request);
         return ResponseEntity.ok(ApiResponse.success("미디어 업로드 준비가 완료되었습니다.", response));
     }
 
@@ -39,7 +39,7 @@ public class MediaUploadController {
     public ResponseEntity<ApiResponse> finalizeUpload(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long assetId) {
-        FinalizeMediaUploadResponse response = mediaUploadService.finalizeUpload(requireUserId(userId), assetId);
+        FinalizeMediaUploadResponse response = mediaUploadService.finalizeUpload(AuthenticatedUserIds.require(userId), assetId);
         return ResponseEntity.ok(ApiResponse.success("미디어 업로드가 완료되었습니다.", response));
     }
 
@@ -48,14 +48,7 @@ public class MediaUploadController {
     public ResponseEntity<ApiResponse> deleteUpload(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long assetId) {
-        mediaUploadService.deleteUpload(requireUserId(userId), assetId);
+        mediaUploadService.deleteUpload(AuthenticatedUserIds.require(userId), assetId);
         return ResponseEntity.ok(ApiResponse.success("미디어 업로드가 삭제되었습니다."));
-    }
-
-    private Long requireUserId(Long userId) {
-        if (userId == null) {
-            throw new AuthenticationRequiredException("인증이 필요합니다.");
-        }
-        return userId;
     }
 }

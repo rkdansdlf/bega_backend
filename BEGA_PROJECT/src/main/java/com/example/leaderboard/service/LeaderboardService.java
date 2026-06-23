@@ -11,6 +11,7 @@ import com.example.leaderboard.entity.UserScore;
 import com.example.leaderboard.repository.ScoreEventRepository;
 import com.example.leaderboard.repository.UserScoreRepository;
 import com.example.common.config.CacheConfig;
+import com.example.profile.storage.service.ProfileImageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
@@ -43,6 +44,7 @@ public class LeaderboardService {
     private final ScoreEventRepository scoreEventRepository;
     private final UserRepository userRepository;
     private final PublicVisibilityVerifier publicVisibilityVerifier;
+    private final ProfileImageService profileImageService;
 
     /**
      * 리더보드 조회
@@ -94,7 +96,7 @@ public class LeaderboardService {
         UserEntity user = userRepository.findById(userId).orElse(null);
         String handle = user != null ? user.getHandle() : null;
         String nickname = user != null ? user.getName() : "Unknown";
-        String profileUrl = user != null ? user.getProfileImageUrl() : null;
+        String profileUrl = resolveProfileImageUrl(user);
 
         UserStatsDto stats = UserStatsDto.from(userScore, handle, nickname, profileUrl);
 
@@ -178,7 +180,7 @@ public class LeaderboardService {
                     UserEntity user = userMap.get(userScore.getUserId());
                     String handle = user != null ? user.getHandle() : null;
                     String nickname = user != null ? user.getName() : "Unknown";
-                    String profileUrl = user != null ? user.getProfileImageUrl() : null;
+                    String profileUrl = resolveProfileImageUrl(user);
                     return HotStreakDto.from(userScore, handle, nickname, profileUrl);
                 })
                 .toList();
@@ -200,7 +202,7 @@ public class LeaderboardService {
                     UserEntity user = userMap.get(event.getUserId());
                     String handle = user != null ? user.getHandle() : null;
                     String nickname = user != null ? user.getName() : "Unknown";
-                    String profileUrl = user != null ? user.getProfileImageUrl() : null;
+                    String profileUrl = resolveProfileImageUrl(user);
                     return RecentScoreDto.from(event, handle, nickname, profileUrl);
                 })
                 .toList();
@@ -216,7 +218,7 @@ public class LeaderboardService {
         Optional<UserEntity> user = userRepository.findById(userId);
         String handle = user.map(UserEntity::getHandle).orElse(null);
         String nickname = user.map(UserEntity::getName).orElse("Unknown");
-        String profileUrl = user.map(UserEntity::getProfileImageUrl).orElse(null);
+        String profileUrl = user.map(this::resolveProfileImageUrl).orElse(null);
 
         return events.map(event -> RecentScoreDto.from(event, handle, nickname, profileUrl));
     }
@@ -297,7 +299,7 @@ public class LeaderboardService {
 
         String handle = user.getHandle();
         String nickname = user.getName();
-        String profileUrl = user.getProfileImageUrl();
+        String profileUrl = resolveProfileImageUrl(user);
 
         Long score = switch (type.toLowerCase()) {
             case "season" -> userScore.getSeasonScore();
@@ -311,6 +313,18 @@ public class LeaderboardService {
 
     private boolean isVisible(UserEntity user, Long viewerId) {
         return user != null && publicVisibilityVerifier.canAccess(user, viewerId);
+    }
+
+    private String resolveProfileImageUrl(UserEntity user) {
+        if (user == null) {
+            return null;
+        }
+        try {
+            return profileImageService.getProfileImageUrlForUser(user.getId(), user.getProfileImageUrl());
+        } catch (Exception e) {
+            log.warn("Leaderboard profile image resolution skipped. userId={}, cause={}", user.getId(), e.getMessage());
+            return null;
+        }
     }
 
     private UserEntity findUserByHandleOrThrow(String handle) {

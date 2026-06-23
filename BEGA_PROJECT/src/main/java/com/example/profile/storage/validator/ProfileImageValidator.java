@@ -1,6 +1,7 @@
 package com.example.profile.storage.validator;
 
 import com.example.cheerboard.storage.config.StorageConfig;
+import com.example.cheerboard.storage.validator.ImageValidationSupport;
 import com.example.common.image.ImageUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -32,14 +33,7 @@ public class ProfileImageValidator {
      * 프로필 이미지 검증
      */
     public void validateProfileImage(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("파일이 비어있습니다.");
-        }
-
-        String originalFilename = file.getOriginalFilename();
-        if (originalFilename == null || originalFilename.isBlank()) {
-            throw new IllegalArgumentException("파일명이 없습니다.");
-        }
+        String originalFilename = ImageValidationSupport.requireOriginalFilename(file);
 
         validateExtension(originalFilename);
         validateMimeType(file.getContentType());
@@ -48,59 +42,23 @@ public class ProfileImageValidator {
     }
 
     private void validateExtension(String filename) {
-        String extension = getFileExtension(filename).toLowerCase();
-        if (!ALLOWED_EXTENSIONS.contains(extension)) {
-            throw new IllegalArgumentException(
-                "허용되지 않는 파일 형식입니다. 허용 형식: " + String.join(", ", ALLOWED_EXTENSIONS)
-            );
-        }
+        ImageValidationSupport.validateExtension(filename, ALLOWED_EXTENSIONS);
     }
 
     private void validateMimeType(String mimeType) {
-        if (mimeType == null || !ALLOWED_MIME_TYPES.contains(mimeType.toLowerCase())) {
-            throw new IllegalArgumentException(
-                "허용되지 않는 이미지 타입입니다. 허용 타입: " + String.join(", ", ALLOWED_MIME_TYPES)
-            );
-        }
+        ImageValidationSupport.validateMimeType(mimeType, ALLOWED_MIME_TYPES);
     }
 
     private void validateSize(long bytes) {
-        if (bytes <= 0) {
-            throw new IllegalArgumentException("파일 크기가 0입니다.");
-        }
-        if (bytes > config.getMaxImageBytes()) {
-            throw new IllegalArgumentException(
-                String.format("파일 크기가 너무 큽니다. 최대 크기: %d MB",
-                    config.getMaxImageBytes() / 1024 / 1024)
-            );
-        }
+        ImageValidationSupport.validateSize(bytes, config.getMaxImageBytes());
     }
 
     private void validateDimensions(MultipartFile file) {
         ImageUtil.ImageDimension imageDimension = imageUtil.getImageDimension(file);
-        int shortSide = Math.min(imageDimension.width(), imageDimension.height());
-        int longSide = Math.max(imageDimension.width(), imageDimension.height());
-        long totalPixels = (long) imageDimension.width() * imageDimension.height();
-        if (shortSide < MIN_SHORT_SIDE_PIXELS) {
-            throw new IllegalArgumentException(
-                    String.format("해상도가 너무 낮습니다. 최소 %dpx x %dpx 이상이어야 합니다.", MIN_SHORT_SIDE_PIXELS,
-                            MIN_SHORT_SIDE_PIXELS));
-        }
-        if (longSide > config.getMaxImageLongSidePixels()) {
-            throw new IllegalArgumentException(
-                    String.format("이미지의 긴 변은 최대 %dpx 이하여야 합니다.", config.getMaxImageLongSidePixels()));
-        }
-        if (totalPixels > config.getMaxImageTotalPixels()) {
-            throw new IllegalArgumentException(
-                    String.format("이미지 총 픽셀 수는 최대 %,d 이하여야 합니다.", config.getMaxImageTotalPixels()));
-        }
-    }
-
-    private String getFileExtension(String filename) {
-        int lastDotIndex = filename.lastIndexOf('.');
-        if (lastDotIndex == -1 || lastDotIndex == filename.length() - 1) {
-            throw new IllegalArgumentException("파일 확장자가 없습니다.");
-        }
-        return filename.substring(lastDotIndex + 1);
+        ImageValidationSupport.validatePixelLimits(
+                imageDimension,
+                MIN_SHORT_SIDE_PIXELS,
+                config.getMaxImageLongSidePixels(),
+                config.getMaxImageTotalPixels());
     }
 }

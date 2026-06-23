@@ -1,6 +1,9 @@
 package com.example.common.exception;
 
 import com.example.cheerboard.service.CheerServiceConstants;
+import com.example.cheerboard.service.CheerRepostConstraintDetector;
+import com.example.ai.config.AiProxyRequestLimits;
+import com.example.ai.exception.AiProxyPayloadTooLargeException;
 import com.example.common.dto.ApiResponse;
 import com.example.kbo.exception.TicketAnalysisException;
 import jakarta.validation.ConstraintViolation;
@@ -34,6 +37,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -48,17 +52,23 @@ public class GlobalExceptionHandler {
     private static final String VALIDATION_ERROR_CODE = "VALIDATION_ERROR";
     private static final String VALIDATION_ERROR_MESSAGE = "입력값을 확인해주세요.";
     private static final String GLOBAL_ERROR_KEY = "_global";
+    private static final String INTERNAL_SERVER_ERROR_MESSAGE = "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
 
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ApiResponse> handleBusinessException(BusinessException e) {
+    public ResponseEntity<ApiResponse<?>> handleBusinessException(BusinessException e) {
         logByStatus(e.getStatus(), e);
+        if (e.getStatus().is5xxServerError()) {
+            return ResponseEntity
+                    .status(e.getStatus())
+                    .body(ApiResponse.error(e.getCode(), INTERNAL_SERVER_ERROR_MESSAGE));
+        }
         return ResponseEntity
                 .status(e.getStatus())
                 .body(ApiResponse.error(e.getCode(), defaultIfBlank(e.getMessage(), "요청을 처리할 수 없습니다."), e.getData()));
     }
 
     @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
-    public ResponseEntity<ApiResponse> handleAuthenticationCredentialsNotFoundException(
+    public ResponseEntity<ApiResponse<Void>> handleAuthenticationCredentialsNotFoundException(
             AuthenticationCredentialsNotFoundException e) {
         log.warn("AuthenticationCredentialsNotFoundException: {}", e.getMessage());
         return ResponseEntity
@@ -67,22 +77,22 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiResponse> handleMethodArgumentNotValidException(MethodArgumentNotValidException e) {
+    public ResponseEntity<ApiResponse<Void>> handleMethodArgumentNotValidException(MethodArgumentNotValidException e) {
         return buildValidationErrorResponse(extractFieldErrors(e.getBindingResult()));
     }
 
     @ExceptionHandler(BindException.class)
-    public ResponseEntity<ApiResponse> handleBindException(BindException e) {
+    public ResponseEntity<ApiResponse<Void>> handleBindException(BindException e) {
         return buildValidationErrorResponse(extractFieldErrors(e.getBindingResult()));
     }
 
     @ExceptionHandler(HandlerMethodValidationException.class)
-    public ResponseEntity<ApiResponse> handleHandlerMethodValidationException(HandlerMethodValidationException e) {
+    public ResponseEntity<ApiResponse<Void>> handleHandlerMethodValidationException(HandlerMethodValidationException e) {
         return buildValidationErrorResponse(extractHandlerMethodValidationErrors(e));
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<ApiResponse> handleConstraintViolationException(ConstraintViolationException e) {
+    public ResponseEntity<ApiResponse<Void>> handleConstraintViolationException(ConstraintViolationException e) {
         Map<String, String> errors = new LinkedHashMap<>();
         for (ConstraintViolation<?> violation : e.getConstraintViolations()) {
             putIfAbsent(errors, sanitizeConstraintPath(violation.getPropertyPath()), violation.getMessage());
@@ -91,24 +101,28 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<ApiResponse> handleMethodArgumentTypeMismatchException(MethodArgumentTypeMismatchException e) {
+    public ResponseEntity<ApiResponse<Void>> handleMethodArgumentTypeMismatchException(MethodArgumentTypeMismatchException e) {
         String message = e.getName() + " 값 형식이 올바르지 않습니다.";
         return buildValidationErrorResponse(Map.of(e.getName(), message));
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)
-    public ResponseEntity<ApiResponse> handleMissingServletRequestParameterException(
+    public ResponseEntity<ApiResponse<Void>> handleMissingServletRequestParameterException(
             MissingServletRequestParameterException e) {
         return buildValidationErrorResponse(Map.of(e.getParameterName(), "필수 파라미터입니다."));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiResponse> handleHttpMessageNotReadableException(HttpMessageNotReadableException e) {
+    public ResponseEntity<?> handleHttpMessageNotReadableException(HttpMessageNotReadableException e) {
+        AiProxyPayloadTooLargeException payloadTooLarge = findAiPayloadTooLarge(e);
+        if (payloadTooLarge != null) {
+            return buildAiPayloadTooLargeResponse(payloadTooLarge);
+        }
         return buildValidationErrorResponse(Map.of(GLOBAL_ERROR_KEY, "요청 본문 형식이 올바르지 않습니다."));
     }
 
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
-    public ResponseEntity<ApiResponse> handleHttpMediaTypeNotSupportedException(
+    public ResponseEntity<ApiResponse<Void>> handleHttpMediaTypeNotSupportedException(
             HttpMediaTypeNotSupportedException e) {
         log.warn("HttpMediaTypeNotSupportedException: {}", e.getMessage());
         return ResponseEntity
@@ -119,18 +133,34 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
-    public ResponseEntity<ApiResponse> handleMaxUploadSizeExceededException(
+    public ResponseEntity<?> handleMaxUploadSizeExceededException(
             org.springframework.web.multipart.MaxUploadSizeExceededException e) {
+        AiProxyPayloadTooLargeException payloadTooLarge = findAiPayloadTooLarge(e);
+        if (payloadTooLarge != null) {
+            return buildAiPayloadTooLargeResponse(payloadTooLarge);
+        }
         log.warn("MaxUploadSizeExceededException: {}", e.getMessage());
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error("MAX_UPLOAD_SIZE_EXCEEDED", "파일 크기가 제한을 초과했습니다. (최대 10MB)"));
     }
 
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<?> handleMultipartException(MultipartException e) {
+        AiProxyPayloadTooLargeException payloadTooLarge = findAiPayloadTooLarge(e);
+        if (payloadTooLarge != null) {
+            return buildAiPayloadTooLargeResponse(payloadTooLarge);
+        }
+        log.warn("MultipartException: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error("MULTIPART_REQUEST_INVALID", "multipart 요청을 처리할 수 없습니다."));
+    }
+
     @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<ApiResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         String message = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
-        if (isRepostDuplicateViolation(message)) {
+        if (CheerRepostConstraintDetector.isDuplicateViolation(message)) {
             return ResponseEntity
                     .status(HttpStatus.CONFLICT)
                     .body(ApiResponse.error(CheerServiceConstants.REPOST_CONFLICT_CODE, CheerServiceConstants.REPOST_CONFLICT_ERROR));
@@ -143,45 +173,45 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(TransientDataAccessException.class)
-    public ResponseEntity<ApiResponse> handleTransientDataAccessException(
+    public ResponseEntity<ApiResponse<Void>> handleTransientDataAccessException(
             TransientDataAccessException e) {
         return buildTemporaryDatabaseErrorResponse("Transient DB error", e);
     }
 
     @ExceptionHandler({CannotCreateTransactionException.class, CannotGetJdbcConnectionException.class})
-    public ResponseEntity<ApiResponse> handleDatabaseConnectionException(Exception e) {
+    public ResponseEntity<ApiResponse<Void>> handleDatabaseConnectionException(Exception e) {
         return buildTemporaryDatabaseErrorResponse("Database connection error", e);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ApiResponse> handleIllegalArgumentException(IllegalArgumentException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleIllegalArgumentException(IllegalArgumentException ex) {
         log.warn("{}: {}", ex.getClass().getSimpleName(), ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error("BAD_REQUEST", defaultIfBlank(ex.getMessage(), "잘못된 요청입니다.")));
+                .body(ApiResponse.error("BAD_REQUEST", "잘못된 요청입니다."));
     }
 
     // [Security] IllegalStateException은 도메인/라이브러리 내부 상태 오류에서 주로 던져지며,
     // 메시지에 Hibernate/Jackson/DB 드라이버 등의 내부 구현 정보가 섞여 나갈 위험이 있다.
     // prod에서 응답 바디에는 일반 메시지만 노출하고, 상세는 서버 로그에만 남긴다.
     @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<ApiResponse> handleIllegalStateException(IllegalStateException ex) {
-        log.warn("IllegalStateException: {}", ex.getMessage());
+    public ResponseEntity<ApiResponse<Void>> handleIllegalStateException(IllegalStateException ex) {
+        log.error("IllegalStateException", ex);
         return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error("BAD_REQUEST", "요청을 처리할 수 없습니다."));
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error("INTERNAL_SERVER_ERROR", INTERNAL_SERVER_ERROR_MESSAGE));
     }
 
     @ExceptionHandler(NoSuchElementException.class)
-    public ResponseEntity<ApiResponse> handleNoSuchElementException(NoSuchElementException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleNoSuchElementException(NoSuchElementException ex) {
         log.warn("NoSuchElementException: {}", ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
-                .body(ApiResponse.error("NOT_FOUND", defaultIfBlank(ex.getMessage(), "요청한 데이터를 찾을 수 없습니다.")));
+                .body(ApiResponse.error("NOT_FOUND", "요청한 데이터를 찾을 수 없습니다."));
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
-    public ResponseEntity<ApiResponse> handleNoResourceFoundException(NoResourceFoundException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFoundException(NoResourceFoundException ex) {
         log.warn("NoResourceFoundException: {}", ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
@@ -189,7 +219,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({RepostNotAllowedException.class, RepostSelfNotAllowedException.class})
-    public ResponseEntity<ApiResponse> handleRepostNotAllowed(Exception ex) {
+    public ResponseEntity<ApiResponse<Void>> handleRepostNotAllowed(Exception ex) {
         String code = ex instanceof RepostNotAllowedException repostEx && repostEx.getErrorCode() != null
                 ? repostEx.getErrorCode()
                 : CheerServiceConstants.REPOST_NOT_ALLOWED_CODE;
@@ -199,7 +229,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(RepostTargetNotFoundException.class)
-    public ResponseEntity<ApiResponse> handleRepostTargetNotFoundException(RepostTargetNotFoundException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleRepostTargetNotFoundException(RepostTargetNotFoundException ex) {
         String code = ex.getErrorCode() != null
                 ? ex.getErrorCode()
                 : CheerServiceConstants.REPOST_TARGET_NOT_FOUND_CODE;
@@ -209,7 +239,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(TicketAnalysisException.class)
-    public ResponseEntity<ApiResponse> handleTicketAnalysisException(TicketAnalysisException e) {
+    public ResponseEntity<ApiResponse<Void>> handleTicketAnalysisException(TicketAnalysisException e) {
         log.warn("TicketAnalysisException status={} message={}", e.getStatus().value(), e.getMessage());
         return ResponseEntity
                 .status(e.getStatus())
@@ -217,20 +247,22 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ApiResponse> handleAccessDeniedException(AccessDeniedException e) {
+    public ResponseEntity<ApiResponse<Void>> handleAccessDeniedException(AccessDeniedException e) {
         log.warn("AccessDeniedException: {}", e.getMessage());
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
-                .body(ApiResponse.error("FORBIDDEN", defaultIfBlank(e.getMessage(), "접근 권한이 없습니다.")));
+                .body(ApiResponse.error("FORBIDDEN", "접근 권한이 없습니다."));
     }
 
     @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<ApiResponse> handleResponseStatusException(ResponseStatusException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleResponseStatusException(ResponseStatusException ex) {
         HttpStatusCode statusCode = ex.getStatusCode();
         String message = ex.getReason();
         HttpStatus resolved = HttpStatus.resolve(statusCode.value());
         String code = resolved != null ? resolved.name() : "RESPONSE_STATUS_EXCEPTION";
-        String resolvedMessage = defaultIfBlank(message, resolved != null ? resolved.getReasonPhrase() : "요청을 처리할 수 없습니다.");
+        String resolvedMessage = statusCode.is5xxServerError()
+                ? INTERNAL_SERVER_ERROR_MESSAGE
+                : defaultIfBlank(message, resolved != null ? resolved.getReasonPhrase() : "요청을 처리할 수 없습니다.");
 
         logByStatus(statusCode, ex);
         return ResponseEntity
@@ -239,14 +271,14 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse> handleGlobalException(Exception e) {
+    public ResponseEntity<ApiResponse<Void>> handleGlobalException(Exception e) {
         log.error("Unexpected error occurred", e);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("INTERNAL_SERVER_ERROR", "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
+                .body(ApiResponse.error("INTERNAL_SERVER_ERROR", INTERNAL_SERVER_ERROR_MESSAGE));
     }
 
-    private ResponseEntity<ApiResponse> buildValidationErrorResponse(Map<String, String> errors) {
+    private ResponseEntity<ApiResponse<Void>> buildValidationErrorResponse(Map<String, String> errors) {
         Map<String, String> resolvedErrors = errors.isEmpty()
                 ? Map.of(GLOBAL_ERROR_KEY, VALIDATION_ERROR_MESSAGE)
                 : errors;
@@ -256,8 +288,30 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(VALIDATION_ERROR_CODE, VALIDATION_ERROR_MESSAGE, resolvedErrors));
     }
 
-    private ResponseEntity<ApiResponse> buildTemporaryDatabaseErrorResponse(String logMessage, Exception e) {
-        log.error("{}: {}", logMessage, e.getMessage());
+    private ResponseEntity<ApiResponse<Map<String, Long>>> buildAiPayloadTooLargeResponse(AiProxyPayloadTooLargeException e) {
+        long maxBytes = e.getMaxBytes();
+        log.warn("AI proxy request payload exceeded maxBytes={}", maxBytes);
+        return ResponseEntity
+                .status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(ApiResponse.error(
+                        AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE,
+                        "AI 요청 본문이 너무 큽니다.",
+                        Map.of("maxBytes", maxBytes)));
+    }
+
+    private AiProxyPayloadTooLargeException findAiPayloadTooLarge(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof AiProxyPayloadTooLargeException payloadTooLarge) {
+                return payloadTooLarge;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private ResponseEntity<ApiResponse<Void>> buildTemporaryDatabaseErrorResponse(String logMessage, Exception e) {
+        log.error(logMessage, e);
         return ResponseEntity
                 .status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(ApiResponse.error("TEMPORARY_DATABASE_ERROR", "서버가 현재 혼잡합니다. 잠시 후 다시 시도해주세요."));
@@ -391,15 +445,4 @@ public class GlobalExceptionHandler {
         return message;
     }
 
-    private boolean isRepostDuplicateViolation(String message) {
-        if (message == null) {
-            return false;
-        }
-        String lower = message.toLowerCase();
-        return lower.contains("uq_cheer_post_simple_repost")
-                || (lower.contains("duplicate key") && lower.contains("repost_type") && lower.contains("repost_of_id"))
-                || (lower.contains("repost_of_id") && lower.contains("repost_type"))
-                || (lower.contains("cheer_post_repost") && lower.contains("duplicate key"))
-                || (lower.contains("cheer_post_repost_pkey"));
-    }
 }

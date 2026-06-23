@@ -56,14 +56,19 @@ public class PaymentIntentService {
 
     @Transactional
     public TossPaymentDTO.PrepareResponse prepareIntent(TossPaymentDTO.PrepareClientRequest request, Principal principal) {
+        return prepareIntent(request, resolveUserId(principal));
+    }
+
+    @Transactional
+    public TossPaymentDTO.PrepareResponse prepareIntent(TossPaymentDTO.PrepareClientRequest request, Long applicantId) {
         if (request == null || request.getPartyId() == null) {
             throw new InvalidApplicationStatusException("partyId는 필수입니다.");
         }
+        requireUserId(applicantId);
 
         PaymentFlowType flowType = request.getFlowType() != null
                 ? request.getFlowType()
                 : PaymentFlowType.DEPOSIT;
-        Long applicantId = resolveUserId(principal);
         validateApplicationPreconditions(request.getPartyId(), applicantId);
 
         PaymentAmountCalculator.AmountInfo amountInfo = paymentAmountCalculator.calculateAmount(request.getPartyId(), flowType);
@@ -99,21 +104,21 @@ public class PaymentIntentService {
 
     @Transactional
     public PaymentIntent resolveIntentForConfirm(TossPaymentDTO.ClientConfirmRequest request, Principal principal) {
+        return resolveIntentForConfirm(request, resolveUserId(principal));
+    }
+
+    @Transactional
+    public PaymentIntent resolveIntentForConfirm(TossPaymentDTO.ClientConfirmRequest request, Long applicantId) {
         if (request == null || request.getOrderId() == null || request.getOrderId().isBlank()) {
             throw new InvalidApplicationStatusException("orderId는 필수입니다.");
         }
         if (request.getPaymentKey() == null || request.getPaymentKey().isBlank()) {
             throw new InvalidApplicationStatusException("paymentKey는 필수입니다.");
         }
+        requireUserId(applicantId);
 
-        Long applicantId = resolveUserId(principal);
-
-        PaymentIntent intent = findIntentForUpdate(request)
+        PaymentIntent intent = findIntentForUpdate(request, applicantId)
                 .orElseGet(() -> createLegacyIntent(request, applicantId));
-
-        if (!intent.getApplicantId().equals(applicantId)) {
-            throw new UnauthorizedAccessException("본인의 결제 요청만 처리할 수 있습니다.");
-        }
         if (request.getPartyId() != null && !request.getPartyId().equals(intent.getPartyId())) {
             throw new InvalidApplicationStatusException("결제 요청의 partyId가 일치하지 않습니다.");
         }
@@ -344,15 +349,11 @@ public class PaymentIntentService {
      */
     @Transactional
     public PaymentIntent.IntentStatus cancelPaymentIntent(Long intentId, Long userId, String cancelReason) {
-        PaymentIntent intent = paymentIntentRepository.findByIdForUpdate(intentId)
+        PaymentIntent intent = paymentIntentRepository.findByIdAndApplicantIdForUpdate(intentId, userId)
                 .orElseThrow(() -> new TossPaymentException(
                         "PAYMENT_INTENT_NOT_FOUND",
                         "결제 요청을 찾을 수 없습니다: " + intentId,
                         HttpStatus.NOT_FOUND));
-
-        if (!intent.getApplicantId().equals(userId)) {
-            throw new UnauthorizedAccessException("본인의 결제 요청만 취소할 수 있습니다.");
-        }
 
         // 멱등: 이미 취소된 경우 재시도 허용
         if (intent.getStatus() == PaymentIntent.IntentStatus.CANCELED) {
@@ -439,24 +440,39 @@ public class PaymentIntentService {
         if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
             throw new UnauthorizedAccessException("인증 정보가 없습니다.");
         }
-        return userService.getUserIdByEmail(principal.getName());
+        String principalName = principal.getName();
+        try {
+            return Long.valueOf(principalName);
+        } catch (NumberFormatException ignored) {
+            return userService.getUserIdByEmail(principalName);
+        }
     }
 
-    private Optional<PaymentIntent> findIntentForUpdate(TossPaymentDTO.ClientConfirmRequest request) {
+    private void requireUserId(Long userId) {
+        if (userId == null) {
+            throw new UnauthorizedAccessException("인증 정보가 없습니다.");
+        }
+    }
+
+    private Optional<PaymentIntent> findIntentForUpdate(TossPaymentDTO.ClientConfirmRequest request, Long applicantId) {
         if (request.getIntentId() != null) {
-            Optional<PaymentIntent> intent = paymentIntentRepository.findByIdForUpdate(request.getIntentId());
+            Optional<PaymentIntent> intent = paymentIntentRepository.findByIdAndApplicantIdForUpdate(
+                    request.getIntentId(),
+                    applicantId);
             if (intent.isPresent()) {
                 return intent;
             }
         }
-        return paymentIntentRepository.findByOrderIdForUpdate(request.getOrderId());
+        return paymentIntentRepository.findByOrderIdAndApplicantIdForUpdate(request.getOrderId(), applicantId);
     }
 
     private PaymentIntent createLegacyIntent(TossPaymentDTO.ClientConfirmRequest request, Long applicantId) {
         if (request.getPartyId() == null) {
             throw new InvalidApplicationStatusException("partyId는 필수입니다.");
         }
-        Optional<PaymentIntent> existing = paymentIntentRepository.findByOrderIdForUpdate(request.getOrderId());
+        Optional<PaymentIntent> existing = paymentIntentRepository.findByOrderIdAndApplicantIdForUpdate(
+                request.getOrderId(),
+                applicantId);
         if (existing.isPresent()) {
             return existing.get();
         }

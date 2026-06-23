@@ -3,7 +3,6 @@ package com.example.auth.filter;
 import com.example.auth.service.TokenBlacklistService;
 import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.auth.repository.UserRepository;
-import com.example.auth.entity.UserEntity;
 import com.example.auth.util.JWTUtil;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -67,15 +66,8 @@ class JWTFilterTokenTypeTest {
         secretKey = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
 
         Mockito.lenient().when(tokenBlacklistService.isBlacklisted(anyString())).thenReturn(false);
-        Mockito.lenient().when(userRepository.findById(Mockito.anyLong())).thenReturn(Optional.of(
-                UserEntity.builder()
-                        .id(1L)
-                        .enabled(true)
-                        .locked(false)
-                        .tokenVersion(0)
-                        .role("ROLE_USER")
-                        .build()
-        ));
+        Mockito.lenient().when(userRepository.findUsableRoleByIdAndTokenVersion(Mockito.eq(1L), Mockito.any()))
+                .thenReturn(Optional.of("ROLE_USER"));
         SecurityContextHolder.clearContext();
     }
 
@@ -95,6 +87,44 @@ class JWTFilterTokenTypeTest {
         assertThat(authentication).isNotNull();
         assertThat(authentication.getPrincipal()).isEqualTo(1L);
         assertThat(authentication.getAuthorities()).extracting("authority").containsExactly("ROLE_USER");
+        Mockito.verify(userRepository).findUsableRoleByIdAndTokenVersion(1L, 0);
+        Mockito.verify(userRepository, Mockito.never()).findById(Mockito.anyLong());
+    }
+
+    @Test
+    @DisplayName("토큰 role이 현재 DB role과 다르면 인증에 사용하지 않는다")
+    void tokenRoleMismatch_isRejectedForAuthentication() throws Exception {
+        String staleAdminToken = jwtUtil.createJwt("user@test.com", "ROLE_ADMIN", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/protected/resource");
+        request.addHeader("Authorization", "Bearer " + staleAdminToken);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DummyFilterChain chain = new DummyFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isTrue();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        assertThat(request.getAttribute("INVALID_AUTHOR")).isEqualTo(true);
+        Mockito.verify(userRepository, Mockito.never()).findById(Mockito.anyLong());
+    }
+
+    @Test
+    @DisplayName("토큰 버전이 현재 계정 버전과 다르면 인증에 사용하지 않는다")
+    void staleTokenVersion_isRejectedForAuthentication() throws Exception {
+        String staleToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L, 1);
+        Mockito.when(userRepository.findUsableRoleByIdAndTokenVersion(1L, 1)).thenReturn(Optional.empty());
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/protected/resource");
+        request.addHeader("Authorization", "Bearer " + staleToken);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DummyFilterChain chain = new DummyFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isTrue();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        assertThat(request.getAttribute("INVALID_AUTHOR")).isEqualTo(true);
+        Mockito.verify(userRepository).findUsableRoleByIdAndTokenVersion(1L, 1);
+        Mockito.verify(userRepository, Mockito.never()).findById(Mockito.anyLong());
     }
 
     @Test
@@ -192,6 +222,25 @@ class JWTFilterTokenTypeTest {
     }
 
     @Test
+    @DisplayName("/api/auth/reissue 경로는 Authorization 토큰이 있어도 필터 체인을 통과한다")
+    void authReissuePathWithAuthorization_isNotBlockedByJwtFilter() throws Exception {
+        String staleAccessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/auth/reissue");
+        request.addHeader("Referer", "http://evil.test/home");
+        request.addHeader("Origin", "http://evil.test");
+        request.addHeader("Authorization", "Bearer " + staleAccessToken);
+
+        DummyFilterChain chain = new DummyFilterChain();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isTrue();
+        assertThat(response.getStatus()).isNotEqualTo(HttpStatus.FORBIDDEN.value());
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
     @DisplayName("/api/auth/login/ 경로도 동일하게 필터 스킵 대상이다")
     void authLoginPathWithTrailingSlash_isNotBlockedByCsrfCheck() throws Exception {
         String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
@@ -227,6 +276,62 @@ class JWTFilterTokenTypeTest {
 
         assertThat(chain.invoked).isTrue();
         assertThat(response.getStatus()).isNotEqualTo(HttpStatus.FORBIDDEN.value());
+    }
+
+    @Test
+    @DisplayName("AI 프록시 변경 요청도 JWT가 있으면 Origin/Referer 검증 대상이다")
+    void aiProxyMutableRequestWithJwtWithoutOrigin_isRejectedByCsrfCheck() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/ai/chat/completion");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DummyFilterChain chain = new DummyFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isFalse();
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+        assertThat(response.getContentAsString()).contains("CSRF Protection");
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("AI 프록시 변경 요청의 Origin이 허용되지 않으면 JWT 인증 전에 차단한다")
+    void aiProxyMutableRequestWithJwtAndInvalidOrigin_isRejectedByCsrfCheck() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/ai/chat/completion");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+        request.addHeader("Origin", "http://evil.test");
+        request.addHeader("Referer", "http://evil.test/ai");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DummyFilterChain chain = new DummyFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isFalse();
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+        assertThat(response.getContentAsString()).contains("CSRF Protection");
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("AI 프록시 변경 요청의 Origin이 허용되면 JWT 인증 후 통과한다")
+    void aiProxyMutableRequestWithJwtAndAllowedOrigin_isAccepted() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/ai/chat/completion");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+        request.addHeader("Origin", "http://localhost:5176");
+        request.addHeader("Referer", "http://localhost:5176/ai");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DummyFilterChain chain = new DummyFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isTrue();
+        assertThat(response.getStatus()).isNotEqualTo(HttpStatus.FORBIDDEN.value());
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        assertThat(authentication).isNotNull();
+        assertThat(authentication.getPrincipal()).isEqualTo(1L);
     }
 
     @Test

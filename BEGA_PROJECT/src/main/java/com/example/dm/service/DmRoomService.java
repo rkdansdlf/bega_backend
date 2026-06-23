@@ -1,6 +1,12 @@
 package com.example.dm.service;
 
+import java.time.Instant;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -17,7 +23,9 @@ import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.ForbiddenBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
 import com.example.dm.dto.DmRoomDto;
+import com.example.dm.entity.DmMessage;
 import com.example.dm.entity.DmRoom;
+import com.example.dm.repository.DmMessageRepository;
 import com.example.dm.repository.DmRoomRepository;
 import com.example.profile.storage.service.ProfileImageService;
 
@@ -32,6 +40,7 @@ public class DmRoomService {
     public static final String MEMBERSHIP_ACTIVE = "ACTIVE";
 
     private final DmRoomRepository dmRoomRepository;
+    private final DmMessageRepository dmMessageRepository;
     private final UserRepository userRepository;
     private final UserFollowRepository userFollowRepository;
     private final UserBlockRepository userBlockRepository;
@@ -86,12 +95,8 @@ public class DmRoomService {
     @Transactional(readOnly = true)
     public DmRoom getAccessibleRoom(Long roomId, Long currentUserId) {
         long userId = requireCurrentUserId(currentUserId);
-        DmRoom room = dmRoomRepository.findById(roomId)
+        DmRoom room = dmRoomRepository.findAccessibleByIdAndParticipantId(roomId, userId)
                 .orElseThrow(() -> new NotFoundBusinessException("DM_ROOM_NOT_FOUND", "대화방을 찾을 수 없습니다."));
-
-        if (!isParticipant(room, userId)) {
-            throw new ForbiddenBusinessException("DM_ACCESS_DENIED", "대화방 참여자만 접근할 수 있습니다.");
-        }
 
         ensureNoBlock(userId, resolveTargetUserId(room, userId));
         return room;
@@ -103,8 +108,7 @@ public class DmRoomService {
             return false;
         }
 
-        return dmRoomRepository.findById(roomId)
-                .filter(room -> isParticipant(room, currentUserId))
+        return dmRoomRepository.findAccessibleByIdAndParticipantId(roomId, currentUserId)
                 .filter(room -> !userBlockRepository.existsBidirectionalBlock(currentUserId, resolveTargetUserId(room, currentUserId)))
                 .isPresent();
     }
@@ -122,6 +126,70 @@ public class DmRoomService {
         return room.getParticipantOneId();
     }
 
+    @Transactional(readOnly = true)
+    public List<DmRoomDto.InboxItem> getMyRooms(Long userId) {
+        requireCurrentUserId(userId);
+        List<DmRoom> rooms = dmRoomRepository.findAllByParticipantId(userId);
+        if (rooms.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> roomIds = rooms.stream().map(DmRoom::getId).toList();
+        Map<Long, DmMessage> latestByRoom = dmMessageRepository.findLatestMessagePerRoom(roomIds)
+                .stream()
+                .collect(Collectors.toMap(DmMessage::getRoomId, Function.identity(), (a, b) -> a));
+
+        List<Long> targetUserIds = rooms.stream()
+                .map(r -> resolveTargetUserId(r, userId))
+                .distinct()
+                .toList();
+        Map<Long, UserEntity> usersById = userRepository.findAllById(targetUserIds)
+                .stream()
+                .collect(Collectors.toMap(UserEntity::getId, Function.identity()));
+
+        return rooms.stream()
+                .map(room -> {
+                    Long targetUserId = resolveTargetUserId(room, userId);
+                    UserEntity targetUser = usersById.get(targetUserId);
+                    DmMessage lastMsg = latestByRoom.get(room.getId());
+                    Instant myLastRead = room.getParticipantOneId().equals(userId)
+                            ? room.getParticipantOneLastReadAt()
+                            : room.getParticipantTwoLastReadAt();
+                    boolean hasUnread = lastMsg != null
+                            && !lastMsg.getSenderId().equals(userId)
+                            && (myLastRead == null || lastMsg.getCreatedAt().isAfter(myLastRead));
+
+                    return DmRoomDto.InboxItem.builder()
+                            .roomId(room.getId())
+                            .targetUser(targetUser != null ? toTargetUser(targetUser) : null)
+                            .lastMessage(lastMsg != null
+                                    ? DmRoomDto.InboxItem.LastMessagePreview.builder()
+                                            .content(lastMsg.getContent())
+                                            .createdAt(lastMsg.getCreatedAt())
+                                            .senderId(lastMsg.getSenderId())
+                                            .build()
+                                    : null)
+                            .hasUnread(hasUnread)
+                            .build();
+                })
+                .sorted(Comparator.comparing(
+                        item -> item.getLastMessage() != null ? item.getLastMessage().getCreatedAt() : Instant.EPOCH,
+                        Comparator.reverseOrder()))
+                .toList();
+    }
+
+    @Transactional
+    public void markAsRead(Long roomId, Long userId) {
+        dmRoomRepository.findAccessibleByIdAndParticipantId(roomId, userId).ifPresent(room -> {
+            if (room.getParticipantOneId().equals(userId)) {
+                room.setParticipantOneLastReadAt(Instant.now());
+            } else {
+                room.setParticipantTwoLastReadAt(Instant.now());
+            }
+            dmRoomRepository.save(room);
+        });
+    }
+
     private DmRoomDto.BootstrapResponse toBootstrapResponse(DmRoom room, UserEntity targetUser) {
         return DmRoomDto.BootstrapResponse.builder()
                 .roomId(room.getId())
@@ -136,17 +204,17 @@ public class DmRoomService {
                 .name(user.getName())
                 .handle(user.getHandle())
                 .favoriteTeam(user.getFavoriteTeamId())
-                .profileImageUrl(resolveProfileImageUrl(user.getProfileImageUrl()))
+                .profileImageUrl(resolveProfileImageUrl(user.getId(), user.getProfileImageUrl()))
                 .build();
     }
 
-    private String resolveProfileImageUrl(String profileImageUrl) {
+    private String resolveProfileImageUrl(Long ownerUserId, String profileImageUrl) {
         if (profileImageUrl == null || profileImageUrl.isBlank()) {
             return null;
         }
 
         try {
-            return profileImageService.getProfileImageUrl(profileImageUrl);
+            return profileImageService.getProfileImageUrlForUser(ownerUserId, profileImageUrl);
         } catch (Exception e) {
             log.warn("Failed to resolve DM target profile image: {}", e.getMessage());
             return null;
@@ -170,11 +238,6 @@ public class DmRoomService {
         if (userBlockRepository.existsBidirectionalBlock(currentUserId, targetUserId)) {
             throw new ForbiddenBusinessException("DM_BLOCKED", "차단 관계인 사용자와는 메시지를 주고받을 수 없습니다.");
         }
-    }
-
-    private boolean isParticipant(DmRoom room, Long currentUserId) {
-        return room.getParticipantOneId().equals(currentUserId)
-                || room.getParticipantTwoId().equals(currentUserId);
     }
 
     private long requireCurrentUserId(Long currentUserId) {

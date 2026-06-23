@@ -96,6 +96,7 @@ public class StadiumPostgresJpaConfig {
 		Map<String, Object> jpaProperties = new LinkedHashMap<>();
 		jpaProperties.put(HIBERNATE_DEFAULT_SCHEMA, stadiumDefaultSchema);
 		jpaProperties.put(HIBERNATE_HBM2DDL_AUTO, stadiumDdlAuto);
+		// Metadata access is disabled, so keep an explicit dialect for stable test/CI boot.
 		jpaProperties.put(HIBERNATE_DIALECT, "org.hibernate.dialect.PostgreSQLDialect");
 		jpaProperties.put(HIBERNATE_ALLOW_METADATA, false);
 		jpaProperties.put(HIBERNATE_METADATA_DEFAULTS, false);

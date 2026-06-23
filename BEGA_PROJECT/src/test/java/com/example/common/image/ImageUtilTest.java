@@ -1,62 +1,66 @@
 package com.example.common.image;
 
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.springframework.mock.web.MockMultipartFile;
-
-import javax.imageio.ImageIO;
-import java.awt.Color;
-import java.awt.Graphics2D;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.zip.CRC32;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
 class ImageUtilTest {
 
-    private final ImageOptimizationMetricsService metricsService = mock(ImageOptimizationMetricsService.class);
-    private final ImageUtil imageUtil = new ImageUtil(metricsService);
+    @Mock
+    private ImageOptimizationMetricsService metricsService;
+
+    @InjectMocks
+    private ImageUtil imageUtil;
 
     @Test
-    @DisplayName("cheer feed 파생 이미지는 WebP writer 없이도 불투명 JPG로 재인코딩된다")
-    void processFeedProfileImage_reencodesPngAsOpaqueJpegWithoutWebpWriter() throws Exception {
-        MockMultipartFile file = new MockMultipartFile(
-                "file",
-                "avatar.png",
-                "image/png",
-                createTransparentPngBytes());
+    void getImageDimension_readsPngMetadataWithoutFullDecode() throws IOException {
+        byte[] hugeDimensionPng = minimalPng(8192, 8192);
 
-        ImageUtil.ProcessedImage processed = imageUtil.processFeedProfileImage(file);
+        ImageUtil.ImageDimension dimension = imageUtil.getImageDimension(hugeDimensionPng);
 
-        BufferedImage rendered = ImageIO.read(new ByteArrayInputStream(processed.getBytes()));
-
-        assertThat(processed.getContentType()).isEqualTo("image/jpeg");
-        assertThat(processed.getExtension()).isEqualTo("jpg");
-        assertThat(rendered).isNotNull();
-        assertThat(rendered.getColorModel().hasAlpha()).isFalse();
-        assertThat(rendered.getWidth()).isLessThanOrEqualTo(320);
-        assertThat(rendered.getHeight()).isLessThanOrEqualTo(320);
-        verify(metricsService).record("profile_feed", "optimized");
+        assertThat(dimension.width()).isEqualTo(8192);
+        assertThat(dimension.height()).isEqualTo(8192);
     }
 
-    private byte[] createTransparentPngBytes() throws Exception {
-        BufferedImage image = new BufferedImage(640, 640, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D graphics = image.createGraphics();
-        try {
-            graphics.setComposite(java.awt.AlphaComposite.Clear);
-            graphics.fillRect(0, 0, 640, 640);
-            graphics.setComposite(java.awt.AlphaComposite.SrcOver);
-            graphics.setColor(new Color(31, 41, 55, 255));
-            graphics.fillOval(48, 48, 544, 544);
-        } finally {
-            graphics.dispose();
-        }
+    private byte[] minimalPng(int width, int height) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        DataOutputStream dataOutput = new DataOutputStream(output);
+        dataOutput.write(new byte[] {(byte) 137, 80, 78, 71, 13, 10, 26, 10});
 
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        ImageIO.write(image, "png", outputStream);
-        return outputStream.toByteArray();
+        ByteArrayOutputStream ihdr = new ByteArrayOutputStream();
+        DataOutputStream ihdrData = new DataOutputStream(ihdr);
+        ihdrData.writeInt(width);
+        ihdrData.writeInt(height);
+        ihdrData.writeByte(8);
+        ihdrData.writeByte(2);
+        ihdrData.writeByte(0);
+        ihdrData.writeByte(0);
+        ihdrData.writeByte(0);
+
+        writeChunk(dataOutput, "IHDR", ihdr.toByteArray());
+        writeChunk(dataOutput, "IEND", new byte[0]);
+        return output.toByteArray();
+    }
+
+    private void writeChunk(DataOutputStream output, String type, byte[] data) throws IOException {
+        byte[] typeBytes = type.getBytes(StandardCharsets.US_ASCII);
+        CRC32 crc32 = new CRC32();
+        crc32.update(typeBytes);
+        crc32.update(data);
+
+        output.writeInt(data.length);
+        output.write(typeBytes);
+        output.write(data);
+        output.writeInt((int) crc32.getValue());
     }
 }

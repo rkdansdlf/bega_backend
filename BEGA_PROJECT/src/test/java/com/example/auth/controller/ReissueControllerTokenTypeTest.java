@@ -144,7 +144,7 @@ class ReissueControllerTokenTypeTest {
 
         when(jwtUtil.getTokenType("refresh-token")).thenReturn("refresh");
         when(jwtUtil.isExpired("refresh-token")).thenReturn(false);
-        when(refreshRepository.findAllByToken("refresh-token")).thenReturn(List.of(stored));
+        when(refreshRepository.findAllByTokenForUpdate("refresh-token")).thenReturn(List.of(stored));
         when(jwtUtil.getUserId("refresh-token")).thenReturn(1L);
         when(jwtUtil.getTokenVersion("refresh-token")).thenReturn(0);
         when(jwtUtil.getAccessTokenExpirationTime()).thenReturn(1000L * 60 * 60 * 2);

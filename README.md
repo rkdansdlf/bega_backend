@@ -312,6 +312,8 @@ GET    /api/parties/host/{hostId}   - 호스트별 파티 조회
 GET    /api/parties/search          - 파티 검색 
 GET    /api/parties/upcoming        - 경기 예정 파티 조회 
 GET    /api/parties/my/{userId}     - 내가 참여한 파티 조회 
+GET    /api/parties/search-terms/popular?limit=5 - 최근 7일 인기 검색어 조회
+POST   /api/parties/search-terms    - 검색어 일별 집계 기록(공개, 60 req/min/IP)
 POST   /api/parties                 - 파티 생성 
 PATCH  /api/parties/{id}            - 파티 업데이트 
 DELETE /api/parties/{id}            - 파티 삭제 

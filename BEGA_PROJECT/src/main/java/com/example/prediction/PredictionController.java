@@ -5,6 +5,7 @@ import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.UnauthorizedBusinessException;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -12,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
 import java.time.LocalDate;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
@@ -29,12 +30,22 @@ public class PredictionController {
 
     private final PredictionService predictionService;
     private final PredictionRepository predictionRepository;
+    private final PredictionBootstrapService predictionBootstrapService;
     private static final Pattern PREDICTION_GAME_ID_PATTERN = Pattern.compile("^[A-Za-z0-9_-]+$");
     private static final int MAX_MY_VOTE_BATCH_SIZE = 250;
 
     public PredictionController(PredictionService predictionService, PredictionRepository predictionRepository) {
+        this(predictionService, predictionRepository, null);
+    }
+
+    @Autowired
+    public PredictionController(
+            PredictionService predictionService,
+            PredictionRepository predictionRepository,
+            PredictionBootstrapService predictionBootstrapService) {
         this.predictionService = predictionService;
         this.predictionRepository = predictionRepository;
+        this.predictionBootstrapService = predictionBootstrapService;
     }
 
     // 과거 경기 조회 (오늘 기준 이전 일주일치 - 최신순)
@@ -59,6 +70,18 @@ public class PredictionController {
     public ResponseEntity<MatchDayNavigationResponseDto> getMatchDay(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return ResponseEntity.ok(predictionService.getMatchDayNavigation(date));
+    }
+
+    @PreAuthorize("permitAll()")
+    @GetMapping("/predictions/bootstrap")
+    public ResponseEntity<PredictionBootstrapResponseDto> getPredictionBootstrap(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) String gameId) {
+        String normalizedGameId = null;
+        if (gameId != null && !gameId.isBlank()) {
+            normalizedGameId = requireNormalizedGameId(gameId);
+        }
+        return ResponseEntity.ok(predictionBootstrapService.getBootstrap(date, normalizedGameId));
     }
 
     // 특정 기간의 경기 조회 (과거 일주일치 등)
@@ -98,7 +121,7 @@ public class PredictionController {
     // 특정 경기 상세 조회
     @PreAuthorize("permitAll()")
     @GetMapping("/matches/{gameId}")
-    public ResponseEntity<?> getMatchDetail(@PathVariable String gameId) {
+    public ResponseEntity<GameDetailDto> getMatchDetail(@PathVariable String gameId) {
         String normalizedGameId = requireNormalizedGameId(gameId);
 
         GameDetailDto detail = predictionService.getGameDetail(normalizedGameId);
@@ -118,7 +141,7 @@ public class PredictionController {
     // 투표 현황 조회
     @PreAuthorize("permitAll()")
     @GetMapping("/predictions/status/{gameId}")
-    public ResponseEntity<?> getVoteStatus(@PathVariable String gameId) {
+    public ResponseEntity<PredictionResponseDto> getVoteStatus(@PathVariable String gameId) {
         String normalizedGameId = requireNormalizedGameId(gameId);
 
         PredictionResponseDto response = predictionService.getVoteStatus(normalizedGameId);
@@ -139,7 +162,7 @@ public class PredictionController {
 
     // 다수 경기 사용자 투표 일괄 조회
     @PostMapping("/predictions/my-votes")
-    public ResponseEntity<?> getMyVotesBulk(
+    public ResponseEntity<PredictionMyVotesResponseDto> getMyVotesBulk(
             @Valid @RequestBody PredictionMyVotesRequestDto request,
             Principal principal) {
         Long userId = parsePrincipalUserIdForMyVotes(requirePrincipalForMyVotes(principal));
@@ -149,7 +172,6 @@ public class PredictionController {
             return ResponseEntity.ok(emptyVotesPayload());
         }
 
-        Map<String, String> votes = new HashMap<>();
         List<String> distinctGameIds = normalizeGameIds(gameIds);
 
         if (distinctGameIds.size() > MAX_MY_VOTE_BATCH_SIZE) {
@@ -163,13 +185,13 @@ public class PredictionController {
             return ResponseEntity.ok(emptyVotesPayload());
         }
 
-        votes = buildUserVotesForGames(userId, distinctGameIds);
+        Map<String, String> votes = buildUserVotesForGames(userId, distinctGameIds);
 
-        return ResponseEntity.ok(Map.of("votes", votes));
+        return ResponseEntity.ok(new PredictionMyVotesResponseDto(votes));
     }
 
     private Map<String, String> buildUserVotesForGames(Long userId, List<String> gameIds) {
-        Map<String, String> votes = new HashMap<>();
+        Map<String, String> votes = new LinkedHashMap<>();
         if (gameIds == null || gameIds.isEmpty()) {
             return votes;
         }
@@ -245,10 +267,10 @@ public class PredictionController {
 
     // 내 예측 통계 조회
     @GetMapping("/prediction/stats/me")
-    public ResponseEntity<ApiResponse> getMyStats(Principal principal) {
+    public ResponseEntity<PredictionStatsResponseDto> getMyStats(Principal principal) {
         Long userId = parsePrincipalUserId(requirePrincipal(principal));
         UserPredictionStatsDto stats = predictionService.getUserStats(userId);
-        return ResponseEntity.ok(ApiResponse.success("내 예측 통계를 조회했습니다.", stats));
+        return ResponseEntity.ok(PredictionStatsResponseDto.success("내 예측 통계를 조회했습니다.", stats));
     }
 
     private String requireNormalizedGameId(String gameId) {
@@ -309,7 +331,7 @@ public class PredictionController {
         }
     }
 
-    private Map<String, Object> emptyVotesPayload() {
-        return Map.of("votes", Map.of());
+    private PredictionMyVotesResponseDto emptyVotesPayload() {
+        return new PredictionMyVotesResponseDto(Map.of());
     }
 }

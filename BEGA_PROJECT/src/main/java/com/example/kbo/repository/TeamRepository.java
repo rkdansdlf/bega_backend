@@ -83,11 +83,7 @@ public interface TeamRepository extends JpaRepository<TeamEntity, String> {
      * @param isActive 활성 여부
      * @return 팀 엔티티
      */
-    @Query("SELECT t FROM TeamEntity t WHERE t.franchise.id = :franchiseId AND t.isActive = :isActive")
-    Optional<TeamEntity> findByFranchiseIdAndIsActive(
-        @Param("franchiseId") Integer franchiseId,
-        @Param("isActive") Boolean isActive
-    );
+    Optional<TeamEntity> findByFranchise_IdAndIsActive(Integer franchiseId, Boolean isActive);
 
     /**
      * 프랜차이즈 ID와 활성 여부로 팀 목록 조회
@@ -96,11 +92,7 @@ public interface TeamRepository extends JpaRepository<TeamEntity, String> {
      * @param isActive 활성 여부
      * @return 팀 엔티티 목록
      */
-    @Query("SELECT t FROM TeamEntity t WHERE t.franchise.id = :franchiseId AND t.isActive = :isActive")
-    List<TeamEntity> findAllByFranchiseIdAndIsActive(
-        @Param("franchiseId") Integer franchiseId,
-        @Param("isActive") Boolean isActive
-    );
+    List<TeamEntity> findAllByFranchise_IdAndIsActive(Integer franchiseId, Boolean isActive);
 
     /**
      * 도시로 팀 목록 조회

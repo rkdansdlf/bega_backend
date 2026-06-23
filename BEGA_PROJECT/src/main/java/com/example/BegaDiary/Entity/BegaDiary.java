@@ -8,6 +8,8 @@ import java.util.List;
 import com.example.kbo.entity.GameEntity;
 import com.example.auth.entity.UserEntity;
 
+import org.hibernate.annotations.BatchSize;
+
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
@@ -76,7 +78,7 @@ public class BegaDiary {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
-	@Column(name = "diarydate", nullable = false, unique = true)
+	@Column(name = "diarydate", nullable = false)
 	private LocalDate diaryDate; // 다이어리 날짜 중복 금지
 
 	@ManyToOne(fetch = FetchType.LAZY)
@@ -105,10 +107,11 @@ public class BegaDiary {
 	private DiaryType type;
 
 	@Enumerated(EnumType.STRING)
-	@Column(nullable = false)
+	@Column
 	private DiaryWinning winning;
 
 	@ElementCollection
+	@BatchSize(size = 50)
 	@CollectionTable(name = "bega_diary_photo_urls", joinColumns = @JoinColumn(name = "bega_diary_id"))
 	@Column(name = "photo_urls", nullable = false, length = 2048)
 	private List<String> photoUrls = new ArrayList<>(); // 사진 URL 목록
@@ -168,6 +171,7 @@ public class BegaDiary {
 	public void updateDiary(
 			String memo,
 			DiaryEmoji mood,
+			DiaryType type,
 			List<String> photoUrls,
 			GameEntity game,
 			String team,
@@ -179,6 +183,9 @@ public class BegaDiary {
 			String seatNumber) {
 		this.memo = memo;
 		this.mood = mood;
+		if (type != null) {
+			this.type = type;
+		}
 		if (photoUrls != null) {
 			this.photoUrls = photoUrls;
 		}
@@ -191,9 +198,7 @@ public class BegaDiary {
 		if (stadium != null) {
 			this.stadium = stadium;
 		}
-		if (winning != null) {
-			this.winning = winning;
-		}
+		this.winning = winning;
 		this.section = section;
 		this.block = block;
 		this.seatRow = seatRow;
