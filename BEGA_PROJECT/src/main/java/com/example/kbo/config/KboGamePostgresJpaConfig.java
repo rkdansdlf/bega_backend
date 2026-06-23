@@ -97,6 +97,7 @@ public class KboGamePostgresJpaConfig {
 		String kboGameSchema = ensureKboGameSchema(stadiumDataSource);
 		Map<String, Object> jpaProperties = new HashMap<>();
 		jpaProperties.put("hibernate.default_schema", kboGameSchema);
+		// Metadata access is disabled, so keep an explicit dialect for stable test/CI boot.
 		jpaProperties.put("hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect");
 		jpaProperties.put("hibernate.boot.allow_jdbc_metadata_access", false);
 		jpaProperties.put("hibernate.temp.use_jdbc_metadata_defaults", false);

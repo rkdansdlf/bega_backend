@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -71,6 +72,39 @@ class RateLimitFilterTest {
         verify(rateLimitService).isAllowed(keyCaptor.capture(), eq(3), eq(3600), eq(true));
         assertThat(keyCaptor.getValue())
                 .isEqualTo("rate:limit:auth:password-reset-request:POST:/api/auth/password/reset/request:203.0.113.20");
+    }
+
+    @Test
+    void clientError_usesTelemetryRateLimitKeyFromResolvedClientIp() throws Exception {
+        doRequest("POST", "/api/client-errors", "203.0.113.60");
+
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(rateLimitService).isAllowed(keyCaptor.capture(), eq(120), eq(60), eq(true));
+        assertThat(keyCaptor.getValue())
+                .isEqualTo("rate:limit:telemetry:client-error:POST:/api/client-errors:203.0.113.60");
+    }
+
+    @Test
+    void clientErrorFeedback_usesTelemetryRateLimitKeyFromResolvedClientIp() throws Exception {
+        doRequest("POST", "/api/client-errors/feedback", "203.0.113.61");
+
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(rateLimitService).isAllowed(keyCaptor.capture(), eq(30), eq(60), eq(true));
+        assertThat(keyCaptor.getValue())
+                .isEqualTo("rate:limit:telemetry:client-feedback:POST:/api/client-errors/feedback:203.0.113.61");
+    }
+
+    @Test
+    void rejectedClientErrorRequest_returns429JsonWithoutAuthMonitoringEvent() throws Exception {
+        when(rateLimitService.isAllowed(anyString(), anyInt(), anyInt(), anyBoolean())).thenReturn(false);
+
+        MockHttpServletResponse response = doRequest("POST", "/api/client-errors", "203.0.113.62");
+
+        assertThat(response.getStatus()).isEqualTo(429);
+        assertThat(response.getHeader("Retry-After")).isEqualTo("60");
+        assertThat(response.getContentAsString()).contains("RATE_LIMITED");
+        assertThat(response.getContentAsString()).contains("retryAfterSeconds");
+        verify(authSecurityMonitoringService, never()).recordAuthRateLimitReject();
     }
 
     @Test

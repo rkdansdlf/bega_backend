@@ -24,6 +24,7 @@ import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_TARGET_NOT_FOUND_ERROR;
 
 import com.example.cheerboard.exception.DuplicateCommentException;
+import com.example.cheerboard.service.CheerRepostConstraintDetector;
 import com.example.common.dto.ApiResponse;
 import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.RepostNotAllowedException;
@@ -31,6 +32,8 @@ import com.example.common.exception.RepostSelfNotAllowedException;
 import com.example.common.exception.RepostTargetNotFoundException;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -43,6 +46,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * Cheerboard API 전용 예외 핸들러.
  */
 @RestControllerAdvice(basePackages = "com.example.cheerboard")
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @Slf4j
 public class ApiExceptionHandler {
 
@@ -51,7 +55,7 @@ public class ApiExceptionHandler {
         if (isDeletedAuthorReference(ex)) {
             return build(HttpStatus.UNAUTHORIZED, "INVALID_AUTHOR", "인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
         }
-        if (isRepostDuplicateViolation(ex)) {
+        if (CheerRepostConstraintDetector.isDuplicateViolation(ex)) {
             return build(HttpStatus.CONFLICT, REPOST_CONFLICT_CODE, REPOST_CONFLICT_ERROR);
         }
 
@@ -95,19 +99,6 @@ public class ApiExceptionHandler {
     private ResponseEntity<ApiResponse> build(HttpStatus status, String code, String message) {
         return ResponseEntity.status(Objects.requireNonNull(status))
                 .body(ApiResponse.error(code, defaultIfBlank(message, status.getReasonPhrase())));
-    }
-
-    private boolean isRepostDuplicateViolation(DataIntegrityViolationException ex) {
-        String message = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
-        if (message == null) {
-            return false;
-        }
-        String lower = message.toLowerCase();
-        return lower.contains("uq_cheer_post_simple_repost")
-                || (lower.contains("duplicate key") && lower.contains("repost_type") && lower.contains("repost_of_id"))
-                || (lower.contains("repost_of_id") && lower.contains("repost_type"))
-                || (lower.contains("cheer_post_repost") && lower.contains("duplicate key"))
-                || (lower.contains("cheer_post_repost_pkey"));
     }
 
     private String resolveRepostMessage(String code, String message) {

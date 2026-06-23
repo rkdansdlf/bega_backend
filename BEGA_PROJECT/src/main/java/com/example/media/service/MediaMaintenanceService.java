@@ -13,6 +13,7 @@ import com.example.mate.entity.ChatMessage;
 import com.example.mate.repository.ChatMessageRepository;
 import com.example.mate.service.ChatImageService;
 import com.example.media.dto.MediaBackfillDomainReport;
+import com.example.media.dto.MediaBackfillIssueSample;
 import com.example.media.dto.MediaBackfillReport;
 import com.example.media.dto.MediaCleanupReport;
 import com.example.media.dto.MediaCleanupTargetReport;
@@ -29,6 +30,7 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -62,6 +64,7 @@ public class MediaMaintenanceService {
     private final ImageService imageService;
     private final ChatImageService chatImageService;
     private final MediaLinkService mediaLinkService;
+    private final MediaObjectKeyGuard mediaObjectKeyGuard;
     private final MediaUploadService mediaUploadService;
     private final ImageUtil imageUtil;
 
@@ -192,6 +195,7 @@ public class MediaMaintenanceService {
         List<String> sampleNormalizedTargets = new ArrayList<>();
         List<String> sampleLegacyTargets = new ArrayList<>();
         List<String> sampleManualReviewTargets = new ArrayList<>();
+        BackfillAudit audit = new BackfillAudit();
 
         Pageable pageable = PageRequest.of(0, batchSize, Sort.by(Sort.Direction.ASC, "id"));
         while (true) {
@@ -225,10 +229,16 @@ public class MediaMaintenanceService {
                         }
                     }
                 } catch (RuntimeException ex) {
-                    manualReviewCount++;
                     skipLinkSync = true;
-                    addSample(sampleManualReviewTargets, "userId=" + user.getId() + ":" + ex.getMessage());
+                    if (apply) {
+                        manualReviewCount++;
+                        addSample(sampleManualReviewTargets, "userId=" + user.getId() + ":" + ex.getMessage());
+                    }
                     log.warn("Profile media backfill skipped: userId={}, reason={}", user.getId(), ex.getMessage());
+                }
+
+                if (!apply) {
+                    auditProfileDryRun(user.getId(), finalProfile, finalFeed, audit);
                 }
 
                 if (StringUtils.hasText(finalProfile) && !MediaDomain.PROFILE.isManagedPath(finalProfile)) {
@@ -273,10 +283,12 @@ public class MediaMaintenanceService {
                 clearedCount,
                 linkSyncedCount,
                 legacyPathRetainedCount,
-                manualReviewCount,
+                manualReviewCount + audit.manualReviewCount(),
                 sampleNormalizedTargets,
                 sampleLegacyTargets,
-                sampleManualReviewTargets);
+                sampleManualReviewTargets,
+                audit.counts(),
+                audit.samples());
     }
 
     private MediaBackfillDomainReport backfillDiaries(boolean apply, int batchSize) {
@@ -290,6 +302,7 @@ public class MediaMaintenanceService {
         List<String> sampleNormalizedTargets = new ArrayList<>();
         List<String> sampleLegacyTargets = new ArrayList<>();
         List<String> sampleManualReviewTargets = new ArrayList<>();
+        BackfillAudit audit = new BackfillAudit();
 
         Pageable pageable = PageRequest.of(0, batchSize, Sort.by(Sort.Direction.ASC, "id"));
         while (true) {
@@ -316,10 +329,16 @@ public class MediaMaintenanceService {
                         diaryReadyForLink = true;
                     }
                 } catch (RuntimeException ex) {
-                    manualReviewCount++;
                     skipLinkSync = true;
-                    addSample(sampleManualReviewTargets, "diaryId=" + diary.getId() + ":" + ex.getMessage());
+                    if (apply) {
+                        manualReviewCount++;
+                        addSample(sampleManualReviewTargets, "diaryId=" + diary.getId() + ":" + ex.getMessage());
+                    }
                     log.warn("Diary media backfill skipped: diaryId={}, reason={}", diary.getId(), ex.getMessage());
+                }
+
+                if (!apply) {
+                    auditDiaryDryRun(diary.getId(), diary.getUser().getId(), finalPaths, audit);
                 }
 
                 legacyPathRetainedCount += countLegacyPaths(finalPaths, MediaDomain.DIARY);
@@ -359,10 +378,12 @@ public class MediaMaintenanceService {
                 clearedCount,
                 linkSyncedCount,
                 legacyPathRetainedCount,
-                manualReviewCount,
+                manualReviewCount + audit.manualReviewCount(),
                 sampleNormalizedTargets,
                 sampleLegacyTargets,
-                sampleManualReviewTargets);
+                sampleManualReviewTargets,
+                audit.counts(),
+                audit.samples());
     }
 
     private MediaBackfillDomainReport backfillChats(boolean apply, int batchSize, boolean clearBrokenChatImages) {
@@ -376,6 +397,7 @@ public class MediaMaintenanceService {
         List<String> sampleNormalizedTargets = new ArrayList<>();
         List<String> sampleLegacyTargets = new ArrayList<>();
         List<String> sampleManualReviewTargets = new ArrayList<>();
+        BackfillAudit audit = new BackfillAudit();
 
         Pageable pageable = PageRequest.of(0, batchSize, Sort.by(Sort.Direction.ASC, "id"));
         while (true) {
@@ -413,10 +435,16 @@ public class MediaMaintenanceService {
                         chatMessageRepository.save(message);
                         mediaLinkService.unlinkEntity(MediaDomain.CHAT, message.getId());
                     } else {
-                        manualReviewCount++;
-                        addSample(sampleManualReviewTargets, reviewMessage);
+                        if (apply) {
+                            manualReviewCount++;
+                            addSample(sampleManualReviewTargets, reviewMessage);
+                        }
                     }
                     log.warn("Chat media backfill skipped: messageId={}, reason={}", message.getId(), ex.getMessage());
+                }
+
+                if (!apply) {
+                    auditChatDryRun(message.getId(), message.getSenderId(), finalImage, audit);
                 }
 
                 if (StringUtils.hasText(finalImage) && !MediaDomain.CHAT.isManagedPath(finalImage)) {
@@ -457,10 +485,131 @@ public class MediaMaintenanceService {
                 clearedCount,
                 linkSyncedCount,
                 legacyPathRetainedCount,
-                manualReviewCount,
+                manualReviewCount + audit.manualReviewCount(),
                 sampleNormalizedTargets,
                 sampleLegacyTargets,
-                sampleManualReviewTargets);
+                sampleManualReviewTargets,
+                audit.counts(),
+                audit.samples());
+    }
+
+    private void auditProfileDryRun(Long userId, String profilePath, String feedPath, BackfillAudit audit) {
+        auditProfilePath("userId=" + userId + ":profile", userId, profilePath, false, audit);
+        auditProfilePath("userId=" + userId + ":feed", userId, feedPath, true, audit);
+    }
+
+    private void auditProfilePath(
+            String subject,
+            Long userId,
+            String storagePath,
+            boolean allowFeedPath,
+            BackfillAudit audit) {
+        if (!StringUtils.hasText(storagePath)) {
+            return;
+        }
+        if (isExternalUrl(storagePath)) {
+            audit.record("EXTERNAL_PROFILE_URL_RETAINED", subject, storagePath, "external profile URL retained");
+            return;
+        }
+        if (MediaDomain.PROFILE.isManagedPath(storagePath)) {
+            MediaObjectKeyGuard.KeyDecision decision =
+                    mediaObjectKeyGuard.evaluateProfileReadKey(storagePath, userId, allowFeedPath);
+            recordRejectedDecision(decision, subject, storagePath, audit);
+            return;
+        }
+        if (storagePath.startsWith("profiles/")) {
+            MediaObjectKeyGuard.KeyDecision decision = allowFeedPath
+                    ? mediaObjectKeyGuard.evaluateProfileReadKey(storagePath, userId, true)
+                    : mediaObjectKeyGuard.evaluateProfileWriteKey(storagePath, userId);
+            recordDecision(decision, subject, storagePath, MediaDomain.PROFILE, audit);
+            return;
+        }
+        audit.recordManual("UNSUPPORTED_KEY", subject, storagePath, "unsupported profile storage key");
+    }
+
+    private void auditDiaryDryRun(Long diaryId, Long ownerUserId, Collection<String> storagePaths, BackfillAudit audit) {
+        if (storagePaths == null || storagePaths.isEmpty()) {
+            return;
+        }
+        for (String storagePath : storagePaths) {
+            String subject = "diaryId=" + diaryId;
+            if (!StringUtils.hasText(storagePath)) {
+                continue;
+            }
+            if (MediaDomain.DIARY.isManagedPath(storagePath)) {
+                MediaObjectKeyGuard.KeyDecision decision =
+                        mediaObjectKeyGuard.evaluateDiaryReadKey(storagePath, ownerUserId, diaryId);
+                recordRejectedDecision(decision, subject, storagePath, audit);
+                continue;
+            }
+            if (storagePath.startsWith("diary/")) {
+                MediaObjectKeyGuard.KeyDecision decision =
+                        mediaObjectKeyGuard.evaluateDiaryReadKey(storagePath, ownerUserId, diaryId);
+                recordDecision(decision, subject, storagePath, MediaDomain.DIARY, audit);
+                continue;
+            }
+            audit.recordManual("UNSUPPORTED_KEY", subject, storagePath, "unsupported diary storage key");
+        }
+    }
+
+    private void auditChatDryRun(Long messageId, Long senderId, String storagePath, BackfillAudit audit) {
+        if (!StringUtils.hasText(storagePath)) {
+            return;
+        }
+        String subject = "messageId=" + messageId;
+        if (MediaDomain.CHAT.isManagedPath(storagePath)) {
+            MediaObjectKeyGuard.KeyDecision decision =
+                    mediaObjectKeyGuard.evaluateChatReadKey(storagePath, senderId);
+            recordRejectedDecision(decision, subject, storagePath, audit);
+            return;
+        }
+        if (storagePath.startsWith("chat/")) {
+            MediaObjectKeyGuard.KeyDecision decision =
+                    mediaObjectKeyGuard.evaluateChatReadKey(storagePath, senderId);
+            recordDecision(decision, subject, storagePath, MediaDomain.CHAT, audit);
+            return;
+        }
+        audit.recordManual("UNSUPPORTED_KEY", subject, storagePath, "unsupported chat storage key");
+    }
+
+    private void recordDecision(
+            MediaObjectKeyGuard.KeyDecision decision,
+            String subject,
+            String storagePath,
+            MediaDomain domain,
+            BackfillAudit audit) {
+        if (decision.allowed()) {
+            audit.record(decision.reason().name(), subject, storagePath, "legacy key retained");
+            auditLegacyObjectExists(domain, subject, storagePath, audit);
+            return;
+        }
+        recordRejectedDecision(decision, subject, storagePath, audit);
+    }
+
+    private void recordRejectedDecision(
+            MediaObjectKeyGuard.KeyDecision decision,
+            String subject,
+            String storagePath,
+            BackfillAudit audit) {
+        if (decision.allowed() || decision.reason() == MediaObjectKeyGuard.DecisionReason.BLANK) {
+            return;
+        }
+        audit.recordManual(decision.reason().name(), subject, storagePath, "media key guard rejected key");
+    }
+
+    private void auditLegacyObjectExists(
+            MediaDomain domain,
+            String subject,
+            String storagePath,
+            BackfillAudit audit) {
+        try {
+            boolean exists = Boolean.TRUE.equals(storageStrategy.exists(domain.resolveBucket(storageConfig), storagePath).block());
+            if (!exists) {
+                audit.recordManual("LEGACY_OBJECT_MISSING", subject, storagePath, "storage object missing");
+            }
+        } catch (RuntimeException ex) {
+            audit.recordManual("LEGACY_OBJECT_MISSING", subject, storagePath, ex.getMessage());
+        }
     }
 
     private SmokeCheck checkAsset(MediaAsset asset) {
@@ -794,6 +943,14 @@ public class MediaMaintenanceService {
         };
     }
 
+    private boolean isExternalUrl(String storagePath) {
+        if (!StringUtils.hasText(storagePath)) {
+            return false;
+        }
+        String normalized = storagePath.strip().toLowerCase(java.util.Locale.ROOT);
+        return normalized.startsWith("http://") || normalized.startsWith("https://");
+    }
+
     private boolean shouldClearBrokenLegacyChatImage(
             boolean apply,
             boolean clearBrokenChatImages,
@@ -948,5 +1105,40 @@ public class MediaMaintenanceService {
     }
 
     private record SmokeCheck(boolean missingObject, boolean urlFailure) {
+    }
+
+    private static final class BackfillAudit {
+        private final Map<String, Integer> counts = new LinkedHashMap<>();
+        private final List<MediaBackfillIssueSample> samples = new ArrayList<>();
+        private int manualReviewCount;
+
+        void record(String type, String subject, String objectKey, String detail) {
+            counts.merge(type, 1, Integer::sum);
+            addSample(type, subject, objectKey, detail);
+        }
+
+        void recordManual(String type, String subject, String objectKey, String detail) {
+            manualReviewCount++;
+            record(type, subject, objectKey, detail);
+        }
+
+        int manualReviewCount() {
+            return manualReviewCount;
+        }
+
+        Map<String, Integer> counts() {
+            return Map.copyOf(counts);
+        }
+
+        List<MediaBackfillIssueSample> samples() {
+            return List.copyOf(samples);
+        }
+
+        private void addSample(String type, String subject, String objectKey, String detail) {
+            if (samples.size() >= MAX_AFFECTED_SAMPLES) {
+                return;
+            }
+            samples.add(new MediaBackfillIssueSample(type, subject, objectKey, detail));
+        }
     }
 }

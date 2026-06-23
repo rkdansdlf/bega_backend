@@ -7,6 +7,7 @@ import com.example.kbo.entity.GameSummaryEntity;
 import com.example.kbo.repository.GameDetailHeaderProjection;
 import com.example.kbo.util.GameStatusResolver;
 import com.example.kbo.util.GameSummaryDisplayPolicy;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -18,22 +19,39 @@ import java.util.stream.Collectors;
 @Getter
 @Builder
 public class GameDetailDto {
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
     private String gameId;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
     private LocalDate gameDate;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
     private String stadium;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
     private String stadiumName;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
     private LocalTime startTime;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
     private Integer attendance;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
     private String weather;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
     private Integer gameTimeMinutes;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
     private String homeTeam;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
     private String awayTeam;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
     private Integer homeScore;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
     private Integer awayScore;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
     private String homePitcher;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
     private String awayPitcher;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
     private String gameStatus;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
     private List<GameInningScoreDto> inningScores;
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
     private List<GameSummaryDto> summary;
 
     public static GameDetailDto from(

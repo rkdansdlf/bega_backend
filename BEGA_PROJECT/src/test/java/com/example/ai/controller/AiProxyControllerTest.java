@@ -1,12 +1,15 @@
 package com.example.ai.controller;
 
+import com.example.ai.config.AiProxyRequestLimits;
 import com.example.ai.exception.AiProxyException;
 import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
 import com.example.ai.service.AiProxyService.ProxyStreamResponse;
 import com.example.ai.service.CoachAutoBriefMonitoringService;
 import com.example.common.exception.GlobalExceptionHandler;
+import com.example.common.ratelimit.RateLimit;
 import java.io.OutputStream;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,11 +18,13 @@ import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import reactor.core.publisher.Flux;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -27,9 +32,11 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -47,7 +54,10 @@ class AiProxyControllerTest {
     void setup() {
         aiProxyService = mock(AiProxyService.class);
         coachAutoBriefMonitoringService = mock(CoachAutoBriefMonitoringService.class);
-        AiProxyController controller = new AiProxyController(aiProxyService, coachAutoBriefMonitoringService);
+        AiProxyController controller = new AiProxyController(
+                aiProxyService,
+                coachAutoBriefMonitoringService,
+                new AiProxyRequestLimits(4096, 4096, 1024 * 1024, 1024 * 1024 + 65536, 256 * 1024, 128 * 1024));
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -249,9 +259,10 @@ class AiProxyControllerTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.TEXT_EVENT_STREAM);
         headers.add("X-Accel-Buffering", "no");
-        String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\"}";
+        String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\",\"analysis_type\":\"game_review\"}";
         DefaultDataBufferFactory bufferFactory = new DefaultDataBufferFactory();
         given(coachAutoBriefMonitoringService.extractRequestMode(eq(payload))).willReturn("manual_detail");
+        given(coachAutoBriefMonitoringService.extractAnalysisType(eq(payload))).willReturn("game_review");
 
         given(aiProxyService.forwardJsonStream(eq("/ai/coach/analyze"), eq(payload)))
                 .willReturn(new ProxyStreamResponse(
@@ -280,7 +291,7 @@ class AiProxyControllerTest {
                 .andExpect(content().string(containsString("event: meta")))
                 .andExpect(content().string(containsString("data: [DONE]")));
 
-        verify(coachAutoBriefMonitoringService).recordCoachAnalyzeDuration(eq("manual_detail"), eq(200), anyLong());
+        verify(coachAutoBriefMonitoringService).recordCoachAnalyzeDuration(eq("manual_detail"), eq("game_review"), eq(200), anyLong());
     }
 
     @Test
@@ -288,9 +299,10 @@ class AiProxyControllerTest {
     void coachAnalyzeUpstreamFailureReturnsStandardizedErrorResponse() throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\"}";
+        String payload = "{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\",\"request_mode\":\"manual_detail\",\"analysis_type\":\"game_review\"}";
         String responseBody = "{\"success\":false,\"code\":\"AI_UPSTREAM_UNAVAILABLE\",\"message\":\"AI 서비스가 현재 사용할 수 없습니다.\"}";
         given(coachAutoBriefMonitoringService.extractRequestMode(eq(payload))).willReturn("manual_detail");
+        given(coachAutoBriefMonitoringService.extractAnalysisType(eq(payload))).willReturn("game_review");
 
         given(aiProxyService.forwardJsonStream(eq("/ai/coach/analyze"), eq(payload)))
                 .willReturn(new ProxyStreamResponse(
@@ -309,7 +321,7 @@ class AiProxyControllerTest {
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().json(responseBody));
 
-        verify(coachAutoBriefMonitoringService).recordCoachAnalyzeDuration(eq("manual_detail"), eq(503), anyLong());
+        verify(coachAutoBriefMonitoringService).recordCoachAnalyzeDuration(eq("manual_detail"), eq("game_review"), eq(503), anyLong());
     }
 
     @Test
@@ -328,6 +340,106 @@ class AiProxyControllerTest {
                 .andExpect(status().isGatewayTimeout())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("AI_UPSTREAM_TIMEOUT"))
-                .andExpect(jsonPath("$.message").value("AI 응답 시간이 초과되었습니다."));
+                .andExpect(jsonPath("$.message").value("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
+    }
+
+    @Test
+    @DisplayName("chat completion payload가 backend 한도를 넘으면 upstream 호출 전 413을 반환한다")
+    void chatCompletionOversizedPayloadReturns413BeforeProxyForwarding() throws Exception {
+        MockMvc limitedMockMvc = mockMvcWithLimits(
+                new AiProxyRequestLimits(8, 4096, 1024 * 1024, 1024 * 1024 + 65536, 256 * 1024, 128 * 1024));
+
+        limitedMockMvc.perform(post("/api/ai/chat/completion")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"question\":\"too long\"}"))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE));
+
+        verify(aiProxyService, never()).forwardJson(any(), any());
+    }
+
+    @Test
+    @DisplayName("coach analyze payload가 backend 한도를 넘으면 upstream 호출 전 413을 반환한다")
+    void coachAnalyzeOversizedPayloadReturns413BeforeProxyForwarding() throws Exception {
+        MockMvc limitedMockMvc = mockMvcWithLimits(
+                new AiProxyRequestLimits(4096, 8, 1024 * 1024, 1024 * 1024 + 65536, 256 * 1024, 128 * 1024));
+
+        limitedMockMvc.perform(post("/api/ai/coach/analyze")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\"}"))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE));
+
+        verify(aiProxyService, never()).forwardJsonStream(any(), any());
+    }
+
+    @Test
+    @DisplayName("voice upload가 backend 한도를 넘으면 upstream 호출 전 413을 반환한다")
+    void chatVoiceOversizedUploadReturns413BeforeProxyForwarding() throws Exception {
+        MockMvc limitedMockMvc = mockMvcWithLimits(new AiProxyRequestLimits(4096, 4096, 4, 1024, 256 * 1024, 128 * 1024));
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "voice.wav",
+                "audio/wav",
+                new byte[] {1, 2, 3, 4, 5});
+
+        limitedMockMvc.perform(multipart("/api/ai/chat/voice").file(file))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE));
+
+        verify(aiProxyService, never()).forwardMultipart(any(), any());
+    }
+
+    @Test
+    @DisplayName("release decision admin payload가 backend 한도를 넘으면 upstream 호출 전 413을 반환한다")
+    void releaseDecisionDraftOversizedPayloadReturns413BeforeProxyForwarding() throws Exception {
+        MockMvc limitedMockMvc = mockMvcWithLimits(new AiProxyRequestLimits(4096, 4096, 1024 * 1024, 1024 * 1024, 8, 128 * 1024));
+
+        limitedMockMvc.perform(post("/api/ai/release-decision/draft")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scenario\":\"prediction_stage2\"}"))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE));
+
+        verify(aiProxyService, never()).forwardJson(eq("/ai/release-decision/draft"), any());
+    }
+
+    @Test
+    @DisplayName("AI 프록시 공개 사용자 엔드포인트는 fail-closed rate limit을 사용한다")
+    void aiProxyUserEndpointsHaveFailClosedRateLimits() throws Exception {
+        assertRateLimit("chatCompletion", new Class<?>[] {String.class}, 60, "ai:chat");
+        assertRateLimit("chatStream", new Class<?>[] {String.class}, 60, "ai:chat");
+        assertRateLimit(
+                "chatVoice",
+                new Class<?>[] {org.springframework.web.multipart.MultipartFile.class},
+                20,
+                "ai:chat_voice");
+        assertRateLimit("coachAnalyze", new Class<?>[] {String.class}, 25, "ai:coach");
+    }
+
+    private MockMvc mockMvcWithLimits(AiProxyRequestLimits requestLimits) {
+        AiProxyController controller = new AiProxyController(
+                aiProxyService,
+                coachAutoBriefMonitoringService,
+                requestLimits);
+        return MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+    }
+
+    private void assertRateLimit(String methodName, Class<?>[] parameterTypes, int expectedLimit, String expectedKey)
+            throws Exception {
+        Method method = AiProxyController.class.getMethod(methodName, parameterTypes);
+        RateLimit rateLimit = method.getAnnotation(RateLimit.class);
+
+        assertThat(rateLimit).isNotNull();
+        assertThat(rateLimit.limit()).isEqualTo(expectedLimit);
+        assertThat(rateLimit.window()).isEqualTo(60);
+        assertThat(rateLimit.key()).isEqualTo(expectedKey);
+        assertThat(rateLimit.failClosed()).isTrue();
     }
 }

@@ -57,6 +57,9 @@ public class DevDataInitializer implements CommandLineRunner {
     @Value("${TEST_ADMIN_PASSWORD:}")
     private String testAdminPassword;
 
+    @Value("${app.dev-data.repair-existing:false}")
+    private boolean repairExisting;
+
     @Override
     public void run(String... args) throws Exception {
         log.info("Starting DevDataInitializer to verify test accounts...");
@@ -107,6 +110,10 @@ public class DevDataInitializer implements CommandLineRunner {
             log.info("Created test user: {} (email: {}, handle: {})", name, email, finalHandle);
         } else {
             log.info("Test user already exists: {} (email: {})", name, email);
+            if (!repairExisting) {
+                log.info("Skipping existing test user repair for {} because app.dev-data.repair-existing=false.", email);
+                return;
+            }
             Optional<UserEntity> existingUser = userRepository.findWithProvidersByEmail(email);
             existingUser.ifPresent(u -> {
                 boolean updated = false;

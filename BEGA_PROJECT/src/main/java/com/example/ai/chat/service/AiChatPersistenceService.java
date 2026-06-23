@@ -22,7 +22,6 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -159,9 +158,8 @@ public class AiChatPersistenceService {
             return toFavoriteItem(existing);
         }
 
-        AiChatMessage message = messageRepository.findById(messageId)
+        AiChatMessage message = messageRepository.findByIdAndSession_UserId(messageId, userId)
                 .orElseThrow(() -> new NotFoundBusinessException("AI_CHAT_MESSAGE_NOT_FOUND", "메시지를 찾을 수 없습니다."));
-        ensureMessageOwnedByUser(message, userId);
         if (message.getRole() != AiChatMessageRole.ASSISTANT) {
             throw new ForbiddenBusinessException("AI_CHAT_FAVORITE_ONLY_ASSISTANT", "assistant 메시지만 즐겨찾기할 수 있습니다.");
         }
@@ -243,13 +241,6 @@ public class AiChatPersistenceService {
         session.setUpdatedAt(now);
         session.setLastMessagePreview(buildPreview(content));
         session.setMessageCount((session.getMessageCount() == null ? 0 : session.getMessageCount()) + 1);
-    }
-
-    private void ensureMessageOwnedByUser(AiChatMessage message, Long userId) {
-        Long ownerId = message.getSession().getUserId();
-        if (!Objects.equals(ownerId, userId)) {
-            throw new ForbiddenBusinessException("AI_CHAT_FORBIDDEN", "본인 대화만 접근할 수 있습니다.");
-        }
     }
 
     private AiChatSession getOwnedSession(Long userId, Long sessionId) {

@@ -16,7 +16,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import com.example.common.exception.ForbiddenBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 import com.example.dm.dto.DmMessageDto;
 import com.example.dm.entity.DmMessage;
 import com.example.dm.entity.DmRoom;
@@ -69,11 +69,11 @@ class DmMessageServiceTest {
     @DisplayName("history rejects users who are not room participants")
     void getMessages_rejectsNonParticipants() {
         when(dmRoomService.getAccessibleRoom(55L, 30L))
-                .thenThrow(new ForbiddenBusinessException("DM_ACCESS_DENIED", "대화방 참여자만 접근할 수 있습니다."));
+                .thenThrow(new NotFoundBusinessException("DM_ROOM_NOT_FOUND", "대화방을 찾을 수 없습니다."));
 
         assertThatThrownBy(() -> dmMessageService.getMessages(55L, 30L))
-                .isInstanceOf(ForbiddenBusinessException.class)
-                .hasMessage("대화방 참여자만 접근할 수 있습니다.");
+                .isInstanceOf(NotFoundBusinessException.class)
+                .hasMessage("대화방을 찾을 수 없습니다.");
     }
 
     @Test

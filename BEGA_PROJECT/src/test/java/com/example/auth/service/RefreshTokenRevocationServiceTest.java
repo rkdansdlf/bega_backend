@@ -53,6 +53,25 @@ class RefreshTokenRevocationServiceTest {
     }
 
     @Test
+    void revokeAllSessionsForUser_incrementsTokenVersionAndDeletesRefreshTokens() {
+        UserEntity user = UserEntity.builder()
+                .id(42L)
+                .email("user@test.com")
+                .tokenVersion(0)
+                .build();
+        when(userRepository.findById(42L)).thenReturn(Optional.of(user));
+
+        RefreshTokenRevocationService.RevokedRefreshSessions result =
+                service.revokeAllSessionsForUser(42L);
+
+        assertThat(result.userId()).isEqualTo(42L);
+        assertThat(result.email()).isEqualTo("user@test.com");
+        assertThat(user.getTokenVersion()).isEqualTo(1);
+        verify(userRepository).save(user);
+        verify(refreshRepository).deleteByEmail("user@test.com");
+    }
+
+    @Test
     void revokeAllSessionsAfterReuse_rejectsMissingUser() {
         when(userRepository.findById(42L)).thenReturn(Optional.empty());
 

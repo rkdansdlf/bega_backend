@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.auth.entity.AccountSecurityEvent;
@@ -19,6 +20,7 @@ import com.example.notification.entity.Notification;
 import com.example.notification.service.NotificationService;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,7 +60,34 @@ class AccountSecurityServiceTest {
                 trustedDeviceRepository,
                 notificationService,
                 emailService,
-                new AuthSessionMetadataResolver(clientIpResolver));
+                new AuthSessionMetadataResolver(clientIpResolver),
+                Runnable::run);
+    }
+
+    @Test
+    void handleSuccessfulLoginAsync_schedulesBookkeepingWithoutRunningDatabaseWorkInline() {
+        AtomicReference<Runnable> scheduledTask = new AtomicReference<>();
+        AccountSecurityService asyncService = new AccountSecurityService(
+                accountSecurityEventRepository,
+                trustedDeviceRepository,
+                notificationService,
+                emailService,
+                new AuthSessionMetadataResolver(clientIpResolver),
+                scheduledTask::set);
+        UserEntity user = new UserEntity();
+        user.setId(1L);
+        user.setEmail("user@example.com");
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("User-Agent", IPHONE_SAFARI_USER_AGENT);
+        request.setRemoteAddr("198.51.100.20");
+
+        when(clientIpResolver.resolveOrUnknown(request)).thenReturn("198.51.100.20");
+
+        asyncService.handleSuccessfulLoginAsync(user, request);
+
+        assertThat(scheduledTask.get()).isNotNull();
+        verifyNoInteractions(accountSecurityEventRepository, trustedDeviceRepository, notificationService, emailService);
     }
 
     @Test

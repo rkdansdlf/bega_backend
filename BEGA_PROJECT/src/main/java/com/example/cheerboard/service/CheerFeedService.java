@@ -215,6 +215,18 @@ public class CheerFeedService {
     }
 
     @Transactional(readOnly = true)
+    public Page<PostSummaryRes> listMyPosts(Pageable pageable, UserEntity me) {
+        if (me == null) {
+            throw new AuthenticationCredentialsNotFoundException("로그인이 필요합니다.");
+        }
+
+        Specification<CheerPost> spec = authorIdIn(List.of(me.getId()))
+                .and(visibleToViewer(me));
+        Page<CheerPost> page = postRepo.findAll(spec, pageable);
+        return buildPostSummaryPage(page, me);
+    }
+
+    @Transactional(readOnly = true)
     public Page<PostSummaryRes> listByUserHandle(String handle, Pageable pageable, UserEntity me) {
         Long viewerId = me != null ? me.getId() : null;
         String normalizedHandle = userService.getPublicUserProfileByHandle(handle, viewerId).getHandle();
@@ -721,7 +733,10 @@ public class CheerFeedService {
         }
         String rawValue = author.getProfileImageUrl();
         try {
-            String resolved = profileImageService.getProfileImageUrlForCheerFeed(rawValue, author.getProfileFeedImageUrl());
+            String resolved = profileImageService.getProfileImageUrlForCheerFeed(
+                    author.getId(),
+                    rawValue,
+                    author.getProfileFeedImageUrl());
             if (resolved != null && !resolved.isBlank()) {
                 return resolved;
             }

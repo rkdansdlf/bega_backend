@@ -4,6 +4,7 @@ import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.strategy.PresignedUpload;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
 import com.example.cheerboard.storage.strategy.StoredObject;
+import com.example.cheerboard.storage.strategy.StoredObjectMetadata;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InternalServerBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
@@ -96,11 +97,8 @@ public class MediaUploadService {
      * Spring Data JPA가 메서드별로 자동 생성하는 짧은 트랜잭션에 위임합니다.
      */
     public FinalizeMediaUploadResponse finalizeUpload(Long userId, Long assetId) {
-        MediaAsset asset = mediaAssetRepository.findById(assetId)
+        MediaAsset asset = mediaAssetRepository.findByIdAndOwnerUserId(assetId, userId)
                 .orElseThrow(() -> new NotFoundBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드 대상을 찾을 수 없습니다."));
-        if (!asset.getOwnerUserId().equals(userId)) {
-            throw new BadRequestBusinessException("MEDIA_ASSET_OWNER_MISMATCH", "다른 사용자의 업로드는 완료할 수 없습니다.");
-        }
 
         if (asset.getStatus() == MediaAssetStatus.READY && asset.getObjectKey() != null) {
             return buildFinalizeResponse(asset);
@@ -117,6 +115,9 @@ public class MediaUploadService {
             if (exists == null || !exists) {
                 throw new NotFoundBusinessException("MEDIA_STAGING_OBJECT_NOT_FOUND", "업로드한 파일을 찾을 수 없습니다.");
             }
+
+            StoredObjectMetadata metadata = storageStrategy.head(bucket, asset.getStagingObjectKey()).block();
+            validationService.validateStoredObjectMetadata(asset, metadata);
 
             StoredObject storedObject = storageStrategy.download(bucket, asset.getStagingObjectKey()).block();
             if (storedObject == null || storedObject.bytes() == null || storedObject.bytes().length == 0) {
@@ -198,11 +199,8 @@ public class MediaUploadService {
 
     @Transactional
     public void deleteUpload(Long userId, Long assetId) {
-        MediaAsset asset = mediaAssetRepository.findById(assetId)
+        MediaAsset asset = mediaAssetRepository.findByIdAndOwnerUserId(assetId, userId)
                 .orElseThrow(() -> new NotFoundBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드 대상을 찾을 수 없습니다."));
-        if (!asset.getOwnerUserId().equals(userId)) {
-            throw new BadRequestBusinessException("MEDIA_ASSET_OWNER_MISMATCH", "다른 사용자의 업로드는 삭제할 수 없습니다.");
-        }
         if (mediaAssetLinkRepository.existsByAssetId(assetId)) {
             throw new BadRequestBusinessException("MEDIA_ASSET_LINKED", "이미 사용 중인 이미지는 삭제할 수 없습니다.");
         }

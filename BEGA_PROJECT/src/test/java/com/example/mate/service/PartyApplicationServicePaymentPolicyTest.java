@@ -1,13 +1,14 @@
 package com.example.mate.service;
 
 import com.example.auth.service.UserService;
-import com.example.auth.dto.UserDto;
+import com.example.auth.entity.UserEntity;
 import com.example.kbo.service.TicketVerificationTokenStore;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.CancelReasonType;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.exception.InvalidApplicationStatusException;
+import com.example.mate.exception.PartyApplicationNotFoundException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PartyReviewRepository;
@@ -75,13 +76,14 @@ class PartyApplicationServicePaymentPolicyTest {
                 .homeTeam("LG")
                 .awayTeam("OB")
                 .build();
-        UserDto applicant = UserDto.builder()
+        UserEntity applicant = UserEntity.builder()
+                .id(applicantId)
                 .name("테스터")
                 .build();
 
         given(matePaymentModeService.isTossTest()).willReturn(true);
         given(userService.getUserIdByEmail("user@example.com")).willReturn(applicantId);
-        given(userService.findUserByEmail("user@example.com")).willReturn(applicant);
+        given(userService.findUserById(applicantId)).willReturn(applicant);
         given(userService.isSocialVerified(applicantId)).willReturn(true);
         given(applicationRepository.findByPartyIdAndApplicantId(1L, applicantId)).willReturn(Optional.empty());
         given(applicationRepository.existsByPartyIdAndApplicantIdAndIsRejectedTrue(1L, applicantId)).willReturn(false);
@@ -120,7 +122,7 @@ class PartyApplicationServicePaymentPolicyTest {
                 .build();
 
         given(userService.getUserIdByEmail("user@example.com")).willReturn(applicantId);
-        given(applicationRepository.findById(applicationId)).willReturn(Optional.of(application));
+        given(applicationRepository.findByIdAndApplicantId(applicationId, applicantId)).willReturn(Optional.of(application));
         given(partyRepository.findById(5L)).willReturn(Optional.of(party));
 
         assertThatThrownBy(() -> partyApplicationService.cancelApplication(
@@ -131,6 +133,47 @@ class PartyApplicationServicePaymentPolicyTest {
                         .build()))
                 .isInstanceOf(InvalidApplicationStatusException.class)
                 .hasMessageContaining("경기 하루 전");
+
+        verify(paymentTransactionService, never()).processCancellation(any(), any());
+        verify(applicationRepository, never()).delete(any());
+    }
+
+    @Test
+    void approveApplication_nonHostApplicationId_isTreatedAsNotFoundBeforeMutation() {
+        given(userService.getUserIdByEmail("host@example.com")).willReturn(99L);
+        given(applicationRepository.findByIdAndPartyHostId(11L, 99L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> partyApplicationService.approveApplication(11L, () -> "host@example.com"))
+                .isInstanceOf(PartyApplicationNotFoundException.class);
+
+        verify(applicationRepository, never()).save(any());
+        verify(partyService, never()).incrementParticipants(any());
+    }
+
+    @Test
+    void rejectApplication_nonHostApplicationId_isTreatedAsNotFoundBeforeMutation() {
+        given(userService.getUserIdByEmail("host@example.com")).willReturn(99L);
+        given(applicationRepository.findByIdAndPartyHostId(11L, 99L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> partyApplicationService.rejectApplication(11L, () -> "host@example.com"))
+                .isInstanceOf(PartyApplicationNotFoundException.class);
+
+        verify(applicationRepository, never()).save(any());
+        verify(paymentTransactionService, never()).processCancellation(any(), any());
+    }
+
+    @Test
+    void cancelApplication_nonApplicantApplicationId_isTreatedAsNotFoundBeforeRefund() {
+        given(userService.getUserIdByEmail("user@example.com")).willReturn(7L);
+        given(applicationRepository.findByIdAndApplicantId(11L, 7L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> partyApplicationService.cancelApplication(
+                11L,
+                () -> "user@example.com",
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.BUYER_CHANGED_MIND)
+                        .build()))
+                .isInstanceOf(PartyApplicationNotFoundException.class);
 
         verify(paymentTransactionService, never()).processCancellation(any(), any());
         verify(applicationRepository, never()).delete(any());

@@ -21,7 +21,7 @@ public class InternalSettlementController {
 
     @PostMapping("/{paymentId}/payout")
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
-    public ResponseEntity<ApiResponse> requestPayout(@PathVariable Long paymentId) {
+    public ResponseEntity<ApiResponse<InternalSettlementDTO.PayoutResponse>> requestPayout(@PathVariable Long paymentId) {
         PayoutTransaction payoutTransaction = paymentTransactionService.requestManualPayout(paymentId);
         return ResponseEntity.ok(ApiResponse.success(
                 "정산 지급 요청이 생성되었습니다.",

@@ -40,9 +40,11 @@ import com.example.cheerboard.storage.strategy.StorageStrategy;
 import com.example.cheerboard.storage.validator.ImageValidator;
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.auth.entity.UserEntity;
+import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InternalServerBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
+import com.example.media.service.MediaObjectKeyGuard;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -73,6 +75,8 @@ public class ImageService {
     private final StringRedisTemplate stringRedisTemplate;
     private final com.example.common.image.ImageUtil imageUtil;
     private final com.example.common.image.ImageOptimizationMetricsService metricsService;
+    private final PublicVisibilityVerifier publicVisibilityVerifier;
+    private final MediaObjectKeyGuard mediaObjectKeyGuard;
 
     /**
      * 게시글 이미지 업로드 (여러 파일)
@@ -194,7 +198,13 @@ public class ImageService {
      */
     @Transactional(readOnly = true)
     public List<PostImageDto> listPostImages(Long postId) {
-        requireAccessiblePost(postId);
+        return listPostImages(postId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PostImageDto> listPostImages(Long postId, Long viewerId) {
+        CheerPost post = requireAccessiblePost(postId);
+        publicVisibilityVerifier.validate(post.getAuthor(), viewerId, "게시글");
         List<PostImage> images = postImageRepo.findByPostIdOrderByCreatedAtAsc(postId);
 
         return images.stream()
@@ -710,7 +720,7 @@ public class ImageService {
     }
 
     private CheerPost findPostByIdForImageWrite(Long postId) {
-        return postRepo.findByIdForImageWrite(Objects.requireNonNull(postId))
+        return postRepo.findByIdForWrite(Objects.requireNonNull(postId))
                 .orElseThrow(() -> new NotFoundBusinessException("CHEER_POST_NOT_FOUND", "게시글을 찾을 수 없습니다."));
     }
 
@@ -804,7 +814,17 @@ public class ImageService {
      * 다이어리 이미지 삭제 (0개, 1개, 여러 개 모두 처리)
      */
     @Transactional
+    Mono<Void> deleteDiaryImagesUnchecked(List<String> storagePaths) {
+        return deleteDiaryImages(storagePaths, null, null);
+    }
+
+    @Deprecated(forRemoval = false)
     public Mono<Void> deleteDiaryImages(List<String> storagePaths) {
+        return deleteDiaryImagesUnchecked(storagePaths);
+    }
+
+    @Transactional
+    public Mono<Void> deleteDiaryImages(List<String> storagePaths, Long ownerUserId, Long diaryId) {
         log.info("다이어리 이미지 삭제 시작: 총 {}개", storagePaths != null ? storagePaths.size() : 0);
 
         // 빈 리스트 체크
@@ -817,6 +837,7 @@ public class ImageService {
                 .map(this::normalizeDiaryStoragePath)
                 .filter(StringUtils::hasText)
                 .filter(path -> !isHttpUrl(path))
+                .filter(path -> canReadDiaryKey(path, ownerUserId, diaryId))
                 .map(path -> storageStrategy.delete(config.getDiaryBucket(), path)
                         .doOnSuccess(v -> log.info("다이어리 이미지 삭제 성공: path={}", path))
                         .doOnError(err -> log.error("다이어리 이미지 삭제 실패: path={}, error={}",
@@ -831,7 +852,16 @@ public class ImageService {
     /**
      * 다이어리 이미지 Signed URL 생성 (0개, 1개, 여러 개 모두 처리)
      */
+    Mono<List<String>> getDiaryImageSignedUrlsUnchecked(List<String> storagePaths) {
+        return getDiaryImageSignedUrls(storagePaths, null, null);
+    }
+
+    @Deprecated(forRemoval = false)
     public Mono<List<String>> getDiaryImageSignedUrls(List<String> storagePaths) {
+        return getDiaryImageSignedUrlsUnchecked(storagePaths);
+    }
+
+    public Mono<List<String>> getDiaryImageSignedUrls(List<String> storagePaths, Long ownerUserId, Long diaryId) {
         log.debug("다이어리 이미지 URL 생성 시작: 총 {}개", storagePaths != null ? storagePaths.size() : 0);
 
         // 빈 리스트 체크
@@ -841,7 +871,7 @@ public class ImageService {
         }
 
         List<Mono<String>> urlMonos = storagePaths.stream()
-                .map(this::resolveDiarySignedUrl)
+                .map(path -> resolveDiarySignedUrl(path, ownerUserId, diaryId))
                 .toList();
 
         return Mono.zip(urlMonos, results -> {
@@ -867,6 +897,18 @@ public class ImageService {
                 .toList();
     }
 
+    public List<String> normalizeDiaryStoragePathsForWrite(
+            List<String> storagePaths,
+            Long ownerUserId,
+            Long diaryId,
+            boolean allowLegacy) {
+        List<String> normalizedPaths = normalizeDiaryStoragePaths(storagePaths);
+        for (String path : normalizedPaths) {
+            mediaObjectKeyGuard.requireDiaryWriteKey(path, ownerUserId, diaryId, allowLegacy);
+        }
+        return normalizedPaths;
+    }
+
     public String normalizeDiaryStoragePath(String pathOrUrl) {
         if (!StringUtils.hasText(pathOrUrl)) {
             return null;
@@ -889,7 +931,7 @@ public class ImageService {
         return normalized;
     }
 
-    private Mono<String> resolveDiarySignedUrl(String pathOrUrl) {
+    private Mono<String> resolveDiarySignedUrl(String pathOrUrl, Long ownerUserId, Long diaryId) {
         if (!StringUtils.hasText(pathOrUrl)) {
             return Mono.empty();
         }
@@ -900,6 +942,10 @@ public class ImageService {
         }
         if (isHttpUrl(normalizedPath)) {
             return Mono.just(normalizedPath);
+        }
+        if (!canReadDiaryKey(normalizedPath, ownerUserId, diaryId)) {
+            log.warn("다이어리 이미지 URL 생성 건너뜀: owner mismatch path={}", normalizedPath);
+            return Mono.empty();
         }
 
         return storageStrategy
@@ -914,9 +960,14 @@ public class ImageService {
             return null;
         }
 
-        int diaryIndex = url.indexOf("/diary/");
-        if (diaryIndex != -1) {
-            return url.substring(diaryIndex + 1).split("\\?")[0];
+        int managedIndex = url.indexOf("/media/diary/");
+        if (managedIndex != -1) {
+            return url.substring(managedIndex + 1).split("\\?")[0];
+        }
+
+        int legacyIndex = url.indexOf("/diary/");
+        if (legacyIndex != -1) {
+            return url.substring(legacyIndex + 1).split("\\?")[0];
         }
 
         String bucket = config.getDiaryBucket();
@@ -945,7 +996,14 @@ public class ImageService {
         return value.startsWith("http://") || value.startsWith("https://");
     }
 
-    public byte[] downloadDiaryImageBytes(String pathOrUrl) {
+    private boolean canReadDiaryKey(String normalizedPath, Long ownerUserId, Long diaryId) {
+        if (ownerUserId == null && diaryId == null) {
+            return true;
+        }
+        return mediaObjectKeyGuard.canReadDiaryKey(normalizedPath, ownerUserId, diaryId);
+    }
+
+    private byte[] downloadDiaryImageBytesUnchecked(String pathOrUrl) {
         String normalizedPath = normalizeDiaryStoragePath(pathOrUrl);
         if (!StringUtils.hasText(normalizedPath) || isHttpUrl(normalizedPath)) {
             throw new IllegalArgumentException("다운로드할 다이어리 이미지 경로가 올바르지 않습니다.");
@@ -956,6 +1014,21 @@ public class ImageService {
             throw new IllegalArgumentException("다이어리 이미지를 읽을 수 없습니다.");
         }
         return storedObject.bytes();
+    }
+
+    @Deprecated(forRemoval = false)
+    public byte[] downloadDiaryImageBytes(String pathOrUrl) {
+        return downloadDiaryImageBytesUnchecked(pathOrUrl);
+    }
+
+    public byte[] downloadDiaryImageBytesForUser(String pathOrUrl, Long ownerUserId, Long diaryId) {
+        String normalizedPath = normalizeDiaryStoragePath(pathOrUrl);
+        if (!StringUtils.hasText(normalizedPath) || isHttpUrl(normalizedPath)
+                || !mediaObjectKeyGuard.canReadDiaryKey(normalizedPath, ownerUserId, diaryId)) {
+            throw new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요.");
+        }
+
+        return downloadDiaryImageBytesUnchecked(normalizedPath);
     }
 
 }

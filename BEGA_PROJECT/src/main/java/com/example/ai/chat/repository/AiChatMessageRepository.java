@@ -10,6 +10,8 @@ public interface AiChatMessageRepository extends JpaRepository<AiChatMessage, Lo
 
     List<AiChatMessage> findBySession_IdOrderByCreatedAtAsc(Long sessionId);
 
+    Optional<AiChatMessage> findByIdAndSession_UserId(Long id, Long userId);
+
     Optional<AiChatMessage> findTopBySession_IdAndIdLessThanAndRoleOrderByIdDesc(
             Long sessionId,
             Long messageId,

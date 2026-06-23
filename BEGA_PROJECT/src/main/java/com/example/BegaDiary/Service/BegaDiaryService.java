@@ -3,12 +3,17 @@ package com.example.BegaDiary.Service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,11 +33,12 @@ import com.example.BegaDiary.Exception.DiaryNotFoundException;
 import com.example.BegaDiary.Exception.GameNotFoundException;
 import com.example.BegaDiary.Exception.ImageProcessingException;
 import com.example.BegaDiary.Exception.WinningNameNotFoundException;
-import org.springframework.security.access.AccessDeniedException;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
+import com.example.BegaDiary.Repository.DiaryStatisticsRow;
 import com.example.BegaDiary.Utils.BaseballConstants;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.service.ImageService;
+import com.example.common.config.CacheConfig;
 import com.example.kbo.entity.GameEntity;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
@@ -50,6 +56,8 @@ import lombok.extern.slf4j.Slf4j;
 @Transactional(readOnly = true)
 @Slf4j
 public class BegaDiaryService {
+    private static final DiaryType DEFAULT_DIARY_TYPE = DiaryType.ATTENDED;
+    private static final DiaryEmoji DEFAULT_SCHEDULED_MOOD = DiaryEmoji.HAPPY;
 
     private final BegaDiaryRepository diaryRepository;
     private final BegaGameService gameService;
@@ -77,7 +85,12 @@ public class BegaDiaryService {
         return Objects.requireNonNull(responses);
     }
 
-    // 특정 다이어리 엔티티 조회 (컨트롤러에서 리워드 처리 시 사용)
+    /**
+     * Raw lookup is reserved for trusted internal/admin maintenance paths.
+     * User-facing flows must use getOwnedDiaryEntity(id, userId) so missing and
+     * non-owned records share the same not-found response.
+     */
+    @Deprecated(forRemoval = false)
     public BegaDiary getDiaryEntityById(Long id) {
         if (id == null) {
             throw new IllegalArgumentException("Diary ID cannot be null");
@@ -86,23 +99,23 @@ public class BegaDiaryService {
                 .orElseThrow(() -> new DiaryNotFoundException(id));
     }
 
+    public BegaDiary getOwnedDiaryEntity(Long id, Long userId) {
+        return requireOwnedDiary(id, userId);
+    }
+
     // 특정 다이어리 조회
     public DiaryResponseDto getDiaryById(Long id, Long userId) {
         if (id == null) {
             throw new IllegalArgumentException("Diary ID cannot be null");
         }
-        BegaDiary diary = this.diaryRepository.findById(id)
-                .orElseThrow(() -> new DiaryNotFoundException(id));
-
-        if (userId == null || diary.getUser() == null || !userId.equals(diary.getUser().getId())) {
-            throw new AccessDeniedException("본인의 일기만 조회할 수 있습니다.");
-        }
+        BegaDiary diary = requireOwnedDiary(id, userId);
 
         List<List<String>> signedUrls = resolveDiarySignedUrls(List.of(diary));
         return Objects.requireNonNull(DiaryResponseDto.from(diary, signedUrls.isEmpty() ? null : signedUrls.get(0)));
     }
 
     // 다이어리 저장
+    @CacheEvict(value = CacheConfig.DIARY_STATS, key = "#userId")
     @Transactional
     public BegaDiary save(Long userId, DiaryRequestDto requestDto) {
         if (userId == null) {
@@ -121,8 +134,9 @@ public class BegaDiaryService {
         }
 
         // 3. Enum 변환
-        DiaryEmoji mood = DiaryEmoji.fromKoreanName(requestDto.getEmojiName());
-        DiaryWinning winning = resolveWinning(requestDto.getWinningName());
+        DiaryType diaryType = resolveDiaryType(requestDto.getType(), DEFAULT_DIARY_TYPE);
+        DiaryEmoji mood = resolveMood(requestDto.getEmojiName(), diaryType);
+        DiaryWinning winning = resolveWinning(diaryType, requestDto.getWinningName());
 
         // 4. 빌더로 엔티티 생성
         if (requestDto.getGameId() == null) {
@@ -136,27 +150,31 @@ public class BegaDiaryService {
 
         String team = buildTeamLabel(game);
 
-        List<String> normalizedPhotoPaths = normalizeDiaryPhotoPaths(requestDto.getPhotos());
+        List<String> normalizedPhotoPaths = diaryType == DiaryType.ATTENDED
+                ? normalizeDiaryPhotoPathsForCreate(requestDto.getPhotos(), userId)
+                : List.of();
         mediaLinkService.resolveReadyAssets(userId, MediaDomain.DIARY, normalizedPhotoPaths);
 
         BegaDiary diary = BegaDiary.builder()
                 .diaryDate(diaryDate)
                 .memo(requestDto.getMemo())
                 .mood(mood)
-                .type(DiaryType.ATTENDED)
+                .type(diaryType)
                 .winning(winning)
                 .photoUrls(normalizedPhotoPaths)
                 .game(game)
                 .team(team)
                 .stadium(game.getStadium())
                 .user(user)
-                .section(requestDto.getSection())
-                .block(requestDto.getBlock())
-                .seatRow(requestDto.getSeatRow())
-                .seatNumber(requestDto.getSeatNumber())
+                .section(diaryType == DiaryType.ATTENDED ? requestDto.getSection() : null)
+                .block(diaryType == DiaryType.ATTENDED ? requestDto.getBlock() : null)
+                .seatRow(diaryType == DiaryType.ATTENDED ? requestDto.getSeatRow() : null)
+                .seatNumber(diaryType == DiaryType.ATTENDED ? requestDto.getSeatNumber() : null)
                 .build();
 
-        applyTicketVerification(diary, game, diaryDate, requestDto.getTicketVerificationToken());
+        if (diaryType == DiaryType.ATTENDED) {
+            applyTicketVerification(diary, game, diaryDate, requestDto.getTicketVerificationToken());
+        }
 
         // 5. DB 저장
         BegaDiary savedDiary = Objects.requireNonNull(diaryRepository.save(Objects.requireNonNull(diary)));
@@ -175,9 +193,7 @@ public class BegaDiaryService {
         }
 
         try {
-            // 다이어리 조회
-            BegaDiary diary = diaryRepository.findById(diaryId)
-                    .orElseThrow(() -> new DiaryNotFoundException(diaryId));
+            BegaDiary diary = requireOwnedDiary(diaryId, userId);
 
             // 이미지 업로드
             List<String> uploadedPaths = imageService.uploadDiaryImages(userId, diaryId, images)
@@ -190,12 +206,13 @@ public class BegaDiaryService {
             // DB 업데이트 (기존 이미지 + 새 이미지)
             List<String> allPaths = new ArrayList<>();
             if (diary.getPhotoUrls() != null) {
-                allPaths.addAll(normalizeDiaryPhotoPaths(diary.getPhotoUrls()));
+                allPaths.addAll(normalizeDiaryPhotoPathsForUpdate(diary.getPhotoUrls(), userId, diaryId));
             }
             allPaths.addAll(uploadedPaths);
             diary.updateDiary(
                     diary.getMemo(),
                     diary.getMood(),
+                    diary.getType(),
                     allPaths,
                     diary.getGame(),
                     diary.getTeam(),
@@ -217,20 +234,17 @@ public class BegaDiaryService {
     }
 
     // 다이어리 수정
+    @CacheEvict(value = CacheConfig.DIARY_STATS, key = "#userId")
     @Transactional
     public BegaDiary update(Long id, Long userId, DiaryRequestDto requestDto) {
         if (id == null) {
             throw new IllegalArgumentException("Diary ID cannot be null");
         }
-        BegaDiary diary = this.diaryRepository.findById(id)
-                .orElseThrow(() -> new DiaryNotFoundException(id));
+        BegaDiary diary = requireOwnedDiary(id, userId);
 
-        if (!diary.getUser().getId().equals(userId)) {
-            throw new AccessDeniedException("본인의 일기만 수정할 수 있습니다.");
-        }
-
-        DiaryEmoji mood = DiaryEmoji.fromKoreanName(requestDto.getEmojiName());
-        DiaryWinning winning = resolveWinning(requestDto.getWinningName());
+        DiaryType diaryType = resolveDiaryType(requestDto.getType(), diary.getType());
+        DiaryEmoji mood = resolveMood(requestDto.getEmojiName(), diaryType);
+        DiaryWinning winning = resolveWinning(diaryType, requestDto.getWinningName());
         GameEntity game = diary.getGame();
         if (requestDto.getGameId() != null) {
             game = gameService.getGameById(requestDto.getGameId());
@@ -243,50 +257,51 @@ public class BegaDiaryService {
         String updatedStadium = game != null ? game.getStadium() : diary.getStadium();
         boolean identityChanged = hasTicketIdentityChanged(diary, game, updatedStadium);
 
-        List<String> normalizedPhotoPaths = normalizeDiaryPhotoPaths(requestDto.getPhotos());
+        List<String> normalizedPhotoPaths = diaryType == DiaryType.ATTENDED
+                ? normalizeDiaryPhotoPathsForUpdate(requestDto.getPhotos(), userId, diary.getId())
+                : List.of();
         mediaLinkService.resolveReadyAssets(userId, MediaDomain.DIARY, normalizedPhotoPaths);
 
         diary.updateDiary(
                 requestDto.getMemo(),
                 mood,
+                diaryType,
                 normalizedPhotoPaths,
                 game,
                 updatedTeam,
                 updatedStadium,
                 winning,
-                requestDto.getSection(),
-                requestDto.getBlock(),
-                requestDto.getSeatRow(),
-                requestDto.getSeatNumber());
+                diaryType == DiaryType.ATTENDED ? requestDto.getSection() : null,
+                diaryType == DiaryType.ATTENDED ? requestDto.getBlock() : null,
+                diaryType == DiaryType.ATTENDED ? requestDto.getSeatRow() : null,
+                diaryType == DiaryType.ATTENDED ? requestDto.getSeatNumber() : null);
 
-        if (StringUtils.hasText(requestDto.getTicketVerificationToken())) {
+        if (diaryType == DiaryType.ATTENDED && StringUtils.hasText(requestDto.getTicketVerificationToken())) {
             applyTicketVerification(diary, game, diary.getDiaryDate(), requestDto.getTicketVerificationToken());
-        } else if (identityChanged) {
+        } else if (diaryType == DiaryType.SCHEDULED || identityChanged) {
             diary.clearTicketVerification();
         }
 
-        seatViewService.processDiaryRewardIfEligible(diary);
+        if (diaryType == DiaryType.ATTENDED) {
+            seatViewService.processDiaryRewardIfEligible(diary);
+        }
         mediaLinkService.syncDiaryLinks(diary.getId(), userId, normalizedPhotoPaths);
 
         return Objects.requireNonNull(diary);
     }
 
     // 다이어리 삭제
+    @CacheEvict(value = CacheConfig.DIARY_STATS, key = "#userId")
     @Transactional
     public void delete(Long id, Long userId) {
         if (id == null) {
             throw new IllegalArgumentException("Diary ID cannot be null");
         }
-        BegaDiary diary = this.diaryRepository.findById(id)
-                .orElseThrow(() -> new DiaryNotFoundException(id));
-
-        if (!diary.getUser().getId().equals(userId)) {
-            throw new AccessDeniedException("본인의 일기만 삭제할 수 있습니다.");
-        }
+        BegaDiary diary = requireOwnedDiary(id, userId);
 
         if (diary.getPhotoUrls() != null && !diary.getPhotoUrls().isEmpty()) {
             try {
-                imageService.deleteDiaryImages(diary.getPhotoUrls()).block();
+                imageService.deleteDiaryImages(diary.getPhotoUrls(), userId, diary.getId()).block();
             } catch (Exception e) {
                 log.error("이미지 삭제 실패 (다이어리는 삭제됨): diaryId={}", id, e);
             }
@@ -297,46 +312,121 @@ public class BegaDiaryService {
         this.diaryRepository.delete(diary);
     }
 
+    @Cacheable(value = CacheConfig.DIARY_STATS, key = "#userId", sync = true)
     public DiaryStatisticsDto getStatistics(Long userId) {
         if (userId == null) {
             throw new IllegalArgumentException("User ID cannot be null");
         }
-        List<BegaDiary> diaries = diaryRepository.findByUserId(userId);
+        List<DiaryStatisticsRow> diaries = diaryRepository.findStatisticsRowsByUserIdOrderByDiaryDateDesc(userId);
+        return buildStatistics(userId, diaries);
+    }
 
+    private DiaryStatisticsDto buildStatistics(Long userId, List<DiaryStatisticsRow> diaries) {
+        List<DiaryStatisticsRow> attendedDiaries = diaries.stream()
+                .filter(diary -> diary.getType() == DiaryType.ATTENDED)
+                .toList();
         int currentYear = LocalDate.now().getYear();
         int currentMonth = LocalDate.now().getMonthValue();
+        List<DiaryStatisticsRow> currentYearAttendedDiaries = attendedDiaries.stream()
+                .filter(diary -> diary.getDiaryDate() != null)
+                .filter(diary -> diary.getDiaryDate().getYear() == currentYear)
+                .toList();
+        int scheduledCount = (int) diaries.stream()
+                .filter(diary -> diary.getType() == DiaryType.SCHEDULED)
+                .filter(diary -> diary.getDiaryDate() != null)
+                .filter(diary -> diary.getDiaryDate().getYear() == currentYear)
+                .count();
 
-        int totalCount = diaryRepository.countByUserId(userId);
-        int totalWins = diaryRepository.countByUserIdAndWinning(userId, DiaryWinning.WIN);
-        int totalLosses = diaryRepository.countByUserIdAndWinning(userId, DiaryWinning.LOSE);
-        int totalDraws = diaryRepository.countByUserIdAndWinning(userId, DiaryWinning.DRAW);
+        int totalCount = attendedDiaries.size();
+        int totalWins = (int) attendedDiaries.stream()
+                .filter(diary -> diary.getWinning() == DiaryWinning.WIN)
+                .count();
+        int totalLosses = (int) attendedDiaries.stream()
+                .filter(diary -> diary.getWinning() == DiaryWinning.LOSE)
+                .count();
+        int totalDraws = (int) attendedDiaries.stream()
+                .filter(diary -> diary.getWinning() == DiaryWinning.DRAW)
+                .count();
 
-        int monthlyCount = diaryRepository.countByUserIdAndYearAndMonth(userId, currentYear, currentMonth);
-        int yearlyCount = diaryRepository.countByUserIdAndYear(userId, currentYear);
-        int yearlyWins = diaryRepository.countYearlyWins(userId, currentYear);
+        int monthlyCount = (int) attendedDiaries.stream()
+                .filter(diary -> diary.getDiaryDate() != null)
+                .filter(diary -> diary.getDiaryDate().getYear() == currentYear)
+                .filter(diary -> diary.getDiaryDate().getMonthValue() == currentMonth)
+                .count();
+        int yearlyCount = (int) attendedDiaries.stream()
+                .filter(diary -> diary.getDiaryDate() != null)
+                .filter(diary -> diary.getDiaryDate().getYear() == currentYear)
+                .count();
+        int yearlyWins = (int) attendedDiaries.stream()
+                .filter(diary -> diary.getDiaryDate() != null)
+                .filter(diary -> diary.getDiaryDate().getYear() == currentYear)
+                .filter(diary -> diary.getWinning() == DiaryWinning.WIN)
+                .count();
 
         double winRate = totalCount > 0 ? (double) totalWins / totalCount * 100 : 0;
         double yearlyWinRate = yearlyCount > 0 ? (double) yearlyWins / yearlyCount * 100 : 0;
 
-        List<Object[]> stadiumResult = diaryRepository.findMostVisitedStadium(userId);
+        Map<String, Long> stadiumCounts = attendedDiaries.stream()
+                .map(DiaryStatisticsRow::getStadium)
+                .filter(Objects::nonNull)
+                .collect(Collectors.groupingBy(stadium -> stadium, Collectors.counting()));
+        Map.Entry<String, Long> stadiumResult = stadiumCounts.entrySet().stream()
+                .max((left, right) -> Long.compare(left.getValue(), right.getValue()))
+                .orElse(null);
         String mostVisitedStadium = null;
         int mostVisitedCount = 0;
-        if (!stadiumResult.isEmpty() && stadiumResult.get(0).length >= 2) {
-            String stadiumShortName = (String) stadiumResult.get(0)[0];
+        if (stadiumResult != null) {
+            String stadiumShortName = stadiumResult.getKey();
             mostVisitedStadium = BaseballConstants.getFullStadiumName(stadiumShortName);
-            mostVisitedCount = ((Number) stadiumResult.get(0)[1]).intValue();
+            mostVisitedCount = stadiumResult.getValue().intValue();
         }
+        Map<Integer, Integer> monthlyVisitCounts = currentYearAttendedDiaries.stream()
+                .collect(Collectors.groupingBy(
+                        diary -> diary.getDiaryDate().getMonthValue(),
+                        Collectors.counting()))
+                .entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        entry -> entry.getValue().intValue(),
+                        (left, right) -> left,
+                        LinkedHashMap::new));
+        Map<String, Integer> stadiumVisitCounts = stadiumCounts.entrySet().stream()
+                .sorted((left, right) -> {
+                    int countComparison = Long.compare(right.getValue(), left.getValue());
+                    if (countComparison != 0) {
+                        return countComparison;
+                    }
+                    return BaseballConstants.getFullStadiumName(left.getKey())
+                            .compareTo(BaseballConstants.getFullStadiumName(right.getKey()));
+                })
+                .collect(Collectors.toMap(
+                        entry -> BaseballConstants.getFullStadiumName(entry.getKey()),
+                        entry -> entry.getValue().intValue(),
+                        (left, right) -> left,
+                        LinkedHashMap::new));
 
-        List<Object[]> monthResult = diaryRepository.findHappiestMonth(userId);
+        Map<Integer, Long> monthCounts = attendedDiaries.stream()
+                .filter(diary -> diary.getDiaryDate() != null)
+                .filter(diary -> diary.getMood() == DiaryEmoji.BEST)
+                .collect(Collectors.groupingBy(
+                        diary -> diary.getDiaryDate().getMonthValue(),
+                        Collectors.counting()));
+        Map.Entry<Integer, Long> monthResult = monthCounts.entrySet().stream()
+                .max((left, right) -> Long.compare(left.getValue(), right.getValue()))
+                .orElse(null);
         String happiestMonth = null;
         int happiestCount = 0;
-        if (!monthResult.isEmpty() && monthResult.get(0).length >= 2) {
-            int month = ((Number) monthResult.get(0)[0]).intValue();
-            happiestMonth = month + "월";
-            happiestCount = ((Number) monthResult.get(0)[1]).intValue();
+        if (monthResult != null) {
+            happiestMonth = monthResult.getKey() + "월";
+            happiestCount = monthResult.getValue().intValue();
         }
 
-        LocalDate firstDate = diaryRepository.findFirstDiaryDate(userId);
+        LocalDate firstDate = attendedDiaries.stream()
+                .map(DiaryStatisticsRow::getDiaryDate)
+                .filter(Objects::nonNull)
+                .min(LocalDate::compareTo)
+                .orElse(null);
         String firstDiaryDate = firstDate != null ? firstDate.toString() : null;
 
         int cheerPostCount = cheerPostRepository.countByUserId(userId);
@@ -345,16 +435,10 @@ public class BegaDiaryService {
         // --- New Logic Start ---
 
         // 1. Sort diaries by date for streak analysis (null-safe)
-        List<BegaDiary> sortedDiaries = new ArrayList<>(diaries);
-        sortedDiaries.sort((d1, d2) -> {
-            if (d1.getDiaryDate() == null && d2.getDiaryDate() == null)
-                return 0;
-            if (d1.getDiaryDate() == null)
-                return 1;
-            if (d2.getDiaryDate() == null)
-                return -1;
-            return d1.getDiaryDate().compareTo(d2.getDiaryDate());
-        });
+        List<DiaryStatisticsRow> sortedDiaries = new ArrayList<>(attendedDiaries);
+        sortedDiaries.sort(Comparator.comparing(
+                DiaryStatisticsRow::getDiaryDate,
+                Comparator.nullsLast(Comparator.naturalOrder())));
 
         // 2. Streak Analysis
         int currentWinStreak = 0;
@@ -363,7 +447,7 @@ public class BegaDiaryService {
 
         int tempWinStreak = 0;
 
-        for (BegaDiary diary : sortedDiaries) {
+        for (DiaryStatisticsRow diary : sortedDiaries) {
             if (diary.getWinning() == DiaryWinning.WIN) {
                 tempWinStreak++;
                 longestWinStreak = Math.max(longestWinStreak, tempWinStreak);
@@ -374,7 +458,7 @@ public class BegaDiaryService {
 
         // Calculate current streaks (counting backwards from most recent)
         for (int i = sortedDiaries.size() - 1; i >= 0; i--) {
-            BegaDiary diary = sortedDiaries.get(i);
+            DiaryStatisticsRow diary = sortedDiaries.get(i);
             if (diary.getWinning() == DiaryWinning.WIN) {
                 if (currentLossStreak == 0)
                     currentWinStreak++;
@@ -394,18 +478,24 @@ public class BegaDiaryService {
         Map<String, DiaryStatisticsDto.OpponentStats> opponentStatsMap = new java.util.HashMap<>();
         Map<String, DiaryStatisticsDto.DayStats> dayStatsMap = new java.util.HashMap<>();
 
-        // Assuming current user's favorite team is consistent for simplicity
-        // In a real scenario, we might want to store "my team" in the diary entity
-        UserEntity user = userRepository.findById(userId).orElse(null);
-        String myTeamCode = (user != null && user.getFavoriteTeam() != null) ? user.getFavoriteTeam().getTeamId() : "";
-        if (myTeamCode == null)
-            myTeamCode = "";
+        String myTeamCode = diaries.stream()
+                .map(DiaryStatisticsRow::getFavoriteTeamId)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse("");
+        final String favoriteTeamCode = myTeamCode;
+        int homeVisitCount = favoriteTeamCode.isEmpty() ? 0 : (int) currentYearAttendedDiaries.stream()
+                .filter(diary -> favoriteTeamCode.equals(diary.getHomeTeam()))
+                .count();
+        int awayVisitCount = favoriteTeamCode.isEmpty() ? 0 : (int) currentYearAttendedDiaries.stream()
+                .filter(diary -> favoriteTeamCode.equals(diary.getAwayTeam()))
+                .count();
 
-        for (BegaDiary diary : diaries) {
+        for (DiaryStatisticsRow diary : attendedDiaries) {
             // Opponent Analysis
-            if (!myTeamCode.isEmpty() && diary.getGame() != null) {
-                String home = diary.getGame().getHomeTeam();
-                String away = diary.getGame().getAwayTeam();
+            if (!myTeamCode.isEmpty() && (diary.getHomeTeam() != null || diary.getAwayTeam() != null)) {
+                String home = diary.getHomeTeam();
+                String away = diary.getAwayTeam();
                 String opponent;
 
                 // Simple check: if home is my team, away is opponent, etc.
@@ -479,7 +569,7 @@ public class BegaDiaryService {
             earnedBadges.add("flame"); // 불꽃 응원단
 
         // Count unique stadiums
-        long uniqueStadiums = diaries.stream().map(BegaDiary::getStadium).distinct().count();
+        long uniqueStadiums = attendedDiaries.stream().map(DiaryStatisticsRow::getStadium).distinct().count();
         if (uniqueStadiums >= 3)
             earnedBadges.add("map-pin"); // 구장 마스터
 
@@ -490,7 +580,7 @@ public class BegaDiaryService {
 
         // --- New Logic End ---
 
-        Map<String, Long> emojiCounts = diaries.stream()
+        Map<String, Long> emojiCounts = attendedDiaries.stream()
                 .collect(Collectors.groupingBy(
                         diary -> diary.getMood().getKoreanName(),
                         Collectors.counting()));
@@ -507,6 +597,11 @@ public class BegaDiaryService {
                 .yearlyWinRate(Math.round(yearlyWinRate * 10) / 10.0)
                 .mostVisitedStadium(mostVisitedStadium)
                 .mostVisitedCount(mostVisitedCount)
+                .monthlyVisitCounts(monthlyVisitCounts)
+                .stadiumVisitCounts(stadiumVisitCounts)
+                .homeVisitCount(homeVisitCount)
+                .awayVisitCount(awayVisitCount)
+                .scheduledCount(scheduledCount)
                 .happiestMonth(happiestMonth)
                 .happiestCount(happiestCount)
                 .firstDiaryDate(firstDiaryDate)
@@ -525,64 +620,54 @@ public class BegaDiaryService {
                 .build());
     }
 
-    private List<String> normalizeDiaryPhotoPaths(List<String> photoPaths) {
+    private List<String> normalizeDiaryPhotoPathsForCreate(List<String> photoPaths, Long userId) {
         if (photoPaths == null || photoPaths.isEmpty()) {
             return List.of();
         }
-        return imageService.normalizeDiaryStoragePaths(photoPaths);
+        return imageService.normalizeDiaryStoragePathsForWrite(photoPaths, userId, null, false);
+    }
+
+    private List<String> normalizeDiaryPhotoPathsForUpdate(List<String> photoPaths, Long userId, Long diaryId) {
+        if (photoPaths == null || photoPaths.isEmpty()) {
+            return List.of();
+        }
+        return imageService.normalizeDiaryStoragePathsForWrite(photoPaths, userId, diaryId, true);
+    }
+
+    private BegaDiary requireOwnedDiary(Long diaryId, Long userId) {
+        if (diaryId == null) {
+            throw new IllegalArgumentException("Diary ID cannot be null");
+        }
+        if (userId == null) {
+            throw new DiaryNotFoundException(diaryId);
+        }
+        return diaryRepository.findByIdAndUserId(diaryId, userId)
+                .orElseThrow(() -> new DiaryNotFoundException(diaryId));
     }
 
     private List<List<String>> resolveDiarySignedUrls(List<BegaDiary> diaries) {
         List<List<String>> resolved = new ArrayList<>(diaries.size());
-        List<Integer> photoCounts = new ArrayList<>(diaries.size());
-        List<Integer> photoIndexes = new ArrayList<>();
-        List<String> storagePaths = new ArrayList<>();
 
         for (int index = 0; index < diaries.size(); index++) {
             BegaDiary diary = diaries.get(index);
             List<String> photoUrls = diary.getPhotoUrls();
             int photoCount = photoUrls == null ? 0 : photoUrls.size();
-            photoCounts.add(photoCount);
-            resolved.add(null);
-
-            if (photoCount > 0) {
-                photoIndexes.add(index);
-                storagePaths.addAll(photoUrls);
-            }
-        }
-
-        if (storagePaths.isEmpty()) {
-            return resolved;
-        }
-
-        List<String> signedUrls;
-        try {
-            signedUrls = imageService.getDiaryImageSignedUrls(storagePaths).block();
-        } catch (Exception e) {
-            log.error("다이어리 이미지 Signed URL 일괄 생성 실패: diaryCount={}, error={}", diaries.size(), e.getMessage(), e);
-            for (Integer index : photoIndexes) {
-                resolved.set(index, new ArrayList<>());
-            }
-            return resolved;
-        }
-
-        if (signedUrls == null || signedUrls.isEmpty()) {
-            for (Integer index : photoIndexes) {
-                resolved.set(index, new ArrayList<>());
-            }
-            return resolved;
-        }
-
-        int cursor = 0;
-        for (int index = 0; index < diaries.size(); index++) {
-            int photoCount = photoCounts.get(index);
+            resolved.add(new ArrayList<>());
             if (photoCount <= 0) {
                 continue;
             }
 
-            int nextCursor = Math.min(cursor + photoCount, signedUrls.size());
-            resolved.set(index, new ArrayList<>(signedUrls.subList(cursor, nextCursor)));
-            cursor = nextCursor;
+            Long ownerUserId = diary.getUser() != null ? diary.getUser().getId() : null;
+            try {
+                List<String> signedUrls = imageService
+                        .getDiaryImageSignedUrls(photoUrls, ownerUserId, diary.getId())
+                        .block();
+                resolved.set(index, signedUrls == null ? new ArrayList<>() : new ArrayList<>(signedUrls));
+            } catch (Exception e) {
+                log.error("다이어리 이미지 Signed URL 생성 실패: diaryId={}, error={}",
+                        diary.getId(), e.getMessage(), e);
+                resolved.set(index, new ArrayList<>());
+            }
         }
 
         return resolved;
@@ -593,9 +678,33 @@ public class BegaDiaryService {
         return seatViewService.getPublicSeatViews(stadium, section, limit);
     }
 
-    private DiaryWinning resolveWinning(String winningName) {
+    private DiaryType resolveDiaryType(String typeName, DiaryType fallback) {
+        if (!StringUtils.hasText(typeName)) {
+            return fallback;
+        }
         try {
-            return DiaryWinning.valueOf(winningName);
+            return DiaryType.valueOf(typeName.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid diary type: " + typeName, e);
+        }
+    }
+
+    private DiaryEmoji resolveMood(String emojiName, DiaryType diaryType) {
+        if (diaryType == DiaryType.SCHEDULED && !StringUtils.hasText(emojiName)) {
+            return DEFAULT_SCHEDULED_MOOD;
+        }
+        return DiaryEmoji.fromKoreanName(emojiName);
+    }
+
+    private DiaryWinning resolveWinning(DiaryType diaryType, String winningName) {
+        if (diaryType == DiaryType.SCHEDULED) {
+            return null;
+        }
+        if (!StringUtils.hasText(winningName)) {
+            throw new WinningNameNotFoundException();
+        }
+        try {
+            return DiaryWinning.valueOf(winningName.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             throw new WinningNameNotFoundException();
         }

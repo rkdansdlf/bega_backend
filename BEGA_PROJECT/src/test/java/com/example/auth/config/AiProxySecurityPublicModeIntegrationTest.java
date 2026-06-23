@@ -2,6 +2,7 @@ package com.example.auth.config;
 
 import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
+import com.example.common.ratelimit.RateLimitService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -10,6 +11,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -17,13 +19,18 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.charset.StandardCharsets;
 
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -64,9 +71,13 @@ class AiProxySecurityPublicModeIntegrationTest {
     @MockitoBean
     private AiProxyService aiProxyService;
 
+    @MockitoBean
+    private RateLimitService rateLimitService;
+
     @BeforeEach
     void setUp() {
-        reset(aiProxyService);
+        reset(aiProxyService, rateLimitService);
+        given(rateLimitService.isAllowed(anyString(), anyInt(), anyInt(), anyBoolean())).willReturn(true);
         given(aiProxyService.forwardJson(eq("/ai/chat/completion"), eq(PAYLOAD)))
                 .willReturn(new ProxyByteResponse(HttpStatus.OK, new HttpHeaders(), RESPONSE_BODY));
         given(aiProxyService.forwardGet(eq("/ai/release-decision/presets")))
@@ -83,6 +94,19 @@ class AiProxySecurityPublicModeIntegrationTest {
                 .andExpect(content().bytes(RESPONSE_BODY));
 
         verify(aiProxyService).forwardJson("/ai/chat/completion", PAYLOAD);
+    }
+
+    @Test
+    @DisplayName("public dev/local mode still rejects oversized unauthenticated AI requests before proxy forwarding")
+    void chatCompletion_rejectsOversizedUnauthenticatedRequestWhenPublicModeEnabled() throws Exception {
+        mockMvc.perform(post(CHAT_ENDPOINT)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(oversizedChatPayload()))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.code").value("AI_PROXY_PAYLOAD_TOO_LARGE"));
+
+        verify(aiProxyService, never()).forwardJson(anyString(), anyString());
+        verify(rateLimitService, never()).isAllowed(anyString(), anyInt(), anyInt(), anyBoolean());
     }
 
     @Test
@@ -125,5 +149,9 @@ class AiProxySecurityPublicModeIntegrationTest {
                 .andExpect(content().bytes(RESPONSE_BODY));
 
         verify(aiProxyService).forwardGet("/ai/release-decision/presets");
+    }
+
+    private String oversizedChatPayload() {
+        return "{\"question\":\"" + "x".repeat(12_500) + "\"}";
     }
 }

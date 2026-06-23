@@ -25,7 +25,7 @@ class AdminMaintenanceControllerTest {
     @Test
     @DisplayName("소프트 삭제된 게시글 정리 작업을 실행한다")
     void cleanupSoftDeletedCheerPosts_callsSchedulerAndReturnsSuccess() {
-        ResponseEntity<ApiResponse> result = controller.cleanupSoftDeletedCheerPosts();
+        ResponseEntity<ApiResponse<Void>> result = controller.cleanupSoftDeletedCheerPosts();
 
         assertThat(result.getBody().isSuccess()).isTrue();
         verify(cheerStorageScheduler).cleanupDeletedPosts();

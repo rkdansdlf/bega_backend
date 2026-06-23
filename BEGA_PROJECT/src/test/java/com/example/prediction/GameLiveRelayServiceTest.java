@@ -32,11 +32,17 @@ class GameLiveRelayServiceTest {
     @Mock
     private BaseballDataIntegrityGuard baseballDataIntegrityGuard;
 
+    @Mock
+    private PredictionLiveMetricsService predictionLiveMetricsService;
+
     private GameLiveRelayService gameLiveRelayService;
 
     @BeforeEach
     void setUp() {
-        gameLiveRelayService = new GameLiveRelayService(gamePlayByPlayRepository, baseballDataIntegrityGuard);
+        gameLiveRelayService = new GameLiveRelayService(
+                gamePlayByPlayRepository,
+                baseballDataIntegrityGuard,
+                predictionLiveMetricsService);
     }
 
     @Test

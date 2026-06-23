@@ -27,6 +27,35 @@ public interface BegaDiaryRepository extends JpaRepository<BegaDiary, Long> {
        @EntityGraph(attributePaths = "game")
        List<BegaDiary> findByUserId(Long id);
 
+       @EntityGraph(attributePaths = "game")
+       List<BegaDiary> findByUserIdOrderByDiaryDateDesc(Long userId);
+
+       @Query("""
+                     SELECT
+                         d.diaryDate AS diaryDate,
+                         d.winning AS winning,
+                         d.type AS type,
+                         d.stadium AS stadium,
+                         d.mood AS mood,
+                         g.homeTeam AS homeTeam,
+                         g.awayTeam AS awayTeam,
+                         ft.teamId AS favoriteTeamId
+                     FROM BegaDiary d
+                     LEFT JOIN d.game g
+                     LEFT JOIN d.user u
+                     LEFT JOIN u.favoriteTeam ft
+                     WHERE d.user.id = :userId
+                     ORDER BY d.diaryDate DESC
+                     """)
+       List<DiaryStatisticsRow> findStatisticsRowsByUserIdOrderByDiaryDateDesc(@Param("userId") Long userId);
+
+       @EntityGraph(attributePaths = {"user", "game", "photoUrls"})
+       @Query("SELECT d FROM BegaDiary d WHERE d.id = :id")
+       Optional<BegaDiary> findByIdWithOwnerGameAndPhotos(@Param("id") Long id);
+
+       @EntityGraph(attributePaths = {"user", "game", "photoUrls"})
+       Optional<BegaDiary> findByIdAndUserId(Long id, Long userId);
+
        @EntityGraph(attributePaths = "user")
        Page<BegaDiary> findAllBy(Pageable pageable);
 

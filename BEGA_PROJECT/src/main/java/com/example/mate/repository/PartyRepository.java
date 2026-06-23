@@ -12,15 +12,37 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
-public interface PartyRepository extends JpaRepository<Party, Long> {
+public interface PartyRepository extends JpaRepository<Party, Long>, PartyRepositoryCustom {
 
         // 상태별 파티 조회
         List<Party> findByStatus(Party.PartyStatus status);
 
         // 호스트별 파티 조회
         List<Party> findByHostId(Long hostId);
+
+        Optional<Party> findByIdAndHostId(Long id, Long hostId);
+
+        @Query("""
+                        SELECT p
+                        FROM Party p
+                        WHERE p.id = :partyId
+                          AND (
+                                p.hostId = :userId
+                                OR EXISTS (
+                                    SELECT 1
+                                    FROM PartyApplication a
+                                    WHERE a.partyId = p.id
+                                      AND a.applicantId = :userId
+                                      AND a.isApproved = true
+                                )
+                          )
+                        """)
+        Optional<Party> findAccessibleByIdAndParticipantId(
+                        @Param("partyId") Long partyId,
+                        @Param("userId") Long userId);
 
         // 경기 날짜별 파티 조회
         List<Party> findByGameDate(LocalDate gameDate);
@@ -51,119 +73,6 @@ public interface PartyRepository extends JpaRepository<Party, Long> {
 
         Page<Party> findByStatusAndGameDateGreaterThanEqual(PartyStatus status, LocalDate gameDate, Pageable pageable);
 
-        // 통합 검색 및 필터링 (팀, 구장, 날짜, 검색어, 상태 제외) - Updated for IDE sync
-        @Query("SELECT p FROM Party p WHERE " +
-                        "(:teamId IS NULL OR p.teamId = :teamId) AND " +
-                        "(:stadium IS NULL OR p.stadium = :stadium) AND " +
-                        "(:gameDate IS NULL OR p.gameDate = :gameDate) AND " +
-                        "(:query = '' OR LOWER(COALESCE(p.searchText, '')) LIKE LOWER(CONCAT('%', :query, '%'))) AND " +
-                        "((:status IS NOT NULL AND p.status = :status) OR " +
-                        "(:status IS NULL AND p.status NOT IN :excludedStatuses))")
-        Page<Party> findPartiesWithFilter(
-                        @Param("teamId") String teamId,
-                        @Param("stadium") String stadium,
-                        @Param("gameDate") LocalDate gameDate,
-                        @Param("query") String query,
-                        @Param("excludedStatuses") List<Party.PartyStatus> excludedStatuses,
-                        @Param("status") PartyStatus status,
-                        Pageable pageable);
-
-        @Query(value = """
-                        SELECT p
-                        FROM Party p
-                        LEFT JOIN UserEntity host ON host.id = p.hostId
-                        WHERE (:teamId IS NULL OR p.teamId = :teamId)
-                          AND (:stadium IS NULL OR p.stadium = :stadium)
-                          AND (:gameDate IS NULL OR p.gameDate = :gameDate)
-                          AND (:query = '' OR LOWER(COALESCE(p.searchText, '')) LIKE LOWER(CONCAT('%', :query, '%')))
-                          AND ((:status IS NOT NULL AND p.status = :status) OR (:status IS NULL AND p.status NOT IN :excludedStatuses))
-                          AND (
-                                host.id IS NULL
-                                OR (:currentUserId IS NOT NULL AND host.id = :currentUserId)
-                                OR (
-                                    NOT EXISTS (
-                                        SELECT 1
-                                        FROM UserBlock ub
-                                        WHERE :currentUserId IS NOT NULL
-                                          AND (
-                                                (ub.id.blockerId = :currentUserId AND ub.id.blockedId = host.id)
-                                                OR (ub.id.blockerId = host.id AND ub.id.blockedId = :currentUserId)
-                                          )
-                                    )
-                                    AND (
-                                        COALESCE(host.privateAccount, false) = false
-                                        OR (
-                                            :currentUserId IS NOT NULL
-                                            AND EXISTS (
-                                                SELECT 1
-                                                FROM UserFollow uf
-                                                WHERE uf.id.followerId = :currentUserId
-                                                  AND uf.id.followingId = host.id
-                                            )
-                                        )
-                                    )
-                                )
-                          )
-                        """, countQuery = """
-                        SELECT COUNT(p)
-                        FROM Party p
-                        LEFT JOIN UserEntity host ON host.id = p.hostId
-                        WHERE (:teamId IS NULL OR p.teamId = :teamId)
-                          AND (:stadium IS NULL OR p.stadium = :stadium)
-                          AND (:gameDate IS NULL OR p.gameDate = :gameDate)
-                          AND (:query = '' OR LOWER(COALESCE(p.searchText, '')) LIKE LOWER(CONCAT('%', :query, '%')))
-                          AND ((:status IS NOT NULL AND p.status = :status) OR (:status IS NULL AND p.status NOT IN :excludedStatuses))
-                          AND (
-                                host.id IS NULL
-                                OR (:currentUserId IS NOT NULL AND host.id = :currentUserId)
-                                OR (
-                                    NOT EXISTS (
-                                        SELECT 1
-                                        FROM UserBlock ub
-                                        WHERE :currentUserId IS NOT NULL
-                                          AND (
-                                                (ub.id.blockerId = :currentUserId AND ub.id.blockedId = host.id)
-                                                OR (ub.id.blockerId = host.id AND ub.id.blockedId = :currentUserId)
-                                          )
-                                    )
-                                    AND (
-                                        COALESCE(host.privateAccount, false) = false
-                                        OR (
-                                            :currentUserId IS NOT NULL
-                                            AND EXISTS (
-                                                SELECT 1
-                                                FROM UserFollow uf
-                                                WHERE uf.id.followerId = :currentUserId
-                                                  AND uf.id.followingId = host.id
-                                            )
-                                        )
-                                    )
-                                )
-                          )
-                        """)
-        Page<Party> findVisiblePublicPartiesWithFilter(
-                        @Param("teamId") String teamId,
-                        @Param("stadium") String stadium,
-                        @Param("gameDate") LocalDate gameDate,
-                        @Param("query") String query,
-                        @Param("excludedStatuses") List<Party.PartyStatus> excludedStatuses,
-                        @Param("status") PartyStatus status,
-                        @Param("currentUserId") Long currentUserId,
-                        Pageable pageable);
-
-        Page<Party> findByStatusNotInOrderByCreatedAtDesc(List<PartyStatus> statuses, Pageable pageable);
-
-        Page<Party> findByTeamIdAndStatusNotInOrderByCreatedAtDesc(String teamId, List<PartyStatus> statuses,
-                        Pageable pageable);
-
-        Page<Party> findByStadiumAndStatusNotInOrderByCreatedAtDesc(String stadium, List<PartyStatus> statuses,
-                        Pageable pageable);
-
-        Page<Party> findByTeamIdAndStadiumAndStatusNotInOrderByCreatedAtDesc(String teamId, String stadium,
-                        List<PartyStatus> statuses, Pageable pageable);
-
-        Page<Party> findAllByOrderByCreatedAtDesc(Pageable pageable);
-
         // 스케줄러용 쿼리 메서드들
         List<Party> findByStatusAndGameDateBefore(PartyStatus status, LocalDate date);
 
@@ -171,5 +80,25 @@ public interface PartyRepository extends JpaRepository<Party, Long> {
 
         // 사용자 삭제 시 cascade cleanup용 쿼리
         List<Party> findByHostIdAndStatusIn(Long hostId, List<PartyStatus> statuses);
+
+        long countByHostIdAndStatusIn(Long hostId, List<PartyStatus> statuses);
+
+        @Query("""
+                        SELECT COUNT(p.id)
+                        FROM Party p
+                        WHERE p.hostId = :hostId
+                          AND p.status IN :statuses
+                          AND p.gameDate >= :cutoffDate
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM CheckInRecord c
+                              WHERE c.partyId = p.id
+                                AND c.userId = :hostId
+                          )
+                        """)
+        long countHostedNoShowsSince(
+                        @Param("hostId") Long hostId,
+                        @Param("statuses") List<PartyStatus> statuses,
+                        @Param("cutoffDate") LocalDate cutoffDate);
 
 }

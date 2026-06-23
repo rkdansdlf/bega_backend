@@ -53,7 +53,7 @@ public class AdminController {
      * GET /api/admin/stats
      */
     @GetMapping("/stats")
-    public ResponseEntity<ApiResponse> getStats() {
+    public ResponseEntity<ApiResponse<AdminStatsDto>> getStats() {
         AdminStatsDto stats = adminService.getStats();
         return ResponseEntity.ok(ApiResponse.success("통계 조회 성공", stats));
     }
@@ -63,7 +63,7 @@ public class AdminController {
      * GET /api/admin/users?search=검색어
      */
     @GetMapping("/users")
-    public ResponseEntity<ApiResponse> getUsers(
+    public ResponseEntity<ApiResponse<List<AdminUserDto>>> getUsers(
             @RequestParam(required = false) String search) {
         List<AdminUserDto> users = adminService.getUsers(search);
         return ResponseEntity.ok(ApiResponse.success("유저 목록 조회 성공", users));
@@ -74,13 +74,13 @@ public class AdminController {
      * GET /api/admin/posts
      */
     @GetMapping("/posts")
-    public ResponseEntity<ApiResponse> getPosts() {
+    public ResponseEntity<ApiResponse<List<AdminPostDto>>> getPosts() {
         List<AdminPostDto> posts = adminService.getPosts();
         return ResponseEntity.ok(ApiResponse.success("게시글 목록 조회 성공", posts));
     }
 
     @GetMapping("/reports")
-    public ResponseEntity<ApiResponse> getReports(
+    public ResponseEntity<ApiResponse<Page<AdminReportDto>>> getReports(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String reason,
             @RequestParam(required = false) LocalDate fromDate,
@@ -92,13 +92,13 @@ public class AdminController {
     }
 
     @GetMapping("/reports/{reportId}")
-    public ResponseEntity<ApiResponse> getReport(@PathVariable Long reportId) {
+    public ResponseEntity<ApiResponse<AdminReportDto>> getReport(@PathVariable Long reportId) {
         AdminReportDto report = adminService.getReport(reportId);
         return ResponseEntity.ok(ApiResponse.success("신고 케이스 상세 조회 성공", report));
     }
 
     @GetMapping("/seat-views")
-    public ResponseEntity<ApiResponse> getSeatViews(
+    public ResponseEntity<ApiResponse<List<AdminSeatViewDto>>> getSeatViews(
             @RequestParam(required = false) String moderationStatus,
             @RequestParam(required = false) String stadium,
             @RequestParam(required = false) String aiSuggestedLabel,
@@ -114,13 +114,13 @@ public class AdminController {
     }
 
     @GetMapping("/seat-views/{seatViewId}")
-    public ResponseEntity<ApiResponse> getSeatView(@PathVariable Long seatViewId) {
+    public ResponseEntity<ApiResponse<AdminSeatViewDto>> getSeatView(@PathVariable Long seatViewId) {
         AdminSeatViewDto seatView = seatViewService.getAdminSeatView(seatViewId);
         return ResponseEntity.ok(ApiResponse.success("시야뷰 후보 상세 조회 성공", seatView));
     }
 
     @PatchMapping("/seat-views/{seatViewId}")
-    public ResponseEntity<ApiResponse> handleSeatView(
+    public ResponseEntity<ApiResponse<AdminSeatViewDto>> handleSeatView(
             @AuthenticationPrincipal Long adminId,
             @PathVariable Long seatViewId,
             @RequestBody AdminSeatViewActionReq req) {
@@ -129,7 +129,7 @@ public class AdminController {
     }
 
     @PatchMapping("/reports/{reportId}")
-    public ResponseEntity<ApiResponse> handleReport(
+    public ResponseEntity<ApiResponse<AdminReportDto>> handleReport(
             @AuthenticationPrincipal Long adminId,
             @PathVariable Long reportId,
             @RequestBody AdminReportActionReq req) {
@@ -138,7 +138,7 @@ public class AdminController {
     }
 
     @PostMapping("/reports/{reportId}/appeal")
-    public ResponseEntity<ApiResponse> requestAppeal(
+    public ResponseEntity<ApiResponse<AdminReportDto>> requestAppeal(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long reportId,
             @RequestBody(required = false) AdminReportAppealReq req) {
@@ -151,7 +151,7 @@ public class AdminController {
      * GET /api/admin/mates
      */
     @GetMapping("/mates")
-    public ResponseEntity<ApiResponse> getMates() {
+    public ResponseEntity<ApiResponse<List<AdminMateDto>>> getMates() {
         List<AdminMateDto> mates = adminService.getMates();
         return ResponseEntity.ok(ApiResponse.success("메이트 목록 조회 성공", mates));
     }
@@ -161,7 +161,7 @@ public class AdminController {
      * DELETE /api/admin/users/{userId}
      */
     @DeleteMapping("/users/{userId}")
-    public ResponseEntity<ApiResponse> deleteUser(
+    public ResponseEntity<ApiResponse<Void>> deleteUser(
             @AuthenticationPrincipal Long adminId,
             @PathVariable Long userId) {
         adminService.deleteUser(userId, adminId);
@@ -173,7 +173,7 @@ public class AdminController {
      * DELETE /api/admin/posts/{postId}
      */
     @DeleteMapping("/posts/{postId}")
-    public ResponseEntity<ApiResponse> deletePost(
+    public ResponseEntity<ApiResponse<Void>> deletePost(
             @AuthenticationPrincipal Long adminId,
             @PathVariable Long postId) {
         adminService.deletePost(postId, adminId);
@@ -185,7 +185,7 @@ public class AdminController {
      * DELETE /api/admin/mates/{mateId}
      */
     @DeleteMapping("/mates/{mateId}")
-    public ResponseEntity<ApiResponse> deleteMate(
+    public ResponseEntity<ApiResponse<Void>> deleteMate(
             @AuthenticationPrincipal Long adminId,
             @PathVariable Long mateId) {
         adminService.deleteMate(mateId, adminId);
@@ -197,7 +197,7 @@ public class AdminController {
      * GET /api/admin/cache-stats
      */
     @GetMapping("/cache-stats")
-    public ResponseEntity<ApiResponse> getCacheStats() {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getCacheStats() {
         var stats = adminService.getCacheStats();
         return ResponseEntity.ok(ApiResponse.success("캐시 통계 조회 성공", stats));
     }
@@ -207,7 +207,7 @@ public class AdminController {
      * PUT /api/admin/games/{gameId}/inning-scores
      */
     @PutMapping("/games/{gameId}/inning-scores")
-    public ResponseEntity<ApiResponse> upsertInningScores(
+    public ResponseEntity<ApiResponse<Map<String, Object>>> upsertInningScores(
             @PathVariable String gameId,
             @Valid @RequestBody List<GameInningScoreRequestDto> scores) {
         int saved = adminService.upsertInningScores(gameId, scores);
@@ -220,7 +220,7 @@ public class AdminController {
      * POST /api/admin/games/{gameId}/sync-snapshot
      */
     @PostMapping("/games/{gameId}/sync-snapshot")
-    public ResponseEntity<ApiResponse> syncGameSnapshot(@PathVariable String gameId) {
+    public ResponseEntity<ApiResponse<GameScoreSyncResultDto>> syncGameSnapshot(@PathVariable String gameId) {
         GameScoreSyncResultDto result = adminService.syncGameSnapshot(gameId);
         return ResponseEntity.ok(ApiResponse.success("경기 스냅샷 동기화 성공", result));
     }
@@ -230,7 +230,7 @@ public class AdminController {
      * POST /api/admin/games/sync-snapshots?startDate=2026-03-29&endDate=2026-03-29
      */
     @PostMapping("/games/sync-snapshots")
-    public ResponseEntity<ApiResponse> syncGameSnapshotsByDateRange(
+    public ResponseEntity<ApiResponse<GameScoreSyncBatchResultDto>> syncGameSnapshotsByDateRange(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
         LocalDate resolvedEndDate = endDate != null ? endDate : startDate;
@@ -243,7 +243,7 @@ public class AdminController {
      * GET /api/admin/games/status-mismatches?startDate=2026-03-29&endDate=2026-03-29
      */
     @GetMapping("/games/status-mismatches")
-    public ResponseEntity<ApiResponse> getGameStatusMismatches(
+    public ResponseEntity<ApiResponse<GameStatusMismatchBatchResultDto>> getGameStatusMismatches(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
         LocalDate resolvedEndDate = endDate != null ? endDate : startDate;
@@ -256,7 +256,7 @@ public class AdminController {
      * POST /api/admin/games/repair-status-mismatches?startDate=2026-03-29&endDate=2026-03-29&dryRun=true
      */
     @PostMapping("/games/repair-status-mismatches")
-    public ResponseEntity<ApiResponse> repairGameStatusMismatches(
+    public ResponseEntity<ApiResponse<GameStatusRepairBatchResultDto>> repairGameStatusMismatches(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @RequestParam(defaultValue = "true") boolean dryRun) {
@@ -274,7 +274,7 @@ public class AdminController {
      * GET /api/admin/games/non-canonical-cleanup-trackers
      */
     @GetMapping("/games/non-canonical-cleanup-trackers")
-    public ResponseEntity<ApiResponse> getNonCanonicalCleanupTrackers() {
+    public ResponseEntity<ApiResponse<List<AdminNonCanonicalCleanupTrackerDto>>> getNonCanonicalCleanupTrackers() {
         List<AdminNonCanonicalCleanupTrackerDto> result = adminService.getNonCanonicalCleanupTrackers();
         return ResponseEntity.ok(ApiResponse.success("비정상 팀 코드 정제 tracker 조회 성공", result));
     }
@@ -284,7 +284,7 @@ public class AdminController {
      * PUT /api/admin/games/non-canonical-cleanup-trackers?startDate=2026-04-14&endDate=2026-04-14
      */
     @PutMapping("/games/non-canonical-cleanup-trackers")
-    public ResponseEntity<ApiResponse> upsertNonCanonicalCleanupTracker(
+    public ResponseEntity<ApiResponse<AdminNonCanonicalCleanupTrackerDto>> upsertNonCanonicalCleanupTracker(
             @AuthenticationPrincipal Long adminId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,

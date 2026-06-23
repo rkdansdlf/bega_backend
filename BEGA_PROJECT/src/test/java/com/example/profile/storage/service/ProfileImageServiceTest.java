@@ -3,6 +3,7 @@ package com.example.profile.storage.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -10,12 +11,15 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 import com.example.auth.repository.UserRepository;
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
+import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InternalServerBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
+import com.example.media.service.MediaObjectKeyGuard;
 import com.example.profile.storage.validator.ProfileImageValidator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -59,6 +63,9 @@ class ProfileImageServiceTest {
     @Mock
     private Cache signedUrlCache;
 
+    @Mock
+    private MediaObjectKeyGuard mediaObjectKeyGuard;
+
     @InjectMocks
     private ProfileImageService profileImageService;
 
@@ -75,6 +82,123 @@ class ProfileImageServiceTest {
 
         String normalized = profileImageService.normalizeProfileStoragePath(
                 "https://cdn.example.com/profile-images/profiles/7/avatar.webp?signature=abc");
+
+        assertThat(normalized).isEqualTo("profiles/7/avatar.webp");
+    }
+
+    @Test
+    @DisplayName("프로필 수정은 다른 사용자의 legacy profile key를 거부한다")
+    void normalizeProfileStoragePathForUser_rejectsCrossOwnerLegacyPath() {
+        doThrow(new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요."))
+                .when(mediaObjectKeyGuard)
+                .requireProfileWriteKey("profiles/99/avatar.webp", 7L);
+
+        BadRequestBusinessException ex = assertThrows(
+                BadRequestBusinessException.class,
+                () -> profileImageService.normalizeProfileStoragePathForUser(7L, "profiles/99/avatar.webp"));
+
+        assertThat(ex.getCode()).isEqualTo("MEDIA_ASSET_NOT_FOUND");
+    }
+
+    @Test
+    @DisplayName("프로필 수정은 임의 외부 URL 저장을 거부한다")
+    void normalizeProfileStoragePathForUser_rejectsExternalUrlForSelfServiceUpdate() {
+        doThrow(new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요."))
+                .when(mediaObjectKeyGuard)
+                .requireProfileWriteKey("https://images.example/avatar.webp", 7L);
+
+        BadRequestBusinessException ex = assertThrows(
+                BadRequestBusinessException.class,
+                () -> profileImageService.normalizeProfileStoragePathForUser(7L, "https://images.example/avatar.webp"));
+
+        assertThat(ex.getCode()).isEqualTo("MEDIA_ASSET_NOT_FOUND");
+    }
+
+    @Test
+    @DisplayName("owner-aware 프로필 URL 생성은 다른 사용자의 legacy profile key를 서명하지 않는다")
+    void getProfileImageUrlForUser_doesNotSignCrossOwnerLegacyPath() {
+        String resolved = profileImageService.getProfileImageUrlForUser(7L, "profiles/99/avatar.webp");
+
+        assertThat(resolved).isNull();
+        verify(storageStrategy, never()).getUrl(any(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("owner-aware 프로필 URL 생성은 본인의 legacy profile key를 서명한다")
+    void getProfileImageUrlForUser_signsOwnedLegacyPath() {
+        when(config.getProfileBucket()).thenReturn("profile-images");
+        when(mediaObjectKeyGuard.canReadProfileKey("profiles/7/avatar.webp", 7L, true)).thenReturn(true);
+        when(storageStrategy.getUrl("profile-images", "profiles/7/avatar.webp", 518400))
+                .thenReturn(Mono.just("https://signed.example/profiles/7/avatar.webp"));
+
+        String resolved = profileImageService.getProfileImageUrlForUser(7L, "profiles/7/avatar.webp");
+
+        assertThat(resolved).isEqualTo("https://signed.example/profiles/7/avatar.webp");
+        verify(storageStrategy).getUrl("profile-images", "profiles/7/avatar.webp", 518400);
+    }
+
+    @Test
+    @DisplayName("owner-aware 프로필 URL 생성은 managed asset 검증 실패 시 서명하지 않는다")
+    void getProfileImageUrlForUser_doesNotSignManagedPathWhenLedgerRejects() {
+        when(mediaObjectKeyGuard.canReadProfileKey("media/profile/7/avatar.webp", 7L, true)).thenReturn(false);
+
+        String resolved = profileImageService.getProfileImageUrlForUser(7L, "media/profile/7/avatar.webp");
+
+        assertThat(resolved).isNull();
+        verify(storageStrategy, never()).getUrl(any(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("프로필 수정 정규화는 외부 소셜 URL도 거부한다")
+    void normalizeProfileStoragePathForUser_rejectsExternalSocialUrlForSelfServiceUpdate() {
+        doThrow(new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요."))
+                .when(mediaObjectKeyGuard)
+                .requireProfileWriteKey("https://k.kakaocdn.net/dn/profile_110x110.png", 7L);
+
+        BadRequestBusinessException ex = assertThrows(
+                BadRequestBusinessException.class,
+                () -> profileImageService.normalizeProfileStoragePathForUser(
+                        7L,
+                        "https://k.kakaocdn.net/dn/profile_110x110.png"));
+
+        assertThat(ex.getCode()).isEqualTo("MEDIA_ASSET_NOT_FOUND");
+    }
+
+    @Test
+    @DisplayName("owner-aware 프로필 URL 생성은 외부 소셜 URL 표시를 유지한다")
+    void getProfileImageUrlForUser_preservesExternalSocialUrlForDisplay() {
+        String externalUrl = "https://k.kakaocdn.net/dn/profile_110x110.png";
+
+        String resolved = profileImageService.getProfileImageUrlForUser(7L, externalUrl);
+
+        assertThat(resolved).isEqualTo("https://k.kakaocdn.net/dn/profile_640x640.png");
+        verify(storageStrategy, never()).getUrl(any(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("owner-aware 프로필 정규화는 다른 사용자의 내부 media/profile 키를 거부한다")
+    void normalizeProfileStoragePathForUser_rejectsUnownedManagedKey() {
+        doThrow(new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요."))
+                .when(mediaObjectKeyGuard)
+                .requireProfileWriteKey("media/profile/8/avatar.webp", 7L);
+
+        BadRequestBusinessException ex = assertThrows(
+                BadRequestBusinessException.class,
+                () -> profileImageService.normalizeProfileStoragePathForUser(
+                        7L,
+                        "https://cdn.example.com/profile-images/media/profile/8/avatar.webp?signature=abc"));
+
+        assertThat(ex.getCode()).isEqualTo("MEDIA_ASSET_NOT_FOUND");
+    }
+
+    @Test
+    @DisplayName("owner-aware 프로필 정규화는 현재 사용자의 legacy profiles 키를 허용한다")
+    void normalizeProfileStoragePathForUser_acceptsOwnedLegacyKey() {
+        when(config.getProfileBucket()).thenReturn("profile-images");
+
+        String normalized = profileImageService.normalizeProfileStoragePathForUser(
+                7L,
+                "profile-images/profiles/7/avatar.webp");
 
         assertThat(normalized).isEqualTo("profiles/7/avatar.webp");
     }
@@ -98,6 +222,8 @@ class ProfileImageServiceTest {
                 .thenReturn(java.util.Optional.of("https://cdn.example.com/profiles/7/old.webp?token=abc"));
         when(userRepository.findProfileFeedImageUrlById(userId))
                 .thenReturn(java.util.Optional.of("https://cdn.example.com/profiles/7/feed/old.webp?token=def"));
+        when(mediaObjectKeyGuard.canReadProfileKey("profiles/7/old.webp", userId, true)).thenReturn(true);
+        when(mediaObjectKeyGuard.canReadProfileKey("profiles/7/feed/old.webp", userId, true)).thenReturn(true);
         when(multipartFile.getOriginalFilename()).thenReturn("avatar.png");
         when(imageUtil.processProfileImage(multipartFile)).thenReturn(processedImage);
         when(imageUtil.processFeedProfileImage(multipartFile)).thenReturn(feedProcessedImage);
@@ -162,7 +288,7 @@ class ProfileImageServiceTest {
         when(storageStrategy.getUrl(profileBucket, "profiles/7/avatar.webp", 518400))
                 .thenReturn(Mono.just(originalUrl));
 
-        String resolved = profileImageService.getProfileImageUrlForCheerFeed(
+        String resolved = profileImageService.getProfileImageUrlForCheerFeedUnchecked(
                 "profiles/7/avatar.webp",
                 "profiles/7/feed/avatar.webp");
 
@@ -180,7 +306,7 @@ class ProfileImageServiceTest {
         when(storageStrategy.getUrl(profileBucket, "profiles/7/feed-v3/avatar.webp", 518400))
                 .thenReturn(Mono.just(feedUrl));
 
-        String resolved = profileImageService.getProfileImageUrlForCheerFeed(
+        String resolved = profileImageService.getProfileImageUrlForCheerFeedUnchecked(
                 "profiles/7/avatar.webp",
                 "profiles/7/feed-v3/avatar.webp");
 
@@ -198,7 +324,7 @@ class ProfileImageServiceTest {
         when(storageStrategy.getUrl(profileBucket, "profiles/7/feed-v2/avatar.webp", 518400))
                 .thenReturn(Mono.just(feedUrl));
 
-        String resolved = profileImageService.getProfileImageUrlForCheerFeed(
+        String resolved = profileImageService.getProfileImageUrlForCheerFeedUnchecked(
                 "profiles/7/avatar.webp",
                 "profiles/7/feed-v2/avatar.webp");
 
@@ -218,7 +344,7 @@ class ProfileImageServiceTest {
         when(storageStrategy.getUrl(profileBucket, "profiles/7/feed-v3/avatar.webp", 518400))
                 .thenReturn(Mono.just(feedUrl));
 
-        String resolved = profileImageService.getProfileImageUrlForCheerFeed("profiles/7/avatar.webp", null);
+        String resolved = profileImageService.getProfileImageUrlForCheerFeedUnchecked("profiles/7/avatar.webp", null);
 
         assertThat(resolved).isEqualTo(feedUrl);
     }
@@ -237,7 +363,7 @@ class ProfileImageServiceTest {
         when(storageStrategy.getUrl(profileBucket, "profiles/7/feed-v2/avatar.webp", 518400))
                 .thenReturn(Mono.just(feedUrl));
 
-        String resolved = profileImageService.getProfileImageUrlForCheerFeed("profiles/7/avatar.webp", null);
+        String resolved = profileImageService.getProfileImageUrlForCheerFeedUnchecked("profiles/7/avatar.webp", null);
 
         assertThat(resolved).isEqualTo(feedUrl);
     }
@@ -247,7 +373,7 @@ class ProfileImageServiceTest {
     void getProfileImageUrlForCheerFeed_normalizesRemoteProfileUrl() {
         String rawUrl = "https://k.kakaocdn.net/dn/profile_110x110.png";
 
-        String resolved = profileImageService.getProfileImageUrlForCheerFeed(rawUrl, null);
+        String resolved = profileImageService.getProfileImageUrlForCheerFeedUnchecked(rawUrl, null);
 
         assertThat(resolved).isEqualTo("https://k.kakaocdn.net/dn/profile_640x640.png");
     }
@@ -263,7 +389,7 @@ class ProfileImageServiceTest {
                 .thenReturn(Mono.error(new RuntimeException("sign failed")));
 
         // When
-        String resolved = profileImageService.getProfileImageUrl(originalUrl);
+        String resolved = profileImageService.getProfileImageUrlUnchecked(originalUrl);
 
         // Then
         assertThat(resolved).isEqualTo(originalUrl);
@@ -282,7 +408,7 @@ class ProfileImageServiceTest {
                 .thenReturn(Mono.just(signedUrl));
 
         // When
-        String resolved = profileImageService.getProfileImageUrl(bucketPrefixedPath);
+        String resolved = profileImageService.getProfileImageUrlUnchecked(bucketPrefixedPath);
 
         // Then
         assertThat(resolved).isEqualTo(signedUrl);
@@ -299,7 +425,7 @@ class ProfileImageServiceTest {
         when(config.getProfileBucket()).thenReturn(profileBucket);
         when(signedUrlCache.get("profile:" + storagePath, String.class)).thenReturn(cachedUrl);
 
-        String resolved = profileImageService.getProfileImageUrl(storagePath);
+        String resolved = profileImageService.getProfileImageUrlUnchecked(storagePath);
 
         assertThat(resolved).isEqualTo(cachedUrl);
         verify(storageStrategy, never()).getUrl(eq(profileBucket), eq(storagePath), eq(518400));
@@ -318,7 +444,7 @@ class ProfileImageServiceTest {
         when(storageStrategy.getUrl(profileBucket, storagePath, 518400))
                 .thenReturn(Mono.just(freshUrl));
 
-        String resolved = profileImageService.getProfileImageUrl(storagePath);
+        String resolved = profileImageService.getProfileImageUrlUnchecked(storagePath);
 
         assertThat(resolved).isEqualTo(freshUrl);
         verify(storageStrategy).getUrl(profileBucket, storagePath, 518400);

@@ -86,16 +86,38 @@ public class CoachAutoBriefMonitoringService {
         }
     }
 
+    public String extractAnalysisType(String payload) {
+        if (!StringUtils.hasText(payload)) {
+            return "unknown";
+        }
+
+        try {
+            JsonNode root = objectMapper.readTree(payload);
+            String snakeValue = root.path("analysis_type").asText("");
+            if (StringUtils.hasText(snakeValue)) {
+                return normalizeAnalysisType(snakeValue);
+            }
+            return normalizeAnalysisType(root.path("analysisType").asText(""));
+        } catch (Exception ignored) {
+            return "unknown";
+        }
+    }
+
     public void recordCoachAnalyzeDuration(String requestMode, int statusCode, long durationNanos) {
+        recordCoachAnalyzeDuration(requestMode, "unknown", statusCode, durationNanos);
+    }
+
+    public void recordCoachAnalyzeDuration(String requestMode, String analysisType, int statusCode, long durationNanos) {
         if (!monitoringEnabled || durationNanos < 0L) {
             return;
         }
 
         Timer.builder("coach_brief_request_duration_seconds")
-                .description("Coach analyze proxy duration grouped by request mode")
+                .description("Coach analyze proxy duration grouped by request mode and analysis type")
                 .publishPercentileHistogram()
                 .tags(
                         "request_mode", normalizeRequestMode(requestMode),
+                        "analysis_type", normalizeAnalysisType(analysisType),
                         "status_group", normalizeStatusGroup(statusCode))
                 .register(meterRegistry)
                 .record(durationNanos, TimeUnit.NANOSECONDS);
@@ -251,6 +273,14 @@ public class CoachAutoBriefMonitoringService {
     private String normalizeRequestMode(String requestMode) {
         String normalized = String.valueOf(requestMode).trim().toLowerCase(Locale.ROOT);
         if ("auto_brief".equals(normalized) || "manual_detail".equals(normalized)) {
+            return normalized;
+        }
+        return "unknown";
+    }
+
+    private String normalizeAnalysisType(String analysisType) {
+        String normalized = String.valueOf(analysisType).trim().toLowerCase(Locale.ROOT);
+        if ("game_review".equals(normalized) || "game_preview".equals(normalized)) {
             return normalized;
         }
         return "unknown";

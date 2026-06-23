@@ -1,6 +1,7 @@
 package com.example.cheerboard.storage.service;
 
 import com.example.auth.entity.UserEntity;
+import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.cheerboard.config.CurrentUser;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.repo.CheerPostRepo;
@@ -10,7 +11,9 @@ import com.example.cheerboard.storage.entity.PostImage;
 import com.example.cheerboard.storage.repository.PostImageRepository;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
 import com.example.cheerboard.storage.validator.ImageValidator;
+import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
+import com.example.media.service.MediaObjectKeyGuard;
 import java.time.Duration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
@@ -81,6 +84,12 @@ class ImageServiceTest {
     @Mock
     private com.example.common.image.ImageOptimizationMetricsService metricsService;
 
+    @Mock
+    private MediaObjectKeyGuard mediaObjectKeyGuard;
+
+    @Mock
+    private PublicVisibilityVerifier publicVisibilityVerifier;
+
     @BeforeEach
     void setUp() {
         lenient().when(stringRedisTemplate.opsForValue()).thenReturn(stringValueOperations);
@@ -118,6 +127,22 @@ class ImageServiceTest {
                 () -> imageService.listPostImages(100L));
         org.assertj.core.api.Assertions.assertThat(ex.getCode()).isEqualTo("CHEER_POST_NOT_FOUND");
         verify(postImageRepo, never()).findByPostIdOrderByCreatedAtAsc(100L);
+    }
+
+    @Test
+    @DisplayName("비공개 또는 차단 게시글 이미지는 legacy 목록 API에서도 signed URL을 만들지 않는다")
+    void listPostImages_deniesWhenPostVisibilityRejectsViewer() {
+        UserEntity postOwner = UserEntity.builder().id(1L).role("ROLE_USER").build();
+        CheerPost post = CheerPost.builder().id(100L).author(postOwner).build();
+
+        when(postRepo.findById(100L)).thenReturn(Optional.of(post));
+        doThrow(new AccessDeniedException("blocked")).when(publicVisibilityVerifier)
+                .validate(postOwner, 2L, "게시글");
+
+        assertThrows(AccessDeniedException.class, () -> imageService.listPostImages(100L, 2L));
+        verify(postImageRepo, never()).findByPostIdOrderByCreatedAtAsc(100L);
+        verify(storageStrategy, never()).getUrl(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
@@ -237,5 +262,51 @@ class ImageServiceTest {
         org.assertj.core.api.Assertions.assertThat(result).isEmpty();
         verify(postImageRepo, never()).findByPostIdOrderByCreatedAtAsc(1L);
         verify(stringValueOperations, never()).set(eq("postImageUrls::1"), any(), any(Duration.class));
+    }
+
+    @Test
+    @DisplayName("managed 다이어리 full URL은 owner prefix가 맞을 때만 저장 경로로 정규화된다")
+    void normalizeDiaryStoragePathsForWrite_acceptsOwnedManagedUrl() {
+        when(config.getDiaryBucket()).thenReturn("diary-bucket");
+
+        List<String> result = imageService.normalizeDiaryStoragePathsForWrite(
+                List.of("https://cdn.example.com/diary-bucket/media/diary/10/asset.webp?sig=abc"),
+                10L,
+                null,
+                false);
+
+        org.assertj.core.api.Assertions.assertThat(result).containsExactly("media/diary/10/asset.webp");
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 managed 다이어리 키는 저장용 경로로 사용할 수 없다")
+    void normalizeDiaryStoragePathsForWrite_rejectsUnownedManagedUrl() {
+        when(config.getDiaryBucket()).thenReturn("diary-bucket");
+        doThrow(new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요."))
+                .when(mediaObjectKeyGuard)
+                .requireDiaryWriteKey("media/diary/11/asset.webp", 10L, null, false);
+
+        BadRequestBusinessException exception = assertThrows(
+                BadRequestBusinessException.class,
+                () -> imageService.normalizeDiaryStoragePathsForWrite(
+                        List.of("https://cdn.example.com/diary-bucket/media/diary/11/asset.webp?sig=abc"),
+                        10L,
+                        null,
+                        false));
+
+        org.assertj.core.api.Assertions.assertThat(exception.getCode()).isEqualTo("MEDIA_ASSET_NOT_FOUND");
+    }
+
+    @Test
+    @DisplayName("managed 다이어리 다운로드는 READY asset 검증 실패 시 스토리지를 호출하지 않는다")
+    void downloadDiaryImageBytesForUser_rejectsManagedAssetWhenLedgerRejects() {
+        when(mediaObjectKeyGuard.canReadDiaryKey("media/diary/10/asset.webp", 10L, 100L)).thenReturn(false);
+
+        BadRequestBusinessException exception = assertThrows(
+                BadRequestBusinessException.class,
+                () -> imageService.downloadDiaryImageBytesForUser("media/diary/10/asset.webp", 10L, 100L));
+
+        org.assertj.core.api.Assertions.assertThat(exception.getCode()).isEqualTo("MEDIA_ASSET_NOT_FOUND");
+        verify(storageStrategy, never()).download(any(), any());
     }
 }

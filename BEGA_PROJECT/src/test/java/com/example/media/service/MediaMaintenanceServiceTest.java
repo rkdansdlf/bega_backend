@@ -85,6 +85,9 @@ class MediaMaintenanceServiceTest {
     private MediaLinkService mediaLinkService;
 
     @Mock
+    private MediaObjectKeyGuard mediaObjectKeyGuard;
+
+    @Mock
     private MediaUploadService mediaUploadService;
 
     @Mock
@@ -111,6 +114,7 @@ class MediaMaintenanceServiceTest {
                 .thenAnswer(invocation -> assignMediaAssetId(invocation.getArgument(0)));
         lenient().when(chatMessageRepository.save(any(ChatMessage.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(profileImageService.normalizeProfileStoragePath(null)).thenReturn(null);
     }
 
     @Test
@@ -140,6 +144,10 @@ class MediaMaintenanceServiceTest {
                 .thenReturn(new PageImpl<>(List.of(user)));
         when(profileImageService.normalizeProfileStoragePath("https://cdn.example.com/media/profile/7/11.webp?sig=abc"))
                 .thenReturn("media/profile/7/11.webp");
+        when(mediaObjectKeyGuard.evaluateProfileReadKey("media/profile/7/11.webp", 7L, false))
+                .thenReturn(decision(true, MediaObjectKeyGuard.DecisionReason.LEGACY_OWNER_MATCH));
+        when(mediaObjectKeyGuard.evaluateProfileReadKey("media/profile-feed/7/11.webp", 7L, true))
+                .thenReturn(decision(true, MediaObjectKeyGuard.DecisionReason.LEGACY_OWNER_MATCH));
         when(mediaLinkService.resolveReadyAssets(7L, MediaDomain.PROFILE, List.of("media/profile/7/11.webp")))
                 .thenReturn(Map.of("media/profile/7/11.webp", primaryAsset));
         when(mediaAssetRepository.findByDerivedFrom_Id(11L)).thenReturn(Optional.of(feedAsset));
@@ -162,6 +170,58 @@ class MediaMaintenanceServiceTest {
                 "userId=7:media/profile/7/11.webp,media/profile-feed/7/11.webp");
         assertThat(profileReport.sampleManualReviewTargets()).isEmpty();
         verify(userRepository, never()).updateProfileImageUrlsById(any(), any(), any());
+        verify(mediaLinkService, never()).syncProfileLinks(any(), any());
+    }
+
+    @Test
+    @DisplayName("profile backfill dry-run은 external URL, cross-owner legacy, missing legacy object를 audit report로 분류한다")
+    void backfillExistingData_profileDryRunAuditsLegacyProblemsWithoutMutation() {
+        UserEntity externalUser = UserEntity.builder()
+                .id(7L)
+                .profileImageUrl("https://k.kakaocdn.net/dn/profile_110x110.png")
+                .build();
+        UserEntity crossOwnerUser = UserEntity.builder()
+                .id(8L)
+                .profileImageUrl("profiles/99/avatar.webp")
+                .build();
+        UserEntity missingObjectUser = UserEntity.builder()
+                .id(9L)
+                .profileImageUrl("profiles/9/missing.webp")
+                .build();
+
+        when(userRepository.findAll(any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(externalUser, crossOwnerUser, missingObjectUser)));
+        when(profileImageService.normalizeProfileStoragePath("https://k.kakaocdn.net/dn/profile_110x110.png"))
+                .thenReturn("https://k.kakaocdn.net/dn/profile_110x110.png");
+        when(profileImageService.normalizeProfileStoragePath("profiles/99/avatar.webp"))
+                .thenReturn("profiles/99/avatar.webp");
+        when(profileImageService.normalizeProfileStoragePath("profiles/9/missing.webp"))
+                .thenReturn("profiles/9/missing.webp");
+        when(mediaObjectKeyGuard.evaluateProfileWriteKey("profiles/99/avatar.webp", 8L))
+                .thenReturn(decision(false, MediaObjectKeyGuard.DecisionReason.LEGACY_OWNER_MISMATCH));
+        when(mediaObjectKeyGuard.evaluateProfileWriteKey("profiles/9/missing.webp", 9L))
+                .thenReturn(decision(true, MediaObjectKeyGuard.DecisionReason.LEGACY_OWNER_MATCH));
+        when(storageConfig.getProfileBucket()).thenReturn("profile-bucket");
+        when(storageStrategy.exists("profile-bucket", "profiles/9/missing.webp")).thenReturn(Mono.just(false));
+
+        MediaBackfillReport report = mediaMaintenanceService.backfillExistingData(false, 100, List.of(MediaDomain.PROFILE), false);
+        MediaBackfillDomainReport profileReport = report.domains().stream()
+                .filter(domain -> "PROFILE".equals(domain.domain()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(report.hasFailures()).isTrue();
+        assertThat(profileReport.manualReviewCount()).isEqualTo(2);
+        assertThat(profileReport.auditCounts())
+                .containsEntry("EXTERNAL_PROFILE_URL_RETAINED", 1)
+                .containsEntry("LEGACY_OWNER_MISMATCH", 1)
+                .containsEntry("LEGACY_OWNER_MATCH", 1)
+                .containsEntry("LEGACY_OBJECT_MISSING", 1);
+        assertThat(profileReport.auditSamples())
+                .extracting("type")
+                .contains("EXTERNAL_PROFILE_URL_RETAINED", "LEGACY_OWNER_MISMATCH", "LEGACY_OBJECT_MISSING");
+        verify(userRepository, never()).updateProfileImageUrlsById(any(), any(), any());
+        verify(storageStrategy, never()).uploadBytes(any(), any(), any(), any());
         verify(mediaLinkService, never()).syncProfileLinks(any(), any());
     }
 
@@ -231,6 +291,52 @@ class MediaMaintenanceServiceTest {
         verify(begaDiaryRepository).save(diary);
         verify(mediaLinkService).syncDiaryLinks(101L, 5L, List.of("media/diary/5/21.webp"));
         assertThat(diary.getPhotoUrls()).containsExactly("media/diary/5/21.webp");
+    }
+
+    @Test
+    @DisplayName("diary backfill dry-run은 cross-owner와 wrong diary legacy key를 audit report로 분류한다")
+    void backfillExistingData_diaryDryRunAuditsLegacyOwnerAndDiaryMismatchWithoutMutation() {
+        UserEntity user = UserEntity.builder()
+                .id(5L)
+                .build();
+        BegaDiary diary = BegaDiary.builder()
+                .user(user)
+                .photoUrls(new java.util.ArrayList<>(List.of(
+                        "diary/8/101/cross-owner.webp",
+                        "diary/5/102/wrong-diary.webp")))
+                .build();
+        ReflectionTestUtils.setField(diary, "id", 101L);
+
+        when(begaDiaryRepository.findAllBy(any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(diary)));
+        when(imageService.normalizeDiaryStoragePaths(List.of(
+                        "diary/8/101/cross-owner.webp",
+                        "diary/5/102/wrong-diary.webp")))
+                .thenReturn(List.of(
+                        "diary/8/101/cross-owner.webp",
+                        "diary/5/102/wrong-diary.webp"));
+        when(mediaObjectKeyGuard.evaluateDiaryReadKey("diary/8/101/cross-owner.webp", 5L, 101L))
+                .thenReturn(decision(false, MediaObjectKeyGuard.DecisionReason.LEGACY_OWNER_MISMATCH));
+        when(mediaObjectKeyGuard.evaluateDiaryReadKey("diary/5/102/wrong-diary.webp", 5L, 101L))
+                .thenReturn(decision(false, MediaObjectKeyGuard.DecisionReason.LEGACY_DIARY_ID_MISMATCH));
+
+        MediaBackfillReport report = mediaMaintenanceService.backfillExistingData(false, 100, List.of(MediaDomain.DIARY), false);
+        MediaBackfillDomainReport diaryReport = report.domains().stream()
+                .filter(domain -> "DIARY".equals(domain.domain()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(report.hasFailures()).isTrue();
+        assertThat(diaryReport.manualReviewCount()).isEqualTo(2);
+        assertThat(diaryReport.auditCounts())
+                .containsEntry("LEGACY_OWNER_MISMATCH", 1)
+                .containsEntry("LEGACY_DIARY_ID_MISMATCH", 1);
+        assertThat(diaryReport.auditSamples())
+                .extracting("type")
+                .contains("LEGACY_OWNER_MISMATCH", "LEGACY_DIARY_ID_MISMATCH");
+        verify(begaDiaryRepository, never()).save(any());
+        verify(storageStrategy, never()).uploadBytes(any(), any(), any(), any());
+        verify(mediaLinkService, never()).syncDiaryLinks(any(), any(), any());
     }
 
     @Test
@@ -326,6 +432,40 @@ class MediaMaintenanceServiceTest {
     }
 
     @Test
+    @DisplayName("chat backfill dry-run은 cross-owner legacy key를 audit report로 분류하고 저장하지 않는다")
+    void backfillExistingData_chatDryRunAuditsCrossOwnerLegacyWithoutMutation() {
+        ChatMessage message = ChatMessage.builder()
+                .senderId(24L)
+                .imageUrl("chat/99/avatar.png")
+                .build();
+        ReflectionTestUtils.setField(message, "id", 101L);
+
+        when(chatMessageRepository.findAll(any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(message)));
+        when(chatImageService.normalizeChatStoragePath("chat/99/avatar.png"))
+                .thenReturn("chat/99/avatar.png");
+        when(mediaObjectKeyGuard.evaluateChatReadKey("chat/99/avatar.png", 24L))
+                .thenReturn(decision(false, MediaObjectKeyGuard.DecisionReason.LEGACY_OWNER_MISMATCH));
+
+        MediaBackfillReport report = mediaMaintenanceService.backfillExistingData(false, 100, List.of(MediaDomain.CHAT), false);
+        MediaBackfillDomainReport chatReport = report.domains().stream()
+                .filter(domain -> "CHAT".equals(domain.domain()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(report.hasFailures()).isTrue();
+        assertThat(chatReport.manualReviewCount()).isEqualTo(1);
+        assertThat(chatReport.auditCounts()).containsEntry("LEGACY_OWNER_MISMATCH", 1);
+        assertThat(chatReport.auditSamples())
+                .extracting("type")
+                .containsExactly("LEGACY_OWNER_MISMATCH");
+        assertThat(message.getImageUrl()).isEqualTo("chat/99/avatar.png");
+        verify(chatMessageRepository, never()).save(any());
+        verify(storageStrategy, never()).uploadBytes(any(), any(), any(), any());
+        verify(mediaLinkService, never()).syncChatLink(any(), any(), any());
+    }
+
+    @Test
     @DisplayName("chat backfill apply는 옵션이 켜지면 손상된 legacy chat 이미지를 비운다")
     void backfillExistingData_chatApplyClearsBrokenLegacyPathWhenEnabled() {
         ChatMessage message = ChatMessage.builder()
@@ -367,5 +507,11 @@ class MediaMaintenanceServiceTest {
             asset.setId(mediaAssetIdSequence.getAndIncrement());
         }
         return asset;
+    }
+
+    private MediaObjectKeyGuard.KeyDecision decision(
+            boolean allowed,
+            MediaObjectKeyGuard.DecisionReason reason) {
+        return new MediaObjectKeyGuard.KeyDecision(allowed, reason);
     }
 }

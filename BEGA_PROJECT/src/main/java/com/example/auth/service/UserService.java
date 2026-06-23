@@ -8,6 +8,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -25,6 +28,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.kbo.entity.TeamEntity;
 import com.example.auth.entity.Role;
 import com.example.auth.util.JWTUtil;
+import com.example.auth.util.AccountStatusUtil;
 import com.example.auth.util.HandleNormalizer;
 import com.example.auth.util.LogMaskingUtil;
 import com.example.auth.repository.UserRepository;
@@ -57,6 +61,7 @@ public class UserService {
     private static final int DAILY_LOGIN_BONUS_POINTS = 5;
     private static final Pattern HANDLE_PATTERN = Pattern.compile("^@[a-z0-9_]{1,14}$");
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+    private static final long MISSING_LOGIN_EMAIL_CACHE_TTL_NANOS = TimeUnit.SECONDS.toNanos(30);
 
     private final UserRepository userRepository;
     private final TeamRepository teamRepository;
@@ -79,6 +84,7 @@ public class UserService {
     private final AccountSecurityService accountSecurityService;
     private final AuthSessionService authSessionService;
     private final LoginAttemptService loginAttemptService;
+    private final ConcurrentMap<String, Long> missingLoginEmailCache = new ConcurrentHashMap<>();
 
     public UserService(UserRepository userRepository,
             TeamRepository teamRepository,
@@ -219,6 +225,7 @@ public class UserService {
 
         try {
             userRepository.save(Objects.requireNonNull(user));
+            evictMissingLoginEmail(user.getEmail());
         } catch (DataIntegrityViolationException ex) {
             RuntimeException mapped = mapDuplicateUserConstraint(ex, user.getEmail(), handle);
             if (mapped != null) {
@@ -313,8 +320,25 @@ public class UserService {
         String normalizedEmail = normalizeEmail(email);
         loginAttemptService.enforceBeforeAuthentication(normalizedEmail, captchaToken, request);
         String rawPassword = password == null ? "" : password;
+        if (isMissingLoginEmailCached(normalizedEmail)) {
+            passwordEncoder.matches(rawPassword, dummyPasswordHash);
+            loginAttemptService.recordFailedAttempt(normalizedEmail, null, request);
+            throw new InvalidCredentialsException();
+        }
+
+        Optional<UserRepository.LoginPasswordProjection> loginPassword =
+                userRepository.findLoginPasswordByEmail(normalizedEmail);
+        if (loginPassword.isEmpty()) {
+            cacheMissingLoginEmail(normalizedEmail);
+            passwordEncoder.matches(rawPassword, dummyPasswordHash);
+            loginAttemptService.recordFailedAttempt(normalizedEmail, null, request);
+            throw new InvalidCredentialsException();
+        }
+
         UserEntity user = userRepository.findByEmail(normalizedEmail).orElse(null);
-        String storedHash = user != null ? user.getPassword() : null;
+        String storedHash = user != null
+                ? user.getPassword()
+                : loginPassword.map(UserRepository.LoginPasswordProjection::getPassword).orElse(null);
         String hashToCompare = storedHash != null ? storedHash : dummyPasswordHash;
         boolean passwordOk = passwordEncoder.matches(rawPassword, hashToCompare);
 
@@ -345,7 +369,7 @@ public class UserService {
                 user.getId(),
                 tokenVersion,
                 request);
-        accountSecurityService.handleSuccessfulLogin(user, request);
+        accountSecurityService.handleSuccessfulLoginAsync(user, request);
 
         Map<String, Object> profileData = new HashMap<>();
         profileData.put("id", user.getId());
@@ -358,6 +382,35 @@ public class UserService {
                 accessToken,
                 refreshToken,
                 profileData);
+    }
+
+    private boolean isMissingLoginEmailCached(String normalizedEmail) {
+        if (normalizedEmail == null || normalizedEmail.isBlank()) {
+            return false;
+        }
+        Long expiresAtNanos = missingLoginEmailCache.get(normalizedEmail);
+        if (expiresAtNanos == null) {
+            return false;
+        }
+        if (System.nanoTime() - expiresAtNanos < 0) {
+            return true;
+        }
+        missingLoginEmailCache.remove(normalizedEmail, expiresAtNanos);
+        return false;
+    }
+
+    private void cacheMissingLoginEmail(String normalizedEmail) {
+        if (normalizedEmail == null || normalizedEmail.isBlank()) {
+            return;
+        }
+        missingLoginEmailCache.put(normalizedEmail, System.nanoTime() + MISSING_LOGIN_EMAIL_CACHE_TTL_NANOS);
+    }
+
+    private void evictMissingLoginEmail(String normalizedEmail) {
+        if (normalizedEmail == null || normalizedEmail.isBlank()) {
+            return;
+        }
+        missingLoginEmailCache.remove(normalizedEmail);
     }
 
     /**
@@ -419,13 +472,18 @@ public class UserService {
             return;
         }
 
-        String normalizedPath = profileImageService.normalizeProfileStoragePath(imageUrl);
         String currentPath = profileImageService.normalizeProfileStoragePath(user.getProfileImageUrl());
-        if (Objects.equals(currentPath, normalizedPath)) {
-            user.setProfileImageUrl(normalizedPath);
+        String requestedPath = profileImageService.normalizeProfileStoragePath(imageUrl);
+        if (Objects.equals(currentPath, requestedPath)) {
+            user.setProfileImageUrl(requestedPath);
+            return;
+        }
+        String resolvedCurrentUrl = profileImageService.getProfileImageUrlForUser(user.getId(), user.getProfileImageUrl());
+        if (Objects.equals(resolvedCurrentUrl, imageUrl)) {
             return;
         }
 
+        String normalizedPath = profileImageService.normalizeProfileStoragePathForUser(user.getId(), imageUrl);
         MediaLinkService.ProfileLinkResult linkResult = mediaLinkService.syncProfileLinks(user.getId(), normalizedPath);
         user.setProfileImageUrl(linkResult.profileObjectKey() != null ? linkResult.profileObjectKey() : normalizedPath);
         user.setProfileFeedImageUrl(linkResult.profileFeedObjectKey());
@@ -623,7 +681,7 @@ public class UserService {
                 .name(user.getName())
                 .handle(user.getHandle())
                 .favoriteTeam(user.getFavoriteTeamId())
-                .profileImageUrl(resolvePublicProfileImageUrl(user.getProfileImageUrl()))
+                .profileImageUrl(resolvePublicProfileImageUrl(user.getId(), user.getProfileImageUrl()))
                 .bio(user.getBio())
                 .cheerPoints(user.getCheerPoints())
                 .build();
@@ -668,12 +726,12 @@ public class UserService {
         throw new AccessDeniedException("비공개 계정의 프로필은 팔로워만 조회할 수 있습니다.");
     }
 
-    private String resolvePublicProfileImageUrl(String profileImageUrl) {
+    private String resolvePublicProfileImageUrl(Long ownerUserId, String profileImageUrl) {
         if (profileImageUrl == null || profileImageUrl.isBlank()) {
             return null;
         }
         try {
-            return profileImageService.getProfileImageUrl(profileImageUrl);
+            return profileImageService.getProfileImageUrlForUser(ownerUserId, profileImageUrl);
         } catch (Exception e) {
             log.warn("Failed to resolve public profile image URL: {}", e.getMessage());
             return null;
@@ -721,19 +779,7 @@ public class UserService {
             return false;
         }
 
-        return isAccountUsable(user);
-    }
-
-    private boolean isAccountUsable(UserEntity user) {
-        if (!user.isLocked()) {
-            return true;
-        }
-
-        if (user.getLockExpiresAt() == null) {
-            return false;
-        }
-
-        return user.getLockExpiresAt().isBefore(LocalDateTime.now());
+        return AccountStatusUtil.isAccountUsable(user);
     }
 
     private void clearExpiredLockIfNecessary(UserEntity user) {

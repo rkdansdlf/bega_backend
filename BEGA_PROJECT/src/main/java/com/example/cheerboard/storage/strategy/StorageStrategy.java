@@ -68,6 +68,15 @@ public interface StorageStrategy {
     Mono<StoredObject> download(String bucket, String path);
 
     /**
+     * 객체 메타데이터 조회
+     *
+     * @param bucket 버킷명
+     * @param path   객체 경로
+     * @return 객체 크기 및 Content-Type
+     */
+    Mono<StoredObjectMetadata> head(String bucket, String path);
+
+    /**
      * 객체 존재 여부 확인
      *
      * @param bucket 버킷명

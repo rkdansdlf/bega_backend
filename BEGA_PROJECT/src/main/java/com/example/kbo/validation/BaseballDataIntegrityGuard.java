@@ -61,24 +61,44 @@ public class BaseballDataIntegrityGuard {
 
     public GameEntity requireValidGame(String scope, String gameId) {
         GameEntity game = gameRepository.findByGameId(gameId)
-                .orElseThrow(() -> newException(
-                        scope,
-                        gameId,
-                        null,
-                        null,
-                        List.of(
-                                missingItem(
-                                        "game_id",
-                                        "경기 ID",
-                                        "요청한 경기의 game row가 없어 상세 데이터를 확인할 수 없습니다.",
-                                        "예: 20260405HHOB0"),
-                                missingItem(
-                                        "season_league_context",
-                                        "시즌/리그 구분",
-                                        "경기 식별용 시즌/리그 기준 데이터가 필요합니다.",
-                                        "season_id, season_year, league_type_code"))));
+                .orElseThrow(() -> newMissingGameException(scope, gameId));
         validateGameEntity(scope, game);
         return game;
+    }
+
+    public List<GameEntity> requireValidGames(String scope, List<String> gameIds) {
+        if (gameIds == null || gameIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> distinctGameIds = new ArrayList<>();
+        for (String gameId : gameIds) {
+            String normalizedGameId = gameId == null ? null : gameId.trim();
+            if (normalizedGameId == null || normalizedGameId.isEmpty()) {
+                throw newMissingGameException(scope, normalizedGameId);
+            }
+            if (!distinctGameIds.contains(normalizedGameId)) {
+                distinctGameIds.add(normalizedGameId);
+            }
+        }
+
+        Map<String, GameEntity> gamesById = new LinkedHashMap<>();
+        gameRepository.findByGameIdIn(distinctGameIds).forEach(game -> {
+            if (game.getGameId() != null) {
+                gamesById.putIfAbsent(game.getGameId(), game);
+            }
+        });
+
+        return distinctGameIds.stream()
+                .map(gameId -> {
+                    GameEntity game = gamesById.get(gameId);
+                    if (game == null) {
+                        throw newMissingGameException(scope, gameId);
+                    }
+                    validateGameEntity(scope, game);
+                    return game;
+                })
+                .toList();
     }
 
     public void ensurePredictionGameSummaryRecords(
@@ -449,6 +469,25 @@ public class BaseballDataIntegrityGuard {
                 dedupedItems.stream().map(ManualBaseballDataMissingItem::key).toList());
         return new ManualBaseballDataRequiredException(
                 new ManualBaseballDataRequest(scope, dedupedItems, operatorMessage, true));
+    }
+
+    private ManualBaseballDataRequiredException newMissingGameException(String scope, String gameId) {
+        return newException(
+                scope,
+                gameId,
+                null,
+                null,
+                List.of(
+                        missingItem(
+                                "game_id",
+                                "경기 ID",
+                                "요청한 경기의 game row가 없어 상세 데이터를 확인할 수 없습니다.",
+                                "예: 20260405HHOB0"),
+                        missingItem(
+                                "season_league_context",
+                                "시즌/리그 구분",
+                                "경기 식별용 시즌/리그 기준 데이터가 필요합니다.",
+                                "season_id, season_year, league_type_code")));
     }
 
     private String buildOperatorMessage(

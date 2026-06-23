@@ -116,6 +116,9 @@ class MateFlowPolicyAbuseIntegrationTest {
         UserEntity host = userRepository.save(MateTestFixtureFactory.user(HOST_EMAIL, "Abuse Host"));
         UserEntity applicant = userRepository.save(MateTestFixtureFactory.user(APPLICANT_EMAIL, "Abuse Applicant"));
         UserEntity outsider = userRepository.save(MateTestFixtureFactory.user(OUTSIDER_EMAIL, "Abuse Outsider"));
+        MateTestTokenHelper.register(host);
+        MateTestTokenHelper.register(applicant);
+        MateTestTokenHelper.register(outsider);
 
         userProviderRepository.save(MateTestFixtureFactory.socialProvider(host, "kakao"));
         userProviderRepository.save(MateTestFixtureFactory.socialProvider(applicant, "naver"));
@@ -268,15 +271,15 @@ class MateFlowPolicyAbuseIntegrationTest {
                         .with(MateTestTokenHelper.principalAs(OUTSIDER_EMAIL))
                         .contentType("application/json")
                         .content(sendBody))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
 
         mockMvc.perform(get("/api/chat/party/{partyId}", party.getId())
                         .with(MateTestTokenHelper.principalAs(OUTSIDER_EMAIL)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
 
         mockMvc.perform(get("/api/chat/party/{partyId}/latest", party.getId())
                         .with(MateTestTokenHelper.principalAs(OUTSIDER_EMAIL)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
 
         String checkInBody = objectMapper.writeValueAsString(Map.of(
                 "partyId", party.getId(),
@@ -285,7 +288,7 @@ class MateFlowPolicyAbuseIntegrationTest {
                         .with(MateTestTokenHelper.principalAs(OUTSIDER_EMAIL))
                         .contentType("application/json")
                         .content(checkInBody))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -302,7 +305,7 @@ class MateFlowPolicyAbuseIntegrationTest {
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
                         .contentType("application/json")
                         .content(requestBody))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test

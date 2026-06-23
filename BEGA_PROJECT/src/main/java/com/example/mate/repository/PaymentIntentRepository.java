@@ -27,8 +27,20 @@ public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, Lo
     Optional<PaymentIntent> findByOrderIdForUpdate(@Param("orderId") String orderId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select pi from PaymentIntent pi where pi.orderId = :orderId and pi.applicantId = :applicantId")
+    Optional<PaymentIntent> findByOrderIdAndApplicantIdForUpdate(
+            @Param("orderId") String orderId,
+            @Param("applicantId") Long applicantId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select pi from PaymentIntent pi where pi.id = :id")
     Optional<PaymentIntent> findByIdForUpdate(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select pi from PaymentIntent pi where pi.id = :id and pi.applicantId = :applicantId")
+    Optional<PaymentIntent> findByIdAndApplicantIdForUpdate(
+            @Param("id") Long id,
+            @Param("applicantId") Long applicantId);
 
     List<PaymentIntent> findByStatusInAndUpdatedAtBefore(Collection<PaymentIntent.IntentStatus> statuses, Instant updatedBefore);
 }
