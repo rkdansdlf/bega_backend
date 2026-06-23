@@ -135,9 +135,11 @@ class MateFlowHappyPathIntegrationTest {
         userRepository.deleteAll();
 
         UserEntity host = userRepository.save(MateTestFixtureFactory.user(HOST_EMAIL, "Happy Host"));
+        MateTestTokenHelper.register(host);
         userProviderRepository.save(MateTestFixtureFactory.socialProvider(host, "kakao"));
 
         UserEntity applicant = userRepository.save(MateTestFixtureFactory.user(APPLICANT_EMAIL, "Happy Applicant"));
+        MateTestTokenHelper.register(applicant);
         userProviderRepository.save(MateTestFixtureFactory.socialProvider(applicant, "naver"));
 
         Mockito.doNothing().when(paymentTransactionService).enrichResponse(Mockito.any());

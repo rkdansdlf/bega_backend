@@ -39,7 +39,7 @@ class AdminRoleControllerTest {
         RoleChangeResponseDto resp = RoleChangeResponseDto.builder().name("TestUser").build();
         when(adminRoleService.promoteToAdmin(42L, 1L, null)).thenReturn(resp);
 
-        ResponseEntity<ApiResponse> result = controller.promoteToAdmin(42L, 1L, req);
+        ResponseEntity<ApiResponse<RoleChangeResponseDto>> result = controller.promoteToAdmin(42L, 1L, req);
 
         assertThat(result.getBody().isSuccess()).isTrue();
     }
@@ -61,7 +61,7 @@ class AdminRoleControllerTest {
         RoleChangeResponseDto resp = RoleChangeResponseDto.builder().name("TestUser").build();
         when(adminRoleService.demoteToUser(42L, 1L, null)).thenReturn(resp);
 
-        ResponseEntity<ApiResponse> result = controller.demoteToUser(42L, 1L, null);
+        ResponseEntity<ApiResponse<RoleChangeResponseDto>> result = controller.demoteToUser(42L, 1L, null);
 
         assertThat(result.getBody().isSuccess()).isTrue();
     }
@@ -73,7 +73,7 @@ class AdminRoleControllerTest {
         Page<AuditLogDto> page = new PageImpl<>(List.of());
         when(adminRoleService.getAuditLogsPaged(42L, pageable)).thenReturn(page);
 
-        ResponseEntity<ApiResponse> result = controller.getAuditLogs(42L, pageable);
+        ResponseEntity<ApiResponse<Page<AuditLogDto>>> result = controller.getAuditLogs(42L, pageable);
 
         assertThat(result.getBody().isSuccess()).isTrue();
     }

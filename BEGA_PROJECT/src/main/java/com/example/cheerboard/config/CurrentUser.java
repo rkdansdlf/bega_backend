@@ -13,7 +13,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.annotation.RequestScope;
 
 import java.util.Map;
-import java.util.Objects;
 
 @Component
 @RequestScope
@@ -35,13 +34,6 @@ public class CurrentUser {
 
     public UserEntity getOrNull() {
         if (resolved) {
-            if (cached == null) {
-                return null;
-            }
-
-            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-            Integer tokenVersionFromAuthentication = resolveTokenVersionFromAuthentication(authentication);
-            cached = refreshCurrentUser(cached.getId(), tokenVersionFromAuthentication);
             return cached;
         }
 
@@ -55,34 +47,32 @@ public class CurrentUser {
         }
 
         Object principal = authentication.getPrincipal();
-
-        if (principal instanceof Long userId) {
-            Integer tokenVersionFromAuthentication = resolveTokenVersionFromAuthentication(authentication);
-            cached = refreshCurrentUser(userId, tokenVersionFromAuthentication);
-            resolved = true;
-            return cached;
-        }
-
-        String identifier = resolvePrincipal(principal);
-        cached = findUser(identifier);
-        if (cached != null && cached.getId() != null) {
-            Integer tokenVersionFromAuthentication = resolveTokenVersionFromAuthentication(authentication);
-            cached = refreshCurrentUser(cached.getId(), tokenVersionFromAuthentication);
-        }
+        Integer tokenVersionFromAuthentication = resolveTokenVersionFromAuthentication(authentication);
+        Long userId = resolvePrincipalUserId(principal);
+        cached = userId != null
+                ? refreshCurrentUser(userId, tokenVersionFromAuthentication)
+                : findAuthoritativeUser(resolvePrincipal(principal), tokenVersionFromAuthentication);
 
         resolved = true;
         return cached;
     }
 
+    private Long resolvePrincipalUserId(Object principal) {
+        if (principal instanceof Long userId) {
+            return userId;
+        }
+        if (principal instanceof CustomUserDetails details) {
+            return details.getId();
+        }
+        if (principal instanceof CustomOAuth2User oAuth2User) {
+            var dto = oAuth2User.getUserDto();
+            return dto != null ? dto.getId() : null;
+        }
+        return null;
+    }
+
     private UserEntity refreshCurrentUser(Long userId, Integer expectedTokenVersion) {
         if (userId == null) {
-            return null;
-        }
-
-        boolean usableAuthor = expectedTokenVersion == null
-                ? userRepository.existsUsableAuthorById(userId)
-                : userRepository.existsUsableAuthorByIdAndTokenVersion(userId, expectedTokenVersion);
-        if (!usableAuthor) {
             return null;
         }
 
@@ -109,6 +99,11 @@ public class CurrentUser {
 
         int currentTokenVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
         return currentTokenVersion == expectedTokenVersion;
+    }
+
+    private UserEntity findAuthoritativeUser(String identifier, Integer expectedTokenVersion) {
+        UserEntity user = findUser(identifier);
+        return isAuthoritativeUser(user, expectedTokenVersion) ? user : null;
     }
 
     private Integer resolveTokenVersionFromAuthentication(Authentication authentication) {
@@ -214,7 +209,7 @@ public class CurrentUser {
         if (identifier.chars().allMatch(Character::isDigit)) {
             try {
                 Long userId = Long.valueOf(identifier);
-                return userRepository.findById(Objects.requireNonNull(userId)).orElse(null);
+                return userRepository.findById(userId).orElse(null);
             } catch (NumberFormatException ignore) {
                 // fall back to email lookup below
             }

@@ -1,6 +1,7 @@
 package com.example.mate.controller;
 
 import com.example.common.dto.ApiResponse;
+import com.example.common.web.AuthenticatedUserIds;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.PaymentIntent;
@@ -14,22 +15,21 @@ import com.example.mate.service.PaymentIntentService;
 import com.example.mate.service.MatePaymentModeService;
 import com.example.mate.service.PaymentTransactionService;
 import com.example.mate.service.TossPaymentService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Size;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.security.Principal;
-import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
@@ -49,13 +49,18 @@ public class PaymentController {
      * POST /api/payments/toss/prepare
      * 서버가 주문 의도(intent)와 확정 금액을 생성합니다.
      */
+    @Operation(summary = "Prepare Mate Toss payment intent")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "OK",
+            content = @Content(schema = @Schema(implementation = TossPaymentDTO.PrepareResponse.class)))
     @PostMapping("/toss/prepare")
     public ResponseEntity<TossPaymentDTO.PrepareResponse> prepareTossPayment(
             @RequestBody TossPaymentDTO.PrepareClientRequest request,
-            Principal principal) {
+            @AuthenticationPrincipal Long userId) {
         ensureTossPaymentEnabled();
 
-        TossPaymentDTO.PrepareResponse response = paymentIntentService.prepareIntent(request, principal);
+        TossPaymentDTO.PrepareResponse response = paymentIntentService.prepareIntent(request, AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(response);
     }
 
@@ -65,16 +70,27 @@ public class PaymentController {
      * 2) 서버 계산 금액으로 Toss 승인
      * 3) 결제 승인된 PartyApplication 생성
      */
+    @Operation(summary = "Confirm Mate Toss payment")
+    @io.swagger.v3.oas.annotations.responses.ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "OK",
+                    content = @Content(schema = @Schema(implementation = PartyApplicationDTO.Response.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "201",
+                    description = "Created",
+                    content = @Content(schema = @Schema(implementation = PartyApplicationDTO.Response.class)))
+    })
     @PostMapping("/toss/confirm")
-    public ResponseEntity<?> confirmTossPayment(
+    public ResponseEntity<PartyApplicationDTO.Response> confirmTossPayment(
             @RequestBody TossPaymentDTO.ClientConfirmRequest request,
-            Principal principal) {
+            @AuthenticationPrincipal Long userId) {
         ensureTossPaymentEnabled();
 
         log.info("[Payment] Toss 결제 승인 요청: orderId={}, partyId={}, intentId={}",
                 request.getOrderId(), request.getPartyId(), request.getIntentId());
 
-        Long applicantId = paymentIntentService.resolveUserId(principal);
+        Long applicantId = AuthenticatedUserIds.require(userId);
         PartyApplicationDTO.Response existingByOrderId = resolveExistingResponseOrThrow(request, applicantId);
         if (existingByOrderId != null) {
             PaymentIntent existingIntent = paymentIntentService.findIntentByOrderId(request.getOrderId()).orElse(null);
@@ -84,7 +100,7 @@ public class PaymentController {
             return ResponseEntity.ok(existingByOrderId);
         }
 
-        PaymentIntent intent = paymentIntentService.resolveIntentForConfirm(request, principal);
+        PaymentIntent intent = paymentIntentService.resolveIntentForConfirm(request, applicantId);
 
         validateIntentAndRequestCompatibility(intent, request);
 
@@ -152,7 +168,7 @@ public class PaymentController {
             PartyApplicationService.PaymentCreationResult applicationResult = applicationService
                     .createOrGetApplicationWithPayment(
                             appRequest,
-                            principal,
+                            applicantId,
                             tossResponse.getPaymentKey(),
                             tossResponse.getOrderId(),
                             intent.getExpectedAmount(),
@@ -374,34 +390,31 @@ public class PaymentController {
      *   409 Conflict  - 취소 불가 상태 (진행 중, 실패, 만료)
      *   503 Service Unavailable - 직거래 모드에서 호출
      */
+    @Operation(summary = "Cancel Mate Toss payment intent")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "OK")
     @PostMapping("/toss/{intentId}/cancel")
-    public ResponseEntity<ApiResponse> cancelTossPayment(
+    public ResponseEntity<ApiResponse<TossPaymentDTO.CancelIntentResponse>> cancelTossPayment(
             @PathVariable Long intentId,
-            @RequestBody(required = false) @Valid CancelIntentRequest request,
-            Principal principal) {
+            @RequestBody(required = false) @Valid TossPaymentDTO.CancelIntentRequest request,
+            @AuthenticationPrincipal Long userId) {
         ensureTossPaymentEnabled();
 
-        Long userId = paymentIntentService.resolveUserId(principal);
+        Long authenticatedUserId = AuthenticatedUserIds.require(userId);
         String reason = request != null ? request.getCancelReason() : null;
 
-        log.info("[Payment] 결제 취소 요청: intentId={}, userId={}", intentId, userId);
+        log.info("[Payment] 결제 취소 요청: intentId={}, userId={}", intentId, authenticatedUserId);
 
         PaymentIntent.IntentStatus resultStatus =
-                paymentIntentService.cancelPaymentIntent(intentId, userId, reason);
+                paymentIntentService.cancelPaymentIntent(intentId, authenticatedUserId, reason);
+
+        TossPaymentDTO.CancelIntentResponse response = TossPaymentDTO.CancelIntentResponse.builder()
+                .intentId(intentId)
+                .status(resultStatus)
+                .build();
 
         return ResponseEntity.ok(ApiResponse.success(
                 "결제가 취소되었습니다.",
-                Map.of(
-                        "intentId", intentId,
-                        "status", resultStatus.name())));
-    }
-
-    /** POST /api/payments/toss/{intentId}/cancel 요청 바디 */
-    @Data
-    @NoArgsConstructor
-    public static class CancelIntentRequest {
-        @Size(max = 200, message = "취소 사유는 200자 이내로 입력해주세요.")
-        private String cancelReason;
+                response));
     }
 
     private void ensureTossPaymentEnabled() {

@@ -42,6 +42,12 @@ public class DmRoom {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "participant_one_last_read_at")
+    private Instant participantOneLastReadAt;
+
+    @Column(name = "participant_two_last_read_at")
+    private Instant participantTwoLastReadAt;
+
     @PrePersist
     protected void onCreate() {
         createdAt = Instant.now();

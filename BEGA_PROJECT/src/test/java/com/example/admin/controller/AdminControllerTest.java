@@ -48,7 +48,7 @@ class AdminControllerTest {
         AdminStatsDto stats = mock(AdminStatsDto.class);
         when(adminService.getStats()).thenReturn(stats);
 
-        ResponseEntity<ApiResponse> result = controller.getStats();
+        ResponseEntity<ApiResponse<AdminStatsDto>> result = controller.getStats();
 
         assertThat(result.getBody().isSuccess()).isTrue();
         assertThat(result.getBody().getData()).isEqualTo(stats);
@@ -62,7 +62,7 @@ class AdminControllerTest {
         List<AdminUserDto> users = List.of(mock(AdminUserDto.class));
         when(adminService.getUsers("test")).thenReturn(users);
 
-        ResponseEntity<ApiResponse> result = controller.getUsers("test");
+        ResponseEntity<ApiResponse<List<AdminUserDto>>> result = controller.getUsers("test");
 
         assertThat(result.getBody().isSuccess()).isTrue();
         verify(adminService).getUsers("test");
@@ -85,7 +85,7 @@ class AdminControllerTest {
     void getPosts_returnsSuccess() {
         when(adminService.getPosts()).thenReturn(List.of());
 
-        ResponseEntity<ApiResponse> result = controller.getPosts();
+        ResponseEntity<ApiResponse<List<AdminPostDto>>> result = controller.getPosts();
 
         assertThat(result.getBody().isSuccess()).isTrue();
     }
@@ -99,7 +99,7 @@ class AdminControllerTest {
         when(adminService.getReports("PENDING", "SPAM", LocalDate.of(2026, 1, 1), LocalDate.of(2026, 3, 1), 0, 20))
                 .thenReturn(page);
 
-        ResponseEntity<ApiResponse> result = controller.getReports("PENDING", "SPAM",
+        ResponseEntity<ApiResponse<Page<AdminReportDto>>> result = controller.getReports("PENDING", "SPAM",
                 LocalDate.of(2026, 1, 1), LocalDate.of(2026, 3, 1), 0, 20);
 
         assertThat(result.getBody().isSuccess()).isTrue();
@@ -113,7 +113,7 @@ class AdminControllerTest {
         AdminReportDto dto = mock(AdminReportDto.class);
         when(adminService.getReport(1L)).thenReturn(dto);
 
-        ResponseEntity<ApiResponse> result = controller.getReport(1L);
+        ResponseEntity<ApiResponse<AdminReportDto>> result = controller.getReport(1L);
 
         assertThat(result.getBody().getData()).isEqualTo(dto);
     }
@@ -139,7 +139,7 @@ class AdminControllerTest {
         AdminSeatViewDto dto = mock(AdminSeatViewDto.class);
         when(seatViewService.getAdminSeatView(1L)).thenReturn(dto);
 
-        ResponseEntity<ApiResponse> result = controller.getSeatView(1L);
+        ResponseEntity<ApiResponse<AdminSeatViewDto>> result = controller.getSeatView(1L);
 
         assertThat(result.getBody().getData()).isEqualTo(dto);
     }
@@ -153,7 +153,7 @@ class AdminControllerTest {
         AdminSeatViewDto dto = mock(AdminSeatViewDto.class);
         when(seatViewService.reviewSeatView(1L, 42L, req)).thenReturn(dto);
 
-        ResponseEntity<ApiResponse> result = controller.handleSeatView(42L, 1L, req);
+        ResponseEntity<ApiResponse<AdminSeatViewDto>> result = controller.handleSeatView(42L, 1L, req);
 
         assertThat(result.getBody().getData()).isEqualTo(dto);
     }
@@ -167,7 +167,7 @@ class AdminControllerTest {
         AdminReportDto dto = mock(AdminReportDto.class);
         when(adminService.handleReport(1L, req, 42L)).thenReturn(dto);
 
-        ResponseEntity<ApiResponse> result = controller.handleReport(42L, 1L, req);
+        ResponseEntity<ApiResponse<AdminReportDto>> result = controller.handleReport(42L, 1L, req);
 
         assertThat(result.getBody().getData()).isEqualTo(dto);
     }
@@ -181,7 +181,7 @@ class AdminControllerTest {
         AdminReportDto dto = mock(AdminReportDto.class);
         when(adminService.requestAppeal(1L, req, 42L)).thenReturn(dto);
 
-        ResponseEntity<ApiResponse> result = controller.requestAppeal(42L, 1L, req);
+        ResponseEntity<ApiResponse<AdminReportDto>> result = controller.requestAppeal(42L, 1L, req);
 
         assertThat(result.getBody().getData()).isEqualTo(dto);
     }
@@ -193,7 +193,7 @@ class AdminControllerTest {
     void getMates_returnsSuccess() {
         when(adminService.getMates()).thenReturn(List.of());
 
-        ResponseEntity<ApiResponse> result = controller.getMates();
+        ResponseEntity<ApiResponse<List<AdminMateDto>>> result = controller.getMates();
 
         assertThat(result.getBody().isSuccess()).isTrue();
     }
@@ -236,7 +236,7 @@ class AdminControllerTest {
         Map<String, Object> stats = Map.of("hitRate", 0.95);
         when(adminService.getCacheStats()).thenReturn(stats);
 
-        ResponseEntity<ApiResponse> result = controller.getCacheStats();
+        ResponseEntity<ApiResponse<Map<String, Object>>> result = controller.getCacheStats();
 
         assertThat(result.getBody().getData()).isEqualTo(stats);
     }
@@ -249,11 +249,10 @@ class AdminControllerTest {
         List<GameInningScoreRequestDto> scores = List.of(mock(GameInningScoreRequestDto.class));
         when(adminService.upsertInningScores("GAME001", scores)).thenReturn(9);
 
-        ResponseEntity<ApiResponse> result = controller.upsertInningScores("GAME001", scores);
+        ResponseEntity<ApiResponse<Map<String, Object>>> result = controller.upsertInningScores("GAME001", scores);
 
         assertThat(result.getBody().isSuccess()).isTrue();
-        @SuppressWarnings("unchecked")
-        Map<String, Object> data = (Map<String, Object>) result.getBody().getData();
+        Map<String, Object> data = result.getBody().getData();
         assertThat(data).containsEntry("gameId", "GAME001");
         assertThat(data).containsEntry("saved", 9);
     }
@@ -274,7 +273,7 @@ class AdminControllerTest {
         );
         when(adminService.syncGameSnapshot("GAME001")).thenReturn(resultDto);
 
-        ResponseEntity<ApiResponse> result = controller.syncGameSnapshot("GAME001");
+        ResponseEntity<ApiResponse<GameScoreSyncResultDto>> result = controller.syncGameSnapshot("GAME001");
 
         assertThat(result.getBody().isSuccess()).isTrue();
         assertThat(result.getBody().getData()).isEqualTo(resultDto);
@@ -294,7 +293,7 @@ class AdminControllerTest {
         when(adminService.syncGameSnapshotsByDateRange(LocalDate.of(2026, 3, 29), LocalDate.of(2026, 3, 29)))
                 .thenReturn(resultDto);
 
-        ResponseEntity<ApiResponse> result = controller.syncGameSnapshotsByDateRange(
+        ResponseEntity<ApiResponse<GameScoreSyncBatchResultDto>> result = controller.syncGameSnapshotsByDateRange(
                 LocalDate.of(2026, 3, 29),
                 null
         );
@@ -318,7 +317,7 @@ class AdminControllerTest {
         when(adminService.findGameStatusMismatchesByDateRange(LocalDate.of(2026, 3, 29), LocalDate.of(2026, 3, 29)))
                 .thenReturn(resultDto);
 
-        ResponseEntity<ApiResponse> result = controller.getGameStatusMismatches(
+        ResponseEntity<ApiResponse<GameStatusMismatchBatchResultDto>> result = controller.getGameStatusMismatches(
                 LocalDate.of(2026, 3, 29),
                 null
         );
@@ -345,7 +344,7 @@ class AdminControllerTest {
         when(adminService.repairGameStatusMismatchesByDateRange(LocalDate.of(2026, 3, 29), LocalDate.of(2026, 3, 29), true))
                 .thenReturn(resultDto);
 
-        ResponseEntity<ApiResponse> result = controller.repairGameStatusMismatches(
+        ResponseEntity<ApiResponse<GameStatusRepairBatchResultDto>> result = controller.repairGameStatusMismatches(
                 LocalDate.of(2026, 3, 29),
                 null,
                 true
@@ -372,7 +371,8 @@ class AdminControllerTest {
         );
         when(adminService.getNonCanonicalCleanupTrackers()).thenReturn(resultDto);
 
-        ResponseEntity<ApiResponse> result = controller.getNonCanonicalCleanupTrackers();
+        ResponseEntity<ApiResponse<List<AdminNonCanonicalCleanupTrackerDto>>> result =
+                controller.getNonCanonicalCleanupTrackers();
 
         assertThat(result.getBody().isSuccess()).isTrue();
         assertThat(result.getBody().getData()).isEqualTo(resultDto);
@@ -405,7 +405,7 @@ class AdminControllerTest {
                 42L
         )).thenReturn(resultDto);
 
-        ResponseEntity<ApiResponse> result = controller.upsertNonCanonicalCleanupTracker(
+        ResponseEntity<ApiResponse<AdminNonCanonicalCleanupTrackerDto>> result = controller.upsertNonCanonicalCleanupTracker(
                 42L,
                 LocalDate.of(2026, 4, 14),
                 LocalDate.of(2026, 4, 14),

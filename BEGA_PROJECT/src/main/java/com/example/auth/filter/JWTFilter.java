@@ -1,12 +1,10 @@
 package com.example.auth.filter;
 
-import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.net.URI;
-import java.time.LocalDateTime;
 import java.util.Objects;
 
 import org.springframework.lang.NonNull;
@@ -114,11 +112,9 @@ public class JWTFilter extends OncePerRequestFilter {
             return;
         }
 
-        boolean aiProxyRequest = requestUri != null && requestUri.startsWith("/api/ai/");
-
         // 🚨 CSRF 방지: Referer 체크 (상태 변경 요청에 대해)
         String method = request.getMethod();
-        if (!aiProxyRequest && !method.equals("GET") && !method.equals("HEAD") && !method.equals("OPTIONS")) {
+        if (!method.equals("GET") && !method.equals("HEAD") && !method.equals("OPTIONS")) {
             String referer = request.getHeader("Referer");
             String origin = request.getHeader("Origin");
 
@@ -219,8 +215,9 @@ public class JWTFilter extends OncePerRequestFilter {
                 return;
             }
 
-            UserEntity authenticatedUser = userRepository.findById(userId).orElse(null);
-            if (!isAuthoritativeRequestUser(authenticatedUser, tokenVersion)) {
+            String currentRole = userRepository.findUsableRoleByIdAndTokenVersion(userId, tokenVersion)
+                    .orElse(null);
+            if (currentRole == null || currentRole.isBlank()) {
                 securityMonitoringService.recordTokenReject();
                 markInvalidAuthor(request, "토큰에 저장된 사용자 정보가 유효하지 않습니다. 다시 로그인해주세요.");
                 if (mutableRequest) {
@@ -231,7 +228,18 @@ public class JWTFilter extends OncePerRequestFilter {
                 return;
             }
 
-            Collection<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role));
+            if (!Objects.equals(currentRole, role)) {
+                securityMonitoringService.recordTokenReject();
+                markInvalidAuthor(request, "토큰 권한 정보가 최신 계정 권한과 일치하지 않습니다. 다시 로그인해주세요.");
+                if (mutableRequest) {
+                    sendInvalidAuthorResponse(response, "토큰 권한 정보가 최신 계정 권한과 일치하지 않습니다. 다시 로그인해주세요.");
+                    return;
+                }
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            Collection<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(currentRole));
 
             UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                     userId, // Principal로 설정
@@ -324,35 +332,6 @@ public class JWTFilter extends OncePerRequestFilter {
         } catch (IllegalArgumentException e) {
             return false;
         }
-    }
-
-    private boolean isAccountUsable(UserEntity user) {
-        if (!user.isLocked()) {
-            return true;
-        }
-
-        if (user.getLockExpiresAt() == null) {
-            return false;
-        }
-
-        return user.getLockExpiresAt().isBefore(LocalDateTime.now());
-    }
-
-    private boolean isAuthoritativeRequestUser(UserEntity authenticatedUser, Integer tokenVersionFromToken) {
-        if (authenticatedUser == null) {
-            return false;
-        }
-
-        if (!authenticatedUser.isEnabled() || !isAccountUsable(authenticatedUser)) {
-            return false;
-        }
-
-        int currentTokenVersion = authenticatedUser.getTokenVersion() == null ? 0 : authenticatedUser.getTokenVersion();
-        if (tokenVersionFromToken == null) {
-            return currentTokenVersion == 0;
-        }
-
-        return currentTokenVersion == tokenVersionFromToken;
     }
 
     private void markInvalidAuthor(HttpServletRequest request, String reason) {

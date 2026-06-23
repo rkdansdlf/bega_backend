@@ -32,7 +32,7 @@ class AiChatPersistenceControllerTest {
         when(aiChatPersistenceService.listSessions(1L)).thenReturn(List.of(
                 new ChatSessionSummary(10L, "세션", 2, "preview", Instant.now(), Instant.now(), Instant.now())));
 
-        ResponseEntity<ApiResponse> response = controller.listSessions(1L);
+        ResponseEntity<ApiResponse<List<ChatSessionSummary>>> response = controller.listSessions(1L);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();

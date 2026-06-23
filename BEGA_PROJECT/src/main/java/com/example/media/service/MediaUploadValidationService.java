@@ -1,8 +1,10 @@
 package com.example.media.service;
 
 import com.example.cheerboard.storage.config.StorageConfig;
+import com.example.cheerboard.storage.strategy.StoredObjectMetadata;
 import com.example.cheerboard.storage.validator.ImageValidator;
 import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 import com.example.common.image.ImageUtil;
 import com.example.media.dto.InitMediaUploadRequest;
 import com.example.media.entity.MediaAsset;
@@ -60,6 +62,24 @@ public class MediaUploadValidationService {
         }
     }
 
+    public void validateStoredObjectMetadata(MediaAsset asset, StoredObjectMetadata metadata) {
+        if (metadata == null || metadata.contentLength() == null) {
+            throw new NotFoundBusinessException("MEDIA_STAGING_OBJECT_NOT_FOUND", "업로드한 파일을 찾을 수 없습니다.");
+        }
+
+        long actualBytes = metadata.contentLength();
+        if (actualBytes <= 0) {
+            throw new BadRequestBusinessException("MEDIA_STAGING_OBJECT_EMPTY", "업로드한 파일이 비어 있습니다.");
+        }
+        if (actualBytes > storageConfig.getMaxImageBytes()) {
+            throw new BadRequestBusinessException("INVALID_MEDIA_FILE_SIZE", "이미지 크기는 5MB 이하여야 합니다.");
+        }
+        if (asset.getDeclaredBytes() != null && asset.getDeclaredBytes().longValue() != actualBytes) {
+            throw new BadRequestBusinessException("MEDIA_UPLOAD_METADATA_MISMATCH", "업로드한 파일 크기 정보가 요청과 일치하지 않습니다.");
+        }
+        validateActualContentTypeMatchesDeclared(asset, metadata.contentType());
+    }
+
     public void validateDeclaredMatchesActual(
             MediaAsset asset,
             ImageUtil.ImageDimension actualDimension,
@@ -74,13 +94,7 @@ public class MediaUploadValidationService {
         if (asset.getDeclaredHeight() != null && asset.getDeclaredHeight() != actualDimension.height()) {
             throw new BadRequestBusinessException("MEDIA_UPLOAD_METADATA_MISMATCH", "업로드한 이미지 높이 정보가 요청과 일치하지 않습니다.");
         }
-        if (actualContentType != null && !actualContentType.isBlank()) {
-            String declared = normalizeMimeType(asset.getDeclaredContentType());
-            String actual = normalizeMimeType(actualContentType);
-            if (!declared.equals(actual)) {
-                throw new BadRequestBusinessException("MEDIA_UPLOAD_METADATA_MISMATCH", "업로드한 이미지 타입이 요청과 일치하지 않습니다.");
-            }
-        }
+        validateActualContentTypeMatchesDeclared(asset, actualContentType);
     }
 
     private void validateDeclaredMimeType(MediaDomain domain, String contentType) {
@@ -132,5 +146,15 @@ public class MediaUploadValidationService {
 
     private String normalizeMimeType(String contentType) {
         return contentType == null ? "" : contentType.trim().toLowerCase();
+    }
+
+    private void validateActualContentTypeMatchesDeclared(MediaAsset asset, String actualContentType) {
+        if (actualContentType != null && !actualContentType.isBlank()) {
+            String declared = normalizeMimeType(asset.getDeclaredContentType());
+            String actual = normalizeMimeType(actualContentType);
+            if (!declared.equals(actual)) {
+                throw new BadRequestBusinessException("MEDIA_UPLOAD_METADATA_MISMATCH", "업로드한 이미지 타입이 요청과 일치하지 않습니다.");
+            }
+        }
     }
 }

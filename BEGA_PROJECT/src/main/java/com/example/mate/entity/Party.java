@@ -94,6 +94,9 @@ public class Party {
     @Column(name = "ticketprice")
     private Integer ticketPrice; // 티켓 가격(1인당)
 
+    @Column(name = "reservation_deposit_amount")
+    private Integer reservationDepositAmount; // 예약금(선택, 1인당)
+
     @Column(name = "host_last_read_chat_at")
     private Instant hostLastReadChatAt; // 호스트 마지막 채팅 확인 시간
 

@@ -25,6 +25,21 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
   Optional<UserEntity> findByEmail(String email);
 
+  interface LoginPasswordProjection {
+    Long getId();
+
+    String getPassword();
+  }
+
+  @Query("""
+      SELECT
+        u.id AS id,
+        u.password AS password
+      FROM UserEntity u
+      WHERE u.email = :email
+      """)
+  Optional<LoginPasswordProjection> findLoginPasswordByEmail(@Param("email") String email);
+
   @org.springframework.data.jpa.repository.EntityGraph(attributePaths = { "providers" })
   Optional<UserEntity> findWithProvidersByEmail(String email);
 
@@ -77,6 +92,23 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
       """)
   boolean existsUsableAuthorByIdAndTokenVersion(@Param("userId") Long userId,
       @Param("tokenVersion") int tokenVersion);
+
+  @Query("""
+      SELECT u.role
+      FROM UserEntity u
+      WHERE u.id = :userId
+        AND COALESCE(u.tokenVersion, 0) = COALESCE(:tokenVersion, 0)
+        AND u.enabled = true
+        AND (
+          u.locked = false
+          OR (
+            u.lockExpiresAt IS NOT NULL
+            AND u.lockExpiresAt < CURRENT_TIMESTAMP
+          )
+        )
+      """)
+  Optional<String> findUsableRoleByIdAndTokenVersion(@Param("userId") Long userId,
+      @Param("tokenVersion") Integer tokenVersion);
 
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("""

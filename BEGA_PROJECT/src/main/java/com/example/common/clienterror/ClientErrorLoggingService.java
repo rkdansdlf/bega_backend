@@ -27,12 +27,13 @@ public class ClientErrorLoggingService {
         Long authenticatedUserId = extractUserId(authentication);
         ClientErrorSource source = ClientErrorSource.fromCategory(request.category());
         ClientErrorBucket bucket = source.getBucket();
-        String sanitizedMessage = ClientErrorSupport.sanitize(request.message(), ClientErrorSupport.MESSAGE_LOG_LIMIT);
-        String sanitizedRoute = ClientErrorSupport.sanitize(request.route(), ClientErrorSupport.ROUTE_LOG_LIMIT);
-        String sanitizedEndpoint = ClientErrorSupport.sanitize(request.endpoint(), ClientErrorSupport.ENDPOINT_LOG_LIMIT);
+        String sanitizedMessage = ClientErrorSupport.sanitizeSensitive(request.message(), ClientErrorSupport.MESSAGE_LOG_LIMIT);
+        String sanitizedRoute = ClientErrorSupport.sanitizeRouteForStorage(request.route());
+        String sanitizedEndpoint = ClientErrorSupport.sanitizeEndpointForStorage(request.endpoint());
         String normalizedRoute = ClientErrorSupport.normalizeRoute(request.route());
         String normalizedEndpoint = ClientErrorSupport.normalizeEndpoint(request.endpoint());
         String statusGroup = ClientErrorSupport.normalizeStatusGroup(request.statusCode());
+        String hashedSessionId = ClientErrorSupport.hashSessionId(request.sessionId());
         String fingerprint = ClientErrorSupport.buildFingerprint(
                 bucket,
                 sanitizedMessage,
@@ -49,8 +50,8 @@ public class ClientErrorLoggingService {
                     .bucket(bucket)
                     .source(source)
                     .message(sanitizedMessage)
-                    .stack(ClientErrorSupport.sanitize(request.stack(), ClientErrorSupport.STACK_LOG_LIMIT))
-                    .componentStack(ClientErrorSupport.sanitize(request.componentStack(), ClientErrorSupport.STACK_LOG_LIMIT))
+                    .stack(ClientErrorSupport.sanitizeSensitive(request.stack(), ClientErrorSupport.STACK_LOG_LIMIT))
+                    .componentStack(ClientErrorSupport.sanitizeSensitive(request.componentStack(), ClientErrorSupport.STACK_LOG_LIMIT))
                     .route(sanitizedRoute == null ? "/" : sanitizedRoute)
                     .normalizedRoute(normalizedRoute)
                     .statusCode(request.statusCode())
@@ -60,8 +61,8 @@ public class ClientErrorLoggingService {
                     .endpoint(sanitizedEndpoint)
                     .normalizedEndpoint(normalizedEndpoint)
                     .occurredAt(ClientErrorSupport.parseOccurredAt(request.timestamp()))
-                    .sessionId(ClientErrorSupport.sanitize(request.sessionId(), 128))
-                    .userId(authenticatedUserId != null ? authenticatedUserId : request.userId())
+                    .sessionId(hashedSessionId)
+                    .userId(authenticatedUserId)
                     .fingerprint(fingerprint)
                     .feedbackCount(0)
                     .build());
@@ -77,15 +78,15 @@ public class ClientErrorLoggingService {
                 ClientErrorSupport.sanitize(request.method(), 16),
                 sanitizedEndpoint,
                 authenticatedUserId,
-                ClientErrorSupport.sanitize(request.sessionId(), 128),
+                hashedSessionId,
                 sanitizedMessage);
 
         if (request.stack() != null || request.componentStack() != null) {
             log.info(
                     "event=frontend_client_error_stack eventId={} stack={} componentStack={}",
                     ClientErrorSupport.sanitize(request.eventId(), 64),
-                    ClientErrorSupport.sanitize(request.stack(), ClientErrorSupport.STACK_LOG_LIMIT),
-                    ClientErrorSupport.sanitize(request.componentStack(), ClientErrorSupport.STACK_LOG_LIMIT));
+                    ClientErrorSupport.sanitizeSensitive(request.stack(), ClientErrorSupport.STACK_LOG_LIMIT),
+                    ClientErrorSupport.sanitizeSensitive(request.componentStack(), ClientErrorSupport.STACK_LOG_LIMIT));
         }
     }
 
@@ -96,9 +97,9 @@ public class ClientErrorLoggingService {
         recordClientFeedbackMetric(request);
         feedbackRepository.save(ClientErrorFeedbackEntity.builder()
                 .eventId(ClientErrorSupport.sanitize(request.eventId(), 64))
-                .comment(ClientErrorSupport.sanitize(request.comment(), ClientErrorSupport.COMMENT_LOG_LIMIT))
+                .comment(ClientErrorSupport.sanitizeSensitive(request.comment(), ClientErrorSupport.COMMENT_LOG_LIMIT))
                 .actionTaken(ClientErrorSupport.sanitize(request.actionTaken(), 64))
-                .route(ClientErrorSupport.sanitize(request.route(), ClientErrorSupport.ROUTE_LOG_LIMIT))
+                .route(ClientErrorSupport.sanitizeRouteForStorage(request.route()))
                 .occurredAt(ClientErrorSupport.parseOccurredAt(request.timestamp()))
                 .build());
         eventRepository.incrementFeedbackCount(request.eventId());
@@ -107,9 +108,9 @@ public class ClientErrorLoggingService {
                 "event=frontend_client_feedback eventId={} actionTaken={} route={} userId={} comment={}",
                 ClientErrorSupport.sanitize(request.eventId(), 64),
                 ClientErrorSupport.sanitize(request.actionTaken(), 64),
-                ClientErrorSupport.sanitize(request.route(), ClientErrorSupport.ROUTE_LOG_LIMIT),
+                ClientErrorSupport.sanitizeRouteForStorage(request.route()),
                 authenticatedUserId,
-                ClientErrorSupport.sanitize(request.comment(), ClientErrorSupport.COMMENT_LOG_LIMIT));
+                ClientErrorSupport.sanitizeSensitive(request.comment(), ClientErrorSupport.COMMENT_LOG_LIMIT));
     }
 
     private Long extractUserId(Authentication authentication) {

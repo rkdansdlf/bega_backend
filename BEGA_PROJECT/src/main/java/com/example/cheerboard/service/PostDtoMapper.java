@@ -461,8 +461,8 @@ public class PostDtoMapper {
         String rawValue = author.getProfileImageUrl();
         String feedValue = author.getProfileFeedImageUrl();
         String resolved = forCheerFeed
-                ? profileImageService.getProfileImageUrlForCheerFeed(rawValue, feedValue)
-                : profileImageService.getProfileImageUrl(rawValue);
+                ? profileImageService.getProfileImageUrlForCheerFeed(author.getId(), rawValue, feedValue)
+                : profileImageService.getProfileImageUrlForUser(author.getId(), rawValue);
         if (resolved != null && !resolved.isBlank()) {
             return resolved;
         }

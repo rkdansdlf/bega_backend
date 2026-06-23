@@ -1,6 +1,6 @@
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '3.5.13'
+	id 'org.springframework.boot' version '3.5.15'
 	id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -100,6 +100,12 @@ dependencies {
     testCompileOnly 'org.projectlombok:lombok:1.18.36'
     testAnnotationProcessor 'org.projectlombok:lombok:1.18.36'
 
+    // QueryDSL (Jakarta Persistence)
+    implementation 'com.querydsl:querydsl-jpa:5.1.0:jakarta'
+    annotationProcessor 'com.querydsl:querydsl-apt:5.1.0:jakarta'
+    annotationProcessor 'jakarta.persistence:jakarta.persistence-api'
+    annotationProcessor 'jakarta.annotation:jakarta.annotation-api'
+
     runtimeOnly 'com.h2database:h2'
     runtimeOnly 'com.mysql:mysql-connector-j'
     runtimeOnly 'org.postgresql:postgresql'
@@ -163,7 +169,11 @@ tasks.named('bootRun') {
 	classpath = sourceSets.main.runtimeClasspath.filter { !it.name.contains('spring-boot-devtools') }
 	// Ensure local bootRun starts with dev profile by default.
 	systemProperty 'spring.profiles.active', 'dev'
-	jvmArgs '-Xmx4096m', '-Dfile.encoding=UTF-8'
+	def bootRunXmx = System.getenv('BEGA_BOOTRUN_XMX')
+	if (bootRunXmx == null || bootRunXmx.isBlank()) {
+		bootRunXmx = '4096m'
+	}
+	jvmArgs "-Xmx${bootRunXmx}", '-Dfile.encoding=UTF-8'
 	systemProperty 'file.encoding', 'UTF-8'
 }
 
@@ -195,7 +205,7 @@ tasks.register('schemaValidationTest', Test) {
         }
 
         if (!missingKeys.isEmpty()) {
-            throw new GradleException("schemaValidationTest requires ${missingKeys.join(', ')} via environment or .env")
+            throw new IllegalStateException("schemaValidationTest requires ${missingKeys.join(', ')} via environment or .env")
         }
     }
     filter {
@@ -245,7 +255,7 @@ tasks.register('verifyFlywayResourceSync') {
 			def missingFiles = sourceFiles - buildFiles
 
 			if (!staleFiles.isEmpty() || !missingFiles.isEmpty()) {
-				throw new GradleException(
+					throw new IllegalStateException(
 					"Flyway resource sync mismatch for ${mapping.label}: stale=${staleFiles}, missing=${missingFiles}"
 				)
 			}
@@ -279,6 +289,9 @@ tasks.withType(Test).configureEach {
 		junitXml.mergeReruns = true
 		junitXml.includeSystemOutLog = false
 		junitXml.includeSystemErrLog = false
+		html.required = providers.gradleProperty('begaTestHtmlReport')
+			.map { it.toBoolean() }
+			.getOrElse(false)
 	}
 
 	testLogging {

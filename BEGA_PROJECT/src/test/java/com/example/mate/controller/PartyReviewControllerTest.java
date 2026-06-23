@@ -1,5 +1,6 @@
 package com.example.mate.controller;
 
+import com.example.common.exception.AuthenticationRequiredException;
 import com.example.mate.dto.PartyReviewDTO;
 import com.example.mate.service.PartyReviewService;
 import org.junit.jupiter.api.DisplayName;
@@ -11,10 +12,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
-import java.security.Principal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -27,16 +28,14 @@ class PartyReviewControllerTest {
     @InjectMocks
     private PartyReviewController controller;
 
-    private final Principal principal = () -> "42";
-
     @Test
     @DisplayName("리뷰 작성 시 201을 반환한다")
     void createReview_returns201() {
         PartyReviewDTO.Request req = PartyReviewDTO.Request.builder().partyId(5L).rating(5).build();
         PartyReviewDTO.Response resp = PartyReviewDTO.Response.builder().id(1L).build();
-        when(partyReviewService.createReview(req, principal)).thenReturn(resp);
+        when(partyReviewService.createReview(req, 42L)).thenReturn(resp);
 
-        ResponseEntity<?> result = controller.createReview(req, principal);
+        ResponseEntity<?> result = controller.createReview(req, 42L);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(result.getBody()).isEqualTo(resp);
@@ -46,11 +45,18 @@ class PartyReviewControllerTest {
     @DisplayName("파티별 리뷰 목록을 조회한다")
     void getReviewsByParty_returnsList() {
         PartyReviewDTO.Response resp = PartyReviewDTO.Response.builder().id(1L).build();
-        when(partyReviewService.getReviewsByParty(5L)).thenReturn(List.of(resp));
+        when(partyReviewService.getReviewsByParty(5L, 42L)).thenReturn(List.of(resp));
 
-        ResponseEntity<List<PartyReviewDTO.Response>> result = controller.getReviewsByParty(5L);
+        ResponseEntity<List<PartyReviewDTO.Response>> result = controller.getReviewsByParty(5L, 42L);
 
         assertThat(result.getBody()).hasSize(1);
-        verify(partyReviewService).getReviewsByParty(5L);
+        verify(partyReviewService).getReviewsByParty(5L, 42L);
+    }
+
+    @Test
+    @DisplayName("파티별 리뷰 목록 조회는 인증 사용자를 요구한다")
+    void getReviewsByParty_requiresAuthenticatedUser() {
+        assertThatThrownBy(() -> controller.getReviewsByParty(5L, null))
+                .isInstanceOf(AuthenticationRequiredException.class);
     }
 }

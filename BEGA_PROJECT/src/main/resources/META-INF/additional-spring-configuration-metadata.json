@@ -11,6 +11,11 @@
       "description": "Mail delivery toggles for the backend."
     },
     {
+      "name": "app.tomcat",
+      "type": "java.lang.Object",
+      "description": "Application-level embedded Tomcat hardening settings."
+    },
+    {
       "name": "app.client-error-monitoring",
       "type": "com.example.common.clienterror.ClientErrorMonitoringProperties",
       "description": "Client error monitoring retention and alerting settings."
@@ -31,6 +36,16 @@
       "description": "Development seed-data controls."
     },
     {
+      "name": "app.dev-db",
+      "type": "java.lang.Object",
+      "description": "Development database operational controls."
+    },
+    {
+      "name": "app.dev-db.hot-path-prewarm",
+      "type": "java.lang.Object",
+      "description": "Opt-in Dev DB hot-path connection and planner pre-warm controls."
+    },
+    {
       "name": "app.frontend",
       "type": "java.lang.Object",
       "description": "Frontend URL settings used by the backend."
@@ -39,6 +54,81 @@
       "name": "app.backend",
       "type": "java.lang.Object",
       "description": "Backend self URL settings."
+    },
+    {
+      "name": "app.baseball",
+      "type": "java.lang.Object",
+      "description": "Baseball data safety overrides."
+    },
+    {
+      "name": "app.baseball.manual-data",
+      "type": "java.lang.Object",
+      "description": "Operator-provided manual baseball data failure controls."
+    },
+    {
+      "name": "app.home",
+      "type": "java.lang.Object",
+      "description": "Home page bootstrap and latency settings."
+    },
+    {
+      "name": "app.home.bootstrap",
+      "type": "java.lang.Object",
+      "description": "Home bootstrap aggregation settings."
+    },
+    {
+      "name": "app.home.bootstrap.warmup",
+      "type": "java.lang.Object",
+      "description": "Scheduled home bootstrap cache warm-up settings."
+    },
+    {
+      "name": "app.home.widgets",
+      "type": "java.lang.Object",
+      "description": "Home widgets aggregation settings."
+    },
+    {
+      "name": "app.leaderboard",
+      "type": "java.lang.Object",
+      "description": "Leaderboard scoring and scheduling settings."
+    },
+    {
+      "name": "app.leaderboard.game-result-scheduler",
+      "type": "java.lang.Object",
+      "description": "Scheduled leaderboard game-result scoring controls."
+    },
+    {
+      "name": "app.cheer",
+      "type": "java.lang.Object",
+      "description": "Cheerboard feature settings."
+    },
+    {
+      "name": "app.cheer.post-sync",
+      "type": "java.lang.Object",
+      "description": "Cheer post synchronization settings."
+    },
+    {
+      "name": "app.cheer.post-sync.scheduler",
+      "type": "java.lang.Object",
+      "description": "Cheer post synchronization scheduler controls."
+    },
+    {
+      "name": "app.prediction",
+      "type": "java.lang.Object",
+      "description": "Prediction page bootstrap and warm-up settings."
+    },
+    {
+      "name": "app.prediction.warmup",
+      "type": "java.lang.Object",
+      "description": "Scheduled prediction cache warm-up settings."
+    },
+    {
+      "name": "app.prediction.warmup.detail",
+      "type": "java.lang.Object",
+      "description": "Prediction game detail warm-up settings."
+    },
+    {
+      "name": "app.prediction.warmup.vote-status",
+      "type": "java.lang.Object",
+      "description": "Prediction aggregate vote status warm-up settings."
     },
     {
       "name": "app.flyway",
@@ -283,6 +373,41 @@
       "description": "Whether development seed data should be initialized."
     },
     {
+      "name": "app.dev-db.hot-path-prewarm.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether to run opt-in Dev DB hot-path pre-warm queries after application startup."
+    },
+    {
+      "name": "app.dev-db.hot-path-prewarm.connections",
+      "type": "java.lang.Integer",
+      "description": "Number of physical connections to pre-warm per relevant datasource. The service caps this value defensively."
+    },
+    {
+      "name": "app.dev-db.hot-path-prewarm.timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Statement timeout in milliseconds for each Dev DB hot-path pre-warm query."
+    },
+    {
+      "name": "app.dev-db.hot-path-prewarm.login-email",
+      "type": "java.lang.String",
+      "description": "Email value used for the login lookup pre-warm query."
+    },
+    {
+      "name": "app.dev-db.hot-path-prewarm.range-start-date",
+      "type": "java.time.LocalDate",
+      "description": "Start date used by the game range pre-warm query."
+    },
+    {
+      "name": "app.dev-db.hot-path-prewarm.range-end-date",
+      "type": "java.time.LocalDate",
+      "description": "End date used by the game range pre-warm query."
+    },
+    {
+      "name": "app.dev-db.hot-path-prewarm.season-id",
+      "type": "java.lang.Integer",
+      "description": "KBO season id used by the season lookup pre-warm query."
+    },
+    {
       "name": "app.frontend.url",
       "type": "java.lang.String",
       "description": "Public frontend URL used in generated links and redirects."
@@ -293,9 +418,124 @@
       "description": "Public backend URL."
     },
     {
+      "name": "app.baseball.manual-data.required-dates",
+      "type": "java.lang.String",
+      "description": "Comma-separated YYYY-MM-DD dates that should fail fast with MANUAL_BASEBALL_DATA_REQUIRED until operator data is approved."
+    },
+    {
+      "name": "app.home.bootstrap.section-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Maximum wait time per home bootstrap section before returning that section's fallback payload."
+    },
+    {
+      "name": "app.home.bootstrap.warmup.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the backend periodically warms the server-today home bootstrap cache."
+    },
+    {
+      "name": "app.home.bootstrap.warmup.fixed-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Fixed delay in milliseconds between home bootstrap warm-up attempts."
+    },
+    {
+      "name": "app.home.bootstrap.warmup.initial-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Initial delay in milliseconds before the first home bootstrap warm-up attempt."
+    },
+    {
+      "name": "app.home.bootstrap.warmup.max-attempts",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of home bootstrap refresh attempts per scheduled warm-up run."
+    },
+    {
+      "name": "app.home.bootstrap.warmup.partial-retry-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Delay in milliseconds before retrying a partial home bootstrap warm-up response."
+    },
+    {
+      "name": "app.home.bootstrap.warmup.section-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Maximum wait time per home bootstrap section during scheduled warm-up refresh."
+    },
+    {
+      "name": "app.home.bootstrap.warmup.ranking.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether home bootstrap warm-up should also warm the ranking snapshot."
+    },
+    {
+      "name": "app.home.widgets.section-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Maximum wait time per home widgets section before returning that section's fallback payload."
+    },
+    {
+      "name": "app.leaderboard.game-result-scheduler.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether scheduled leaderboard game-result scoring jobs should run."
+    },
+    {
+      "name": "app.leaderboard.game-result-scheduler.fixed-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Fixed delay in milliseconds between leaderboard game-result scoring runs."
+    },
+    {
+      "name": "app.leaderboard.game-result-scheduler.initial-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Initial delay in milliseconds before the first leaderboard game-result scoring run."
+    },
+    {
+      "name": "app.leaderboard.game-result-scheduler.yesterday-cron",
+      "type": "java.lang.String",
+      "description": "Cron expression for the previous-day leaderboard game-result scoring run."
+    },
+    {
+      "name": "app.cheer.post-sync.scheduler.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether cheer post-sync recurring JobRunr jobs should be registered on startup."
+    },
+    {
+      "name": "app.prediction.warmup.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the backend periodically warms server-today prediction schedule data."
+    },
+    {
+      "name": "app.prediction.warmup.fixed-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Fixed delay in milliseconds between prediction warm-up attempts."
+    },
+    {
+      "name": "app.prediction.warmup.initial-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Initial delay in milliseconds before the first prediction warm-up attempt."
+    },
+    {
+      "name": "app.prediction.warmup.detail.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether prediction warm-up should load game detail resources."
+    },
+    {
+      "name": "app.prediction.warmup.vote-status.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether prediction warm-up should load aggregate vote status resources."
+    },
+    {
+      "name": "app.prediction.warmup.max-games-per-run",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of games to warm per prediction warm-up run. A value of 0 means no limit."
+    },
+    {
       "name": "app.flyway.auto-repair",
       "type": "java.lang.Boolean",
       "description": "Whether application-level Flyway repair should be enabled."
+    },
+    {
+      "name": "app.tomcat.connection-upload-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Socket read timeout in milliseconds while Tomcat is reading a request body upload."
+    },
+    {
+      "name": "app.tomcat.upload-timeout-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the backend enables Tomcat's separate upload body read timeout."
     },
     {
       "name": "app.ai.proxy.public-in-dev",
@@ -316,6 +556,36 @@
       "name": "app.ai.proxy.allow-loopback-service-url-in-prod",
       "type": "java.lang.Boolean",
       "description": "Whether prod profile may use a loopback AI service URL."
+    },
+    {
+      "name": "app.ai.proxy.max-chat-json-bytes",
+      "type": "java.lang.Long",
+      "description": "Maximum JSON request body size for backend AI chat proxy endpoints."
+    },
+    {
+      "name": "app.ai.proxy.max-coach-json-bytes",
+      "type": "java.lang.Long",
+      "description": "Maximum JSON request body size for backend AI coach analyze proxy endpoint."
+    },
+    {
+      "name": "app.ai.proxy.max-voice-upload-bytes",
+      "type": "java.lang.Long",
+      "description": "Maximum multipart file size accepted by backend AI voice proxy endpoint."
+    },
+    {
+      "name": "app.ai.proxy.max-voice-request-bytes",
+      "type": "java.lang.Long",
+      "description": "Maximum multipart request envelope size accepted by backend AI voice proxy endpoint."
+    },
+    {
+      "name": "app.ai.proxy.max-admin-json-bytes",
+      "type": "java.lang.Long",
+      "description": "Maximum JSON request body size for backend admin AI proxy endpoints."
+    },
+    {
+      "name": "app.ai.proxy.max-chat-persistence-json-bytes",
+      "type": "java.lang.Long",
+      "description": "Maximum JSON request body size for backend AI chat persistence endpoints."
     },
     {
       "name": "app.trusted-proxies",
@@ -591,6 +861,31 @@
       "name": "payment.payout.provider",
       "type": "java.lang.String",
       "description": "Selected payout provider."
+    },
+    {
+      "name": "media.cleanup.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the media cleanup scheduler should run."
+    },
+    {
+      "name": "media.cleanup.fixed-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Fixed delay in milliseconds between media cleanup scheduler runs."
+    },
+    {
+      "name": "org.jobrunr.background-job-server.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the JobRunr background job server should run."
+    },
+    {
+      "name": "org.jobrunr.background-job-server.worker-count",
+      "type": "java.lang.Integer",
+      "description": "Worker count for the JobRunr background job server."
+    },
+    {
+      "name": "org.jobrunr.dashboard.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the JobRunr dashboard should run."
     },
     {
       "name": "spring.datasource.data-source-properties.currentSchema",

@@ -30,15 +30,31 @@ class CoachAutoBriefMonitoringServiceTest {
                 new ObjectMapper(),
                 true);
 
-        monitoringService.recordCoachAnalyzeDuration("auto_brief", 200, Duration.ofMillis(850).toNanos());
+        monitoringService.recordCoachAnalyzeDuration("auto_brief", "game_preview", 200, Duration.ofMillis(850).toNanos());
 
         Timer timer = meterRegistry.find("coach_brief_request_duration_seconds")
-                .tags("request_mode", "auto_brief", "status_group", "2xx")
+                .tags("request_mode", "auto_brief", "analysis_type", "game_preview", "status_group", "2xx")
                 .timer();
 
         assertThat(timer).isNotNull();
         assertThat(timer.count()).isEqualTo(1L);
         assertThat(timer.totalTime(java.util.concurrent.TimeUnit.MILLISECONDS)).isGreaterThanOrEqualTo(850.0d);
+    }
+
+    @Test
+    void extractAnalysisType_supportsSnakeAndCamelCasePayloads() {
+        CoachAutoBriefMonitoringService monitoringService = new CoachAutoBriefMonitoringService(
+                mock(AiProxyService.class),
+                new SimpleMeterRegistry(),
+                new ObjectMapper(),
+                true);
+
+        assertThat(monitoringService.extractAnalysisType("{\"analysis_type\":\"game_review\"}"))
+                .isEqualTo("game_review");
+        assertThat(monitoringService.extractAnalysisType("{\"analysisType\":\"game_preview\"}"))
+                .isEqualTo("game_preview");
+        assertThat(monitoringService.extractAnalysisType("{\"analysis_type\":\"legacy\"}"))
+                .isEqualTo("unknown");
     }
 
     @Test

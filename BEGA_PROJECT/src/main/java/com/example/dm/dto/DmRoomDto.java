@@ -1,5 +1,7 @@
 package com.example.dm.dto;
 
+import java.time.Instant;
+
 import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -42,5 +44,28 @@ public class DmRoomDto {
         private Long roomId;
         private String membershipState;
         private TargetUser targetUser;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class InboxItem {
+        private Long roomId;
+        private TargetUser targetUser;
+        private LastMessagePreview lastMessage;
+        private boolean hasUnread;
+
+        @Getter
+        @Setter
+        @NoArgsConstructor
+        @AllArgsConstructor
+        @Builder
+        public static class LastMessagePreview {
+            private String content;
+            private Instant createdAt;
+            private Long senderId;
+        }
     }
 }

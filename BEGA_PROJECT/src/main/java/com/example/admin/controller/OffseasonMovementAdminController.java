@@ -1,5 +1,6 @@
 package com.example.admin.controller;
 
+import com.example.admin.dto.OffseasonMovementAdminDto;
 import com.example.admin.dto.OffseasonMovementAdminRequest;
 import com.example.admin.service.OffseasonMovementAdminService;
 import com.example.common.dto.ApiResponse;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -34,7 +36,7 @@ public class OffseasonMovementAdminController {
     private final OffseasonMovementAdminService offseasonMovementAdminService;
 
     @GetMapping
-    public ResponseEntity<ApiResponse> getMovements(
+    public ResponseEntity<ApiResponse<List<OffseasonMovementAdminDto>>> getMovements(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String section,
             @RequestParam(required = false) String teamCode,
@@ -46,7 +48,7 @@ public class OffseasonMovementAdminController {
     }
 
     @PostMapping
-    public ResponseEntity<ApiResponse> createMovement(
+    public ResponseEntity<ApiResponse<OffseasonMovementAdminDto>> createMovement(
             @Valid @RequestBody OffseasonMovementAdminRequest request) {
         log.info("스토브리그 이동 등록 요청: playerName={}, teamCode={}", request.getPlayerName(), request.getTeamCode());
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -56,7 +58,7 @@ public class OffseasonMovementAdminController {
     }
 
     @PutMapping("/{movementId}")
-    public ResponseEntity<ApiResponse> updateMovement(
+    public ResponseEntity<ApiResponse<OffseasonMovementAdminDto>> updateMovement(
             @PathVariable Long movementId,
             @Valid @RequestBody OffseasonMovementAdminRequest request) {
         log.info("스토브리그 이동 수정 요청: movementId={}, playerName={}", movementId, request.getPlayerName());
@@ -66,7 +68,7 @@ public class OffseasonMovementAdminController {
     }
 
     @DeleteMapping("/{movementId}")
-    public ResponseEntity<ApiResponse> deleteMovement(@PathVariable Long movementId) {
+    public ResponseEntity<ApiResponse<Map<String, Long>>> deleteMovement(@PathVariable Long movementId) {
         log.info("스토브리그 이동 삭제 요청: movementId={}", movementId);
         offseasonMovementAdminService.deleteMovement(movementId);
         return ResponseEntity.ok(ApiResponse.success(

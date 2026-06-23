@@ -1,7 +1,6 @@
 package com.example.prediction;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -46,7 +45,8 @@ class PredictionControllerMyVotesTest {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"))
                 .andExpect(jsonPath("$.message").value("로그인이 필요합니다."))
-                .andExpect(jsonPath("$.data.votes").isMap());
+                .andExpect(jsonPath("$.data.votes").isMap())
+                .andExpect(jsonPath("$.data.entries").isArray());
 
         verifyNoInteractions(predictionService, predictionRepository);
     }
@@ -65,7 +65,7 @@ class PredictionControllerMyVotesTest {
         ResponseEntity<?> response = controller.getMyVotesBulk(request, principal);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).isEqualTo(Map.of("votes", Map.of()));
+        assertThat(response.getBody()).isEqualTo(new PredictionMyVotesResponseDto(Map.of()));
         verifyNoInteractions(predictionRepository);
     }
 
@@ -132,9 +132,14 @@ class PredictionControllerMyVotesTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, String> votes = extractVotes(response);
+        List<PredictionMyVoteEntryDto> entries = extractEntries(response);
         assertThat(votes).hasSize(2);
         assertThat(votes).containsEntry("GAME-10", null);
         assertThat(votes).containsEntry("GAME-11", null);
+        assertThat(entries).containsExactly(
+                new PredictionMyVoteEntryDto("GAME-10", null),
+                new PredictionMyVoteEntryDto("GAME-11", null)
+        );
     }
 
     @Test
@@ -162,9 +167,14 @@ class PredictionControllerMyVotesTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, String> votes = extractVotes(response);
+        List<PredictionMyVoteEntryDto> entries = extractEntries(response);
         assertThat(votes).containsOnly(
                 Map.entry("GAME-20", "home"),
                 Map.entry("GAME-30", "away")
+        );
+        assertThat(entries).containsExactly(
+                new PredictionMyVoteEntryDto("GAME-20", "home"),
+                new PredictionMyVoteEntryDto("GAME-30", "away")
         );
         verify(predictionRepository).findByUserIdAndGameIdIn(1L, List.of("GAME-20", "GAME-30"));
     }
@@ -191,22 +201,30 @@ class PredictionControllerMyVotesTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         Map<String, String> votes = extractVotes(response);
+        List<PredictionMyVoteEntryDto> entries = extractEntries(response);
 
         assertThat(votes.get("GAME-40")).isEqualTo("home");
         assertThat(votes).containsEntry("GAME-41", null);
         assertThat(votes).containsEntry("GAME-42", null);
         assertThat(votes).hasSize(3);
+        assertThat(entries).containsExactly(
+                new PredictionMyVoteEntryDto("GAME-40", "home"),
+                new PredictionMyVoteEntryDto("GAME-41", null),
+                new PredictionMyVoteEntryDto("GAME-42", null)
+        );
     }
 
-    @SuppressWarnings("unchecked")
     private Map<String, String> extractVotes(ResponseEntity<?> response) {
         Object bodyObject = response.getBody();
-        assertThat(bodyObject).isInstanceOf(Map.class);
-        Map<String, Object> body = (Map<String, Object>) bodyObject;
-        assertThat(body).isNotNull();
-        assertThat(body).containsKey("votes");
-        assertInstanceOf(Map.class, body.get("votes"));
+        assertThat(bodyObject).isInstanceOf(PredictionMyVotesResponseDto.class);
 
-        return (Map<String, String>) body.get("votes");
+        return ((PredictionMyVotesResponseDto) bodyObject).votes();
+    }
+
+    private List<PredictionMyVoteEntryDto> extractEntries(ResponseEntity<?> response) {
+        Object bodyObject = response.getBody();
+        assertThat(bodyObject).isInstanceOf(PredictionMyVotesResponseDto.class);
+
+        return ((PredictionMyVotesResponseDto) bodyObject).entries();
     }
 }

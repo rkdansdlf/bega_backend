@@ -124,7 +124,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
                 redirectWithError(request, response, OAuth2StateService.ERROR_CODE_STATE_STORE_UNAVAILABLE);
                 return;
             }
-            String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId + "&status=linked";
+            String redirectUrl = buildOAuthCallbackRedirect(stateId, true);
             getRedirectStrategy().sendRedirect(request, response, redirectUrl);
             return;
         }
@@ -140,7 +140,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         // Refresh Token 생성
         String refreshToken = authSessionService.issueRefreshToken(userEmail, role, userId, tokenVersion, request);
-        accountSecurityService.handleSuccessfulLogin(userEntity, request);
+        accountSecurityService.handleSuccessfulLoginAsync(userEntity, request);
 
         // 쿠키에 토큰 저장
         int accessTokenMaxAge = (int) (accessTokenExpiredMs / 1000);
@@ -164,7 +164,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             redirectWithError(request, response, OAuth2StateService.ERROR_CODE_STATE_STORE_UNAVAILABLE);
             return;
         }
-        String redirectUrl = frontendUrl + "/oauth/callback?state=" + stateId;
+        String redirectUrl = buildOAuthCallbackRedirect(stateId, false);
         getRedirectStrategy().sendRedirect(request, response, redirectUrl);
 
     }
@@ -185,6 +185,18 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         }
 
         return uri.substring(lastSlash + 1);
+    }
+
+    private String buildOAuthCallbackRedirect(String stateId, boolean linked) {
+        String redirectUrl = frontendUrl + "/oauth/callback?state=" + encodeRedirectParam(stateId);
+        if (linked) {
+            return redirectUrl + "&status=linked";
+        }
+        return redirectUrl;
+    }
+
+    private String encodeRedirectParam(String value) {
+        return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8);
     }
 
     private void redirectWithError(HttpServletRequest request, HttpServletResponse response, String errorCode)

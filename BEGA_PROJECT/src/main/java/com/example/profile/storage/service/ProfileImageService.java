@@ -7,6 +7,7 @@ import com.example.common.exception.NotFoundBusinessException;
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
 import com.example.auth.repository.UserRepository;
+import com.example.media.service.MediaObjectKeyGuard;
 import com.example.profile.storage.dto.ProfileImageDto;
 import com.example.profile.storage.validator.ProfileImageValidator;
 import lombok.RequiredArgsConstructor;
@@ -55,6 +56,7 @@ public class ProfileImageService {
     private final com.example.common.image.ImageUtil imageUtil;
     private final com.example.common.image.ImageOptimizationMetricsService metricsService;
     private final CacheManager cacheManager;
+    private final MediaObjectKeyGuard mediaObjectKeyGuard;
 
     /**
      * 프로필 이미지 업로드 (최적화된 트랜잭션 처리)
@@ -143,10 +145,10 @@ public class ProfileImageService {
             // 4. 성공 시 기존 이미지 삭제 (Best effort)
             // 기존 URL인 경우 (UserEntity에 저장된 값이 URL이었던 시절 데이터) -> 처리가 복잡하므로 path 추출 시도
             if (oldProfileUrl != null && !oldProfileUrl.isEmpty()) {
-                deleteImageByUrl(oldProfileUrl);
+                deleteImageByUrl(oldProfileUrl, userId);
             }
             if (oldProfileFeedUrl != null && !oldProfileFeedUrl.isEmpty()) {
-                deleteImageByUrl(oldProfileFeedUrl);
+                deleteImageByUrl(oldProfileFeedUrl, userId);
             }
 
             return Objects.requireNonNull(new ProfileImageDto(
@@ -186,6 +188,17 @@ public class ProfileImageService {
         return pathOrUrl.strip();
     }
 
+    public String normalizeProfileStoragePathForUser(Long userId, String pathOrUrl) {
+        String normalizedPath = normalizeProfileStoragePath(pathOrUrl);
+        if (!StringUtils.hasText(normalizedPath)) {
+            return normalizedPath;
+        }
+
+        mediaObjectKeyGuard.requireProfileWriteKey(normalizedPath, userId);
+
+        return normalizedPath;
+    }
+
     /**
      * DB 업데이트
      */
@@ -203,7 +216,7 @@ public class ProfileImageService {
     /**
      * 저장된 경로(path) 또는 URL을 기반으로 실제 접근 가능한 URL 반환
      */
-    public String getProfileImageUrl(String pathOrUrl) {
+    String getProfileImageUrlUnchecked(String pathOrUrl) {
         if (pathOrUrl == null || pathOrUrl.isEmpty()) {
             return null;
         }
@@ -229,17 +242,39 @@ public class ProfileImageService {
         return resolveProfilePathToUrl(normalizedPathOrUrl);
     }
 
+    @Deprecated(forRemoval = false)
+    public String getProfileImageUrl(String pathOrUrl) {
+        return getProfileImageUrlUnchecked(pathOrUrl);
+    }
+
+    public String getProfileImageUrlForUser(Long ownerUserId, String pathOrUrl) {
+        if (pathOrUrl == null || pathOrUrl.isEmpty()) {
+            return null;
+        }
+
+        String normalizedPathOrUrl = normalizeRemoteProfileImageUrl(pathOrUrl);
+        if (isHttpUrl(normalizedPathOrUrl)) {
+            String extracted = extractStoragePathFromUrl(normalizedPathOrUrl);
+            if (extracted != null) {
+                return resolveProfilePathToUrlForUser(extracted, ownerUserId, true);
+            }
+            return normalizedPathOrUrl;
+        }
+
+        return resolveProfilePathToUrlForUser(normalizedPathOrUrl, ownerUserId, true);
+    }
+
     /**
      * cheer 피드용 아바타 URL 반환.
      * `feed-v3`를 우선 사용하고, 없으면 `feed-v2`, 마지막으로 원본/고해상도 경로로 폴백합니다.
      */
-    public String getProfileImageUrlForCheerFeed(String pathOrUrl) {
-        return getProfileImageUrlForCheerFeed(pathOrUrl, null);
+    String getProfileImageUrlForCheerFeedUnchecked(String pathOrUrl) {
+        return getProfileImageUrlForCheerFeedUnchecked(pathOrUrl, null);
     }
 
-    public String getProfileImageUrlForCheerFeed(String pathOrUrl, String profileFeedImageUrl) {
+    String getProfileImageUrlForCheerFeedUnchecked(String pathOrUrl, String profileFeedImageUrl) {
         if (isTrustedFeedImagePath(profileFeedImageUrl)) {
-            String resolvedFeedUrl = getProfileImageUrl(profileFeedImageUrl);
+            String resolvedFeedUrl = getProfileImageUrlUnchecked(profileFeedImageUrl);
             if (resolvedFeedUrl != null && !resolvedFeedUrl.isBlank()) {
                 return resolvedFeedUrl;
             }
@@ -253,7 +288,28 @@ public class ProfileImageService {
             }
         }
 
-        return getProfileImageUrl(pathOrUrl);
+        return getProfileImageUrlUnchecked(pathOrUrl);
+    }
+
+    public String getProfileImageUrlForCheerFeed(Long ownerUserId, String pathOrUrl, String profileFeedImageUrl) {
+        if (isTrustedFeedImagePath(profileFeedImageUrl)
+                && mediaObjectKeyGuard.canReadProfileKey(profileFeedImageUrl, ownerUserId, true)) {
+            String resolvedFeedUrl = getProfileImageUrlForUser(ownerUserId, profileFeedImageUrl);
+            if (resolvedFeedUrl != null && !resolvedFeedUrl.isBlank()) {
+                return resolvedFeedUrl;
+            }
+        }
+
+        String resolvedCandidateFeedPath = resolveProfileFeedCandidatePath(pathOrUrl);
+        if (resolvedCandidateFeedPath != null
+                && mediaObjectKeyGuard.canReadProfileKey(resolvedCandidateFeedPath, ownerUserId, true)) {
+            String resolvedFeedUrl = generateProfileImageUrl(resolvedCandidateFeedPath);
+            if (resolvedFeedUrl != null && !resolvedFeedUrl.isBlank()) {
+                return resolvedFeedUrl;
+            }
+        }
+
+        return getProfileImageUrlForUser(ownerUserId, pathOrUrl);
     }
 
     private String resolveProfileFeedCandidatePath(String pathOrUrl) {
@@ -372,6 +428,24 @@ public class ProfileImageService {
         }
 
         return null;
+    }
+
+    private String resolveProfilePathToUrlForUser(String rawPath, Long ownerUserId, boolean allowFeedPath) {
+        if (rawPath == null || rawPath.isBlank()) {
+            return null;
+        }
+
+        String normalizedPath = normalizeStoragePath(rawPath);
+        if (normalizedPath.startsWith("/")) {
+            normalizedPath = normalizedPath.substring(1);
+        }
+        if (!isInternalProfileStorageReference(normalizedPath)
+                || !mediaObjectKeyGuard.canReadProfileKey(normalizedPath, ownerUserId, allowFeedPath)) {
+            log.warn("프로필 이미지 URL 생성 건너뜀: owner mismatch path={}", normalizedPath);
+            return null;
+        }
+
+        return generateProfileImageUrl(normalizedPath);
     }
 
     private String generateProfileImageUrl(String storagePath) {
@@ -501,16 +575,31 @@ public class ProfileImageService {
         }
     }
 
-    private void deleteImageByUrl(String url) {
+    private void deleteImageByUrl(String url, Long ownerUserId) {
         try {
             String storagePath = extractStoragePathFromUrl(url);
-            if (storagePath != null) {
+            if (storagePath != null && mediaObjectKeyGuard.canReadProfileKey(storagePath, ownerUserId, true)) {
                 storageStrategy.delete(config.getProfileBucket(), storagePath).block();
                 log.info("기존 프로필 이미지 삭제 완료: path={}", storagePath);
+            } else if (storagePath != null) {
+                log.warn("프로필 이미지 삭제 건너뜀: owner mismatch path={}", storagePath);
             }
         } catch (Exception e) {
             log.warn("기존 프로필 이미지 삭제 실패 (계속 진행): {}", e.getMessage());
         }
+    }
+
+    private boolean isInternalProfileStorageReference(String path) {
+        if (!StringUtils.hasText(path)) {
+            return false;
+        }
+        String normalized = path.strip();
+        return normalized.startsWith(MEDIA_PROFILE_PREFIX)
+                || normalized.startsWith(MEDIA_PROFILE_FEED_PREFIX)
+                || normalized.startsWith("profiles/")
+                || normalized.contains("/" + MEDIA_PROFILE_PREFIX)
+                || normalized.contains("/" + MEDIA_PROFILE_FEED_PREFIX)
+                || normalized.contains("/profiles/");
     }
 
     private String extractStoragePathFromUrl(String url) {

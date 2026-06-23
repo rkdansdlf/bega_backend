@@ -18,6 +18,8 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, Long> {
 
     List<MediaAsset> findByObjectKeyIn(Collection<String> objectKeys);
 
+    Optional<MediaAsset> findByIdAndOwnerUserId(Long id, Long ownerUserId);
+
     Optional<MediaAsset> findByDerivedFrom_Id(Long assetId);
 
     List<MediaAsset> findByDomainAndStatusOrderByIdDesc(MediaDomain domain, MediaAssetStatus status, Pageable pageable);

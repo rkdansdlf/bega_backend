@@ -17,8 +17,10 @@ import org.springframework.transaction.annotation.Transactional;
 import com.example.common.exception.NotFoundBusinessException;
 import com.example.kbo.entity.GameEntity;
 import com.example.kbo.entity.GameEventEntity;
+import com.example.kbo.entity.GameInningScoreEntity;
 import com.example.kbo.repository.GameDetailHeaderProjection;
 import com.example.kbo.repository.GameEventRepository;
+import com.example.kbo.repository.GameInningScoreRepository;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.util.GameStatusResolver;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
@@ -27,9 +29,11 @@ import com.example.kbo.validation.ManualBaseballDataRequest;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class GameLiveService {
 
     private static final int DEFAULT_EVENT_LIMIT = 50;
@@ -38,7 +42,9 @@ public class GameLiveService {
 
     private final GameRepository gameRepository;
     private final GameEventRepository gameEventRepository;
+    private final GameInningScoreRepository gameInningScoreRepository;
     private final BaseballDataIntegrityGuard baseballDataIntegrityGuard;
+    private final PredictionLiveMetricsService predictionLiveMetricsService;
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public GameLiveSnapshotDto getLiveSnapshot(String gameId, Integer afterSeq, Integer limit) {
@@ -50,11 +56,32 @@ public class GameLiveService {
         int normalizedLimit = normalizeLimit(limit);
         List<GameEventEntity> events = loadEvents(gameId, afterSeq, normalizedLimit);
         GameEventEntity latestEvent = gameEventRepository.findFirstByGameIdOrderByEventSeqDesc(gameId).orElse(null);
-        ensureLiveEventsIfRequired("prediction.live_snapshot.events", game, latestEvent, header.getStartTime());
+        List<GameInningScoreEntity> inningScores = loadMeaningfulInningScores(gameId, game);
+        ensureLiveEventsIfRequired("prediction.live_snapshot.events", game, latestEvent, inningScores, header.getStartTime());
 
-        String gameStatus = resolveLiveStatus(game, latestEvent, header.getStartTime());
-        Integer homeScore = resolveHomeScore(game, latestEvent);
-        Integer awayScore = resolveAwayScore(game, latestEvent);
+        String gameStatus = resolveLiveStatus(game, latestEvent, inningScores, header.getStartTime());
+        Integer homeScore = resolveHomeScore(game, latestEvent, inningScores);
+        Integer awayScore = resolveAwayScore(game, latestEvent, inningScores);
+        String scoreSource = resolveScoreSource(game, latestEvent, inningScores);
+        List<GameLiveEventDto> liveEvents = events.stream()
+                .map(GameLiveEventDto::fromEntity)
+                .filter(Objects::nonNull)
+                .toList();
+        List<GameInningScoreDto> liveInningScores = inningScores.stream()
+                .map(GameInningScoreDto::fromEntity)
+                .filter(Objects::nonNull)
+                .toList();
+
+        predictionLiveMetricsService.recordLiveSnapshot(scoreSource, !liveInningScores.isEmpty());
+        log.debug(
+                "prediction.live_snapshot.resolved gameId={} eventCount={} inningScoreCount={} scoreSource={} homeScore={} awayScore={} lastEventSeq={}",
+                gameId,
+                liveEvents.size(),
+                liveInningScores.size(),
+                scoreSource,
+                homeScore,
+                awayScore,
+                latestEvent == null ? null : latestEvent.getEventSeq());
 
         return GameLiveSnapshotDto.builder()
                 .gameId(gameId)
@@ -65,10 +92,8 @@ public class GameLiveService {
                 .currentInningHalf(latestEvent == null ? null : latestEvent.getInningHalf())
                 .lastEventSeq(latestEvent == null ? null : latestEvent.getEventSeq())
                 .lastUpdatedAt(resolveUpdatedAt(latestEvent))
-                .events(events.stream()
-                        .map(GameLiveEventDto::fromEntity)
-                        .filter(Objects::nonNull)
-                        .toList())
+                .events(liveEvents)
+                .inningScores(liveInningScores)
                 .build();
     }
 
@@ -78,9 +103,7 @@ public class GameLiveService {
             return List.of();
         }
 
-        List<GameEntity> games = gameIds.stream()
-                .map(gameId -> baseballDataIntegrityGuard.requireValidGame("prediction.live_summary", gameId))
-                .toList();
+        List<GameEntity> games = baseballDataIntegrityGuard.requireValidGames("prediction.live_summary", gameIds);
         Map<String, GameEventEntity> latestByGameId = new LinkedHashMap<>();
         gameEventRepository.findLatestByGameIds(gameIds).forEach(event -> {
             if (event == null || event.getGameId() == null) {
@@ -95,12 +118,12 @@ public class GameLiveService {
         return games.stream()
                 .map(game -> {
                     GameEventEntity latestEvent = latestByGameId.get(game.getGameId());
-                    ensureLiveEventsIfRequired("prediction.live_summary.events", game, latestEvent, null);
+                    ensureLiveEventsIfRequired("prediction.live_summary.events", game, latestEvent, List.of(), null);
                     return GameLiveSummaryDto.builder()
                             .gameId(game.getGameId())
-                            .gameStatus(resolveLiveStatus(game, latestEvent, null))
-                            .homeScore(resolveHomeScore(game, latestEvent))
-                            .awayScore(resolveAwayScore(game, latestEvent))
+                            .gameStatus(resolveLiveStatus(game, latestEvent, List.of(), null))
+                            .homeScore(resolveHomeScore(game, latestEvent, List.of()))
+                            .awayScore(resolveAwayScore(game, latestEvent, List.of()))
                             .lastEventSeq(latestEvent == null ? null : latestEvent.getEventSeq())
                             .lastUpdatedAt(resolveUpdatedAt(latestEvent))
                             .build();
@@ -129,10 +152,16 @@ public class GameLiveService {
         return Math.max(1, Math.min(MAX_EVENT_LIMIT, limit));
     }
 
-    private String resolveLiveStatus(GameEntity game, GameEventEntity latestEvent, LocalTime startTime) {
-        Integer homeScore = resolveHomeScore(game, latestEvent);
-        Integer awayScore = resolveAwayScore(game, latestEvent);
-        boolean hasProgressData = latestEvent != null || (homeScore != null && awayScore != null);
+    private String resolveLiveStatus(
+            GameEntity game,
+            GameEventEntity latestEvent,
+            List<GameInningScoreEntity> inningScores,
+            LocalTime startTime) {
+        Integer homeScore = resolveHomeScore(game, latestEvent, inningScores);
+        Integer awayScore = resolveAwayScore(game, latestEvent, inningScores);
+        boolean hasProgressData = latestEvent != null
+                || !isEmpty(inningScores)
+                || (homeScore != null && awayScore != null);
         return GameStatusResolver.resolveEffectiveStatus(
                 game.getGameStatus(),
                 game.getGameDate(),
@@ -142,16 +171,57 @@ public class GameLiveService {
                 hasProgressData);
     }
 
-    private Integer resolveHomeScore(GameEntity game, GameEventEntity latestEvent) {
-        return latestEvent != null && latestEvent.getHomeScore() != null
-                ? latestEvent.getHomeScore()
-                : game.getHomeScore();
+    private Integer resolveHomeScore(
+            GameEntity game,
+            GameEventEntity latestEvent,
+            List<GameInningScoreEntity> inningScores) {
+        if (latestEvent != null && latestEvent.getHomeScore() != null) {
+            return latestEvent.getHomeScore();
+        }
+        Integer inningScore = sumInningRuns(inningScores, "home");
+        return inningScore != null ? inningScore : game.getHomeScore();
     }
 
-    private Integer resolveAwayScore(GameEntity game, GameEventEntity latestEvent) {
-        return latestEvent != null && latestEvent.getAwayScore() != null
-                ? latestEvent.getAwayScore()
-                : game.getAwayScore();
+    private Integer resolveAwayScore(
+            GameEntity game,
+            GameEventEntity latestEvent,
+            List<GameInningScoreEntity> inningScores) {
+        if (latestEvent != null && latestEvent.getAwayScore() != null) {
+            return latestEvent.getAwayScore();
+        }
+        Integer inningScore = sumInningRuns(inningScores, "away");
+        return inningScore != null ? inningScore : game.getAwayScore();
+    }
+
+    private String resolveScoreSource(
+            GameEntity game,
+            GameEventEntity latestEvent,
+            List<GameInningScoreEntity> inningScores) {
+        String homeSource = resolveSideScoreSource(
+                latestEvent == null ? null : latestEvent.getHomeScore(),
+                sumInningRuns(inningScores, "home"),
+                game.getHomeScore());
+        String awaySource = resolveSideScoreSource(
+                latestEvent == null ? null : latestEvent.getAwayScore(),
+                sumInningRuns(inningScores, "away"),
+                game.getAwayScore());
+        if (homeSource.equals(awaySource)) {
+            return homeSource;
+        }
+        return "mixed";
+    }
+
+    private String resolveSideScoreSource(Integer eventScore, Integer inningScore, Integer gameScore) {
+        if (eventScore != null) {
+            return "game_events";
+        }
+        if (inningScore != null) {
+            return "inning_scores";
+        }
+        if (gameScore != null) {
+            return "game_entity";
+        }
+        return "none";
     }
 
     private LocalDateTime resolveUpdatedAt(GameEventEntity event) {
@@ -180,16 +250,23 @@ public class GameLiveService {
             String scope,
             GameEntity game,
             GameEventEntity latestEvent,
+            List<GameInningScoreEntity> inningScores,
             LocalTime startTime) {
-        if (latestEvent != null) {
+        if (latestEvent != null || !isEmpty(inningScores)) {
             return;
         }
 
-        String liveStatus = resolveLiveStatus(game, null, startTime);
+        String liveStatus = resolveLiveStatus(game, null, List.of(), startTime);
         if (!requiresLiveEvents(liveStatus)) {
             return;
         }
 
+        predictionLiveMetricsService.recordManualRequired("score_events");
+        log.warn(
+                "prediction.live_snapshot.manual_required gameId={} status={} scope={} reason=no_game_events_or_inning_scores",
+                game.getGameId(),
+                liveStatus,
+                scope);
         throw new ManualBaseballDataRequiredException(
                 new ManualBaseballDataRequest(
                         scope,
@@ -219,5 +296,29 @@ public class GameLiveService {
         String target = gameId == null || gameId.isBlank() ? "" : "경기 ID=" + gameId + ", ";
         String date = gameDate == null ? "" : "날짜=" + gameDate + ", ";
         return "다음 야구 데이터가 필요합니다: " + target + date + "문자중계 이벤트(진행/종료 경기의 game_events row가 필요합니다.)";
+    }
+
+    private List<GameInningScoreEntity> loadMeaningfulInningScores(String gameId, GameEntity game) {
+        List<GameInningScoreEntity> rawInningScores = gameInningScoreRepository
+                .findAllByGameIdOrderByInningAscTeamSideAsc(gameId);
+        return GameInningScoreSupport.normalizeMeaningful(
+                rawInningScores,
+                game.getHomeScore(),
+                game.getAwayScore());
+    }
+
+    private Integer sumInningRuns(List<GameInningScoreEntity> inningScores, String teamSide) {
+        if (isEmpty(inningScores)) {
+            return null;
+        }
+        return inningScores.stream()
+                .filter(score -> score != null && score.getRuns() != null)
+                .filter(score -> teamSide.equalsIgnoreCase(score.getTeamSide()))
+                .mapToInt(GameInningScoreEntity::getRuns)
+                .sum();
+    }
+
+    private boolean isEmpty(List<?> values) {
+        return values == null || values.isEmpty();
     }
 }

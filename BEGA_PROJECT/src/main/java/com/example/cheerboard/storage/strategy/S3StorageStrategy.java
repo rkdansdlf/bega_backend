@@ -10,6 +10,7 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -158,6 +159,26 @@ public class S3StorageStrategy implements StorageStrategy {
                     .build();
             ResponseBytes<GetObjectResponse> response = s3Client.getObjectAsBytes(request);
             return new StoredObject(response.asByteArray(), response.response().contentType());
+        });
+    }
+
+    @Override
+    public Mono<StoredObjectMetadata> head(String bucket, String path) {
+        return Mono.fromCallable(() -> {
+            try {
+                String objectKey = buildObjectKey(bucket, path);
+                HeadObjectRequest request = HeadObjectRequest.builder()
+                        .bucket(bucketName)
+                        .key(objectKey)
+                        .build();
+                HeadObjectResponse response = s3Client.headObject(request);
+                return new StoredObjectMetadata(response.contentLength(), response.contentType());
+            } catch (NoSuchKeyException e) {
+                return null;
+            } catch (Exception e) {
+                log.warn("S3 객체 메타데이터 조회 실패: path={}, error={}", path, e.getMessage());
+                return null;
+            }
         });
     }
 

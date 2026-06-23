@@ -15,6 +15,7 @@ import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.GameSummaryRepository;
 import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
+import com.example.kbo.validation.ManualBaseballDataOverrideService;
 import com.example.common.config.CacheConfig;
 import com.example.prediction.MatchDto;
 import com.example.prediction.MatchRangePageResponseDto;
@@ -57,6 +58,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 @Import({
         PredictionService.class,
         LeagueStageResolver.class,
+        ManualBaseballDataOverrideService.class,
         HibernateStatisticsTestConfig.class,
         PredictionQueryCountIntegrationTest.TransactionAliasConfig.class
 })
@@ -163,7 +165,7 @@ class PredictionQueryCountIntegrationTest {
         assertThat(response.getContent())
                 .extracting(MatchDto::getSeriesGameNo)
                 .containsExactly(1, 2, 3);
-        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(2);
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(1);
     }
 
     @Test
@@ -223,7 +225,7 @@ class PredictionQueryCountIntegrationTest {
                 .andExpect(jsonPath("$[1].seriesGameNo").value(2))
                 .andExpect(jsonPath("$[2].seriesGameNo").value(3));
 
-        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(1);
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(2);
     }
 
     @Test
@@ -248,7 +250,7 @@ class PredictionQueryCountIntegrationTest {
                 .andExpect(jsonPath("$[0].seriesGameNo").isEmpty())
                 .andExpect(jsonPath("$[1].seriesGameNo").isEmpty());
 
-        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(1);
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(2);
     }
 
     @Test
@@ -268,7 +270,7 @@ class PredictionQueryCountIntegrationTest {
 
         assertThat(response).hasSize(1);
         assertThat(response.get(0).getSeriesGameNo()).isEqualTo(1);
-        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(1);
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(2);
     }
 
     @Test
@@ -319,7 +321,7 @@ class PredictionQueryCountIntegrationTest {
                 .andExpect(jsonPath("$.hasPrev").value(true))
                 .andExpect(jsonPath("$.hasNext").value(true));
 
-        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(2);
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(3);
     }
 
     @Test

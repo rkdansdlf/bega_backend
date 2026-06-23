@@ -157,6 +157,81 @@ class CheerFeedServiceTest {
     }
 
     @Test
+    @DisplayName("listMyPosts returns the authenticated user's authored cheer posts")
+    void listMyPosts_returnsAuthenticatedUsersPosts() {
+        UserEntity me = UserEntity.builder().id(77L).name("Me").build();
+        PageRequest pageable = PageRequest.of(0, 10);
+        CheerPost post = createSimplePost(31L, 77L);
+
+        when(postRepo.findAll(org.mockito.ArgumentMatchers.<Specification<CheerPost>>any(), eq(pageable)))
+                .thenReturn(new PageImpl<>(List.of(post), pageable, 1));
+        when(imageService.getPostImageUrlsByPostIds(List.of(31L))).thenReturn(Collections.emptyMap());
+        when(redisPostService.getViewCounts(List.of(31L))).thenReturn(Collections.emptyMap());
+        when(redisPostService.getCachedHotStatuses(List.of(31L))).thenReturn(Collections.emptyMap());
+        when(interactionService.getBookmarkCountMap(List.of(31L))).thenReturn(Collections.emptyMap());
+        when(interactionService.getLikedPostIds(77L, List.of(31L))).thenReturn(Collections.emptySet());
+        when(interactionService.getBookmarkedPostIds(77L, List.of(31L))).thenReturn(Collections.emptySet());
+        when(interactionService.getRepostedPostIds(77L, List.of(31L))).thenReturn(Collections.emptySet());
+        when(postDtoMapper.toPostSummaryRes(
+                eq(post),
+                eq(false),
+                eq(false),
+                anyBoolean(),
+                eq(false),
+                eq(0),
+                eq(List.of()),
+                anyMap(),
+                anyMap(),
+                anyMap()))
+                .thenReturn(PostSummaryRes.of(
+                        31L,
+                        "LG",
+                        "LG 트윈스",
+                        "LG",
+                        "#C30452",
+                        "내 응원석 글",
+                        "Me",
+                        "me",
+                        null,
+                        null,
+                        null,
+                        0,
+                        0,
+                        0,
+                        false,
+                        0,
+                        false,
+                        false,
+                        true,
+                        0,
+                        false,
+                        "NORMAL",
+                        List.of()));
+
+        Page<PostSummaryRes> page = feedService.listMyPosts(pageable, me);
+
+        assertThat(page.getContent()).hasSize(1);
+        assertThat(page.getContent().get(0).id()).isEqualTo(31L);
+        assertThat(page.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("listMyPosts returns an empty page when the authenticated user has no authored posts")
+    void listMyPosts_returnsEmptyPageWhenUserHasNoPosts() {
+        UserEntity me = UserEntity.builder().id(77L).name("Me").build();
+        PageRequest pageable = PageRequest.of(0, 10);
+
+        when(postRepo.findAll(org.mockito.ArgumentMatchers.<Specification<CheerPost>>any(), eq(pageable)))
+                .thenReturn(new PageImpl<>(Collections.emptyList(), pageable, 0));
+
+        Page<PostSummaryRes> page = feedService.listMyPosts(pageable, me);
+
+        assertThat(page.getContent()).isEmpty();
+        assertThat(page.getTotalElements()).isZero();
+        assertThat(page.getNumber()).isZero();
+    }
+
+    @Test
     @DisplayName("checkPostChanges counts only visible new posts")
     void checkPostChanges_countsOnlyVisiblePosts() {
         UserEntity visibleAuthor = UserEntity.builder().id(101L).name("Visible").build();
