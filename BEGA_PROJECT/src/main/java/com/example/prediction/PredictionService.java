@@ -18,10 +18,14 @@ import com.example.kbo.repository.PredictionStatsGameProjection;
 import com.example.kbo.repository.GameSummaryRepository;
 import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
+import com.example.kbo.validation.ManualBaseballDataOverrideService;
+import com.example.kbo.validation.ManualBaseballDataRequest;
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import com.example.kbo.util.GameStatusResolver;
 import com.example.kbo.util.KboTeamCodePolicy;
 import com.example.kbo.util.TeamCodeResolver;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
@@ -38,6 +42,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -51,6 +56,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
@@ -67,6 +75,7 @@ public class PredictionService {
     private final com.example.auth.repository.UserRepository userRepository;
     private final LeagueStageResolver leagueStageResolver;
     private final BaseballDataIntegrityGuard baseballDataIntegrityGuard;
+    private final ManualBaseballDataOverrideService manualBaseballDataOverrideService;
     private final CacheManager cacheManager;
     private final PlatformTransactionManager transactionManager;
     private static final Set<String> BLOCKED_VOTE_STATUSES = Set.of(
@@ -86,7 +95,40 @@ public class PredictionService {
             .collect(Collectors.toList());
     private static final int MAX_VOTE_RETRY_ATTEMPTS = 2;
     private static final long MAX_SNAPSHOT_SYNC_RANGE_DAYS = 31;
+    private static final long MATCH_DAY_SLOW_LOG_THRESHOLD_MS = 1000L;
+    private static final Duration MANUAL_DATA_NEGATIVE_CACHE_TTL = Duration.ofSeconds(60);
     private static final String MATCH_NOT_FOUND_CODE = "MATCH_NOT_FOUND";
+    private final ConcurrentMap<String, CachedManualDataFailure> manualDataFailureCache = new ConcurrentHashMap<>();
+
+    @Autowired
+    public PredictionService(
+            PredictionRepository predictionRepository,
+            GameRepository gameRepository,
+            GameMetadataRepository gameMetadataRepository,
+            GameInningScoreRepository gameInningScoreRepository,
+            GameSummaryRepository gameSummaryRepository,
+            VoteFinalResultRepository voteFinalResultRepository,
+            com.example.auth.repository.UserRepository userRepository,
+            LeagueStageResolver leagueStageResolver,
+            BaseballDataIntegrityGuard baseballDataIntegrityGuard,
+            CacheManager cacheManager,
+            @Qualifier("transactionManager") PlatformTransactionManager transactionManager,
+            ManualBaseballDataOverrideService manualBaseballDataOverrideService) {
+        this.predictionRepository = predictionRepository;
+        this.gameRepository = gameRepository;
+        this.gameMetadataRepository = gameMetadataRepository;
+        this.gameInningScoreRepository = gameInningScoreRepository;
+        this.gameSummaryRepository = gameSummaryRepository;
+        this.voteFinalResultRepository = voteFinalResultRepository;
+        this.userRepository = userRepository;
+        this.leagueStageResolver = leagueStageResolver;
+        this.baseballDataIntegrityGuard = baseballDataIntegrityGuard;
+        this.manualBaseballDataOverrideService = manualBaseballDataOverrideService == null
+                ? ManualBaseballDataOverrideService.disabled()
+                : manualBaseballDataOverrideService;
+        this.cacheManager = cacheManager;
+        this.transactionManager = transactionManager;
+    }
 
     public PredictionService(
             PredictionRepository predictionRepository,
@@ -100,17 +142,19 @@ public class PredictionService {
             BaseballDataIntegrityGuard baseballDataIntegrityGuard,
             CacheManager cacheManager,
             @Qualifier("transactionManager") PlatformTransactionManager transactionManager) {
-        this.predictionRepository = predictionRepository;
-        this.gameRepository = gameRepository;
-        this.gameMetadataRepository = gameMetadataRepository;
-        this.gameInningScoreRepository = gameInningScoreRepository;
-        this.gameSummaryRepository = gameSummaryRepository;
-        this.voteFinalResultRepository = voteFinalResultRepository;
-        this.userRepository = userRepository;
-        this.leagueStageResolver = leagueStageResolver;
-        this.baseballDataIntegrityGuard = baseballDataIntegrityGuard;
-        this.cacheManager = cacheManager;
-        this.transactionManager = transactionManager;
+        this(
+                predictionRepository,
+                gameRepository,
+                gameMetadataRepository,
+                gameInningScoreRepository,
+                gameSummaryRepository,
+                voteFinalResultRepository,
+                userRepository,
+                leagueStageResolver,
+                baseballDataIntegrityGuard,
+                cacheManager,
+                transactionManager,
+                ManualBaseballDataOverrideService.disabled());
     }
 
     @Cacheable(value = CacheConfig.RECENT_COMPLETED_GAMES, key = "'all'")
@@ -150,52 +194,86 @@ public class PredictionService {
     // 특정 날짜의 경기 조회 (실제 DB 데이터만 조회, 더미 및 Mock 제외)
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<MatchDto> getMatchesByDate(LocalDate date) {
+        LocalDate targetDate = Objects.requireNonNull(date, "조회 날짜가 올바르지 않습니다.");
+        manualBaseballDataOverrideService.throwIfDateRequiresManualData("prediction.matches_by_date", targetDate);
+        String manualCacheKey = manualDateCacheKey("date", targetDate);
+        throwCachedManualDataException(manualCacheKey);
+        String successCacheKey = successfulDateCacheKey("date", targetDate);
+        Optional<List<MatchDto>> cachedMatches = getCachedSuccessfulRangeList(successCacheKey);
+        if (cachedMatches.isPresent()) {
+            return cachedMatches.get();
+        }
+
         List<MatchRangeProjection> matches = gameRepository.findCanonicalRangeProjectionByGameDate(
-                date,
+                targetDate,
                 QUERYABLE_TEAM_CODES);
         if (matches.isEmpty()) {
             CanonicalAdjacentGameDatesProjection adjacentDates =
-                    gameRepository.findCanonicalAdjacentGameDates(date, QUERYABLE_TEAM_CODES);
+                    gameRepository.findCanonicalAdjacentGameDates(targetDate, QUERYABLE_TEAM_CODES);
             if (isCanonicalOffDay(adjacentDates)) {
                 return List.of();
             }
         }
-        baseballDataIntegrityGuard.ensurePredictionDateMatches("prediction.matches_by_date", date, matches);
+        try {
+            baseballDataIntegrityGuard.ensurePredictionDateMatches("prediction.matches_by_date", targetDate, matches);
+        } catch (ManualBaseballDataRequiredException e) {
+            cacheManualDataException(manualCacheKey, e);
+            throw e;
+        }
 
-        Map<String, Integer> seriesGameNos = computeSeriesGameNos(matches, true);
-        return Objects.requireNonNull(matches.stream()
+        Map<String, Integer> seriesGameNos = computeSeriesGameNosForDate(matches, targetDate);
+        List<MatchDto> result = Objects.requireNonNull(matches.stream()
                 .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList()));
+        cacheSuccessfulRange(successCacheKey, List.copyOf(result));
+        return result;
     }
 
+    @Cacheable(value = CacheConfig.PREDICTION_MATCH_DAY, key = "#date.toString()", sync = true)
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public MatchDayNavigationResponseDto getMatchDayNavigation(LocalDate date) {
+        long startedAtNanos = System.nanoTime();
         LocalDate targetDate = Objects.requireNonNull(date, "조회 날짜가 올바르지 않습니다.");
+        manualBaseballDataOverrideService.throwIfDateRequiresManualData("prediction.matches_by_date", targetDate);
+        String manualCacheKey = matchDayManualCacheKey(targetDate);
+        throwCachedMatchDayManualDataException(manualCacheKey);
         List<MatchRangeProjection> rawMatches = gameRepository.findCanonicalRangeProjectionByGameDate(
                 targetDate,
                 QUERYABLE_TEAM_CODES);
-        CanonicalAdjacentGameDatesProjection adjacentDates =
-                gameRepository.findCanonicalAdjacentGameDates(targetDate, QUERYABLE_TEAM_CODES);
+        CanonicalAdjacentGameDatesProjection adjacentDates = null;
 
-        if (rawMatches.isEmpty() && !isCanonicalOffDay(adjacentDates)) {
-            baseballDataIntegrityGuard.ensurePredictionDateMatches(
-                    "prediction.matches_by_date",
-                    targetDate,
-                    rawMatches);
-        } else if (!rawMatches.isEmpty()) {
-            baseballDataIntegrityGuard.ensurePredictionDateMatches(
-                    "prediction.matches_by_date",
-                    targetDate,
-                    rawMatches);
+        try {
+            if (rawMatches.isEmpty()) {
+                adjacentDates = gameRepository.findCanonicalAdjacentGameDates(targetDate, QUERYABLE_TEAM_CODES);
+                if (!isCanonicalOffDay(adjacentDates)) {
+                    baseballDataIntegrityGuard.ensurePredictionDateMatches(
+                            "prediction.matches_by_date",
+                            targetDate,
+                            rawMatches);
+                }
+            } else {
+                baseballDataIntegrityGuard.ensurePredictionDateMatches(
+                        "prediction.matches_by_date",
+                        targetDate,
+                        rawMatches);
+            }
+        } catch (ManualBaseballDataRequiredException e) {
+            cacheMatchDayManualDataException(manualCacheKey, e);
+            throw e;
         }
 
-        Map<String, Integer> seriesGameNos = computeSeriesGameNos(rawMatches, true);
+        if (adjacentDates == null) {
+            adjacentDates = gameRepository.findCanonicalAdjacentGameDates(targetDate, QUERYABLE_TEAM_CODES);
+        }
+
+        Map<String, Integer> seriesGameNos = computeSeriesGameNosForDate(rawMatches, targetDate);
         List<MatchDto> matches = rawMatches.stream()
                 .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList());
         LocalDate prevDate = adjacentDates == null ? null : adjacentDates.getPrevDate();
         LocalDate nextDate = adjacentDates == null ? null : adjacentDates.getNextDate();
 
+        logSlowMatchDayNavigationMiss(startedAtNanos, targetDate, matches.size(), prevDate, nextDate);
         return new MatchDayNavigationResponseDto(
                 targetDate,
                 matches,
@@ -204,6 +282,26 @@ public class PredictionService {
                 prevDate != null,
                 nextDate != null
         );
+    }
+
+    private void logSlowMatchDayNavigationMiss(
+            long startedAtNanos,
+            LocalDate targetDate,
+            int matchCount,
+            LocalDate prevDate,
+            LocalDate nextDate) {
+        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
+        if (elapsedMs < MATCH_DAY_SLOW_LOG_THRESHOLD_MS) {
+            return;
+        }
+
+        log.warn(
+                "prediction.match_day.slow_cache_miss date={} elapsedMs={} matchCount={} hasPrev={} hasNext={}",
+                targetDate,
+                elapsedMs,
+                matchCount,
+                prevDate != null,
+                nextDate != null);
     }
 
     private boolean isCanonicalOffDay(CanonicalAdjacentGameDatesProjection adjacentDates) {
@@ -225,18 +323,38 @@ public class PredictionService {
             int page,
             int pageSize
     ) {
+        CanonicalRangeRequest request = normalizeCanonicalRangeRequest(startDate, endDate, includePast, page, pageSize);
+        manualBaseballDataOverrideService.throwIfRangeRequiresManualData(
+                "prediction.matches_by_range",
+                request.effectiveStartDate(),
+                request.effectiveEndDate());
+        String manualCacheKey = manualRangeCacheKey("list", includePast, request);
+        throwCachedManualDataException(manualCacheKey);
+        String successCacheKey = successfulRangeCacheKey("list", includePast, request);
+        Optional<List<MatchDto>> cachedMatches = getCachedSuccessfulRangeList(successCacheKey);
+        if (cachedMatches.isPresent()) {
+            return cachedMatches.get();
+        }
+
         List<MatchRangeProjection> matches = getCanonicalMatchRangeProjectionList(
                 startDate,
                 endDate,
                 includePast,
                 page,
                 pageSize);
-        baseballDataIntegrityGuard.ensurePredictionRangeMatches("prediction.matches_by_range", matches);
+        try {
+            baseballDataIntegrityGuard.ensurePredictionRangeMatches("prediction.matches_by_range", matches);
+        } catch (ManualBaseballDataRequiredException e) {
+            cacheManualDataException(manualCacheKey, e);
+            throw e;
+        }
 
         Map<String, Integer> seriesGameNos = computeSeriesGameNos(matches);
-        return Objects.requireNonNull(matches.stream()
+        List<MatchDto> result = Objects.requireNonNull(matches.stream()
                 .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList()));
+        cacheSuccessfulRange(successCacheKey, List.copyOf(result));
+        return result;
     }
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
@@ -247,15 +365,28 @@ public class PredictionService {
             int page,
             int pageSize
     ) {
+        CanonicalRangeRequest request = normalizeCanonicalRangeRequest(startDate, endDate, includePast, page, pageSize);
+        manualBaseballDataOverrideService.throwIfRangeRequiresManualData(
+                "prediction.matches_by_range",
+                request.effectiveStartDate(),
+                request.effectiveEndDate());
+        String manualCacheKey = manualRangeCacheKey("page", includePast, request);
+        throwCachedManualDataException(manualCacheKey);
+
         Page<MatchRangeProjection> matches = getCanonicalMatchRangeProjectionPage(
                 startDate,
                 endDate,
                 includePast,
                 page,
                 pageSize);
-        baseballDataIntegrityGuard.ensurePredictionRangeMatches(
-                "prediction.matches_by_range",
-                matches.getContent());
+        try {
+            baseballDataIntegrityGuard.ensurePredictionRangeMatches(
+                    "prediction.matches_by_range",
+                    matches.getContent());
+        } catch (ManualBaseballDataRequiredException e) {
+            cacheManualDataException(manualCacheKey, e);
+            throw e;
+        }
 
         Map<String, Integer> seriesGameNos = computeSeriesGameNos(matches.getContent());
         return new MatchRangePageResponseDto(
@@ -333,6 +464,42 @@ public class PredictionService {
         return computeSeriesGameNos(matches, false);
     }
 
+    private Map<String, Integer> computeSeriesGameNosForDate(List<MatchRangeProjection> matches, LocalDate gameDate) {
+        Map<String, Integer> projectedSeriesGameNos = computeSeriesGameNos(matches, true);
+        if (matches == null || matches.isEmpty() || gameDate == null) {
+            return projectedSeriesGameNos;
+        }
+
+        List<Integer> postseasonSeasonIds = matches.stream()
+                .filter(match -> match.getSeriesGameNo() == null)
+                .filter(this::isPostseasonMatch)
+                .map(MatchRangeProjection::getSeasonId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (postseasonSeasonIds.isEmpty()) {
+            return projectedSeriesGameNos;
+        }
+
+        List<MatchRangeProjection> history = gameRepository.findCanonicalPostseasonSeriesHistoryThroughGameDate(
+                gameDate,
+                postseasonSeasonIds,
+                QUERYABLE_TEAM_CODES);
+        Map<String, Integer> historySeriesGameNos = computeSeriesGameNos(history, false);
+        if (historySeriesGameNos.isEmpty()) {
+            return projectedSeriesGameNos;
+        }
+
+        Map<String, Integer> merged = new HashMap<>(projectedSeriesGameNos);
+        for (MatchRangeProjection match : matches) {
+            String gameId = match.getGameId();
+            if (gameId != null && historySeriesGameNos.containsKey(gameId)) {
+                merged.put(gameId, historySeriesGameNos.get(gameId));
+            }
+        }
+        return merged;
+    }
+
     private Map<String, Integer> computeSeriesGameNos(List<MatchRangeProjection> matches, boolean useProjectedSeriesGameNo) {
         if (matches == null || matches.isEmpty()) {
             return Collections.emptyMap();
@@ -341,7 +508,7 @@ public class PredictionService {
         Map<String, Integer> seriesCounter = new HashMap<>();
         Map<String, Integer> result = new HashMap<>();
         for (MatchRangeProjection m : matches) {
-            Integer code = m.getRawLeagueTypeCode();
+            Integer code = resolveEffectiveLeagueTypeCode(m);
             if (code == null || code < 2 || code > 5) {
                 continue; // 포스트시즌 외에는 계산 불필요
             }
@@ -368,6 +535,22 @@ public class PredictionService {
             result.put(gameId, gameNo);
         }
         return result;
+    }
+
+    private boolean isPostseasonMatch(MatchRangeProjection match) {
+        Integer code = resolveEffectiveLeagueTypeCode(match);
+        return code != null && code >= 2 && code <= 5;
+    }
+
+    private Integer resolveEffectiveLeagueTypeCode(MatchRangeProjection match) {
+        if (match == null) {
+            return null;
+        }
+        return leagueStageResolver.resolveEffectiveLeagueTypeCode(
+                match.getRawLeagueTypeCode(),
+                match.getGameDate(),
+                match.getSeasonId(),
+                match.getGameId());
     }
 
     private String mapLeagueType(Integer leagueTypeCode) {
@@ -517,6 +700,161 @@ public class PredictionService {
         return rangePage;
     }
 
+    private String manualRangeCacheKey(String resultShape, boolean includePast, CanonicalRangeRequest request) {
+        return String.join(":",
+                resultShape,
+                request.effectiveStartDate().toString(),
+                request.effectiveEndDate().toString(),
+                Boolean.toString(includePast),
+                Integer.toString(request.pageable().getPageNumber()),
+                Integer.toString(request.pageable().getPageSize()));
+    }
+
+    private String manualDateCacheKey(String resultShape, LocalDate date) {
+        return String.join(":", resultShape, date.toString());
+    }
+
+    private String successfulRangeCacheKey(String resultShape, boolean includePast, CanonicalRangeRequest request) {
+        return "success:" + manualRangeCacheKey(resultShape, includePast, request);
+    }
+
+    private String successfulDateCacheKey(String resultShape, LocalDate date) {
+        return "success:" + manualDateCacheKey(resultShape, date);
+    }
+
+    private String matchDayManualCacheKey(LocalDate date) {
+        return "matchDay:date:" + date;
+    }
+
+    private Optional<List<MatchDto>> getCachedSuccessfulRangeList(String cacheKey) {
+        Cache cache = cacheManager.getCache(CacheConfig.PREDICTION_MATCH_RANGE);
+        if (cache == null) {
+            return Optional.empty();
+        }
+
+        try {
+            Cache.ValueWrapper wrapper = cache.get(cacheKey);
+            Object value = wrapper == null ? null : wrapper.get();
+            if (value instanceof List<?> cachedList
+                    && cachedList.stream().allMatch(MatchDto.class::isInstance)) {
+                return Optional.of(cachedList.stream()
+                        .map(MatchDto.class::cast)
+                        .collect(Collectors.toUnmodifiableList()));
+            }
+            if (value != null) {
+                log.warn(
+                        "prediction.range.success_cache.invalid_payload key={} actualType={}",
+                        cacheKey,
+                        value.getClass().getName());
+                safeEvictCacheEntry(cache, cacheKey, CacheConfig.PREDICTION_MATCH_RANGE);
+            }
+        } catch (RuntimeException e) {
+            log.warn(
+                    "prediction.range.success_cache.get_failed key={} reason={}",
+                    cacheKey,
+                    summarizeCacheFailure(e));
+            safeEvictCacheEntry(cache, cacheKey, CacheConfig.PREDICTION_MATCH_RANGE);
+        }
+
+        return Optional.empty();
+    }
+
+    private void cacheSuccessfulRange(String cacheKey, Object value) {
+        Cache cache = cacheManager.getCache(CacheConfig.PREDICTION_MATCH_RANGE);
+        if (cache == null || value == null) {
+            return;
+        }
+
+        try {
+            cache.put(cacheKey, value);
+        } catch (RuntimeException e) {
+            log.warn(
+                    "prediction.range.success_cache.put_failed key={} reason={}",
+                    cacheKey,
+                    summarizeCacheFailure(e));
+            safeEvictCacheEntry(cache, cacheKey, CacheConfig.PREDICTION_MATCH_RANGE);
+        }
+    }
+
+    private void throwCachedManualDataException(String cacheKey) {
+        Cache cache = cacheManager.getCache(CacheConfig.PREDICTION_MATCH_RANGE);
+        if (cache == null) {
+            return;
+        }
+
+        try {
+            Cache.ValueWrapper wrapper = cache.get(cacheKey);
+            Object value = wrapper == null ? null : wrapper.get();
+            if (value instanceof ManualBaseballDataRequest request) {
+                throw new ManualBaseballDataRequiredException(request);
+            }
+            if (value != null) {
+                log.warn(
+                        "prediction.range.manual_cache.invalid_payload key={} actualType={}",
+                        cacheKey,
+                        value.getClass().getName());
+                safeEvictCacheEntry(cache, cacheKey, CacheConfig.PREDICTION_MATCH_RANGE);
+            }
+        } catch (ManualBaseballDataRequiredException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            log.warn(
+                    "prediction.range.manual_cache.get_failed key={} reason={}",
+                    cacheKey,
+                    summarizeCacheFailure(e));
+            safeEvictCacheEntry(cache, cacheKey, CacheConfig.PREDICTION_MATCH_RANGE);
+        }
+    }
+
+    private void cacheManualDataException(String cacheKey, ManualBaseballDataRequiredException exception) {
+        Object data = exception.getData();
+        if (!(data instanceof ManualBaseballDataRequest request)) {
+            return;
+        }
+
+        Cache cache = cacheManager.getCache(CacheConfig.PREDICTION_MATCH_RANGE);
+        if (cache == null) {
+            return;
+        }
+
+        try {
+            cache.put(cacheKey, request);
+        } catch (RuntimeException e) {
+            log.warn(
+                    "prediction.range.manual_cache.put_failed key={} reason={}",
+                    cacheKey,
+                    summarizeCacheFailure(e));
+            safeEvictCacheEntry(cache, cacheKey, CacheConfig.PREDICTION_MATCH_RANGE);
+        }
+    }
+
+    private void throwCachedMatchDayManualDataException(String cacheKey) {
+        CachedManualDataFailure cached = manualDataFailureCache.get(cacheKey);
+        if (cached == null) {
+            return;
+        }
+        long nowNanos = System.nanoTime();
+        if (nowNanos - cached.expiresAtNanos() >= 0) {
+            manualDataFailureCache.remove(cacheKey, cached);
+            return;
+        }
+        throw new ManualBaseballDataRequiredException(cached.request());
+    }
+
+    private void cacheMatchDayManualDataException(
+            String cacheKey,
+            ManualBaseballDataRequiredException exception) {
+        Object data = exception.getData();
+        if (!(data instanceof ManualBaseballDataRequest request)) {
+            return;
+        }
+        manualDataFailureCache.put(
+                cacheKey,
+                new CachedManualDataFailure(
+                        request,
+                        System.nanoTime() + MANUAL_DATA_NEGATIVE_CACHE_TTL.toNanos()));
+    }
+
     private CanonicalRangeRequest normalizeCanonicalRangeRequest(
             LocalDate startDate,
             LocalDate endDate,
@@ -613,6 +951,7 @@ public class PredictionService {
 
         gameInningScoreRepository.saveAll(entities);
         synchronizeGameScoreSnapshot(game, scores);
+        evictPredictionGameCachesAfterCommit(game);
         log.info("Upserted {} inning score records for gameId={}", entities.size(), gameId);
         return entities.size();
     }
@@ -657,6 +996,7 @@ public class PredictionService {
             applyGameScoreSnapshot(game, homeScore, awayScore);
             gameRepository.saveAndFlush(game);
         }
+        evictPredictionGameCachesAfterCommit(game);
 
         return new GameScoreSyncResultDto(
                 game.getGameId(),
@@ -1266,6 +1606,42 @@ public class PredictionService {
         }
     }
 
+    private void evictPredictionGameCachesAfterCommit(GameEntity game) {
+        if (game == null) {
+            return;
+        }
+
+        Runnable evictCaches = () -> evictPredictionGameCaches(game);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    evictCaches.run();
+                }
+            });
+            return;
+        }
+
+        evictCaches.run();
+    }
+
+    private void evictPredictionGameCaches(GameEntity game) {
+        if (game == null) {
+            return;
+        }
+
+        Cache gameDetailCache = cacheManager.getCache(CacheConfig.GAME_DETAIL);
+        safeEvictCacheEntry(gameDetailCache, game.getGameId(), CacheConfig.GAME_DETAIL);
+
+        if (game.getGameDate() != null) {
+            Cache matchDayCache = cacheManager.getCache(CacheConfig.PREDICTION_MATCH_DAY);
+            safeEvictCacheEntry(matchDayCache, game.getGameDate().toString(), CacheConfig.PREDICTION_MATCH_DAY);
+        }
+
+        Cache recentCompletedGamesCache = cacheManager.getCache(CacheConfig.RECENT_COMPLETED_GAMES);
+        safeEvictCacheEntry(recentCompletedGamesCache, "all", CacheConfig.RECENT_COMPLETED_GAMES);
+    }
+
     private void validateVoteOpen(GameEntity game) {
         // 1. 경기 상태 체크 (차단 상태면 투표 불가)
         String status = game.getGameStatus();
@@ -1395,5 +1771,8 @@ public class PredictionService {
             LocalDate effectiveStartDate,
             LocalDate effectiveEndDate,
             Pageable pageable) {
+    }
+
+    private record CachedManualDataFailure(ManualBaseballDataRequest request, long expiresAtNanos) {
     }
 }

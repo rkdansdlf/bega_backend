@@ -25,6 +25,11 @@ final class ClientErrorSupport {
     private static final Pattern UUID_PATH_SEGMENT = Pattern.compile(
             "(?i)(?<=/)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=/|$)");
     private static final Pattern NUMERIC_PATH_SEGMENT = Pattern.compile("(?<=/)\\d+(?=/|$)");
+    private static final Pattern BEARER_TOKEN = Pattern.compile("(?i)\\bbearer\\s+[A-Za-z0-9._~+/=-]+");
+    private static final Pattern SENSITIVE_QUERY_VALUE = Pattern.compile(
+            "(?i)([?&;]\\s*(?:access_token|refresh_token|token|code|state|password|secret|authorization|cookie|session|session_id)=)([^\\s&#;]+)");
+    private static final Pattern SENSITIVE_KEY_VALUE = Pattern.compile(
+            "(?i)\\b(access_token|refresh_token|token|code|state|password|secret|authorization|cookie|session|session_id)\\b\\s*[:=]\\s*([^\\s,}&]+)");
 
     private ClientErrorSupport() {
     }
@@ -47,6 +52,38 @@ final class ClientErrorSupport {
         return normalized.substring(0, Math.max(0, maxLength - 3)) + "...";
     }
 
+    static String sanitizeSensitive(String value, int maxLength) {
+        return sanitize(redactSensitiveText(value), maxLength);
+    }
+
+    static String sanitizeRouteForStorage(String route) {
+        String stripped = stripQueryAndFragment(route);
+        return sanitize(stripped, ROUTE_LOG_LIMIT);
+    }
+
+    static String sanitizeEndpointForStorage(String endpoint) {
+        String stripped = stripQueryAndFragment(endpoint);
+        return sanitize(stripped, ENDPOINT_LOG_LIMIT);
+    }
+
+    static String hashSessionId(String sessionId) {
+        String sanitized = sanitize(sessionId, 512);
+        if (sanitized == null || sanitized.isBlank()) {
+            return null;
+        }
+        return "sha256:" + sha256Hex(sanitized).substring(0, 32);
+    }
+
+    static String redactSensitiveText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String redacted = BEARER_TOKEN.matcher(value).replaceAll("Bearer [REDACTED]");
+        redacted = SENSITIVE_QUERY_VALUE.matcher(redacted).replaceAll("$1[REDACTED]");
+        redacted = SENSITIVE_KEY_VALUE.matcher(redacted).replaceAll("$1=[REDACTED]");
+        return redacted;
+    }
+
     static String normalizeRoute(String route) {
         return normalizePath(route, true);
     }
@@ -60,17 +97,12 @@ final class ClientErrorSupport {
             return defaultRoot ? "/" : null;
         }
 
-        String normalized = value.trim();
-        int queryIndex = normalized.indexOf('?');
-        if (queryIndex >= 0) {
-            normalized = normalized.substring(0, queryIndex);
+        String normalized = stripQueryAndFragment(value);
+        if (normalized == null) {
+            return defaultRoot ? "/" : null;
         }
 
-        int hashIndex = normalized.indexOf('#');
-        if (hashIndex >= 0) {
-            normalized = normalized.substring(0, hashIndex);
-        }
-
+        normalized = normalized.trim();
         if (normalized.isBlank()) {
             return defaultRoot ? "/" : null;
         }
@@ -86,6 +118,25 @@ final class ClientErrorSupport {
         }
 
         return normalizeTag(normalized, defaultRoot ? "/" : null, true);
+    }
+
+    private static String stripQueryAndFragment(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        String normalized = value.trim();
+        int queryIndex = normalized.indexOf('?');
+        if (queryIndex >= 0) {
+            normalized = normalized.substring(0, queryIndex);
+        }
+
+        int hashIndex = normalized.indexOf('#');
+        if (hashIndex >= 0) {
+            normalized = normalized.substring(0, hashIndex);
+        }
+
+        return normalized;
     }
 
     static String normalizeStatusGroup(Integer statusCode) {

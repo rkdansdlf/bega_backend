@@ -120,21 +120,27 @@ spring:
 #   max-threads는 사실상 무시된다. graceful shutdown은 두 모드 모두에서 유효.
 server:
   shutdown: graceful
+  compression:
+    enabled: ${SERVER_COMPRESSION_ENABLED:true}
+    mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json,application/xml
+    min-response-size: ${SERVER_COMPRESSION_MIN_RESPONSE_SIZE:1024}
   tomcat:
     threads:
       max: ${SERVER_TOMCAT_THREADS_MAX:200}
       min-spare: ${SERVER_TOMCAT_THREADS_MIN_SPARE:20}
     accept-count: ${SERVER_TOMCAT_ACCEPT_COUNT:100}
     connection-timeout: ${SERVER_TOMCAT_CONNECTION_TIMEOUT:20000}
+    keep-alive-timeout: ${SERVER_TOMCAT_KEEP_ALIVE_TIMEOUT:20000}
+    max-keep-alive-requests: ${SERVER_TOMCAT_MAX_KEEP_ALIVE_REQUESTS:100}
 
 # JobRunr 설정
 org:
   jobrunr:
     background-job-server:
-      enabled: true
-      worker-count: 4 # DB 부하 방지를 위해 보수적 설정
+      enabled: ${ORG_JOBRUNR_BACKGROUND_JOB_SERVER_ENABLED:true}
+      worker-count: ${ORG_JOBRUNR_BACKGROUND_JOB_SERVER_WORKER_COUNT:4} # DB 부하 방지를 위해 보수적 설정
     dashboard:
-      enabled: true # /dashboard
+      enabled: ${ORG_JOBRUNR_DASHBOARD_ENABLED:true} # /dashboard
       port: ${JOBRUNR_DASHBOARD_PORT:8000}
     jobs:
       default-number-of-retries: 2
@@ -176,6 +182,11 @@ kbo:
 
 # 애플리케이션 공통 설정
 app:
+  tomcat:
+    # Spring Boot does not expose Tomcat's upload body read timeout directly.
+    # TomcatUploadTimeoutConfig maps these values to connectionUploadTimeout / disableUploadTimeout.
+    connection-upload-timeout-ms: ${SERVER_TOMCAT_CONNECTION_UPLOAD_TIMEOUT_MS:60000}
+    upload-timeout-enabled: ${SERVER_TOMCAT_UPLOAD_TIMEOUT_ENABLED:true}
   mail:
     enabled: ${APP_MAIL_ENABLED:false}
   client-error-monitoring:
@@ -194,12 +205,58 @@ app:
         chat-id: ${APP_CLIENT_ERROR_MONITORING_ALERTS_TELEGRAM_CHAT_ID:}
   dev-data:
     enabled: false
+  dev-db:
+    hot-path-prewarm:
+      enabled: ${APP_DEV_DB_HOT_PATH_PREWARM_ENABLED:false}
+      connections: ${APP_DEV_DB_HOT_PATH_PREWARM_CONNECTIONS:1}
+      timeout-ms: ${APP_DEV_DB_HOT_PATH_PREWARM_TIMEOUT_MS:30000}
+      login-email: ${APP_DEV_DB_HOT_PATH_PREWARM_LOGIN_EMAIL:latency-prewarm@example.invalid}
+      range-start-date: ${APP_DEV_DB_HOT_PATH_PREWARM_RANGE_START_DATE:2026-06-18}
+      range-end-date: ${APP_DEV_DB_HOT_PATH_PREWARM_RANGE_END_DATE:2026-06-24}
+      season-id: ${APP_DEV_DB_HOT_PATH_PREWARM_SEASON_ID:2026}
   frontend:
     # Canonical env key: APP_FRONTEND_URL. FRONTEND_URL is a deprecated fallback only.
     url: ${APP_FRONTEND_URL:${FRONTEND_URL:http://localhost:5176}}
   backend:
     # Canonical env key: APP_BACKEND_URL.
     url: ${APP_BACKEND_URL:http://localhost:8080}
+  baseball:
+    manual-data:
+      required-dates: ${APP_BASEBALL_MANUAL_DATA_REQUIRED_DATES:}
+  home:
+    bootstrap:
+      section-timeout-ms: ${APP_HOME_BOOTSTRAP_SECTION_TIMEOUT_MS:2500}
+      warmup:
+        enabled: ${APP_HOME_BOOTSTRAP_WARMUP_ENABLED:true}
+        fixed-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_FIXED_DELAY_MS:50000}
+        initial-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_INITIAL_DELAY_MS:5000}
+        max-attempts: ${APP_HOME_BOOTSTRAP_WARMUP_MAX_ATTEMPTS:2}
+        partial-retry-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_PARTIAL_RETRY_DELAY_MS:500}
+        section-timeout-ms: ${APP_HOME_BOOTSTRAP_WARMUP_SECTION_TIMEOUT_MS:8000}
+        ranking:
+          enabled: ${APP_HOME_BOOTSTRAP_WARMUP_RANKING_ENABLED:true}
+    widgets:
+      section-timeout-ms: ${APP_HOME_WIDGETS_SECTION_TIMEOUT_MS:1200}
+  prediction:
+    warmup:
+      enabled: ${APP_PREDICTION_WARMUP_ENABLED:true}
+      fixed-delay-ms: ${APP_PREDICTION_WARMUP_FIXED_DELAY_MS:50000}
+      initial-delay-ms: ${APP_PREDICTION_WARMUP_INITIAL_DELAY_MS:7000}
+      detail:
+        enabled: ${APP_PREDICTION_WARMUP_DETAIL_ENABLED:true}
+      vote-status:
+        enabled: ${APP_PREDICTION_WARMUP_VOTE_STATUS_ENABLED:true}
+      max-games-per-run: ${APP_PREDICTION_WARMUP_MAX_GAMES_PER_RUN:0}
+  leaderboard:
+    game-result-scheduler:
+      enabled: ${APP_LEADERBOARD_GAME_RESULT_SCHEDULER_ENABLED:true}
+      fixed-delay-ms: ${APP_LEADERBOARD_GAME_RESULT_SCHEDULER_FIXED_DELAY_MS:600000}
+      initial-delay-ms: ${APP_LEADERBOARD_GAME_RESULT_SCHEDULER_INITIAL_DELAY_MS:600000}
+      yesterday-cron: "${APP_LEADERBOARD_GAME_RESULT_SCHEDULER_YESTERDAY_CRON:0 0 2 * * *}"
+  cheer:
+    post-sync:
+      scheduler:
+        enabled: ${APP_CHEER_POST_SYNC_SCHEDULER_ENABLED:true}
   flyway:
     auto-repair: ${APP_FLYWAY_AUTO_REPAIR:false}
   ai:
@@ -209,6 +266,12 @@ app:
       request-timeout-seconds: ${APP_AI_PROXY_REQUEST_TIMEOUT_SECONDS:180}
       health-timeout-ms: ${APP_AI_PROXY_HEALTH_TIMEOUT_MS:1000}
       allow-loopback-service-url-in-prod: ${APP_AI_PROXY_ALLOW_LOOPBACK_SERVICE_URL_IN_PROD:false}
+      max-chat-json-bytes: ${APP_AI_PROXY_MAX_CHAT_JSON_BYTES:12288}
+      max-coach-json-bytes: ${APP_AI_PROXY_MAX_COACH_JSON_BYTES:65536}
+      max-voice-upload-bytes: ${APP_AI_PROXY_MAX_VOICE_UPLOAD_BYTES:10485760}
+      max-voice-request-bytes: ${APP_AI_PROXY_MAX_VOICE_REQUEST_BYTES:10551296}
+      max-admin-json-bytes: ${APP_AI_PROXY_MAX_ADMIN_JSON_BYTES:262144}
+      max-chat-persistence-json-bytes: ${APP_AI_PROXY_MAX_CHAT_PERSISTENCE_JSON_BYTES:131072}
   observability:
     # 기본값은 false. local compose observability 확인이 필요할 때만 명시적으로 엽니다.
     public-prometheus-endpoint: ${APP_OBSERVABILITY_PUBLIC_PROMETHEUS_ENDPOINT:false}
@@ -276,6 +339,11 @@ payment:
   payout:
     enabled: ${PAYMENT_PAYOUT_ENABLED:false}
     provider: ${PAYMENT_PAYOUT_PROVIDER:SIM}
+
+media:
+  cleanup:
+    enabled: ${MEDIA_CLEANUP_ENABLED:true}
+    fixed-delay-ms: ${MEDIA_CLEANUP_FIXED_DELAY_MS:900000}
 
 # Swagger / OpenAPI 설정 (기본값: 활성화 - dev/local 환경)
 springdoc:
@@ -372,15 +440,16 @@ spring:
       idle-timeout: 300000
       max-lifetime: 1200000
   jpa:
-    generate-ddl: true
+    generate-ddl: false
     hibernate:
-      ddl-auto: validate       # 공유 PostgreSQL + 뷰 환경에서는 Hibernate 스키마 변경 대신 검증만 수행
+      ddl-auto: none       # Flyway owns schema changes; avoid Hibernate metadata scans against shared dev DB.
     properties:
       "[hibernate.default_schema]": public
       "[hibernate.jdbc.batch_size]": 50
       "[hibernate.order_updates]": true
       "[hibernate.order_inserts]": true
-      "[hibernate.boot.allow_jdbc_metadata_access]": true
+      "[hibernate.boot.allow_jdbc_metadata_access]": false
+      "[hibernate.temp.use_jdbc_metadata_defaults]": false
       "[hibernate.connection.driver_class]": org.postgresql.Driver
   sql:
     init:
@@ -392,7 +461,7 @@ app:
   oauth2:
     cookie-secret: ${OAUTH2_COOKIE_SECRET:local-runtime-cookie-signing-secret}
   dev-data:
-    enabled: true
+    enabled: ${APP_DEV_DATA_ENABLED:true}
 
 org:
   jobrunr:
@@ -417,20 +486,27 @@ spring:
   config:
     activate:
       on-profile: prod
+  # prod 기본값: 가상 스레드 활성화(Java 21). I/O 대기가 긴 외부 호출(AI/SSE/결제/OCI)에서
+  # Tomcat 플랫폼 스레드 고갈을 방지한다. SPRING_THREADS_VIRTUAL_ENABLED로 런타임 오버라이드 가능.
+  threads:
+    virtual:
+      enabled: ${SPRING_THREADS_VIRTUAL_ENABLED:true}
   datasource:
     driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:oracle.jdbc.OracleDriver}
     url: ${SPRING_DATASOURCE_URL:?SPRING_DATASOURCE_URL is required in prod}
     username: ${SPRING_DATASOURCE_USERNAME:?SPRING_DATASOURCE_USERNAME is required in prod}
     password: ${SPRING_DATASOURCE_PASSWORD:?SPRING_DATASOURCE_PASSWORD is required in prod}
     hikari:
-      maximum-pool-size: 30
-      minimum-idle: 10
-      connection-timeout: 30000
+      # 가상 스레드 전환 시 동시 커넥션 수요가 늘 수 있어 풀 상한을 올린다.
+      # (병합 전 Oracle Autonomous DB tier의 커넥션 한도를 초과하지 않는지 확인할 것)
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:50}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:15}
+      connection-timeout: ${SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT:15000}
       validation-timeout: 5000
       idle-timeout: 600000
       max-lifetime: 1800000
       keepalive-time: 45000
-      leak-detection-threshold: ${SPRING_DATASOURCE_HIKARI_LEAK_DETECTION_THRESHOLD:120000}
+      leak-detection-threshold: ${SPRING_DATASOURCE_HIKARI_LEAK_DETECTION_THRESHOLD:45000}
 
   jpa:
     show-sql: false # Production should not log SQL by default

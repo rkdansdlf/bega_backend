@@ -2,6 +2,7 @@ package com.example.mate.service;
 
 import com.example.mate.dto.ChatMessageDTO;
 import com.example.mate.entity.ChatMessage;
+import com.example.mate.entity.Party;
 import com.example.common.exception.AuthenticationRequiredException;
 import com.example.mate.repository.ChatMessageRepository;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +17,6 @@ import com.example.auth.service.UserService;
 import com.example.auth.repository.UserRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PartyApplicationRepository;
-import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.entity.Party.PartyStatus;
 import com.example.media.entity.MediaDomain;
@@ -37,23 +37,14 @@ public class ChatMessageService {
     // 메시지 전송
     @Transactional
     public ChatMessageDTO.Response sendMessage(ChatMessageDTO.Request request, Principal principal) {
-        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
-            throw new AuthenticationRequiredException("로그인이 필요합니다.");
-        }
-        Long userId = userService.getUserIdByEmail(principal.getName());
+        return sendMessage(request, resolveUserId(principal));
+    }
 
-        // 파티 존재 확인 및 멤버 여부 확인
-        var party = partyRepository.findById(request.getPartyId())
-                .orElseThrow(() -> new PartyNotFoundException(request.getPartyId()));
+    @Transactional
+    public ChatMessageDTO.Response sendMessage(ChatMessageDTO.Request request, Long userId) {
+        requireUserId(userId);
 
-        boolean isMember = party.getHostId().equals(userId) ||
-                applicationRepository.findByPartyIdAndApplicantId(request.getPartyId(), userId)
-                        .map(com.example.mate.entity.PartyApplication::getIsApproved)
-                        .orElse(false);
-
-        if (!isMember) {
-            throw new UnauthorizedAccessException("파티 참여자만 메시지를 보낼 수 있습니다.");
-        }
+        requireAccessibleParty(request.getPartyId(), userId);
 
         MateContentPolicyValidator.validateChatMessage(request.getMessage(), request.getImageUrl());
 
@@ -61,8 +52,10 @@ public class ChatMessageService {
                 .map(com.example.auth.entity.UserEntity::getName)
                 .orElse("Unknown");
 
+        String canonicalImageUrl = null;
         if (request.getImageUrl() != null && !request.getImageUrl().isBlank()) {
-            mediaLinkService.resolveReadyAssets(userId, MediaDomain.CHAT, List.of(request.getImageUrl()));
+            canonicalImageUrl = chatImageService.normalizeChatStoragePathForUser(userId, request.getImageUrl());
+            mediaLinkService.resolveReadyAssets(userId, MediaDomain.CHAT, List.of(canonicalImageUrl));
         }
 
         if (request.getClientMessageId() != null && !request.getClientMessageId().isBlank()) {
@@ -79,7 +72,7 @@ public class ChatMessageService {
                 .senderId(userId)
                 .senderName(userName)
                 .message(request.getMessage())
-                .imageUrl(request.getImageUrl())
+                .imageUrl(canonicalImageUrl)
                 .clientMessageId(request.getClientMessageId())
                 .build();
 
@@ -91,7 +84,12 @@ public class ChatMessageService {
     // 파티별 채팅 메시지 조회
     @Transactional(readOnly = true)
     public List<ChatMessageDTO.Response> getMessagesByPartyId(Long partyId, Principal principal) {
-        assertPartyMember(partyId, principal);
+        return getMessagesByPartyId(partyId, resolveUserId(principal));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ChatMessageDTO.Response> getMessagesByPartyId(Long partyId, Long userId) {
+        assertPartyMember(partyId, userId);
         return chatMessageRepository.findByPartyIdOrderByCreatedAtAsc(partyId).stream()
                 .map(this::toResponseWithResolvedImage)
                 .collect(Collectors.toList());
@@ -100,62 +98,68 @@ public class ChatMessageService {
     // 파티별 최근 메시지 조회
     @Transactional(readOnly = true)
     public ChatMessageDTO.Response getLatestMessage(Long partyId, Principal principal) {
-        assertPartyMember(partyId, principal);
+        return getLatestMessage(partyId, resolveUserId(principal));
+    }
+
+    @Transactional(readOnly = true)
+    public ChatMessageDTO.Response getLatestMessage(Long partyId, Long userId) {
+        assertPartyMember(partyId, userId);
         ChatMessage message = chatMessageRepository.findTopByPartyIdOrderByCreatedAtDesc(partyId);
         return message != null ? toResponseWithResolvedImage(message) : null;
     }
 
     private void assertPartyMember(Long partyId, Principal principal) {
-        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
-            throw new AuthenticationRequiredException("로그인이 필요합니다.");
-        }
-        Long userId = userService.getUserIdByEmail(principal.getName());
+        assertPartyMember(partyId, resolveUserId(principal));
+    }
+
+    private void assertPartyMember(Long partyId, Long userId) {
+        requireUserId(userId);
         if (partyId == null) {
             throw new PartyNotFoundException(0L); // Or handle appropriately
         }
-        var party = partyRepository.findById(partyId)
-                .orElseThrow(() -> new PartyNotFoundException(partyId));
-        boolean isMember = party.getHostId().equals(userId)
-                || applicationRepository.findByPartyIdAndApplicantId(partyId, userId)
-                        .map(com.example.mate.entity.PartyApplication::getIsApproved)
-                        .orElse(false);
-        if (!isMember) {
-            throw new UnauthorizedAccessException("파티 참여자만 채팅을 조회할 수 있습니다.");
-        }
+        requireAccessibleParty(partyId, userId);
     }
 
     // 채팅 읽음 처리
     @Transactional
     public void updateChatReadTimestamp(Long partyId, Principal principal) {
+        updateChatReadTimestamp(partyId, resolveUserId(principal));
+    }
+
+    @Transactional
+    public void updateChatReadTimestamp(Long partyId, Long userId) {
         if (partyId == null) {
             throw new PartyNotFoundException(0L);
         }
-        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+        if (userId == null) {
             throw new AuthenticationRequiredException("로그인이 필요합니다.");
         }
-        Long userId = userService.getUserIdByEmail(principal.getName());
-        var party = partyRepository.findById(partyId)
-                .orElseThrow(() -> new PartyNotFoundException(partyId));
+        var party = requireAccessibleParty(partyId, userId);
 
         if (party.getHostId().equals(userId)) {
             party.setHostLastReadChatAt(java.time.Instant.now());
-        } else {
-            var app = applicationRepository.findByPartyIdAndApplicantId(partyId, userId)
-                    .orElseThrow(() -> new UnauthorizedAccessException("파티 참여자가 아닙니다."));
-            if (!app.getIsApproved()) {
-                throw new UnauthorizedAccessException("파티 참여 승인이 필요합니다.");
-            }
-            app.setLastReadChatAt(java.time.Instant.now());
+            return;
         }
+
+        var app = applicationRepository.findByPartyIdAndApplicantId(partyId, userId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+        if (!app.getIsApproved()) {
+            throw new PartyNotFoundException(partyId);
+        }
+        app.setLastReadChatAt(java.time.Instant.now());
     }
 
     // 전체 안 읽은 메시지 개수 조회
     @Transactional(readOnly = true)
     public long getTotalUnreadCount(Principal principal) {
-        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+        return getTotalUnreadCount(resolveNullableUserId(principal));
+    }
+
+    @Transactional(readOnly = true)
+    public long getTotalUnreadCount(Long userId) {
+        if (userId == null) {
             return 0;
         }
-        Long userId = userService.getUserIdByEmail(principal.getName());
 
         List<PartyStatus> activeStatuses = List.of(
                 PartyStatus.PENDING,
@@ -197,11 +201,44 @@ public class ChatMessageService {
         return Instant.EPOCH;
     }
 
+    private Long resolveUserId(Principal principal) {
+        Long userId = resolveNullableUserId(principal);
+        requireUserId(userId);
+        return userId;
+    }
+
+    private Long resolveNullableUserId(Principal principal) {
+        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+            return null;
+        }
+        String principalName = principal.getName();
+        try {
+            return Long.valueOf(principalName);
+        } catch (NumberFormatException ignored) {
+            return userService.getUserIdByEmail(principalName);
+        }
+    }
+
+    private void requireUserId(Long userId) {
+        if (userId == null) {
+            throw new AuthenticationRequiredException("로그인이 필요합니다.");
+        }
+    }
+
+    private Party requireAccessibleParty(Long partyId, Long userId) {
+        requireUserId(userId);
+        if (partyId == null) {
+            throw new PartyNotFoundException(0L);
+        }
+        return partyRepository.findAccessibleByIdAndParticipantId(partyId, userId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+    }
+
     private ChatMessageDTO.Response toResponseWithResolvedImage(ChatMessage chatMessage) {
         ChatMessageDTO.Response response = ChatMessageDTO.Response.from(chatMessage);
         String imageUrl = response.getImageUrl();
         if (imageUrl != null && !imageUrl.isBlank()) {
-            response.setImageUrl(chatImageService.resolveChatImageUrl(imageUrl));
+            response.setImageUrl(chatImageService.resolveChatImageUrlForUser(chatMessage.getSenderId(), imageUrl));
         }
         return response;
     }

@@ -1,6 +1,7 @@
 package com.example.mate.dto;
 
 import com.example.mate.entity.SellerPayoutProfile;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,6 +15,7 @@ public class SellerPayoutProfileDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateSellerPayoutProfileUpsertRequest")
     public static class UpsertRequest {
         private Long userId;
         @Builder.Default
@@ -27,6 +29,7 @@ public class SellerPayoutProfileDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "MateSellerPayoutProfileResponse")
     public static class Response {
         private Long id;
         private Long userId;
@@ -51,4 +54,3 @@ public class SellerPayoutProfileDTO {
         }
     }
 }
-

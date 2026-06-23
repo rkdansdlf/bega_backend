@@ -14,6 +14,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.awt.image.BufferedImage;
+import java.util.Iterator;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 
 /**
  * Common Image Processing Utility
@@ -227,14 +231,27 @@ public class ImageUtil {
             throw new IllegalArgumentException("이미지 데이터가 비어있습니다.");
         }
 
-        try (InputStream inputStream = new ByteArrayInputStream(bytes)) {
-            BufferedImage image = javax.imageio.ImageIO.read(inputStream);
-            if (image == null) {
+        try (ImageInputStream imageInputStream = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+            if (imageInputStream == null) {
                 throw new IllegalArgumentException("이미지 데이터를 읽을 수 없습니다.");
             }
 
-            int width = image.getWidth();
-            int height = image.getHeight();
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(imageInputStream);
+            if (!readers.hasNext()) {
+                throw new IllegalArgumentException("이미지 데이터를 읽을 수 없습니다.");
+            }
+
+            ImageReader reader = readers.next();
+            int width;
+            int height;
+            try {
+                reader.setInput(imageInputStream, true, true);
+                width = reader.getWidth(0);
+                height = reader.getHeight(0);
+            } finally {
+                reader.dispose();
+            }
+
             if (width <= 0 || height <= 0) {
                 throw new IllegalArgumentException("이미지 치수가 유효하지 않습니다.");
             }

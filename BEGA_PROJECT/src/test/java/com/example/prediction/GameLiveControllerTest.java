@@ -33,6 +33,13 @@ class GameLiveControllerTest {
                         .awayScore(2)
                         .lastEventSeq(12)
                         .events(List.of())
+                        .inningScores(List.of(GameInningScoreDto.builder()
+                                .inning(1)
+                                .teamSide("away")
+                                .teamCode("KT")
+                                .runs(2)
+                                .isExtra(false)
+                                .build()))
                         .build());
 
         mockMvc.perform(get("/api/matches/GAME-1/live")
@@ -42,7 +49,11 @@ class GameLiveControllerTest {
                 .andExpect(jsonPath("$.gameId").value("GAME-1"))
                 .andExpect(jsonPath("$.gameStatus").value("LIVE"))
                 .andExpect(jsonPath("$.homeScore").value(3))
-                .andExpect(jsonPath("$.lastEventSeq").value(12));
+                .andExpect(jsonPath("$.lastEventSeq").value(12))
+                .andExpect(jsonPath("$.inningScores[0].inning").value(1))
+                .andExpect(jsonPath("$.inningScores[0].teamSide").value("away"))
+                .andExpect(jsonPath("$.inningScores[0].runs").value(2))
+                .andExpect(jsonPath("$.inningScores[0].isExtra").value(false));
 
         verify(gameLiveService).getLiveSnapshot("GAME-1", 10, 25);
     }

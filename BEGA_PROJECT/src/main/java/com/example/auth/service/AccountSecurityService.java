@@ -18,14 +18,14 @@ import java.time.LocalDateTime;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import jakarta.servlet.http.HttpServletRequest;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class AccountSecurityService {
 
@@ -36,6 +36,50 @@ public class AccountSecurityService {
     private final NotificationService notificationService;
     private final EmailService emailService;
     private final AuthSessionMetadataResolver authSessionMetadataResolver;
+    private final TaskExecutor accountSecurityTaskExecutor;
+
+    public AccountSecurityService(
+            AccountSecurityEventRepository accountSecurityEventRepository,
+            TrustedDeviceRepository trustedDeviceRepository,
+            NotificationService notificationService,
+            EmailService emailService,
+            AuthSessionMetadataResolver authSessionMetadataResolver,
+            @Qualifier("accountSecurityTaskExecutor") TaskExecutor accountSecurityTaskExecutor) {
+        this.accountSecurityEventRepository = accountSecurityEventRepository;
+        this.trustedDeviceRepository = trustedDeviceRepository;
+        this.notificationService = notificationService;
+        this.emailService = emailService;
+        this.authSessionMetadataResolver = authSessionMetadataResolver;
+        this.accountSecurityTaskExecutor = accountSecurityTaskExecutor;
+    }
+
+    public void handleSuccessfulLoginAsync(UserEntity user, HttpServletRequest request) {
+        if (user == null || user.getId() == null || request == null) {
+            return;
+        }
+
+        Long userId = user.getId();
+        String userEmail = user.getEmail();
+        DeviceMetadata metadata;
+        try {
+            metadata = resolveDeviceMetadata(request);
+        } catch (RuntimeException e) {
+            log.warn("Failed to resolve successful login security metadata userId={}", userId, e);
+            return;
+        }
+
+        try {
+            accountSecurityTaskExecutor.execute(() -> {
+                try {
+                    handleSuccessfulLogin(userId, userEmail, metadata);
+                } catch (RuntimeException e) {
+                    log.warn("Failed to handle async successful login security bookkeeping for userId={}", userId, e);
+                }
+            });
+        } catch (RuntimeException e) {
+            log.warn("Failed to schedule successful login security bookkeeping for userId={}", userId, e);
+        }
+    }
 
     @Transactional
     public void handleSuccessfulLogin(UserEntity user, HttpServletRequest request) {
@@ -45,60 +89,64 @@ public class AccountSecurityService {
 
         try {
             DeviceMetadata metadata = resolveDeviceMetadata(request);
-            recordEvent(user.getId(), AccountSecurityEvent.EventType.LOGIN_SUCCESS,
-                    buildLoginMessage(metadata), metadata);
-
-            TrustedDevice trustedDevice = trustedDeviceRepository
-                    .findByUserIdAndFingerprintAndRevokedAtIsNull(user.getId(), metadata.fingerprint())
-                    .orElse(null);
-
-            if (trustedDevice == null) {
-                TrustedDevice revokedTrustedDevice = trustedDeviceRepository
-                        .findByUserIdAndFingerprint(user.getId(), metadata.fingerprint())
-                        .orElse(null);
-
-                if (revokedTrustedDevice != null) {
-                    revokedTrustedDevice.setRevokedAt(null);
-                    revokedTrustedDevice.setDeviceLabel(metadata.deviceLabel());
-                    revokedTrustedDevice.setDeviceType(metadata.deviceType());
-                    revokedTrustedDevice.setBrowser(metadata.browser());
-                    revokedTrustedDevice.setOs(metadata.os());
-                    revokedTrustedDevice.setLastSeenAt(metadata.now());
-                    revokedTrustedDevice.setLastLoginAt(metadata.now());
-                    revokedTrustedDevice.setLastIp(metadata.ip());
-                    trustedDeviceRepository.save(revokedTrustedDevice);
-                } else {
-                    trustedDeviceRepository.save(TrustedDevice.builder()
-                            .userId(user.getId())
-                            .fingerprint(metadata.fingerprint())
-                            .deviceLabel(metadata.deviceLabel())
-                            .deviceType(metadata.deviceType())
-                            .browser(metadata.browser())
-                            .os(metadata.os())
-                            .firstSeenAt(metadata.now())
-                            .lastSeenAt(metadata.now())
-                            .lastLoginAt(metadata.now())
-                            .lastIp(metadata.ip())
-                            .build());
-                }
-
-                recordEvent(user.getId(), AccountSecurityEvent.EventType.NEW_DEVICE_LOGIN,
-                        buildNewDeviceMessage(metadata), metadata);
-                notifyNewDeviceLogin(user, metadata);
-                return;
-            }
-
-            trustedDevice.setDeviceLabel(metadata.deviceLabel());
-            trustedDevice.setDeviceType(metadata.deviceType());
-            trustedDevice.setBrowser(metadata.browser());
-            trustedDevice.setOs(metadata.os());
-            trustedDevice.setLastSeenAt(metadata.now());
-            trustedDevice.setLastLoginAt(metadata.now());
-            trustedDevice.setLastIp(metadata.ip());
-            trustedDeviceRepository.save(trustedDevice);
+            handleSuccessfulLogin(user.getId(), user.getEmail(), metadata);
         } catch (RuntimeException e) {
             log.warn("Failed to handle successful login security bookkeeping for userId={}", user.getId(), e);
         }
+    }
+
+    private void handleSuccessfulLogin(Long userId, String userEmail, DeviceMetadata metadata) {
+        recordEvent(userId, AccountSecurityEvent.EventType.LOGIN_SUCCESS,
+                buildLoginMessage(metadata), metadata);
+
+        TrustedDevice trustedDevice = trustedDeviceRepository
+                .findByUserIdAndFingerprintAndRevokedAtIsNull(userId, metadata.fingerprint())
+                .orElse(null);
+
+        if (trustedDevice == null) {
+            TrustedDevice revokedTrustedDevice = trustedDeviceRepository
+                    .findByUserIdAndFingerprint(userId, metadata.fingerprint())
+                    .orElse(null);
+
+            if (revokedTrustedDevice != null) {
+                revokedTrustedDevice.setRevokedAt(null);
+                revokedTrustedDevice.setDeviceLabel(metadata.deviceLabel());
+                revokedTrustedDevice.setDeviceType(metadata.deviceType());
+                revokedTrustedDevice.setBrowser(metadata.browser());
+                revokedTrustedDevice.setOs(metadata.os());
+                revokedTrustedDevice.setLastSeenAt(metadata.now());
+                revokedTrustedDevice.setLastLoginAt(metadata.now());
+                revokedTrustedDevice.setLastIp(metadata.ip());
+                trustedDeviceRepository.save(revokedTrustedDevice);
+            } else {
+                trustedDeviceRepository.save(TrustedDevice.builder()
+                        .userId(userId)
+                        .fingerprint(metadata.fingerprint())
+                        .deviceLabel(metadata.deviceLabel())
+                        .deviceType(metadata.deviceType())
+                        .browser(metadata.browser())
+                        .os(metadata.os())
+                        .firstSeenAt(metadata.now())
+                        .lastSeenAt(metadata.now())
+                        .lastLoginAt(metadata.now())
+                        .lastIp(metadata.ip())
+                        .build());
+            }
+
+            recordEvent(userId, AccountSecurityEvent.EventType.NEW_DEVICE_LOGIN,
+                    buildNewDeviceMessage(metadata), metadata);
+            notifyNewDeviceLogin(userId, userEmail, metadata);
+            return;
+        }
+
+        trustedDevice.setDeviceLabel(metadata.deviceLabel());
+        trustedDevice.setDeviceType(metadata.deviceType());
+        trustedDevice.setBrowser(metadata.browser());
+        trustedDevice.setOs(metadata.os());
+        trustedDevice.setLastSeenAt(metadata.now());
+        trustedDevice.setLastLoginAt(metadata.now());
+        trustedDevice.setLastIp(metadata.ip());
+        trustedDeviceRepository.save(trustedDevice);
     }
 
     @Transactional(readOnly = true)
@@ -189,27 +237,27 @@ public class AccountSecurityService {
         accountSecurityEventRepository.deleteByOccurredAtBefore(LocalDateTime.now().minusDays(SECURITY_EVENT_RETENTION_DAYS));
     }
 
-    private void notifyNewDeviceLogin(UserEntity user, DeviceMetadata metadata) {
+    private void notifyNewDeviceLogin(Long userId, String userEmail, DeviceMetadata metadata) {
         try {
             notificationService.createNotification(
-                    user.getId(),
+                    userId,
                     Notification.NotificationType.NEW_DEVICE_LOGIN,
                     "새 기기 로그인 감지",
                     String.format("%s에서 로그인이 감지되었습니다. IP: %s", metadata.deviceLabel(), metadata.ip()),
                     null);
         } catch (RuntimeException e) {
-            log.warn("Failed to create in-app notification for new device login userId={}", user.getId(), e);
+            log.warn("Failed to create in-app notification for new device login userId={}", userId, e);
         }
 
         try {
             emailService.sendNewDeviceLoginEmail(
-                    user.getEmail(),
+                    userEmail,
                     metadata.deviceLabel(),
                     metadata.browser(),
                     metadata.os(),
                     metadata.ip());
         } catch (RuntimeException e) {
-            log.warn("Failed to send new device email userId={}", user.getId(), e);
+            log.warn("Failed to send new device email userId={}", userId, e);
         }
     }
 

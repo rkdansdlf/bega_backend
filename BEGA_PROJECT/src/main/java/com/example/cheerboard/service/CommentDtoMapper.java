@@ -87,7 +87,10 @@ public class CommentDtoMapper {
         }
 
         String rawValue = author.getProfileImageUrl();
-        String resolved = profileImageService.getProfileImageUrlForCheerFeed(rawValue, author.getProfileFeedImageUrl());
+        String resolved = profileImageService.getProfileImageUrlForCheerFeed(
+                author.getId(),
+                rawValue,
+                author.getProfileFeedImageUrl());
         if (resolved != null && !resolved.isBlank()) {
             return resolved;
         }

@@ -26,22 +26,30 @@ public class UserFollowSummaryDto {
     private boolean isFollowedByMe;
 
     public static UserFollowSummaryDto fromPublic(UserEntity user, boolean isFollowedByMe) {
+        return fromPublic(user, isFollowedByMe, user.getProfileImageUrl());
+    }
+
+    public static UserFollowSummaryDto fromPublic(UserEntity user, boolean isFollowedByMe, String profileImageUrl) {
         return UserFollowSummaryDto.builder()
                 .id(null)
                 .handle(user.getHandle())
                 .name(user.getName())
-                .profileImageUrl(user.getProfileImageUrl())
+                .profileImageUrl(profileImageUrl)
                 .favoriteTeam(user.getFavoriteTeamId())
                 .isFollowedByMe(isFollowedByMe)
                 .build();
     }
 
     public static UserFollowSummaryDto fromPrivate(UserEntity user, boolean isFollowedByMe) {
+        return fromPrivate(user, isFollowedByMe, user.getProfileImageUrl());
+    }
+
+    public static UserFollowSummaryDto fromPrivate(UserEntity user, boolean isFollowedByMe, String profileImageUrl) {
         return UserFollowSummaryDto.builder()
                 .id(user.getId())
                 .handle(user.getHandle())
                 .name(user.getName())
-                .profileImageUrl(user.getProfileImageUrl())
+                .profileImageUrl(profileImageUrl)
                 .favoriteTeam(user.getFavoriteTeamId())
                 .isFollowedByMe(isFollowedByMe)
                 .build();

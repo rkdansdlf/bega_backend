@@ -33,35 +33,9 @@ public class AuthSessionService {
 
     @Transactional(readOnly = true)
     public PreparedRefreshSession prepareRefreshSession(String email, HttpServletRequest request) {
-        List<RefreshToken> tokens = findRefreshTokensByEmail(email);
         AuthSessionMetadataResolver.SessionMetadata metadata = authSessionMetadataResolver.resolve(request);
         String currentRefreshToken = extractRefreshToken(request);
-
-        RefreshToken matchedToken = null;
-        if (currentRefreshToken != null) {
-            matchedToken = tokens.stream()
-                    .filter(token -> token.getToken() != null)
-                    .filter(token -> currentRefreshToken.equals(token.getToken()))
-                    .findFirst()
-                    .orElse(null);
-
-            if (matchedToken == null) {
-                String requestedSessionId = safelyExtractSessionId(currentRefreshToken);
-                if (requestedSessionId != null) {
-                    matchedToken = tokens.stream()
-                            .filter(token -> requestedSessionId.equals(normalizeSessionId(token.getSessionId())))
-                            .findFirst()
-                            .orElse(null);
-                }
-            }
-        }
-
-        if (matchedToken == null) {
-            matchedToken = tokens.stream()
-                .filter(token -> isSameSessionContext(token, metadata))
-                .findFirst()
-                .orElse(null);
-        }
+        RefreshToken matchedToken = findCurrentRefreshToken(email, currentRefreshToken);
 
         String sessionId = normalizeSessionId(matchedToken != null ? matchedToken.getSessionId() : null);
         if (sessionId == null) {
@@ -172,6 +146,17 @@ public class AuthSessionService {
             return List.of();
         }
         return refreshRepository.findAllByEmailOrderByIdDesc(email);
+    }
+
+    private RefreshToken findCurrentRefreshToken(String email, String currentRefreshToken) {
+        if (email == null || email.isBlank() || currentRefreshToken == null || currentRefreshToken.isBlank()) {
+            return null;
+        }
+        return refreshRepository.findAllByToken(currentRefreshToken).stream()
+                .filter(token -> token.getEmail() != null)
+                .filter(token -> email.equalsIgnoreCase(token.getEmail()))
+                .findFirst()
+                .orElse(null);
     }
 
     @Transactional(readOnly = true)
@@ -343,6 +328,12 @@ public class AuthSessionService {
         if (sessionId == null || sessionId.isBlank()) {
             return null;
         }
-        return sessionId.trim();
+        String normalized = sessionId.trim();
+        for (int i = 0; i < normalized.length(); i++) {
+            if (Character.isISOControl(normalized.charAt(i))) {
+                return null;
+            }
+        }
+        return normalized;
     }
 }

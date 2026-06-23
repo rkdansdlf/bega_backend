@@ -402,7 +402,7 @@ class PartyApplicationVerificationTest {
                                                         .handle("@applicant")
                                                         .name("Applicant")
                                                         .build());
-                        given(partyRepository.findById(1L)).willReturn(Optional.of(testParty));
+                        given(partyRepository.findByIdAndHostId(1L, 100L)).willReturn(Optional.of(testParty));
                         given(applicationRepository.findByPartyId(1L)).willReturn(java.util.List.of(application));
 
                         // when
@@ -419,12 +419,11 @@ class PartyApplicationVerificationTest {
                         // given
                         Principal nonHostPrincipal = () -> "nonhost@example.com";
                         given(userService.getUserIdByEmail("nonhost@example.com")).willReturn(777L);
-                        given(partyRepository.findById(1L)).willReturn(Optional.of(testParty));
+                        given(partyRepository.findByIdAndHostId(1L, 777L)).willReturn(Optional.empty());
 
                         // when / then
                         assertThatThrownBy(() -> service.getApplicationsByPartyId(1L, nonHostPrincipal))
-                                        .isInstanceOf(com.example.mate.exception.UnauthorizedAccessException.class)
-                                        .hasMessageContaining("호스트");
+                                        .isInstanceOf(com.example.mate.exception.PartyNotFoundException.class);
                 }
 
                 @Test

@@ -22,20 +22,15 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.BlockService;
 import com.example.auth.service.PublicVisibilityVerifier;
-import com.example.common.exception.InvalidAuthorException;
 import com.example.notification.service.NotificationService;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -63,7 +58,7 @@ public class CheerInteractionService {
 
     @Transactional
     public LikeToggleResponse toggleLike(Long postId, UserEntity me) {
-        UserEntity author = resolveWriteAuthor(me);
+        UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
         CheerPost post = findPostByIdForInteractionWrite(postId);
 
         publicVisibilityVerifier.validate(post.getAuthor(), author.getId(), "게시글");
@@ -129,7 +124,7 @@ public class CheerInteractionService {
             return Objects.requireNonNull(new LikeToggleResponse(liked, likes));
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
-                ensureAuthorRecordStillExists(author);
+                CheerAuthorWriteGuard.ensureAuthorRecordStillExists(author, userRepo);
             }
             throw ex;
         }
@@ -137,7 +132,7 @@ public class CheerInteractionService {
 
     @Transactional
     public BookmarkResponse toggleBookmark(Long postId, UserEntity me) {
-        UserEntity author = resolveWriteAuthor(me);
+        UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
         CheerPost target = resolveActionTargetPost(postId);
         publicVisibilityVerifier.validate(target.getAuthor(), author.getId(), "게시글");
         validateNoBlockBetween(author.getId(), target.getAuthor().getId(), "북마크할 수 없습니다.");
@@ -160,7 +155,7 @@ public class CheerInteractionService {
             return Objects.requireNonNull(new BookmarkResponse(bookmarked, count));
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
-                ensureAuthorRecordStillExists(author);
+                CheerAuthorWriteGuard.ensureAuthorRecordStillExists(author, userRepo);
             }
             throw ex;
         }
@@ -168,7 +163,7 @@ public class CheerInteractionService {
 
     @Transactional
     public ReportCaseRes reportPost(Long postId, ReportRequest req, UserEntity me) {
-        UserEntity reporter = resolveWriteAuthor(me);
+        UserEntity reporter = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
         CheerPost post = postService.findPostById(postId);
         publicVisibilityVerifier.validate(post.getAuthor(), reporter.getId(), "게시글");
         validateNoBlockBetween(reporter.getId(), post.getAuthor().getId(), "신고할 수 없습니다.");
@@ -214,7 +209,7 @@ public class CheerInteractionService {
                     "신고가 정상 접수되었습니다."));
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
-                ensureAuthorRecordStillExists(reporter);
+                CheerAuthorWriteGuard.ensureAuthorRecordStillExists(reporter, userRepo);
             }
             throw ex;
         }
@@ -222,9 +217,9 @@ public class CheerInteractionService {
 
     @Transactional
     public LikeToggleResponse toggleCommentLike(Long commentId, UserEntity me) {
-        UserEntity author = resolveWriteAuthor(me);
+        UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
         CheerComment comment = findCommentById(commentId);
-        CheerPost targetPost = resolveActionTargetPost(comment.getPost());
+        CheerPost targetPost = CheerRepostTargetResolver.resolveActionTargetPost(comment.getPost());
 
         publicVisibilityVerifier.validate(targetPost.getAuthor(), author.getId(), "게시글");
         validateNoBlockBetween(author.getId(), comment.getAuthor().getId(), "댓글 좋아요를 누를 수 없습니다.");
@@ -266,7 +261,7 @@ public class CheerInteractionService {
             return Objects.requireNonNull(new LikeToggleResponse(liked, likes));
         } catch (DataIntegrityViolationException ex) {
             if (isDeletedAuthorReference(ex)) {
-                ensureAuthorRecordStillExists(author);
+                CheerAuthorWriteGuard.ensureAuthorRecordStillExists(author, userRepo);
             }
             throw ex;
         }
@@ -345,132 +340,19 @@ public class CheerInteractionService {
     }
 
     private CheerPost findPostByIdForInteractionWrite(Long postId) {
-        return postRepo.findByIdForInteractionWrite(Objects.requireNonNull(postId))
+        return postRepo.findByIdForWrite(Objects.requireNonNull(postId))
                 .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
     }
 
     private CheerPost resolveActionTargetPost(Long postId) {
         CheerPost target = postService.findPostById(postId);
-        return resolveActionTargetPost(target);
-    }
-
-    private CheerPost resolveActionTargetPost(CheerPost post) {
-        CheerPost current = post;
-        int hops = 0;
-        while (current.isRepost()) {
-            CheerPost parent = current.getRepostOf();
-            if (parent == null)
-                return current;
-            current = parent;
-            if (++hops > 32)
-                throw new IllegalArgumentException("리포스트 대상이 비정상적으로 설정되어 있습니다.");
-        }
-        return current;
+        return CheerRepostTargetResolver.resolveActionTargetPost(target);
     }
 
     private void validateNoBlockBetween(Long user1, Long user2, String message) {
         if (blockService.hasBidirectionalBlock(user1, user2)) {
             throw new IllegalStateException(message);
         }
-    }
-
-    private UserEntity resolveWriteAuthor(UserEntity me) {
-        // Same logic as CheerPostService
-        if (me == null || me.getId() == null) {
-            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-        }
-        Long principalUserId = getAuthenticationUserId();
-        if (principalUserId != null && !principalUserId.equals(me.getId())) {
-            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-        }
-        UserEntity author = userRepo.findByIdForWrite(me.getId())
-                .orElseThrow(() -> new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요."));
-        ensureAuthorRecordStillExists(author);
-        try {
-            entityManager.refresh(author);
-        } catch (EntityNotFoundException e) {
-            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-        }
-        return Objects.requireNonNull(author);
-    }
-
-    private UserEntity ensureAuthorRecordStillExists(UserEntity author) {
-        // Same logic as CheerPostService (omitted for brevity, but should be identical)
-        // Ideally extract to AuthService
-        // For this refactor, I will copy-paste to ensure correctness without creating
-        // new common class yet
-
-        if (author == null || author.getId() == null) {
-            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-        }
-        Integer tokenVersion = getAuthenticationTokenVersion();
-        if (tokenVersion == null) {
-            boolean hasUsableAuthor = userRepo.lockUsableAuthorForWrite(author.getId()).isPresent();
-            if (!hasUsableAuthor)
-                throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-        } else {
-            boolean hasUsableAuthor = userRepo.lockUsableAuthorForWriteWithTokenVersion(author.getId(), tokenVersion)
-                    .isPresent();
-            if (!hasUsableAuthor)
-                throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-        }
-        UserEntity freshAuthor = userRepo.findByIdForWrite(author.getId())
-                .orElseThrow(() -> new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요."));
-        if (tokenVersion != null) {
-            int currentTokenVersion = freshAuthor.getTokenVersion() == null ? 0 : freshAuthor.getTokenVersion();
-            if (currentTokenVersion != tokenVersion)
-                throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-        }
-        if (!freshAuthor.isEnabled() || !isAccountUsableForWrite(freshAuthor)) {
-            throw new InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
-        }
-        return Objects.requireNonNull(freshAuthor);
-    }
-
-    private boolean isAccountUsableForWrite(UserEntity user) {
-        if (!user.isLocked())
-            return true;
-        if (user.getLockExpiresAt() == null)
-            return false;
-        return user.getLockExpiresAt().isBefore(LocalDateTime.now());
-    }
-
-    private Long getAuthenticationUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null)
-            return null;
-        Object principal = authentication.getPrincipal();
-        if (principal == null)
-            return null;
-        if (principal instanceof Long userId)
-            return userId;
-        if (principal instanceof String userId) {
-            try {
-                return Long.valueOf(userId);
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    private Integer getAuthenticationTokenVersion() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null)
-            return null;
-        Object details = authentication.getDetails();
-        if (details == null)
-            return null;
-        if (details instanceof Integer version)
-            return version;
-        if (details instanceof Long version)
-            return version.intValue();
-        if (details instanceof Map<?, ?> map) {
-            Object val = map.get("tokenVersion");
-            if (val instanceof Integer v)
-                return v;
-        }
-        return null;
     }
 
     private boolean isDeletedAuthorReference(DataIntegrityViolationException ex) {

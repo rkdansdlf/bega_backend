@@ -2,6 +2,7 @@ package com.example.auth.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -27,6 +28,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.example.ai.config.AiServiceSettings;
+import com.example.ai.filter.AiProxyRequestLimitFilter;
 import com.example.common.config.AllowedOriginResolver;
 import com.example.auth.oauth2.CustomOAuth2UserService;
 import com.example.auth.oauth2.CustomSuccessHandler;
@@ -159,9 +161,14 @@ public class SecurityConfig {
         private static final String[] PUBLIC_PARTY_GET_ENDPOINTS = {
                         "/api/parties",
                         "/api/parties/search",
+                        "/api/parties/search-terms/popular",
                         "/api/parties/status/*",
                         "/api/parties/profile/*",
                         "/api/parties/upcoming"
+        };
+
+        private static final String[] PUBLIC_PARTY_SEARCH_TERM_GET_ENDPOINTS = {
+                        "/api/parties/search-terms/popular"
         };
 
         /** 관리자 전용 엔드포인트 */
@@ -237,12 +244,11 @@ public class SecurityConfig {
         /**
          * [Security Fix - High #3] Content Security Policy 정책.
          * Kakao Maps/OAuth, Google OAuth, OCI Object Storage 이미지를 허용한다.
-         * 'unsafe-inline' 스타일/스크립트는 현 프론트(React + inline styles) 호환성을 위해
-         * 임시 허용하며, prod에서는 unsafe-eval을 허용하지 않는다.
+         * prod에서는 inline script와 unsafe-eval을 허용하지 않는다.
          */
         String buildContentSecurityPolicy() {
                 String scriptPolicy = isProdProfile()
-                                ? "script-src 'self' 'unsafe-inline' "
+                                ? "script-src 'self' "
                                                 + "https://dapi.kakao.com https://t1.daumcdn.net "
                                                 + "https://accounts.google.com https://apis.google.com"
                                 : "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
@@ -383,6 +389,8 @@ public class SecurityConfig {
                 configuration.setAllowCredentials(true);
                 configuration.setMaxAge(3600L);
 
+                // Do not expose Set-Cookie or Authorization to browser JavaScript.
+                // Cookies are set by the browser from credentialed CORS responses.
                 configuration.setExposedHeaders(List.of("Content-Disposition"));
 
                 UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -403,7 +411,19 @@ public class SecurityConfig {
         }
 
         @Bean
-        public SecurityFilterChain filterChain(HttpSecurity http, JWTFilter jwtFilter, RateLimitFilter rateLimitFilter) throws Exception {
+        public FilterRegistrationBean<AiProxyRequestLimitFilter> aiProxyRequestLimitFilterRegistration(
+                        AiProxyRequestLimitFilter filter) {
+                FilterRegistrationBean<AiProxyRequestLimitFilter> registration = new FilterRegistrationBean<>(filter);
+                registration.setEnabled(false);
+                return registration;
+        }
+
+        @Bean
+        public SecurityFilterChain filterChain(
+                        HttpSecurity http,
+                        JWTFilter jwtFilter,
+                        RateLimitFilter rateLimitFilter,
+                        AiProxyRequestLimitFilter aiProxyRequestLimitFilter) throws Exception {
                 final boolean publicAiProxyInDev = allowUnauthenticatedAiProxy();
 
                 // CORS 활성화 및 CSRF 비활성화 (JWT 토큰 기반 인증이므로 CSRF 비활성화)
@@ -455,7 +475,11 @@ public class SecurityConfig {
 
                 // [Security Fix - High #1] Rate Limiting 필터는 JWTFilter보다 먼저 실행.
                 // JWTFilter는 Spring Security에 등록된 순서가 없어 기준으로 사용할 수 없으므로
-                // 동일하게 UsernamePasswordAuthenticationFilter 앞에 배치하되, 등록 순서로 RateLimit → JWT 순서를 보장.
+                // 동일하게 UsernamePasswordAuthenticationFilter 앞에 배치하되,
+                // 등록 순서로 AI payload limit → RateLimit → JWT 순서를 보장.
+                http
+                                .addFilterBefore(aiProxyRequestLimitFilter, UsernamePasswordAuthenticationFilter.class);
+
                 http
                                 .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -531,6 +555,8 @@ public class SecurityConfig {
                                                 .authenticated()
                                                 .requestMatchers(HttpMethod.GET, "/api/predictions/status/**")
                                                 .permitAll()
+                                                .requestMatchers(HttpMethod.GET, "/api/predictions/bootstrap")
+                                                .permitAll()
                                                 .requestMatchers(HttpMethod.GET, "/api/predictions/ranking/current-season")
                                                 .permitAll()
                                                 .requestMatchers(HttpMethod.GET, "/api/predictions/ranking/share/**")
@@ -542,6 +568,10 @@ public class SecurityConfig {
                                                 // 6. 공개 GET 요청 엔드포인트
                                                 .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                                                 .requestMatchers(HttpMethod.GET, PUBLIC_PARTY_GET_ENDPOINTS).permitAll()
+                                                .requestMatchers(HttpMethod.GET, PUBLIC_PARTY_SEARCH_TERM_GET_ENDPOINTS)
+                                                .permitAll()
+                                                .requestMatchers(HttpMethod.POST, "/api/parties/search-terms")
+                                                .authenticated()
 
                                                 // 7. 공개 API 엔드포인트 (구체적 인증 경로 먼저, 와일드카드 이전)
                                                 .requestMatchers(HttpMethod.POST, "/api/stadiums/*/favorite")

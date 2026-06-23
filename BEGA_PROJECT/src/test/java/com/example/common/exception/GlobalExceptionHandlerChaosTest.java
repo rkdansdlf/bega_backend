@@ -90,7 +90,7 @@ class GlobalExceptionHandlerChaosTest {
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.isSuccess()).isFalse();
         assertThat(body.getCode()).isEqualTo("REFRESH_TOKEN_REVOKE_FAILED");
-        assertThat(body.getMessage()).isEqualTo("보안 조치를 완료할 수 없습니다. 잠시 후 다시 시도해주세요.");
+        assertThat(body.getMessage()).isEqualTo("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
         assertThat(body.getMessage()).doesNotContain("모든 세션이 종료되었습니다");
         assertThat(body.getMessage()).doesNotContain("delete failed");
     }
@@ -107,7 +107,8 @@ class GlobalExceptionHandlerChaosTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.GATEWAY_TIMEOUT);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
-        assertThat(body.getMessage()).isEqualTo("AI upstream request timed out");
+        assertThat(body.getMessage()).isEqualTo("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+        assertThat(body.getMessage()).doesNotContain("AI upstream");
     }
 
     @Test
@@ -118,7 +119,8 @@ class GlobalExceptionHandlerChaosTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
-        assertThat(body.getMessage()).isEqualTo("AI upstream connection failed");
+        assertThat(body.getMessage()).isEqualTo("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+        assertThat(body.getMessage()).doesNotContain("AI upstream");
     }
 
     @Test
@@ -129,7 +131,8 @@ class GlobalExceptionHandlerChaosTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
-        assertThat(body.getMessage()).isEqualTo("AI service URL is not configured");
+        assertThat(body.getMessage()).isEqualTo("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+        assertThat(body.getMessage()).doesNotContain("AI service URL");
     }
 
     @Test

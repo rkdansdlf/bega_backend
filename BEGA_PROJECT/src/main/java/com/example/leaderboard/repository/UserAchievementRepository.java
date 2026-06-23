@@ -22,9 +22,6 @@ public interface UserAchievementRepository extends JpaRepository<UserAchievement
     List<UserAchievement> findByUserId(Long userId);
 
     @Query("SELECT ua FROM UserAchievement ua JOIN FETCH ua.achievement WHERE ua.userId = :userId ORDER BY ua.earnedAt DESC")
-    List<UserAchievement> findByUserIdWithAchievement(@Param("userId") Long userId);
-
-    @Query("SELECT ua FROM UserAchievement ua JOIN FETCH ua.achievement WHERE ua.userId = :userId ORDER BY ua.earnedAt DESC")
     List<UserAchievement> findRecentByUserId(@Param("userId") Long userId, Pageable pageable);
 
     // ============================================

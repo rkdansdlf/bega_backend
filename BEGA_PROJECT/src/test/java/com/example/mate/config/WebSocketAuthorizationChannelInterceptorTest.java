@@ -25,8 +25,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.example.dm.service.DmRoomService;
 import com.example.mate.entity.Party;
-import com.example.mate.entity.PartyApplication;
-import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 
 @ExtendWith(MockitoExtension.class)
@@ -37,9 +35,6 @@ class WebSocketAuthorizationChannelInterceptorTest {
     private PartyRepository partyRepository;
 
     @Mock
-    private PartyApplicationRepository partyApplicationRepository;
-
-    @Mock
     private DmRoomService dmRoomService;
 
     private WebSocketAuthorizationChannelInterceptor interceptor;
@@ -48,7 +43,7 @@ class WebSocketAuthorizationChannelInterceptorTest {
     @BeforeEach
     void setUp() {
         SecurityContextHolder.clearContext();
-        interceptor = new WebSocketAuthorizationChannelInterceptor(partyRepository, partyApplicationRepository, dmRoomService);
+        interceptor = new WebSocketAuthorizationChannelInterceptor(partyRepository, dmRoomService);
         channel = mock(MessageChannel.class);
     }
 
@@ -79,7 +74,7 @@ class WebSocketAuthorizationChannelInterceptorTest {
     @Test
     @DisplayName("party subscription should allow host")
     void subscribe_partyTopic_allowsHost() {
-        given(partyRepository.findById(10L)).willReturn(java.util.Optional.of(
+        given(partyRepository.findAccessibleByIdAndParticipantId(10L, 123L)).willReturn(java.util.Optional.of(
                 Party.builder().id(10L).hostId(123L).build()));
 
         Message<byte[]> message = message(StompCommand.SUBSCRIBE, "/topic/party/10", principal("123"));
@@ -90,9 +85,7 @@ class WebSocketAuthorizationChannelInterceptorTest {
     @Test
     @DisplayName("party subscription should reject non-member")
     void subscribe_partyTopic_rejectsNonMember() {
-        given(partyRepository.findById(10L)).willReturn(java.util.Optional.of(
-                Party.builder().id(10L).hostId(999L).build()));
-        given(partyApplicationRepository.findByPartyIdAndApplicantId(10L, 123L))
+        given(partyRepository.findAccessibleByIdAndParticipantId(10L, 123L))
                 .willReturn(java.util.Optional.empty());
 
         Message<byte[]> message = message(StompCommand.SUBSCRIBE, "/topic/party/10", principal("123"));
@@ -145,11 +138,8 @@ class WebSocketAuthorizationChannelInterceptorTest {
     @Test
     @DisplayName("chat send should allow approved participant")
     void send_chat_allowsApprovedParticipant() {
-        given(partyRepository.findById(10L)).willReturn(java.util.Optional.of(
+        given(partyRepository.findAccessibleByIdAndParticipantId(10L, 123L)).willReturn(java.util.Optional.of(
                 Party.builder().id(10L).hostId(999L).build()));
-        given(partyApplicationRepository.findByPartyIdAndApplicantId(10L, 123L))
-                .willReturn(java.util.Optional.of(
-                        PartyApplication.builder().partyId(10L).applicantId(123L).isApproved(true).build()));
 
         Message<byte[]> message = message(StompCommand.SEND, "/app/chat/10", principal("123"));
 

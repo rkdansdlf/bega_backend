@@ -95,4 +95,44 @@ class MediaLinkServiceTest {
 
         assertEquals("MEDIA_ASSET_NOT_READY", exception.getCode());
     }
+
+    @Test
+    @DisplayName("도메인이 다른 managed key는 저장에 사용할 수 없다")
+    void resolveReadyAssets_rejectsDomainMismatch() {
+        MediaAsset cheerAsset = MediaAsset.builder()
+                .id(45L)
+                .ownerUserId(2L)
+                .domain(MediaDomain.CHEER)
+                .status(MediaAssetStatus.READY)
+                .objectKey("media/chat/2/45.webp")
+                .build();
+
+        when(mediaAssetRepository.findByObjectKeyIn(List.of("media/chat/2/45.webp"))).thenReturn(List.of(cheerAsset));
+
+        BadRequestBusinessException exception = assertThrows(
+                BadRequestBusinessException.class,
+                () -> mediaLinkService.resolveReadyAssets(2L, MediaDomain.CHAT, List.of("media/chat/2/45.webp")));
+
+        assertEquals("MEDIA_ASSET_DOMAIN_MISMATCH", exception.getCode());
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 managed key는 없는 업로드처럼 처리한다")
+    void resolveReadyAssets_rejectsNonOwnedManagedAssetAsNotFound() {
+        MediaAsset otherUsersAsset = MediaAsset.builder()
+                .id(51L)
+                .ownerUserId(9L)
+                .domain(MediaDomain.CHAT)
+                .status(MediaAssetStatus.READY)
+                .objectKey("media/chat/9/51.webp")
+                .build();
+
+        when(mediaAssetRepository.findByObjectKeyIn(List.of("media/chat/9/51.webp"))).thenReturn(List.of(otherUsersAsset));
+
+        BadRequestBusinessException exception = assertThrows(
+                BadRequestBusinessException.class,
+                () -> mediaLinkService.resolveReadyAssets(2L, MediaDomain.CHAT, List.of("media/chat/9/51.webp")));
+
+        assertEquals("MEDIA_ASSET_NOT_FOUND", exception.getCode());
+    }
 }

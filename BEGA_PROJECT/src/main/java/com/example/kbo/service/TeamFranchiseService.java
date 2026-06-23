@@ -96,7 +96,7 @@ public class TeamFranchiseService {
      */
     public List<TeamEntity> getActiveTeamsByFranchiseId(Integer franchiseId) {
         log.debug("Fetching active teams for franchise id: {}", franchiseId);
-        return Objects.requireNonNull(teamRepository.findAllByFranchiseIdAndIsActive(franchiseId, true));
+        return Objects.requireNonNull(teamRepository.findAllByFranchise_IdAndIsActive(franchiseId, true));
     }
 
     /**
@@ -107,7 +107,7 @@ public class TeamFranchiseService {
      */
     public Optional<TeamEntity> getCurrentTeamByFranchiseId(Integer franchiseId) {
         log.debug("Fetching current active team for franchise id: {}", franchiseId);
-        return teamRepository.findByFranchiseIdAndIsActive(franchiseId, true);
+        return teamRepository.findByFranchise_IdAndIsActive(franchiseId, true);
     }
 
     /**

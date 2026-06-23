@@ -91,10 +91,27 @@ class DevDataInitializerTest {
     }
 
     @Test
+    @DisplayName("기존 seed 계정은 기본값에서 provider join 기반 repair를 수행하지 않는다")
+    void run_skipsHeavyExistingSeedRepairByDefault() throws Exception {
+        ReflectionTestUtils.setField(devDataInitializer, "testAdminEmail", "rhksflwk@mail.com");
+        ReflectionTestUtils.setField(devDataInitializer, "testAdminPassword", "Rhksflwk1234@");
+
+        when(userRepository.existsByEmail("rhksflwk@mail.com")).thenReturn(true);
+
+        devDataInitializer.run();
+
+        verify(userRepository, never()).findWithProvidersByEmail("rhksflwk@mail.com");
+        verify(userRepository, never()).save(any(UserEntity.class));
+        verify(userProviderRepository, never()).save(any(UserProvider.class));
+        verify(sellerPayoutProfileRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("기존 admin seed 계정이 ROLE_USER여도 ROLE_ADMIN으로 승격 동기화한다")
     void run_upgradesExistingSeedAccountToAdminRole() throws Exception {
         ReflectionTestUtils.setField(devDataInitializer, "testAdminEmail", "rhksflwk@mail.com");
         ReflectionTestUtils.setField(devDataInitializer, "testAdminPassword", "Rhksflwk1234@");
+        ReflectionTestUtils.setField(devDataInitializer, "repairExisting", true);
 
         UserEntity existingUser = UserEntity.builder()
                 .id(77L)

@@ -22,6 +22,7 @@ import com.example.auth.repository.UserFollowRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.ForbiddenBusinessException;
+import com.example.common.exception.NotFoundBusinessException;
 import com.example.dm.dto.DmRoomDto;
 import com.example.dm.entity.DmRoom;
 import com.example.dm.repository.DmRoomRepository;
@@ -144,6 +145,24 @@ class DmRoomServiceTest {
                 .build());
 
         assertThat(response.getRoomId()).isEqualTo(88L);
+    }
+
+    @Test
+    @DisplayName("non participants cannot distinguish missing and inaccessible rooms")
+    void getAccessibleRoom_treatsNonParticipantRoomAsNotFound() {
+        when(dmRoomRepository.findAccessibleByIdAndParticipantId(88L, 30L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> dmRoomService.getAccessibleRoom(88L, 30L))
+                .isInstanceOf(NotFoundBusinessException.class)
+                .hasMessage("대화방을 찾을 수 없습니다.");
+    }
+
+    @Test
+    @DisplayName("subscribe authorization requires a participant-scoped room match")
+    void canSubscribe_requiresParticipantScopedRoom() {
+        when(dmRoomRepository.findAccessibleByIdAndParticipantId(88L, 30L)).thenReturn(Optional.empty());
+
+        assertThat(dmRoomService.canSubscribe(88L, 30L)).isFalse();
     }
 
     private UserEntity targetUser() {

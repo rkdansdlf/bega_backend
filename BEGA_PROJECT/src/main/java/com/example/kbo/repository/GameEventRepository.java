@@ -24,15 +24,18 @@ public interface GameEventRepository extends JpaRepository<GameEventEntity, Inte
 
     Optional<GameEventEntity> findFirstByGameIdOrderByEventSeqDesc(String gameId);
 
-    @Query("""
-            SELECT e
-            FROM GameEventEntity e
-            WHERE e.gameId IN :gameIds
-              AND e.eventSeq = (
-                  SELECT MAX(latest.eventSeq)
-                  FROM GameEventEntity latest
-                  WHERE latest.gameId = e.gameId
-              )
-            """)
+    @Query(value = """
+            SELECT e.*
+            FROM game_events e
+            JOIN (
+                SELECT game_id, MAX(event_seq) AS max_event_seq
+                FROM game_events
+                WHERE game_id IN (:gameIds)
+                GROUP BY game_id
+            ) latest
+              ON latest.game_id = e.game_id
+             AND latest.max_event_seq = e.event_seq
+            WHERE e.game_id IN (:gameIds)
+            """, nativeQuery = true)
     List<GameEventEntity> findLatestByGameIds(@Param("gameIds") Collection<String> gameIds);
 }

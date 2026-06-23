@@ -1,9 +1,11 @@
 package com.example.auth.config;
 
 import com.example.ai.config.AiServiceSettings;
+import com.example.ai.filter.AiProxyRequestLimitFilter;
 import com.example.common.config.AllowedOriginResolver;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -14,6 +16,7 @@ import org.springframework.security.web.access.intercept.RequestAuthorizationCon
 import java.lang.reflect.Field;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -24,6 +27,8 @@ class SecurityConfigTest {
     @DisplayName("PUBLIC_PARTY_GET_ENDPOINTS should expose public party read routes")
     void publicPartyGetEndpointsContainsPartiesRoutes() throws Exception {
         String[] publicPartyGetEndpoints = getPrivateStaticStringArray("PUBLIC_PARTY_GET_ENDPOINTS");
+        String[] publicPartySearchTermGetEndpoints =
+                getPrivateStaticStringArray("PUBLIC_PARTY_SEARCH_TERM_GET_ENDPOINTS");
 
         assertThat(publicPartyGetEndpoints).contains(
                 "/api/parties",
@@ -31,6 +36,9 @@ class SecurityConfigTest {
                 "/api/parties/status/*",
                 "/api/parties/profile/*",
                 "/api/parties/upcoming");
+        assertThat(publicPartySearchTermGetEndpoints).contains("/api/parties/search-terms/popular");
+        assertThatThrownBy(() -> getPrivateStaticStringArray("PUBLIC_PARTY_SEARCH_TERM_POST_ENDPOINTS"))
+                .isInstanceOf(NoSuchFieldException.class);
     }
 
     @Test
@@ -101,6 +109,28 @@ class SecurityConfigTest {
     }
 
     @Test
+    @DisplayName("prod CSP should reject inline scripts and unsafe eval")
+    void buildContentSecurityPolicy_prodRejectsInlineScripts() {
+        SecurityConfig securityConfig = newSecurityConfig("prod");
+
+        String csp = securityConfig.buildContentSecurityPolicy();
+
+        assertThat(csp).contains("script-src 'self'");
+        assertThat(csp).doesNotContain("script-src 'self' 'unsafe-inline'");
+        assertThat(csp).doesNotContain("'unsafe-eval'");
+    }
+
+    @Test
+    @DisplayName("dev CSP should keep development script compatibility")
+    void buildContentSecurityPolicy_devKeepsDevelopmentScriptCompatibility() {
+        SecurityConfig securityConfig = newSecurityConfig("dev");
+
+        String csp = securityConfig.buildContentSecurityPolicy();
+
+        assertThat(csp).contains("script-src 'self' 'unsafe-inline' 'unsafe-eval'");
+    }
+
+    @Test
     @DisplayName("public API endpoints should not expose email-to-id mapping")
     void publicApiEndpoints_excludeEmailToId() throws Exception {
         String[] publicApiEndpoints = getPrivateStaticStringArray("PUBLIC_API_ENDPOINTS");
@@ -154,6 +184,19 @@ class SecurityConfigTest {
         setPrivateField(securityConfig, "publicAiProxyInDevEnabled", true);
 
         assertThat(securityConfig.allowUnauthenticatedAiProxy()).isFalse();
+    }
+
+    @Test
+    @DisplayName("AI request-limit servlet auto-registration is disabled")
+    void aiProxyRequestLimitFilterRegistration_disablesServletAutoRegistration() {
+        SecurityConfig securityConfig = newSecurityConfig("dev");
+        AiProxyRequestLimitFilter filter = mock(AiProxyRequestLimitFilter.class);
+
+        FilterRegistrationBean<AiProxyRequestLimitFilter> registration =
+                securityConfig.aiProxyRequestLimitFilterRegistration(filter);
+
+        assertThat(registration.isEnabled()).isFalse();
+        assertThat(registration.getFilter()).isSameAs(filter);
     }
 
     @Test

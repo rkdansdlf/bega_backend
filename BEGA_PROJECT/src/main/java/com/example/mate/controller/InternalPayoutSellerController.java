@@ -25,7 +25,7 @@ public class InternalPayoutSellerController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
-    public ResponseEntity<ApiResponse> upsertSellerProfile(
+    public ResponseEntity<ApiResponse<SellerPayoutProfileDTO.Response>> upsertSellerProfile(
             @RequestBody SellerPayoutProfileDTO.UpsertRequest request) {
         SellerPayoutProfile profile = sellerPayoutProfileService.upsert(request);
         return ResponseEntity.ok(ApiResponse.success(
@@ -35,7 +35,7 @@ public class InternalPayoutSellerController {
 
     @GetMapping("/{userId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
-    public ResponseEntity<ApiResponse> getSellerProfile(
+    public ResponseEntity<ApiResponse<SellerPayoutProfileDTO.Response>> getSellerProfile(
             @PathVariable Long userId,
             @RequestParam(name = "provider", defaultValue = "TOSS") String provider) {
         SellerPayoutProfile profile = sellerPayoutProfileService.findByUserIdAndProvider(userId, provider)

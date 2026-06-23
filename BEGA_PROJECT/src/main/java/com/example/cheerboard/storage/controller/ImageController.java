@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -49,8 +50,11 @@ public class ImageController {
      * 게시글 이미지 목록 조회
      */
     @GetMapping("/posts/{postId}/images")
-    public ResponseEntity<List<PostImageDto>> listPostImages(@PathVariable Long postId) {
-        List<PostImageDto> images = imageService.listPostImages(postId);
+    public ResponseEntity<List<PostImageDto>> listPostImages(
+            @PathVariable Long postId,
+            @AuthenticationPrincipal Long viewerId
+    ) {
+        List<PostImageDto> images = imageService.listPostImages(postId, viewerId);
         return ResponseEntity.ok(images);
     }
 

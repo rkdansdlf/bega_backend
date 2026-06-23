@@ -9,9 +9,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDate;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -70,6 +75,93 @@ class PredictionControllerBoundsTest {
         assertThat(response.getBody().isHasPrev()).isTrue();
         assertThat(response.getBody().isHasNext()).isTrue();
         verify(predictionService).getMatchDayNavigation(date);
+    }
+
+    @Test
+    void getPredictionBootstrapShouldReturnBootstrapPayload() throws Exception {
+        PredictionService predictionService = mock(PredictionService.class);
+        PredictionRepository predictionRepository = mock(PredictionRepository.class);
+        PredictionBootstrapService predictionBootstrapService = mock(PredictionBootstrapService.class);
+        PredictionController controller = new PredictionController(
+                predictionService,
+                predictionRepository,
+                predictionBootstrapService);
+        ObjectMapper objectMapper = new ObjectMapper()
+                .registerModule(new JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+        LocalDate date = LocalDate.of(2026, 6, 7);
+        String gameId = "20260607HHLT0";
+        MatchDayNavigationResponseDto schedule = new MatchDayNavigationResponseDto(
+                date,
+                java.util.List.of(MatchDto.builder()
+                        .gameId(gameId)
+                        .gameDate(date)
+                        .homeTeam("HH")
+                        .awayTeam("LT")
+                        .stadium("Jamsil")
+                        .build()),
+                null,
+                null,
+                false,
+                false
+        );
+        PredictionBootstrapResponseDto payload = new PredictionBootstrapResponseDto(
+                schedule,
+                gameId,
+                true,
+                PredictionBootstrapResourceDto.success(GameDetailDto.builder()
+                        .gameId(gameId)
+                        .homeTeam("HH")
+                        .awayTeam("LT")
+                        .build()),
+                PredictionBootstrapResourceDto.success(PredictionResponseDto.builder()
+                        .gameId(gameId)
+                        .homeVotes(1L)
+                        .awayVotes(0L)
+                        .totalVotes(1L)
+                        .homePercentage(100)
+                        .awayPercentage(0)
+                        .build())
+        );
+        when(predictionBootstrapService.getBootstrap(date, gameId)).thenReturn(payload);
+
+        mockMvc.perform(get("/api/predictions/bootstrap")
+                .param("date", "2026-06-07")
+                .param("gameId", gameId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.schedule.date").value("2026-06-07"))
+                .andExpect(jsonPath("$.schedule.games[0].gameId").value(gameId))
+                .andExpect(jsonPath("$.schedule.games[0].gameDate").value("2026-06-07"))
+                .andExpect(jsonPath("$.selectedGameId").value(gameId))
+                .andExpect(jsonPath("$.selectedGameFound").value(true))
+                .andExpect(jsonPath("$.detail.ok").value(true))
+                .andExpect(jsonPath("$.detail.data.gameId").value(gameId))
+                .andExpect(jsonPath("$.voteStatus.ok").value(true))
+                .andExpect(jsonPath("$.voteStatus.data.homeVotes").value(1));
+    }
+
+    @Test
+    void getPredictionBootstrapShouldRejectInvalidGameId() throws Exception {
+        PredictionService predictionService = mock(PredictionService.class);
+        PredictionRepository predictionRepository = mock(PredictionRepository.class);
+        PredictionBootstrapService predictionBootstrapService = mock(PredictionBootstrapService.class);
+        PredictionController controller = new PredictionController(
+                predictionService,
+                predictionRepository,
+                predictionBootstrapService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        mockMvc.perform(get("/api/predictions/bootstrap")
+                        .param("date", "2026-06-07")
+                        .param("gameId", "bad/game"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_GAME_ID"));
     }
 
     @Test
