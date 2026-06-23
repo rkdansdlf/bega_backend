@@ -46,7 +46,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
             new RateLimitRule("POST", "/api/auth/password-reset/request", "auth:password-reset-request", 3, 3600),
             new RateLimitRule("POST", "/api/auth/password/reset/request", "auth:password-reset-request", 3, 3600),
             new RateLimitRule("POST", "/api/client-errors", "telemetry:client-error", 120, 60),
-            new RateLimitRule("POST", "/api/client-errors/feedback", "telemetry:client-feedback", 30, 60)
+            new RateLimitRule("POST", "/api/client-errors/feedback", "telemetry:client-feedback", 30, 60),
+            new RateLimitRule("POST", "/api/dm/messages", "dm:send", 60, 60),
+            new RateLimitRule("DELETE", "/api/dm/messages/", "dm:delete", 30, 60, true)
     );
 
     private final RateLimitService rateLimitService;
@@ -94,7 +96,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         String method = request.getMethod();
         String path = request.getRequestURI();
         for (RateLimitRule rule : RULES) {
-            if (rule.method.equalsIgnoreCase(method) && rule.path.equals(path)) {
+            if (rule.matches(method, path)) {
                 return rule;
             }
         }
@@ -117,7 +119,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
                         Map.of("retryAfterSeconds", retryAfterSeconds)));
     }
 
-    private record RateLimitRule(String method, String path, String ruleKey, int limit, int windowSeconds) {
+    private record RateLimitRule(String method, String path, String ruleKey, int limit, int windowSeconds, boolean prefixMatch) {
+        RateLimitRule(String method, String path, String ruleKey, int limit, int windowSeconds) {
+            this(method, path, ruleKey, limit, windowSeconds, false);
+        }
+
         RateLimitRule {
             Objects.requireNonNull(method);
             Objects.requireNonNull(path);
@@ -125,8 +131,15 @@ public class RateLimitFilter extends OncePerRequestFilter {
             HttpMethod.valueOf(method);
         }
 
+        boolean matches(String requestMethod, String requestPath) {
+            if (!method.equalsIgnoreCase(requestMethod)) {
+                return false;
+            }
+            return prefixMatch ? requestPath.startsWith(path) : path.equals(requestPath);
+        }
+
         String redisKey(String clientIp) {
-            return String.format("rate:limit:%s:%s:%s:%s", ruleKey, method, path, clientIp);
+            return String.format("rate:limit:%s:%s:%s", ruleKey, method, clientIp);
         }
 
         boolean recordsAuthMonitoring() {

@@ -11,6 +11,7 @@ import com.example.common.exception.NotFoundBusinessException;
 import com.example.dm.dto.DmMessageDto;
 import com.example.dm.entity.DmMessage;
 import com.example.dm.repository.DmMessageRepository;
+import com.example.dm.repository.DmRoomRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -19,6 +20,7 @@ import lombok.RequiredArgsConstructor;
 public class DmMessageService {
 
     private final DmMessageRepository dmMessageRepository;
+    private final DmRoomRepository dmRoomRepository;
     private final DmRoomService dmRoomService;
 
     @Transactional
@@ -58,6 +60,9 @@ public class DmMessageService {
     @Transactional
     public Long deleteMessage(Long messageId, Long currentUserId) {
         DmMessage message = dmMessageRepository.findById(messageId)
+                .orElseThrow(() -> new NotFoundBusinessException("DM_MESSAGE_NOT_FOUND", "메시지를 찾을 수 없습니다."));
+        // Non-participants get 404 (same as not-found) to prevent message-ID enumeration
+        dmRoomRepository.findAccessibleByIdAndParticipantId(message.getRoomId(), currentUserId)
                 .orElseThrow(() -> new NotFoundBusinessException("DM_MESSAGE_NOT_FOUND", "메시지를 찾을 수 없습니다."));
         if (!message.getSenderId().equals(currentUserId)) {
             throw new ForbiddenBusinessException("DM_DELETE_FORBIDDEN", "본인의 메시지만 삭제할 수 있습니다.");
