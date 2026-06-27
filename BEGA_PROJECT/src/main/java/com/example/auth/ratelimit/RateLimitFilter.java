@@ -29,6 +29,7 @@ import java.util.Objects;
  * <p>보호 대상:
  * <ul>
  *   <li>POST /api/auth/login — 3 req/min per IP</li>
+ *   <li>POST /api/auth/reissue — 20 req/min per IP</li>
  *   <li>POST /api/auth/signup — 3 req/hour per IP</li>
  *   <li>POST /api/auth/password-reset/request — 3 req/hour per IP</li>
  *   <li>POST /api/auth/password/reset/request — 3 req/hour per IP (legacy alias)</li>
@@ -42,6 +43,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private static final List<RateLimitRule> RULES = List.of(
             new RateLimitRule("POST", "/api/auth/login", "auth:login", 3, 60),
+            new RateLimitRule("POST", "/api/auth/reissue", "auth:reissue", 20, 60),
             new RateLimitRule("POST", "/api/auth/signup", "auth:signup", 3, 3600),
             new RateLimitRule("POST", "/api/auth/password-reset/request", "auth:password-reset-request", 3, 3600),
             new RateLimitRule("POST", "/api/auth/password/reset/request", "auth:password-reset-request", 3, 3600),
@@ -139,7 +141,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
 
         String redisKey(String clientIp) {
-            return String.format("rate:limit:%s:%s:%s", ruleKey, method, clientIp);
+            return String.format("rate:limit:%s:%s:%s:%s", ruleKey, method, path, clientIp);
         }
 
         boolean recordsAuthMonitoring() {

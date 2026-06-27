@@ -75,6 +75,16 @@ class RateLimitFilterTest {
     }
 
     @Test
+    void reissue_usesOneMinuteFailClosedRule() throws Exception {
+        doRequest("POST", "/api/auth/reissue", "203.0.113.21");
+
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(rateLimitService).isAllowed(keyCaptor.capture(), eq(20), eq(60), eq(true));
+        assertThat(keyCaptor.getValue())
+                .isEqualTo("rate:limit:auth:reissue:POST:/api/auth/reissue:203.0.113.21");
+    }
+
+    @Test
     void clientError_usesTelemetryRateLimitKeyFromResolvedClientIp() throws Exception {
         doRequest("POST", "/api/client-errors", "203.0.113.60");
 

@@ -1,11 +1,14 @@
 package com.example.common.web;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
+import org.springframework.security.web.util.matcher.IpAddressMatcher;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -18,15 +21,27 @@ public class ClientIpResolver {
             "0:0:0:0:0:0:0:1");
 
     private final Set<String> trustedProxies;
+    private final List<IpAddressMatcher> trustedProxyMatchers;
 
     public ClientIpResolver(
             @Value("${app.trusted-proxies:}") String trustedProxiesProperty,
             Environment environment) {
         LinkedHashSet<String> resolvedTrustedProxies = new LinkedHashSet<>();
+        List<IpAddressMatcher> resolvedMatchers = new ArrayList<>();
         Arrays.stream(trustedProxiesProperty.split(","))
                 .map(String::trim)
                 .filter(StringUtils::hasText)
-                .forEach(resolvedTrustedProxies::add);
+                .forEach(entry -> {
+                    if (entry.contains("/")) {
+                        try {
+                            resolvedMatchers.add(new IpAddressMatcher(entry));
+                        } catch (IllegalArgumentException ignored) {
+                            // Invalid trusted proxy entries are ignored to avoid startup failures.
+                        }
+                    } else {
+                        resolvedTrustedProxies.add(entry);
+                    }
+                });
 
         boolean devOrLocal = Arrays.stream(environment.getActiveProfiles())
                 .anyMatch(profile -> "dev".equalsIgnoreCase(profile) || "local".equalsIgnoreCase(profile));
@@ -35,6 +50,7 @@ public class ClientIpResolver {
         }
 
         this.trustedProxies = Set.copyOf(resolvedTrustedProxies);
+        this.trustedProxyMatchers = List.copyOf(resolvedMatchers);
     }
 
     public String resolve(HttpServletRequest request) {
@@ -66,7 +82,22 @@ public class ClientIpResolver {
     }
 
     private boolean isTrustedProxy(String remoteAddr) {
-        return StringUtils.hasText(remoteAddr) && trustedProxies.contains(remoteAddr);
+        if (!StringUtils.hasText(remoteAddr)) {
+            return false;
+        }
+        if (trustedProxies.contains(remoteAddr)) {
+            return true;
+        }
+        for (IpAddressMatcher matcher : trustedProxyMatchers) {
+            try {
+                if (matcher.matches(remoteAddr)) {
+                    return true;
+                }
+            } catch (IllegalArgumentException ignored) {
+                // IP version mismatches are not trusted.
+            }
+        }
+        return false;
     }
 
     private String extractFirstIp(String forwardedFor) {
