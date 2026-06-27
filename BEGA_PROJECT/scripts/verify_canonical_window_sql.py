@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import time
 from typing import Dict
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -23,6 +24,13 @@ except ModuleNotFoundError:  # pragma: no cover - handled by runtime checks
 
 
 LEGACY_CODES = ["SK", "OB", "HT", "WO", "DO", "KI", "KW", "NX", "SL", "BE", "MBC", "LOT"]
+TRANSIENT_DB_ERROR_MARKERS = (
+    "server closed the connection unexpectedly",
+    "connection is bad",
+    "connection not open",
+    "terminating connection",
+    "ssl syscall error",
+)
 
 QUERY_BY_TABLE = {
     "game": """
@@ -57,20 +65,26 @@ QUERY_BY_TABLE = {
           AND gl.team_code = ANY(%s)
     """,
     "game_batting_stats": """
-        SELECT COUNT(*)::bigint
-        FROM game_batting_stats gs
-        JOIN game g ON gs.game_id = g.game_id
-        JOIN kbo_seasons ks ON g.season_id = ks.season_id
-        WHERE ks.season_year BETWEEN %s AND %s
-          AND gs.team_code = ANY(%s)
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM game_batting_stats gs
+            JOIN game g ON gs.game_id = g.game_id
+            JOIN kbo_seasons ks ON g.season_id = ks.season_id
+            WHERE ks.season_year BETWEEN %s AND %s
+              AND gs.team_code = ANY(%s)
+            LIMIT 1
+        ) THEN 1 ELSE 0 END
     """,
     "game_pitching_stats": """
-        SELECT COUNT(*)::bigint
-        FROM game_pitching_stats gs
-        JOIN game g ON gs.game_id = g.game_id
-        JOIN kbo_seasons ks ON g.season_id = ks.season_id
-        WHERE ks.season_year BETWEEN %s AND %s
-          AND gs.team_code = ANY(%s)
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM game_pitching_stats gs
+            JOIN game g ON gs.game_id = g.game_id
+            JOIN kbo_seasons ks ON g.season_id = ks.season_id
+            WHERE ks.season_year BETWEEN %s AND %s
+              AND gs.team_code = ANY(%s)
+            LIMIT 1
+        ) THEN 1 ELSE 0 END
     """,
     "team_daily_roster": """
         SELECT COUNT(*)::bigint
@@ -80,6 +94,8 @@ QUERY_BY_TABLE = {
     """,
 }
 
+EXISTENCE_QUERY_TABLES = {"game_batting_stats", "game_pitching_stats"}
+
 
 def _safe_int(value: object, default: int = 0) -> int:
     try:
@@ -88,6 +104,15 @@ def _safe_int(value: object, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    return max(1, _safe_int(os.getenv(name), default))
+
+
+def _is_transient_db_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in TRANSIENT_DB_ERROR_MARKERS)
 
 
 def _dsn_host(dsn: str) -> str | None:
@@ -222,6 +247,65 @@ def evaluate_legacy_residuals(
     }
 
 
+def _query_params(table: str, window_start: int, window_end: int) -> tuple[object, ...]:
+    if table == "game":
+        return (
+            window_start,
+            window_end,
+            LEGACY_CODES,
+            LEGACY_CODES,
+            LEGACY_CODES,
+        )
+    return (window_start, window_end, LEGACY_CODES)
+
+
+def _query_legacy_residual_table(db_url: str, table: str, query: str, params: tuple[object, ...]) -> int:
+    if psycopg is None:
+        raise RuntimeError("psycopg is not installed")
+
+    with psycopg.connect(db_url, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            return _safe_int(cur.fetchone()[0])
+
+
+def collect_legacy_residuals(
+    db_url: str,
+    *,
+    window_start: int,
+    window_end: int,
+    max_attempts: int | None = None,
+    retry_delay_seconds: float = 1.0,
+    query_by_table: Dict[str, str] | None = None,
+) -> tuple[Dict[str, int], Dict[str, object]]:
+    queries = query_by_table if query_by_table is not None else QUERY_BY_TABLE
+    attempts = max_attempts or _positive_int_env("CANONICAL_GUARD_QUERY_ATTEMPTS", 2)
+    residuals: Dict[str, int] = {}
+    timings: Dict[str, object] = {}
+
+    for table, query in queries.items():
+        started = datetime.now(timezone.utc)
+        params = _query_params(table, window_start, window_end)
+        table_attempts = 0
+        while True:
+            table_attempts += 1
+            try:
+                residuals[table] = _query_legacy_residual_table(db_url, table, query, params)
+                elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+                timings[table] = {
+                    "attempts": table_attempts,
+                    "seconds": round(elapsed, 2),
+                    "mode": "exists" if table in EXISTENCE_QUERY_TABLES else "count",
+                }
+                break
+            except Exception as exc:
+                if table_attempts >= attempts or not _is_transient_db_error(exc):
+                    raise RuntimeError(f"{table}: {exc}") from exc
+                time.sleep(retry_delay_seconds)
+
+    return residuals, timings
+
+
 def _append_github_step_summary(lines: list[str]) -> None:
     summary_path = os.getenv("GITHUB_STEP_SUMMARY")
     if not summary_path:
@@ -326,6 +410,7 @@ def main() -> int:
             "strict_legacy_residual": args.strict_legacy_residual,
         },
         "legacy_residuals": {},
+        "query_diagnostics": {},
         "runtime_seconds": None,
     }
 
@@ -337,23 +422,13 @@ def main() -> int:
             raise RuntimeError("psycopg is not installed")
         db_url = _resolve_db_url(args.db_url_env)
         output["db_host"] = _dsn_host(db_url)
-        with psycopg.connect(db_url, autocommit=True) as conn:
-            with conn.cursor() as cur:
-                for table, query in QUERY_BY_TABLE.items():
-                    if table == "game":
-                        cur.execute(
-                            query,
-                            (
-                                args.window_start,
-                                args.window_end,
-                                LEGACY_CODES,
-                                LEGACY_CODES,
-                                LEGACY_CODES,
-                            ),
-                        )
-                    else:
-                        cur.execute(query, (args.window_start, args.window_end, LEGACY_CODES))
-                    output["legacy_residuals"][table] = _safe_int(cur.fetchone()[0])
+        residuals, diagnostics = collect_legacy_residuals(
+            db_url,
+            window_start=args.window_start,
+            window_end=args.window_end,
+        )
+        output["legacy_residuals"] = residuals
+        output["query_diagnostics"] = diagnostics
     except Exception as exc:
         output["fatal_error"] = str(exc)
         exit_code = 1

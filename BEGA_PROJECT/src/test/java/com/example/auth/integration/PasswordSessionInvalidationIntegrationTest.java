@@ -5,6 +5,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.util.JWTUtil;
+import com.example.common.ratelimit.RateLimitService;
 import jakarta.servlet.http.Cookie;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -18,8 +19,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -65,12 +71,17 @@ class PasswordSessionInvalidationIntegrationTest {
     @Autowired
     private JWTUtil jwtUtil;
 
+    @MockitoBean
+    private RateLimitService rateLimitService;
+
     private UserEntity user;
     private String accessToken;
     private String refreshToken;
 
     @BeforeEach
     void setUp() {
+        when(rateLimitService.isAllowed(anyString(), anyInt(), anyInt(), anyBoolean())).thenReturn(true);
+
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         user = userRepository.save(UserEntity.builder()
                 .uniqueId(UUID.randomUUID())
