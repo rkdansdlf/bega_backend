@@ -50,4 +50,12 @@ public class PartyReviewController {
         List<PartyReviewDTO.Response> reviews = partyReviewService.getReviewsByParty(partyId, AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(reviews);
     }
+
+    /**
+     * 호스트(핸들)가 받은 전체 후기 조회 (공개)
+     */
+    @GetMapping("/host/{handle}")
+    public ResponseEntity<List<PartyReviewDTO.Response>> getReviewsByHost(@PathVariable String handle) {
+        return ResponseEntity.ok(partyReviewService.getReviewsByHostHandle(handle));
+    }
 }

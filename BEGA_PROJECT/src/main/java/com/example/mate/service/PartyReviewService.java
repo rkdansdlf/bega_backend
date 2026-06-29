@@ -107,6 +107,20 @@ public class PartyReviewService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 호스트(핸들)가 받은 전체 후기 조회 (공개, 최신순).
+     */
+    @Transactional(readOnly = true)
+    public List<PartyReviewDTO.Response> getReviewsByHostHandle(String handle) {
+        Long hostId = userService.getUserIdByHandle(handle);
+        return partyReviewRepository.findByRevieweeId(hostId).stream()
+                .sorted(java.util.Comparator.comparing(
+                        PartyReview::getCreatedAt,
+                        java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())))
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
     private Long resolveRevieweeId(PartyReviewDTO.Request request) {
         if (request.getRevieweeHandle() != null && !request.getRevieweeHandle().isBlank()) {
             return userService.getUserIdByHandle(request.getRevieweeHandle());

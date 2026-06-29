@@ -1,0 +1,1 @@
+ALTER TABLE parties ADD COLUMN IF NOT EXISTS seat_detail VARCHAR(100);

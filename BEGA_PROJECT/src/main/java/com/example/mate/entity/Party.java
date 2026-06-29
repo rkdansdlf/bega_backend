@@ -63,6 +63,9 @@ public class Party {
     @Column(nullable = false, length = 50)
     private String section; // 섹션 정보
 
+    @Column(name = "seat_detail", length = 100)
+    private String seatDetail; // 좌석 상세 (블록·열 등, 선택)
+
     @Column(name = "maxparticipants", nullable = false)
     private Integer maxParticipants; // 최대 참여 인원
 
