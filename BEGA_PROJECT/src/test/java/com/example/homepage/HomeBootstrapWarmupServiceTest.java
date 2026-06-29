@@ -5,6 +5,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import com.example.kbo.validation.ManualBaseballDataMissingItem;
+import com.example.kbo.validation.ManualBaseballDataRequest;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -22,7 +24,7 @@ class HomeBootstrapWarmupServiceTest {
 
     private static final Clock FIXED_CLOCK =
             Clock.fixed(Instant.parse("2026-05-15T00:00:00Z"), ZoneId.of("Asia/Seoul"));
-    private static final Duration WARMUP_SECTION_TIMEOUT = Duration.ofSeconds(8);
+    private static final Duration WARMUP_SECTION_TIMEOUT = Duration.ofSeconds(3);
 
     @Mock
     private HomePageFacadeService homePageFacadeService;
@@ -54,53 +56,62 @@ class HomeBootstrapWarmupServiceTest {
     }
 
     @Test
-    @DisplayName("warm-up 첫 응답이 partial이면 하위 cache warm 이후 한 번 더 refresh한다")
-    void warmupTodayBootstrapRetriesOnceWhenFirstResponseIsPartial() {
+    @DisplayName("warm-up 첫 응답이 partial이면 같은 tick에서 재시도나 ranking warm-up을 하지 않는다")
+    void warmupTodayBootstrapDoesNotRetryOrWarmRankingWhenFirstResponseIsPartial() {
         LocalDate today = LocalDate.of(2026, 5, 15);
         HomeBootstrapWarmupService service =
                 new HomeBootstrapWarmupService(homePageFacadeService, FIXED_CLOCK, true, Duration.ZERO);
         when(homePageFacadeService.refreshBootstrap(today, WARMUP_SECTION_TIMEOUT))
-                .thenReturn(partialBootstrapResponse())
-                .thenReturn(completeBootstrapResponse());
-
-        service.warmupTodayBootstrap();
-
-        verify(homePageFacadeService, org.mockito.Mockito.times(2)).refreshBootstrap(today, WARMUP_SECTION_TIMEOUT);
-        verify(homePageFacadeService).getRankingSnapshot(today, null);
-        verifyNoMoreInteractions(homePageFacadeService);
-    }
-
-    @Test
-    @DisplayName("warm-up partial 응답이 반복되어도 최대 2회까지만 refresh한다")
-    void warmupTodayBootstrapDoesNotRetryMoreThanTwiceWhenPartialPersists() {
-        LocalDate today = LocalDate.of(2026, 5, 15);
-        HomeBootstrapWarmupService service =
-                new HomeBootstrapWarmupService(homePageFacadeService, FIXED_CLOCK, true, Duration.ZERO);
-        when(homePageFacadeService.refreshBootstrap(today, WARMUP_SECTION_TIMEOUT))
-                .thenReturn(partialBootstrapResponse())
                 .thenReturn(partialBootstrapResponse());
 
         service.warmupTodayBootstrap();
 
-        verify(homePageFacadeService, org.mockito.Mockito.times(2)).refreshBootstrap(today, WARMUP_SECTION_TIMEOUT);
-        verify(homePageFacadeService).getRankingSnapshot(today, null);
+        verify(homePageFacadeService).refreshBootstrap(today, WARMUP_SECTION_TIMEOUT);
         verifyNoMoreInteractions(homePageFacadeService);
     }
 
     @Test
-    @DisplayName("warm-up은 section 목록이 있으면 fallback/timeout flag가 false여도 partial로 재시도한다")
-    void warmupTodayBootstrapRetriesWhenSectionListsArePresentEvenIfFlagsAreFalse() {
+    @DisplayName("warm-up partial 응답이 반복 가능한 상태여도 같은 tick에서는 한 번만 refresh한다")
+    void warmupTodayBootstrapRefreshesOnceWhenPartialPersists() {
         LocalDate today = LocalDate.of(2026, 5, 15);
         HomeBootstrapWarmupService service =
                 new HomeBootstrapWarmupService(homePageFacadeService, FIXED_CLOCK, true, Duration.ZERO);
         when(homePageFacadeService.refreshBootstrap(today, WARMUP_SECTION_TIMEOUT))
-                .thenReturn(partialBootstrapResponseWithFalseFlags())
-                .thenReturn(completeBootstrapResponse());
+                .thenReturn(partialBootstrapResponse());
 
         service.warmupTodayBootstrap();
 
-        verify(homePageFacadeService, org.mockito.Mockito.times(2)).refreshBootstrap(today, WARMUP_SECTION_TIMEOUT);
-        verify(homePageFacadeService).getRankingSnapshot(today, null);
+        verify(homePageFacadeService).refreshBootstrap(today, WARMUP_SECTION_TIMEOUT);
+        verifyNoMoreInteractions(homePageFacadeService);
+    }
+
+    @Test
+    @DisplayName("warm-up은 section 목록이 있으면 fallback/timeout flag가 false여도 partial로 보고 멈춘다")
+    void warmupTodayBootstrapStopsWhenSectionListsArePresentEvenIfFlagsAreFalse() {
+        LocalDate today = LocalDate.of(2026, 5, 15);
+        HomeBootstrapWarmupService service =
+                new HomeBootstrapWarmupService(homePageFacadeService, FIXED_CLOCK, true, Duration.ZERO);
+        when(homePageFacadeService.refreshBootstrap(today, WARMUP_SECTION_TIMEOUT))
+                .thenReturn(partialBootstrapResponseWithFalseFlags());
+
+        service.warmupTodayBootstrap();
+
+        verify(homePageFacadeService).refreshBootstrap(today, WARMUP_SECTION_TIMEOUT);
+        verifyNoMoreInteractions(homePageFacadeService);
+    }
+
+    @Test
+    @DisplayName("warm-up은 manual-data metadata가 있으면 section 실패가 없어도 partial로 보고 멈춘다")
+    void warmupTodayBootstrapStopsWhenManualDataRequestExistsWithoutFailedSections() {
+        LocalDate today = LocalDate.of(2026, 5, 15);
+        HomeBootstrapWarmupService service =
+                new HomeBootstrapWarmupService(homePageFacadeService, FIXED_CLOCK, true, Duration.ZERO);
+        when(homePageFacadeService.refreshBootstrap(today, WARMUP_SECTION_TIMEOUT))
+                .thenReturn(partialBootstrapResponseWithManualDataOnly());
+
+        service.warmupTodayBootstrap();
+
+        verify(homePageFacadeService).refreshBootstrap(today, WARMUP_SECTION_TIMEOUT);
         verifyNoMoreInteractions(homePageFacadeService);
     }
 
@@ -144,8 +155,8 @@ class HomeBootstrapWarmupServiceTest {
     }
 
     @Test
-    @DisplayName("warm-up max-attempts가 1이면 partial 응답에도 재시도하지 않는다")
-    void warmupTodayBootstrapHonorsMaxAttemptsThrottle() {
+    @DisplayName("warm-up max-attempts 설정과 무관하게 partial 응답은 ranking warm-up까지 진행하지 않는다")
+    void warmupTodayBootstrapDoesNotWarmRankingAfterPartialResponse() {
         LocalDate today = LocalDate.of(2026, 5, 15);
         HomeBootstrapWarmupService service = new HomeBootstrapWarmupService(
                 homePageFacadeService,
@@ -161,7 +172,6 @@ class HomeBootstrapWarmupServiceTest {
         service.warmupTodayBootstrap();
 
         verify(homePageFacadeService).refreshBootstrap(today, WARMUP_SECTION_TIMEOUT);
-        verify(homePageFacadeService).getRankingSnapshot(today, null);
         verifyNoMoreInteractions(homePageFacadeService);
     }
 
@@ -197,6 +207,28 @@ class HomeBootstrapWarmupServiceTest {
                         .timedOut(false)
                         .timedOutSections(List.of("scheduledGamesWindow"))
                         .failedSections(List.of("scheduledGamesWindow"))
+                        .build())
+                .build();
+    }
+
+    private HomeBootstrapResponseDto partialBootstrapResponseWithManualDataOnly() {
+        return HomeBootstrapResponseDto.builder()
+                .selectedDate("2026-05-15")
+                .loadState(HomeBootstrapLoadStateDto.builder()
+                        .isFallback(false)
+                        .timedOut(false)
+                        .timedOutSections(List.of())
+                        .failedSections(List.of())
+                        .failureReason("manual-data-required")
+                        .manualDataRequest(new ManualBaseballDataRequest(
+                                "home.schedule",
+                                List.of(new ManualBaseballDataMissingItem(
+                                        "final_score",
+                                        "최종 점수",
+                                        "과거 경기의 최종 점수가 비어 있습니다.",
+                                        "home_score, away_score")),
+                                "다음 야구 데이터가 필요합니다: 경기 ID=20260515LGKT0",
+                                true))
                         .build())
                 .build();
     }

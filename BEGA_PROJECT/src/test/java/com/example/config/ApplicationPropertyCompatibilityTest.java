@@ -123,7 +123,7 @@ class ApplicationPropertyCompatibilityTest {
                 .contains("initial-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_INITIAL_DELAY_MS:5000}")
                 .contains("max-attempts: ${APP_HOME_BOOTSTRAP_WARMUP_MAX_ATTEMPTS:2}")
                 .contains("partial-retry-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_PARTIAL_RETRY_DELAY_MS:500}")
-                .contains("section-timeout-ms: ${APP_HOME_BOOTSTRAP_WARMUP_SECTION_TIMEOUT_MS:8000}")
+                .contains("section-timeout-ms: ${APP_HOME_BOOTSTRAP_WARMUP_SECTION_TIMEOUT_MS:3000}")
                 .contains("enabled: ${APP_HOME_BOOTSTRAP_WARMUP_RANKING_ENABLED:true}")
                 .contains("section-timeout-ms: ${APP_HOME_WIDGETS_SECTION_TIMEOUT_MS:1200}");
     }

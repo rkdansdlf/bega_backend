@@ -59,6 +59,17 @@ public class BaseballDataIntegrityGuard {
         matches.forEach(match -> validateMatchProjection(scope, match));
     }
 
+    public ManualBaseballDataRequest findMatchProjectionManualDataRequest(
+            String scope,
+            MatchRangeProjection match) {
+        try {
+            validateMatchProjection(scope, match);
+            return null;
+        } catch (ManualBaseballDataRequiredException e) {
+            return extractManualDataRequest(e);
+        }
+    }
+
     public GameEntity requireValidGame(String scope, String gameId) {
         GameEntity game = gameRepository.findByGameId(gameId)
                 .orElseThrow(() -> newMissingGameException(scope, gameId));
@@ -469,6 +480,11 @@ public class BaseballDataIntegrityGuard {
                 dedupedItems.stream().map(ManualBaseballDataMissingItem::key).toList());
         return new ManualBaseballDataRequiredException(
                 new ManualBaseballDataRequest(scope, dedupedItems, operatorMessage, true));
+    }
+
+    private ManualBaseballDataRequest extractManualDataRequest(ManualBaseballDataRequiredException exception) {
+        Object data = exception.getData();
+        return data instanceof ManualBaseballDataRequest request ? request : null;
     }
 
     private ManualBaseballDataRequiredException newMissingGameException(String scope, String gameId) {

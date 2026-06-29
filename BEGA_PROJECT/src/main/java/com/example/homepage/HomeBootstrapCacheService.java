@@ -9,6 +9,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +24,7 @@ public class HomeBootstrapCacheService {
     private final CacheManager cacheManager;
     private final Clock clock;
     private final MeterRegistry meterRegistry;
-    private final ConcurrentHashMap<String, Object> keyLocks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ReentrantLock> keyLocks = new ConcurrentHashMap<>();
 
     @Autowired
     public HomeBootstrapCacheService(CacheManager cacheManager, MeterRegistry meterRegistry) {
@@ -53,8 +54,9 @@ public class HomeBootstrapCacheService {
             recordCacheEvent("lookup", firstLookup.error() ? "error" : "miss");
         }
 
-        Object lock = keyLocks.computeIfAbsent(cacheKey, ignored -> new Object());
-        synchronized (lock) {
+        ReentrantLock lock = keyLocks.computeIfAbsent(cacheKey, ignored -> new ReentrantLock());
+        lock.lock();
+        try {
             CacheLookup secondLookup = lookup(cacheKey);
             if (secondLookup.value() != null) {
                 if (isCacheable(secondLookup.value())) {
@@ -71,6 +73,8 @@ public class HomeBootstrapCacheService {
             HomeBootstrapResponseDto response = loader.get();
             storeIfCacheable(cacheKey, response, "store");
             return response;
+        } finally {
+            lock.unlock();
         }
     }
 
