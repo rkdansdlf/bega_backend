@@ -6,11 +6,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.lenient;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -64,6 +65,8 @@ class GameLiveServiceTest {
                 gameInningScoreRepository,
                 baseballDataIntegrityGuard,
                 predictionLiveMetricsService);
+        lenient().when(gameEventRepository.findByGameIdOrderByEventSeqDesc(anyString(), any(Pageable.class)))
+                .thenReturn(List.of());
         lenient().when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc(anyString()))
                 .thenReturn(List.of());
     }
@@ -112,6 +115,119 @@ class GameLiveServiceTest {
     }
 
     @Test
+    void liveSnapshotDerivesInningScoresFromEventScoreDeltasWhenBoxScoreRowsAreMissing() {
+        GameEntity game = game("GAME-EVENT-BOX", LocalDate.now(), "LIVE", null, null);
+        GameDetailHeaderProjection header = header("GAME-EVENT-BOX", LocalTime.of(18, 30));
+        GameEventEntity first = event("GAME-EVENT-BOX", 1, 1, "TOP", 0, 1, "원정 득점");
+        GameEventEntity second = event("GAME-EVENT-BOX", 2, 1, "BOTTOM", 2, 1, "홈 득점");
+        GameEventEntity third = event("GAME-EVENT-BOX", 3, 2, "TOP", 2, 3, "원정 추가 득점");
+        when(baseballDataIntegrityGuard.requireValidGame("prediction.live_snapshot", "GAME-EVENT-BOX")).thenReturn(game);
+        when(gameRepository.findGameDetailHeaderByGameId("GAME-EVENT-BOX")).thenReturn(Optional.of(header));
+        when(gameEventRepository.findByGameIdOrderByEventSeqDesc(eq("GAME-EVENT-BOX"), any(Pageable.class)))
+                .thenReturn(List.of(third, second, first));
+        when(gameEventRepository.findFirstByGameIdOrderByEventSeqDesc("GAME-EVENT-BOX")).thenReturn(Optional.of(third));
+
+        GameLiveSnapshotDto snapshot = gameLiveService.getLiveSnapshot("GAME-EVENT-BOX", null, 50);
+
+        assertThat(snapshot.getHomeScore()).isEqualTo(2);
+        assertThat(snapshot.getAwayScore()).isEqualTo(3);
+        assertThat(snapshot.getInningScores())
+                .extracting(GameInningScoreDto::getInning, GameInningScoreDto::getTeamSide, GameInningScoreDto::getTeamCode, GameInningScoreDto::getRuns)
+                .containsExactly(
+                        tuple(1, "away", "KT", 1),
+                        tuple(1, "home", "LG", 2),
+                        tuple(2, "away", "KT", 2),
+                        tuple(2, "home", "LG", 0));
+        verify(predictionLiveMetricsService).recordLiveSnapshot("game_events", true);
+    }
+
+    @Test
+    void liveSnapshotDerivesInningScoresFromFullEventHistoryDuringDeltaPolling() {
+        GameEntity game = game("GAME-EVENT-POLL", LocalDate.now(), "LIVE", null, null);
+        GameDetailHeaderProjection header = header("GAME-EVENT-POLL", LocalTime.of(18, 30));
+        GameEventEntity first = event("GAME-EVENT-POLL", 1, 1, "TOP", 0, 1, "원정 득점");
+        GameEventEntity second = event("GAME-EVENT-POLL", 2, 1, "BOTTOM", 2, 1, "홈 득점");
+        GameEventEntity third = event("GAME-EVENT-POLL", 3, 2, "TOP", 2, 3, "원정 추가 득점");
+        when(baseballDataIntegrityGuard.requireValidGame("prediction.live_snapshot", "GAME-EVENT-POLL")).thenReturn(game);
+        when(gameRepository.findGameDetailHeaderByGameId("GAME-EVENT-POLL")).thenReturn(Optional.of(header));
+        when(gameEventRepository.findByGameIdAndEventSeqGreaterThanOrderByEventSeqAsc(
+                eq("GAME-EVENT-POLL"),
+                eq(2),
+                any(Pageable.class))).thenReturn(List.of(third));
+        when(gameEventRepository.findByGameIdOrderByEventSeqDesc(eq("GAME-EVENT-POLL"), any(Pageable.class)))
+                .thenReturn(List.of(third, second, first));
+        when(gameEventRepository.findFirstByGameIdOrderByEventSeqDesc("GAME-EVENT-POLL")).thenReturn(Optional.of(third));
+
+        GameLiveSnapshotDto snapshot = gameLiveService.getLiveSnapshot("GAME-EVENT-POLL", 2, 50);
+
+        assertThat(snapshot.getEvents()).extracting(GameLiveEventDto::getEventSeq).containsExactly(3);
+        assertThat(snapshot.getInningScores())
+                .extracting(GameInningScoreDto::getInning, GameInningScoreDto::getTeamSide, GameInningScoreDto::getRuns)
+                .containsExactly(
+                        tuple(1, "away", 1),
+                        tuple(1, "home", 2),
+                        tuple(2, "away", 2),
+                        tuple(2, "home", 0));
+        verify(predictionLiveMetricsService).recordLiveSnapshot("game_events", true);
+    }
+
+    @Test
+    void liveSnapshotDerivesInningScoresFromFullEventHistoryWhenInitialEventListIsLimited() {
+        GameEntity game = game("GAME-EVENT-LIMIT", LocalDate.now(), "LIVE", null, null);
+        GameDetailHeaderProjection header = header("GAME-EVENT-LIMIT", LocalTime.of(18, 30));
+        GameEventEntity first = event("GAME-EVENT-LIMIT", 1, 1, "TOP", 0, 1, "원정 득점");
+        GameEventEntity second = event("GAME-EVENT-LIMIT", 2, 1, "BOTTOM", 2, 1, "홈 득점");
+        GameEventEntity third = event("GAME-EVENT-LIMIT", 3, 2, "TOP", 2, 3, "원정 추가 득점");
+        when(baseballDataIntegrityGuard.requireValidGame("prediction.live_snapshot", "GAME-EVENT-LIMIT")).thenReturn(game);
+        when(gameRepository.findGameDetailHeaderByGameId("GAME-EVENT-LIMIT")).thenReturn(Optional.of(header));
+        when(gameEventRepository.findByGameIdOrderByEventSeqDesc(
+                eq("GAME-EVENT-LIMIT"),
+                argThat(pageable -> pageable != null && pageable.getPageSize() == 1)))
+                .thenReturn(List.of(third));
+        when(gameEventRepository.findByGameIdOrderByEventSeqDesc(
+                eq("GAME-EVENT-LIMIT"),
+                argThat(pageable -> pageable != null && pageable.getPageSize() == 200)))
+                .thenReturn(List.of(third, second, first));
+        when(gameEventRepository.findFirstByGameIdOrderByEventSeqDesc("GAME-EVENT-LIMIT")).thenReturn(Optional.of(third));
+
+        GameLiveSnapshotDto snapshot = gameLiveService.getLiveSnapshot("GAME-EVENT-LIMIT", null, 1);
+
+        assertThat(snapshot.getEvents()).extracting(GameLiveEventDto::getEventSeq).containsExactly(3);
+        assertThat(snapshot.getInningScores())
+                .extracting(GameInningScoreDto::getInning, GameInningScoreDto::getTeamSide, GameInningScoreDto::getRuns)
+                .containsExactly(
+                        tuple(1, "away", 1),
+                        tuple(1, "home", 2),
+                        tuple(2, "away", 2),
+                        tuple(2, "home", 0));
+        verify(predictionLiveMetricsService).recordLiveSnapshot("game_events", true);
+    }
+
+    @Test
+    void liveSnapshotDoesNotDeriveZeroBoxRowsFromEventsWithoutScores() {
+        GameEntity game = game("GAME-TEXT-EVENT", LocalDate.now(), "LIVE", null, null);
+        GameDetailHeaderProjection header = header("GAME-TEXT-EVENT", LocalTime.of(18, 30));
+        GameEventEntity textOnlyEvent = GameEventEntity.builder()
+                .gameId("GAME-TEXT-EVENT")
+                .eventSeq(1)
+                .inning(1)
+                .inningHalf("TOP")
+                .description("점수 없는 문자 이벤트")
+                .updatedAt(LocalDateTime.of(2026, 4, 29, 18, 31))
+                .build();
+        when(baseballDataIntegrityGuard.requireValidGame("prediction.live_snapshot", "GAME-TEXT-EVENT")).thenReturn(game);
+        when(gameRepository.findGameDetailHeaderByGameId("GAME-TEXT-EVENT")).thenReturn(Optional.of(header));
+        when(gameEventRepository.findByGameIdOrderByEventSeqDesc(eq("GAME-TEXT-EVENT"), any(Pageable.class)))
+                .thenReturn(List.of(textOnlyEvent));
+        when(gameEventRepository.findFirstByGameIdOrderByEventSeqDesc("GAME-TEXT-EVENT")).thenReturn(Optional.of(textOnlyEvent));
+
+        GameLiveSnapshotDto snapshot = gameLiveService.getLiveSnapshot("GAME-TEXT-EVENT", null, 50);
+
+        assertThat(snapshot.getInningScores()).isEmpty();
+        verify(predictionLiveMetricsService).recordLiveSnapshot("none", false);
+    }
+
+    @Test
     void liveSnapshotIncludesInningScoresAndFallsBackToInningTotalsWithoutEvents() {
         GameEntity game = game("GAME-INNING", LocalDate.now(), "LIVE", null, null);
         GameDetailHeaderProjection header = header("GAME-INNING", LocalTime.of(18, 30));
@@ -134,6 +250,50 @@ class GameLiveServiceTest {
         assertThat(snapshot.getInningScores())
                 .extracting(GameInningScoreDto::getInning, GameInningScoreDto::getTeamSide, GameInningScoreDto::getRuns)
                 .containsExactly(tuple(1, "away", 2), tuple(1, "home", 1));
+    }
+
+    @Test
+    void liveSnapshotPrefersInningTotalsWhenLatestEventScoreIsStale() {
+        GameEntity game = game("GAME-BOX", LocalDate.now(), "LIVE", 0, 0);
+        GameDetailHeaderProjection header = header("GAME-BOX", LocalTime.of(18, 30));
+        GameEventEntity latestEvent = event("GAME-BOX", 11, 2, "BOTTOM", 0, 0, "이벤트 점수 지연");
+        when(baseballDataIntegrityGuard.requireValidGame("prediction.live_snapshot", "GAME-BOX")).thenReturn(game);
+        when(gameRepository.findGameDetailHeaderByGameId("GAME-BOX")).thenReturn(Optional.of(header));
+        when(gameEventRepository.findByGameIdOrderByEventSeqDesc(eq("GAME-BOX"), any(Pageable.class)))
+                .thenReturn(List.of(latestEvent));
+        when(gameEventRepository.findFirstByGameIdOrderByEventSeqDesc("GAME-BOX")).thenReturn(Optional.of(latestEvent));
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc("GAME-BOX")).thenReturn(List.of(
+                GameInningScoreEntity.builder().gameId("GAME-BOX").inning(1).teamSide("away").teamCode("KT").runs(0).build(),
+                GameInningScoreEntity.builder().gameId("GAME-BOX").inning(1).teamSide("home").teamCode("LG").runs(2).build()
+        ));
+
+        GameLiveSnapshotDto snapshot = gameLiveService.getLiveSnapshot("GAME-BOX", null, 50);
+
+        assertThat(snapshot.getHomeScore()).isEqualTo(2);
+        assertThat(snapshot.getAwayScore()).isEqualTo(0);
+        assertThat(snapshot.getLastEventSeq()).isEqualTo(11);
+        verify(predictionLiveMetricsService).recordLiveSnapshot("inning_scores", true);
+    }
+
+    @Test
+    void liveSnapshotFallsBackToLatestEventForSideMissingInningRows() {
+        GameEntity game = game("GAME-PARTIAL-BOX", LocalDate.now(), "LIVE", 1, 3);
+        GameDetailHeaderProjection header = header("GAME-PARTIAL-BOX", LocalTime.of(18, 30));
+        GameEventEntity latestEvent = event("GAME-PARTIAL-BOX", 12, 2, "BOTTOM", 1, 3, "이벤트 점수");
+        when(baseballDataIntegrityGuard.requireValidGame("prediction.live_snapshot", "GAME-PARTIAL-BOX")).thenReturn(game);
+        when(gameRepository.findGameDetailHeaderByGameId("GAME-PARTIAL-BOX")).thenReturn(Optional.of(header));
+        when(gameEventRepository.findByGameIdOrderByEventSeqDesc(eq("GAME-PARTIAL-BOX"), any(Pageable.class)))
+                .thenReturn(List.of(latestEvent));
+        when(gameEventRepository.findFirstByGameIdOrderByEventSeqDesc("GAME-PARTIAL-BOX")).thenReturn(Optional.of(latestEvent));
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc("GAME-PARTIAL-BOX")).thenReturn(List.of(
+                GameInningScoreEntity.builder().gameId("GAME-PARTIAL-BOX").inning(1).teamSide("home").teamCode("LG").runs(2).build()
+        ));
+
+        GameLiveSnapshotDto snapshot = gameLiveService.getLiveSnapshot("GAME-PARTIAL-BOX", null, 50);
+
+        assertThat(snapshot.getHomeScore()).isEqualTo(2);
+        assertThat(snapshot.getAwayScore()).isEqualTo(3);
+        verify(predictionLiveMetricsService).recordLiveSnapshot("mixed", true);
     }
 
     @Test
@@ -168,7 +328,7 @@ class GameLiveServiceTest {
                 .satisfies(error -> {
                     ManualBaseballDataRequiredException exception = (ManualBaseballDataRequiredException) error;
                     ManualBaseballDataRequest request = (ManualBaseballDataRequest) exception.getData();
-                    assertThat(request.missingItems().get(0).key()).isEqualTo("game_events");
+                    assertThat(request.missingItems().get(0).key()).isEqualTo("game_events_or_inning_scores");
                 });
     }
 
@@ -188,6 +348,28 @@ class GameLiveServiceTest {
         assertThat(summaries.get(0).getLastEventSeq()).isEqualTo(7);
         assertThat(summaries.get(1).getGameStatus()).isEqualTo("SCHEDULED");
         verify(baseballDataIntegrityGuard).requireValidGames("prediction.live_summary", List.of("GAME-5", "GAME-6"));
+    }
+
+    @Test
+    void liveSummariesUseInningTotalsWithoutEvents() {
+        GameEntity game = game("GAME-SUMMARY-INNING", LocalDate.now(), "SCHEDULED", null, null);
+        when(baseballDataIntegrityGuard.requireValidGames("prediction.live_summary", List.of("GAME-SUMMARY-INNING")))
+                .thenReturn(List.of(game));
+        when(gameEventRepository.findLatestByGameIds(List.of("GAME-SUMMARY-INNING")))
+                .thenReturn(List.of());
+        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc("GAME-SUMMARY-INNING"))
+                .thenReturn(List.of(
+                        GameInningScoreEntity.builder().gameId("GAME-SUMMARY-INNING").inning(1).teamSide("away").teamCode("KT").runs(0).build(),
+                        GameInningScoreEntity.builder().gameId("GAME-SUMMARY-INNING").inning(1).teamSide("home").teamCode("LG").runs(2).build()
+                ));
+
+        List<GameLiveSummaryDto> summaries = gameLiveService.getLiveSummaries(List.of("GAME-SUMMARY-INNING"));
+
+        assertThat(summaries).hasSize(1);
+        assertThat(summaries.get(0).getGameStatus()).isEqualTo("LIVE");
+        assertThat(summaries.get(0).getHomeScore()).isEqualTo(2);
+        assertThat(summaries.get(0).getAwayScore()).isEqualTo(0);
+        assertThat(summaries.get(0).getLastEventSeq()).isNull();
     }
 
     private GameEntity game(String gameId, LocalDate gameDate, String status, Integer homeScore, Integer awayScore) {

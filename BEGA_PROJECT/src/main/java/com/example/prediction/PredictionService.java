@@ -18,6 +18,7 @@ import com.example.kbo.repository.PredictionStatsGameProjection;
 import com.example.kbo.repository.GameSummaryRepository;
 import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
+import com.example.kbo.validation.ManualBaseballDataMissingItem;
 import com.example.kbo.validation.ManualBaseballDataOverrideService;
 import com.example.kbo.validation.ManualBaseballDataRequest;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
@@ -98,6 +99,10 @@ public class PredictionService {
     private static final long MATCH_DAY_SLOW_LOG_THRESHOLD_MS = 1000L;
     private static final Duration MANUAL_DATA_NEGATIVE_CACHE_TTL = Duration.ofSeconds(60);
     private static final String MATCH_NOT_FOUND_CODE = "MATCH_NOT_FOUND";
+    private static final double SCHEDULED_WIN_PROBABILITY_MIN = 35.0;
+    private static final double SCHEDULED_WIN_PROBABILITY_MAX = 65.0;
+    private static final double HOME_FIELD_WIN_PROBABILITY_EDGE = 2.5;
+    private static final double KNOWN_STARTER_WIN_PROBABILITY_EDGE = 3.5;
     private final ConcurrentMap<String, CachedManualDataFailure> manualDataFailureCache = new ConcurrentHashMap<>();
 
     @Autowired
@@ -214,18 +219,24 @@ public class PredictionService {
                 return List.of();
             }
         }
+        List<MatchRangeProjection> displayableMatches;
         try {
-            baseballDataIntegrityGuard.ensurePredictionDateMatches("prediction.matches_by_date", targetDate, matches);
+            displayableMatches = selectDisplayableDateMatches(
+                    "prediction.matches_by_date",
+                    targetDate,
+                    matches);
         } catch (ManualBaseballDataRequiredException e) {
             cacheManualDataException(manualCacheKey, e);
             throw e;
         }
 
-        Map<String, Integer> seriesGameNos = computeSeriesGameNosForDate(matches, targetDate);
-        List<MatchDto> result = Objects.requireNonNull(matches.stream()
+        Map<String, Integer> seriesGameNos = computeSeriesGameNosForDate(displayableMatches, targetDate);
+        List<MatchDto> result = Objects.requireNonNull(displayableMatches.stream()
                 .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList()));
-        cacheSuccessfulRange(successCacheKey, List.copyOf(result));
+        if (displayableMatches.size() == matches.size()) {
+            cacheSuccessfulRange(successCacheKey, List.copyOf(result));
+        }
         return result;
     }
 
@@ -242,6 +253,7 @@ public class PredictionService {
                 QUERYABLE_TEAM_CODES);
         CanonicalAdjacentGameDatesProjection adjacentDates = null;
 
+        List<MatchRangeProjection> displayableMatches = rawMatches;
         try {
             if (rawMatches.isEmpty()) {
                 adjacentDates = gameRepository.findCanonicalAdjacentGameDates(targetDate, QUERYABLE_TEAM_CODES);
@@ -252,7 +264,7 @@ public class PredictionService {
                             rawMatches);
                 }
             } else {
-                baseballDataIntegrityGuard.ensurePredictionDateMatches(
+                displayableMatches = selectDisplayableDateMatches(
                         "prediction.matches_by_date",
                         targetDate,
                         rawMatches);
@@ -266,8 +278,8 @@ public class PredictionService {
             adjacentDates = gameRepository.findCanonicalAdjacentGameDates(targetDate, QUERYABLE_TEAM_CODES);
         }
 
-        Map<String, Integer> seriesGameNos = computeSeriesGameNosForDate(rawMatches, targetDate);
-        List<MatchDto> matches = rawMatches.stream()
+        Map<String, Integer> seriesGameNos = computeSeriesGameNosForDate(displayableMatches, targetDate);
+        List<MatchDto> matches = displayableMatches.stream()
                 .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList());
         LocalDate prevDate = adjacentDates == null ? null : adjacentDates.getPrevDate();
@@ -308,6 +320,49 @@ public class PredictionService {
         return adjacentDates != null
                 && adjacentDates.getPrevDate() != null
                 && adjacentDates.getNextDate() != null;
+    }
+
+    private List<MatchRangeProjection> selectDisplayableDateMatches(
+            String scope,
+            LocalDate targetDate,
+            List<MatchRangeProjection> matches) {
+        try {
+            baseballDataIntegrityGuard.ensurePredictionDateMatches(scope, targetDate, matches);
+            return matches;
+        } catch (ManualBaseballDataRequiredException originalException) {
+            if (matches == null || matches.isEmpty()) {
+                throw originalException;
+            }
+
+            List<MatchRangeProjection> displayableMatches = new ArrayList<>();
+            List<String> skippedGameIds = new ArrayList<>();
+            List<List<String>> skippedMissingKeys = new ArrayList<>();
+            for (MatchRangeProjection match : matches) {
+                ManualBaseballDataRequest request =
+                        baseballDataIntegrityGuard.findMatchProjectionManualDataRequest(scope, match);
+                if (request == null) {
+                    displayableMatches.add(match);
+                    continue;
+                }
+                skippedGameIds.add(match.getGameId());
+                skippedMissingKeys.add(request.missingItems().stream()
+                        .map(ManualBaseballDataMissingItem::key)
+                        .collect(Collectors.toList()));
+            }
+
+            if (skippedGameIds.isEmpty() || displayableMatches.isEmpty()) {
+                throw originalException;
+            }
+
+            log.warn(
+                    "prediction.matches_by_date.partial_manual_data_required date={} total={} returned={} skippedGameIds={} missingKeys={}",
+                    targetDate,
+                    matches.size(),
+                    displayableMatches.size(),
+                    skippedGameIds,
+                    skippedMissingKeys);
+            return displayableMatches;
+        }
     }
 
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
@@ -446,12 +501,67 @@ public class PredictionService {
                 .homePitcher(MatchDto.pitcherOf(match.getHomePitcher()))
                 .awayPitcher(MatchDto.pitcherOf(match.getAwayPitcher()))
                 .aiSummary(null)
-                .winProbability(null)
+                .winProbability(deriveScheduledWinProbability(match, effectiveGameStatus, leagueTypeCode))
                 .seasonId(match.getSeasonId())
                 .leagueType(mapLeagueType(leagueTypeCode))
                 .postSeasonSeries(mapPostSeasonSeries(leagueTypeCode))
                 .seriesGameNo(seriesGameNo)
                 .build();
+    }
+
+    private MatchDto.WinProbabilityDto deriveScheduledWinProbability(
+            MatchRangeProjection match,
+            String effectiveGameStatus,
+            Integer leagueTypeCode) {
+        if (!"SCHEDULED".equals(effectiveGameStatus)) {
+            return null;
+        }
+
+        double homeProbability = 50.0
+                + HOME_FIELD_WIN_PROBABILITY_EDGE
+                + resolveStartingPitcherEdge(match.getHomePitcher(), match.getAwayPitcher())
+                + resolveStableScheduleEdge(match);
+        if (isPostSeasonLeagueType(leagueTypeCode)) {
+            homeProbability = 50.0 + ((homeProbability - 50.0) * 0.75);
+        }
+
+        long homeTenths = Math.round(clamp(
+                homeProbability,
+                SCHEDULED_WIN_PROBABILITY_MIN,
+                SCHEDULED_WIN_PROBABILITY_MAX) * 10.0);
+        double home = homeTenths / 10.0;
+        double away = (1000L - homeTenths) / 10.0;
+        return MatchDto.WinProbabilityDto.builder()
+                .home(home)
+                .away(away)
+                .build();
+    }
+
+    private double resolveStartingPitcherEdge(String homePitcher, String awayPitcher) {
+        boolean hasHomePitcher = homePitcher != null && !homePitcher.isBlank();
+        boolean hasAwayPitcher = awayPitcher != null && !awayPitcher.isBlank();
+        if (hasHomePitcher == hasAwayPitcher) {
+            return 0.0;
+        }
+        return hasHomePitcher ? KNOWN_STARTER_WIN_PROBABILITY_EDGE : -KNOWN_STARTER_WIN_PROBABILITY_EDGE;
+    }
+
+    private double resolveStableScheduleEdge(MatchRangeProjection match) {
+        int bucket = Math.floorMod(Objects.hash(
+                match.getGameId(),
+                match.getGameDate(),
+                com.example.kbo.util.TeamCodeNormalizer.normalize(match.getHomeTeam()),
+                com.example.kbo.util.TeamCodeNormalizer.normalize(match.getAwayTeam())),
+                25);
+        return (bucket - 12) * 0.5;
+    }
+
+    private boolean isPostSeasonLeagueType(Integer leagueTypeCode) {
+        return leagueTypeCode != null && leagueTypeCode >= 2 && leagueTypeCode <= 5;
+    }
+
+    private double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     /**

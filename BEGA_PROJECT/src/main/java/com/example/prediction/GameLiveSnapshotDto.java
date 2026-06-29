@@ -20,6 +20,6 @@ public class GameLiveSnapshotDto {
     private Integer lastEventSeq;
     private LocalDateTime lastUpdatedAt;
     private List<GameLiveEventDto> events;
-    @Schema(description = "Normalized meaningful inning scores from game_inning_scores. Older clients should tolerate this field being absent.")
+    @Schema(description = "Normalized meaningful inning scores from game_inning_scores or derived from cumulative game_events scores. Older clients should tolerate this field being absent.")
     private List<GameInningScoreDto> inningScores;
 }
