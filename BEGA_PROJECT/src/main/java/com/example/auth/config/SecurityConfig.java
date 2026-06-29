@@ -154,7 +154,8 @@ public class SecurityConfig {
                         "/api/leaderboard/stats",
                         "/api/leaderboard/profile/*",
                         "/api/leaderboard/profile/*/rank",
-                        "/api/leaderboard/achievements/rare"
+                        "/api/leaderboard/achievements/rare",
+                        "/api/reviews/host/*"
         };
 
         /** 공개 파티 조회 엔드포인트 (my는 제외) */
@@ -207,6 +208,8 @@ public class SecurityConfig {
         private boolean publicPrometheusEndpointEnabled;
         @org.springframework.beans.factory.annotation.Value("${app.frontend.url:http://localhost:5176}")
         private String frontendUrl;
+        @org.springframework.beans.factory.annotation.Value("${app.auth.reject-legacy-access-tokens:true}")
+        private boolean rejectLegacyAccessTokens;
 
         public SecurityConfig(CustomOAuth2UserService customOAuth2UserService,
                         CustomSuccessHandler customSuccessHandler, JWTUtil jwtUtil,
@@ -407,7 +410,8 @@ public class SecurityConfig {
                                 origins,
                                 tokenBlacklistService,
                                 userRepository,
-                                authSecurityMonitoringService);
+                                authSecurityMonitoringService,
+                                rejectLegacyAccessTokens);
         }
 
         @Bean
@@ -561,8 +565,6 @@ public class SecurityConfig {
                                                 .permitAll()
                                                 .requestMatchers(HttpMethod.GET, "/api/predictions/ranking/share/**")
                                                 .permitAll()
-                                                .requestMatchers(HttpMethod.GET, "/api/predictions/my-vote/**")
-                                                .authenticated()
                                                 .requestMatchers("/api/predictions/**").authenticated()
 
                                                 // 6. 공개 GET 요청 엔드포인트
@@ -579,6 +581,10 @@ public class SecurityConfig {
                                                 .requestMatchers(HttpMethod.DELETE, "/api/stadiums/*/favorite")
                                                 .authenticated()
                                                 .requestMatchers(HttpMethod.GET, "/api/stadiums/favorites")
+                                                .authenticated()
+                                                .requestMatchers(HttpMethod.POST, "/api/parties/*/favorite")
+                                                .authenticated()
+                                                .requestMatchers(HttpMethod.DELETE, "/api/parties/*/favorite")
                                                 .authenticated()
                                                 .requestMatchers(PUBLIC_API_ENDPOINTS).permitAll()
 

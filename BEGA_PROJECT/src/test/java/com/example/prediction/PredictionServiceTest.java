@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -296,6 +297,54 @@ class PredictionServiceTest {
     }
 
     @Test
+    void getMatchesByDateShouldReturnDisplayableRowsWhenSomeRowsNeedManualData() {
+        LocalDate targetDate = LocalDate.of(2026, 6, 26);
+        MatchRangeProjection displayable = buildRangeMatch("20260626HTOB0", targetDate, "HT", "OB", 20260, 0, null);
+        MatchRangeProjection incomplete = buildRangeMatch("20260626HHSK0", targetDate, "HH", "SK", 20260, 0, null);
+        ManualBaseballDataRequest manualRequest = new ManualBaseballDataRequest(
+                "prediction.matches_by_date",
+                List.of(
+                        new ManualBaseballDataMissingItem(
+                                "game_status",
+                                "경기 상태",
+                                "과거 경기 상태가 종료 기준으로 확정되지 않았습니다.",
+                                "SCHEDULED, COMPLETED, CANCELLED 등"),
+                        new ManualBaseballDataMissingItem(
+                                "final_score",
+                                "최종 점수",
+                                "과거 경기의 최종 점수가 비어 있습니다.",
+                                "home_score, away_score")),
+                "다음 야구 데이터가 필요합니다: 경기 ID=20260626HHSK0, 경기 상태, 최종 점수",
+                true);
+
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(eq(targetDate), anyList()))
+                .thenReturn(List.of(displayable, incomplete));
+        doThrow(new ManualBaseballDataRequiredException(manualRequest))
+                .when(baseballDataIntegrityGuard)
+                .ensurePredictionDateMatches(eq("prediction.matches_by_date"), eq(targetDate), anyList());
+        doReturn(null)
+                .when(baseballDataIntegrityGuard)
+                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_date"), any(MatchRangeProjection.class));
+        doReturn(manualRequest)
+                .when(baseballDataIntegrityGuard)
+                .findMatchProjectionManualDataRequest(
+                        eq("prediction.matches_by_date"),
+                        eq(incomplete));
+
+        List<MatchDto> first = predictionService.getMatchesByDate(targetDate);
+        List<MatchDto> second = predictionService.getMatchesByDate(targetDate);
+
+        assertThat(first).extracting(MatchDto::getGameId).containsExactly("20260626HTOB0");
+        assertThat(second).extracting(MatchDto::getGameId).containsExactly("20260626HTOB0");
+        verify(gameRepository, times(2)).findCanonicalRangeProjectionByGameDate(eq(targetDate), anyList());
+        verify(baseballDataIntegrityGuard, times(2))
+                .ensurePredictionDateMatches(eq("prediction.matches_by_date"), eq(targetDate), anyList());
+        verify(baseballDataIntegrityGuard, times(2)).findMatchProjectionManualDataRequest(
+                eq("prediction.matches_by_date"),
+                eq(incomplete));
+    }
+
+    @Test
     void getMatchesByDateShouldCacheSuccessfulDateForSameRequest() {
         LocalDate targetDate = LocalDate.of(2026, 6, 18);
         MatchRangeProjection canonical = buildRangeMatch("20260618HHNC0", targetDate, "HH", "NC", 20260, 0, null);
@@ -312,6 +361,51 @@ class PredictionServiceTest {
         verify(gameRepository, times(1)).findCanonicalRangeProjectionByGameDate(eq(targetDate), anyList());
         verify(baseballDataIntegrityGuard, times(1))
                 .ensurePredictionDateMatches(eq("prediction.matches_by_date"), eq(targetDate), anyList());
+    }
+
+    @Test
+    void getMatchDayNavigationShouldReturnDisplayableRowsWhenSomeRowsNeedManualData() {
+        LocalDate targetDate = LocalDate.of(2026, 6, 26);
+        MatchRangeProjection displayable = buildRangeMatch("20260626WONC0", targetDate, "WO", "NC", 20260, 0, null);
+        MatchRangeProjection incomplete = buildRangeMatch("20260626HHSK0", targetDate, "HH", "SK", 20260, 0, null);
+        CanonicalAdjacentGameDatesProjection adjacentDates = mock(CanonicalAdjacentGameDatesProjection.class);
+        ManualBaseballDataRequest manualRequest = new ManualBaseballDataRequest(
+                "prediction.matches_by_date",
+                List.of(new ManualBaseballDataMissingItem(
+                        "final_score",
+                        "최종 점수",
+                        "과거 경기의 최종 점수가 비어 있습니다.",
+                        "home_score, away_score")),
+                "다음 야구 데이터가 필요합니다: 경기 ID=20260626HHSK0, 최종 점수",
+                true);
+
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(eq(targetDate), anyList()))
+                .thenReturn(List.of(displayable, incomplete));
+        when(gameRepository.findCanonicalAdjacentGameDates(eq(targetDate), anyList()))
+                .thenReturn(adjacentDates);
+        when(adjacentDates.getPrevDate()).thenReturn(LocalDate.of(2026, 6, 25));
+        when(adjacentDates.getNextDate()).thenReturn(LocalDate.of(2026, 6, 27));
+        doThrow(new ManualBaseballDataRequiredException(manualRequest))
+                .when(baseballDataIntegrityGuard)
+                .ensurePredictionDateMatches(eq("prediction.matches_by_date"), eq(targetDate), anyList());
+        doReturn(null)
+                .when(baseballDataIntegrityGuard)
+                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_date"), any(MatchRangeProjection.class));
+        doReturn(manualRequest)
+                .when(baseballDataIntegrityGuard)
+                .findMatchProjectionManualDataRequest(
+                        eq("prediction.matches_by_date"),
+                        eq(incomplete));
+
+        MatchDayNavigationResponseDto response = predictionService.getMatchDayNavigation(targetDate);
+
+        assertThat(response.getDate()).isEqualTo(targetDate);
+        assertThat(response.getGames()).extracting(MatchDto::getGameId).containsExactly("20260626WONC0");
+        assertThat(response.getPrevDate()).isEqualTo(LocalDate.of(2026, 6, 25));
+        assertThat(response.getNextDate()).isEqualTo(LocalDate.of(2026, 6, 27));
+        verify(baseballDataIntegrityGuard).findMatchProjectionManualDataRequest(
+                eq("prediction.matches_by_date"),
+                eq(incomplete));
     }
 
     @Test
@@ -779,6 +873,59 @@ class PredictionServiceTest {
         assertThat(response.isHasNext()).isTrue();
         verify(gameRepository, never()).findByGameDate(targetDate);
         verify(gameRepository, never()).findConfiguredStartDateByTypeFromSeasonYear(anyInt(), anyInt());
+    }
+
+    @Test
+    void getMatchDayNavigationShouldPopulateWinProbabilityForScheduledGames() {
+        LocalDate targetDate = LocalDate.of(2026, 5, 6);
+        MatchRangeProjection scheduled = buildRangeMatch("202605060001", targetDate, "LG", "KT", 20260, 0, null);
+        when(scheduled.getGameStatus()).thenReturn("SCHEDULED");
+        when(scheduled.getHomeScore()).thenReturn(null);
+        when(scheduled.getAwayScore()).thenReturn(null);
+        when(scheduled.getHomePitcher()).thenReturn("임찬규");
+        when(scheduled.getAwayPitcher()).thenReturn(null);
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(
+                org.mockito.ArgumentMatchers.eq(targetDate),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(List.of(scheduled));
+        when(gameRepository.findCanonicalAdjacentGameDates(
+                org.mockito.ArgumentMatchers.eq(targetDate),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(null);
+
+        MatchDayNavigationResponseDto response = predictionService.getMatchDayNavigation(targetDate);
+
+        assertThat(response.getGames()).hasSize(1);
+        MatchDto match = response.getGames().get(0);
+        assertThat(match.getGameStatus()).isEqualTo("SCHEDULED");
+        assertThat(match.getWinProbability()).isNotNull();
+        assertThat(match.getWinProbability().getHome()).isBetween(35.0, 65.0);
+        assertThat(match.getWinProbability().getAway()).isBetween(35.0, 65.0);
+        assertThat(match.getWinProbability().getHome() + match.getWinProbability().getAway())
+                .isEqualTo(100.0);
+    }
+
+    @Test
+    void getMatchDayNavigationShouldNotPopulateWinProbabilityForCompletedGames() {
+        LocalDate targetDate = LocalDate.of(2026, 5, 7);
+        MatchRangeProjection completed = buildRangeMatch("202605070001", targetDate, "LG", "KT", 20260, 0, null);
+        when(completed.getHomeScore()).thenReturn(5);
+        when(completed.getAwayScore()).thenReturn(3);
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(
+                org.mockito.ArgumentMatchers.eq(targetDate),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(List.of(completed));
+        when(gameRepository.findCanonicalAdjacentGameDates(
+                org.mockito.ArgumentMatchers.eq(targetDate),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(null);
+
+        MatchDayNavigationResponseDto response = predictionService.getMatchDayNavigation(targetDate);
+
+        assertThat(response.getGames()).hasSize(1);
+        MatchDto match = response.getGames().get(0);
+        assertThat(match.getGameStatus()).isEqualTo("COMPLETED");
+        assertThat(match.getWinProbability()).isNull();
     }
 
     @Test

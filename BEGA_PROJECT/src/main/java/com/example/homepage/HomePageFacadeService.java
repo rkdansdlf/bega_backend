@@ -52,6 +52,8 @@ public class HomePageFacadeService {
     private static final String SECTION_HOT_CHEER_POSTS = "hotCheerPosts";
     private static final String SECTION_FEATURED_MATES = "featuredMates";
     private static final String SECTION_RANKING_SNAPSHOT = "rankingSnapshot";
+    private static final String FAILURE_REASON_MANUAL_DATA_REQUIRED = "manual-data-required";
+    private static final String FAILURE_REASON_REQUEST_FAILED = "request-failed";
 
     private final HomePageGameService homePageGameService;
     private final CheerService cheerService;
@@ -258,7 +260,8 @@ public class HomePageFacadeService {
             return buildManualDataRequiredBootstrapFallback(
                     selectedDate,
                     bootstrapStartedAt,
-                    effectiveSectionTimeout);
+                    effectiveSectionTimeout,
+                    manualBaseballDataOverrideService.buildRequest("home.schedule", selectedDate));
         }
 
         SectionTask<LeagueStartDatesDto> leagueStartDatesTask = submitSection(
@@ -275,14 +278,14 @@ public class HomePageFacadeService {
                         selectedDate,
                         SECTION_NAVIGATION,
                         () -> toHomeScheduleNavigation(homePageGameService.getScheduleNavigation(selectedDate))));
-        SectionTask<List<HomePageGameDto>> gamesTask =
+        SectionTask<HomePageGamesResult> gamesTask =
                 submitSection(
                         sectionExecutor,
                         SECTION_GAMES,
                         () -> loadManualDataGuardedSection(
                                 selectedDate,
                                 SECTION_GAMES,
-                                () -> homePageGameService.getGamesByDate(selectedDate)));
+                                () -> homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate)));
         SectionTask<List<HomePageScheduledGameDto>> scheduledGamesTask =
                 submitSection(
                         sectionExecutor,
@@ -294,8 +297,8 @@ public class HomePageFacadeService {
 
         SectionResult<HomeScheduleNavigationDto> navigationResult =
                 awaitSection(selectedDate, navigationTask, buildFallbackNavigation(), effectiveSectionTimeout);
-        SectionResult<List<HomePageGameDto>> gamesResult =
-                awaitSection(selectedDate, gamesTask, List.of(), effectiveSectionTimeout);
+        SectionResult<HomePageGamesResult> gamesResult =
+                awaitSection(selectedDate, gamesTask, HomePageGamesResult.empty(), effectiveSectionTimeout);
         SectionResult<List<HomePageScheduledGameDto>> scheduledGamesResult =
                 awaitSection(selectedDate, scheduledGamesTask, List.of(), effectiveSectionTimeout);
         SectionResult<LeagueStartDatesDto> leagueStartDatesResult =
@@ -310,7 +313,7 @@ public class HomePageFacadeService {
                 .selectedDate(selectedDate.toString())
                 .leagueStartDates(leagueStartDatesResult.value())
                 .navigation(navigationResult.value())
-                .games(gamesResult.value())
+                .games(gamesResult.value().games())
                 .scheduledGamesWindow(scheduledGamesResult.value())
                 .loadState(loadState)
                 .build();
@@ -328,7 +331,8 @@ public class HomePageFacadeService {
     private HomeBootstrapResponseDto buildManualDataRequiredBootstrapFallback(
             LocalDate selectedDate,
             long bootstrapStartedAt,
-            Duration effectiveSectionTimeout) {
+            Duration effectiveSectionTimeout,
+            ManualBaseballDataRequest manualDataRequest) {
         HomeBootstrapLoadStateDto loadState = HomeBootstrapLoadStateDto.builder()
                 .isFallback(true)
                 .timedOut(false)
@@ -337,6 +341,8 @@ public class HomePageFacadeService {
                         SECTION_NAVIGATION,
                         SECTION_GAMES,
                         SECTION_SCHEDULED_GAMES_WINDOW))
+                .failureReason(FAILURE_REASON_MANUAL_DATA_REQUIRED)
+                .manualDataRequest(manualDataRequest)
                 .build();
         log.warn(
                 "event=home_bootstrap_manual_data_required_fast_fallback date={} totalElapsedMs={} sectionTimeoutMs={} failedSections={}",
@@ -495,7 +501,7 @@ public class HomePageFacadeService {
                     task.name(),
                     elapsedBeforeWaitMs,
                     sectionTimeout.toMillis());
-            return new SectionResult<>(task.name(), fallbackValue, true, true, elapsedBeforeWaitMs);
+            return new SectionResult<>(task.name(), fallbackValue, true, true, elapsedBeforeWaitMs, null);
         }
 
         try {
@@ -508,7 +514,7 @@ public class HomePageFacadeService {
                     task.name(),
                     elapsedMs,
                     sectionTimeout.toMillis());
-            return new SectionResult<>(task.name(), value, false, false, elapsedMs);
+            return new SectionResult<>(task.name(), value, false, false, elapsedMs, null);
         } catch (TimeoutException ex) {
             task.future().cancel(true);
             long elapsedMs = elapsedMillis(task.startedAtNanos());
@@ -519,7 +525,7 @@ public class HomePageFacadeService {
                     task.name(),
                     elapsedMs,
                     sectionTimeout.toMillis());
-            return new SectionResult<>(task.name(), fallbackValue, true, true, elapsedMs);
+            return new SectionResult<>(task.name(), fallbackValue, true, true, elapsedMs, null);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             long elapsedMs = elapsedMillis(task.startedAtNanos());
@@ -529,7 +535,7 @@ public class HomePageFacadeService {
                     date,
                     task.name(),
                     elapsedMs);
-            return new SectionResult<>(task.name(), fallbackValue, false, true, elapsedMs);
+            return new SectionResult<>(task.name(), fallbackValue, false, true, elapsedMs, null);
         } catch (ExecutionException ex) {
             long elapsedMs = elapsedMillis(task.startedAtNanos());
             Throwable cause = ex.getCause();
@@ -548,7 +554,7 @@ public class HomePageFacadeService {
                     task.name(),
                     elapsedMs,
                     cause == null ? ex.getMessage() : cause.getMessage());
-            return new SectionResult<>(task.name(), fallbackValue, false, true, elapsedMs);
+            return new SectionResult<>(task.name(), fallbackValue, false, true, elapsedMs, null);
         }
     }
 
@@ -567,7 +573,7 @@ public class HomePageFacadeService {
                     task.name(),
                     elapsedMs,
                     sectionTimeout.toMillis());
-            return new SectionResult<>(task.name(), value, false, false, elapsedMs);
+            return new SectionResult<>(task.name(), value, false, false, elapsedMs, null);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             long elapsedMs = elapsedMillis(task.startedAtNanos());
@@ -577,7 +583,7 @@ public class HomePageFacadeService {
                     date,
                     task.name(),
                     elapsedMs);
-            return new SectionResult<>(task.name(), fallbackValue, false, true, elapsedMs);
+            return new SectionResult<>(task.name(), fallbackValue, false, true, elapsedMs, null);
         } catch (ExecutionException ex) {
             long elapsedMs = elapsedMillis(task.startedAtNanos());
             Throwable cause = ex.getCause();
@@ -596,7 +602,7 @@ public class HomePageFacadeService {
                     task.name(),
                     elapsedMs,
                     cause == null ? ex.getMessage() : cause.getMessage());
-            return new SectionResult<>(task.name(), fallbackValue, false, true, elapsedMs);
+            return new SectionResult<>(task.name(), fallbackValue, false, true, elapsedMs, null);
         }
     }
 
@@ -615,7 +621,13 @@ public class HomePageFacadeService {
                 elapsedMs,
                 exception.getCode(),
                 exception.getMessage());
-        return new SectionResult<>(task.name(), fallbackValue, false, true, elapsedMs);
+        return new SectionResult<>(
+                task.name(),
+                fallbackValue,
+                false,
+                true,
+                elapsedMs,
+                extractManualDataRequest(exception));
     }
 
     private String manualDataCacheKey(LocalDate date, String section) {
@@ -638,8 +650,8 @@ public class HomePageFacadeService {
     private void cacheManualDataRequiredSection(
             String cacheKey,
             ManualBaseballDataRequiredException exception) {
-        Object data = exception.getData();
-        if (!(data instanceof ManualBaseballDataRequest request)) {
+        ManualBaseballDataRequest request = extractManualDataRequest(exception);
+        if (request == null) {
             return;
         }
         manualDataFailureCache.put(
@@ -647,6 +659,25 @@ public class HomePageFacadeService {
                 new CachedManualDataFailure(
                         request,
                         clock.millis() + MANUAL_DATA_NEGATIVE_CACHE_TTL.toMillis()));
+    }
+
+    private ManualBaseballDataRequest extractManualDataRequest(ManualBaseballDataRequiredException exception) {
+        Object data = exception.getData();
+        if (data instanceof ManualBaseballDataRequest request) {
+            return request;
+        }
+        return null;
+    }
+
+    private ManualBaseballDataRequest extractManualDataRequest(SectionResult<?> sectionResult) {
+        if (sectionResult.manualDataRequest() != null) {
+            return sectionResult.manualDataRequest();
+        }
+        Object value = sectionResult.value();
+        if (value instanceof HomePageGamesResult gamesResult) {
+            return gamesResult.manualDataRequest();
+        }
+        return null;
     }
 
     private HomeBootstrapLoadStateDto buildBootstrapLoadState(List<SectionResult<?>> sectionResults) {
@@ -658,12 +689,22 @@ public class HomePageFacadeService {
                 .filter(SectionResult::failed)
                 .map(SectionResult::section)
                 .toList();
+        ManualBaseballDataRequest manualDataRequest = sectionResults.stream()
+                .map(this::extractManualDataRequest)
+                .filter(request -> request != null)
+                .findFirst()
+                .orElse(null);
+        String failureReason = manualDataRequest != null
+                ? FAILURE_REASON_MANUAL_DATA_REQUIRED
+                : failedSections.isEmpty() ? null : FAILURE_REASON_REQUEST_FAILED;
 
         return HomeBootstrapLoadStateDto.builder()
                 .isFallback(!failedSections.isEmpty())
                 .timedOut(!timedOutSections.isEmpty())
                 .timedOutSections(timedOutSections)
                 .failedSections(failedSections)
+                .failureReason(failureReason)
+                .manualDataRequest(manualDataRequest)
                 .build();
     }
 
@@ -1052,7 +1093,13 @@ public class HomePageFacadeService {
     private record SectionTask<T>(String name, Future<T> future, long startedAtNanos) {
     }
 
-    private record SectionResult<T>(String section, T value, boolean timedOut, boolean failed, long elapsedMs) {
+    private record SectionResult<T>(
+            String section,
+            T value,
+            boolean timedOut,
+            boolean failed,
+            long elapsedMs,
+            ManualBaseballDataRequest manualDataRequest) {
     }
 
     private record CachedManualDataFailure(ManualBaseballDataRequest request, long expiresAtMillis) {

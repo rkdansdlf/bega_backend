@@ -18,6 +18,7 @@ import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PartyReviewRepository;
 import com.example.mate.service.MateHistoryMetricsService;
 import com.example.mate.service.PartyMapper;
+import com.example.mate.service.PartyFavoriteService;
 import com.example.mate.service.PartyService;
 import com.example.mate.support.MateTestFixtureFactory;
 import com.example.support.HibernateQueryCountSupport;
@@ -50,6 +51,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 @DataJpaTest
 @Import({
         PartyService.class,
+        PartyFavoriteService.class,
         PartyMapper.class,
         MateHistoryMetricsService.class,
         PublicVisibilityVerifier.class,
@@ -82,6 +84,9 @@ class PartyQueryCountIntegrationTest {
     private PartyService partyService;
 
     @Autowired
+    private PartyFavoriteService partyFavoriteService;
+
+    @Autowired
     private UserRepository userRepository;
 
     @Autowired
@@ -110,7 +115,7 @@ class PartyQueryCountIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new com.example.mate.controller.PartyController(partyService)).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(new com.example.mate.controller.PartyController(partyService, partyFavoriteService)).build();
         partyReviewRepository.deleteAll();
         partyApplicationRepository.deleteAll();
         partyRepository.deleteAll();

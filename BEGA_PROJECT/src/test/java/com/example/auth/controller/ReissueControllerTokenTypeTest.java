@@ -11,6 +11,7 @@ import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.util.JWTUtil;
+import com.example.common.config.AllowedOriginResolver;
 import com.example.common.exception.GlobalExceptionHandler;
 import com.example.common.web.ClientIpResolver;
 import com.example.common.dto.ApiResponse;
@@ -25,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
@@ -84,7 +86,10 @@ class ReissueControllerTokenTypeTest {
                 authSessionService,
                 authSecurityMonitoringService,
                 refreshTokenReuseDetector,
-                refreshTokenRevocationService);
+                refreshTokenRevocationService,
+                new AllowedOriginResolver(new MockEnvironment().withProperty("spring.profiles.active", "prod"),
+                        "http://localhost:5176",
+                        false));
         mockMvc = MockMvcBuilders.standaloneSetup(reissueController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

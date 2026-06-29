@@ -27,6 +27,7 @@ import org.springframework.security.authentication.AuthenticationCredentialsNotF
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.annotation.PreDestroy;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -35,6 +36,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -56,6 +60,18 @@ public class CheerFeedService {
     private final PostDtoMapper postDtoMapper;
     private final ProfileImageService profileImageService;
     private final com.example.cheerboard.repo.CheerBookmarkRepo bookmarkRepo;
+
+    private ExecutorService feedEnrichmentExecutor = Executors.newVirtualThreadPerTaskExecutor();
+
+    @PreDestroy
+    private void shutdownExecutor() {
+        feedEnrichmentExecutor.shutdownNow();
+    }
+
+    /** @DataJpaTest 등 동일 트랜잭션에서 결과를 검증해야 하는 테스트 전용 — 운영 코드에서 호출 금지. */
+    public void setFeedEnrichmentExecutorForTest(ExecutorService executor) {
+        this.feedEnrichmentExecutor = executor;
+    }
 
     // We need to resolve Normalized Team ID, so call utility directly or via helper
 
@@ -603,16 +619,40 @@ public class CheerFeedService {
 
         List<Long> postIds = mappedPosts.stream().map(CheerPost::getId).toList();
 
-        Map<Long, List<String>> imageUrlsByPostId = safeGetPostImageUrls(postIds);
-        Map<Long, List<String>> repostImageUrls = prefetchRepostOriginalImages(mappedPosts);
-        Map<Long, Integer> viewCountMap = safeGetViewCounts(postIds);
-        Map<Long, Boolean> hotStatusMap = safeGetHotStatusMap(postIds);
-        // Use InteractionService for counts and statuses
-        Map<Long, Integer> bookmarkCountMap = safeGetBookmarkCountMap(postIds);
+        // 8개 enrichment 병렬 실행 — 모두 독립적이며 safeGet* 내부에 try-catch 내장
+        CompletableFuture<Map<Long, List<String>>> imageFuture =
+                CompletableFuture.supplyAsync(() -> safeGetPostImageUrls(postIds), feedEnrichmentExecutor);
+        CompletableFuture<Map<Long, List<String>>> repostImageFuture =
+                CompletableFuture.supplyAsync(() -> prefetchRepostOriginalImages(mappedPosts), feedEnrichmentExecutor);
+        CompletableFuture<Map<Long, Integer>> viewCountFuture =
+                CompletableFuture.supplyAsync(() -> safeGetViewCounts(postIds), feedEnrichmentExecutor);
+        CompletableFuture<Map<Long, Boolean>> hotStatusFuture =
+                CompletableFuture.supplyAsync(() -> safeGetHotStatusMap(postIds), feedEnrichmentExecutor);
+        CompletableFuture<Map<Long, Integer>> bookmarkCountFuture =
+                CompletableFuture.supplyAsync(() -> safeGetBookmarkCountMap(postIds), feedEnrichmentExecutor);
+        CompletableFuture<Set<Long>> likedFuture = CompletableFuture.supplyAsync(
+                () -> me != null ? safeGetLikedPostIds(me, postIds) : Collections.emptySet(),
+                feedEnrichmentExecutor);
+        CompletableFuture<Set<Long>> bookmarkedFuture = CompletableFuture.supplyAsync(
+                () -> me != null ? safeGetBookmarkedPostIds(me, postIds) : Collections.emptySet(),
+                feedEnrichmentExecutor);
+        CompletableFuture<Set<Long>> repostedFuture = CompletableFuture.supplyAsync(
+                () -> me != null ? safeGetRepostedPostIds(me, postIds) : Collections.emptySet(),
+                feedEnrichmentExecutor);
 
-        Set<Long> likedPostIds = (me != null) ? safeGetLikedPostIds(me, postIds) : Collections.emptySet();
-        Set<Long> bookmarkedPostIds = (me != null) ? safeGetBookmarkedPostIds(me, postIds) : Collections.emptySet();
-        Set<Long> repostedPostIds = (me != null) ? safeGetRepostedPostIds(me, postIds) : Collections.emptySet();
+        CompletableFuture.allOf(
+                imageFuture, repostImageFuture, viewCountFuture, hotStatusFuture,
+                bookmarkCountFuture, likedFuture, bookmarkedFuture, repostedFuture
+        ).join();
+
+        Map<Long, List<String>> imageUrlsByPostId = imageFuture.join();
+        Map<Long, List<String>> repostImageUrls = repostImageFuture.join();
+        Map<Long, Integer> viewCountMap = viewCountFuture.join();
+        Map<Long, Boolean> hotStatusMap = hotStatusFuture.join();
+        Map<Long, Integer> bookmarkCountMap = bookmarkCountFuture.join();
+        Set<Long> likedPostIds = likedFuture.join();
+        Set<Long> bookmarkedPostIds = bookmarkedFuture.join();
+        Set<Long> repostedPostIds = repostedFuture.join();
 
         return mappedPosts.stream()
                 .map(post -> {

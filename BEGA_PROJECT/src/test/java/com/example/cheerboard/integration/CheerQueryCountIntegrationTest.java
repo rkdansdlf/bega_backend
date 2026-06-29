@@ -50,6 +50,8 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.AbstractExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -177,6 +179,18 @@ class CheerQueryCountIntegrationTest {
                 postDtoMapper,
                 profileImageService,
                 bookmarkRepo);
+
+        // @DataJpaTest는 테스트 트랜잭션 내 미커밋 데이터를 사용한다.
+        // 병렬 virtual thread는 별도 트랜잭션이므로 미커밋 데이터를 볼 수 없다.
+        // 호출 스레드에서 동기 실행하는 executor로 교체해 트랜잭션 공유를 유지한다.
+        feedService.setFeedEnrichmentExecutorForTest(new AbstractExecutorService() {
+            @Override public void execute(Runnable command) { command.run(); }
+            @Override public void shutdown() {}
+            @Override public List<Runnable> shutdownNow() { return Collections.emptyList(); }
+            @Override public boolean isShutdown() { return false; }
+            @Override public boolean isTerminated() { return false; }
+            @Override public boolean awaitTermination(long timeout, TimeUnit unit) { return true; }
+        });
     }
 
     @Test

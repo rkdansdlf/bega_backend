@@ -36,6 +36,12 @@ public class AuthSessionService {
         AuthSessionMetadataResolver.SessionMetadata metadata = authSessionMetadataResolver.resolve(request);
         String currentRefreshToken = extractRefreshToken(request);
         RefreshToken matchedToken = findCurrentRefreshToken(email, currentRefreshToken);
+        if (matchedToken == null) {
+            matchedToken = findRefreshTokenBySessionId(email, currentRefreshToken);
+        }
+        if (matchedToken == null) {
+            matchedToken = findActiveRefreshTokenBySessionContext(email, metadata);
+        }
 
         String sessionId = normalizeSessionId(matchedToken != null ? matchedToken.getSessionId() : null);
         if (sessionId == null) {
@@ -159,6 +165,36 @@ public class AuthSessionService {
                 .orElse(null);
     }
 
+    private RefreshToken findRefreshTokenBySessionId(String email, String currentRefreshToken) {
+        if (email == null || email.isBlank() || currentRefreshToken == null || currentRefreshToken.isBlank()) {
+            return null;
+        }
+
+        String sessionId = safelyExtractSessionId(currentRefreshToken);
+        if (sessionId == null) {
+            return null;
+        }
+
+        return firstToken(refreshRepository.findAllByEmailAndSessionId(email, sessionId));
+    }
+
+    private RefreshToken findActiveRefreshTokenBySessionContext(
+            String email,
+            AuthSessionMetadataResolver.SessionMetadata metadata) {
+        if (email == null || email.isBlank() || metadata == null) {
+            return null;
+        }
+
+        return firstToken(refreshRepository.findActiveByEmailAndSessionContextOrderByLastSeenDesc(
+                email,
+                metadata.deviceType(),
+                metadata.deviceLabel(),
+                metadata.browser(),
+                metadata.os(),
+                metadata.ip(),
+                metadata.now()));
+    }
+
     @Transactional(readOnly = true)
     public RefreshToken resolveCurrentSessionToken(List<RefreshToken> refreshTokens, HttpServletRequest request) {
         if (refreshTokens == null || refreshTokens.isEmpty()) {
@@ -203,7 +239,7 @@ public class AuthSessionService {
     }
 
     public String normalizeText(String value, String fallback) {
-        return authSessionMetadataResolver.normalizeText(value, fallback);
+        return normalizeTextValue(value, fallback);
     }
 
     public String extractCookieValue(HttpServletRequest request, String cookieName) {
@@ -282,7 +318,30 @@ public class AuthSessionService {
         target.setOs(metadata.os());
         target.setIp(metadata.ip());
         target.setLastSeenAt(metadata.now());
-        return refreshRepository.save(target);
+        RefreshToken savedToken = refreshRepository.save(target);
+        deleteDuplicateSessionContextTokens(savedToken);
+        return savedToken;
+    }
+
+    private void deleteDuplicateSessionContextTokens(RefreshToken selectedToken) {
+        if (selectedToken == null
+                || selectedToken.getId() == null
+                || selectedToken.getEmail() == null
+                || selectedToken.getEmail().isBlank()) {
+            return;
+        }
+
+        List<RefreshToken> duplicateTokens = refreshRepository.findDuplicateSessionContexts(
+                selectedToken.getEmail(),
+                normalizeTextValue(selectedToken.getDeviceType(), "desktop"),
+                normalizeTextValue(selectedToken.getDeviceLabel(), "알 수 없는 기기"),
+                normalizeTextValue(selectedToken.getBrowser(), "Unknown"),
+                normalizeTextValue(selectedToken.getOs(), "Unknown"),
+                normalizeTextValue(selectedToken.getIp(), "unknown"),
+                selectedToken.getId());
+        if (duplicateTokens != null && !duplicateTokens.isEmpty()) {
+            refreshRepository.deleteAll(duplicateTokens);
+        }
     }
 
     private boolean isSameSessionContext(
@@ -292,28 +351,42 @@ public class AuthSessionService {
             return false;
         }
 
-        if (!authSessionMetadataResolver.normalizeText(token.getDeviceType(), "desktop")
+        if (!normalizeTextValue(token.getDeviceType(), "desktop")
                 .equals(metadata.deviceType())) {
             return false;
         }
-        if (!authSessionMetadataResolver.normalizeText(token.getDeviceLabel(), "알 수 없는 기기")
+        if (!normalizeTextValue(token.getDeviceLabel(), "알 수 없는 기기")
                 .equals(metadata.deviceLabel())) {
             return false;
         }
-        if (!authSessionMetadataResolver.normalizeText(token.getBrowser(), "Unknown")
+        if (!normalizeTextValue(token.getBrowser(), "Unknown")
                 .equals(metadata.browser())) {
             return false;
         }
-        if (!authSessionMetadataResolver.normalizeText(token.getOs(), "Unknown")
+        if (!normalizeTextValue(token.getOs(), "Unknown")
                 .equals(metadata.os())) {
             return false;
         }
 
-        String tokenIp = authSessionMetadataResolver.normalizeText(token.getIp(), "unknown");
+        String tokenIp = normalizeTextValue(token.getIp(), "unknown");
         if (metadata.ip() == null || metadata.ip().isBlank()) {
             return "unknown".equals(tokenIp);
         }
         return tokenIp.equals(metadata.ip());
+    }
+
+    private RefreshToken firstToken(List<RefreshToken> refreshTokens) {
+        if (refreshTokens == null || refreshTokens.isEmpty()) {
+            return null;
+        }
+        return refreshTokens.get(0);
+    }
+
+    private String normalizeTextValue(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return value.trim();
     }
 
     private String safelyExtractSessionId(String refreshToken) {

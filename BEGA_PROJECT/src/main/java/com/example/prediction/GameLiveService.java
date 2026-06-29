@@ -2,6 +2,7 @@ package com.example.prediction;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -55,6 +56,9 @@ public class GameLiveService {
                         "경기 정보를 찾을 수 없습니다."));
         int normalizedLimit = normalizeLimit(limit);
         List<GameEventEntity> events = loadEvents(gameId, afterSeq, normalizedLimit);
+        List<GameEventEntity> eventScoreSource = afterSeq == null && normalizedLimit >= MAX_EVENT_LIMIT
+                ? events
+                : loadEvents(gameId, null, MAX_EVENT_LIMIT);
         GameEventEntity latestEvent = gameEventRepository.findFirstByGameIdOrderByEventSeqDesc(gameId).orElse(null);
         List<GameInningScoreEntity> inningScores = loadMeaningfulInningScores(gameId, game);
         ensureLiveEventsIfRequired("prediction.live_snapshot.events", game, latestEvent, inningScores, header.getStartTime());
@@ -71,6 +75,9 @@ public class GameLiveService {
                 .map(GameInningScoreDto::fromEntity)
                 .filter(Objects::nonNull)
                 .toList();
+        if (liveInningScores.isEmpty()) {
+            liveInningScores = deriveInningScoresFromEvents(eventScoreSource, game);
+        }
 
         predictionLiveMetricsService.recordLiveSnapshot(scoreSource, !liveInningScores.isEmpty());
         log.debug(
@@ -118,12 +125,13 @@ public class GameLiveService {
         return games.stream()
                 .map(game -> {
                     GameEventEntity latestEvent = latestByGameId.get(game.getGameId());
-                    ensureLiveEventsIfRequired("prediction.live_summary.events", game, latestEvent, List.of(), null);
+                    List<GameInningScoreEntity> inningScores = loadMeaningfulInningScores(game.getGameId(), game);
+                    ensureLiveEventsIfRequired("prediction.live_summary.events", game, latestEvent, inningScores, null);
                     return GameLiveSummaryDto.builder()
                             .gameId(game.getGameId())
-                            .gameStatus(resolveLiveStatus(game, latestEvent, List.of(), null))
-                            .homeScore(resolveHomeScore(game, latestEvent, List.of()))
-                            .awayScore(resolveAwayScore(game, latestEvent, List.of()))
+                            .gameStatus(resolveLiveStatus(game, latestEvent, inningScores, null))
+                            .homeScore(resolveHomeScore(game, latestEvent, inningScores))
+                            .awayScore(resolveAwayScore(game, latestEvent, inningScores))
                             .lastEventSeq(latestEvent == null ? null : latestEvent.getEventSeq())
                             .lastUpdatedAt(resolveUpdatedAt(latestEvent))
                             .build();
@@ -175,22 +183,28 @@ public class GameLiveService {
             GameEntity game,
             GameEventEntity latestEvent,
             List<GameInningScoreEntity> inningScores) {
+        Integer inningScore = sumInningRuns(inningScores, "home");
+        if (inningScore != null) {
+            return inningScore;
+        }
         if (latestEvent != null && latestEvent.getHomeScore() != null) {
             return latestEvent.getHomeScore();
         }
-        Integer inningScore = sumInningRuns(inningScores, "home");
-        return inningScore != null ? inningScore : game.getHomeScore();
+        return game.getHomeScore();
     }
 
     private Integer resolveAwayScore(
             GameEntity game,
             GameEventEntity latestEvent,
             List<GameInningScoreEntity> inningScores) {
+        Integer inningScore = sumInningRuns(inningScores, "away");
+        if (inningScore != null) {
+            return inningScore;
+        }
         if (latestEvent != null && latestEvent.getAwayScore() != null) {
             return latestEvent.getAwayScore();
         }
-        Integer inningScore = sumInningRuns(inningScores, "away");
-        return inningScore != null ? inningScore : game.getAwayScore();
+        return game.getAwayScore();
     }
 
     private String resolveScoreSource(
@@ -212,11 +226,11 @@ public class GameLiveService {
     }
 
     private String resolveSideScoreSource(Integer eventScore, Integer inningScore, Integer gameScore) {
-        if (eventScore != null) {
-            return "game_events";
-        }
         if (inningScore != null) {
             return "inning_scores";
+        }
+        if (eventScore != null) {
+            return "game_events";
         }
         if (gameScore != null) {
             return "game_entity";
@@ -271,10 +285,10 @@ public class GameLiveService {
                 new ManualBaseballDataRequest(
                         scope,
                         List.of(new ManualBaseballDataMissingItem(
-                                "game_events",
-                                "문자중계 이벤트",
-                                "진행 또는 종료 경기의 문자중계 event row가 없습니다.",
-                                "game_events.game_id, event_seq, inning, description, home_score, away_score")),
+                                "game_events_or_inning_scores",
+                                "문자중계 이벤트 또는 이닝별 점수",
+                                "진행 또는 종료 경기의 문자중계 event row와 이닝별 점수 row가 모두 없습니다.",
+                                "game_events.game_id, event_seq, inning, description, home_score, away_score 또는 game_inning_scores.game_id, inning, team_side, runs")),
                         buildOperatorMessage(game),
                         true));
     }
@@ -295,7 +309,8 @@ public class GameLiveService {
         String gameDate = game == null || game.getGameDate() == null ? null : game.getGameDate().toString();
         String target = gameId == null || gameId.isBlank() ? "" : "경기 ID=" + gameId + ", ";
         String date = gameDate == null ? "" : "날짜=" + gameDate + ", ";
-        return "다음 야구 데이터가 필요합니다: " + target + date + "문자중계 이벤트(진행/종료 경기의 game_events row가 필요합니다.)";
+        return "다음 야구 데이터가 필요합니다: " + target + date
+                + "문자중계 이벤트 또는 이닝별 점수(진행/종료 경기의 game_events row 또는 game_inning_scores row가 필요합니다.)";
     }
 
     private List<GameInningScoreEntity> loadMeaningfulInningScores(String gameId, GameEntity game) {
@@ -311,14 +326,87 @@ public class GameLiveService {
         if (isEmpty(inningScores)) {
             return null;
         }
-        return inningScores.stream()
+        List<GameInningScoreEntity> sideScores = inningScores.stream()
                 .filter(score -> score != null && score.getRuns() != null)
                 .filter(score -> teamSide.equalsIgnoreCase(score.getTeamSide()))
-                .mapToInt(GameInningScoreEntity::getRuns)
-                .sum();
+                .toList();
+        if (sideScores.isEmpty()) {
+            return null;
+        }
+        return sideScores.stream().mapToInt(GameInningScoreEntity::getRuns).sum();
+    }
+
+    private List<GameInningScoreDto> deriveInningScoresFromEvents(List<GameEventEntity> events, GameEntity game) {
+        if (isEmpty(events)) {
+            return List.of();
+        }
+
+        Map<Integer, EventInningRuns> runsByInning = new LinkedHashMap<>();
+        Integer previousHomeScore = 0;
+        Integer previousAwayScore = 0;
+
+        List<GameEventEntity> sortedEvents = events.stream()
+                .filter(Objects::nonNull)
+                .filter(event -> event.getInning() != null)
+                .sorted(Comparator.comparing(GameEventEntity::getEventSeq, Comparator.nullsLast(Integer::compareTo)))
+                .toList();
+
+        for (GameEventEntity event : sortedEvents) {
+            if (event.getAwayScore() == null && event.getHomeScore() == null) {
+                continue;
+            }
+
+            Integer inning = event.getInning();
+            EventInningRuns inningRuns = runsByInning.computeIfAbsent(inning, ignored -> new EventInningRuns());
+
+            Integer eventAwayScore = event.getAwayScore();
+            if (eventAwayScore != null) {
+                if (eventAwayScore >= previousAwayScore) {
+                    inningRuns.awayRuns += eventAwayScore - previousAwayScore;
+                    previousAwayScore = eventAwayScore;
+                }
+            }
+
+            Integer eventHomeScore = event.getHomeScore();
+            if (eventHomeScore != null) {
+                if (eventHomeScore >= previousHomeScore) {
+                    inningRuns.homeRuns += eventHomeScore - previousHomeScore;
+                    previousHomeScore = eventHomeScore;
+                }
+            }
+        }
+
+        if (runsByInning.isEmpty()) {
+            return List.of();
+        }
+
+        List<GameInningScoreDto> derivedScores = new ArrayList<>();
+        runsByInning.forEach((inning, runs) -> {
+            derivedScores.add(GameInningScoreDto.builder()
+                    .inning(inning)
+                    .teamSide("away")
+                    .teamCode(game.getAwayTeam())
+                    .runs(runs.awayRuns)
+                    .isExtra(GameInningScoreSupport.normalizeIsExtraFlag(inning, null))
+                    .build());
+            derivedScores.add(GameInningScoreDto.builder()
+                    .inning(inning)
+                    .teamSide("home")
+                    .teamCode(game.getHomeTeam())
+                    .runs(runs.homeRuns)
+                    .isExtra(GameInningScoreSupport.normalizeIsExtraFlag(inning, null))
+                    .build());
+        });
+
+        return derivedScores;
     }
 
     private boolean isEmpty(List<?> values) {
         return values == null || values.isEmpty();
+    }
+
+    private static class EventInningRuns {
+        private int homeRuns;
+        private int awayRuns;
     }
 }

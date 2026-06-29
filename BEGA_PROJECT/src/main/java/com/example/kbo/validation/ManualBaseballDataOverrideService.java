@@ -41,7 +41,7 @@ public class ManualBaseballDataOverrideService {
         if (!isDateRequiresManualData(date)) {
             return;
         }
-        throw new ManualBaseballDataRequiredException(newRequest(scope, date));
+        throw new ManualBaseballDataRequiredException(buildRequest(scope, date));
     }
 
     public void throwIfRangeRequiresManualData(String scope, LocalDate startDate, LocalDate endDate) {
@@ -53,11 +53,11 @@ public class ManualBaseballDataOverrideService {
                 .filter(date -> !date.isBefore(startDate) && !date.isAfter(endDate))
                 .min(Comparator.naturalOrder())
                 .ifPresent(date -> {
-                    throw new ManualBaseballDataRequiredException(newRequest(scope, date));
+                    throw new ManualBaseballDataRequiredException(buildRequest(scope, date));
                 });
     }
 
-    private ManualBaseballDataRequest newRequest(String scope, LocalDate date) {
+    public ManualBaseballDataRequest buildRequest(String scope, LocalDate date) {
         return new ManualBaseballDataRequest(
                 scope,
                 List.of(

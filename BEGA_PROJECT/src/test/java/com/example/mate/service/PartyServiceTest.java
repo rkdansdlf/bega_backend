@@ -73,6 +73,9 @@ class PartyServiceTest {
         private UserProviderRepository userProviderRepository;
 
         @Mock
+        private PartyFavoriteService partyFavoriteService;
+
+        @Mock
         private PublicVisibilityVerifier publicVisibilityVerifier;
 
         @Mock
@@ -104,6 +107,7 @@ class PartyServiceTest {
                                 userRepository,
                                 applicationRepository,
                                 partyMapper,
+                                partyFavoriteService,
                                 userProviderRepository,
                                 publicVisibilityVerifier,
                                 ticketVerificationTokenStore,
@@ -155,6 +159,7 @@ class PartyServiceTest {
                                 .awayTeam("KIA")
                                 .cheeringSide(Party.CheeringSide.HOME)
                                 .section("1루")
+                                .seatDetail("305블록 12열 15번")
                                 .maxParticipants(4)
                                 .description("실제 사용자 프로필에서 생성해야 합니다.")
                                 .ticketPrice(12000)
@@ -168,6 +173,7 @@ class PartyServiceTest {
                 assertThat(response.getHostBadge()).isEqualTo(Party.BadgeType.VERIFIED);
                 assertThat(response.getHostAverageRating()).isEqualTo(4.7);
                 assertThat(response.getHostReviewCount()).isEqualTo(3L);
+                assertThat(response.getSeatDetail()).isEqualTo("305블록 12열 15번");
                 verify(partyRepository).save(any(Party.class));
         }
 
@@ -280,6 +286,55 @@ class PartyServiceTest {
         }
 
         @Test
+        @DisplayName("getPartyById sets favorited when the current user favorited the party")
+        void getPartyById_setsFavoritedForCurrentUser() {
+                Party party = createParty(110L, 92L, null);
+                when(partyRepository.findById(110L)).thenReturn(Optional.of(party));
+                when(profileImageService.getProfileImageUrlForUser(92L, null)).thenReturn(null);
+                when(partyFavoriteService.isFavorited(99L, 110L)).thenReturn(true);
+
+                PartyDTO.PublicResponse response = partyService.getPartyById(110L, 99L);
+
+                assertThat(response.getFavorited()).isTrue();
+        }
+
+        @Test
+        @DisplayName("getPartyById leaves favorited false for an anonymous viewer (no favorite lookup)")
+        void getPartyById_favoritedFalseForAnonymous() {
+                Party party = createParty(111L, 92L, null);
+                when(partyRepository.findById(111L)).thenReturn(Optional.of(party));
+                when(profileImageService.getProfileImageUrlForUser(92L, null)).thenReturn(null);
+
+                PartyDTO.PublicResponse response = partyService.getPartyById(111L, null);
+
+                assertThat(response.getFavorited()).isFalse();
+                verify(partyFavoriteService, never()).isFavorited(any(), any());
+        }
+
+        @Test
+        @DisplayName("getPartyById builds member roster (host + approved) exposing only initial/avatar/role")
+        void getPartyById_buildsMemberRoster() {
+                Party party = createParty(112L, 92L, null);
+                when(partyRepository.findById(112L)).thenReturn(Optional.of(party));
+                when(profileImageService.getProfileImageUrlForUser(92L, null)).thenReturn(null);
+                when(applicationRepository.findByPartyIdAndIsApprovedTrue(112L)).thenReturn(List.of(
+                                PartyApplication.builder().partyId(112L).applicantId(200L).applicantName("민수").isApproved(true).build()));
+                when(userRepository.findAllById(List.of(200L))).thenReturn(List.of(
+                                UserEntity.builder().id(200L).profileImageUrl("profiles/200/a.png").build()));
+
+                PartyDTO.PublicResponse response = partyService.getPartyById(112L, null);
+
+                assertThat(response.getMembers()).hasSize(2);
+                assertThat(response.getMembers().get(0).isHost()).isTrue();
+                assertThat(response.getMembers().get(0).getRole()).isEqualTo("호스트");
+                assertThat(response.getMembers().get(0).getInitial()).isEqualTo("h"); // host-92 → 'h'
+                assertThat(response.getMembers().get(1).isHost()).isFalse();
+                assertThat(response.getMembers().get(1).getRole()).isEqualTo("메이트");
+                assertThat(response.getMembers().get(1).getInitial()).isEqualTo("민");
+                assertThat(response.getMembers().get(1).getProfileImageUrl()).isEqualTo("profiles/200/a.png");
+        }
+
+        @Test
         @DisplayName("legacy local asset host image falls back to null when no usable user profile")
         void getAllParties_legacyLocalAssetFallsBackToNull() {
                 Party party = createParty(103L, 88L, "/assets/default-avatar.png");
@@ -321,6 +376,31 @@ class PartyServiceTest {
                 assertThat(result.getContent()).hasSize(1);
                 assertThat(result.getContent().get(0).getHostAverageRating()).isEqualTo(4.4);
                 assertThat(result.getContent().get(0).getHostReviewCount()).isEqualTo(2L);
+        }
+
+        @Test
+        @DisplayName("getAllParties sets favorite flags for authenticated viewers in one lookup")
+        void getAllParties_setsFavoriteFlagsForAuthenticatedViewer() {
+                Party first = createParty(301L, 11L, null);
+                Party second = createParty(302L, 12L, null);
+                when(partyRepository.findVisiblePublicPartiesWithFilter(any(), any(), any(), any(), anyList(), any(),
+                                any(),
+                                any(Pageable.class)))
+                                .thenReturn(new PageImpl<>(List.of(first, second)));
+                when(partyFavoriteService.getFavoritePartyIds(99L)).thenReturn(List.of(302L));
+
+                Page<PartyDTO.PublicResponse> result = partyService.getAllParties(
+                                null,
+                                null,
+                                null,
+                                "",
+                                PageRequest.of(0, 10),
+                                null,
+                                99L);
+
+                assertThat(result.getContent()).extracting(PartyDTO.PublicResponse::getFavorited)
+                                .containsExactly(false, true);
+                verify(partyFavoriteService).getFavoritePartyIds(99L);
         }
 
         @Test
@@ -514,6 +594,7 @@ class PartyServiceTest {
                 Party party = createParty(700L, 10L, null);
                 PartyDTO.UpdateRequest request = PartyDTO.UpdateRequest.builder()
                                 .description("수정된 소개글입니다.")
+                                .seatDetail("306블록 10열 8번")
                                 .maxParticipants(5)
                                 .build();
 
@@ -524,7 +605,9 @@ class PartyServiceTest {
                 PartyDTO.Response response = partyService.updateParty(700L, request, 10L);
 
                 assertThat(response.getDescription()).isEqualTo("수정된 소개글입니다.");
+                assertThat(response.getSeatDetail()).isEqualTo("306블록 10열 8번");
                 assertThat(response.getMaxParticipants()).isEqualTo(5);
+                assertThat(party.getSearchText()).contains("306블록 10열 8번");
                 verify(partyRepository).findByIdAndHostId(700L, 10L);
                 verify(partyRepository, never()).findById(700L);
         }

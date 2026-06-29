@@ -41,6 +41,13 @@ public class NotificationController {
         return ResponseEntity.noContent().build();
     }
 
+    // 전체 알림 일괄 읽음 처리
+    @PostMapping("/mark-all-read")
+    public ResponseEntity<Void> markAllAsRead(@AuthenticationPrincipal Long userId) {
+        notificationService.markAllAsRead(userId);
+        return ResponseEntity.ok().build();
+    }
+
     // 알림 삭제
     @DeleteMapping("/{notificationId}")
     public ResponseEntity<?> deleteNotification(@PathVariable Long notificationId, @AuthenticationPrincipal Long userId) {

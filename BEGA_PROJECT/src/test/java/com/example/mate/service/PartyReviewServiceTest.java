@@ -19,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.security.Principal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
@@ -85,6 +86,30 @@ class PartyReviewServiceTest {
 
         assertThat(response.getReviewerHandle()).isEqualTo("@host");
         assertThat(response.getRevieweeHandle()).isEqualTo("@guest");
+    }
+
+    @Test
+    @DisplayName("getReviewsByHostHandle returns host reviews newest-first with mapped handles")
+    void getReviewsByHostHandle_returnsSortedReviews() {
+        when(userService.getUserIdByHandle("@host")).thenReturn(100L);
+        PartyReview older = PartyReview.builder()
+                .id(1L).partyId(7L).reviewerId(10L).revieweeId(100L).rating(5)
+                .comment("older").createdAt(Instant.parse("2026-03-01T00:00:00Z")).build();
+        PartyReview newer = PartyReview.builder()
+                .id(2L).partyId(8L).reviewerId(20L).revieweeId(100L).rating(4)
+                .comment("newer").createdAt(Instant.parse("2026-03-10T00:00:00Z")).build();
+        when(partyReviewRepository.findByRevieweeId(100L)).thenReturn(List.of(older, newer));
+        when(userService.findUserById(10L)).thenReturn(UserEntity.builder().id(10L).handle("@r1").build());
+        when(userService.findUserById(20L)).thenReturn(UserEntity.builder().id(20L).handle("@r2").build());
+        when(userService.findUserById(100L)).thenReturn(UserEntity.builder().id(100L).handle("@host").build());
+
+        List<PartyReviewDTO.Response> result = partyReviewService.getReviewsByHostHandle("@host");
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getId()).isEqualTo(2L); // 최신 우선
+        assertThat(result.get(1).getId()).isEqualTo(1L);
+        assertThat(result.get(0).getReviewerHandle()).isEqualTo("@r2");
+        assertThat(result.get(0).getRevieweeHandle()).isEqualTo("@host");
     }
 
     @Test

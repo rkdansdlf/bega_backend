@@ -4,6 +4,7 @@ import com.example.common.exception.AuthenticationRequiredException;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.exception.InvalidPartyStatusException;
+import com.example.mate.service.PartyFavoriteService;
 import com.example.mate.service.PartyService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Tag(name = "파티 매칭", description = "파티 생성, 조회, 신청, 체크인, 실시간 WebSocket 채팅")
@@ -36,6 +38,7 @@ public class PartyController {
     private static final Set<String> ALLOWED_SORTS = Set.of("createdAt", "gameDate", "currentParticipants");
 
     private final PartyService partyService;
+    private final PartyFavoriteService partyFavoriteService;
 
     // 파티 생성
     @PostMapping
@@ -85,6 +88,30 @@ public class PartyController {
             @AuthenticationPrincipal Long currentUserId) {
         PartyDTO.PublicResponse response = partyService.getPartyById(id, currentUserId);
         return ResponseEntity.ok(response);
+    }
+
+    // 파티 찜 추가 (인증 필수)
+    @PostMapping("/{id}/favorite")
+    public ResponseEntity<Map<String, Boolean>> addFavorite(
+            @PathVariable Long id,
+            @AuthenticationPrincipal Long userId) {
+        if (userId == null) {
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
+        }
+        partyFavoriteService.addFavorite(userId, id);
+        return ResponseEntity.ok(Map.of("favorited", true));
+    }
+
+    // 파티 찜 삭제 (인증 필수)
+    @DeleteMapping("/{id}/favorite")
+    public ResponseEntity<Map<String, Boolean>> removeFavorite(
+            @PathVariable Long id,
+            @AuthenticationPrincipal Long userId) {
+        if (userId == null) {
+            throw new AuthenticationRequiredException("인증이 필요합니다.");
+        }
+        partyFavoriteService.removeFavorite(userId, id);
+        return ResponseEntity.ok(Map.of("favorited", false));
     }
 
     // 상태별 파티 조회

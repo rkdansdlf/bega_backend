@@ -30,16 +30,31 @@ public class JWTFilter extends OncePerRequestFilter {
     private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
     private final UserRepository userRepository;
     private final com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService;
+    /**
+     * token_type claim이 없는 레거시 토큰을 access 토큰으로 인정할지 여부.
+     * 기본 true(거부). 모든 신규 토큰은 token_type을 포함하므로 거부가 안전하며,
+     * 문제 시 설정으로 즉시 false 롤백 가능.
+     */
+    private final boolean rejectLegacyAccessTokens;
 
     public JWTFilter(com.example.auth.util.JWTUtil jwtUtil, List<String> allowedOrigins,
             com.example.auth.service.TokenBlacklistService tokenBlacklistService,
             UserRepository userRepository,
             com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService) {
+        this(jwtUtil, allowedOrigins, tokenBlacklistService, userRepository, securityMonitoringService, true);
+    }
+
+    public JWTFilter(com.example.auth.util.JWTUtil jwtUtil, List<String> allowedOrigins,
+            com.example.auth.service.TokenBlacklistService tokenBlacklistService,
+            UserRepository userRepository,
+            com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService,
+            boolean rejectLegacyAccessTokens) {
         this.jwtUtil = jwtUtil;
         this.allowedOrigins = allowedOrigins;
         this.tokenBlacklistService = tokenBlacklistService;
         this.userRepository = userRepository;
         this.securityMonitoringService = securityMonitoringService;
+        this.rejectLegacyAccessTokens = rejectLegacyAccessTokens;
     }
 
     @Override
@@ -172,10 +187,14 @@ public class JWTFilter extends OncePerRequestFilter {
         }
 
         // [Security Fix] 토큰 타입 검증: access 토큰만 허용 (link, refresh 등 차단)
-        // NOTE: 과거 토큰 호환성을 위해 token_type이 없는 레거시 토큰도 유효 토큰으로 취급
+        // 신규 토큰은 항상 token_type=access 를 포함하므로, token_type이 없는 레거시 토큰은
+        // 기본적으로 거부한다(rejectLegacyAccessTokens=true). 롤백이 필요하면 설정으로 false 전환.
         String tokenType = jwtUtil.getTokenType(token);
-        if (tokenType != null && !"access".equalsIgnoreCase(tokenType.trim())) {
-            log.warn("{} token rejected for authentication (strict mode)", tokenType);
+        boolean tokenTypeMissing = (tokenType == null || tokenType.trim().isEmpty());
+        boolean nonAccessType = (tokenType != null && !"access".equalsIgnoreCase(tokenType.trim()));
+        if (nonAccessType || (tokenTypeMissing && rejectLegacyAccessTokens)) {
+            log.warn("token rejected for authentication (strict mode, type={}, legacyMissing={})",
+                    tokenType, tokenTypeMissing);
             securityMonitoringService.recordTokenReject();
             if (mutableRequest) {
                 sendInvalidAuthorResponse(response, "접근 권한이 없는 토큰입니다. 다시 로그인해 주세요.");

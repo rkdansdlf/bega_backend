@@ -166,9 +166,36 @@ class JWTFilterTokenTypeTest {
     }
 
     @Test
-    @DisplayName("token_type이 없는 레거시 토큰도 인증에 사용된다")
-    void legacyTokenWithoutType_isAcceptedForAuthentication() throws Exception {
-        String legacyToken = Jwts.builder()
+    @DisplayName("token_type이 없는 레거시 토큰은 기본적으로 인증에서 거부된다")
+    void legacyTokenWithoutType_isRejectedByDefault() throws Exception {
+        String legacyToken = buildLegacyTokenWithoutType();
+
+        executeFilter(legacyToken);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("플래그를 끄면 레거시 토큰(token_type 없음)도 인증에 사용된다 (롤백 경로)")
+    void legacyTokenWithoutType_isAcceptedWhenRejectionDisabled() throws Exception {
+        JWTFilter lenientFilter = new JWTFilter(jwtUtil, List.of("http://localhost:5176"),
+                tokenBlacklistService, userRepository, securityMonitoringService, false);
+        String legacyToken = buildLegacyTokenWithoutType();
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/protected/resource");
+        request.addHeader("Authorization", "Bearer " + legacyToken);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        lenientFilter.doFilter(request, response, chain);
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        assertThat(authentication).isNotNull();
+        assertThat(authentication.getPrincipal()).isEqualTo(1L);
+        assertThat(authentication.getAuthorities()).extracting("authority").containsExactly("ROLE_USER");
+    }
+
+    private String buildLegacyTokenWithoutType() {
+        return Jwts.builder()
                 .claim("email", "legacy@test.com")
                 .claim("role", "ROLE_USER")
                 .claim("user_id", 1L)
@@ -176,13 +203,6 @@ class JWTFilterTokenTypeTest {
                 .expiration(new Date(System.currentTimeMillis() + 60_000L))
                 .signWith(secretKey, Jwts.SIG.HS512)
                 .compact();
-
-        executeFilter(legacyToken);
-
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        assertThat(authentication).isNotNull();
-        assertThat(authentication.getPrincipal()).isEqualTo(1L);
-        assertThat(authentication.getAuthorities()).extracting("authority").containsExactly("ROLE_USER");
     }
 
     @Test

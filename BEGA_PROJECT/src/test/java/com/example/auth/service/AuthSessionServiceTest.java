@@ -143,6 +143,209 @@ class AuthSessionServiceTest {
     }
 
     @Test
+    @DisplayName("stale refresh 쿠키는 session id로 기존 세션을 다시 찾는다")
+    void prepareRefreshSession_withStaleRefreshCookieMatchesBySessionId() {
+        AuthSessionService authSessionService = new AuthSessionService(
+                refreshRepository,
+                jwtUtil,
+                authSessionMetadataResolver,
+                refreshTokenReuseDetector);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setCookies(new Cookie("Refresh", "stale-refresh-token"));
+        AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
+                "desktop",
+                "Desktop",
+                "Chrome",
+                "macOS",
+                "127.0.0.1",
+                LocalDateTime.now());
+        RefreshToken existingToken = new RefreshToken();
+        existingToken.setEmail("user@example.com");
+        existingToken.setToken("db-refresh-token");
+        existingToken.setSessionId("session-123");
+
+        when(authSessionMetadataResolver.resolve(any(HttpServletRequest.class))).thenReturn(metadata);
+        when(refreshRepository.findAllByToken("stale-refresh-token")).thenReturn(List.of());
+        when(jwtUtil.getSessionId("stale-refresh-token")).thenReturn("session-123");
+        when(refreshRepository.findAllByEmailAndSessionId("user@example.com", "session-123"))
+                .thenReturn(List.of(existingToken));
+
+        AuthSessionService.PreparedRefreshSession prepared = authSessionService.prepareRefreshSession(
+                "user@example.com",
+                request);
+
+        assertThat(prepared.sessionId()).isEqualTo("session-123");
+        assertThat(prepared.matchedToken()).isSameAs(existingToken);
+    }
+
+    @Test
+    @DisplayName("refresh 쿠키가 없어도 같은 기기 메타데이터의 활성 세션을 재사용한다")
+    void prepareRefreshSession_withoutRefreshCookieMatchesActiveSessionContext() {
+        AuthSessionService authSessionService = new AuthSessionService(
+                refreshRepository,
+                jwtUtil,
+                authSessionMetadataResolver,
+                refreshTokenReuseDetector);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        LocalDateTime now = LocalDateTime.now();
+        AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
+                "desktop",
+                "Desktop",
+                "Chrome",
+                "macOS",
+                "127.0.0.1",
+                now);
+        RefreshToken existingToken = new RefreshToken();
+        existingToken.setEmail("user@example.com");
+        existingToken.setToken("db-refresh-token");
+        existingToken.setSessionId("session-123");
+        existingToken.setDeviceType("desktop");
+        existingToken.setDeviceLabel("Desktop");
+        existingToken.setBrowser("Chrome");
+        existingToken.setOs("macOS");
+        existingToken.setIp("127.0.0.1");
+        existingToken.setExpiryDate(now.plusDays(7));
+
+        when(authSessionMetadataResolver.resolve(any(HttpServletRequest.class))).thenReturn(metadata);
+        when(refreshRepository.findActiveByEmailAndSessionContextOrderByLastSeenDesc(
+                "user@example.com",
+                "desktop",
+                "Desktop",
+                "Chrome",
+                "macOS",
+                "127.0.0.1",
+                now)).thenReturn(List.of(existingToken));
+
+        AuthSessionService.PreparedRefreshSession prepared = authSessionService.prepareRefreshSession(
+                "user@example.com",
+                request);
+
+        assertThat(prepared.sessionId()).isEqualTo("session-123");
+        assertThat(prepared.matchedToken()).isSameAs(existingToken);
+    }
+
+    @Test
+    @DisplayName("다른 이메일의 session id나 기기 메타데이터는 재사용하지 않는다")
+    void prepareRefreshSession_doesNotReuseOtherUsersSession() {
+        AuthSessionService authSessionService = new AuthSessionService(
+                refreshRepository,
+                jwtUtil,
+                authSessionMetadataResolver,
+                refreshTokenReuseDetector);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setCookies(new Cookie("Refresh", "stale-refresh-token"));
+        LocalDateTime now = LocalDateTime.now();
+        AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
+                "desktop",
+                "Desktop",
+                "Chrome",
+                "macOS",
+                "127.0.0.1",
+                now);
+
+        when(authSessionMetadataResolver.resolve(any(HttpServletRequest.class))).thenReturn(metadata);
+        when(refreshRepository.findAllByToken("stale-refresh-token")).thenReturn(List.of());
+        when(jwtUtil.getSessionId("stale-refresh-token")).thenReturn("session-123");
+        when(refreshRepository.findAllByEmailAndSessionId("user@example.com", "session-123"))
+                .thenReturn(List.of());
+        when(refreshRepository.findActiveByEmailAndSessionContextOrderByLastSeenDesc(
+                "user@example.com",
+                "desktop",
+                "Desktop",
+                "Chrome",
+                "macOS",
+                "127.0.0.1",
+                now)).thenReturn(List.of());
+
+        AuthSessionService.PreparedRefreshSession prepared = authSessionService.prepareRefreshSession(
+                "user@example.com",
+                request);
+
+        assertThat(prepared.matchedToken()).isNull();
+        assertThat(prepared.sessionId()).isNotBlank();
+        assertThat(prepared.sessionId()).isNotEqualTo("session-123");
+    }
+
+    @Test
+    @DisplayName("같은 기기 메타데이터 중복 세션은 선택된 세션만 남기고 정리한다")
+    void issueRefreshSession_deletesDuplicateSessionContextTokens() {
+        AuthSessionService authSessionService = new AuthSessionService(
+                refreshRepository,
+                jwtUtil,
+                authSessionMetadataResolver,
+                refreshTokenReuseDetector);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        LocalDateTime now = LocalDateTime.now();
+        AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
+                "desktop",
+                "Desktop",
+                "Chrome",
+                "macOS",
+                "127.0.0.1",
+                now);
+        RefreshToken selectedToken = new RefreshToken();
+        selectedToken.setId(10L);
+        selectedToken.setEmail("user@example.com");
+        selectedToken.setToken("old-refresh-token");
+        selectedToken.setSessionId("session-selected");
+        selectedToken.setDeviceType("desktop");
+        selectedToken.setDeviceLabel("Desktop");
+        selectedToken.setBrowser("Chrome");
+        selectedToken.setOs("macOS");
+        selectedToken.setIp("127.0.0.1");
+        selectedToken.setExpiryDate(now.plusDays(7));
+        RefreshToken duplicateToken = new RefreshToken();
+        duplicateToken.setId(9L);
+        duplicateToken.setEmail("user@example.com");
+        duplicateToken.setToken("duplicate-refresh-token");
+        duplicateToken.setSessionId("session-duplicate");
+        duplicateToken.setDeviceType("desktop");
+        duplicateToken.setDeviceLabel("Desktop");
+        duplicateToken.setBrowser("Chrome");
+        duplicateToken.setOs("macOS");
+        duplicateToken.setIp("127.0.0.1");
+        duplicateToken.setExpiryDate(now.plusDays(7));
+
+        when(authSessionMetadataResolver.resolve(any(HttpServletRequest.class))).thenReturn(metadata);
+        when(refreshRepository.findActiveByEmailAndSessionContextOrderByLastSeenDesc(
+                "user@example.com",
+                "desktop",
+                "Desktop",
+                "Chrome",
+                "macOS",
+                "127.0.0.1",
+                now)).thenReturn(List.of(selectedToken, duplicateToken));
+        when(jwtUtil.getRefreshTokenExpirationTime()).thenReturn(604_800_000L);
+        when(jwtUtil.createRefreshToken("user@example.com", "ROLE_USER", 7L, 0, "session-selected"))
+                .thenReturn("new-refresh-token");
+        when(refreshRepository.save(any(RefreshToken.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(refreshRepository.findDuplicateSessionContexts(
+                "user@example.com",
+                "desktop",
+                "Desktop",
+                "Chrome",
+                "macOS",
+                "127.0.0.1",
+                10L)).thenReturn(List.of(duplicateToken));
+
+        AuthSessionService.IssuedRefreshSession issued = authSessionService.issueRefreshSession(
+                "user@example.com",
+                "ROLE_USER",
+                7L,
+                0,
+                request);
+
+        assertThat(issued.sessionId()).isEqualTo("session-selected");
+        assertThat(selectedToken.getToken()).isEqualTo("new-refresh-token");
+        verify(refreshRepository).deleteAll(org.mockito.ArgumentMatchers.argThat(tokens -> {
+            if (!(tokens instanceof List<?> tokenList) || tokenList.size() != 1) {
+                return false;
+            }
+            return tokenList.get(0) == duplicateToken;
+        }));
+    }
+
+    @Test
     @DisplayName("refresh session id에 CRLF가 포함되면 새 안전한 session id를 발급한다")
     void rotateRefreshSession_replacesCrlfSessionId() {
         AuthSessionService authSessionService = new AuthSessionService(

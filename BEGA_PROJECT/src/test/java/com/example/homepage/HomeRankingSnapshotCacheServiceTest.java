@@ -44,22 +44,24 @@ class HomeRankingSnapshotCacheServiceTest {
     }
 
     @Test
-    @DisplayName("fallback ranking snapshot은 캐시하지 않는다")
-    void getOrLoadDoesNotCacheFallbackSnapshot() {
+    @DisplayName("fallback ranking snapshot은 짧게 negative cache하여 반복 loader 호출을 막는다")
+    void getOrLoadCachesFallbackSnapshotBriefly() {
         HomeRankingSnapshotCacheService cacheService = newCacheService();
         AtomicInteger loaderCalls = new AtomicInteger();
         LocalDate selectedDate = LocalDate.of(2026, 6, 7);
 
-        cacheService.getOrLoad(selectedDate, null, () -> {
+        HomeRankingSnapshotDto first = cacheService.getOrLoad(selectedDate, null, () -> {
             loaderCalls.incrementAndGet();
             return fallbackSnapshot(2026);
         });
-        cacheService.getOrLoad(selectedDate, null, () -> {
+        HomeRankingSnapshotDto second = cacheService.getOrLoad(selectedDate, null, () -> {
             loaderCalls.incrementAndGet();
             return successfulSnapshot(2026, "LG");
         });
 
-        assertThat(loaderCalls).hasValue(2);
+        assertThat(loaderCalls).hasValue(1);
+        assertThat(first).isSameAs(second);
+        assertThat(second.getRankings()).isEmpty();
     }
 
     @Test
