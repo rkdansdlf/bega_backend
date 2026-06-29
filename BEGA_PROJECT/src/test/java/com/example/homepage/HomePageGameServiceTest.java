@@ -5,6 +5,8 @@ import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.MatchRangeProjection;
 import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
+import com.example.kbo.validation.ManualBaseballDataMissingItem;
+import com.example.kbo.validation.ManualBaseballDataRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -375,6 +377,63 @@ class HomePageGameServiceTest {
 
         assertThat(games).hasSize(1);
         assertThat(games.get(0).getTime()).isEqualTo("14:00");
+    }
+
+    @Test
+    @DisplayName("bootstrap partial 조회는 수동 데이터가 필요한 경기만 제외하고 유효한 완료 경기를 반환한다")
+    void getGamesByDateAllowingPartialManualDataKeepsValidCompletedGames() {
+        LocalDate date = LocalDate.of(2026, 6, 26);
+        MatchRangeProjection missingScoreGame = projection(
+                "20260626HHSK0",
+                date,
+                "문학",
+                "SSG",
+                "HH",
+                null,
+                null,
+                2026,
+                0,
+                "SCHEDULED",
+                LocalTime.of(18, 30));
+        MatchRangeProjection completedGame = projection(
+                "20260626LGKT0",
+                date,
+                "수원",
+                "KT",
+                "LG",
+                2,
+                5,
+                2026,
+                0,
+                "COMPLETED",
+                LocalTime.of(18, 30));
+        ManualBaseballDataRequest manualDataRequest = new ManualBaseballDataRequest(
+                "home.schedule",
+                List.of(new ManualBaseballDataMissingItem(
+                        "final_score",
+                        "최종 점수",
+                        "과거 경기의 최종 점수가 비어 있습니다.",
+                        "home_score, away_score")),
+                "다음 야구 데이터가 필요합니다: 경기 ID=20260626HHSK0",
+                true);
+
+        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(eq(date), anyList()))
+                .thenReturn(List.of(missingScoreGame, completedGame));
+        when(baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.schedule", missingScoreGame))
+                .thenReturn(manualDataRequest);
+        when(baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.schedule", completedGame))
+                .thenReturn(null);
+
+        HomePageGamesResult result = homePageGameService.getGamesByDateAllowingPartialManualData(date);
+
+        assertThat(result.manualDataRequest()).isSameAs(manualDataRequest);
+        assertThat(result.games()).hasSize(1);
+        assertThat(result.games().get(0).getGameId()).isEqualTo("20260626LGKT0");
+        assertThat(result.games().get(0).getGameStatus()).isEqualTo("COMPLETED");
+        assertThat(result.games().get(0).getHomeScore()).isEqualTo(2);
+        assertThat(result.games().get(0).getAwayScore()).isEqualTo(5);
+        verify(baseballDataIntegrityGuard, never()).ensurePredictionDateMatches(eq("home.schedule"), eq(date), anyList());
     }
 
     @Test

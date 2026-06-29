@@ -7,10 +7,12 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Timer;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,11 +25,13 @@ import org.springframework.stereotype.Service;
 public class HomeRankingSnapshotCacheService {
 
     private static final String RANKING_FALLBACK_SOURCE_MESSAGE = "순위 데이터를 불러오지 못했습니다.";
+    private static final Duration FALLBACK_CACHE_TTL = Duration.ofSeconds(60);
 
     private final CacheManager cacheManager;
     private final Clock clock;
     private final MeterRegistry meterRegistry;
-    private final ConcurrentHashMap<String, Object> keyLocks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ReentrantLock> keyLocks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CachedFallbackSnapshot> fallbackSnapshots = new ConcurrentHashMap<>();
 
     @Autowired
     public HomeRankingSnapshotCacheService(CacheManager cacheManager, MeterRegistry meterRegistry) {
@@ -56,9 +60,16 @@ public class HomeRankingSnapshotCacheService {
             return firstLookup.value();
         }
         recordCacheEvent("lookup", firstLookup.error() ? "error" : "miss");
+        HomeRankingSnapshotDto firstFallback = getCachedFallback(cacheKey);
+        if (firstFallback != null) {
+            recordCacheEvent("fallback_lookup", "hit");
+            recordSnapshotDuration(selectedDate, seasonYear, "fallback_hit", firstFallback, startedAtNanos);
+            return firstFallback;
+        }
 
-        Object lock = keyLocks.computeIfAbsent(cacheKey, ignored -> new Object());
-        synchronized (lock) {
+        ReentrantLock lock = keyLocks.computeIfAbsent(cacheKey, ignored -> new ReentrantLock());
+        lock.lock();
+        try {
             CacheLookup secondLookup = lookup(cacheKey);
             if (secondLookup.value() != null) {
                 recordCacheEvent("lookup", "hit");
@@ -68,11 +79,19 @@ public class HomeRankingSnapshotCacheService {
             if (secondLookup.error()) {
                 recordCacheEvent("lookup", "error");
             }
+            HomeRankingSnapshotDto secondFallback = getCachedFallback(cacheKey);
+            if (secondFallback != null) {
+                recordCacheEvent("fallback_lookup", "hit");
+                recordSnapshotDuration(selectedDate, seasonYear, "fallback_hit", secondFallback, startedAtNanos);
+                return secondFallback;
+            }
 
             HomeRankingSnapshotDto response = loader.get();
-            storeIfCacheable(cacheKey, response);
+            storeLoadedResponse(cacheKey, response);
             recordSnapshotDuration(selectedDate, seasonYear, "miss", response, startedAtNanos);
             return response;
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -85,6 +104,20 @@ public class HomeRankingSnapshotCacheService {
 
     private LocalDate resolveSelectedDate(LocalDate date) {
         return date == null ? LocalDate.now(clock) : date;
+    }
+
+    private HomeRankingSnapshotDto getCachedFallback(String cacheKey) {
+        CachedFallbackSnapshot cached = fallbackSnapshots.get(cacheKey);
+        if (cached == null) {
+            return null;
+        }
+        long nowMillis = clock.millis();
+        if (nowMillis >= cached.expiresAtMillis()) {
+            fallbackSnapshots.remove(cacheKey, cached);
+            recordCacheEvent("fallback_lookup", "expired");
+            return null;
+        }
+        return cached.snapshot();
     }
 
     private CacheLookup lookup(String cacheKey) {
@@ -128,6 +161,27 @@ public class HomeRankingSnapshotCacheService {
                     cacheKey,
                     summarize(ex));
         }
+    }
+
+    private void storeLoadedResponse(String cacheKey, HomeRankingSnapshotDto response) {
+        if (isCacheable(response)) {
+            fallbackSnapshots.remove(cacheKey);
+            storeIfCacheable(cacheKey, response);
+            return;
+        }
+        storeFallback(cacheKey, response);
+    }
+
+    private void storeFallback(String cacheKey, HomeRankingSnapshotDto response) {
+        if (response == null) {
+            recordCacheEvent("fallback_store", "skipped");
+            return;
+        }
+        fallbackSnapshots.put(
+                cacheKey,
+                new CachedFallbackSnapshot(response, clock.millis() + FALLBACK_CACHE_TTL.toMillis()));
+        recordCacheEvent("fallback_store", "success");
+        log.info("event=home_ranking_snapshot_fallback_cache_store key={}", cacheKey);
     }
 
     boolean isCacheable(HomeRankingSnapshotDto response) {
@@ -225,5 +279,8 @@ public class HomeRankingSnapshotCacheService {
     }
 
     private record CacheLookup(HomeRankingSnapshotDto value, boolean error) {
+    }
+
+    private record CachedFallbackSnapshot(HomeRankingSnapshotDto snapshot, long expiresAtMillis) {
     }
 }

@@ -18,15 +18,13 @@ public class HomeBootstrapWarmupService {
 
     private static final int DEFAULT_MAX_WARMUP_ATTEMPTS = 2;
     private static final Duration DEFAULT_PARTIAL_RETRY_DELAY = Duration.ofMillis(500);
-    private static final Duration DEFAULT_WARMUP_SECTION_TIMEOUT = Duration.ofSeconds(8);
+    private static final Duration DEFAULT_WARMUP_SECTION_TIMEOUT = Duration.ofSeconds(3);
 
     private final HomePageFacadeService homePageFacadeService;
     private final Clock clock;
     private final boolean enabled;
     private final boolean rankingWarmupEnabled;
-    private final Duration partialRetryDelay;
     private final Duration warmupSectionTimeout;
-    private final int maxWarmupAttempts;
 
     @Autowired
     public HomeBootstrapWarmupService(
@@ -34,7 +32,7 @@ public class HomeBootstrapWarmupService {
             @Value("${app.home.bootstrap.warmup.enabled:true}") boolean enabled,
             @Value("${app.home.bootstrap.warmup.ranking.enabled:true}") boolean rankingWarmupEnabled,
             @Value("${app.home.bootstrap.warmup.partial-retry-delay-ms:500}") long partialRetryDelayMs,
-            @Value("${app.home.bootstrap.warmup.section-timeout-ms:8000}") long warmupSectionTimeoutMs,
+            @Value("${app.home.bootstrap.warmup.section-timeout-ms:3000}") long warmupSectionTimeoutMs,
             @Value("${app.home.bootstrap.warmup.max-attempts:2}") int maxWarmupAttempts) {
         this(
                 homePageFacadeService,
@@ -94,13 +92,9 @@ public class HomeBootstrapWarmupService {
         this.clock = clock == null ? Clock.systemDefaultZone() : clock;
         this.enabled = enabled;
         this.rankingWarmupEnabled = rankingWarmupEnabled;
-        this.partialRetryDelay = partialRetryDelay == null || partialRetryDelay.isNegative()
-                ? Duration.ZERO
-                : partialRetryDelay;
         this.warmupSectionTimeout = warmupSectionTimeout == null || warmupSectionTimeout.isZero() || warmupSectionTimeout.isNegative()
                 ? DEFAULT_WARMUP_SECTION_TIMEOUT
                 : warmupSectionTimeout;
-        this.maxWarmupAttempts = Math.max(1, maxWarmupAttempts);
     }
 
     @Scheduled(
@@ -113,34 +107,19 @@ public class HomeBootstrapWarmupService {
 
         LocalDate today = LocalDate.now(clock);
         try {
-            HomeBootstrapResponseDto response = null;
-            for (int attempt = 1; attempt <= maxWarmupAttempts; attempt++) {
-                response = homePageFacadeService.refreshBootstrap(today, warmupSectionTimeout);
-                if (isComplete(response)) {
-                    warmupTodayRankingSnapshot(today);
-                    log.info("event=home_bootstrap_warmup_completed date={} attempts={}", today, attempt);
-                    return;
-                }
-
-                log.warn(
-                        "event=home_bootstrap_warmup_partial date={} attempt={} timedOutSections={} failedSections={}",
-                        today,
-                        attempt,
-                        timedOutSections(response),
-                        failedSections(response));
-
-                if (attempt < maxWarmupAttempts) {
-                    sleepBeforeRetry();
-                }
+            HomeBootstrapResponseDto response = homePageFacadeService.refreshBootstrap(today, warmupSectionTimeout);
+            if (isComplete(response)) {
+                warmupTodayRankingSnapshot(today);
+                log.info("event=home_bootstrap_warmup_completed date={} attempts=1", today);
+                return;
             }
 
             log.warn(
                     "event=home_bootstrap_warmup_completed_partial date={} attempts={} timedOutSections={} failedSections={}",
                     today,
-                    maxWarmupAttempts,
+                    1,
                     timedOutSections(response),
                     failedSections(response));
-            warmupTodayRankingSnapshot(today);
         } catch (ManualBaseballDataRequiredException ex) {
             Object data = ex.getData();
             String scope = data instanceof ManualBaseballDataRequest request ? request.scope() : null;
@@ -186,7 +165,9 @@ public class HomeBootstrapWarmupService {
         return !Boolean.TRUE.equals(loadState.getIsFallback())
                 && !Boolean.TRUE.equals(loadState.getTimedOut())
                 && !hasSections(loadState.getTimedOutSections())
-                && !hasSections(loadState.getFailedSections());
+                && !hasSections(loadState.getFailedSections())
+                && loadState.getFailureReason() == null
+                && loadState.getManualDataRequest() == null;
     }
 
     private boolean hasSections(List<String> sections) {
@@ -207,14 +188,4 @@ public class HomeBootstrapWarmupService {
         return response.getLoadState().getFailedSections();
     }
 
-    private void sleepBeforeRetry() {
-        if (partialRetryDelay.isZero()) {
-            return;
-        }
-        try {
-            Thread.sleep(partialRetryDelay.toMillis());
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-        }
-    }
 }
