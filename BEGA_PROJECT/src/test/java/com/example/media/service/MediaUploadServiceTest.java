@@ -37,6 +37,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import reactor.core.publisher.Mono;
 
 @ExtendWith(MockitoExtension.class)
@@ -253,8 +255,12 @@ class MediaUploadServiceTest {
                 .build();
 
         when(storageConfig.getMediaPendingRetentionHours()).thenReturn(24);
+        when(storageConfig.getMediaCleanupBatchSize()).thenReturn(100);
         when(storageConfig.getCheerBucket()).thenReturn("cheer-bucket");
-        when(mediaAssetRepository.findByStatusAndUploadExpiresAtBefore(eq(MediaAssetStatus.PENDING), any(LocalDateTime.class)))
+        when(mediaAssetRepository.findByStatusAndUploadExpiresAtBeforeOrderByUploadExpiresAtAscIdAsc(
+                eq(MediaAssetStatus.PENDING),
+                any(LocalDateTime.class),
+                eq(PageRequest.of(0, 100))))
                 .thenReturn(List.of(asset));
         when(mediaAssetRepository.save(any(MediaAsset.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(storageStrategy.delete("cheer-bucket", asset.getStagingObjectKey())).thenReturn(Mono.empty());
@@ -268,6 +274,10 @@ class MediaUploadServiceTest {
         assertEquals(0, report.errorCount());
         verify(storageStrategy).delete("cheer-bucket", asset.getStagingObjectKey());
         verify(metricsService).recordMediaCleanup("pending", "deleted");
+        verify(mediaAssetRepository).findByStatusAndUploadExpiresAtBeforeOrderByUploadExpiresAtAscIdAsc(
+                eq(MediaAssetStatus.PENDING),
+                any(LocalDateTime.class),
+                eq(PageRequest.of(0, 100)));
     }
 
     @Test
@@ -284,8 +294,12 @@ class MediaUploadServiceTest {
                 .build();
 
         when(storageConfig.getMediaOrphanRetentionHours()).thenReturn(24);
+        when(storageConfig.getMediaCleanupBatchSize()).thenReturn(100);
         when(storageConfig.getCheerBucket()).thenReturn("chat-bucket");
-        when(mediaAssetRepository.findUnlinkedAssetsOlderThan(eq(MediaAssetStatus.READY), any(LocalDateTime.class)))
+        when(mediaAssetRepository.findUnlinkedAssetsOlderThan(
+                eq(MediaAssetStatus.READY),
+                any(LocalDateTime.class),
+                eq(PageRequest.of(0, 100))))
                 .thenReturn(List.of(asset));
         List<MediaAssetStatus> savedStatuses = new java.util.ArrayList<>();
         when(mediaAssetRepository.save(any(MediaAsset.class))).thenAnswer(invocation -> {
@@ -306,5 +320,30 @@ class MediaUploadServiceTest {
         assertEquals(List.of(MediaAssetStatus.ORPHANED, MediaAssetStatus.DELETED), savedStatuses);
         verify(storageStrategy).delete("chat-bucket", asset.getObjectKey());
         verify(metricsService).recordMediaCleanup("orphan", "deleted");
+        verify(mediaAssetRepository).findUnlinkedAssetsOlderThan(
+                eq(MediaAssetStatus.READY),
+                any(LocalDateTime.class),
+                eq(PageRequest.of(0, 100)));
+    }
+
+    @Test
+    @DisplayName("media cleanup batch size는 최소 1 이상으로 repository PageRequest에 반영된다")
+    void cleanupExpiredPendingAssets_usesMinimumBatchSize() {
+        when(storageConfig.getMediaPendingRetentionHours()).thenReturn(24);
+        when(storageConfig.getMediaCleanupBatchSize()).thenReturn(0);
+        when(mediaAssetRepository.findByStatusAndUploadExpiresAtBeforeOrderByUploadExpiresAtAscIdAsc(
+                eq(MediaAssetStatus.PENDING),
+                any(LocalDateTime.class),
+                any(Pageable.class)))
+                .thenReturn(List.of());
+
+        mediaUploadService.cleanupExpiredPendingAssets();
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(mediaAssetRepository).findByStatusAndUploadExpiresAtBeforeOrderByUploadExpiresAtAscIdAsc(
+                eq(MediaAssetStatus.PENDING),
+                any(LocalDateTime.class),
+                pageableCaptor.capture());
+        assertEquals(PageRequest.of(0, 1), pageableCaptor.getValue());
     }
 }
