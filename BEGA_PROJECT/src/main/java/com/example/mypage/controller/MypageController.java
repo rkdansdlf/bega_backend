@@ -220,6 +220,7 @@ public class MypageController {
                 AuthSessionMetadataResolver.SessionMetadata requestMetadata = authSessionService.resolveRequestMetadata(request);
 
                 List<DeviceSessionDto> sessions = refreshTokens.stream()
+                                .filter(token -> !authSessionService.isRefreshTokenExpired(token))
                                 .map(token -> buildDeviceSessionDto(token, currentSessionId, requestMetadata))
                                 .sorted((left, right) -> {
                                         if (left.isCurrent() != right.isCurrent()) {

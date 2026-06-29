@@ -53,6 +53,9 @@ public class PartyDTO {
         @Size(max = 50, message = "좌석 정보는 50자 이하여야 합니다.")
         private String section;
 
+        @Size(max = 100, message = "좌석 상세는 100자 이하여야 합니다.")
+        private String seatDetail;
+
         @NotNull(message = "최대 참여 인원은 필수입니다.")
         @Min(value = 2, message = "최대 참여 인원은 2명 이상이어야 합니다.")
         @Max(value = 20, message = "최대 참여 인원은 20명 이하여야 합니다.")
@@ -112,6 +115,9 @@ public class PartyDTO {
         private HostTrustMetrics hostTrustMetrics;
         private Instant createdAt;
         private Instant updatedAt;
+        private Boolean favorited;
+        private String seatDetail;
+        private List<MemberSummary> members;
 
         public static PublicResponse from(Response response) {
             return PublicResponse.builder()
@@ -140,6 +146,8 @@ public class PartyDTO {
                     .ticketPrice(response.getTicketPrice())
                     .reservationDepositAmount(response.getReservationDepositAmount())
                     .hostTrustMetrics(response.getHostTrustMetrics())
+                    .seatDetail(response.getSeatDetail())
+                    .favorited(false)
                     .createdAt(response.getCreatedAt())
                     .updatedAt(response.getUpdatedAt())
                     .build();
@@ -225,6 +233,7 @@ public class PartyDTO {
         private Integer reservationDepositAmount;
         private HostTrustMetrics hostTrustMetrics;
         private String reservationNumber;
+        private String seatDetail;
         private Instant createdAt;
         private Instant updatedAt;
 
@@ -255,6 +264,7 @@ public class PartyDTO {
                     .ticketPrice(party.getTicketPrice())
                     .reservationDepositAmount(party.getReservationDepositAmount())
                     .reservationNumber(party.getReservationNumber())
+                    .seatDetail(party.getSeatDetail())
                     .createdAt(party.getCreatedAt())
                     .updatedAt(party.getUpdatedAt())
                     .build();
@@ -277,6 +287,9 @@ public class PartyDTO {
 
         @Size(max = 50, message = "좌석 정보는 50자 이하여야 합니다.")
         private String section;
+
+        @Size(max = 100, message = "좌석 상세는 100자 이하여야 합니다.")
+        private String seatDetail;
 
         @Min(value = 2, message = "최대 참여 인원은 2명 이상이어야 합니다.")
         @Max(value = 20, message = "최대 참여 인원은 20명 이하여야 합니다.")
@@ -323,6 +336,19 @@ public class PartyDTO {
         private Integer rating;
         private String comment;
         private Instant createdAt;
+    }
+
+    /** 참여현황 표시용 승인 멤버 최소정보(프라이버시: 이니셜+아바타만, 실명 미노출). */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @Schema(name = "MatePartyMemberSummary")
+    public static class MemberSummary {
+        private String initial;
+        private String profileImageUrl;
+        private String role;
+        private boolean host;
     }
 
     @Data

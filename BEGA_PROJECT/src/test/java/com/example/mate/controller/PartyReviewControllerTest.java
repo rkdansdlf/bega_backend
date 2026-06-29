@@ -59,4 +59,17 @@ class PartyReviewControllerTest {
         assertThatThrownBy(() -> controller.getReviewsByParty(5L, null))
                 .isInstanceOf(AuthenticationRequiredException.class);
     }
+
+    @Test
+    @DisplayName("호스트 핸들로 전체 후기를 조회한다 (공개)")
+    void getReviewsByHost_returnsList() {
+        PartyReviewDTO.Response resp = PartyReviewDTO.Response.builder().id(1L).build();
+        when(partyReviewService.getReviewsByHostHandle("nick")).thenReturn(List.of(resp));
+
+        ResponseEntity<List<PartyReviewDTO.Response>> result = controller.getReviewsByHost("nick");
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(result.getBody()).hasSize(1);
+        verify(partyReviewService).getReviewsByHostHandle("nick");
+    }
 }

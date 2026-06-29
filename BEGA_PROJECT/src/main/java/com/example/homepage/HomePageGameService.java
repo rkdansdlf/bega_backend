@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.Year;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,6 +22,7 @@ import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.MatchRangeProjection;
 import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
+import com.example.kbo.validation.ManualBaseballDataRequest;
 import com.example.kbo.util.GameStatusResolver;
 import com.example.kbo.util.TeamCodeNormalizer;
 
@@ -106,16 +108,7 @@ public class HomePageGameService {
     @Cacheable(value = GAME_SCHEDULE, key = "#date.toString()")
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<HomePageGameDto> getGamesByDate(LocalDate date) {
-        List<MatchRangeProjection> games = gameRepository.findCanonicalRangeProjectionByGameDate(date, CANONICAL_TEAMS);
-        if (games.isEmpty()) {
-            List<MatchRangeProjection> jdbcFallbackGames = findGameProjectionsByDateWithJdbc(date);
-            if (!jdbcFallbackGames.isEmpty()) {
-                log.warn("GameRepository returned empty list but JDBC fallback found {} rows for date={}",
-                        jdbcFallbackGames.size(),
-                        date);
-                games = jdbcFallbackGames;
-            }
-        }
+        List<MatchRangeProjection> games = findGameProjectionsByDate(date);
         if (games.isEmpty()) {
             return List.of();
         }
@@ -124,6 +117,47 @@ public class HomePageGameService {
         return games.stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
+    HomePageGamesResult getGamesByDateAllowingPartialManualData(LocalDate date) {
+        List<MatchRangeProjection> games = findGameProjectionsByDate(date);
+        if (games.isEmpty()) {
+            return HomePageGamesResult.empty();
+        }
+
+        List<HomePageGameDto> validGames = new ArrayList<>();
+        ManualBaseballDataRequest manualDataRequest = null;
+        for (MatchRangeProjection game : games) {
+            ManualBaseballDataRequest gameManualDataRequest =
+                    baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.schedule", game);
+            if (gameManualDataRequest != null) {
+                if (manualDataRequest == null) {
+                    manualDataRequest = gameManualDataRequest;
+                }
+                continue;
+            }
+            validGames.add(convertToDto(game));
+        }
+
+        return new HomePageGamesResult(validGames, manualDataRequest);
+    }
+
+    private List<MatchRangeProjection> findGameProjectionsByDate(LocalDate date) {
+        List<MatchRangeProjection> games = gameRepository.findCanonicalRangeProjectionByGameDate(date, CANONICAL_TEAMS);
+        if (!games.isEmpty()) {
+            return games;
+        }
+
+        List<MatchRangeProjection> jdbcFallbackGames = findGameProjectionsByDateWithJdbc(date);
+        if (!jdbcFallbackGames.isEmpty()) {
+            log.warn("GameRepository returned empty list but JDBC fallback found {} rows for date={}",
+                    jdbcFallbackGames.size(),
+                    date);
+            return jdbcFallbackGames;
+        }
+
+        return List.of();
     }
 
     @Cacheable(value = GAME_SCHEDULE, key = "#root.target.buildScheduledGamesWindowCacheKey(#startDate, #endDate)")

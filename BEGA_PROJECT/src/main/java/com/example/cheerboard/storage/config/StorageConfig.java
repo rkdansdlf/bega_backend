@@ -47,6 +47,9 @@ public class StorageConfig {
     @Value("${media.cleanup.orphan-retention-hours:24}")
     private int mediaOrphanRetentionHours;
 
+    @Value("${media.cleanup.batch-size:100}")
+    private int mediaCleanupBatchSize;
+
     @Value("${media.quota.daily-bytes:104857600}")
     private long mediaDailyUploadBytesLimit;
 
@@ -131,6 +134,10 @@ public class StorageConfig {
 
     public int getMediaOrphanRetentionHours() {
         return mediaOrphanRetentionHours;
+    }
+
+    public int getMediaCleanupBatchSize() {
+        return mediaCleanupBatchSize;
     }
 
     public long getMediaDailyUploadBytesLimit() {

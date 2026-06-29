@@ -148,6 +148,7 @@ public class HomeController {
                         .timedOut(false)
                         .timedOutSections(List.of())
                         .failedSections(HOME_BOOTSTRAP_CORE_SECTIONS)
+                        .failureReason("request-failed")
                         .build())
                 .build();
     }

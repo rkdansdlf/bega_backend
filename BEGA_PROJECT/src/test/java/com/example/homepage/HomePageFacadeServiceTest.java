@@ -97,9 +97,12 @@ class HomePageFacadeServiceTest {
         assertThat(response.getLoadState().getTimedOutSections()).isEmpty();
         assertThat(response.getLoadState().getFailedSections())
                 .containsExactly("navigation", "games", "scheduledGamesWindow");
+        assertThat(response.getLoadState().getFailureReason()).isEqualTo("manual-data-required");
+        assertThat(response.getLoadState().getManualDataRequest()).isNotNull();
+        assertThat(response.getLoadState().getManualDataRequest().scope()).isEqualTo("home.schedule");
         verify(homePageGameService, never()).getLeagueStartDates();
         verify(homePageGameService, never()).getScheduleNavigation(any(LocalDate.class));
-        verify(homePageGameService, never()).getGamesByDate(any(LocalDate.class));
+        verify(homePageGameService, never()).getGamesByDateAllowingPartialManualData(any(LocalDate.class));
         verify(homePageGameService, never()).getScheduledGamesWindow(any(LocalDate.class), any(LocalDate.class));
     }
 
@@ -118,7 +121,8 @@ class HomePageFacadeServiceTest {
                 .hasPrev(true)
                 .hasNext(true)
                 .build());
-        when(homePageGameService.getGamesByDate(selectedDate)).thenReturn(List.of());
+        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate))
+                .thenReturn(HomePageGamesResult.empty());
         when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
                 .thenReturn(List.of());
         HomeBootstrapResponseDto response = homePageFacadeService.getBootstrap(selectedDate);
@@ -150,7 +154,8 @@ class HomePageFacadeServiceTest {
                 .hasPrev(true)
                 .hasNext(true)
                 .build());
-        when(homePageGameService.getGamesByDate(selectedDate)).thenReturn(List.of());
+        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate))
+                .thenReturn(HomePageGamesResult.empty());
         when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
                 .thenReturn(List.of(HomePageScheduledGameDto.builder()
                         .gameId("20260414LGKT0")
@@ -197,7 +202,7 @@ class HomePageFacadeServiceTest {
                 .hasPrev(false)
                 .hasNext(false)
                 .build());
-        when(homePageGameService.getGamesByDate(selectedDate)).thenThrow(manualDataRequired);
+        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate)).thenThrow(manualDataRequired);
         when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
                 .thenThrow(manualDataRequired);
 
@@ -211,6 +216,57 @@ class HomePageFacadeServiceTest {
         assertThat(response.getLoadState().getTimedOutSections()).isEmpty();
         assertThat(response.getLoadState().getFailedSections())
                 .containsExactly("games", "scheduledGamesWindow");
+        assertThat(response.getLoadState().getFailureReason()).isEqualTo("manual-data-required");
+        assertThat(response.getLoadState().getManualDataRequest()).isNotNull();
+        assertThat(response.getLoadState().getManualDataRequest().scope()).isEqualTo("home.schedule");
+    }
+
+    @Test
+    @DisplayName("bootstrap은 일부 경기만 수동 데이터가 필요해도 유효한 완료 경기를 보존한다")
+    void getBootstrapKeepsValidGamesWhenGamesSectionHasPartialManualData() {
+        LocalDate selectedDate = LocalDate.of(2026, 6, 26);
+        LeagueStartDatesDto leagueStartDates = LeagueStartDatesDto.builder()
+                .regularSeasonStart("2026-03-28")
+                .postseasonStart("2026-10-06")
+                .koreanSeriesStart("2026-10-26")
+                .build();
+        ManualBaseballDataRequest manualDataRequest = new ManualBaseballDataRequest(
+                "home.schedule",
+                List.of(new ManualBaseballDataMissingItem(
+                        "final_score",
+                        "최종 점수",
+                        "과거 경기의 최종 점수가 비어 있습니다.",
+                        "home_score, away_score")),
+                "다음 야구 데이터가 필요합니다: 경기 ID=20260626HHSK0",
+                true);
+        HomePageGameDto completedGame = HomePageGameDto.builder()
+                .gameId("20260626LGKT0")
+                .gameDate("2026-06-26")
+                .leagueType("REGULAR")
+                .gameStatus("COMPLETED")
+                .homeScore(5)
+                .awayScore(2)
+                .build();
+
+        when(homePageGameService.getLeagueStartDates()).thenReturn(leagueStartDates);
+        when(homePageGameService.getScheduleNavigation(selectedDate)).thenReturn(ScheduleNavigationDto.builder()
+                .prevGameDate(LocalDate.of(2026, 6, 25))
+                .nextGameDate(LocalDate.of(2026, 6, 27))
+                .hasPrev(true)
+                .hasNext(true)
+                .build());
+        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate))
+                .thenReturn(new HomePageGamesResult(List.of(completedGame), manualDataRequest));
+        when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
+                .thenReturn(List.of());
+
+        HomeBootstrapResponseDto response = homePageFacadeService.getBootstrap(selectedDate);
+
+        assertThat(response.getGames()).containsExactly(completedGame);
+        assertThat(response.getLoadState().getIsFallback()).isFalse();
+        assertThat(response.getLoadState().getFailedSections()).isEmpty();
+        assertThat(response.getLoadState().getFailureReason()).isEqualTo("manual-data-required");
+        assertThat(response.getLoadState().getManualDataRequest()).isSameAs(manualDataRequest);
     }
 
     @Test
@@ -238,7 +294,7 @@ class HomePageFacadeServiceTest {
                 .hasPrev(false)
                 .hasNext(false)
                 .build());
-        when(homePageGameService.getGamesByDate(selectedDate)).thenThrow(manualDataRequired);
+        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate)).thenThrow(manualDataRequired);
         when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
                 .thenThrow(manualDataRequired);
 
@@ -249,7 +305,7 @@ class HomePageFacadeServiceTest {
                 .containsExactly("games", "scheduledGamesWindow");
         assertThat(secondResponse.getLoadState().getFailedSections())
                 .containsExactly("games", "scheduledGamesWindow");
-        verify(homePageGameService, times(1)).getGamesByDate(selectedDate);
+        verify(homePageGameService, times(1)).getGamesByDateAllowingPartialManualData(selectedDate);
         verify(homePageGameService, times(1))
                 .getScheduledGamesWindow(selectedDate, selectedDate.plusDays(7));
     }
@@ -505,7 +561,8 @@ class HomePageFacadeServiceTest {
                 .hasPrev(true)
                 .hasNext(true)
                 .build());
-        when(homePageGameService.getGamesByDate(selectedDate)).thenReturn(List.of());
+        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate))
+                .thenReturn(HomePageGamesResult.empty());
         when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
                 .thenReturn(List.of());
 
@@ -555,7 +612,8 @@ class HomePageFacadeServiceTest {
                 .hasPrev(false)
                 .hasNext(false)
                 .build());
-        when(homePageGameService.getGamesByDate(selectedDate)).thenReturn(List.of());
+        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate))
+                .thenReturn(HomePageGamesResult.empty());
         when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
                 .thenReturn(List.of());
 
@@ -588,13 +646,14 @@ class HomePageFacadeServiceTest {
                     .hasNext(true)
                     .build();
         });
-        when(homePageGameService.getGamesByDate(selectedDate)).thenReturn(List.of(HomePageGameDto.builder()
+        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate))
+                .thenReturn(HomePageGamesResult.success(List.of(HomePageGameDto.builder()
                 .gameId("20260315LGSS0")
                 .gameDate("2026-03-15")
                 .leagueType("REGULAR")
                 .homeTeam("LG")
                 .awayTeam("SS")
-                .build()));
+                .build())));
         when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
                 .thenReturn(List.of(HomePageScheduledGameDto.builder()
                         .gameId("20260316LGSS0")
@@ -633,7 +692,8 @@ class HomePageFacadeServiceTest {
                 .hasPrev(true)
                 .hasNext(true)
                 .build());
-        when(homePageGameService.getGamesByDate(selectedDate)).thenThrow(new IllegalStateException("games unavailable"));
+        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate))
+                .thenThrow(new IllegalStateException("games unavailable"));
         when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
                 .thenReturn(List.of());
 
@@ -644,6 +704,8 @@ class HomePageFacadeServiceTest {
         assertThat(response.getLoadState().getTimedOut()).isFalse();
         assertThat(response.getLoadState().getTimedOutSections()).isEmpty();
         assertThat(response.getLoadState().getFailedSections()).containsExactly("games");
+        assertThat(response.getLoadState().getFailureReason()).isEqualTo("request-failed");
+        assertThat(response.getLoadState().getManualDataRequest()).isNull();
     }
 
     @Test
@@ -671,14 +733,15 @@ class HomePageFacadeServiceTest {
                 .hasPrev(true)
                 .hasNext(true)
                 .build());
-        when(homePageGameService.getGamesByDate(selectedDate)).thenReturn(List.of(HomePageGameDto.builder()
+        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate))
+                .thenReturn(HomePageGamesResult.success(List.of(HomePageGameDto.builder()
                 .gameId("20260513LGSK0")
                 .gameDate("2026-05-13")
                 .leagueType("REGULAR")
                 .gameStatus("COMPLETED")
                 .homeScore(4)
                 .awayScore(2)
-                .build()));
+                .build())));
         when(homePageGameService.getScheduledGamesWindow(eq(today), eq(today.plusDays(7))))
                 .thenReturn(List.of());
 

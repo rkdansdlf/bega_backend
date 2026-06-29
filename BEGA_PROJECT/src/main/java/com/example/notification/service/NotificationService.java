@@ -110,6 +110,13 @@ public class NotificationService {
         notificationRepository.save(notification);
     }
 
+    // 전체 알림 일괄 읽음 처리
+    @Transactional
+    public void markAllAsRead(@NonNull Long userId) {
+        ensureAuthenticatedUser(userId);
+        notificationRepository.markAllAsReadByUserId(userId);
+    }
+
     // 알림 삭제
     @Transactional
     public void deleteNotification(@NonNull Long notificationId, @NonNull Long userId) {
