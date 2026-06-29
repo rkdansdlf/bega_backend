@@ -37,6 +37,11 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, Long> {
 
     List<MediaAsset> findByStatusAndUploadExpiresAtBefore(MediaAssetStatus status, LocalDateTime cutoff);
 
+    List<MediaAsset> findByStatusAndUploadExpiresAtBeforeOrderByUploadExpiresAtAscIdAsc(
+            MediaAssetStatus status,
+            LocalDateTime cutoff,
+            Pageable pageable);
+
     @Query("""
             select coalesce(sum(coalesce(a.storedBytes, a.declaredBytes)), 0)
             from MediaAsset a
@@ -59,8 +64,25 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, Long> {
                   from MediaAssetLink l
                   where l.assetId = a.id
               )
+            order by a.createdAt asc, a.id asc
             """)
     List<MediaAsset> findUnlinkedAssetsOlderThan(
             @Param("status") MediaAssetStatus status,
             @Param("cutoff") LocalDateTime cutoff);
+
+    @Query("""
+            select a
+            from MediaAsset a
+            where a.status = :status
+              and a.createdAt <= :cutoff
+              and not exists (
+                  select 1
+                  from MediaAssetLink l
+                  where l.assetId = a.id
+              )
+            """)
+    List<MediaAsset> findUnlinkedAssetsOlderThan(
+            @Param("status") MediaAssetStatus status,
+            @Param("cutoff") LocalDateTime cutoff,
+            Pageable pageable);
 }

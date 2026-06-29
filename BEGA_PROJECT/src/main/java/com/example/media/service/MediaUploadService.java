@@ -27,6 +27,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -212,7 +213,10 @@ public class MediaUploadService {
     @Transactional
     public MediaCleanupTargetReport cleanupExpiredPendingAssets() {
         LocalDateTime cutoff = LocalDateTime.now().minusHours(storageConfig.getMediaPendingRetentionHours());
-        List<MediaAsset> expiredAssets = mediaAssetRepository.findByStatusAndUploadExpiresAtBefore(MediaAssetStatus.PENDING, cutoff);
+        List<MediaAsset> expiredAssets = mediaAssetRepository.findByStatusAndUploadExpiresAtBeforeOrderByUploadExpiresAtAscIdAsc(
+                MediaAssetStatus.PENDING,
+                cutoff,
+                cleanupPageRequest());
         int deletedCount = 0;
         int errorCount = 0;
         for (MediaAsset asset : expiredAssets) {
@@ -232,7 +236,10 @@ public class MediaUploadService {
     @Transactional
     public MediaCleanupTargetReport cleanupUnlinkedReadyAssets() {
         LocalDateTime cutoff = LocalDateTime.now().minusHours(storageConfig.getMediaOrphanRetentionHours());
-        List<MediaAsset> orphanAssets = mediaAssetRepository.findUnlinkedAssetsOlderThan(MediaAssetStatus.READY, cutoff);
+        List<MediaAsset> orphanAssets = mediaAssetRepository.findUnlinkedAssetsOlderThan(
+                MediaAssetStatus.READY,
+                cutoff,
+                cleanupPageRequest());
         int deletedCount = 0;
         int errorCount = 0;
         for (MediaAsset asset : orphanAssets) {
@@ -249,6 +256,10 @@ public class MediaUploadService {
             }
         }
         return new MediaCleanupTargetReport(MediaCleanupTarget.ORPHAN, orphanAssets.size(), deletedCount, errorCount);
+    }
+
+    private PageRequest cleanupPageRequest() {
+        return PageRequest.of(0, Math.max(1, storageConfig.getMediaCleanupBatchSize()));
     }
 
     private FinalizeMediaUploadResponse buildFinalizeResponse(MediaAsset asset) {

@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.Cache;
@@ -297,20 +298,18 @@ public class ImageService {
         }
 
         List<PostImage> images = postImageRepo.findByPostIdInOrderByPostIdAscCreatedAtAsc(missingPostIds);
-        Map<Long, List<String>> groupedUrls = new HashMap<>();
+        Map<Long, List<String>> groupedUrls = new ConcurrentHashMap<>();
 
-        for (PostImage image : images) {
-            if (image == null || image.getPost() == null || image.getPost().getId() == null) {
-                continue;
-            }
-
-            Long postId = image.getPost().getId();
-            String url = generateSignedUrl(image.getStoragePath());
-            if (url == null || url.isEmpty()) {
-                continue;
-            }
-            groupedUrls.computeIfAbsent(postId, key -> new ArrayList<>()).add(url);
-        }
+        images.parallelStream()
+                .filter(image -> image != null && image.getPost() != null && image.getPost().getId() != null)
+                .forEach(image -> {
+                    Long postId = image.getPost().getId();
+                    String url = generateSignedUrl(image.getStoragePath());
+                    if (url != null && !url.isEmpty()) {
+                        groupedUrls.computeIfAbsent(postId, key -> Collections.synchronizedList(new ArrayList<>()))
+                                .add(url);
+                    }
+                });
 
         for (Long postId : missingPostIds) {
             List<String> urls = groupedUrls.getOrDefault(postId, Collections.emptyList());
