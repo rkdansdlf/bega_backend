@@ -33,9 +33,12 @@ import org.springframework.beans.factory.annotation.Value;
 
 import java.security.Principal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.lang.NonNull;
 
@@ -48,6 +51,7 @@ public class PartyService {
     private final UserRepository userRepository;
     private final PartyApplicationRepository applicationRepository;
     private final PartyMapper partyMapper;
+    private final PartyFavoriteService partyFavoriteService;
     private final UserProviderRepository userProviderRepository;
     private final PublicVisibilityVerifier publicVisibilityVerifier;
     private final TicketVerificationTokenStore ticketVerificationTokenStore;
@@ -102,6 +106,7 @@ public class PartyService {
                 .homeTeam(normalizedHomeTeam)
                 .awayTeam(normalizedAwayTeam)
                 .section(request.getSection())
+                .seatDetail(request.getSeatDetail())
                 .maxParticipants(request.getMaxParticipants())
                 .currentParticipants(1) // 호스트 포함
                 .description(request.getDescription())
@@ -110,6 +115,7 @@ public class PartyService {
                         normalizedHomeTeam,
                         normalizedAwayTeam,
                         request.getSection(),
+                        request.getSeatDetail(),
                         hostName,
                         request.getDescription()))
                 .ticketVerified(verifiedTicket != null)
@@ -156,6 +162,7 @@ public class PartyService {
                 currentUserId,
                 pageable);
         List<PartyDTO.PublicResponse> visibleContent = partyMapper.toPublicResponses(parties.getContent());
+        applyFavoriteState(visibleContent, currentUserId);
         return new org.springframework.data.domain.PageImpl<>(visibleContent, pageable, parties.getTotalElements());
     }
 
@@ -165,7 +172,58 @@ public class PartyService {
         Party party = partyRepository.findById(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
         validatePartyVisibility(party, currentUserId);
-        return Objects.requireNonNull(partyMapper.toPublicResponse(party));
+        PartyDTO.PublicResponse response = Objects.requireNonNull(partyMapper.toPublicResponse(party));
+        response.setFavorited(currentUserId != null && partyFavoriteService.isFavorited(currentUserId, id));
+        response.setMembers(buildPartyMembers(party));
+        return response;
+    }
+
+    // 참여현황 표시용 승인 멤버(호스트 + 승인 신청자). 프라이버시: 이니셜+아바타만 노출.
+    private List<PartyDTO.MemberSummary> buildPartyMembers(Party party) {
+        List<PartyDTO.MemberSummary> members = new ArrayList<>();
+        members.add(PartyDTO.MemberSummary.builder()
+                .initial(toMemberInitial(party.getHostName()))
+                .profileImageUrl(cleanProfileImageUrl(party.getHostProfileImageUrl()))
+                .role("호스트")
+                .host(true)
+                .build());
+
+        List<PartyApplication> approved = applicationRepository.findByPartyIdAndIsApprovedTrue(party.getId());
+        if (approved == null || approved.isEmpty()) {
+            return members;
+        }
+
+        List<Long> applicantIds = approved.stream()
+                .map(PartyApplication::getApplicantId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, String> imageByUserId = userRepository.findAllById(applicantIds).stream()
+                .collect(Collectors.toMap(UserEntity::getId,
+                        user -> cleanProfileImageUrl(user.getProfileImageUrl()),
+                        (first, second) -> first));
+
+        for (PartyApplication application : approved) {
+            members.add(PartyDTO.MemberSummary.builder()
+                    .initial(toMemberInitial(application.getApplicantName()))
+                    .profileImageUrl(application.getApplicantId() == null ? null : imageByUserId.get(application.getApplicantId()))
+                    .role("메이트")
+                    .host(false)
+                    .build());
+        }
+        return members;
+    }
+
+    private String toMemberInitial(String name) {
+        if (name == null) {
+            return "M";
+        }
+        String trimmed = name.trim();
+        return trimmed.isEmpty() ? "M" : trimmed.substring(0, 1);
+    }
+
+    private String cleanProfileImageUrl(String url) {
+        return (url != null && partyMapper.isLegacyOrInvalidProfileValue(url)) ? null : url;
     }
 
     // 상태별 파티 조회
@@ -174,7 +232,9 @@ public class PartyService {
         List<Party> visibleParties = filterVisiblePublicParties(
                 partyRepository.findByStatusOrderByCreatedAtDesc(status),
                 currentUserId);
-        return partyMapper.toPublicResponses(visibleParties);
+        List<PartyDTO.PublicResponse> responses = partyMapper.toPublicResponses(visibleParties);
+        applyFavoriteState(responses, currentUserId);
+        return responses;
     }
 
     @Transactional(readOnly = true)
@@ -186,14 +246,18 @@ public class PartyService {
                 .orElseThrow(() -> new UserNotFoundException("handle", handle));
         publicVisibilityVerifier.validate(host, currentUserId, "파티");
         Long hostId = host.getId();
-        return partyMapper.toPublicResponses(partyRepository.findByHostId(hostId));
+        List<PartyDTO.PublicResponse> responses = partyMapper.toPublicResponses(partyRepository.findByHostId(hostId));
+        applyFavoriteState(responses, currentUserId);
+        return responses;
     }
 
     // 검색
     @Transactional(readOnly = true)
     public List<PartyDTO.PublicResponse> searchParties(String query, Long currentUserId) {
         List<Party> visibleParties = filterVisiblePublicParties(partyRepository.searchParties(query), currentUserId);
-        return partyMapper.toPublicResponses(visibleParties);
+        List<PartyDTO.PublicResponse> responses = partyMapper.toPublicResponses(visibleParties);
+        applyFavoriteState(responses, currentUserId);
+        return responses;
     }
 
     // 경기 날짜 이후 파티 조회
@@ -203,7 +267,9 @@ public class PartyService {
         List<Party> visibleParties = filterVisiblePublicParties(
                 partyRepository.findByGameDateAfterOrderByGameDateAsc(today),
                 currentUserId);
-        return partyMapper.toPublicResponses(visibleParties);
+        List<PartyDTO.PublicResponse> responses = partyMapper.toPublicResponses(visibleParties);
+        applyFavoriteState(responses, currentUserId);
+        return responses;
     }
 
     @Transactional(readOnly = true)
@@ -270,6 +336,9 @@ public class PartyService {
                 if (request.getSection() != null) {
                     party.setSection(request.getSection());
                 }
+                if (request.getSeatDetail() != null) {
+                    party.setSeatDetail(request.getSeatDetail());
+                }
                 if (request.getMaxParticipants() != null) {
                     if (request.getMaxParticipants() < party.getCurrentParticipants()) {
                         throw new InvalidApplicationStatusException(
@@ -284,6 +353,7 @@ public class PartyService {
                     party.setReservationDepositAmount(request.getReservationDepositAmount());
                 }
             } else if (request.getPrice() != null || request.getSection() != null
+                    || request.getSeatDetail() != null
                     || request.getMaxParticipants() != null
                     || request.getTicketPrice() != null
                     || request.getReservationDepositAmount() != null) {
@@ -297,6 +367,7 @@ public class PartyService {
                 party.getHomeTeam(),
                 party.getAwayTeam(),
                 party.getSection(),
+                party.getSeatDetail(),
                 party.getHostName(),
                 party.getDescription()));
 
@@ -322,10 +393,26 @@ public class PartyService {
         if (request.getPrice() < 100) {
             throw new InvalidApplicationStatusException("판매 가격은 최소 100원 이상이어야 합니다.");
         }
-        if (request.getSection() != null || request.getMaxParticipants() != null
+        if (request.getSection() != null || request.getSeatDetail() != null || request.getMaxParticipants() != null
                 || request.getReservationDepositAmount() != null) {
             throw new InvalidApplicationStatusException("판매 전환 요청에서는 좌석/인원/예약금 변경을 함께 요청할 수 없습니다.");
         }
+    }
+
+    private void applyFavoriteState(List<PartyDTO.PublicResponse> responses, Long currentUserId) {
+        if (responses == null || responses.isEmpty()) {
+            return;
+        }
+
+        if (currentUserId == null) {
+            responses.forEach(response -> response.setFavorited(false));
+            return;
+        }
+
+        List<Long> favoriteIds = partyFavoriteService.getFavoritePartyIds(currentUserId);
+        Set<Long> favoritePartyIds = favoriteIds == null ? Set.of() : Set.copyOf(favoriteIds);
+        responses.forEach(response ->
+                response.setFavorited(response.getId() != null && favoritePartyIds.contains(response.getId())));
     }
 
     private List<Party> filterVisiblePublicParties(List<Party> parties, Long currentUserId) {
@@ -724,6 +811,7 @@ public class PartyService {
             String homeTeam,
             String awayTeam,
             String section,
+            String seatDetail,
             String hostName,
             String description) {
         return String.join(" ",
@@ -731,6 +819,7 @@ public class PartyService {
                 normalizedSearchToken(homeTeam),
                 normalizedSearchToken(awayTeam),
                 normalizedSearchToken(section),
+                normalizedSearchToken(seatDetail),
                 normalizedSearchToken(hostName),
                 normalizedSearchToken(description)).trim();
     }

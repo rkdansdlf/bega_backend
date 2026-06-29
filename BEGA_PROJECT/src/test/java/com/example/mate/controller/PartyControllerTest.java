@@ -4,25 +4,43 @@ import com.example.common.exception.AuthenticationRequiredException;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.exception.InvalidPartyStatusException;
+import com.example.mate.service.PartyFavoriteService;
 import com.example.mate.service.PartyService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.MethodParameter;
 import org.springframework.data.domain.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.support.WebDataBinderFactory;
+import org.springframework.web.context.request.NativeWebRequest;
+import org.springframework.web.method.support.HandlerMethodArgumentResolver;
+import org.springframework.web.method.support.ModelAndViewContainer;
 
+import java.security.Principal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
 class PartyControllerTest {
@@ -30,8 +48,20 @@ class PartyControllerTest {
     @Mock
     private PartyService partyService;
 
+    @Mock
+    private PartyFavoriteService partyFavoriteService;
+
     @InjectMocks
     private PartyController partyController;
+
+    private MockMvc mockMvc;
+
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders.standaloneSetup(partyController)
+                .setCustomArgumentResolvers(new TestAuthenticationPrincipalResolver())
+                .build();
+    }
 
     // ── createParty ──
 
@@ -123,6 +153,63 @@ class PartyControllerTest {
                 isNull(), isNull());
     }
 
+    @Test
+    @DisplayName("인증 사용자의 파티 목록 JSON은 favorited 상태를 포함한다")
+    void getAllParties_mockMvcAuthenticated_preservesFavoritedState() throws Exception {
+        PartyDTO.PublicResponse favorited = PartyDTO.PublicResponse.builder()
+                .id(1L)
+                .favorited(true)
+                .seatDetail("305블록 12열")
+                .build();
+        PartyDTO.PublicResponse notFavorited = PartyDTO.PublicResponse.builder()
+                .id(2L)
+                .favorited(false)
+                .build();
+        Page<PartyDTO.PublicResponse> page = new PageImpl<>(
+                List.of(favorited, notFavorited),
+                PageRequest.of(0, 9),
+                2);
+        when(partyService.getAllParties(isNull(), isNull(), isNull(), isNull(),
+                any(Pageable.class), isNull(), eq(99L)))
+                .thenReturn(page);
+
+        mockMvc.perform(get("/api/parties")
+                        .principal(new TestingAuthenticationToken(99L, null)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(1))
+                .andExpect(jsonPath("$.content[0].favorited").value(true))
+                .andExpect(jsonPath("$.content[0].seatDetail").value("305블록 12열"))
+                .andExpect(jsonPath("$.content[1].id").value(2))
+                .andExpect(jsonPath("$.content[1].favorited").value(false));
+
+        verify(partyService).getAllParties(isNull(), isNull(), isNull(), isNull(),
+                any(Pageable.class), isNull(), eq(99L));
+    }
+
+    @Test
+    @DisplayName("익명 파티 목록 JSON은 favorited=false를 포함하고 userId를 null로 전달한다")
+    void getAllParties_mockMvcAnonymous_preservesFalseFavoriteState() throws Exception {
+        PartyDTO.PublicResponse notFavorited = PartyDTO.PublicResponse.builder()
+                .id(1L)
+                .favorited(false)
+                .build();
+        Page<PartyDTO.PublicResponse> page = new PageImpl<>(
+                List.of(notFavorited),
+                PageRequest.of(0, 9),
+                1);
+        when(partyService.getAllParties(isNull(), isNull(), isNull(), isNull(),
+                any(Pageable.class), isNull(), isNull()))
+                .thenReturn(page);
+
+        mockMvc.perform(get("/api/parties"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(1))
+                .andExpect(jsonPath("$.content[0].favorited").value(false));
+
+        verify(partyService).getAllParties(isNull(), isNull(), isNull(), isNull(),
+                any(Pageable.class), isNull(), isNull());
+    }
+
     // ── getPartyById ──
 
     @Test
@@ -135,6 +222,44 @@ class PartyControllerTest {
 
         assertThat(result.getBody()).isEqualTo(pub);
         verify(partyService).getPartyById(5L, 99L);
+    }
+
+    // ── 찜(favorite) ──
+
+    @Test
+    @DisplayName("찜 추가 시 favorited=true를 반환하고 서비스를 호출한다")
+    void addFavorite_returnsTrueAndCallsService() {
+        ResponseEntity<Map<String, Boolean>> result = partyController.addFavorite(5L, 99L);
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(result.getBody()).isEqualTo(Map.of("favorited", true));
+        verify(partyFavoriteService).addFavorite(99L, 5L);
+    }
+
+    @Test
+    @DisplayName("찜 추가는 인증 사용자를 요구한다")
+    void addFavorite_nullUser_throwsAuthException() {
+        assertThatThrownBy(() -> partyController.addFavorite(5L, null))
+                .isInstanceOf(AuthenticationRequiredException.class);
+        verify(partyFavoriteService, never()).addFavorite(any(), any());
+    }
+
+    @Test
+    @DisplayName("찜 삭제 시 favorited=false를 반환하고 서비스를 호출한다")
+    void removeFavorite_returnsFalseAndCallsService() {
+        ResponseEntity<Map<String, Boolean>> result = partyController.removeFavorite(5L, 99L);
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(result.getBody()).isEqualTo(Map.of("favorited", false));
+        verify(partyFavoriteService).removeFavorite(99L, 5L);
+    }
+
+    @Test
+    @DisplayName("찜 삭제는 인증 사용자를 요구한다")
+    void removeFavorite_nullUser_throwsAuthException() {
+        assertThatThrownBy(() -> partyController.removeFavorite(5L, null))
+                .isInstanceOf(AuthenticationRequiredException.class);
+        verify(partyFavoriteService, never()).removeFavorite(any(), any());
     }
 
     // ── getPartiesByStatus ──
@@ -290,5 +415,24 @@ class PartyControllerTest {
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         verify(partyService).deleteParty(1L, 42L);
+    }
+
+    private static final class TestAuthenticationPrincipalResolver implements HandlerMethodArgumentResolver {
+        @Override
+        public boolean supportsParameter(MethodParameter parameter) {
+            return parameter.hasParameterAnnotation(AuthenticationPrincipal.class);
+        }
+
+        @Override
+        public Object resolveArgument(MethodParameter parameter,
+                ModelAndViewContainer mavContainer,
+                NativeWebRequest webRequest,
+                WebDataBinderFactory binderFactory) {
+            Principal principal = webRequest.getUserPrincipal();
+            if (principal instanceof Authentication authentication) {
+                return authentication.getPrincipal();
+            }
+            return null;
+        }
     }
 }
