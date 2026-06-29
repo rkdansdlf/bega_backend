@@ -24,6 +24,7 @@ import com.example.common.dto.ApiResponse;
 import com.example.common.exception.ConflictBusinessException;
 import com.example.common.web.ClientIpResolver;
 import com.example.mypage.dto.ChangePasswordRequest;
+import com.example.mypage.dto.UserProviderDto;
 import com.example.profile.storage.service.ProfileImageService;
 import jakarta.servlet.http.Cookie;
 import java.lang.reflect.Method;
@@ -115,6 +116,47 @@ class MypageControllerTest {
     }
 
     @Test
+    void getConnectedProviders_returnsProviderDtosForAuthenticatedUser() {
+        UserEntity user = createUser(1L, "user@example.com");
+        UserProviderDto googleProvider = UserProviderDto.builder()
+                .provider("GOOGLE")
+                .providerId("google-123")
+                .email("google@example.com")
+                .connectedAt("2026-06-12T12:00:00Z")
+                .build();
+
+        when(userService.findUserById(1L)).thenReturn(user);
+        when(userService.getConnectedProviders(1L)).thenReturn(List.of(googleProvider));
+
+        ResponseEntity<ApiResponse> response = controller.getConnectedProviders(1L);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().isSuccess()).isTrue();
+        assertThat(response.getBody().getData()).isInstanceOf(List.class);
+
+        List<?> providers = (List<?>) response.getBody().getData();
+        assertThat(providers).hasSize(1);
+        assertThat(providers.get(0)).isInstanceOf(UserProviderDto.class);
+        UserProviderDto provider = (UserProviderDto) providers.get(0);
+        assertThat(provider.getProvider()).isEqualTo("GOOGLE");
+        assertThat(provider.getEmail()).isEqualTo("google@example.com");
+    }
+
+    @Test
+    void unlinkProvider_delegatesToUserServiceForAuthenticatedUser() {
+        UserEntity user = createUser(1L, "user@example.com");
+        when(userService.findUserById(1L)).thenReturn(user);
+
+        ResponseEntity<ApiResponse> response = controller.unlinkProvider(1L, "google");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().isSuccess()).isTrue();
+        verify(userService).unlinkProvider(1L, "google");
+    }
+
+    @Test
     void getSessions_marksCurrentSessionUsingStableSessionIdWhenRefreshCookieIsStale() throws Exception {
         UserEntity user = createUser(1L, "user@example.com");
         RefreshToken currentSession = createRefreshToken(
@@ -154,6 +196,49 @@ class MypageControllerTest {
         assertThat(sessions).hasSize(2);
         assertThat(readBooleanProperty(sessions.get(0), "isCurrent")).isTrue();
         assertThat(readStringProperty(sessions.get(0), "getId")).isEqualTo("session-current");
+    }
+
+    @Test
+    void getSessions_excludesExpiredRefreshTokenSessions() throws Exception {
+        UserEntity user = createUser(1L, "user@example.com");
+        RefreshToken currentSession = createRefreshToken(
+                101L,
+                "session-current",
+                user.getEmail(),
+                "db-refresh-current",
+                "desktop",
+                "Mac",
+                "Chrome",
+                "macOS",
+                "127.0.0.1");
+        RefreshToken expiredSession = createRefreshToken(
+                100L,
+                "session-expired",
+                user.getEmail(),
+                "db-refresh-expired",
+                "mobile",
+                "iPhone",
+                "Safari",
+                "iOS",
+                "198.51.100.20");
+        expiredSession.setExpiryDate(LocalDateTime.now().minusMinutes(1));
+        MockHttpServletRequest request = buildRequest(MAC_CHROME_USER_AGENT, "stale-cookie", "127.0.0.1");
+
+        when(userService.findUserById(1L)).thenReturn(user);
+        when(refreshRepository.findAllByEmailOrderByIdDesc(user.getEmail()))
+                .thenReturn(List.of(expiredSession, currentSession));
+        when(jwtUtil.getSessionId("stale-cookie")).thenReturn("session-current");
+
+        ResponseEntity<ApiResponse> response = controller.getSessions(1L, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getData()).isInstanceOf(List.class);
+
+        List<?> sessions = (List<?>) response.getBody().getData();
+        assertThat(sessions).hasSize(1);
+        assertThat(readStringProperty(sessions.get(0), "getId")).isEqualTo("session-current");
+        assertThat(readBooleanProperty(sessions.get(0), "isCurrent")).isTrue();
     }
 
     @Test
