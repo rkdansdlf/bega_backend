@@ -11,8 +11,10 @@ import com.example.auth.service.RefreshTokenReuseDetector;
 import com.example.auth.service.RefreshTokenRevocationService;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.util.JWTUtil;
+import com.example.common.config.AllowedOriginResolver;
 import com.example.common.dto.ApiResponse;
 import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.ForbiddenBusinessException;
 import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.RefreshTokenRevokeFailedException;
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +23,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
@@ -57,6 +60,12 @@ class ReissueControllerTest {
     private RefreshTokenRevocationService refreshTokenRevocationService;
 
     private ReissueController createController() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        AllowedOriginResolver allowedOriginResolver = new AllowedOriginResolver(
+                environment,
+                "http://localhost:5176",
+                false);
         AuthCookieUtil authCookieUtil = new AuthCookieUtil(false);
         lenient().when(authSessionService.resolveRequestMetadata(any())).thenReturn(
                 new AuthSessionMetadataResolver.SessionMetadata(
@@ -74,7 +83,8 @@ class ReissueControllerTest {
                 authSessionService,
                 authSecurityMonitoringService,
                 refreshTokenReuseDetector,
-                refreshTokenRevocationService);
+                refreshTokenRevocationService,
+                allowedOriginResolver);
     }
 
     @Test
@@ -88,6 +98,40 @@ class ReissueControllerTest {
         assertThatThrownBy(() -> controller.reissue(request, response))
                 .isInstanceOf(BadRequestBusinessException.class);
 
+        verify(authSecurityMonitoringService).recordRefreshReissueReject("REFRESH_TOKEN_MISSING");
+    }
+
+    @Test
+    @DisplayName("허용되지 않은 Origin이 있으면 재발급을 차단한다")
+    void reissue_invalidOrigin_throwsForbidden() {
+        ReissueController controller = createController();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Origin", "http://evil.test");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertThatThrownBy(() -> controller.reissue(request, response))
+                .isInstanceOfSatisfying(ForbiddenBusinessException.class, ex -> {
+                    assertThat(ex.getStatus().value()).isEqualTo(403);
+                    assertThat(ex.getCode()).isEqualTo("INVALID_REISSUE_ORIGIN");
+                });
+
+        verify(authSecurityMonitoringService).recordInvalidOrigin();
+        verify(jwtUtil, never()).getTokenType(anyString());
+    }
+
+    @Test
+    @DisplayName("허용된 Origin은 기존 재발급 검증 흐름으로 진행한다")
+    void reissue_allowedOrigin_continuesToRefreshTokenValidation() {
+        ReissueController controller = createController();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Origin", "http://localhost:5176");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        when(authSessionService.extractRefreshToken(request)).thenReturn(null);
+
+        assertThatThrownBy(() -> controller.reissue(request, response))
+                .isInstanceOf(BadRequestBusinessException.class);
+
+        verify(authSecurityMonitoringService, never()).recordInvalidOrigin();
         verify(authSecurityMonitoringService).recordRefreshReissueReject("REFRESH_TOKEN_MISSING");
     }
 

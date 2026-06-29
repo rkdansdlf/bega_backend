@@ -593,6 +593,11 @@
       "description": "Comma-separated trusted proxy IPs or CIDRs."
     },
     {
+      "name": "app.auth.reject-legacy-access-tokens",
+      "type": "java.lang.Boolean",
+      "description": "Reject JWTs that lack a token_type claim (legacy tokens) instead of treating them as access tokens. Default true."
+    },
+    {
       "name": "app.allowed-origins",
       "type": "java.lang.String",
       "description": "Comma-separated list of allowed CORS origins."
@@ -871,6 +876,11 @@
       "name": "media.cleanup.fixed-delay-ms",
       "type": "java.lang.Long",
       "description": "Fixed delay in milliseconds between media cleanup scheduler runs."
+    },
+    {
+      "name": "media.cleanup.batch-size",
+      "type": "java.lang.Integer",
+      "description": "Maximum number of media assets each cleanup path scans per scheduler run."
     },
     {
       "name": "org.jobrunr.background-job-server.enabled",
