@@ -1,6 +1,8 @@
 package com.example.auth.controller;
 
+import java.net.URI;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 import com.example.auth.util.AuthCookieUtil;
@@ -10,11 +12,14 @@ import com.example.auth.service.AuthSessionMetadataResolver;
 import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.auth.service.RefreshTokenReuseDetector;
 import com.example.auth.service.RefreshTokenRevocationService;
+import com.example.common.config.AllowedOriginResolver;
 import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.exception.ForbiddenBusinessException;
 import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.RefreshTokenRevokeFailedException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.ResponseCookie;
+import org.springframework.util.PatternMatchUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -45,12 +50,14 @@ public class ReissueController {
     private final AuthSecurityMonitoringService authSecurityMonitoringService;
     private final RefreshTokenReuseDetector refreshTokenReuseDetector;
     private final RefreshTokenRevocationService refreshTokenRevocationService;
+    private final AllowedOriginResolver allowedOriginResolver;
 
     public ReissueController(JWTUtil jwtUtil, RefreshRepository refreshRepository, UserRepository userRepository,
             AuthCookieUtil authCookieUtil, AuthSessionService authSessionService,
             AuthSecurityMonitoringService authSecurityMonitoringService,
             RefreshTokenReuseDetector refreshTokenReuseDetector,
-            RefreshTokenRevocationService refreshTokenRevocationService) {
+            RefreshTokenRevocationService refreshTokenRevocationService,
+            AllowedOriginResolver allowedOriginResolver) {
         this.jwtUtil = jwtUtil;
         this.refreshRepository = refreshRepository;
         this.userRepository = userRepository;
@@ -59,11 +66,13 @@ public class ReissueController {
         this.authSecurityMonitoringService = authSecurityMonitoringService;
         this.refreshTokenReuseDetector = refreshTokenReuseDetector;
         this.refreshTokenRevocationService = refreshTokenRevocationService;
+        this.allowedOriginResolver = allowedOriginResolver;
     }
 
     @PostMapping("/reissue")
     @Transactional
     public ResponseEntity<ApiResponse> reissue(HttpServletRequest request, HttpServletResponse response) {
+        validateProvidedOrigin(request);
 
         // Refresh Token 추출
         String refreshToken = authSessionService.extractRefreshToken(request);
@@ -169,6 +178,95 @@ public class ReissueController {
         authCookieUtil.addCookieHeader(response, refreshCookie);
 
         return ResponseEntity.ok(ApiResponse.success("토큰이 성공적으로 재발급되었습니다."));
+    }
+
+    private void validateProvidedOrigin(HttpServletRequest request) {
+        String originHeader = request != null ? request.getHeader("Origin") : null;
+        String refererHeader = request != null ? request.getHeader("Referer") : null;
+        if (isBlank(originHeader) && isBlank(refererHeader)) {
+            return;
+        }
+
+        String origin = extractOrigin(originHeader);
+        String refererOrigin = extractOrigin(refererHeader);
+        List<String> allowedOrigins = allowedOriginResolver.resolve();
+        if (isAllowedOrigin(origin, allowedOrigins) || isAllowedOrigin(refererOrigin, allowedOrigins)) {
+            return;
+        }
+
+        authSecurityMonitoringService.recordInvalidOrigin();
+        logReissueReject("INVALID_REISSUE_ORIGIN", request, null, null);
+        throw new ForbiddenBusinessException(
+                "INVALID_REISSUE_ORIGIN",
+                "허용되지 않은 출처의 토큰 재발급 요청입니다.");
+    }
+
+    private boolean isAllowedOrigin(String origin, List<String> allowedOrigins) {
+        if (isBlank(origin)) {
+            return false;
+        }
+
+        for (String allowed : allowedOrigins) {
+            if (matchesOriginPattern(origin, allowed)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean matchesOriginPattern(String origin, String pattern) {
+        if (isBlank(pattern)) {
+            return false;
+        }
+        if (origin.equals(pattern)) {
+            return true;
+        }
+        if (PatternMatchUtils.simpleMatch(pattern, origin)) {
+            return true;
+        }
+
+        try {
+            URI originUri = URI.create(origin);
+            URI patternUri = URI.create(pattern.replace(":*", ""));
+
+            if (pattern.endsWith(":*")) {
+                return Objects.equals(originUri.getScheme(), patternUri.getScheme())
+                        && Objects.equals(originUri.getHost(), patternUri.getHost());
+            }
+            return Objects.equals(originUri.getScheme(), patternUri.getScheme())
+                    && Objects.equals(originUri.getHost(), patternUri.getHost())
+                    && originUri.getPort() == patternUri.getPort();
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private String extractOrigin(String headerValue) {
+        if (isBlank(headerValue)) {
+            return null;
+        }
+
+        try {
+            URI uri = URI.create(headerValue);
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            int port = uri.getPort();
+
+            if (scheme == null || host == null) {
+                return null;
+            }
+
+            if (port == -1) {
+                return String.format("%s://%s", scheme, host);
+            }
+            return String.format("%s://%s:%d", scheme, host, port);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private BadRequestBusinessException rejectBadRequest(

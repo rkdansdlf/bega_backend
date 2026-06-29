@@ -20,7 +20,9 @@ public class ClientIpResolver {
             "::1",
             "0:0:0:0:0:0:0:1");
 
+    /** 정확 일치(단일 IP) 신뢰 프록시. */
     private final Set<String> trustedProxies;
+    /** CIDR(예: 172.16.0.0/12) 신뢰 프록시 범위. 동적 도커 브리지 IP 대응용. */
     private final List<IpAddressMatcher> trustedProxyMatchers;
 
     public ClientIpResolver(

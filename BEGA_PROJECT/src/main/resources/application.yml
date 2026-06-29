@@ -14,16 +14,16 @@ spring:
       hibernate:
         format-sql: true
         # 임계값(ms) 초과 쿼리만 WARN 로그로 남긴다. 운영에서 slow query 후보를 드러내기 위함.
-        # APP_HIBERNATE_SLOW_QUERY_THRESHOLD_MS=0 으로 무력화 가능 (기본 1000ms = 1초).
+        # APP_HIBERNATE_SLOW_QUERY_THRESHOLD_MS=0 으로 무력화 가능 (기본 300ms; 1초 이상은 놓칠 위험).
         session:
           events:
             log:
-              LOG_QUERIES_SLOWER_THAN_MS: ${APP_HIBERNATE_SLOW_QUERY_THRESHOLD_MS:1000}
+              LOG_QUERIES_SLOWER_THAN_MS: ${APP_HIBERNATE_SLOW_QUERY_THRESHOLD_MS:300}
   # Java 21 virtual threads. AI SSE/OCI/외부 HTTP I/O가 platform thread를 길게 점유하는 부하를
-  # 완화한다. 기본 비활성: stage에서 SPRING_THREADS_VIRTUAL_ENABLED=true로 검증 후 prod 적용.
+  # 완화한다. 기본 활성: prod에서 필요 시 SPRING_THREADS_VIRTUAL_ENABLED=false로 오버라이드.
   threads:
     virtual:
-      enabled: ${SPRING_THREADS_VIRTUAL_ENABLED:false}
+      enabled: ${SPRING_THREADS_VIRTUAL_ENABLED:true}
   thymeleaf:
     cache: false
     check-template-location: false
@@ -168,8 +168,9 @@ baseball:
     username: ${BASEBALL_DB_USERNAME:${DB_USERNAME}}
     password: ${BASEBALL_DB_PASSWORD:${DB_PASSWORD}}
     hikari:
-      maximum-pool-size: 15
-      minimum-idle: 3
+      # 가상 스레드 활성화(SPRING_THREADS_VIRTUAL_ENABLED:true) 시 동시 커넥션 수요 증가를 고려해 상향.
+      maximum-pool-size: 25
+      minimum-idle: 5
       connection-timeout: 30000
       validation-timeout: 5000
       idle-timeout: 300000
@@ -232,7 +233,7 @@ app:
         initial-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_INITIAL_DELAY_MS:5000}
         max-attempts: ${APP_HOME_BOOTSTRAP_WARMUP_MAX_ATTEMPTS:2}
         partial-retry-delay-ms: ${APP_HOME_BOOTSTRAP_WARMUP_PARTIAL_RETRY_DELAY_MS:500}
-        section-timeout-ms: ${APP_HOME_BOOTSTRAP_WARMUP_SECTION_TIMEOUT_MS:8000}
+        section-timeout-ms: ${APP_HOME_BOOTSTRAP_WARMUP_SECTION_TIMEOUT_MS:3000}
         ranking:
           enabled: ${APP_HOME_BOOTSTRAP_WARMUP_RANKING_ENABLED:true}
     widgets:
@@ -287,6 +288,10 @@ app:
     hard-gate-approved-date: ${APP_POLICY_HARD_GATE_APPROVED_DATE:}
   oauth2:
     cookie-secret: ${OAUTH2_COOKIE_SECRET:}
+  auth:
+    # token_type claim이 없는 레거시 토큰을 access 토큰으로 인정하지 않는다(기본 true=거부).
+    # 신규 발급 토큰은 항상 token_type을 포함하므로 거부가 안전. 문제 시 false로 즉시 롤백.
+    reject-legacy-access-tokens: ${APP_AUTH_REJECT_LEGACY_ACCESS_TOKENS:true}
 
 
 
@@ -344,6 +349,7 @@ media:
   cleanup:
     enabled: ${MEDIA_CLEANUP_ENABLED:true}
     fixed-delay-ms: ${MEDIA_CLEANUP_FIXED_DELAY_MS:900000}
+    batch-size: ${MEDIA_CLEANUP_BATCH_SIZE:100}
 
 # Swagger / OpenAPI 설정 (기본값: 활성화 - dev/local 환경)
 springdoc:
@@ -433,8 +439,9 @@ spring:
       currentSchema: public
       targetServerType: primary  # standby/recovery 서버에 실수로 연결되는 것 방지
     hikari:
-      maximum-pool-size: 10
-      minimum-idle: 2
+      # 가상 스레드 활성화(SPRING_THREADS_VIRTUAL_ENABLED:true) 시 동시 커넥션 수요 증가를 고려해 상향.
+      maximum-pool-size: 25
+      minimum-idle: 5
       connection-timeout: 30000
       validation-timeout: 5000
       idle-timeout: 300000
