@@ -39,10 +39,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -101,7 +105,10 @@ public class CheerFeedService {
         feedEnrichmentExecutor.shutdownNow();
     }
 
-    /** @DataJpaTest 등 동일 트랜잭션에서 결과를 검증해야 하는 테스트 전용 — 운영 코드에서 호출 금지. */
+    /**
+     * @DataJpaTest 등 동일 트랜잭션에서 결과를 검증해야 하는 테스트 전용 — 운영 코드에서 호출 금지.
+     * Direct executor는 호출 스레드에서 작업을 실행하므로 비동기 타임아웃 동작을 재현하지 않는다.
+     */
     public void setFeedEnrichmentExecutorForTest(ExecutorService executor) {
         this.feedEnrichmentExecutor = executor;
     }
@@ -205,7 +212,7 @@ public class CheerFeedService {
 
             CompletableFuture<Map<Long, List<String>>> imageFuture = postIds.isEmpty()
                     ? CompletableFuture.completedFuture(Collections.emptyMap())
-                    : supplyEnrichmentAsync(() -> safeGetPostImageUrls(postIds), Collections.emptyMap());
+                    : supplyEnrichmentAsync(() -> getPostImageUrls(postIds), Collections.emptyMap());
             CompletableFuture<Map<Long, String>> feedProfileImageFuture = feedProfileAuthors.isEmpty()
                     ? CompletableFuture.completedFuture(Collections.emptyMap())
                     : supplyEnrichmentAsync(() -> resolveFeedProfileImageUrls(feedProfileAuthors), Collections.emptyMap());
@@ -785,22 +792,22 @@ public class CheerFeedService {
 
         // enrichment 병렬 실행. 인스턴스 전체 동시성은 bulkhead로 제한해 Redis/DB fan-out을 완화한다.
         CompletableFuture<Map<Long, List<String>>> imageFuture =
-                supplyEnrichmentAsync(() -> safeGetPostImageUrls(postIds), Collections.emptyMap());
+                supplyEnrichmentAsync(() -> getPostImageUrls(postIds), Collections.emptyMap());
         CompletableFuture<Map<Long, List<String>>> repostImageFuture = repostOriginalIds.isEmpty()
                 ? CompletableFuture.completedFuture(Collections.emptyMap())
-                : supplyEnrichmentAsync(() -> safeGetPostImageUrls(repostOriginalIds), Collections.emptyMap());
+                : supplyEnrichmentAsync(() -> getPostImageUrls(repostOriginalIds), Collections.emptyMap());
         CompletableFuture<Map<Long, Integer>> viewCountFuture =
-                supplyEnrichmentAsync(() -> safeGetViewCounts(postIds), Collections.emptyMap());
+                supplyEnrichmentAsync(() -> getViewCounts(postIds), Collections.emptyMap());
         CompletableFuture<Map<Long, Integer>> bookmarkCountFuture =
-                supplyEnrichmentAsync(() -> safeGetBookmarkCountMap(postIds), Collections.emptyMap());
+                supplyEnrichmentAsync(() -> getBookmarkCountMap(postIds), Collections.emptyMap());
         CompletableFuture<Set<Long>> likedFuture = me != null
-                ? supplyEnrichmentAsync(() -> safeGetLikedPostIds(me, postIds), Collections.emptySet())
+                ? supplyEnrichmentAsync(() -> getLikedPostIds(me, postIds), Collections.emptySet())
                 : CompletableFuture.completedFuture(Collections.emptySet());
         CompletableFuture<Set<Long>> bookmarkedFuture = me != null
-                ? supplyEnrichmentAsync(() -> safeGetBookmarkedPostIds(me, postIds), Collections.emptySet())
+                ? supplyEnrichmentAsync(() -> getBookmarkedPostIds(me, postIds), Collections.emptySet())
                 : CompletableFuture.completedFuture(Collections.emptySet());
         CompletableFuture<Set<Long>> repostedFuture = me != null
-                ? supplyEnrichmentAsync(() -> safeGetRepostedPostIds(me, postIds), Collections.emptySet())
+                ? supplyEnrichmentAsync(() -> getRepostedPostIds(me, postIds), Collections.emptySet())
                 : CompletableFuture.completedFuture(Collections.emptySet());
         CompletableFuture<Map<Long, String>> feedProfileImageFuture = feedProfileAuthors.isEmpty()
                 ? CompletableFuture.completedFuture(Collections.emptyMap())
@@ -844,13 +851,52 @@ public class CheerFeedService {
     }
 
     private <T> CompletableFuture<T> supplyEnrichmentAsync(Supplier<T> supplier, T fallback) {
-        return CompletableFuture
-                .supplyAsync(() -> runWithEnrichmentPermit(supplier), feedEnrichmentExecutor)
-                .completeOnTimeout(fallback, normalizedFeedEnrichmentTaskTimeoutMs(), TimeUnit.MILLISECONDS)
-                .exceptionally(exception -> {
-                    log.debug("Cheer feed enrichment returned fallback: {}", exception.toString());
-                    return fallback;
-                });
+        CompletableFuture<T> taskResult = new CompletableFuture<>();
+        Future<?> submittedTask = submitEnrichmentTask(taskResult, supplier);
+        CompletableFuture<T> timedResult = taskResult.orTimeout(
+                normalizedFeedEnrichmentTaskTimeoutMs(),
+                TimeUnit.MILLISECONDS);
+
+        timedResult.whenComplete((value, exception) -> {
+            if (submittedTask != null
+                    && exception != null
+                    && unwrapAsyncException(exception) instanceof TimeoutException) {
+                submittedTask.cancel(true);
+            }
+        });
+
+        return timedResult.handle((value, exception) -> {
+            if (exception == null) {
+                metricsService.recordFeedEnrichment("success");
+                return value;
+            }
+
+            Throwable cause = unwrapAsyncException(exception);
+            String result = cause instanceof TimeoutException
+                    ? "timeout"
+                    : cause instanceof FeedEnrichmentBusyException ? "busy" : "failure";
+            metricsService.recordFeedEnrichment(result);
+            log.debug("Cheer feed enrichment returned fallback: {}", cause.toString());
+            if (cause instanceof FeedEnrichmentDegradedException degradedException) {
+                return degradedException.fallbackValue();
+            }
+            return fallback;
+        });
+    }
+
+    private <T> Future<?> submitEnrichmentTask(CompletableFuture<T> taskResult, Supplier<T> supplier) {
+        try {
+            return feedEnrichmentExecutor.submit(() -> {
+                try {
+                    taskResult.complete(runWithEnrichmentPermit(supplier));
+                } catch (Throwable exception) {
+                    taskResult.completeExceptionally(exception);
+                }
+            });
+        } catch (RejectedExecutionException exception) {
+            taskResult.completeExceptionally(new FeedEnrichmentBusyException("Cheer feed enrichment executor is busy"));
+            return null;
+        }
     }
 
     private <T> T runWithEnrichmentPermit(Supplier<T> supplier) {
@@ -861,7 +907,7 @@ public class CheerFeedService {
                     normalizedFeedEnrichmentPermitWaitTimeoutMs(),
                     TimeUnit.MILLISECONDS);
             if (!acquired) {
-                throw new IllegalStateException("Cheer feed enrichment bulkhead is busy");
+                throw new FeedEnrichmentBusyException("Cheer feed enrichment bulkhead is busy");
             }
             return supplier.get();
         } catch (InterruptedException e) {
@@ -871,6 +917,34 @@ public class CheerFeedService {
             if (acquired) {
                 bulkhead.release();
             }
+        }
+    }
+
+    private Throwable unwrapAsyncException(Throwable exception) {
+        Throwable current = exception;
+        while (current instanceof CompletionException && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private static final class FeedEnrichmentBusyException extends RuntimeException {
+        private FeedEnrichmentBusyException(String message) {
+            super(message);
+        }
+    }
+
+    private static final class FeedEnrichmentDegradedException extends RuntimeException {
+        private final Object fallbackValue;
+
+        private FeedEnrichmentDegradedException(Object fallbackValue, Throwable cause) {
+            super("Cheer feed enrichment completed with a degraded fallback", cause);
+            this.fallbackValue = fallbackValue;
+        }
+
+        @SuppressWarnings("unchecked")
+        private <T> T fallbackValue() {
+            return (T) fallbackValue;
         }
     }
 
@@ -1005,18 +1079,27 @@ public class CheerFeedService {
         if (author == null) {
             return null;
         }
-        String rawValue = author.getProfileImageUrl();
         try {
-            String resolved = profileImageService.getProfileImageUrlForCheerFeed(
-                    author.getId(),
-                    rawValue,
-                    author.getProfileFeedImageUrl());
-            if (resolved != null && !resolved.isBlank()) {
-                return resolved;
-            }
+            return resolveAuthorProfileImageUrlOrThrow(author);
         } catch (Exception e) {
             log.warn("Cheer feed profile image URL 정규화 실패: userId={}, error={}", author.getId(), e.getMessage());
         }
+        return rawProfileImageFallback(author.getProfileImageUrl());
+    }
+
+    private String resolveAuthorProfileImageUrlOrThrow(UserEntity author) {
+        String rawValue = author.getProfileImageUrl();
+        String resolved = profileImageService.getProfileImageUrlForCheerFeed(
+                author.getId(),
+                rawValue,
+                author.getProfileFeedImageUrl());
+        if (resolved != null && !resolved.isBlank()) {
+            return resolved;
+        }
+        return rawProfileImageFallback(rawValue);
+    }
+
+    private String rawProfileImageFallback(String rawValue) {
         if (rawValue != null && !rawValue.isBlank()) {
             if (rawValue.startsWith("http://") || rawValue.startsWith("https://") || rawValue.startsWith("/")) {
                 return rawValue;
@@ -1064,11 +1147,26 @@ public class CheerFeedService {
             return Collections.emptyMap();
         }
         Map<Long, String> urlsByAuthorId = new java.util.HashMap<>();
+        Throwable firstFailure = null;
         for (UserEntity author : authors) {
             if (author == null || author.getId() == null) {
                 continue;
             }
-            urlsByAuthorId.put(author.getId(), resolveAuthorProfileImageUrl(author));
+            try {
+                urlsByAuthorId.put(author.getId(), resolveAuthorProfileImageUrlOrThrow(author));
+            } catch (Exception exception) {
+                log.warn(
+                        "Cheer feed profile image URL 정규화 실패: userId={}, error={}",
+                        author.getId(),
+                        exception.getMessage());
+                urlsByAuthorId.put(author.getId(), rawProfileImageFallback(author.getProfileImageUrl()));
+                if (firstFailure == null) {
+                    firstFailure = exception;
+                }
+            }
+        }
+        if (firstFailure != null) {
+            throw new FeedEnrichmentDegradedException(urlsByAuthorId, firstFailure);
         }
         return urlsByAuthorId;
     }
@@ -1115,70 +1213,46 @@ public class CheerFeedService {
         return excluded;
     }
 
-    private Map<Long, List<String>> safeGetPostImageUrls(List<Long> postIds) {
+    private Map<Long, List<String>> getPostImageUrls(List<Long> postIds) {
         if (postIds.isEmpty()) {
             return Collections.emptyMap();
         }
-        try {
-            return imageService.getPostImageUrlsByPostIds(postIds);
-        } catch (Exception e) {
-            log.warn("Cheer feed image enrichment failed. postCount={}", postIds.size(), e);
+        return imageService.getPostImageUrlsByPostIds(postIds);
+    }
+
+    private Map<Long, Integer> getViewCounts(List<Long> postIds) {
+        if (postIds.isEmpty()) {
             return Collections.emptyMap();
         }
+        return redisPostService.getViewCounts(postIds);
     }
 
     private Map<Long, Integer> safeGetViewCounts(List<Long> postIds) {
-        if (postIds.isEmpty()) {
-            return Collections.emptyMap();
-        }
         try {
-            return redisPostService.getViewCounts(postIds);
+            return getViewCounts(postIds);
         } catch (Exception e) {
             log.warn("Cheer feed view-count enrichment failed. postCount={}", postIds.size(), e);
             return Collections.emptyMap();
         }
     }
 
-    private Map<Long, Integer> safeGetBookmarkCountMap(List<Long> postIds) {
+    private Map<Long, Integer> getBookmarkCountMap(List<Long> postIds) {
         if (postIds.isEmpty()) {
             return Collections.emptyMap();
         }
-        try {
-            return interactionService.getBookmarkCountMap(postIds);
-        } catch (Exception e) {
-            log.warn("Cheer feed bookmark-count enrichment failed. postCount={}", postIds.size(), e);
-            return Collections.emptyMap();
-        }
+        return interactionService.getBookmarkCountMap(postIds);
     }
 
-    private Set<Long> safeGetLikedPostIds(UserEntity me, List<Long> postIds) {
-        try {
-            return interactionService.getLikedPostIds(me.getId(), postIds);
-        } catch (Exception e) {
-            log.warn("Cheer feed liked-status enrichment failed. userId={}, postCount={}", me.getId(), postIds.size(),
-                    e);
-            return Collections.emptySet();
-        }
+    private Set<Long> getLikedPostIds(UserEntity me, List<Long> postIds) {
+        return interactionService.getLikedPostIds(me.getId(), postIds);
     }
 
-    private Set<Long> safeGetBookmarkedPostIds(UserEntity me, List<Long> postIds) {
-        try {
-            return interactionService.getBookmarkedPostIds(me.getId(), postIds);
-        } catch (Exception e) {
-            log.warn("Cheer feed bookmark-status enrichment failed. userId={}, postCount={}", me.getId(),
-                    postIds.size(), e);
-            return Collections.emptySet();
-        }
+    private Set<Long> getBookmarkedPostIds(UserEntity me, List<Long> postIds) {
+        return interactionService.getBookmarkedPostIds(me.getId(), postIds);
     }
 
-    private Set<Long> safeGetRepostedPostIds(UserEntity me, List<Long> postIds) {
-        try {
-            return interactionService.getRepostedPostIds(me.getId(), postIds);
-        } catch (Exception e) {
-            log.warn("Cheer feed repost-status enrichment failed. userId={}, postCount={}", me.getId(), postIds.size(),
-                    e);
-            return Collections.emptySet();
-        }
+    private Set<Long> getRepostedPostIds(UserEntity me, List<Long> postIds) {
+        return interactionService.getRepostedPostIds(me.getId(), postIds);
     }
 
     private record ScoredHotPost(CheerPost post, double score) {
