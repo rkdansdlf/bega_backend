@@ -18,6 +18,7 @@ import com.example.auth.service.UserService;
 import com.example.kbo.util.TeamCodeNormalizer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -27,6 +28,7 @@ import org.springframework.security.authentication.AuthenticationCredentialsNotF
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.util.Collections;
 import java.util.Comparator;
@@ -39,13 +41,21 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CheerFeedService {
+
+    private static final int DEFAULT_FEED_ENRICHMENT_MAX_CONCURRENCY = 32;
+    private static final long DEFAULT_FEED_ENRICHMENT_PERMIT_WAIT_TIMEOUT_MS = 50L;
+    private static final long DEFAULT_FEED_ENRICHMENT_TASK_TIMEOUT_MS = 800L;
+    private static final int DEFAULT_CHANGES_POLL_MAX_SCAN_SIZE = 200;
 
     private final CheerPostRepo postRepo;
     private final CheerInteractionService interactionService;
@@ -60,8 +70,31 @@ public class CheerFeedService {
     private final PostDtoMapper postDtoMapper;
     private final ProfileImageService profileImageService;
     private final com.example.cheerboard.repo.CheerBookmarkRepo bookmarkRepo;
+    private final CheerMonitoringMetricsService metricsService;
 
     private ExecutorService feedEnrichmentExecutor = Executors.newVirtualThreadPerTaskExecutor();
+    private volatile Semaphore feedEnrichmentBulkhead = new Semaphore(DEFAULT_FEED_ENRICHMENT_MAX_CONCURRENCY);
+    private volatile int feedEnrichmentBulkheadPermits = DEFAULT_FEED_ENRICHMENT_MAX_CONCURRENCY;
+
+    @Value("${app.cheer.feed.enrichment.max-concurrency:32}")
+    private int feedEnrichmentMaxConcurrency = DEFAULT_FEED_ENRICHMENT_MAX_CONCURRENCY;
+
+    @Value("${app.cheer.feed.enrichment.permit-wait-timeout-ms:50}")
+    private long feedEnrichmentPermitWaitTimeoutMs = DEFAULT_FEED_ENRICHMENT_PERMIT_WAIT_TIMEOUT_MS;
+
+    @Value("${app.cheer.feed.enrichment.task-timeout-ms:800}")
+    private long feedEnrichmentTaskTimeoutMs = DEFAULT_FEED_ENRICHMENT_TASK_TIMEOUT_MS;
+
+    @Value("${app.cheer.feed.changes.max-scan-size:200}")
+    private int changesPollMaxScanSize = DEFAULT_CHANGES_POLL_MAX_SCAN_SIZE;
+
+    @PostConstruct
+    void registerFeedEnrichmentBulkheadMetrics() {
+        metricsService.registerFeedEnrichmentBulkheadMetrics(
+                this,
+                CheerFeedService::activeFeedEnrichmentBulkheadPermits,
+                CheerFeedService::feedEnrichmentBulkheadLimit);
+    }
 
     @PreDestroy
     private void shutdownExecutor() {
@@ -90,84 +123,140 @@ public class CheerFeedService {
 
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> list(String teamId, String postTypeStr, Pageable pageable, UserEntity me) {
+        long startedAtNanos = System.nanoTime();
         String normalizedTeamId = resolveTeamFilter(teamId);
 
-        if (normalizedTeamId != null && !normalizedTeamId.isBlank()) {
-            if (me == null) {
-                throw new AuthenticationCredentialsNotFoundException("로그인 후 마이팀 게시판을 이용할 수 있습니다.");
+        try {
+            if (normalizedTeamId != null && !normalizedTeamId.isBlank()) {
+                if (me == null) {
+                    throw new AuthenticationCredentialsNotFoundException("로그인 후 마이팀 게시판을 이용할 수 있습니다.");
+                }
+                permissionValidator.validateTeamAccess(me, normalizedTeamId, "게시글 조회");
             }
-            permissionValidator.validateTeamAccess(me, normalizedTeamId, "게시글 조회");
-        }
 
-        PostType postType = null;
-        if (postTypeStr != null && !postTypeStr.isBlank()) {
-            try {
-                postType = PostType.valueOf(postTypeStr);
-            } catch (IllegalArgumentException e) {
-                // Ignore
+            PostType postType = null;
+            if (postTypeStr != null && !postTypeStr.isBlank()) {
+                try {
+                    postType = PostType.valueOf(postTypeStr);
+                } catch (IllegalArgumentException e) {
+                    // Ignore
+                }
             }
-        }
 
-        Page<CheerPost> page = findVisibleFeedPage(normalizedTeamId, postType, pageable, me);
-        return buildPostSummaryPage(page, me);
+            Page<CheerPost> page = findVisibleFeedPage(normalizedTeamId, postType, pageable, me);
+            Page<PostSummaryRes> response = buildPostSummaryPage(page, me);
+            recordFeedRequest("feed", normalizedTeamId, postTypeStr, null, pageable, me, "success", startedAtNanos);
+            return response;
+        } catch (RuntimeException ex) {
+            recordFeedRequest("feed", normalizedTeamId, postTypeStr, null, pageable, me, "failure", startedAtNanos);
+            throw ex;
+        }
     }
 
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> search(String q, String teamId, Pageable pageable, UserEntity me) {
+        long startedAtNanos = System.nanoTime();
         String normalizedTeamId = resolveTeamFilter(teamId);
-        Specification<CheerPost> spec = notSimpleRepost()
-                .and(teamMatches(normalizedTeamId))
-                .and(contentContains(q))
-                .and(visibleToViewer(me));
-        Page<CheerPost> page = postRepo.findAll(spec, pageable);
+        try {
+            Specification<CheerPost> spec = notSimpleRepost()
+                    .and(teamMatches(normalizedTeamId))
+                    .and(contentContains(q))
+                    .and(visibleToViewer(me));
+            Page<CheerPost> page = postRepo.findAll(spec, pageable);
 
-        return buildPostSummaryPage(page, me);
+            Page<PostSummaryRes> response = buildPostSummaryPage(page, me);
+            recordFeedRequest("search", normalizedTeamId, null, null, pageable, me, "success", startedAtNanos);
+            return response;
+        } catch (RuntimeException ex) {
+            recordFeedRequest("search", normalizedTeamId, null, null, pageable, me, "failure", startedAtNanos);
+            throw ex;
+        }
     }
 
     @Transactional(readOnly = true)
     public Page<PostLightweightSummaryRes> listLightweight(String teamId, String postTypeStr, Pageable pageable,
             UserEntity me) {
+        long startedAtNanos = System.nanoTime();
         String normalizedTeamId = resolveTeamFilter(teamId);
-        if (normalizedTeamId != null && !normalizedTeamId.isBlank()) {
-            if (me == null) {
-                throw new AuthenticationCredentialsNotFoundException("로그인 후 마이팀 게시판을 이용할 수 있습니다.");
+        try {
+            if (normalizedTeamId != null && !normalizedTeamId.isBlank()) {
+                if (me == null) {
+                    throw new AuthenticationCredentialsNotFoundException("로그인 후 마이팀 게시판을 이용할 수 있습니다.");
+                }
+                permissionValidator.validateTeamAccess(me, normalizedTeamId, "게시글 조회");
             }
-            permissionValidator.validateTeamAccess(me, normalizedTeamId, "게시글 조회");
+
+            PostType postType = null;
+            if (postTypeStr != null && !postTypeStr.isBlank()) {
+                try {
+                    postType = PostType.valueOf(postTypeStr);
+                } catch (IllegalArgumentException e) {
+                    // Ignore
+                }
+            }
+
+            Page<CheerPost> page = findVisibleFeedPage(normalizedTeamId, postType, pageable, me);
+            List<CheerPost> visiblePosts = filterPostsWithAuthor(page.getContent());
+
+            List<Long> postIds = !visiblePosts.isEmpty()
+                    ? visiblePosts.stream().map(CheerPost::getId).toList()
+                    : Collections.emptyList();
+            List<UserEntity> feedProfileAuthors = feedProfileAuthors(visiblePosts);
+
+            CompletableFuture<Map<Long, List<String>>> imageFuture = postIds.isEmpty()
+                    ? CompletableFuture.completedFuture(Collections.emptyMap())
+                    : supplyEnrichmentAsync(() -> safeGetPostImageUrls(postIds), Collections.emptyMap());
+            CompletableFuture<Map<Long, String>> feedProfileImageFuture = feedProfileAuthors.isEmpty()
+                    ? CompletableFuture.completedFuture(Collections.emptyMap())
+                    : supplyEnrichmentAsync(() -> resolveFeedProfileImageUrls(feedProfileAuthors), Collections.emptyMap());
+            CompletableFuture.allOf(imageFuture, feedProfileImageFuture).join();
+
+            Map<Long, List<String>> imageUrlsByPostId = imageFuture.join();
+            Map<Long, String> feedProfileImageUrls = feedProfileImageFuture.join();
+
+            List<PostLightweightSummaryRes> content = visiblePosts.stream().map(post -> {
+                try {
+                    List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
+                    return postDtoMapper.toPostLightweightSummaryRes(post, imageUrls, feedProfileImageUrls);
+                } catch (Exception e) {
+                    log.warn("Cheer lightweight feed enrichment failed for postId={}, fallback to minimal response",
+                            post.getId(), e);
+                    return buildFallbackPostLightweightSummary(post, feedProfileImageUrls);
+                }
+            }).toList();
+
+            Page<PostLightweightSummaryRes> response = new PageImpl<>(content, pageable, page.getTotalElements());
+            recordFeedRequest(
+                    "feed_lightweight",
+                    normalizedTeamId,
+                    postTypeStr,
+                    null,
+                    pageable,
+                    me,
+                    "success",
+                    startedAtNanos);
+            return response;
+        } catch (RuntimeException ex) {
+            recordFeedRequest(
+                    "feed_lightweight",
+                    normalizedTeamId,
+                    postTypeStr,
+                    null,
+                    pageable,
+                    me,
+                    "failure",
+                    startedAtNanos);
+            throw ex;
         }
-
-        PostType postType = null;
-        if (postTypeStr != null && !postTypeStr.isBlank()) {
-            try {
-                postType = PostType.valueOf(postTypeStr);
-            } catch (IllegalArgumentException e) {
-                // Ignore
-            }
-        }
-
-        Page<CheerPost> page = findVisibleFeedPage(normalizedTeamId, postType, pageable, me);
-        List<CheerPost> visiblePosts = filterPostsWithAuthor(page.getContent());
-
-        List<Long> postIds = !visiblePosts.isEmpty()
-                ? visiblePosts.stream().map(CheerPost::getId).toList()
-                : Collections.emptyList();
-
-        Map<Long, List<String>> imageUrlsByPostId = safeGetPostImageUrls(postIds);
-
-        List<PostLightweightSummaryRes> content = visiblePosts.stream().map(post -> {
-            try {
-                List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
-                return postDtoMapper.toPostLightweightSummaryRes(post, imageUrls);
-            } catch (Exception e) {
-                log.warn("Cheer lightweight feed enrichment failed for postId={}, fallback to minimal response",
-                        post.getId(), e);
-                return buildFallbackPostLightweightSummary(post);
-            }
-        }).toList();
-
-        return new PageImpl<>(content, pageable, page.getTotalElements());
     }
 
     private com.example.cheerboard.dto.PostLightweightSummaryRes buildFallbackPostLightweightSummary(CheerPost post) {
+        return buildFallbackPostLightweightSummary(post, Collections.emptyMap());
+    }
+
+    private com.example.cheerboard.dto.PostLightweightSummaryRes buildFallbackPostLightweightSummary(
+            CheerPost post,
+            Map<Long, String> feedProfileImageUrls) {
         return com.example.cheerboard.dto.PostLightweightSummaryRes.of(
                 post.getId(),
                 post.getContent(),
@@ -176,30 +265,56 @@ public class CheerFeedService {
                 post.getCommentCount(),
                 post.getCreatedAt(),
                 resolveDisplayName(post.getAuthor()),
-                post.getAuthor() != null ? resolveAuthorProfileImageUrl(post.getAuthor()) : null);
+                resolveAuthorProfileImageUrl(post.getAuthor(), feedProfileImageUrls));
     }
 
     @Transactional(readOnly = true)
     public PostChangesResponse checkPostChanges(Long sinceId, String teamId, UserEntity me) {
-        String normalizedTeamId = resolveTeamFilter(teamId);
-        if (normalizedTeamId != null && !normalizedTeamId.isBlank()) {
-            if (me == null) {
-                throw new AuthenticationCredentialsNotFoundException("로그인 후 마이팀 게시판을 이용할 수 있습니다.");
+        long startedAt = System.nanoTime();
+        String normalizedTeamId = null;
+        int scannedCount = 0;
+        int visibleCount = 0;
+        String result = "success";
+
+        try {
+            normalizedTeamId = resolveTeamFilter(teamId);
+            if (normalizedTeamId != null && !normalizedTeamId.isBlank()) {
+                if (me == null) {
+                    throw new AuthenticationCredentialsNotFoundException("로그인 후 마이팀 게시판을 이용할 수 있습니다.");
+                }
+                permissionValidator.validateTeamAccess(me, normalizedTeamId, "게시글 조회");
             }
-            permissionValidator.validateTeamAccess(me, normalizedTeamId, "게시글 조회");
+
+            long resolvedSinceId = sinceId != null ? sinceId : 0L;
+            Pageable scanPageable = PageRequest.of(0, normalizedChangesPollMaxScanSize());
+            List<CheerPost> scannedPosts = normalizedTeamId == null
+                    ? postRepo.findNewPostsSinceOrderByIdAsc(resolvedSinceId, scanPageable)
+                    : postRepo.findNewTeamPostsSinceOrderByIdAsc(resolvedSinceId, normalizedTeamId, scanPageable);
+            scannedCount = scannedPosts.size();
+            List<CheerPost> visibleNewPosts = filterVisiblePosts(scannedPosts, me);
+            int newCount = visibleNewPosts.size();
+            visibleCount = newCount;
+            Long latestScannedId = scannedPosts.stream()
+                    .map(CheerPost::getId)
+                    .max(Long::compareTo)
+                    .orElse(sinceId);
+
+            return new PostChangesResponse(newCount, latestScannedId);
+        } catch (RuntimeException e) {
+            result = "failure";
+            throw e;
+        } finally {
+            metricsService.recordPostChangesPolling(
+                    normalizedTeamId != null,
+                    scannedCount,
+                    visibleCount,
+                    System.nanoTime() - startedAt,
+                    result);
         }
+    }
 
-        long resolvedSinceId = sinceId != null ? sinceId : 0L;
-        List<CheerPost> visibleNewPosts = filterVisiblePosts(
-                postRepo.findNewPostsSinceOrderByIdDesc(resolvedSinceId, normalizedTeamId),
-                me);
-        int newCount = visibleNewPosts.size();
-        Long latestId = visibleNewPosts.stream()
-                .map(CheerPost::getId)
-                .max(Long::compareTo)
-                .orElse(sinceId);
-
-        return new PostChangesResponse(newCount, latestId);
+    private int normalizedChangesPollMaxScanSize() {
+        return Math.max(1, changesPollMaxScanSize);
     }
 
     private String resolveTeamFilter(String teamId) {
@@ -211,6 +326,26 @@ public class CheerFeedService {
             return null;
         }
         return normalizedTeamId;
+    }
+
+    private void recordFeedRequest(
+            String endpoint,
+            String normalizedTeamId,
+            String postType,
+            String algorithm,
+            Pageable pageable,
+            UserEntity me,
+            String result,
+            long startedAtNanos) {
+        metricsService.recordFeedRequest(
+                endpoint,
+                normalizedTeamId != null && !normalizedTeamId.isBlank(),
+                postType,
+                algorithm,
+                me != null,
+                pageable == null ? 0 : pageable.getPageSize(),
+                result,
+                System.nanoTime() - startedAtNanos);
     }
 
     @Transactional(readOnly = true)
@@ -369,11 +504,18 @@ public class CheerFeedService {
 
     @Transactional(readOnly = true)
     public Page<PostSummaryRes> getHotPosts(Pageable pageable, String algorithmRaw, UserEntity me) {
+        long startedAtNanos = System.nanoTime();
         PopularFeedAlgorithm algorithm = PopularFeedAlgorithm.from(algorithmRaw);
-        if (algorithm == PopularFeedAlgorithm.HYBRID) {
-            return getHybridHotPosts(pageable, me);
+        try {
+            Page<PostSummaryRes> response = algorithm == PopularFeedAlgorithm.HYBRID
+                    ? getHybridHotPosts(pageable, me)
+                    : getGlobalHotPosts(pageable, algorithm, me);
+            recordFeedRequest("hot", null, null, algorithm.name(), pageable, me, "success", startedAtNanos);
+            return response;
+        } catch (RuntimeException ex) {
+            recordFeedRequest("hot", null, null, algorithm.name(), pageable, me, "failure", startedAtNanos);
+            throw ex;
         }
-        return getGlobalHotPosts(pageable, algorithm, me);
     }
 
     // --- Hot Post Logic ---
@@ -399,10 +541,7 @@ public class CheerFeedService {
         totalElements = pruneExplicitHotEntries(
                 algorithm,
                 totalElements,
-                orderedPosts.stream()
-                        .map(CheerPost::getId)
-                        .filter(id -> visibleOrderedPosts.stream().noneMatch(post -> Objects.equals(post.getId(), id)))
-                        .toList());
+                missingPostIdsFromPosts(orderedPosts, visibleOrderedPosts));
 
         Map<Long, Integer> viewCountMap = safeGetViewCounts(visibleOrderedPosts.stream().map(CheerPost::getId).toList());
         java.time.Instant now = java.time.Instant.now();
@@ -467,18 +606,13 @@ public class CheerFeedService {
         totalElements = pruneExplicitHotEntries(
                 PopularFeedAlgorithm.TIME_DECAY,
                 totalElements,
-                candidateIds.stream()
-                        .filter(id -> orderedCandidatePosts.stream().noneMatch(post -> Objects.equals(post.getId(), id)))
-                        .toList());
+                missingPostIdsFromIds(candidateIds, orderedCandidatePosts));
         List<CheerPost> visibleCandidatePosts = me == null ? filterVisiblePosts(orderedCandidatePosts, null)
                 : orderedCandidatePosts;
         totalElements = pruneExplicitHotEntries(
                 PopularFeedAlgorithm.TIME_DECAY,
                 totalElements,
-                orderedCandidatePosts.stream()
-                        .map(CheerPost::getId)
-                        .filter(id -> visibleCandidatePosts.stream().noneMatch(post -> Objects.equals(post.getId(), id)))
-                        .toList());
+                missingPostIdsFromPosts(orderedCandidatePosts, visibleCandidatePosts));
         List<CheerPost> candidatePosts = visibleCandidatePosts.stream()
                 .filter(post -> !excludedIds.contains(post.getAuthor().getId()))
                 .toList();
@@ -581,6 +715,34 @@ public class CheerFeedService {
         return redisPostService.getHotListSize(algorithm);
     }
 
+    private List<Long> missingPostIdsFromPosts(List<CheerPost> requestedPosts, List<CheerPost> resolvedPosts) {
+        if (requestedPosts == null || requestedPosts.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return missingPostIdsFromIds(
+                requestedPosts.stream().map(CheerPost::getId).toList(),
+                resolvedPosts);
+    }
+
+    private List<Long> missingPostIdsFromIds(Set<Long> requestedIds, List<CheerPost> resolvedPosts) {
+        if (requestedIds == null || requestedIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return missingPostIdsFromIds(List.copyOf(requestedIds), resolvedPosts);
+    }
+
+    private List<Long> missingPostIdsFromIds(List<Long> requestedIds, List<CheerPost> resolvedPosts) {
+        if (requestedIds == null || requestedIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Set<Long> resolvedIds = resolvedPosts == null ? Collections.emptySet() : resolvedPosts.stream()
+                .map(CheerPost::getId)
+                .collect(Collectors.toSet());
+        return requestedIds.stream()
+                .filter(id -> !resolvedIds.contains(id))
+                .toList();
+    }
+
     private long pruneExplicitHotEntries(
             PopularFeedAlgorithm algorithm,
             long currentTotalElements,
@@ -618,41 +780,45 @@ public class CheerFeedService {
         }
 
         List<Long> postIds = mappedPosts.stream().map(CheerPost::getId).toList();
+        List<Long> repostOriginalIds = repostOriginalIds(mappedPosts);
+        List<UserEntity> feedProfileAuthors = feedProfileAuthors(mappedPosts);
 
-        // 8개 enrichment 병렬 실행 — 모두 독립적이며 safeGet* 내부에 try-catch 내장
+        // enrichment 병렬 실행. 인스턴스 전체 동시성은 bulkhead로 제한해 Redis/DB fan-out을 완화한다.
         CompletableFuture<Map<Long, List<String>>> imageFuture =
-                CompletableFuture.supplyAsync(() -> safeGetPostImageUrls(postIds), feedEnrichmentExecutor);
-        CompletableFuture<Map<Long, List<String>>> repostImageFuture =
-                CompletableFuture.supplyAsync(() -> prefetchRepostOriginalImages(mappedPosts), feedEnrichmentExecutor);
+                supplyEnrichmentAsync(() -> safeGetPostImageUrls(postIds), Collections.emptyMap());
+        CompletableFuture<Map<Long, List<String>>> repostImageFuture = repostOriginalIds.isEmpty()
+                ? CompletableFuture.completedFuture(Collections.emptyMap())
+                : supplyEnrichmentAsync(() -> safeGetPostImageUrls(repostOriginalIds), Collections.emptyMap());
         CompletableFuture<Map<Long, Integer>> viewCountFuture =
-                CompletableFuture.supplyAsync(() -> safeGetViewCounts(postIds), feedEnrichmentExecutor);
-        CompletableFuture<Map<Long, Boolean>> hotStatusFuture =
-                CompletableFuture.supplyAsync(() -> safeGetHotStatusMap(postIds), feedEnrichmentExecutor);
+                supplyEnrichmentAsync(() -> safeGetViewCounts(postIds), Collections.emptyMap());
         CompletableFuture<Map<Long, Integer>> bookmarkCountFuture =
-                CompletableFuture.supplyAsync(() -> safeGetBookmarkCountMap(postIds), feedEnrichmentExecutor);
-        CompletableFuture<Set<Long>> likedFuture = CompletableFuture.supplyAsync(
-                () -> me != null ? safeGetLikedPostIds(me, postIds) : Collections.emptySet(),
-                feedEnrichmentExecutor);
-        CompletableFuture<Set<Long>> bookmarkedFuture = CompletableFuture.supplyAsync(
-                () -> me != null ? safeGetBookmarkedPostIds(me, postIds) : Collections.emptySet(),
-                feedEnrichmentExecutor);
-        CompletableFuture<Set<Long>> repostedFuture = CompletableFuture.supplyAsync(
-                () -> me != null ? safeGetRepostedPostIds(me, postIds) : Collections.emptySet(),
-                feedEnrichmentExecutor);
+                supplyEnrichmentAsync(() -> safeGetBookmarkCountMap(postIds), Collections.emptyMap());
+        CompletableFuture<Set<Long>> likedFuture = me != null
+                ? supplyEnrichmentAsync(() -> safeGetLikedPostIds(me, postIds), Collections.emptySet())
+                : CompletableFuture.completedFuture(Collections.emptySet());
+        CompletableFuture<Set<Long>> bookmarkedFuture = me != null
+                ? supplyEnrichmentAsync(() -> safeGetBookmarkedPostIds(me, postIds), Collections.emptySet())
+                : CompletableFuture.completedFuture(Collections.emptySet());
+        CompletableFuture<Set<Long>> repostedFuture = me != null
+                ? supplyEnrichmentAsync(() -> safeGetRepostedPostIds(me, postIds), Collections.emptySet())
+                : CompletableFuture.completedFuture(Collections.emptySet());
+        CompletableFuture<Map<Long, String>> feedProfileImageFuture = feedProfileAuthors.isEmpty()
+                ? CompletableFuture.completedFuture(Collections.emptyMap())
+                : supplyEnrichmentAsync(() -> resolveFeedProfileImageUrls(feedProfileAuthors), Collections.emptyMap());
 
         CompletableFuture.allOf(
-                imageFuture, repostImageFuture, viewCountFuture, hotStatusFuture,
-                bookmarkCountFuture, likedFuture, bookmarkedFuture, repostedFuture
+                imageFuture, repostImageFuture, viewCountFuture,
+                bookmarkCountFuture, likedFuture, bookmarkedFuture, repostedFuture, feedProfileImageFuture
         ).join();
 
         Map<Long, List<String>> imageUrlsByPostId = imageFuture.join();
         Map<Long, List<String>> repostImageUrls = repostImageFuture.join();
         Map<Long, Integer> viewCountMap = viewCountFuture.join();
-        Map<Long, Boolean> hotStatusMap = hotStatusFuture.join();
         Map<Long, Integer> bookmarkCountMap = bookmarkCountFuture.join();
         Set<Long> likedPostIds = likedFuture.join();
         Set<Long> bookmarkedPostIds = bookmarkedFuture.join();
         Set<Long> repostedPostIds = repostedFuture.join();
+        Map<Long, String> feedProfileImageUrls = feedProfileImageFuture.join();
 
         return mappedPosts.stream()
                 .map(post -> {
@@ -663,7 +829,7 @@ public class CheerFeedService {
                                 bookmarkedPostIds.contains(post.getId()), isOwner,
                                 repostedPostIds.contains(post.getId()),
                                 bookmarkCountMap.getOrDefault(post.getId(), 0), imageUrls,
-                                viewCountMap, hotStatusMap, repostImageUrls);
+                                viewCountMap, Collections.emptyMap(), repostImageUrls, feedProfileImageUrls);
                     } catch (Exception e) {
                         log.warn("Cheer feed summary enrichment failed for postId={}, fallback to minimal response",
                                 post.getId(), e);
@@ -675,6 +841,74 @@ public class CheerFeedService {
                     }
                 })
                 .collect(Collectors.toList());
+    }
+
+    private <T> CompletableFuture<T> supplyEnrichmentAsync(Supplier<T> supplier, T fallback) {
+        return CompletableFuture
+                .supplyAsync(() -> runWithEnrichmentPermit(supplier), feedEnrichmentExecutor)
+                .completeOnTimeout(fallback, normalizedFeedEnrichmentTaskTimeoutMs(), TimeUnit.MILLISECONDS)
+                .exceptionally(exception -> {
+                    log.debug("Cheer feed enrichment returned fallback: {}", exception.toString());
+                    return fallback;
+                });
+    }
+
+    private <T> T runWithEnrichmentPermit(Supplier<T> supplier) {
+        Semaphore bulkhead = currentFeedEnrichmentBulkhead();
+        boolean acquired = false;
+        try {
+            acquired = bulkhead.tryAcquire(
+                    normalizedFeedEnrichmentPermitWaitTimeoutMs(),
+                    TimeUnit.MILLISECONDS);
+            if (!acquired) {
+                throw new IllegalStateException("Cheer feed enrichment bulkhead is busy");
+            }
+            return supplier.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for cheer feed enrichment permit", e);
+        } finally {
+            if (acquired) {
+                bulkhead.release();
+            }
+        }
+    }
+
+    private Semaphore currentFeedEnrichmentBulkhead() {
+        int permits = normalizedFeedEnrichmentMaxConcurrency();
+        Semaphore localBulkhead = feedEnrichmentBulkhead;
+        if (feedEnrichmentBulkheadPermits == permits) {
+            return localBulkhead;
+        }
+
+        synchronized (this) {
+            if (feedEnrichmentBulkheadPermits != permits) {
+                feedEnrichmentBulkhead = new Semaphore(permits);
+                feedEnrichmentBulkheadPermits = permits;
+            }
+            return feedEnrichmentBulkhead;
+        }
+    }
+
+    private int normalizedFeedEnrichmentMaxConcurrency() {
+        return Math.max(1, feedEnrichmentMaxConcurrency);
+    }
+
+    private long normalizedFeedEnrichmentPermitWaitTimeoutMs() {
+        return Math.max(1L, feedEnrichmentPermitWaitTimeoutMs);
+    }
+
+    private long normalizedFeedEnrichmentTaskTimeoutMs() {
+        return Math.max(1L, feedEnrichmentTaskTimeoutMs);
+    }
+
+    private double activeFeedEnrichmentBulkheadPermits() {
+        Semaphore bulkhead = currentFeedEnrichmentBulkhead();
+        return Math.max(0, normalizedFeedEnrichmentMaxConcurrency() - bulkhead.availablePermits());
+    }
+
+    private double feedEnrichmentBulkheadLimit() {
+        return normalizedFeedEnrichmentMaxConcurrency();
     }
 
     private List<CheerPost> filterVisiblePosts(List<CheerPost> posts, UserEntity me) {
@@ -791,6 +1025,54 @@ public class CheerFeedService {
         return null;
     }
 
+    private String resolveAuthorProfileImageUrl(UserEntity author, Map<Long, String> preloadedUrls) {
+        if (author == null) {
+            return null;
+        }
+        if (preloadedUrls != null && preloadedUrls.containsKey(author.getId())) {
+            return preloadedUrls.get(author.getId());
+        }
+        return resolveAuthorProfileImageUrl(author);
+    }
+
+    private List<UserEntity> feedProfileAuthors(List<CheerPost> posts) {
+        if (posts == null || posts.isEmpty()) {
+            return Collections.emptyList();
+        }
+        java.util.LinkedHashMap<Long, UserEntity> authorsById = new java.util.LinkedHashMap<>();
+        for (CheerPost post : posts) {
+            if (post == null) {
+                continue;
+            }
+            addAuthorById(authorsById, post.getAuthor());
+            if (post.isRepost() && post.getRepostOf() != null) {
+                addAuthorById(authorsById, post.getRepostOf().getAuthor());
+            }
+        }
+        return List.copyOf(authorsById.values());
+    }
+
+    private void addAuthorById(Map<Long, UserEntity> authorsById, UserEntity author) {
+        if (author == null || author.getId() == null) {
+            return;
+        }
+        authorsById.putIfAbsent(author.getId(), author);
+    }
+
+    private Map<Long, String> resolveFeedProfileImageUrls(List<UserEntity> authors) {
+        if (authors == null || authors.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<Long, String> urlsByAuthorId = new java.util.HashMap<>();
+        for (UserEntity author : authors) {
+            if (author == null || author.getId() == null) {
+                continue;
+            }
+            urlsByAuthorId.put(author.getId(), resolveAuthorProfileImageUrl(author));
+        }
+        return urlsByAuthorId;
+    }
+
     private String resolveAuthorHandle(com.example.auth.entity.UserEntity author) {
         if (author == null) {
             return null;
@@ -813,15 +1095,14 @@ public class CheerFeedService {
         return post.getPostType().name();
     }
 
-    private Map<Long, List<String>> prefetchRepostOriginalImages(List<CheerPost> posts) {
-        List<Long> repostOriginalIds = posts.stream()
+    private List<Long> repostOriginalIds(List<CheerPost> posts) {
+        return posts.stream()
                 .filter(CheerPost::isRepost)
                 .map(CheerPost::getRepostOf)
                 .filter(Objects::nonNull)
                 .map(CheerPost::getId)
                 .distinct()
                 .toList();
-        return safeGetPostImageUrls(repostOriginalIds);
     }
 
     private java.util.Set<Long> getExcludedUserIds(UserEntity me) {
@@ -854,18 +1135,6 @@ public class CheerFeedService {
             return redisPostService.getViewCounts(postIds);
         } catch (Exception e) {
             log.warn("Cheer feed view-count enrichment failed. postCount={}", postIds.size(), e);
-            return Collections.emptyMap();
-        }
-    }
-
-    private Map<Long, Boolean> safeGetHotStatusMap(List<Long> postIds) {
-        if (postIds.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        try {
-            return redisPostService.getCachedHotStatuses(postIds);
-        } catch (Exception e) {
-            log.warn("Cheer feed hot-status enrichment failed. postCount={}", postIds.size(), e);
             return Collections.emptyMap();
         }
     }

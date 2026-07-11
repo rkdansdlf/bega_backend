@@ -3,6 +3,7 @@ package com.example.cheerboard.service;
 import com.example.auth.entity.UserEntity;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.PostType;
+import com.example.cheerboard.dto.PostLightweightSummaryRes;
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.kbo.entity.TeamEntity;
@@ -19,6 +20,9 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -38,7 +42,7 @@ class PostDtoMapperTest {
     private ProfileImageService profileImageService;
 
     @Test
-    @DisplayName("prefetch HOT 캐시가 stale false여도 현재 계산값으로 응답과 캐시를 갱신한다")
+    @DisplayName("prefetch 요약 매핑은 현재 HOT 계산값을 쓰되 Redis write-back을 하지 않는다")
     void toPostSummaryRes_prefetchedHotStatusUsesComputedValue() {
         PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
         CheerPost post = createPost(41L, 3);
@@ -59,7 +63,74 @@ class PostDtoMapperTest {
 
         assertThat(result.isHot()).isTrue();
         assertThat(result.views()).isEqualTo(5);
-        verify(redisPostService).cacheHotStatus(post.getId(), true);
+        verify(redisPostService, never()).cacheHotStatus(post.getId(), true);
+    }
+
+    @Test
+    @DisplayName("prefetch 요약 매핑은 Redis prefetch map이 null이어도 기본값으로 응답한다")
+    void toPostSummaryRes_prefetchedSummaryHandlesNullPrefetchMaps() {
+        PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
+        CheerPost post = createPost(43L, 7);
+
+        when(hotPostChecker.isHotPost(post, 7)).thenReturn(false);
+
+        PostSummaryRes result = mapper.toPostSummaryRes(
+                post,
+                false,
+                false,
+                false,
+                false,
+                0,
+                null,
+                null,
+                null,
+                null);
+
+        assertThat(result.isHot()).isFalse();
+        assertThat(result.views()).isEqualTo(7);
+        assertThat(result.imageUrls()).isEmpty();
+        verify(redisPostService, never()).cacheHotStatus(post.getId(), false);
+    }
+
+    @Test
+    @DisplayName("prefetch 요약 매핑은 미리 로딩된 피드 프로필 URL을 재사용한다")
+    void toPostSummaryRes_prefetchedSummaryUsesPreloadedFeedProfileImageUrl() {
+        PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
+        CheerPost post = createPost(44L, 3);
+
+        when(hotPostChecker.isHotPost(post, 3)).thenReturn(false);
+
+        PostSummaryRes result = mapper.toPostSummaryRes(
+                post,
+                false,
+                false,
+                false,
+                false,
+                0,
+                Collections.emptyList(),
+                Collections.emptyMap(),
+                Collections.emptyMap(),
+                Collections.emptyMap(),
+                Map.of(post.getAuthor().getId(), "https://cdn.example/feed-profile.webp"));
+
+        assertThat(result.authorProfileImageUrl()).isEqualTo("https://cdn.example/feed-profile.webp");
+        verify(profileImageService, never()).getProfileImageUrlForCheerFeed(anyLong(), any(), any());
+    }
+
+    @Test
+    @DisplayName("lightweight 요약 매핑은 미리 로딩된 피드 프로필 URL을 재사용한다")
+    void toPostLightweightSummaryRes_usesPreloadedFeedProfileImageUrl() {
+        PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
+        CheerPost post = createPost(45L, 3);
+
+        PostLightweightSummaryRes result = mapper.toPostLightweightSummaryRes(
+                post,
+                List.of("https://cdn.example/post.webp"),
+                Map.of(post.getAuthor().getId(), "https://cdn.example/feed-profile.webp"));
+
+        assertThat(result.imageUrl()).isEqualTo("https://cdn.example/post.webp");
+        assertThat(result.authorProfileImage()).isEqualTo("https://cdn.example/feed-profile.webp");
+        verify(profileImageService, never()).getProfileImageUrlForCheerFeed(anyLong(), any(), any());
     }
 
     @Test

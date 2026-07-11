@@ -31,6 +31,7 @@ import com.example.cheerboard.repo.CheerPostRepostRepo;
 import com.example.cheerboard.repo.CheerReportRepo;
 import com.example.cheerboard.service.CheerFeedService;
 import com.example.cheerboard.service.CheerInteractionService;
+import com.example.cheerboard.service.CheerMonitoringMetricsService;
 import com.example.cheerboard.service.CheerPostService;
 import com.example.cheerboard.service.HotPostChecker;
 import com.example.cheerboard.service.PermissionValidator;
@@ -52,6 +53,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.TimeUnit;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -136,7 +138,6 @@ class CheerQueryCountIntegrationTest {
 
         when(imageService.getPostImageUrlsByPostIds(anyList())).thenReturn(Collections.emptyMap());
         when(redisPostService.getViewCounts(anyCollection())).thenReturn(Collections.emptyMap());
-        when(redisPostService.getCachedHotStatuses(anyCollection())).thenReturn(Collections.emptyMap());
         when(profileImageService.getProfileImageUrlForCheerFeed(anyLong(), any(), any())).thenReturn(null);
         when(scoringService.isHotEligible(any(CheerPost.class), anyInt(), any(Instant.class))).thenReturn(false);
         when(followService.getFollowingIds(anyLong())).thenReturn(Collections.emptyList());
@@ -178,7 +179,8 @@ class CheerQueryCountIntegrationTest {
                 permissionValidator,
                 postDtoMapper,
                 profileImageService,
-                bookmarkRepo);
+                bookmarkRepo,
+                new CheerMonitoringMetricsService(new SimpleMeterRegistry()));
 
         // @DataJpaTest는 테스트 트랜잭션 내 미커밋 데이터를 사용한다.
         // 병렬 virtual thread는 별도 트랜잭션이므로 미커밋 데이터를 볼 수 없다.

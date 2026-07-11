@@ -250,14 +250,41 @@ public class PostDtoMapper {
             boolean repostedByMe, int bookmarkCount, List<String> imageUrls,
             Map<Long, Integer> viewCountMap, Map<Long, Boolean> hotStatusMap,
             Map<Long, List<String>> repostOriginalImageUrls) {
+        return toPostSummaryRes(
+                post,
+                liked,
+                isBookmarked,
+                isOwner,
+                repostedByMe,
+                bookmarkCount,
+                imageUrls,
+                viewCountMap,
+                hotStatusMap,
+                repostOriginalImageUrls,
+                Collections.emptyMap());
+    }
+
+    /**
+     * CheerPost를 PostSummaryRes로 변환 (모든 데이터 프리페치 버전)
+     * - Redis 조회수/HOT 상태, 리포스트 원본 이미지, 피드용 작성자 프로필 URL이 미리 로딩된 경우
+     */
+    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
+            boolean repostedByMe, int bookmarkCount, List<String> imageUrls,
+            Map<Long, Integer> viewCountMap, Map<Long, Boolean> hotStatusMap,
+            Map<Long, List<String>> repostOriginalImageUrls,
+            Map<Long, String> feedProfileImageUrls) {
         List<String> resolvedUrls = imageUrls != null ? imageUrls : Collections.emptyList();
+        Map<Long, Integer> resolvedViewCountMap = viewCountMap != null ? viewCountMap : Collections.emptyMap();
+        Map<Long, List<String>> resolvedRepostOriginalImageUrls =
+                repostOriginalImageUrls != null ? repostOriginalImageUrls : Collections.emptyMap();
+        Map<Long, String> resolvedFeedProfileImageUrls =
+                feedProfileImageUrls != null ? feedProfileImageUrls : Collections.emptyMap();
 
         // 프리페치된 Redis 조회수 사용
-        Integer redisViews = viewCountMap.getOrDefault(post.getId(), null);
+        Integer redisViews = resolvedViewCountMap.getOrDefault(post.getId(), null);
         int combinedViews = post.getViews() + (redisViews != null ? redisViews : 0);
 
-        Boolean cachedHot = hotStatusMap.get(post.getId());
-        boolean isHot = resolveHotStatus(post, combinedViews, cachedHot);
+        boolean isHot = hotPostChecker.isHotPost(post, combinedViews);
 
         // 리포스트 관련 정보 처리
         Long repostOfId = null;
@@ -271,7 +298,10 @@ public class PostDtoMapper {
 
             if (original != null) {
                 repostOfId = original.getId();
-                originalPost = toEmbeddedPostDto(original, repostOriginalImageUrls);
+                originalPost = toEmbeddedPostDto(
+                        original,
+                        resolvedRepostOriginalImageUrls,
+                        resolvedFeedProfileImageUrls);
                 originalDeleted = false;
             } else {
                 originalDeleted = true;
@@ -287,7 +317,7 @@ public class PostDtoMapper {
                 post.getContent(),
                 resolveDisplayName(post.getAuthor()),
                 post.getAuthor().getHandle(),
-                resolveAuthorProfileImageUrlForFeed(post.getAuthor()),
+                resolveAuthorProfileImageUrlForFeed(post.getAuthor(), resolvedFeedProfileImageUrls),
                 post.getAuthor().getFavoriteTeamId(),
                 post.getCreatedAt(),
                 post.getCommentCount(),
@@ -344,6 +374,13 @@ public class PostDtoMapper {
      * 원본 게시글을 EmbeddedPostDto로 변환 (프리페치된 이미지 URL 사용)
      */
     private EmbeddedPostDto toEmbeddedPostDto(CheerPost original, Map<Long, List<String>> preloadedImageUrls) {
+        return toEmbeddedPostDto(original, preloadedImageUrls, Collections.emptyMap());
+    }
+
+    private EmbeddedPostDto toEmbeddedPostDto(
+            CheerPost original,
+            Map<Long, List<String>> preloadedImageUrls,
+            Map<Long, String> feedProfileImageUrls) {
         if (original == null) {
             return null;
         }
@@ -351,6 +388,8 @@ public class PostDtoMapper {
         List<String> originalImageUrls = preloadedImageUrls != null
                 ? preloadedImageUrls.getOrDefault(original.getId(), Collections.emptyList())
                 : Collections.emptyList();
+        Map<Long, String> resolvedFeedProfileImageUrls =
+                feedProfileImageUrls != null ? feedProfileImageUrls : Collections.emptyMap();
 
         return EmbeddedPostDto.of(
                 original.getId(),
@@ -359,7 +398,7 @@ public class PostDtoMapper {
                 original.getContent(),
                 resolveDisplayName(original.getAuthor()),
                 original.getAuthor().getHandle(),
-                resolveAuthorProfileImageUrlForFeed(original.getAuthor()),
+                resolveAuthorProfileImageUrlForFeed(original.getAuthor(), resolvedFeedProfileImageUrls),
                 original.getCreatedAt(),
                 originalImageUrls,
                 original.getLikeCount(),
@@ -432,6 +471,13 @@ public class PostDtoMapper {
      * - 폴링 엔드포인트에서 사용
      */
     public PostLightweightSummaryRes toPostLightweightSummaryRes(CheerPost post, List<String> imageUrls) {
+        return toPostLightweightSummaryRes(post, imageUrls, Collections.emptyMap());
+    }
+
+    public PostLightweightSummaryRes toPostLightweightSummaryRes(
+            CheerPost post,
+            List<String> imageUrls,
+            Map<Long, String> feedProfileImageUrls) {
         String firstImageUrl = (imageUrls != null && !imageUrls.isEmpty()) ? imageUrls.get(0) : null;
 
         return PostLightweightSummaryRes.of(
@@ -442,7 +488,7 @@ public class PostDtoMapper {
                 post.getCommentCount(),
                 post.getCreatedAt(),
                 resolveDisplayName(post.getAuthor()),
-                resolveAuthorProfileImageUrlForFeed(post.getAuthor()));
+                resolveAuthorProfileImageUrlForFeed(post.getAuthor(), feedProfileImageUrls));
     }
 
     private String resolveAuthorProfileImageUrl(UserEntity author) {
@@ -451,6 +497,16 @@ public class PostDtoMapper {
 
     private String resolveAuthorProfileImageUrlForFeed(UserEntity author) {
         return resolveAuthorProfileImageUrl(author, true);
+    }
+
+    private String resolveAuthorProfileImageUrlForFeed(UserEntity author, Map<Long, String> preloadedUrls) {
+        if (author == null) {
+            return null;
+        }
+        if (preloadedUrls != null && preloadedUrls.containsKey(author.getId())) {
+            return preloadedUrls.get(author.getId());
+        }
+        return resolveAuthorProfileImageUrlForFeed(author);
     }
 
     private String resolveAuthorProfileImageUrl(UserEntity author, boolean forCheerFeed) {
