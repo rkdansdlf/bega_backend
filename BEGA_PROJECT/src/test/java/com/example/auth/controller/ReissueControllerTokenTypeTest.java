@@ -7,6 +7,7 @@ import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.auth.service.RefreshTokenReuseDetector;
 import com.example.auth.service.RefreshTokenRevocationService;
+import com.example.auth.service.ReissueService;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.RefreshRepository;
@@ -78,18 +79,22 @@ class ReissueControllerTokenTypeTest {
                 jwtUtil,
                 new AuthSessionMetadataResolver(clientIpResolver),
                 refreshTokenReuseDetector);
-        reissueController = new ReissueController(
+        ReissueService reissueService = new ReissueService(
                 jwtUtil,
                 refreshRepository,
                 userRepository,
-                authCookieUtil,
                 authSessionService,
                 authSecurityMonitoringService,
                 refreshTokenReuseDetector,
-                refreshTokenRevocationService,
+                refreshTokenRevocationService);
+        reissueController = new ReissueController(
+                authCookieUtil,
+                authSessionService,
+                authSecurityMonitoringService,
                 new AllowedOriginResolver(new MockEnvironment().withProperty("spring.profiles.active", "prod"),
                         "http://localhost:5176",
-                        false));
+                        false),
+                reissueService);
         mockMvc = MockMvcBuilders.standaloneSetup(reissueController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
