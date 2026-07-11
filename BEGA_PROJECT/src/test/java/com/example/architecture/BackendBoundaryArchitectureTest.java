@@ -44,4 +44,15 @@ class BackendBoundaryArchitectureTest {
 
         rule.check(PRODUCTION_CLASSES);
     }
+
+    @Test
+    void reissueControllerMustNotDependOnPersistence() {
+        ArchRule rule = noClasses()
+                .that().haveFullyQualifiedName("com.example.auth.controller.ReissueController")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "com.example.auth.repository..",
+                        "com.example.auth.entity..");
+
+        rule.check(PRODUCTION_CLASSES);
+    }
 }
