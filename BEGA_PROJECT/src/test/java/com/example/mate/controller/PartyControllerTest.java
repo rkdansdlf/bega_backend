@@ -4,6 +4,7 @@ import com.example.common.exception.AuthenticationRequiredException;
 import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.exception.InvalidPartyStatusException;
+import com.example.mate.service.MatePartyListMetricsService;
 import com.example.mate.service.PartyFavoriteService;
 import com.example.mate.service.PartyService;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,6 +52,9 @@ class PartyControllerTest {
     @Mock
     private PartyFavoriteService partyFavoriteService;
 
+    @Mock
+    private MatePartyListMetricsService partyListMetricsService;
+
     @InjectMocks
     private PartyController partyController;
 
@@ -97,6 +101,18 @@ class PartyControllerTest {
         assertThat(result.getBody().getContent()).hasSize(1);
         verify(partyService).getAllParties(eq("KIA"), eq("JAMSIL"), any(LocalDate.class),
                 eq("test"), any(Pageable.class), eq(Party.PartyStatus.PENDING), eq(99L));
+        verify(partyListMetricsService).recordRequest(
+                eq("KIA"),
+                eq("JAMSIL"),
+                eq(LocalDate.of(2026, 3, 1)),
+                eq("test"),
+                eq("PENDING"),
+                eq("createdAt"),
+                eq("desc"),
+                eq(9),
+                eq(true),
+                eq("success"),
+                anyLong());
     }
 
     @Test
@@ -119,6 +135,19 @@ class PartyControllerTest {
         assertThatThrownBy(() -> partyController.getAllParties(
                 null, null, null, null, "INVALID_STATUS", 0, 9, "createdAt", "desc", null))
                 .isInstanceOf(InvalidPartyStatusException.class);
+        verify(partyListMetricsService).recordRequest(
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                eq("INVALID_STATUS"),
+                eq("createdAt"),
+                eq("desc"),
+                eq(9),
+                eq(false),
+                eq("failure"),
+                anyLong());
+        verify(partyService, never()).getAllParties(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test

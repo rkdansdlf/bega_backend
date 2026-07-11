@@ -10,6 +10,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -70,5 +72,22 @@ class PartyFavoriteServiceTest {
         when(favoriteRepository.existsByUserIdAndPartyId(10L, 1L)).thenReturn(true);
 
         assertThat(partyFavoriteService.isFavorited(10L, 1L)).isTrue();
+    }
+
+    @Test
+    void getFavoritePartyIds_filtersByProvidedPartyIds() {
+        when(favoriteRepository.findByUserIdAndPartyIdIn(10L, List.of(1L, 3L)))
+                .thenReturn(List.of(new UserPartyFavorite(10L, 3L)));
+
+        assertThat(partyFavoriteService.getFavoritePartyIds(10L, List.of(1L, 3L)))
+                .containsExactly(3L);
+        verify(favoriteRepository).findByUserIdAndPartyIdIn(10L, List.of(1L, 3L));
+    }
+
+    @Test
+    void getFavoritePartyIds_returnsEmptyWhenPartyIdsEmpty() {
+        assertThat(partyFavoriteService.getFavoritePartyIds(10L, List.of())).isEmpty();
+
+        verify(favoriteRepository, never()).findByUserIdAndPartyIdIn(any(), any());
     }
 }
