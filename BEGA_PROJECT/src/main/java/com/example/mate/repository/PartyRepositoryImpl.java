@@ -19,9 +19,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.support.PageableExecutionUtils;
 
 public class PartyRepositoryImpl implements PartyRepositoryCustom {
 
@@ -52,13 +52,7 @@ public class PartyRepositoryImpl implements PartyRepositoryCustom {
                                 .limit(pageable.getPageSize())
                                 .fetch();
 
-                Long total = queryFactory
-                                .select(party.count())
-                                .from(party)
-                                .where(filters)
-                                .fetchOne();
-
-                return new PageImpl<>(content, pageable, total != null ? total : 0L);
+                return PageableExecutionUtils.getPage(content, pageable, () -> countParties(filters));
         }
 
         @Override
@@ -84,14 +78,7 @@ public class PartyRepositoryImpl implements PartyRepositoryCustom {
                                 .limit(pageable.getPageSize())
                                 .fetch();
 
-                Long total = queryFactory
-                                .select(party.count())
-                                .from(party)
-                                .leftJoin(host).on(host.id.eq(party.hostId))
-                                .where(filters)
-                                .fetchOne();
-
-                return new PageImpl<>(content, pageable, total != null ? total : 0L);
+                return PageableExecutionUtils.getPage(content, pageable, () -> countVisiblePublicParties(filters, host));
         }
 
         @Override
@@ -109,13 +96,26 @@ public class PartyRepositoryImpl implements PartyRepositoryCustom {
                                 .limit(pageable.getPageSize())
                                 .fetch();
 
+                return PageableExecutionUtils.getPage(content, pageable, () -> countParties(filters));
+        }
+
+        private long countParties(BooleanBuilder filters) {
                 Long total = queryFactory
                                 .select(party.count())
                                 .from(party)
                                 .where(filters)
                                 .fetchOne();
+                return total != null ? total : 0L;
+        }
 
-                return new PageImpl<>(content, pageable, total != null ? total : 0L);
+        private long countVisiblePublicParties(BooleanBuilder filters, QUserEntity host) {
+                Long total = queryFactory
+                                .select(party.count())
+                                .from(party)
+                                .leftJoin(host).on(host.id.eq(party.hostId))
+                                .where(filters)
+                                .fetchOne();
+                return total != null ? total : 0L;
         }
 
         private BooleanBuilder buildPartyFilters(
@@ -210,17 +210,40 @@ public class PartyRepositoryImpl implements PartyRepositoryCustom {
 
         private OrderSpecifier<?>[] toOrderSpecifiers(Sort sort) {
                 List<OrderSpecifier<?>> orderSpecifiers = new ArrayList<>();
+                boolean idSorted = false;
+                Order tieBreakerDirection = Order.DESC;
+
                 for (Sort.Order sortOrder : sort) {
                         Order direction = sortOrder.isAscending() ? Order.ASC : Order.DESC;
                         switch (sortOrder.getProperty()) {
-                                case "createdAt" -> orderSpecifiers.add(new OrderSpecifier<>(direction, party.createdAt));
-                                case "gameDate" -> orderSpecifiers.add(new OrderSpecifier<>(direction, party.gameDate));
-                                case "currentParticipants" ->
-                                                orderSpecifiers.add(new OrderSpecifier<>(direction, party.currentParticipants));
-                                case "id" -> orderSpecifiers.add(new OrderSpecifier<>(direction, party.id));
+                                case "createdAt" -> {
+                                        if (orderSpecifiers.isEmpty()) {
+                                                tieBreakerDirection = direction;
+                                        }
+                                        orderSpecifiers.add(new OrderSpecifier<>(direction, party.createdAt));
+                                }
+                                case "gameDate" -> {
+                                        if (orderSpecifiers.isEmpty()) {
+                                                tieBreakerDirection = direction;
+                                        }
+                                        orderSpecifiers.add(new OrderSpecifier<>(direction, party.gameDate));
+                                }
+                                case "currentParticipants" -> {
+                                        if (orderSpecifiers.isEmpty()) {
+                                                tieBreakerDirection = direction;
+                                        }
+                                        orderSpecifiers.add(new OrderSpecifier<>(direction, party.currentParticipants));
+                                }
+                                case "id" -> {
+                                        orderSpecifiers.add(new OrderSpecifier<>(direction, party.id));
+                                        idSorted = true;
+                                }
                                 default -> {
                                 }
                         }
+                }
+                if (!idSorted) {
+                        orderSpecifiers.add(new OrderSpecifier<>(tieBreakerDirection, party.id));
                 }
                 return orderSpecifiers.toArray(OrderSpecifier[]::new);
         }

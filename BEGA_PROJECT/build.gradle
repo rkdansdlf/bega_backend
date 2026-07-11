@@ -65,6 +65,11 @@ def flywayResourceDirMappings = [
 		build : file("$buildDir/resources/main/db/migration_postgresql"),
 		label : 'postgres'
 	],
+	[
+		source: file('src/main/resources/db/migration_baseball'),
+		build : file("$buildDir/resources/main/db/migration_baseball"),
+		label : 'baseball'
+	],
 ]
 
 repositories {

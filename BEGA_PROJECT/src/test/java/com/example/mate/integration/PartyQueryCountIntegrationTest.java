@@ -17,6 +17,7 @@ import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PartyReviewRepository;
 import com.example.mate.service.MateHistoryMetricsService;
+import com.example.mate.service.MatePartyListMetricsService;
 import com.example.mate.service.PartyMapper;
 import com.example.mate.service.PartyFavoriteService;
 import com.example.mate.service.PartyService;
@@ -115,7 +116,10 @@ class PartyQueryCountIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new com.example.mate.controller.PartyController(partyService, partyFavoriteService)).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(new com.example.mate.controller.PartyController(
+                partyService,
+                partyFavoriteService,
+                new MatePartyListMetricsService(new SimpleMeterRegistry()))).build();
         partyReviewRepository.deleteAll();
         partyApplicationRepository.deleteAll();
         partyRepository.deleteAll();
@@ -129,7 +133,7 @@ class PartyQueryCountIntegrationTest {
         UserEntity secondHost = userRepository.save(MateTestFixtureFactory.user("host-two@example.com", "Host Two"));
 
         Party firstParty = partyRepository.save(buildParty(firstHost, "첫 번째 파티", LocalDate.of(2026, 4, 1), LocalTime.of(18, 30)));
-        partyRepository.save(buildParty(firstHost, "두 번째 파티", LocalDate.of(2026, 4, 2), LocalTime.of(18, 30)));
+        Party secondParty = partyRepository.save(buildParty(firstHost, "두 번째 파티", LocalDate.of(2026, 4, 2), LocalTime.of(18, 30)));
         Party thirdParty = partyRepository.save(buildParty(secondHost, "세 번째 파티", LocalDate.of(2026, 4, 3), LocalTime.of(18, 30)));
 
         partyReviewRepository.save(PartyReview.builder()
@@ -163,13 +167,17 @@ class PartyQueryCountIntegrationTest {
                 null);
 
         assertThat(page.getContent()).hasSize(3);
+        assertThat(page.getTotalElements()).isEqualTo(3);
+        assertThat(page.getContent())
+                .extracting(PartyDTO.PublicResponse::getId)
+                .containsExactly(thirdParty.getId(), secondParty.getId(), firstParty.getId());
         assertThat(page.getContent())
                 .extracting(PartyDTO.PublicResponse::getHostHandle)
-                .containsExactly(firstHost.getHandle(), firstHost.getHandle(), secondHost.getHandle());
+                .containsExactly(secondHost.getHandle(), firstHost.getHandle(), firstHost.getHandle());
         assertThat(page.getContent())
                 .extracting(PartyDTO.PublicResponse::getHostReviewCount)
                 .containsExactly(1L, 1L, 1L);
-        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(5);
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(3);
     }
 
     @Test
@@ -198,10 +206,11 @@ class PartyQueryCountIntegrationTest {
                         .and(Sort.by(Sort.Direction.DESC, "id"))));
 
         assertThat(page.getContent()).hasSize(3);
+        assertThat(page.getTotalElements()).isEqualTo(3);
         assertThat(page.getContent())
                 .extracting(PartyDTO.HistoryResponse::getId)
                 .contains(anotherApprovedParty.getId(), approvedParty.getId(), hostedParty.getId());
-        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(3);
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(1);
     }
 
     @Test
@@ -240,10 +249,11 @@ class PartyQueryCountIntegrationTest {
                         .param("size", "10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(3))
+                .andExpect(jsonPath("$.totalElements").value(3))
                 .andExpect(jsonPath("$.content[0].hostHandle").isNotEmpty())
                 .andExpect(jsonPath("$.content[0].hostReviewCount").value(1));
 
-        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(5);
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(3);
     }
 
     private Party buildParty(UserEntity host, String description, LocalDate gameDate, LocalTime gameTime) {
