@@ -2,6 +2,7 @@ package com.example.cheerboard.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Timer;
@@ -121,6 +122,32 @@ class CheerMonitoringMetricsServiceTest {
 
         assertThat(active.value()).isEqualTo(3.0d);
         assertThat(limit.value()).isEqualTo(8.0d);
+    }
+
+    @Test
+    void recordFeedEnrichment_recordsOnlyBoundedResults() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        CheerMonitoringMetricsService metricsService = new CheerMonitoringMetricsService(meterRegistry);
+
+        metricsService.recordFeedEnrichment("success");
+        metricsService.recordFeedEnrichment("timeout");
+        metricsService.recordFeedEnrichment("busy");
+        metricsService.recordFeedEnrichment("unexpected");
+
+        assertEnrichmentCount(meterRegistry, "success", 1.0d);
+        assertEnrichmentCount(meterRegistry, "timeout", 1.0d);
+        assertEnrichmentCount(meterRegistry, "busy", 1.0d);
+        assertEnrichmentCount(meterRegistry, "failure", 1.0d);
+        assertThat(meterRegistry.find(CheerMonitoringMetricsService.FEED_ENRICHMENT_EVENT_METRIC)
+                .tag("result", "unexpected")
+                .counter()).isNull();
+    }
+
+    private void assertEnrichmentCount(SimpleMeterRegistry meterRegistry, String result, double expected) {
+        Counter counter = meterRegistry.get(CheerMonitoringMetricsService.FEED_ENRICHMENT_EVENT_METRIC)
+                .tag("result", result)
+                .counter();
+        assertThat(counter.count()).isEqualTo(expected);
     }
 
     private static final class BulkheadState {
