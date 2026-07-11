@@ -31,7 +31,8 @@ class CacheConfigTest {
                         CacheConfig.JWT_USER_CACHE,
                         CacheConfig.SIGNED_URLS,
                         CacheConfig.DIARY_STATS,
-                        CacheConfig.PREDICTION_MATCH_RANGE)
+                        CacheConfig.PREDICTION_MATCH_RANGE,
+                        CacheConfig.MATE_POPULAR_SEARCH_TERMS)
                 .doesNotContain(
                         CacheConfig.HOME_BOOTSTRAP,
                         CacheConfig.HOME_WIDGETS,
@@ -45,8 +46,12 @@ class CacheConfigTest {
         Cache predictionMatchRangeCache = caffeineCacheManager.getCache(CacheConfig.PREDICTION_MATCH_RANGE);
         assertThat(predictionMatchRangeCache).isInstanceOf(CaffeineCache.class);
         assertThat(cacheManager.getCache(CacheConfig.PREDICTION_MATCH_RANGE)).isSameAs(predictionMatchRangeCache);
+        Cache matePopularSearchTermsCache = caffeineCacheManager.getCache(CacheConfig.MATE_POPULAR_SEARCH_TERMS);
+        assertThat(matePopularSearchTermsCache).isInstanceOf(CaffeineCache.class);
+        assertThat(cacheManager.getCache(CacheConfig.MATE_POPULAR_SEARCH_TERMS)).isSameAs(matePopularSearchTermsCache);
         assertThat(caffeineCacheManager.getCache(CacheConfig.HOME_BOOTSTRAP)).isNull();
         assertThat(cacheManager.getCache(CacheConfig.HOME_BOOTSTRAP)).isNotNull();
+        assertThat(cacheManager.getCache(CacheConfig.HOME_WIDGETS)).isNotNull();
         assertThat(cacheManager.getCache(CacheConfig.HOME_RANKING_SNAPSHOT)).isNotNull();
         assertThat(cacheManager.getCache(CacheConfig.PREDICTION_MATCH_DAY)).isNotNull();
         assertThat(cacheManager.getCache(CacheConfig.USER_STATS)).isNotNull();
