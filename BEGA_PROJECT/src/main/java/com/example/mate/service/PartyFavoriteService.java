@@ -46,4 +46,14 @@ public class PartyFavoriteService {
                 .map(UserPartyFavorite::getPartyId)
                 .toList();
     }
+
+    @Transactional(readOnly = true)
+    public List<Long> getFavoritePartyIds(Long userId, List<Long> partyIds) {
+        if (partyIds == null || partyIds.isEmpty()) {
+            return List.of();
+        }
+        return favoriteRepository.findByUserIdAndPartyIdIn(userId, partyIds).stream()
+                .map(UserPartyFavorite::getPartyId)
+                .toList();
+    }
 }

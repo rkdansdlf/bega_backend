@@ -5,6 +5,7 @@ import com.example.common.web.AuthenticatedUserIds;
 import com.example.mate.dto.MateSearchTermDTO;
 import com.example.mate.service.MateSearchTermService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/api/parties/search-terms")
@@ -39,6 +41,8 @@ public class MateSearchTermController {
     @GetMapping("/popular")
     public ResponseEntity<List<MateSearchTermDTO.PopularResponse>> getPopularSearchTerms(
             @RequestParam(defaultValue = "5") Integer limit) {
-        return ResponseEntity.ok(mateSearchTermService.getPopularTerms(limit));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(30, TimeUnit.SECONDS).cachePublic())
+                .body(mateSearchTermService.getPopularTerms(limit));
     }
 }

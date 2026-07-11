@@ -409,7 +409,12 @@ public class PartyService {
             return;
         }
 
-        List<Long> favoriteIds = partyFavoriteService.getFavoritePartyIds(currentUserId);
+        List<Long> partyIds = responses.stream()
+                .map(PartyDTO.PublicResponse::getId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        List<Long> favoriteIds = partyFavoriteService.getFavoritePartyIds(currentUserId, partyIds);
         Set<Long> favoritePartyIds = favoriteIds == null ? Set.of() : Set.copyOf(favoriteIds);
         responses.forEach(response ->
                 response.setFavorited(response.getId() != null && favoritePartyIds.contains(response.getId())));

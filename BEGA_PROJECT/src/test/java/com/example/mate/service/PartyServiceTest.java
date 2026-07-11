@@ -387,7 +387,7 @@ class PartyServiceTest {
                                 any(),
                                 any(Pageable.class)))
                                 .thenReturn(new PageImpl<>(List.of(first, second)));
-                when(partyFavoriteService.getFavoritePartyIds(99L)).thenReturn(List.of(302L));
+                when(partyFavoriteService.getFavoritePartyIds(99L, List.of(301L, 302L))).thenReturn(List.of(302L));
 
                 Page<PartyDTO.PublicResponse> result = partyService.getAllParties(
                                 null,
@@ -400,7 +400,8 @@ class PartyServiceTest {
 
                 assertThat(result.getContent()).extracting(PartyDTO.PublicResponse::getFavorited)
                                 .containsExactly(false, true);
-                verify(partyFavoriteService).getFavoritePartyIds(99L);
+                verify(partyFavoriteService).getFavoritePartyIds(99L, List.of(301L, 302L));
+                verify(partyFavoriteService, never()).getFavoritePartyIds(99L);
         }
 
         @Test

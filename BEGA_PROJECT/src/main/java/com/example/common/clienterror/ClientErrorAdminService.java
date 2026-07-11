@@ -9,13 +9,11 @@ import com.example.common.clienterror.dto.ClientErrorEventSummaryDto;
 import com.example.common.clienterror.dto.ClientErrorRecentFeedbackDto;
 import com.example.common.clienterror.dto.ClientErrorTimeSeriesPointDto;
 import com.example.common.clienterror.dto.ClientErrorTopFingerprintDto;
-import jakarta.persistence.criteria.Predicate;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -29,7 +27,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,21 +45,23 @@ public class ClientErrorAdminService {
 
     public ClientErrorDashboardDto getDashboard(OffsetDateTime from, OffsetDateTime to) {
         QueryWindow window = resolveWindow(from, to);
-        List<ClientErrorEventEntity> events = eventRepository.findByOccurredAtBetweenOrderByOccurredAtAsc(
-                window.from(), window.to());
-        List<ClientErrorFeedbackEntity> feedback = feedbackRepository.findByOccurredAtBetweenOrderByOccurredAtAsc(
-                window.from(), window.to());
+        List<ClientErrorEventTimeBucketProjection> eventBuckets = loadEventTimeBuckets(window);
+        List<ClientErrorFeedbackTimeBucketProjection> feedbackBuckets = loadFeedbackTimeBuckets(window);
+        List<ClientErrorFeedbackEntity> recentFeedback =
+                feedbackRepository.findTop10ByOccurredAtBetweenOrderByOccurredAtDesc(window.from(), window.to());
         List<ClientErrorAlertNotificationEntity> recentAlerts =
                 alertNotificationRepository.findTop10ByNotifiedAtBetweenOrderByNotifiedAtDesc(window.from(), window.to());
+        ClientErrorDashboardDistinctTotalsProjection distinctTotals =
+                eventRepository.findDashboardDistinctTotals(window.from(), window.to());
 
         ClientErrorDashboardTotalsDto totals = new ClientErrorDashboardTotalsDto(
-                events.stream().filter(event -> event.getBucket() == ClientErrorBucket.API).count(),
-                events.stream().filter(event -> event.getBucket() == ClientErrorBucket.RUNTIME).count(),
-                feedback.size(),
-                eventRepository.countDistinctFingerprints(window.from(), window.to()),
-                eventRepository.countDistinctRoutes(window.from(), window.to()));
+                sumEventBucket(eventBuckets, ClientErrorBucket.API),
+                sumEventBucket(eventBuckets, ClientErrorBucket.RUNTIME),
+                feedbackBuckets.stream().mapToLong(ClientErrorFeedbackTimeBucketProjection::getItemCount).sum(),
+                distinctTotals.getDistinctFingerprints(),
+                distinctTotals.getDistinctRoutes());
 
-        List<ClientErrorTopFingerprintDto> topFingerprints = buildTopFingerprints(events);
+        List<ClientErrorTopFingerprintDto> topFingerprints = findTopFingerprints(window);
         Map<String, LatestAlertInfo> latestAlertByFingerprint = latestAlertByFingerprint(topFingerprints);
         List<ClientErrorTopFingerprintDto> topFingerprintsWithAlerts = topFingerprints.stream()
                 .map(item -> {
@@ -90,16 +89,35 @@ public class ClientErrorAdminService {
                 ClientErrorSupport.toOffsetDateTime(window.to()),
                 window.granularity(),
                 totals,
-                buildTimeSeries(events, feedback, window),
+                buildTimeSeries(eventBuckets, feedbackBuckets, window),
                 topFingerprintsWithAlerts,
-                feedback.stream()
-                        .sorted(Comparator.comparing(ClientErrorFeedbackEntity::getOccurredAt).reversed())
-                        .limit(10)
+                recentFeedback.stream()
                         .map(this::toRecentFeedbackDto)
                         .toList(),
                 recentAlerts.stream()
                         .map(this::toAlertDto)
                         .toList());
+    }
+
+    private List<ClientErrorEventTimeBucketProjection> loadEventTimeBuckets(QueryWindow window) {
+        if ("day".equals(window.granularity())) {
+            return eventRepository.countDailyBuckets(window.from(), window.to());
+        }
+        return eventRepository.countHourlyBuckets(window.from(), window.to());
+    }
+
+    private List<ClientErrorFeedbackTimeBucketProjection> loadFeedbackTimeBuckets(QueryWindow window) {
+        if ("day".equals(window.granularity())) {
+            return feedbackRepository.countDailyBuckets(window.from(), window.to());
+        }
+        return feedbackRepository.countHourlyBuckets(window.from(), window.to());
+    }
+
+    private long sumEventBucket(List<ClientErrorEventTimeBucketProjection> eventBuckets, ClientErrorBucket bucket) {
+        return eventBuckets.stream()
+                .filter(item -> item.getBucket() == bucket)
+                .mapToLong(ClientErrorEventTimeBucketProjection::getItemCount)
+                .sum();
     }
 
     public ClientErrorEventPageDto getEvents(
@@ -113,17 +131,17 @@ public class ClientErrorAdminService {
             OffsetDateTime to,
             int page,
             int size) {
-        Specification<ClientErrorEventEntity> spec = buildEventSpecification(
-                bucket,
-                source,
-                statusGroup,
-                route,
-                fingerprint,
-                search,
-                from,
-                to);
         Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_PAGE_SIZE));
-        Page<ClientErrorEventEntity> result = eventRepository.findAll(spec, pageable);
+        Page<ClientErrorEventSummaryProjection> result = eventRepository.findEventSummaries(
+                ClientErrorBucket.fromValue(bucket),
+                resolveSourceFilter(source),
+                normalizeStatusGroupFilter(statusGroup),
+                normalizeRouteFilter(route),
+                normalizeFingerprintFilter(fingerprint),
+                toUtcLocalDateTime(from),
+                toUtcLocalDateTime(to),
+                normalizeSearchTerm(search),
+                pageable);
         return new ClientErrorEventPageDto(
                 result.getContent().stream().map(this::toEventSummaryDto).toList(),
                 result.getTotalElements(),
@@ -143,7 +161,10 @@ public class ClientErrorAdminService {
                 .toList();
 
         List<ClientErrorEventSummaryDto> sameFingerprintRecentEvents =
-                eventRepository.findTop10ByFingerprintAndEventIdNotOrderByOccurredAtDesc(event.getFingerprint(), eventId)
+                eventRepository.findRecentEventSummariesByFingerprint(
+                                event.getFingerprint(),
+                                eventId,
+                                PageRequest.of(0, 10))
                         .stream()
                         .map(this::toEventSummaryDto)
                         .toList();
@@ -177,70 +198,9 @@ public class ClientErrorAdminService {
         return result;
     }
 
-    private Specification<ClientErrorEventEntity> buildEventSpecification(
-            String bucket,
-            String source,
-            String statusGroup,
-            String route,
-            String fingerprint,
-            String search,
-            OffsetDateTime from,
-            OffsetDateTime to) {
-        return (root, query, builder) -> {
-            List<Predicate> predicates = new ArrayList<>();
-
-            ClientErrorBucket bucketFilter = ClientErrorBucket.fromValue(bucket);
-            if (bucketFilter != null) {
-                predicates.add(builder.equal(root.get("bucket"), bucketFilter));
-            }
-
-            ClientErrorSource sourceFilter = ClientErrorSource.fromCategory(source);
-            if (source != null && !source.isBlank() && sourceFilter != ClientErrorSource.UNKNOWN) {
-                predicates.add(builder.equal(root.get("source"), sourceFilter));
-            }
-
-            if (statusGroup != null && !statusGroup.isBlank()) {
-                predicates.add(builder.equal(root.get("statusGroup"), statusGroup.trim().toLowerCase()));
-            }
-
-            if (route != null && !route.isBlank()) {
-                String normalizedRoute = ClientErrorSupport.normalizeRoute(route);
-                predicates.add(builder.like(root.get("normalizedRoute"), "%" + normalizedRoute + "%"));
-            }
-
-            if (fingerprint != null && !fingerprint.isBlank()) {
-                predicates.add(builder.equal(root.get("fingerprint"), fingerprint.trim()));
-            }
-
-            if (from != null) {
-                predicates.add(builder.greaterThanOrEqualTo(
-                        root.get("occurredAt"),
-                        from.withOffsetSameInstant(ClientErrorSupport.UTC).toLocalDateTime()));
-            }
-            if (to != null) {
-                predicates.add(builder.lessThanOrEqualTo(
-                        root.get("occurredAt"),
-                        to.withOffsetSameInstant(ClientErrorSupport.UTC).toLocalDateTime()));
-            }
-
-            if (search != null && !search.isBlank()) {
-                String term = "%" + search.trim().toLowerCase() + "%";
-                predicates.add(builder.or(
-                        builder.like(builder.lower(root.get("eventId")), term),
-                        builder.like(builder.lower(root.get("message")), term),
-                        builder.like(builder.lower(root.get("route")), term),
-                        builder.like(builder.lower(root.get("endpoint")), term),
-                        builder.like(builder.lower(root.get("fingerprint")), term)));
-            }
-
-            query.orderBy(builder.desc(root.get("occurredAt")));
-            return builder.and(predicates.toArray(new Predicate[0]));
-        };
-    }
-
     private List<ClientErrorTimeSeriesPointDto> buildTimeSeries(
-            List<ClientErrorEventEntity> events,
-            List<ClientErrorFeedbackEntity> feedback,
+            List<ClientErrorEventTimeBucketProjection> eventBuckets,
+            List<ClientErrorFeedbackTimeBucketProjection> feedbackBuckets,
             QueryWindow window) {
         Map<LocalDateTime, EnumMap<ClientErrorBucket, Long>> buckets = new LinkedHashMap<>();
         LocalDateTime cursor = window.seriesStart();
@@ -253,19 +213,21 @@ public class ClientErrorAdminService {
             cursor = advance(cursor, window.granularity());
         }
 
-        for (ClientErrorEventEntity event : events) {
-            LocalDateTime bucketStart = truncate(event.getOccurredAt(), window.granularity());
+        for (ClientErrorEventTimeBucketProjection item : eventBuckets) {
+            LocalDateTime bucketStart = bucketStart(item);
             EnumMap<ClientErrorBucket, Long> counts = buckets.get(bucketStart);
             if (counts != null) {
-                counts.put(event.getBucket(), counts.getOrDefault(event.getBucket(), 0L) + 1L);
+                counts.put(item.getBucket(), counts.getOrDefault(item.getBucket(), 0L) + item.getItemCount());
             }
         }
 
-        for (ClientErrorFeedbackEntity item : feedback) {
-            LocalDateTime bucketStart = truncate(item.getOccurredAt(), window.granularity());
+        for (ClientErrorFeedbackTimeBucketProjection item : feedbackBuckets) {
+            LocalDateTime bucketStart = bucketStart(item);
             EnumMap<ClientErrorBucket, Long> counts = buckets.get(bucketStart);
             if (counts != null) {
-                counts.put(ClientErrorBucket.FEEDBACK, counts.getOrDefault(ClientErrorBucket.FEEDBACK, 0L) + 1L);
+                counts.put(
+                        ClientErrorBucket.FEEDBACK,
+                        counts.getOrDefault(ClientErrorBucket.FEEDBACK, 0L) + item.getItemCount());
             }
         }
 
@@ -278,24 +240,91 @@ public class ClientErrorAdminService {
                 .toList();
     }
 
-    private List<ClientErrorTopFingerprintDto> buildTopFingerprints(List<ClientErrorEventEntity> events) {
-        Map<String, FingerprintAggregate> aggregates = new HashMap<>();
-        for (ClientErrorEventEntity event : events) {
-            aggregates.computeIfAbsent(event.getFingerprint(), key -> new FingerprintAggregate(event.getFingerprint()))
-                    .add(event);
+    private LocalDateTime bucketStart(ClientErrorEventTimeBucketProjection item) {
+        return LocalDateTime.of(
+                item.getBucketYear(),
+                item.getBucketMonth(),
+                item.getBucketDay(),
+                item.getBucketHour() != null ? item.getBucketHour() : 0,
+                0);
+    }
+
+    private LocalDateTime bucketStart(ClientErrorFeedbackTimeBucketProjection item) {
+        return LocalDateTime.of(
+                item.getBucketYear(),
+                item.getBucketMonth(),
+                item.getBucketDay(),
+                item.getBucketHour() != null ? item.getBucketHour() : 0,
+                0);
+    }
+
+    private List<ClientErrorTopFingerprintDto> findTopFingerprints(QueryWindow window) {
+        List<ClientErrorTopFingerprintProjection> summaries = eventRepository.findTopFingerprintSummaries(
+                window.from(),
+                window.to(),
+                PageRequest.of(0, TOP_FINGERPRINT_LIMIT));
+        if (summaries.isEmpty()) {
+            return List.of();
         }
 
-        return aggregates.values().stream()
-                .sorted(Comparator
-                        .comparingLong(FingerprintAggregate::count)
-                        .reversed()
-                        .thenComparing(FingerprintAggregate::latestOccurredAt, Comparator.nullsLast(Comparator.reverseOrder())))
-                .limit(TOP_FINGERPRINT_LIMIT)
-                .map(FingerprintAggregate::toDto)
+        List<String> fingerprints = summaries.stream()
+                .map(ClientErrorTopFingerprintProjection::getFingerprint)
                 .toList();
+        Map<String, ClientErrorEventSummaryProjection> latestEvents = new LinkedHashMap<>();
+        for (ClientErrorEventSummaryProjection event : eventRepository.findLatestEventsByFingerprintInBetween(
+                window.from(),
+                window.to(),
+                fingerprints)) {
+            latestEvents.putIfAbsent(event.getFingerprint(), event);
+        }
+
+        List<ClientErrorTopFingerprintDto> result = new ArrayList<>();
+        for (ClientErrorTopFingerprintProjection summary : summaries) {
+            ClientErrorEventSummaryProjection latestEvent = latestEvents.get(summary.getFingerprint());
+            if (latestEvent == null) {
+                continue;
+            }
+            result.add(new ClientErrorTopFingerprintDto(
+                    summary.getFingerprint(),
+                    latestEvent.getBucket().getValue(),
+                    latestEvent.getSource().getValue(),
+                    latestEvent.getMessage(),
+                    latestEvent.getRoute(),
+                    latestEvent.getEndpoint(),
+                    latestEvent.getStatusGroup(),
+                    latestEvent.getMethod(),
+                    summary.getEventCount(),
+                    summary.getUniqueSessions(),
+                    latestEvent.getEventId(),
+                    ClientErrorSupport.toOffsetDateTime(latestEvent.getOccurredAt()),
+                    null,
+                    null));
+        }
+        return result;
     }
 
     private ClientErrorEventSummaryDto toEventSummaryDto(ClientErrorEventEntity event) {
+        return new ClientErrorEventSummaryDto(
+                event.getEventId(),
+                event.getBucket().getValue(),
+                event.getSource().getValue(),
+                event.getMessage(),
+                event.getStatusCode(),
+                event.getStatusGroup(),
+                event.getResponseCode(),
+                event.getRoute(),
+                event.getNormalizedRoute(),
+                event.getMethod(),
+                event.getEndpoint(),
+                event.getNormalizedEndpoint(),
+                event.getFingerprint(),
+                ClientErrorSupport.toOffsetDateTime(event.getOccurredAt()),
+                event.getSessionId(),
+                event.getUserId(),
+                event.getFeedbackCount());
+    }
+
+    private ClientErrorEventSummaryDto toEventSummaryDto(ClientErrorEventSummaryProjection event) {
         return new ClientErrorEventSummaryDto(
                 event.getEventId(),
                 event.getBucket().getValue(),
@@ -375,70 +404,47 @@ public class ClientErrorAdminService {
         return value.plusHours(1);
     }
 
-    private record QueryWindow(LocalDateTime from, LocalDateTime to, LocalDateTime seriesStart, String granularity) {
+    private ClientErrorSource resolveSourceFilter(String source) {
+        if (source == null || source.isBlank()) {
+            return null;
+        }
+        ClientErrorSource sourceFilter = ClientErrorSource.fromCategory(source);
+        return sourceFilter == ClientErrorSource.UNKNOWN ? null : sourceFilter;
     }
 
-    private static final class FingerprintAggregate {
-        private final String fingerprint;
-        private final Set<String> sessionIds = new java.util.HashSet<>();
-        private long count;
-        private ClientErrorBucket bucket;
-        private ClientErrorSource source;
-        private String message;
-        private String route;
-        private String endpoint;
-        private String statusGroup;
-        private String method;
-        private String latestEventId;
-        private LocalDateTime latestOccurredAt;
+    private String normalizeStatusGroupFilter(String statusGroup) {
+        return blankToNull(statusGroup) == null ? null : statusGroup.trim().toLowerCase();
+    }
 
-        private FingerprintAggregate(String fingerprint) {
-            this.fingerprint = fingerprint;
+    private String normalizeRouteFilter(String route) {
+        String normalized = blankToNull(route);
+        if (normalized == null) {
+            return null;
         }
+        return blankToNull(ClientErrorSupport.normalizeRoute(normalized));
+    }
 
-        void add(ClientErrorEventEntity event) {
-            count += 1;
-            if (event.getSessionId() != null && !event.getSessionId().isBlank()) {
-                sessionIds.add(event.getSessionId());
-            }
-            if (latestOccurredAt == null || event.getOccurredAt().isAfter(latestOccurredAt)) {
-                bucket = event.getBucket();
-                source = event.getSource();
-                message = event.getMessage();
-                route = event.getRoute();
-                endpoint = event.getEndpoint();
-                statusGroup = event.getStatusGroup();
-                method = event.getMethod();
-                latestEventId = event.getEventId();
-                latestOccurredAt = event.getOccurredAt();
-            }
-        }
+    private String normalizeFingerprintFilter(String fingerprint) {
+        return blankToNull(fingerprint);
+    }
 
-        long count() {
-            return count;
-        }
+    private String normalizeSearchTerm(String search) {
+        String normalized = blankToNull(search);
+        return normalized == null ? null : normalized.toLowerCase();
+    }
 
-        LocalDateTime latestOccurredAt() {
-            return latestOccurredAt;
-        }
+    private LocalDateTime toUtcLocalDateTime(OffsetDateTime value) {
+        return value == null ? null : value.withOffsetSameInstant(ClientErrorSupport.UTC).toLocalDateTime();
+    }
 
-        ClientErrorTopFingerprintDto toDto() {
-            return new ClientErrorTopFingerprintDto(
-                    fingerprint,
-                    bucket.getValue(),
-                    source.getValue(),
-                    message,
-                    route,
-                    endpoint,
-                    statusGroup,
-                    method,
-                    count,
-                    sessionIds.size(),
-                    latestEventId,
-                    ClientErrorSupport.toOffsetDateTime(latestOccurredAt),
-                    null,
-                    null);
+    private String blankToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
         }
+        return value.trim();
+    }
+
+    private record QueryWindow(LocalDateTime from, LocalDateTime to, LocalDateTime seriesStart, String granularity) {
     }
 
     private record LatestAlertInfo(OffsetDateTime notifiedAt, String channel) {

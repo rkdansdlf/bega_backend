@@ -3,6 +3,10 @@ package com.example.cheerboard.storage.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Metrics;
+import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -13,7 +17,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.Cache;
@@ -63,6 +72,10 @@ public class ImageService {
 
     private static final ObjectMapper CACHE_OBJECT_MAPPER = new ObjectMapper();
     private static final Duration POST_IMAGE_URL_CACHE_TTL = Duration.ofMinutes(50);
+    private static final int DEFAULT_IMAGE_UPLOAD_THREADS =
+            Math.max(2, Math.min(8, Runtime.getRuntime().availableProcessors()));
+    private static final int DEFAULT_IMAGE_UPLOAD_QUEUE_CAPACITY = 64;
+    private static final AtomicInteger IMAGE_UPLOAD_THREAD_SEQUENCE = new AtomicInteger();
 
     private final PostImageRepository postImageRepo;
     private final CheerPostRepo postRepo;
@@ -78,6 +91,30 @@ public class ImageService {
     private final com.example.common.image.ImageOptimizationMetricsService metricsService;
     private final PublicVisibilityVerifier publicVisibilityVerifier;
     private final MediaObjectKeyGuard mediaObjectKeyGuard;
+    private volatile ExecutorService imageUploadExecutor;
+    private volatile MeterRegistry imageUploadMeterRegistry = Metrics.globalRegistry;
+    private volatile boolean imageUploadExecutorMetricsRegistered;
+
+    @PreDestroy
+    void shutdownImageUploadExecutor() {
+        ExecutorService executor = imageUploadExecutor;
+        if (executor != null) {
+            executor.shutdownNow();
+        }
+    }
+
+    void setImageUploadExecutorForTest(ExecutorService executor) {
+        ExecutorService previous = imageUploadExecutor;
+        if (previous != null && previous != executor) {
+            previous.shutdownNow();
+        }
+        imageUploadExecutor = Objects.requireNonNull(executor);
+    }
+
+    void setImageUploadMeterRegistryForTest(MeterRegistry meterRegistry) {
+        this.imageUploadMeterRegistry = meterRegistry;
+        this.imageUploadExecutorMetricsRegistered = false;
+    }
 
     /**
      * 게시글 이미지 업로드 (여러 파일)
@@ -143,7 +180,7 @@ public class ImageService {
                     } catch (Exception e) {
                         throw new RuntimeException("Async Upload Failed: " + file.getOriginalFilename(), e);
                     }
-                }))
+                }, imageUploadExecutor()))
                 .toList();
 
         // 2. Wait for All & Handle Failures
@@ -298,18 +335,29 @@ public class ImageService {
         }
 
         List<PostImage> images = postImageRepo.findByPostIdInOrderByPostIdAscCreatedAtAsc(missingPostIds);
-        Map<Long, List<String>> groupedUrls = new ConcurrentHashMap<>();
+        Map<Long, List<String>> groupedUrls = new HashMap<>();
+        record SignedUrlResult(Long postId, String url) {
+        }
 
-        images.parallelStream()
+        List<CompletableFuture<SignedUrlResult>> signedUrlFutures = images.stream()
                 .filter(image -> image != null && image.getPost() != null && image.getPost().getId() != null)
-                .forEach(image -> {
+                .map(image -> CompletableFuture.supplyAsync(() -> {
                     Long postId = image.getPost().getId();
                     String url = generateSignedUrl(image.getStoragePath());
                     if (url != null && !url.isEmpty()) {
-                        groupedUrls.computeIfAbsent(postId, key -> Collections.synchronizedList(new ArrayList<>()))
-                                .add(url);
+                        return new SignedUrlResult(postId, url);
                     }
-                });
+                    return null;
+                }, imageUploadExecutor()))
+                .toList();
+
+        for (CompletableFuture<SignedUrlResult> signedUrlFuture : signedUrlFutures) {
+            SignedUrlResult signedUrl = signedUrlFuture.join();
+            if (signedUrl != null) {
+                groupedUrls.computeIfAbsent(signedUrl.postId(), key -> new ArrayList<>())
+                        .add(signedUrl.url());
+            }
+        }
 
         for (Long postId : missingPostIds) {
             List<String> urls = groupedUrls.getOrDefault(postId, Collections.emptyList());
@@ -793,7 +841,7 @@ public class ImageService {
                         } catch (Exception e) {
                             throw new RuntimeException("다이어리 이미지 업로드 실패: " + file.getOriginalFilename(), e);
                         }
-                    }))
+                    }, imageUploadExecutor()))
                     .toList();
 
             try {
@@ -807,6 +855,71 @@ public class ImageService {
                 throw new RuntimeException("이미지 업로드 중 오류가 발생했습니다.", e);
             }
         });
+    }
+
+    private ExecutorService imageUploadExecutor() {
+        ExecutorService localExecutor = imageUploadExecutor;
+        if (localExecutor != null) {
+            return localExecutor;
+        }
+
+        synchronized (this) {
+            if (imageUploadExecutor == null) {
+                imageUploadExecutor = createImageUploadExecutor();
+            }
+            return imageUploadExecutor;
+        }
+    }
+
+    private ExecutorService createImageUploadExecutor() {
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                DEFAULT_IMAGE_UPLOAD_THREADS,
+                DEFAULT_IMAGE_UPLOAD_THREADS,
+                30L,
+                TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(DEFAULT_IMAGE_UPLOAD_QUEUE_CAPACITY),
+                imageUploadThreadFactory(),
+                new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.allowCoreThreadTimeOut(true);
+        registerImageUploadExecutorMetrics(executor);
+        return executor;
+    }
+
+    private void registerImageUploadExecutorMetrics(ThreadPoolExecutor executor) {
+        MeterRegistry registry = imageUploadMeterRegistry;
+        if (registry == null || imageUploadExecutorMetricsRegistered) {
+            return;
+        }
+        Gauge.builder("image_upload_executor_active", executor, ThreadPoolExecutor::getActiveCount)
+                .description("Active image upload/storage executor threads")
+                .tag("executor", "image_upload")
+                .register(registry);
+        Gauge.builder("image_upload_executor_limit", executor, ThreadPoolExecutor::getMaximumPoolSize)
+                .description("Maximum image upload/storage executor threads")
+                .tag("executor", "image_upload")
+                .register(registry);
+        Gauge.builder("image_upload_executor_queued", executor, value -> value.getQueue().size())
+                .description("Queued image upload/storage executor tasks")
+                .tag("executor", "image_upload")
+                .register(registry);
+        Gauge.builder(
+                        "image_upload_executor_queue_capacity",
+                        executor,
+                        value -> value.getQueue().size() + value.getQueue().remainingCapacity())
+                .description("Image upload/storage executor queue capacity")
+                .tag("executor", "image_upload")
+                .register(registry);
+        imageUploadExecutorMetricsRegistered = true;
+    }
+
+    private ThreadFactory imageUploadThreadFactory() {
+        return runnable -> {
+            Thread thread = new Thread(
+                    runnable,
+                    "image-upload-" + IMAGE_UPLOAD_THREAD_SEQUENCE.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
     }
 
     /**

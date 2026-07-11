@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -68,6 +69,8 @@ class GameLiveServiceTest {
         lenient().when(gameEventRepository.findByGameIdOrderByEventSeqDesc(anyString(), any(Pageable.class)))
                 .thenReturn(List.of());
         lenient().when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc(anyString()))
+                .thenReturn(List.of());
+        lenient().when(gameInningScoreRepository.findAllByGameIdInOrderByGameIdAscInningAscTeamSideAsc(any()))
                 .thenReturn(List.of());
     }
 
@@ -348,6 +351,8 @@ class GameLiveServiceTest {
         assertThat(summaries.get(0).getLastEventSeq()).isEqualTo(7);
         assertThat(summaries.get(1).getGameStatus()).isEqualTo("SCHEDULED");
         verify(baseballDataIntegrityGuard).requireValidGames("prediction.live_summary", List.of("GAME-5", "GAME-6"));
+        verify(gameInningScoreRepository).findAllByGameIdInOrderByGameIdAscInningAscTeamSideAsc(List.of("GAME-5", "GAME-6"));
+        verify(gameInningScoreRepository, never()).findAllByGameIdOrderByInningAscTeamSideAsc(anyString());
     }
 
     @Test
@@ -357,7 +362,7 @@ class GameLiveServiceTest {
                 .thenReturn(List.of(game));
         when(gameEventRepository.findLatestByGameIds(List.of("GAME-SUMMARY-INNING")))
                 .thenReturn(List.of());
-        when(gameInningScoreRepository.findAllByGameIdOrderByInningAscTeamSideAsc("GAME-SUMMARY-INNING"))
+        when(gameInningScoreRepository.findAllByGameIdInOrderByGameIdAscInningAscTeamSideAsc(List.of("GAME-SUMMARY-INNING")))
                 .thenReturn(List.of(
                         GameInningScoreEntity.builder().gameId("GAME-SUMMARY-INNING").inning(1).teamSide("away").teamCode("KT").runs(0).build(),
                         GameInningScoreEntity.builder().gameId("GAME-SUMMARY-INNING").inning(1).teamSide("home").teamCode("LG").runs(2).build()
