@@ -12,9 +12,11 @@ import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.image.ImageOptimizationMetricsService;
 import com.example.kbo.dto.TicketInfo;
+import com.example.kbo.exception.TicketAnalysisException;
 import com.example.kbo.service.port.TicketVisionPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 
@@ -69,6 +71,29 @@ class TicketAnalysisServiceTest {
 
         verify(metricsService).recordReject("ticket_analyze", "invalid_type");
         verify(ticketVisionPort, never()).analyze(file);
+    }
+
+    @Test
+    void analyzeTicketMapsGameLookupFailureToExistingBadGatewayContract() {
+        MockMultipartFile file = validImage();
+        TicketInfo info = TicketInfo.builder()
+                .date("2026-07-11")
+                .time("18:30")
+                .stadium("잠실")
+                .homeTeam("LG")
+                .awayTeam("두산")
+                .build();
+        when(ticketVisionPort.analyze(file)).thenReturn(info);
+        when(begaGameService.findGameIdByDateAndTeams(
+                "2026-07-11", "LG", "두산", "잠실", "18:30"))
+                .thenThrow(new IllegalStateException("database unavailable"));
+
+        assertThatThrownBy(() -> service.analyzeTicket(file))
+                .isInstanceOfSatisfying(TicketAnalysisException.class, exception -> {
+                    assertThat(exception.getStatus()).isEqualTo(HttpStatus.BAD_GATEWAY);
+                    assertThat(exception.getMessage())
+                            .isEqualTo("티켓 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+                });
     }
 
     private MockMultipartFile validImage() {

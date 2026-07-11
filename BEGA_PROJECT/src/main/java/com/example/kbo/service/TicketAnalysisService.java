@@ -5,10 +5,12 @@ import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.image.ImageOptimizationMetricsService;
 import com.example.kbo.dto.TicketInfo;
+import com.example.kbo.exception.TicketAnalysisException;
 import com.example.kbo.service.port.TicketVisionPort;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -28,7 +30,16 @@ public class TicketAnalysisService {
         log.info("Analyzing ticket image: {}", file != null ? file.getOriginalFilename() : null);
         metricsService.recordRequest("ticket_analyze");
         validateTicketImage(file);
-        return enrichTicketInfoWithGameId(ticketVisionPort.analyze(file));
+        try {
+            return enrichTicketInfoWithGameId(ticketVisionPort.analyze(file));
+        } catch (TicketAnalysisException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            log.error("AI Service call failed", exception);
+            throw new TicketAnalysisException(
+                    HttpStatus.BAD_GATEWAY,
+                    "티켓 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+        }
     }
 
     private TicketInfo enrichTicketInfoWithGameId(TicketInfo info) {
