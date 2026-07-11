@@ -160,8 +160,17 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
         int countNewPostsSince(@Param("sinceId") Long sinceId, @Param("teamId") String teamId);
 
         @EntityGraph(attributePaths = { "author", "team" })
-        @Query("SELECT p FROM CheerPost p WHERE p.id > :sinceId AND (:teamId IS NULL OR p.team.teamId = :teamId) AND (p.repostType IS NULL OR p.repostType != 'SIMPLE') ORDER BY p.id DESC")
-        List<CheerPost> findNewPostsSinceOrderByIdDesc(@Param("sinceId") Long sinceId, @Param("teamId") String teamId);
+        @Query("SELECT p FROM CheerPost p WHERE p.id > :sinceId AND (p.repostType IS NULL OR p.repostType != 'SIMPLE') ORDER BY p.id ASC")
+        List<CheerPost> findNewPostsSinceOrderByIdAsc(
+                        @Param("sinceId") Long sinceId,
+                        Pageable pageable);
+
+        @EntityGraph(attributePaths = { "author", "team" })
+        @Query("SELECT p FROM CheerPost p WHERE p.id > :sinceId AND p.team.teamId = :teamId AND (p.repostType IS NULL OR p.repostType != 'SIMPLE') ORDER BY p.id ASC")
+        List<CheerPost> findNewTeamPostsSinceOrderByIdAsc(
+                        @Param("sinceId") Long sinceId,
+                        @Param("teamId") String teamId,
+                        Pageable pageable);
 
         /**
          * 가장 최근 게시글 ID 조회 (폴링용)
