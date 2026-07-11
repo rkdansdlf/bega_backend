@@ -33,4 +33,15 @@ class BackendBoundaryArchitectureTest {
 
         rule.check(PRODUCTION_CLASSES);
     }
+
+    @Test
+    void stadiumAdminControllerMustNotDependOnPersistence() {
+        ArchRule rule = noClasses()
+                .that().haveFullyQualifiedName("com.example.stadium.controller.StadiumAdminController")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "com.example.stadium.repository..",
+                        "com.example.stadium.entity..");
+
+        rule.check(PRODUCTION_CLASSES);
+    }
 }
