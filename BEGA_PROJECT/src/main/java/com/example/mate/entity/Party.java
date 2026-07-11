@@ -11,7 +11,15 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 
 @Entity
-@Table(name = "parties")
+@Table(name = "parties", indexes = {
+        @Index(name = "idx_parties_created_id", columnList = "createdat DESC, id DESC"),
+        @Index(name = "idx_parties_team_created_id", columnList = "teamid, createdat DESC, id DESC"),
+        @Index(name = "idx_parties_gamedate_created_id", columnList = "gamedate, createdat DESC, id DESC"),
+        @Index(name = "idx_parties_current_id", columnList = "currentparticipants DESC, id DESC"),
+        @Index(name = "idx_parties_team_current_id", columnList = "teamid, currentparticipants DESC, id DESC"),
+        @Index(name = "idx_parties_date_current_id", columnList = "gamedate, currentparticipants DESC, id DESC"),
+        @Index(name = "idx_parties_status_current_id", columnList = "status, currentparticipants DESC, id DESC")
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

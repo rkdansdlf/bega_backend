@@ -167,6 +167,30 @@ class PartyRepositoryTest {
     }
 
     @Test
+    @DisplayName("visible public party query adds id tie-breaker for stable pagination")
+    void findVisiblePublicPartiesWithFilter_addsIdTieBreakerForStablePagination() {
+        UserEntity publicHost = userRepository.save(MateTestFixtureFactory.user("tie-host@example.com", "Tie Host"));
+        Party firstParty = partyRepository.save(createPartyForHost(
+                publicHost, "KT", "수원", "KT", "KIA", "응원석", "첫 번째 파티", Party.PartyStatus.PENDING));
+        Party secondParty = partyRepository.save(createPartyForHost(
+                publicHost, "LG", "잠실", "LG", "SSG", "1루석", "두 번째 파티", Party.PartyStatus.PENDING));
+
+        Page<Party> result = partyRepository.findVisiblePublicPartiesWithFilter(
+                null,
+                null,
+                null,
+                "",
+                List.of(Party.PartyStatus.CHECKED_IN, Party.PartyStatus.COMPLETED),
+                null,
+                null,
+                PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "currentParticipants")));
+
+        assertThat(result.getContent())
+                .extracting(Party::getId)
+                .containsExactly(secondParty.getId(), firstParty.getId());
+    }
+
+    @Test
     @DisplayName("my history query includes hosted and approved parties with paging and no duplicates")
     void findMyHistory_includesHostedAndApprovedPartiesWithPaging() {
         UserEntity me = userRepository.save(MateTestFixtureFactory.user("history-user@example.com", "History User"));

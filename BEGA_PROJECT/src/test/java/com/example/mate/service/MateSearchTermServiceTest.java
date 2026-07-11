@@ -2,6 +2,8 @@ package com.example.mate.service;
 
 import com.example.mate.dto.MateSearchTermDTO;
 import com.example.mate.entity.MateSearchTerm;
+import com.example.mate.repository.MateSearchTermLatestDisplayProjection;
+import com.example.mate.repository.MateSearchTermPopularProjection;
 import com.example.mate.repository.MateSearchTermRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -10,6 +12,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.CacheManager;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -32,11 +36,14 @@ class MateSearchTermServiceTest {
     @Mock
     private MateSearchTermRepository mateSearchTermRepository;
 
+    @Mock
+    private CacheManager cacheManager;
+
     private MateSearchTermService mateSearchTermService;
 
     @BeforeEach
     void setUp() {
-        mateSearchTermService = new MateSearchTermService(mateSearchTermRepository);
+        mateSearchTermService = new MateSearchTermService(mateSearchTermRepository, cacheManager);
     }
 
     @Test
@@ -87,11 +94,14 @@ class MateSearchTermServiceTest {
     void getPopularTerms_aggregatesRecentSevenDays() {
         LocalDate today = LocalDate.now();
         Instant now = Instant.parse("2026-06-09T12:00:00Z");
-        when(mateSearchTermRepository.findBySearchDateGreaterThanEqual(today.minusDays(6)))
+        when(mateSearchTermRepository.findPopularTermSummaries(today.minusDays(6), PageRequest.of(0, 5)))
                 .thenReturn(List.of(
-                        term(today, "kia", "KIA", 2, now.minusSeconds(60)),
-                        term(today.minusDays(2), "kia", "kia", 3, now),
-                        term(today.minusDays(6), "잠실", "잠실", 4, now.minusSeconds(10))));
+                        popular("kia", 5, now),
+                        popular("잠실", 4, now.minusSeconds(10))));
+        when(mateSearchTermRepository.findLatestDisplayTerms(today.minusDays(6), List.of("kia", "잠실")))
+                .thenReturn(List.of(
+                        display("kia", "kia", now, 2L),
+                        display("잠실", "잠실", now.minusSeconds(10), 3L)));
 
         List<MateSearchTermDTO.PopularResponse> popularTerms = mateSearchTermService.getPopularTerms(5);
 
@@ -101,19 +111,29 @@ class MateSearchTermServiceTest {
                 .containsExactly(5L, 4L);
         assertThat(popularTerms).extracting(MateSearchTermDTO.PopularResponse::getRank)
                 .containsExactly(1, 2);
-        verify(mateSearchTermRepository).findBySearchDateGreaterThanEqual(today.minusDays(6));
+        verify(mateSearchTermRepository).findPopularTermSummaries(today.minusDays(6), PageRequest.of(0, 5));
     }
 
     @Test
     @DisplayName("popular term limit is capped")
     void getPopularTerms_capsLimit() {
         LocalDate today = LocalDate.now();
-        List<MateSearchTerm> terms = new ArrayList<>();
+        Instant now = Instant.parse("2026-06-09T12:00:00Z");
+        List<MateSearchTermPopularProjection> summaries = new ArrayList<>();
+        List<MateSearchTermLatestDisplayProjection> displayTerms = new ArrayList<>();
         for (int i = 0; i < 12; i += 1) {
-            terms.add(term(today, "term-" + i, "term-" + i, i + 1, Instant.parse("2026-06-09T12:00:00Z")));
+            String normalizedTerm = "term-" + (11 - i);
+            summaries.add(popular(normalizedTerm, 12 - i, now.minusSeconds(i)));
+            displayTerms.add(display(normalizedTerm, normalizedTerm, now.minusSeconds(i), (long) i));
         }
-        when(mateSearchTermRepository.findBySearchDateGreaterThanEqual(today.minusDays(6)))
-                .thenReturn(terms);
+        when(mateSearchTermRepository.findPopularTermSummaries(today.minusDays(6), PageRequest.of(0, 10)))
+                .thenReturn(summaries.subList(0, 10));
+        when(mateSearchTermRepository.findLatestDisplayTerms(
+                today.minusDays(6),
+                summaries.subList(0, 10).stream()
+                        .map(MateSearchTermPopularProjection::getNormalizedTerm)
+                        .toList()))
+                .thenReturn(displayTerms.subList(0, 10));
 
         List<MateSearchTermDTO.PopularResponse> popularTerms = mateSearchTermService.getPopularTerms(50);
 
@@ -121,18 +141,53 @@ class MateSearchTermServiceTest {
         assertThat(popularTerms.get(0).getTerm()).isEqualTo("term-11");
     }
 
-    private MateSearchTerm term(
-            LocalDate searchDate,
+    private MateSearchTermPopularProjection popular(
             String normalizedTerm,
-            String displayTerm,
             long searchCount,
             Instant lastSearchedAt) {
-        return MateSearchTerm.builder()
-                .searchDate(searchDate)
-                .normalizedTerm(normalizedTerm)
-                .displayTerm(displayTerm)
-                .searchCount(searchCount)
-                .lastSearchedAt(lastSearchedAt)
-                .build();
+        return new MateSearchTermPopularProjection() {
+            @Override
+            public String getNormalizedTerm() {
+                return normalizedTerm;
+            }
+
+            @Override
+            public Long getSearchCount() {
+                return searchCount;
+            }
+
+            @Override
+            public Instant getLastSearchedAt() {
+                return lastSearchedAt;
+            }
+        };
+    }
+
+    private MateSearchTermLatestDisplayProjection display(
+            String normalizedTerm,
+            String displayTerm,
+            Instant lastSearchedAt,
+            Long id) {
+        return new MateSearchTermLatestDisplayProjection() {
+            @Override
+            public String getNormalizedTerm() {
+                return normalizedTerm;
+            }
+
+            @Override
+            public String getDisplayTerm() {
+                return displayTerm;
+            }
+
+            @Override
+            public Instant getLastSearchedAt() {
+                return lastSearchedAt;
+            }
+
+            @Override
+            public Long getId() {
+                return id;
+            }
+        };
     }
 }

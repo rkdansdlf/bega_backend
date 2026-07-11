@@ -65,6 +65,7 @@ class MateSearchTermControllerTest {
                 mateSearchTermController.getPopularSearchTerms(5);
 
         assertThat(response.getBody()).containsExactly(popular);
+        assertThat(response.getHeaders().getCacheControl()).contains("max-age=30", "public");
     }
 
     @Test
