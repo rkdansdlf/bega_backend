@@ -1,0 +1,25 @@
+package com.example.architecture;
+
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+
+import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.lang.ArchRule;
+import org.junit.jupiter.api.Test;
+
+class BackendBoundaryArchitectureTest {
+
+    private static final JavaClasses PRODUCTION_CLASSES = new ClassFileImporter()
+            .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+            .importPackages("com.example");
+
+    @Test
+    void commonRateLimitMustNotDependOnAuthImplementations() {
+        ArchRule rule = noClasses()
+                .that().resideInAPackage("com.example.common.ratelimit..")
+                .should().dependOnClassesThat().resideInAPackage("com.example.auth..");
+
+        rule.check(PRODUCTION_CLASSES);
+    }
+}
