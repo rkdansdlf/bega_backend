@@ -7,7 +7,6 @@ import com.example.homepage.FeaturedMateCardDto;
 import com.example.homepage.HomePageTeamRankingDto;
 import com.example.homepage.HomeRankingSnapshotDto;
 import com.example.homepage.HomeWidgetsResponseDto;
-import com.example.mate.entity.Party;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
@@ -66,7 +65,7 @@ class RedisConfigTest {
                                 .currentParticipants(1)
                                 .maxParticipants(4)
                                 .ticketPrice(15000)
-                                .status(Party.PartyStatus.PENDING)
+                                .status("PENDING")
                                 .build()))
                 .rankingSnapshot(HomeRankingSnapshotDto.builder()
                         .rankingSeasonYear(2025)
@@ -96,7 +95,7 @@ class RedisConfigTest {
         assertThat(response.getHotCheerPosts()).hasSize(1);
         assertThat(response.getHotCheerPosts().get(0).createdAt()).isEqualTo(createdAt);
         assertThat(response.getFeaturedMates()).hasSize(1);
-        assertThat(response.getFeaturedMates().get(0).getStatus()).isEqualTo(Party.PartyStatus.PENDING);
+        assertThat(response.getFeaturedMates().get(0).getStatus()).isEqualTo("PENDING");
         assertThat(response.getRankingSnapshot().getRankingSeasonYear()).isEqualTo(2025);
         assertThat(response.getRankingSnapshot().isOffSeason()).isTrue();
         assertThat(response.getRankingSnapshot().getRankings()).hasSize(1);

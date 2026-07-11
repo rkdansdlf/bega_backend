@@ -99,7 +99,7 @@ public class PartyMapper {
                 .currentParticipants(party.getCurrentParticipants())
                 .maxParticipants(party.getMaxParticipants())
                 .ticketPrice(party.getTicketPrice())
-                .status(party.getStatus())
+                .status(party.getStatus() == null ? null : party.getStatus().name())
                 .build();
     }
 

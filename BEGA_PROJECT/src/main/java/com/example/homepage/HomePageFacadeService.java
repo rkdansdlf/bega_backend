@@ -7,7 +7,7 @@ import com.example.cheerboard.service.CheerService;
 import com.example.kbo.validation.ManualBaseballDataOverrideService;
 import com.example.kbo.validation.ManualBaseballDataRequest;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
-import com.example.mate.service.PartyService;
+import com.example.homepage.port.FeaturedMateQuery;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Timer;
@@ -57,7 +57,7 @@ public class HomePageFacadeService {
 
     private final HomePageGameService homePageGameService;
     private final CheerService cheerService;
-    private final PartyService partyService;
+    private final FeaturedMateQuery partyService;
     private final HomeBootstrapCacheService homeBootstrapCacheService;
     private final HomeRankingSnapshotCacheService homeRankingSnapshotCacheService;
     private final Duration sectionTimeout;
@@ -71,7 +71,7 @@ public class HomePageFacadeService {
     public HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService) {
+            FeaturedMateQuery partyService) {
         this(
                 homePageGameService,
                 cheerService,
@@ -89,7 +89,7 @@ public class HomePageFacadeService {
     public HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService,
+            FeaturedMateQuery partyService,
             HomeBootstrapCacheService homeBootstrapCacheService,
             HomeRankingSnapshotCacheService homeRankingSnapshotCacheService,
             @Value(SECTION_TIMEOUT_PROPERTY) long sectionTimeoutMs,
@@ -113,7 +113,7 @@ public class HomePageFacadeService {
     HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService,
+            FeaturedMateQuery partyService,
             Duration sectionTimeout) {
         this(
                 homePageGameService,
@@ -131,7 +131,7 @@ public class HomePageFacadeService {
     HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService,
+            FeaturedMateQuery partyService,
             Duration sectionTimeout,
             Clock clock) {
         this(
@@ -150,7 +150,7 @@ public class HomePageFacadeService {
     HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService,
+            FeaturedMateQuery partyService,
             Duration sectionTimeout,
             Clock clock,
             ExecutorService sectionExecutor) {
@@ -170,7 +170,7 @@ public class HomePageFacadeService {
     HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService,
+            FeaturedMateQuery partyService,
             HomeBootstrapCacheService homeBootstrapCacheService,
             HomeRankingSnapshotCacheService homeRankingSnapshotCacheService,
             Duration sectionTimeout,
@@ -195,7 +195,7 @@ public class HomePageFacadeService {
     HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService,
+            FeaturedMateQuery partyService,
             HomeBootstrapCacheService homeBootstrapCacheService,
             HomeRankingSnapshotCacheService homeRankingSnapshotCacheService,
             Duration sectionTimeout,

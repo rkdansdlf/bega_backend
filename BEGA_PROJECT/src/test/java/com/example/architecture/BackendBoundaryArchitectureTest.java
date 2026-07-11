@@ -89,4 +89,13 @@ class BackendBoundaryArchitectureTest {
 
         rule.check(PRODUCTION_CLASSES);
     }
+
+    @Test
+    void homepageMustNotDependOnMateImplementations() {
+        ArchRule rule = noClasses()
+                .that().resideInAPackage("com.example.homepage..")
+                .should().dependOnClassesThat().resideInAPackage("com.example.mate..");
+
+        rule.check(PRODUCTION_CLASSES);
+    }
 }
