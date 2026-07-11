@@ -17,10 +17,12 @@ import org.springframework.stereotype.Service;
 public class CheerMonitoringMetricsService {
 
     static final String FEED_REQUEST_DURATION_METRIC = "cheer_feed_request_duration_seconds";
+    static final String FEED_ENRICHMENT_EVENT_METRIC = "cheer_feed_enrichment_events_total";
 
     private static final Set<String> FEED_ENDPOINTS = Set.of("feed", "feed_lightweight", "search", "hot");
     private static final Set<String> POST_TYPES = Set.of("normal", "notice");
     private static final Set<String> HOT_ALGORITHMS = Set.of("time_decay", "engagement_rate", "hybrid");
+    private static final Set<String> FEED_ENRICHMENT_RESULTS = Set.of("success", "timeout", "busy", "failure");
 
     private final MeterRegistry meterRegistry;
 
@@ -50,6 +52,15 @@ public class CheerMonitoringMetricsService {
         Counter.builder("cheer_websocket_events_total")
                 .description("응원 배틀 웹소켓 이벤트 건수")
                 .tag("event", normalizeTag(event))
+                .register(meterRegistry)
+                .increment();
+    }
+
+    public void recordFeedEnrichment(String result) {
+        String normalizedResult = normalizeTag(result);
+        Counter.builder(FEED_ENRICHMENT_EVENT_METRIC)
+                .description("Cheer feed enrichment task results")
+                .tag("result", FEED_ENRICHMENT_RESULTS.contains(normalizedResult) ? normalizedResult : "failure")
                 .register(meterRegistry)
                 .increment();
     }
