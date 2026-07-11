@@ -15,11 +15,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.domain.Specification;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -77,16 +80,27 @@ class ClientErrorAdminServiceTest {
                 .occurredAt(LocalDateTime.of(2026, 3, 13, 12, 5))
                 .build();
 
-        when(eventRepository.findByOccurredAtBetweenOrderByOccurredAtAsc(any(), any()))
-                .thenReturn(List.of(runtimeEvent, apiEvent));
-        when(feedbackRepository.findByOccurredAtBetweenOrderByOccurredAtAsc(any(), any()))
+        when(eventRepository.countHourlyBuckets(any(), any()))
+                .thenReturn(List.of(
+                        eventBucket(2026, 3, 13, 11, ClientErrorBucket.RUNTIME, 1),
+                        eventBucket(2026, 3, 13, 12, ClientErrorBucket.API, 1)));
+        when(feedbackRepository.countHourlyBuckets(any(), any()))
+                .thenReturn(List.of(feedbackBucket(2026, 3, 13, 12, 1)));
+        when(feedbackRepository.findTop10ByOccurredAtBetweenOrderByOccurredAtDesc(any(), any()))
                 .thenReturn(List.of(feedback));
         when(alertNotificationRepository.findTop10ByNotifiedAtBetweenOrderByNotifiedAtDesc(any(), any()))
                 .thenReturn(List.of());
         when(alertNotificationRepository.findByFingerprintInOrderByNotifiedAtDesc(anyCollection()))
                 .thenReturn(List.of());
-        when(eventRepository.countDistinctFingerprints(any(), any())).thenReturn(2L);
-        when(eventRepository.countDistinctRoutes(any(), any())).thenReturn(2L);
+        when(eventRepository.findTopFingerprintSummaries(any(), any(), any(Pageable.class)))
+                .thenReturn(List.of(
+                        topFingerprint("fp-runtime", 1, 0, runtimeEvent.getOccurredAt()),
+                        topFingerprint("fp-api", 1, 0, apiEvent.getOccurredAt())));
+        when(eventRepository.findLatestEventsByFingerprintInBetween(any(), any(), anyCollection()))
+                .thenReturn(List.of(
+                        summaryProjection(runtimeEvent),
+                        summaryProjection(apiEvent)));
+        when(eventRepository.findDashboardDistinctTotals(any(), any())).thenReturn(distinctTotals(2L, 2L));
 
         ClientErrorDashboardDto dashboard = clientErrorAdminService.getDashboard(
                 OffsetDateTime.parse("2026-03-13T00:00:00Z"),
@@ -97,6 +111,8 @@ class ClientErrorAdminServiceTest {
         assertThat(dashboard.totals().feedback()).isEqualTo(1L);
         assertThat(dashboard.topFingerprints()).extracting("source")
                 .contains("unhandled_rejection", "api");
+        verify(eventRepository, never()).findByOccurredAtBetweenOrderByOccurredAtAsc(any(), any());
+        verify(feedbackRepository, never()).findByOccurredAtBetweenOrderByOccurredAtAsc(any(), any());
     }
 
     @Test
@@ -123,22 +139,28 @@ class ClientErrorAdminServiceTest {
                 .route("/mypage")
                 .occurredAt(LocalDateTime.of(2026, 3, 13, 10, 5))
                 .build();
-        ClientErrorEventEntity similar = ClientErrorEventEntity.builder()
-                .eventId("evt-2")
-                .bucket(ClientErrorBucket.RUNTIME)
-                .source(ClientErrorSource.UNHANDLED_REJECTION)
-                .message("render failed")
-                .route("/mypage")
-                .normalizedRoute("/mypage")
-                .statusGroup("none")
-                .occurredAt(LocalDateTime.of(2026, 3, 13, 10, 10))
-                .fingerprint("fp-1")
-                .feedbackCount(0)
-                .build();
+        ClientErrorEventSummaryProjection similar = summaryProjection(
+                "evt-2",
+                ClientErrorBucket.RUNTIME,
+                ClientErrorSource.UNHANDLED_REJECTION,
+                "render failed",
+                null,
+                "none",
+                null,
+                "/mypage",
+                "/mypage",
+                null,
+                null,
+                null,
+                "fp-1",
+                LocalDateTime.of(2026, 3, 13, 10, 10),
+                null,
+                null,
+                0);
 
         when(eventRepository.findByEventId("evt-1")).thenReturn(Optional.of(event));
         when(feedbackRepository.findByEventIdOrderByOccurredAtDesc("evt-1")).thenReturn(List.of(feedback));
-        when(eventRepository.findTop10ByFingerprintAndEventIdNotOrderByOccurredAtDesc("fp-1", "evt-1"))
+        when(eventRepository.findRecentEventSummariesByFingerprint(eq("fp-1"), eq("evt-1"), any(Pageable.class)))
                 .thenReturn(List.of(similar));
 
         ClientErrorEventDetailDto detail = clientErrorAdminService.getEventDetail("evt-1");
@@ -150,37 +172,46 @@ class ClientErrorAdminServiceTest {
     }
 
     @Test
-    @DisplayName("이벤트 페이지 조회는 raw 엔티티를 요약 DTO로 매핑한다")
-    void getEventsMapsEntitiesToPage() {
-        ClientErrorEventEntity entity = ClientErrorEventEntity.builder()
-                .eventId("evt-page")
-                .bucket(ClientErrorBucket.API)
-                .source(ClientErrorSource.API)
-                .message("request failed")
-                .route("/prediction")
-                .normalizedRoute("/prediction")
-                .statusCode(500)
-                .statusGroup("5xx")
-                .method("GET")
-                .endpoint("/api/predictions")
-                .normalizedEndpoint("/api/predictions")
-                .occurredAt(LocalDateTime.of(2026, 3, 13, 9, 0))
-                .fingerprint("fp-page")
-                .feedbackCount(2)
-                .build();
+    @DisplayName("이벤트 페이지 조회는 요약 projection을 DTO로 매핑한다")
+    void getEventsMapsSummaryProjectionToPage() {
+        ClientErrorEventSummaryProjection summary = summaryProjection(
+                "evt-page",
+                ClientErrorBucket.API,
+                ClientErrorSource.API,
+                "request failed",
+                500,
+                "5xx",
+                "INTERNAL_SERVER_ERROR",
+                "/prediction",
+                "/prediction",
+                "GET",
+                "/api/predictions",
+                "/api/predictions",
+                "fp-page",
+                LocalDateTime.of(2026, 3, 13, 9, 0),
+                "session-page",
+                7L,
+                2);
 
-        when(eventRepository.findAll(
-                        org.mockito.ArgumentMatchers.<Specification<ClientErrorEventEntity>>any(),
+        when(eventRepository.findEventSummaries(
+                        eq(ClientErrorBucket.API),
+                        isNull(),
+                        eq("5xx"),
+                        eq("/prediction"),
+                        eq("fp-page"),
+                        any(LocalDateTime.class),
+                        any(LocalDateTime.class),
+                        eq("request failed"),
                         org.mockito.ArgumentMatchers.<Pageable>any()))
-                .thenReturn(new PageImpl<>(List.of(entity)));
+                .thenReturn(new PageImpl<>(List.of(summary)));
 
         var result = clientErrorAdminService.getEvents(
                 "api",
                 null,
-                null,
-                null,
-                null,
-                null,
+                "5XX",
+                "/prediction",
+                " fp-page ",
+                "Request Failed",
                 OffsetDateTime.parse("2026-03-13T00:00:00Z"),
                 OffsetDateTime.parse("2026-03-14T00:00:00Z"),
                 0,
@@ -188,6 +219,251 @@ class ClientErrorAdminServiceTest {
 
         assertThat(result.content()).hasSize(1);
         assertThat(result.content().get(0).bucket()).isEqualTo("api");
+        assertThat(result.content().get(0).source()).isEqualTo("api");
+        assertThat(result.content().get(0).eventId()).isEqualTo("evt-page");
         assertThat(result.content().get(0).feedbackCount()).isEqualTo(2);
+    }
+
+    private ClientErrorEventSummaryProjection summaryProjection(
+            String eventId,
+            ClientErrorBucket bucket,
+            ClientErrorSource source,
+            String message,
+            Integer statusCode,
+            String statusGroup,
+            String responseCode,
+            String route,
+            String normalizedRoute,
+            String method,
+            String endpoint,
+            String normalizedEndpoint,
+            String fingerprint,
+            LocalDateTime occurredAt,
+            String sessionId,
+            Long userId,
+            Integer feedbackCount) {
+        return new ClientErrorEventSummaryProjection() {
+            @Override
+            public String getEventId() {
+                return eventId;
+            }
+
+            @Override
+            public ClientErrorBucket getBucket() {
+                return bucket;
+            }
+
+            @Override
+            public ClientErrorSource getSource() {
+                return source;
+            }
+
+            @Override
+            public String getMessage() {
+                return message;
+            }
+
+            @Override
+            public Integer getStatusCode() {
+                return statusCode;
+            }
+
+            @Override
+            public String getStatusGroup() {
+                return statusGroup;
+            }
+
+            @Override
+            public String getResponseCode() {
+                return responseCode;
+            }
+
+            @Override
+            public String getRoute() {
+                return route;
+            }
+
+            @Override
+            public String getNormalizedRoute() {
+                return normalizedRoute;
+            }
+
+            @Override
+            public String getMethod() {
+                return method;
+            }
+
+            @Override
+            public String getEndpoint() {
+                return endpoint;
+            }
+
+            @Override
+            public String getNormalizedEndpoint() {
+                return normalizedEndpoint;
+            }
+
+            @Override
+            public String getFingerprint() {
+                return fingerprint;
+            }
+
+            @Override
+            public LocalDateTime getOccurredAt() {
+                return occurredAt;
+            }
+
+            @Override
+            public String getSessionId() {
+                return sessionId;
+            }
+
+            @Override
+            public Long getUserId() {
+                return userId;
+            }
+
+            @Override
+            public Integer getFeedbackCount() {
+                return feedbackCount;
+            }
+        };
+    }
+
+    private ClientErrorEventSummaryProjection summaryProjection(ClientErrorEventEntity entity) {
+        return summaryProjection(
+                entity.getEventId(),
+                entity.getBucket(),
+                entity.getSource(),
+                entity.getMessage(),
+                entity.getStatusCode(),
+                entity.getStatusGroup(),
+                entity.getResponseCode(),
+                entity.getRoute(),
+                entity.getNormalizedRoute(),
+                entity.getMethod(),
+                entity.getEndpoint(),
+                entity.getNormalizedEndpoint(),
+                entity.getFingerprint(),
+                entity.getOccurredAt(),
+                entity.getSessionId(),
+                entity.getUserId(),
+                entity.getFeedbackCount());
+    }
+
+    private ClientErrorEventTimeBucketProjection eventBucket(
+            int year,
+            int month,
+            int day,
+            int hour,
+            ClientErrorBucket bucket,
+            long count) {
+        return new ClientErrorEventTimeBucketProjection() {
+            @Override
+            public Integer getBucketYear() {
+                return year;
+            }
+
+            @Override
+            public Integer getBucketMonth() {
+                return month;
+            }
+
+            @Override
+            public Integer getBucketDay() {
+                return day;
+            }
+
+            @Override
+            public Integer getBucketHour() {
+                return hour;
+            }
+
+            @Override
+            public ClientErrorBucket getBucket() {
+                return bucket;
+            }
+
+            @Override
+            public long getItemCount() {
+                return count;
+            }
+        };
+    }
+
+    private ClientErrorFeedbackTimeBucketProjection feedbackBucket(
+            int year,
+            int month,
+            int day,
+            int hour,
+            long count) {
+        return new ClientErrorFeedbackTimeBucketProjection() {
+            @Override
+            public Integer getBucketYear() {
+                return year;
+            }
+
+            @Override
+            public Integer getBucketMonth() {
+                return month;
+            }
+
+            @Override
+            public Integer getBucketDay() {
+                return day;
+            }
+
+            @Override
+            public Integer getBucketHour() {
+                return hour;
+            }
+
+            @Override
+            public long getItemCount() {
+                return count;
+            }
+        };
+    }
+
+    private ClientErrorTopFingerprintProjection topFingerprint(
+            String fingerprint,
+            long eventCount,
+            long uniqueSessions,
+            LocalDateTime latestOccurredAt) {
+        return new ClientErrorTopFingerprintProjection() {
+            @Override
+            public String getFingerprint() {
+                return fingerprint;
+            }
+
+            @Override
+            public long getEventCount() {
+                return eventCount;
+            }
+
+            @Override
+            public long getUniqueSessions() {
+                return uniqueSessions;
+            }
+
+            @Override
+            public LocalDateTime getLatestOccurredAt() {
+                return latestOccurredAt;
+            }
+        };
+    }
+
+    private ClientErrorDashboardDistinctTotalsProjection distinctTotals(long fingerprints, long routes) {
+        return new ClientErrorDashboardDistinctTotalsProjection() {
+            @Override
+            public long getDistinctFingerprints() {
+                return fingerprints;
+            }
+
+            @Override
+            public long getDistinctRoutes() {
+                return routes;
+            }
+        };
     }
 }
