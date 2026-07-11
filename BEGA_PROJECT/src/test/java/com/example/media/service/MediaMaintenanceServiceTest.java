@@ -16,9 +16,6 @@ import com.example.cheerboard.storage.service.ImageService;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
 import com.example.cheerboard.storage.strategy.StoredObject;
 import com.example.common.image.ImageUtil;
-import com.example.mate.repository.ChatMessageRepository;
-import com.example.mate.entity.ChatMessage;
-import com.example.mate.service.ChatImageService;
 import com.example.media.dto.MediaBackfillDomainReport;
 import com.example.media.dto.MediaBackfillReport;
 import com.example.media.dto.MediaCleanupReport;
@@ -30,6 +27,10 @@ import com.example.media.entity.MediaAssetStatus;
 import com.example.media.entity.MediaCleanupTarget;
 import com.example.media.entity.MediaDomain;
 import com.example.media.repository.MediaAssetRepository;
+import com.example.media.service.port.ChatMediaReference;
+import com.example.media.service.port.ChatMediaReferenceBatch;
+import com.example.media.service.port.ChatMediaReferenceMaintenance;
+import com.example.media.service.port.ChatMediaReferenceQuery;
 import com.example.profile.storage.service.ProfileImageService;
 import java.util.List;
 import java.util.Map;
@@ -64,7 +65,7 @@ class MediaMaintenanceServiceTest {
     private BegaDiaryRepository begaDiaryRepository;
 
     @Mock
-    private ChatMessageRepository chatMessageRepository;
+    private ChatMediaReferenceQuery chatMediaReferenceQuery;
 
     @Mock
     private StorageStrategy storageStrategy;
@@ -79,7 +80,7 @@ class MediaMaintenanceServiceTest {
     private ImageService imageService;
 
     @Mock
-    private ChatImageService chatImageService;
+    private ChatMediaReferenceMaintenance chatMediaReferenceMaintenance;
 
     @Mock
     private MediaLinkService mediaLinkService;
@@ -102,8 +103,8 @@ class MediaMaintenanceServiceTest {
                 .thenReturn(Page.empty());
         lenient().when(begaDiaryRepository.findAllBy(any(org.springframework.data.domain.Pageable.class)))
                 .thenReturn(Page.empty());
-        lenient().when(chatMessageRepository.findAll(any(org.springframework.data.domain.Pageable.class)))
-                .thenReturn(Page.empty());
+        lenient().when(chatMediaReferenceQuery.loadBatch(any(Integer.class), any(Integer.class)))
+                .thenReturn(ChatMediaReferenceBatch.empty());
         lenient().when(mediaAssetRepository.findByDomainAndStatusOrderByIdDesc(any(), any(), any()))
                 .thenReturn(List.of());
         lenient().when(mediaAssetRepository.findByDomainAndStatusAndDerivedFromIsNullOrderByIdDesc(any(), any(), any()))
@@ -112,8 +113,6 @@ class MediaMaintenanceServiceTest {
                 .thenAnswer(invocation -> assignMediaAssetId(invocation.getArgument(0)));
         lenient().when(mediaAssetRepository.save(any(MediaAsset.class)))
                 .thenAnswer(invocation -> assignMediaAssetId(invocation.getArgument(0)));
-        lenient().when(chatMessageRepository.save(any(ChatMessage.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(profileImageService.normalizeProfileStoragePath(null)).thenReturn(null);
     }
 
@@ -378,17 +377,13 @@ class MediaMaintenanceServiceTest {
     @Test
     @DisplayName("chat backfill apply는 legacy chat 경로를 canonical media key와 registry로 승격한다")
     void backfillExistingData_chatApplyPromotesLegacyPath() throws Exception {
-        ChatMessage message = ChatMessage.builder()
-                .senderId(24L)
-                .imageUrl("chat/24/legacy.png")
-                .build();
-        ReflectionTestUtils.setField(message, "id", 101L);
+        ChatMediaReference message = new ChatMediaReference(101L, 24L, "chat/24/legacy.png");
 
         byte[] sourceBytes = new byte[] {1, 2, 3};
         byte[] processedBytes = new byte[] {4, 5, 6};
-        when(chatMessageRepository.findAll(any(org.springframework.data.domain.Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of(message)));
-        when(chatImageService.normalizeChatStoragePath("chat/24/legacy.png"))
+        when(chatMediaReferenceQuery.loadBatch(0, 100))
+                .thenReturn(new ChatMediaReferenceBatch(List.of(message), false));
+        when(chatMediaReferenceMaintenance.normalizeStoragePath("chat/24/legacy.png"))
                 .thenReturn("chat/24/legacy.png");
         when(storageConfig.getCheerBucket()).thenReturn("cheer-bucket");
         when(storageStrategy.download("cheer-bucket", "chat/24/legacy.png"))
@@ -426,23 +421,18 @@ class MediaMaintenanceServiceTest {
         assertThat(chatReport.legacyPathRetainedCount()).isZero();
         assertThat(chatReport.sampleNormalizedTargets()).containsExactly("messageId=101:media/chat/24/70.webp");
         assertThat(chatReport.sampleManualReviewTargets()).isEmpty();
-        assertThat(message.getImageUrl()).isEqualTo("media/chat/24/70.webp");
-        verify(chatMessageRepository).save(message);
+        verify(chatMediaReferenceMaintenance).updateImageReference(101L, "media/chat/24/70.webp");
         verify(mediaLinkService).syncChatLink(101L, 24L, "media/chat/24/70.webp");
     }
 
     @Test
     @DisplayName("chat backfill dry-run은 cross-owner legacy key를 audit report로 분류하고 저장하지 않는다")
     void backfillExistingData_chatDryRunAuditsCrossOwnerLegacyWithoutMutation() {
-        ChatMessage message = ChatMessage.builder()
-                .senderId(24L)
-                .imageUrl("chat/99/avatar.png")
-                .build();
-        ReflectionTestUtils.setField(message, "id", 101L);
+        ChatMediaReference message = new ChatMediaReference(101L, 24L, "chat/99/avatar.png");
 
-        when(chatMessageRepository.findAll(any(org.springframework.data.domain.Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of(message)));
-        when(chatImageService.normalizeChatStoragePath("chat/99/avatar.png"))
+        when(chatMediaReferenceQuery.loadBatch(0, 100))
+                .thenReturn(new ChatMediaReferenceBatch(List.of(message), false));
+        when(chatMediaReferenceMaintenance.normalizeStoragePath("chat/99/avatar.png"))
                 .thenReturn("chat/99/avatar.png");
         when(mediaObjectKeyGuard.evaluateChatReadKey("chat/99/avatar.png", 24L))
                 .thenReturn(decision(false, MediaObjectKeyGuard.DecisionReason.LEGACY_OWNER_MISMATCH));
@@ -459,8 +449,7 @@ class MediaMaintenanceServiceTest {
         assertThat(chatReport.auditSamples())
                 .extracting("type")
                 .containsExactly("LEGACY_OWNER_MISMATCH");
-        assertThat(message.getImageUrl()).isEqualTo("chat/99/avatar.png");
-        verify(chatMessageRepository, never()).save(any());
+        verify(chatMediaReferenceMaintenance, never()).updateImageReference(any(), any());
         verify(storageStrategy, never()).uploadBytes(any(), any(), any(), any());
         verify(mediaLinkService, never()).syncChatLink(any(), any(), any());
     }
@@ -468,15 +457,11 @@ class MediaMaintenanceServiceTest {
     @Test
     @DisplayName("chat backfill apply는 옵션이 켜지면 손상된 legacy chat 이미지를 비운다")
     void backfillExistingData_chatApplyClearsBrokenLegacyPathWhenEnabled() {
-        ChatMessage message = ChatMessage.builder()
-                .senderId(24L)
-                .imageUrl("chat/24/broken.png")
-                .build();
-        ReflectionTestUtils.setField(message, "id", 227L);
+        ChatMediaReference message = new ChatMediaReference(227L, 24L, "chat/24/broken.png");
 
-        when(chatMessageRepository.findAll(any(org.springframework.data.domain.Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of(message)));
-        when(chatImageService.normalizeChatStoragePath("chat/24/broken.png"))
+        when(chatMediaReferenceQuery.loadBatch(0, 100))
+                .thenReturn(new ChatMediaReferenceBatch(List.of(message), false));
+        when(chatMediaReferenceMaintenance.normalizeStoragePath("chat/24/broken.png"))
                 .thenReturn("chat/24/broken.png");
         when(storageConfig.getCheerBucket()).thenReturn("cheer-bucket");
         when(storageStrategy.download("cheer-bucket", "chat/24/broken.png"))
@@ -497,8 +482,7 @@ class MediaMaintenanceServiceTest {
         assertThat(chatReport.manualReviewCount()).isZero();
         assertThat(chatReport.sampleNormalizedTargets()).containsExactly("messageId=227:(cleared broken legacy chat image)");
         assertThat(chatReport.sampleManualReviewTargets()).isEmpty();
-        assertThat(message.getImageUrl()).isNull();
-        verify(chatMessageRepository).save(message);
+        verify(chatMediaReferenceMaintenance).updateImageReference(227L, null);
         verify(mediaLinkService).unlinkEntity(MediaDomain.CHAT, 227L);
     }
 

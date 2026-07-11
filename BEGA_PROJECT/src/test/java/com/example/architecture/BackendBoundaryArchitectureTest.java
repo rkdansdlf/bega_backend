@@ -98,4 +98,13 @@ class BackendBoundaryArchitectureTest {
 
         rule.check(PRODUCTION_CLASSES);
     }
+
+    @Test
+    void mediaMustNotDependOnMateImplementations() {
+        ArchRule rule = noClasses()
+                .that().resideInAPackage("com.example.media..")
+                .should().dependOnClassesThat().resideInAPackage("com.example.mate..");
+
+        rule.check(PRODUCTION_CLASSES);
+    }
 }
