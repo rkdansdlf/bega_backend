@@ -9,8 +9,12 @@ import com.example.common.clienterror.dto.ClientErrorEventPageDto;
 import com.example.common.clienterror.dto.ClientErrorEventSummaryDto;
 import com.example.common.clienterror.dto.ClientErrorTimeSeriesPointDto;
 import com.example.common.exception.GlobalExceptionHandler;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.NoSuchElementException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,6 +22,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
@@ -31,11 +37,13 @@ class ClientErrorAdminControllerTest {
 
     private MockMvc mockMvc;
     private ClientErrorAdminService clientErrorAdminService;
+    private MeterRegistry meterRegistry;
 
     @BeforeEach
     void setUp() {
         clientErrorAdminService = mock(ClientErrorAdminService.class);
-        ClientErrorAdminController controller = new ClientErrorAdminController(clientErrorAdminService);
+        meterRegistry = new SimpleMeterRegistry();
+        ClientErrorAdminController controller = new ClientErrorAdminController(clientErrorAdminService, meterRegistry);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -83,6 +91,8 @@ class ClientErrorAdminControllerTest {
                 .andExpect(jsonPath("$.data.totals.api").value(4))
                 .andExpect(jsonPath("$.data.granularity").value("hour"))
                 .andExpect(jsonPath("$.data.recentAlerts[0].channel").value("telegram"));
+
+        assertTimerCount("dashboard", "success", "2xx", "not_applicable", 1);
     }
 
     @Test
@@ -117,15 +127,18 @@ class ClientErrorAdminControllerTest {
                 nullable(OffsetDateTime.class),
                 nullable(OffsetDateTime.class),
                 eq(0),
-                eq(20)))
-                .willReturn(new ClientErrorEventPageDto(List.of(event), 1, 1, 20, 0, true));
+                eq(40)))
+                .willReturn(new ClientErrorEventPageDto(List.of(event), 1, 1, 40, 0, true));
 
         mockMvc.perform(get("/api/admin/client-errors/events")
-                        .param("bucket", "runtime"))
+                        .param("bucket", "runtime")
+                        .param("size", "40"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.content[0].eventId").value("evt-1"))
                 .andExpect(jsonPath("$.data.content[0].bucket").value("runtime"));
+
+        assertTimerCount("events", "success", "2xx", "21_50", 1);
     }
 
     @Test
@@ -163,5 +176,37 @@ class ClientErrorAdminControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.event.eventId").value("evt-1"))
                 .andExpect(jsonPath("$.data.stack").value("stack"));
+
+        assertTimerCount("detail", "success", "2xx", "not_applicable", 1);
+    }
+
+    @Test
+    @DisplayName("클라이언트 에러 이벤트 상세 조회 실패도 메트릭으로 기록한다")
+    void getEventDetailNotFoundRecordsMetric() throws Exception {
+        given(clientErrorAdminService.getEventDetail("missing"))
+                .willThrow(new NoSuchElementException("not found"));
+
+        mockMvc.perform(get("/api/admin/client-errors/events/missing"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+
+        assertTimerCount("detail", "not_found", "4xx", "not_applicable", 1);
+    }
+
+    private void assertTimerCount(
+            String endpoint,
+            String result,
+            String statusGroup,
+            String pageSize,
+            long expectedCount) {
+        Timer timer = meterRegistry.find("client_error_admin_request_duration_seconds")
+                .tag("endpoint", endpoint)
+                .tag("result", result)
+                .tag("status_group", statusGroup)
+                .tag("page_size", pageSize)
+                .timer();
+        assertNotNull(timer);
+        assertEquals(expectedCount, timer.count());
     }
 }
