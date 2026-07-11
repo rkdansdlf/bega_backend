@@ -31,9 +31,8 @@ class BaseballMigrationSafetyTest {
 
     @Test
     void operatorSqlBuildsIndexesConcurrentlyAndVerificationFailsWhenTheyAreMissing() throws IOException {
-        Path root = Path.of("../..");
-        String applySql = read(root.resolve("scripts/sql/baseball/apply_live_inning_relay_indexes.sql"));
-        String verifySql = read(root.resolve("scripts/sql/baseball/verify_live_inning_relay_indexes.sql"));
+        String applySql = read(Path.of("scripts/sql/baseball/apply_live_inning_relay_indexes.sql"));
+        String verifySql = read(Path.of("scripts/sql/baseball/verify_live_inning_relay_indexes.sql"));
 
         assertThat(applySql.toLowerCase())
                 .contains("create index concurrently if not exists idx_game_inning_scores_live")
