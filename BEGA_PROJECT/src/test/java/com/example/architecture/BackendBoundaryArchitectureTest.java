@@ -55,4 +55,16 @@ class BackendBoundaryArchitectureTest {
 
         rule.check(PRODUCTION_CLASSES);
     }
+
+    @Test
+    void seatViewClassificationServiceMustNotOwnAiTransport() {
+        ArchRule rule = noClasses()
+                .that().haveFullyQualifiedName(
+                        "com.example.BegaDiary.Service.SeatViewClassificationService")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "com.example.ai.config..",
+                        "org.springframework.web.reactive.function.client..");
+
+        rule.check(PRODUCTION_CLASSES);
+    }
 }
