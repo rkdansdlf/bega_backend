@@ -5,6 +5,7 @@ BEGA_PROJECT/gradle.properties
  
 # Gradle cache and distribution artifacts
 .gradle_home/
+BEGA_PROJECT/.gradle-prod-audit/
 
 
 HELP.md
