@@ -22,4 +22,15 @@ class BackendBoundaryArchitectureTest {
 
         rule.check(PRODUCTION_CLASSES);
     }
+
+    @Test
+    void ticketAnalysisServiceMustNotOwnAiTransport() {
+        ArchRule rule = noClasses()
+                .that().haveFullyQualifiedName("com.example.kbo.service.TicketAnalysisService")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "com.example.ai.config..",
+                        "org.springframework.web.reactive.function.client..");
+
+        rule.check(PRODUCTION_CLASSES);
+    }
 }
