@@ -67,4 +67,15 @@ class BackendBoundaryArchitectureTest {
 
         rule.check(PRODUCTION_CLASSES);
     }
+
+    @Test
+    void moderationServiceMustNotOwnAiTransport() {
+        ArchRule rule = noClasses()
+                .that().haveFullyQualifiedName("com.example.common.service.AIModerationService")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "com.example.ai.config..",
+                        "org.springframework.web.client..");
+
+        rule.check(PRODUCTION_CLASSES);
+    }
 }
