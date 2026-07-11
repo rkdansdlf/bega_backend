@@ -13,8 +13,10 @@ import com.example.media.service.port.ChatMediaReferenceBatch;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 class ChatMediaMaintenanceAdapterTest {
 
@@ -38,6 +40,14 @@ class ChatMediaMaintenanceAdapterTest {
             assertThat(reference.senderId()).isEqualTo(24L);
             assertThat(reference.imageUrl()).isEqualTo("chat/24/legacy.png");
         });
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(repository).findAll(pageable.capture());
+        assertThat(pageable.getValue().getPageNumber()).isZero();
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(100);
+        assertThat(pageable.getValue().getSort().getOrderFor("id"))
+                .isNotNull()
+                .extracting(Sort.Order::getDirection)
+                .isEqualTo(Sort.Direction.ASC);
     }
 
     @Test

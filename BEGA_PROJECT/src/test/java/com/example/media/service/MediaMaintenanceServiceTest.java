@@ -486,6 +486,32 @@ class MediaMaintenanceServiceTest {
         verify(mediaLinkService).unlinkEntity(MediaDomain.CHAT, 227L);
     }
 
+    @Test
+    @DisplayName("chat backfill은 hasNext가 true인 동안 다음 page index를 순서대로 처리한다")
+    void backfillExistingData_chatProcessesAllBatchesInOrder() {
+        ChatMediaReference first = new ChatMediaReference(101L, 24L, null);
+        ChatMediaReference second = new ChatMediaReference(202L, 25L, null);
+        when(chatMediaReferenceQuery.loadBatch(0, 2))
+                .thenReturn(new ChatMediaReferenceBatch(List.of(first), true));
+        when(chatMediaReferenceQuery.loadBatch(1, 2))
+                .thenReturn(new ChatMediaReferenceBatch(List.of(second), false));
+
+        MediaBackfillReport report = mediaMaintenanceService.backfillExistingData(
+                false,
+                2,
+                List.of(MediaDomain.CHAT),
+                false);
+
+        MediaBackfillDomainReport chatReport = report.domains().stream()
+                .filter(domain -> "CHAT".equals(domain.domain()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(chatReport.scannedCount()).isEqualTo(2);
+        verify(chatMediaReferenceQuery).loadBatch(0, 2);
+        verify(chatMediaReferenceQuery).loadBatch(1, 2);
+        verify(chatMediaReferenceQuery, never()).loadBatch(2, 2);
+    }
+
     private MediaAsset assignMediaAssetId(MediaAsset asset) {
         if (asset.getId() == null) {
             asset.setId(mediaAssetIdSequence.getAndIncrement());
