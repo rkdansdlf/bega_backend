@@ -3,6 +3,7 @@ package com.example.cheerboard.service;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.dto.EmbeddedPostDto;
 import com.example.cheerboard.dto.PostDetailRes;
+import com.example.cheerboard.dto.LinkedContentRes;
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.dto.PostLightweightSummaryRes;
 import com.example.cheerboard.dto.SourceInfoRes;
@@ -124,6 +125,12 @@ public class PostDtoMapper {
      */
     public PostDetailRes toPostDetailRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
             boolean repostedByMe, int bookmarkCount) {
+        return toPostDetailRes(
+                post, liked, isBookmarked, isOwner, repostedByMe, bookmarkCount, Collections.emptyMap());
+    }
+
+    public PostDetailRes toPostDetailRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
+            boolean repostedByMe, int bookmarkCount, Map<Long, LinkedContentRes> linkedContentByPostId) {
         List<String> imageUrls = Collections.emptyList();
         try {
             imageUrls = imageService.getPostImageUrls(post.getId());
@@ -147,7 +154,7 @@ public class PostDtoMapper {
 
             if (original != null) {
                 repostOfId = original.getId();
-                originalPost = toEmbeddedPostDto(original);
+                originalPost = toEmbeddedPostDtoWithLinkedContent(original, linkedContentByPostId);
                 originalDeleted = false;
             } else {
                 // 원본이 삭제된 경우
@@ -184,13 +191,21 @@ public class PostDtoMapper {
                 originalPost,
                 originalDeleted,
                 resolveShareMode(post),
-                toSourceInfo(post));
+                toSourceInfo(post),
+                linkedContent(linkedContentByPostId, post.getId()));
     }
 
     /**
      * 새로 생성된 게시글을 PostDetailRes로 변환 (좋아요/소유권 기본값 설정)
      */
     public PostDetailRes toNewPostDetailRes(CheerPost post, UserEntity author) {
+        return toNewPostDetailRes(post, author, Collections.emptyMap());
+    }
+
+    public PostDetailRes toNewPostDetailRes(
+            CheerPost post,
+            UserEntity author,
+            Map<Long, LinkedContentRes> linkedContentByPostId) {
         List<String> imageUrls = Collections.emptyList();
         try {
             imageUrls = imageService.getPostImageUrls(post.getId());
@@ -207,7 +222,7 @@ public class PostDtoMapper {
         if (post.isRepost() && post.getRepostOf() != null) {
             repostOfId = post.getRepostOf().getId();
             repostType = post.getRepostType().name();
-            originalPost = toEmbeddedPostDto(post.getRepostOf());
+            originalPost = toEmbeddedPostDtoWithLinkedContent(post.getRepostOf(), linkedContentByPostId);
         }
 
         return new PostDetailRes(
@@ -239,7 +254,8 @@ public class PostDtoMapper {
                 originalPost,
                 originalDeleted,
                 resolveShareMode(post),
-                toSourceInfo(post));
+                toSourceInfo(post),
+                linkedContent(linkedContentByPostId, post.getId()));
     }
 
     /**
@@ -261,6 +277,7 @@ public class PostDtoMapper {
                 viewCountMap,
                 hotStatusMap,
                 repostOriginalImageUrls,
+                Collections.emptyMap(),
                 Collections.emptyMap());
     }
 
@@ -273,6 +290,27 @@ public class PostDtoMapper {
             Map<Long, Integer> viewCountMap, Map<Long, Boolean> hotStatusMap,
             Map<Long, List<String>> repostOriginalImageUrls,
             Map<Long, String> feedProfileImageUrls) {
+        return toPostSummaryRes(
+                post,
+                liked,
+                isBookmarked,
+                isOwner,
+                repostedByMe,
+                bookmarkCount,
+                imageUrls,
+                viewCountMap,
+                hotStatusMap,
+                repostOriginalImageUrls,
+                feedProfileImageUrls,
+                Collections.emptyMap());
+    }
+
+    public PostSummaryRes toPostSummaryRes(CheerPost post, boolean liked, boolean isBookmarked, boolean isOwner,
+            boolean repostedByMe, int bookmarkCount, List<String> imageUrls,
+            Map<Long, Integer> viewCountMap, Map<Long, Boolean> hotStatusMap,
+            Map<Long, List<String>> repostOriginalImageUrls,
+            Map<Long, String> feedProfileImageUrls,
+            Map<Long, LinkedContentRes> linkedContentByPostId) {
         List<String> resolvedUrls = imageUrls != null ? imageUrls : Collections.emptyList();
         Map<Long, Integer> resolvedViewCountMap = viewCountMap != null ? viewCountMap : Collections.emptyMap();
         Map<Long, List<String>> resolvedRepostOriginalImageUrls =
@@ -301,7 +339,8 @@ public class PostDtoMapper {
                 originalPost = toEmbeddedPostDto(
                         original,
                         resolvedRepostOriginalImageUrls,
-                        resolvedFeedProfileImageUrls);
+                        resolvedFeedProfileImageUrls,
+                        linkedContentByPostId);
                 originalDeleted = false;
             } else {
                 originalDeleted = true;
@@ -337,13 +376,20 @@ public class PostDtoMapper {
                 originalPost,
                 originalDeleted,
                 resolveShareMode(post),
-                toSourceInfo(post));
+                toSourceInfo(post),
+                linkedContent(linkedContentByPostId, post.getId()));
     }
 
     /**
      * 원본 게시글을 EmbeddedPostDto로 변환 (리포스트 표시용)
      */
     private EmbeddedPostDto toEmbeddedPostDto(CheerPost original) {
+        return toEmbeddedPostDtoWithLinkedContent(original, Collections.emptyMap());
+    }
+
+    private EmbeddedPostDto toEmbeddedPostDtoWithLinkedContent(
+            CheerPost original,
+            Map<Long, LinkedContentRes> linkedContentByPostId) {
         if (original == null) {
             return null;
         }
@@ -369,20 +415,30 @@ public class PostDtoMapper {
                 original.getCommentCount(),
                 original.getRepostCount(),
                 original.getPostType().name(),
-                null);
+                linkedContent(linkedContentByPostId, original.getId()));
     }
 
     /**
      * 원본 게시글을 EmbeddedPostDto로 변환 (프리페치된 이미지 URL 사용)
      */
     private EmbeddedPostDto toEmbeddedPostDto(CheerPost original, Map<Long, List<String>> preloadedImageUrls) {
-        return toEmbeddedPostDto(original, preloadedImageUrls, Collections.emptyMap());
+        return toEmbeddedPostDto(
+                original, preloadedImageUrls, Collections.emptyMap(), Collections.emptyMap());
     }
 
     private EmbeddedPostDto toEmbeddedPostDto(
             CheerPost original,
             Map<Long, List<String>> preloadedImageUrls,
             Map<Long, String> feedProfileImageUrls) {
+        return toEmbeddedPostDto(
+                original, preloadedImageUrls, feedProfileImageUrls, Collections.emptyMap());
+    }
+
+    private EmbeddedPostDto toEmbeddedPostDto(
+            CheerPost original,
+            Map<Long, List<String>> preloadedImageUrls,
+            Map<Long, String> feedProfileImageUrls,
+            Map<Long, LinkedContentRes> linkedContentByPostId) {
         if (original == null) {
             return null;
         }
@@ -407,7 +463,7 @@ public class PostDtoMapper {
                 original.getCommentCount(),
                 original.getRepostCount(),
                 original.getPostType().name(),
-                null);
+                linkedContent(linkedContentByPostId, original.getId()));
     }
 
     private boolean resolveHotStatus(CheerPost post, int combinedViews, Boolean cachedHot) {
@@ -475,13 +531,23 @@ public class PostDtoMapper {
      * - 폴링 엔드포인트에서 사용
      */
     public PostLightweightSummaryRes toPostLightweightSummaryRes(CheerPost post, List<String> imageUrls) {
-        return toPostLightweightSummaryRes(post, imageUrls, Collections.emptyMap());
+        return toPostLightweightSummaryRes(
+                post, imageUrls, Collections.emptyMap(), Collections.emptyMap());
     }
 
     public PostLightweightSummaryRes toPostLightweightSummaryRes(
             CheerPost post,
             List<String> imageUrls,
             Map<Long, String> feedProfileImageUrls) {
+        return toPostLightweightSummaryRes(
+                post, imageUrls, feedProfileImageUrls, Collections.emptyMap());
+    }
+
+    public PostLightweightSummaryRes toPostLightweightSummaryRes(
+            CheerPost post,
+            List<String> imageUrls,
+            Map<Long, String> feedProfileImageUrls,
+            Map<Long, LinkedContentRes> linkedContentByPostId) {
         String firstImageUrl = (imageUrls != null && !imageUrls.isEmpty()) ? imageUrls.get(0) : null;
 
         return PostLightweightSummaryRes.of(
@@ -494,7 +560,13 @@ public class PostDtoMapper {
                 resolveDisplayName(post.getAuthor()),
                 resolveAuthorProfileImageUrlForFeed(post.getAuthor(), feedProfileImageUrls),
                 post.getPostType().name(),
-                null);
+                linkedContent(linkedContentByPostId, post.getId()));
+    }
+
+    private LinkedContentRes linkedContent(
+            Map<Long, LinkedContentRes> linkedContentByPostId,
+            Long postId) {
+        return linkedContentByPostId == null ? null : linkedContentByPostId.get(postId);
     }
 
     private String resolveAuthorProfileImageUrl(UserEntity author) {
