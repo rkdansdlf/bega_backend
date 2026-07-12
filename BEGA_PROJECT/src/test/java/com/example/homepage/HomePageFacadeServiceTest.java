@@ -6,6 +6,7 @@ import com.example.kbo.validation.ManualBaseballDataOverrideService;
 import com.example.kbo.validation.ManualBaseballDataRequest;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import com.example.homepage.port.FeaturedMateQuery;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -16,6 +17,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,10 +26,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -135,6 +139,102 @@ class HomePageFacadeServiceTest {
         assertThat(response.getLoadState().getTimedOut()).isFalse();
         assertThat(response.getLoadState().getTimedOutSections()).isEmpty();
         assertThat(response.getLoadState().getFailedSections()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("bootstrap은 섹션별 결과 counter를 기록한다")
+    void getBootstrapRecordsSectionOutcomeCounters() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        HomePageFacadeService instrumentedService = new HomePageFacadeService(
+                homePageGameService,
+                cheerService,
+                featuredMateQuery,
+                null,
+                null,
+                Duration.ofSeconds(6),
+                Duration.ofSeconds(6),
+                FIXED_CLOCK,
+                null,
+                meterRegistry);
+        LocalDate selectedDate = LocalDate.of(2026, 3, 15);
+        LeagueStartDatesDto leagueStartDates = LeagueStartDatesDto.builder()
+                .regularSeasonStart("2026-03-22")
+                .postseasonStart("2026-10-06")
+                .koreanSeriesStart("2026-10-26")
+                .build();
+
+        when(homePageGameService.getLeagueStartDates()).thenReturn(leagueStartDates);
+        when(homePageGameService.getScheduleNavigation(selectedDate)).thenReturn(ScheduleNavigationDto.builder()
+                .hasPrev(true)
+                .hasNext(true)
+                .build());
+        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate))
+                .thenReturn(HomePageGamesResult.empty());
+        when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
+                .thenReturn(List.of());
+
+        HomeBootstrapResponseDto response = instrumentedService.getBootstrap(selectedDate);
+
+        assertThat(response.getLoadState().getIsFallback()).isFalse();
+        assertThat(meterRegistry.get("home_bootstrap_section_events_total")
+                .tag("section", "leaguestartdates")
+                .tag("result", "success")
+                .counter()
+                .count()).isEqualTo(1.0);
+        assertThat(meterRegistry.get("home_bootstrap_section_events_total")
+                .tag("section", "navigation")
+                .tag("result", "success")
+                .counter()
+                .count()).isEqualTo(1.0);
+        assertThat(meterRegistry.get("home_bootstrap_section_events_total")
+                .tag("section", "games")
+                .tag("result", "success")
+                .counter()
+                .count()).isEqualTo(1.0);
+        assertThat(meterRegistry.get("home_bootstrap_section_events_total")
+                .tag("section", "scheduledgameswindow")
+                .tag("result", "success")
+                .counter()
+                .count()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("home section bulkhead는 active/limit gauge를 등록한다")
+    void homeSectionBulkheadRegistersActiveAndLimitGauges() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        HomePageFacadeService instrumentedService = new HomePageFacadeService(
+                homePageGameService,
+                cheerService,
+                featuredMateQuery,
+                null,
+                null,
+                Duration.ofSeconds(6),
+                Duration.ofSeconds(6),
+                FIXED_CLOCK,
+                null,
+                meterRegistry);
+        ReflectionTestUtils.setField(instrumentedService, "sectionMaxConcurrency", 3);
+
+        Integer result = ReflectionTestUtils.invokeMethod(
+                instrumentedService,
+                "runWithSectionPermit",
+                (java.util.function.Supplier<Integer>) () -> {
+                    assertThat(meterRegistry.get("home_section_bulkhead_active")
+                            .tag("bulkhead", "home_sections")
+                            .gauge()
+                            .value()).isEqualTo(1.0);
+                    assertThat(meterRegistry.get("home_section_bulkhead_limit")
+                            .tag("bulkhead", "home_sections")
+                            .gauge()
+                            .value()).isEqualTo(3.0);
+                    return 42;
+                });
+
+        assertThat(result).isEqualTo(42);
+        assertThat(meterRegistry.get("home_section_bulkhead_active")
+                .tag("bulkhead", "home_sections")
+                .gauge()
+                .value()).isEqualTo(0.0);
     }
 
     @Test
@@ -361,6 +461,78 @@ class HomePageFacadeServiceTest {
     }
 
     @Test
+    @DisplayName("widgets cache service가 있으면 facade는 cache를 통해 조회한다")
+    void getWidgetsDelegatesToWidgetsCacheService() {
+        LocalDate selectedDate = LocalDate.of(2026, 3, 15);
+        HomeWidgetsCacheService widgetsCacheService = mock(HomeWidgetsCacheService.class);
+        HomePageFacadeService cachedService = new HomePageFacadeService(
+                homePageGameService,
+                cheerService,
+                featuredMateQuery,
+                null,
+                null,
+                widgetsCacheService,
+                Duration.ofSeconds(6),
+                Duration.ofSeconds(6),
+                FIXED_CLOCK,
+                null,
+                null,
+                ManualBaseballDataOverrideService.disabled());
+        HomeWidgetsResponseDto cachedWidgets = HomeWidgetsResponseDto.builder()
+                .hotCheerPosts(List.of())
+                .featuredMates(List.of())
+                .rankingSnapshot(HomeRankingSnapshotDto.builder()
+                        .rankingSeasonYear(2025)
+                        .rankingSourceMessage("2025 시즌 순위 데이터")
+                        .isOffSeason(true)
+                        .rankings(List.of())
+                        .build())
+                .build();
+        when(widgetsCacheService.getOrLoad(eq(selectedDate), isNull(), any(), any()))
+                .thenReturn(cachedWidgets);
+
+        HomeWidgetsResponseDto response = cachedService.getWidgets(selectedDate, null);
+
+        assertThat(response).isSameAs(cachedWidgets);
+        verify(widgetsCacheService).getOrLoad(eq(selectedDate), isNull(), any(), any());
+        verify(cheerService, never()).getHotPostsPublic(any(), any());
+        verify(featuredMateQuery, never()).getFeaturedMateCards(any(), any(Integer.class));
+        verify(homePageGameService, never()).getTeamRankings(any(Integer.class));
+    }
+
+    @Test
+    @DisplayName("widgets 섹션 bulkhead는 내부 loader 동시 실행 수를 제한한다")
+    void getWidgetsLimitsConcurrentSectionLoaders() {
+        ReflectionTestUtils.setField(homePageFacadeService, "sectionMaxConcurrency", 1);
+        LocalDate selectedDate = LocalDate.of(2026, 3, 15);
+        AtomicInteger activeLoaders = new AtomicInteger();
+        AtomicInteger maxActiveLoaders = new AtomicInteger();
+        List<HomePageTeamRankingDto> rankings = List.of(HomePageTeamRankingDto.builder()
+                .rank(1)
+                .teamId("LG")
+                .teamName("LG 트윈스")
+                .wins(80)
+                .losses(50)
+                .draws(2)
+                .winRate("0.615")
+                .games(132)
+                .gamesBehind(0.0)
+                .build());
+
+        when(cheerService.getHotPostsPublic(PageRequest.of(0, 3), "HYBRID"))
+                .thenAnswer(invocation -> trackedSectionResult(new PageImpl<>(List.of()), activeLoaders, maxActiveLoaders));
+        when(featuredMateQuery.getFeaturedMateCards(selectedDate, 4))
+                .thenAnswer(invocation -> trackedSectionResult(List.of(), activeLoaders, maxActiveLoaders));
+        when(homePageGameService.getTeamRankings(2024))
+                .thenAnswer(invocation -> trackedSectionResult(rankings, activeLoaders, maxActiveLoaders));
+
+        HomeWidgetsResponseDto response = homePageFacadeService.getWidgets(selectedDate, 2024);
+
+        assertThat(response.getRankingSnapshot().getRankings()).hasSize(1);
+        assertThat(maxActiveLoaders).hasValue(1);
+    }
+
+    @Test
     @DisplayName("widgets는 seasonYear가 있으면 정확한 시즌 랭킹만 조회한다")
     void getWidgetsUsesExactSeasonRankingSnapshotWhenSeasonYearProvided() {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
@@ -543,8 +715,18 @@ class HomePageFacadeServiceTest {
     @Test
     @DisplayName("bootstrap은 특정 섹션이 timeout되어도 기본값으로 응답한다")
     void getBootstrapFallsBackWhenSectionTimesOut() throws Exception {
-        HomePageFacadeService timeoutAwareService =
-                new HomePageFacadeService(homePageGameService, cheerService, featuredMateQuery, Duration.ofMillis(20), FIXED_CLOCK);
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        HomePageFacadeService timeoutAwareService = new HomePageFacadeService(
+                homePageGameService,
+                cheerService,
+                featuredMateQuery,
+                null,
+                null,
+                Duration.ofMillis(20),
+                Duration.ofMillis(20),
+                FIXED_CLOCK,
+                null,
+                meterRegistry);
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
 
         when(homePageGameService.getLeagueStartDates()).thenAnswer(invocation -> {
@@ -579,6 +761,11 @@ class HomePageFacadeServiceTest {
         assertThat(response.getLoadState().getTimedOut()).isTrue();
         assertThat(response.getLoadState().getTimedOutSections()).containsExactly("leagueStartDates");
         assertThat(response.getLoadState().getFailedSections()).containsExactly("leagueStartDates");
+        assertThat(meterRegistry.get("home_bootstrap_section_events_total")
+                .tag("section", "leaguestartdates")
+                .tag("result", "timeout")
+                .counter()
+                .count()).isEqualTo(1.0);
         assertThat(elapsedMs).isLessThan(250L);
     }
 
@@ -750,5 +937,22 @@ class HomePageFacadeServiceTest {
         assertThat(response.getSelectedDate()).isEqualTo("2026-05-13");
         assertThat(response.getGames()).hasSize(1);
         verify(homePageGameService).getScheduledGamesWindow(today, today.plusDays(7));
+    }
+
+    private static <T> T trackedSectionResult(
+            T value,
+            AtomicInteger activeLoaders,
+            AtomicInteger maxActiveLoaders) {
+        int current = activeLoaders.incrementAndGet();
+        maxActiveLoaders.updateAndGet(previous -> Math.max(previous, current));
+        try {
+            TimeUnit.MILLISECONDS.sleep(40);
+            return value;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return value;
+        } finally {
+            activeLoaders.decrementAndGet();
+        }
     }
 }

@@ -5,6 +5,7 @@ import com.example.common.exception.GlobalExceptionHandler;
 import com.example.kbo.validation.ManualBaseballDataMissingItem;
 import com.example.kbo.validation.ManualBaseballDataRequest;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
@@ -242,6 +244,52 @@ class HomeControllerTest {
                 .andExpect(jsonPath("$.rankingSnapshot.rankingSourceMessage").value("2024 시즌 순위 데이터"))
                 .andExpect(jsonPath("$.rankingSnapshot.isOffSeason").value(false))
                 .andExpect(jsonPath("$.rankingSnapshot.rankings[0].teamId").value("LG"));
+    }
+
+    @Test
+    @DisplayName("홈 widgets 요청 duration metric은 success/fallback 결과를 기록한다")
+    void getWidgetsRecordsRequestDurationMetric() throws Exception {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        HomeController controller = new HomeController(homePageFacadeService, homePageGameService, meterRegistry);
+        MockMvc instrumentedMockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+        LocalDate successDate = LocalDate.of(2026, 3, 15);
+        LocalDate fallbackDate = LocalDate.of(2026, 3, 16);
+
+        given(homePageFacadeService.getWidgets(eq(successDate), isNull()))
+                .willReturn(HomeWidgetsResponseDto.builder()
+                        .hotCheerPosts(List.of())
+                        .featuredMates(List.of())
+                        .rankingSnapshot(HomeRankingSnapshotDto.builder()
+                                .rankingSeasonYear(2025)
+                                .rankingSourceMessage("2025 시즌 순위 데이터")
+                                .isOffSeason(true)
+                                .rankings(List.of())
+                                .build())
+                        .build());
+        given(homePageFacadeService.getWidgets(eq(fallbackDate), isNull()))
+                .willReturn(HomeWidgetsResponseDto.builder()
+                        .hotCheerPosts(List.of())
+                        .featuredMates(List.of())
+                        .rankingSnapshot(null)
+                        .build());
+
+        instrumentedMockMvc.perform(get("/api/home/widgets").param("date", "2026-03-15"))
+                .andExpect(status().isOk());
+        instrumentedMockMvc.perform(get("/api/home/widgets").param("date", "2026-03-16"))
+                .andExpect(status().isOk());
+
+        assertThat(meterRegistry.get("home_widgets_request_duration_seconds")
+                .tag("result", "success")
+                .tag("status_group", "2xx")
+                .timer()
+                .count()).isEqualTo(1);
+        assertThat(meterRegistry.get("home_widgets_request_duration_seconds")
+                .tag("result", "fallback")
+                .tag("status_group", "2xx")
+                .timer()
+                .count()).isEqualTo(1);
     }
 
     @Test

@@ -122,10 +122,12 @@ public class GameLiveService {
                     (left, right) -> compareEventSeq(left, right) >= 0 ? left : right);
         });
 
+        Map<String, List<GameInningScoreEntity>> inningScoresByGameId = loadMeaningfulInningScoresByGameId(games);
+
         return games.stream()
                 .map(game -> {
                     GameEventEntity latestEvent = latestByGameId.get(game.getGameId());
-                    List<GameInningScoreEntity> inningScores = loadMeaningfulInningScores(game.getGameId(), game);
+                    List<GameInningScoreEntity> inningScores = inningScoresByGameId.getOrDefault(game.getGameId(), List.of());
                     ensureLiveEventsIfRequired("prediction.live_summary.events", game, latestEvent, inningScores, null);
                     return GameLiveSummaryDto.builder()
                             .gameId(game.getGameId())
@@ -320,6 +322,42 @@ public class GameLiveService {
                 rawInningScores,
                 game.getHomeScore(),
                 game.getAwayScore());
+    }
+
+    private Map<String, List<GameInningScoreEntity>> loadMeaningfulInningScoresByGameId(List<GameEntity> games) {
+        if (isEmpty(games)) {
+            return Map.of();
+        }
+
+        Map<String, GameEntity> gameById = new LinkedHashMap<>();
+        for (GameEntity game : games) {
+            if (game == null || game.getGameId() == null || game.getGameId().isBlank()) {
+                continue;
+            }
+            gameById.putIfAbsent(game.getGameId(), game);
+        }
+        if (gameById.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, List<GameInningScoreEntity>> rawByGameId = new LinkedHashMap<>();
+        gameInningScoreRepository
+                .findAllByGameIdInOrderByGameIdAscInningAscTeamSideAsc(new ArrayList<>(gameById.keySet()))
+                .forEach(score -> {
+                    if (score == null || score.getGameId() == null) {
+                        return;
+                    }
+                    rawByGameId.computeIfAbsent(score.getGameId(), ignored -> new ArrayList<>()).add(score);
+                });
+
+        Map<String, List<GameInningScoreEntity>> normalizedByGameId = new LinkedHashMap<>();
+        gameById.forEach((gameId, game) -> normalizedByGameId.put(
+                gameId,
+                GameInningScoreSupport.normalizeMeaningful(
+                        rawByGameId.getOrDefault(gameId, List.of()),
+                        game.getHomeScore(),
+                        game.getAwayScore())));
+        return normalizedByGameId;
     }
 
     private Integer sumInningRuns(List<GameInningScoreEntity> inningScores, String teamSide) {

@@ -34,8 +34,7 @@ public class GameLiveRelayService {
         baseballDataIntegrityGuard.requireValidGame("prediction.live_relay", gameId);
         int normalizedLimit = normalizeLimit(limit);
         List<GamePlayByPlayEntity> events = loadRelayEvents(gameId, afterId, normalizedLimit);
-        GamePlayByPlayEntity latestRelay = gamePlayByPlayRepository.findFirstByGameIdOrderByIdDesc(gameId)
-                .orElse(null);
+        GamePlayByPlayEntity latestRelay = resolveLatestRelay(gameId, afterId, normalizedLimit, events);
         String result = latestRelay == null && events.isEmpty() ? "empty" : "ok";
         predictionLiveMetricsService.recordLiveRelaySnapshot(result);
         log.debug(
@@ -68,6 +67,27 @@ public class GameLiveRelayService {
                 .stream()
                 .sorted(Comparator.comparing(GamePlayByPlayEntity::getId))
                 .toList();
+    }
+
+    private GamePlayByPlayEntity resolveLatestRelay(
+            String gameId,
+            Integer afterId,
+            int limit,
+            List<GamePlayByPlayEntity> events) {
+        if (afterId == null) {
+            return lastEvent(events);
+        }
+        if (!events.isEmpty() && events.size() < limit) {
+            return lastEvent(events);
+        }
+        return gamePlayByPlayRepository.findFirstByGameIdOrderByIdDesc(gameId).orElse(null);
+    }
+
+    private GamePlayByPlayEntity lastEvent(List<GamePlayByPlayEntity> events) {
+        if (events == null || events.isEmpty()) {
+            return null;
+        }
+        return events.get(events.size() - 1);
     }
 
     private int normalizeLimit(Integer limit) {

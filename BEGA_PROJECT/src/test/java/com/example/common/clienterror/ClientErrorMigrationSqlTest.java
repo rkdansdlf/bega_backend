@@ -66,6 +66,34 @@ class ClientErrorMigrationSqlTest {
                 .contains("v_has_comment > 0 and v_has_feedback_comment = 0");
     }
 
+    @Test
+    @DisplayName("PostgreSQL client error admin filter migration defines source/status occurred indexes")
+    void postgresClientErrorAdminFilterIndexesAreDefined() throws IOException {
+        String sql = loadSql("db/migration_postgresql/V170__add_client_error_admin_filter_indexes.sql").toLowerCase();
+
+        assertThat(sql)
+                .contains("idx_client_error_events_source_occurred")
+                .contains("on client_error_events (source, occurred_at desc)")
+                .contains("idx_client_error_events_status_occurred")
+                .contains("on client_error_events (status_group, occurred_at desc)")
+                .contains("idx_client_error_events_occurred_id")
+                .contains("on client_error_events (occurred_at desc, id desc)");
+    }
+
+    @Test
+    @DisplayName("Oracle client error admin filter migration defines source/status occurred indexes")
+    void oracleClientErrorAdminFilterIndexesAreDefined() throws IOException {
+        String sql = loadSql("db/migration/V164__add_client_error_admin_filter_indexes.sql").toLowerCase();
+
+        assertThat(sql)
+                .contains("idx_client_error_events_source_occurred")
+                .contains("on client_error_events(source, occurred_at desc)")
+                .contains("idx_client_error_events_status_occurred")
+                .contains("on client_error_events(status_group, occurred_at desc)")
+                .contains("idx_client_error_events_occurred_id")
+                .contains("on client_error_events(occurred_at desc, id desc)");
+    }
+
     private String loadSql(String resourcePath) throws IOException {
         ClassPathResource resource = new ClassPathResource(resourcePath);
         try (var inputStream = resource.getInputStream()) {

@@ -5,12 +5,14 @@ import com.example.ai.exception.AiProxyException;
 import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
 import com.example.ai.service.AiProxyService.ProxyStreamResponse;
+import com.example.ai.service.AiProxyStreamConcurrencyLimiter;
 import com.example.ai.service.CoachAutoBriefMonitoringService;
 import com.example.common.exception.GlobalExceptionHandler;
 import com.example.common.ratelimit.RateLimit;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,15 +51,18 @@ class AiProxyControllerTest {
     private MockMvc mockMvc;
     private AiProxyService aiProxyService;
     private CoachAutoBriefMonitoringService coachAutoBriefMonitoringService;
+    private AiProxyStreamConcurrencyLimiter streamConcurrencyLimiter;
 
     @BeforeEach
     void setup() {
         aiProxyService = mock(AiProxyService.class);
         coachAutoBriefMonitoringService = mock(CoachAutoBriefMonitoringService.class);
+        streamConcurrencyLimiter = new AiProxyStreamConcurrencyLimiter(32, new SimpleMeterRegistry());
         AiProxyController controller = new AiProxyController(
                 aiProxyService,
                 coachAutoBriefMonitoringService,
-                new AiProxyRequestLimits(4096, 4096, 1024 * 1024, 1024 * 1024 + 65536, 256 * 1024, 128 * 1024));
+                new AiProxyRequestLimits(4096, 4096, 1024 * 1024, 1024 * 1024 + 65536, 256 * 1024, 128 * 1024),
+                streamConcurrencyLimiter);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -225,6 +230,31 @@ class AiProxyControllerTest {
                 .andExpect(header().string("X-Accel-Buffering", "no"))
                 .andExpect(content().string(containsString("event: message")))
                 .andExpect(content().string(containsString("data: [DONE]")));
+        assertThat(streamConcurrencyLimiter.getAvailablePermits())
+                .isEqualTo(streamConcurrencyLimiter.getMaxConcurrentStreams());
+    }
+
+    @Test
+    @DisplayName("chat stream limiter 포화 시 upstream 호출 전 503을 반환한다")
+    void chatStreamSaturatedBulkheadReturns503BeforeProxyForwarding() throws Exception {
+        AiProxyStreamConcurrencyLimiter saturatedLimiter = new AiProxyStreamConcurrencyLimiter(1, new SimpleMeterRegistry());
+        AiProxyStreamConcurrencyLimiter.Permit heldPermit = saturatedLimiter.acquire("chat_stream");
+        MockMvc saturatedMockMvc = mockMvcWithLimits(
+                new AiProxyRequestLimits(4096, 4096, 1024 * 1024, 1024 * 1024 + 65536, 256 * 1024, 128 * 1024),
+                saturatedLimiter);
+
+        try {
+            saturatedMockMvc.perform(post("/api/ai/chat/stream")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"question\":\"테스트\"}"))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.success").value(false))
+                    .andExpect(jsonPath("$.code").value(AiProxyStreamConcurrencyLimiter.STREAMS_BUSY_CODE));
+
+            verify(aiProxyService, never()).forwardJsonStream(any(), any());
+        } finally {
+            heldPermit.close();
+        }
     }
 
     @Test
@@ -422,10 +452,17 @@ class AiProxyControllerTest {
     }
 
     private MockMvc mockMvcWithLimits(AiProxyRequestLimits requestLimits) {
+        return mockMvcWithLimits(requestLimits, streamConcurrencyLimiter);
+    }
+
+    private MockMvc mockMvcWithLimits(
+            AiProxyRequestLimits requestLimits,
+            AiProxyStreamConcurrencyLimiter streamConcurrencyLimiter) {
         AiProxyController controller = new AiProxyController(
                 aiProxyService,
                 coachAutoBriefMonitoringService,
-                requestLimits);
+                requestLimits,
+                streamConcurrencyLimiter);
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
