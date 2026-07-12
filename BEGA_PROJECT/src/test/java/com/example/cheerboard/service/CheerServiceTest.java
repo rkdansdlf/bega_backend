@@ -5,7 +5,13 @@ import com.example.auth.service.BlockService;
 import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.cheerboard.config.CurrentUser;
 import com.example.cheerboard.domain.CheerPost;
+import com.example.cheerboard.domain.PostType;
+import com.example.cheerboard.dto.CreatePostReq;
+import com.example.cheerboard.dto.LinkedPostLookupRes;
 import com.example.cheerboard.dto.PostDetailRes;
+import com.example.cheerboard.repo.CheerPostRepo;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.annotation.Transactional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,6 +22,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -45,6 +53,85 @@ class CheerServiceTest {
         private PublicVisibilityVerifier publicVisibilityVerifier;
         @Mock
         private PermissionValidator permissionValidator;
+        @Mock
+        private CheerLinkedPostService linkedPostService;
+        @Mock
+        private CheerPostRepo postRepo;
+
+        @Test
+        @DisplayName("Create Post maps a newly created entity to a 201-capable result")
+        void createPost_new_returnsCreatedResult() {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                CreatePostReq req = new CreatePostReq("LG", "content", null, "NORMAL");
+                CheerPost post = CheerPost.builder().id(1L).author(me).postType(PostType.NORMAL).build();
+                PostDetailRes detail = mock(PostDetailRes.class);
+                when(current.get()).thenReturn(me);
+                when(postService.createPost(req, me)).thenReturn(new CheerPostCreationOutcome(post, true));
+                when(postDtoMapper.toNewPostDetailRes(post, me)).thenReturn(detail);
+
+                CheerPostCreationResult result = cheerService.createPost(req);
+
+                assertThat(result.created()).isTrue();
+                assertThat(result.post()).isSameAs(detail);
+        }
+
+        @Test
+        @DisplayName("Duplicate recovery reloads after the writer transaction rolls back")
+        void createPost_duplicateConflict_returnsRaceWinner() {
+                Long diaryId = 41L;
+                UserEntity me = UserEntity.builder().id(100L).build();
+                CreatePostReq req = new CreatePostReq(
+                                "LG", "content", null, "CHECKIN", null,
+                                null, null, null, null, null, null, null, diaryId, null);
+                CheerPost winner = CheerPost.builder()
+                                .id(7L).author(me).postType(PostType.CHECKIN).diaryId(diaryId).build();
+                PostDetailRes detail = mock(PostDetailRes.class);
+                when(current.get()).thenReturn(me);
+                when(postService.createPost(req, me)).thenThrow(new DataIntegrityViolationException("duplicate"));
+                when(postRepo.findFirstByDiaryIdAndDeletedFalse(diaryId)).thenReturn(java.util.Optional.of(winner));
+                when(postDtoMapper.toNewPostDetailRes(winner, me)).thenReturn(detail);
+
+                CheerPostCreationResult result = cheerService.createPost(req);
+
+                assertThat(result.created()).isFalse();
+                assertThat(result.post()).isSameAs(detail);
+                verify(postRepo).findFirstByDiaryIdAndDeletedFalse(diaryId);
+        }
+
+        @Test
+        @DisplayName("Create facade has no outer transaction around writer rollback recovery")
+        void createPost_hasNoTransactionalBoundary() throws Exception {
+                assertThat(CheerService.class.getMethod("createPost", CreatePostReq.class)
+                                .getAnnotation(Transactional.class)).isNull();
+                assertThat(CheerPostService.class.getMethod("createPost", CreatePostReq.class, UserEntity.class)
+                                .getAnnotation(Transactional.class)).isNotNull();
+        }
+
+        @Test
+        @DisplayName("Duplicate recovery rethrows when no active linked winner exists")
+        void createPost_duplicateConflictWithoutWinner_rethrows() {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                CreatePostReq req = new CreatePostReq(
+                                "LG", "content", null, "RECRUITMENT", null,
+                                null, null, null, null, null, null, null, null, 51L);
+                DataIntegrityViolationException conflict = new DataIntegrityViolationException("duplicate");
+                when(current.get()).thenReturn(me);
+                when(postService.createPost(req, me)).thenThrow(conflict);
+                when(postRepo.findFirstByPartyIdAndDeletedFalse(51L)).thenReturn(java.util.Optional.empty());
+
+                assertThatThrownBy(() -> cheerService.createPost(req)).isSameAs(conflict);
+        }
+
+        @Test
+        @DisplayName("Linked lookup delegates with the authenticated actor")
+        void lookupLinkedPost_delegatesWithCurrentUser() {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                LinkedPostLookupRes expected = mock(LinkedPostLookupRes.class);
+                when(current.get()).thenReturn(me);
+                when(linkedPostService.lookup(41L, null, me)).thenReturn(expected);
+
+                assertThat(cheerService.lookupLinkedPost(41L, null)).isSameAs(expected);
+        }
 
         @Test
         @DisplayName("Get Post - Orchestration Success")

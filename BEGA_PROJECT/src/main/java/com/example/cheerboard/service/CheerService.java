@@ -15,6 +15,8 @@ import com.example.cheerboard.dto.ReportCaseRes;
 import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.dto.RepostToggleResponse;
 import com.example.cheerboard.dto.UpdatePostReq;
+import com.example.cheerboard.dto.LinkedPostLookupRes;
+import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.dto.PostImageDto;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.service.PublicVisibilityVerifier;
@@ -24,10 +26,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * CheerService Core Facade
@@ -50,6 +54,8 @@ public class CheerService {
     private final RedisPostService redisPostService;
     private final PublicVisibilityVerifier publicVisibilityVerifier;
     private final PermissionValidator permissionValidator;
+    private final CheerLinkedPostService linkedPostService;
+    private final CheerPostRepo postRepo;
 
     // --- Feed Operations ---
 
@@ -119,10 +125,23 @@ public class CheerService {
 
     // --- Post CRUD ---
 
-    @Transactional
-    public PostDetailRes createPost(CreatePostReq req) {
+    public CheerPostCreationResult createPost(CreatePostReq req) {
         UserEntity me = current.get();
-        return postService.createPost(req, me);
+        try {
+            CheerPostCreationOutcome outcome = postService.createPost(req, me);
+            return toCreationResult(outcome.post(), me, outcome.created());
+        } catch (DataIntegrityViolationException exception) {
+            CheerPost winner = reloadActiveLinkedPost(req);
+            if (winner == null) {
+                throw exception;
+            }
+            return toCreationResult(winner, me, false);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public LinkedPostLookupRes lookupLinkedPost(Long diaryId, Long partyId) {
+        return linkedPostService.lookup(diaryId, partyId, current.get());
     }
 
     @Transactional
@@ -259,5 +278,20 @@ public class CheerService {
         int bookmarkCount = interactionService.getBookmarkCount(post.getId());
 
         return postDtoMapper.toPostDetailRes(post, liked, isBookmarked, isOwner, repostedByMe, bookmarkCount);
+    }
+
+    private CheerPostCreationResult toCreationResult(CheerPost post, UserEntity actor, boolean created) {
+        PostDetailRes detail = Objects.requireNonNull(postDtoMapper.toNewPostDetailRes(post, actor));
+        return new CheerPostCreationResult(detail, created);
+    }
+
+    private CheerPost reloadActiveLinkedPost(CreatePostReq req) {
+        if (req.diaryId() != null && req.partyId() == null) {
+            return postRepo.findFirstByDiaryIdAndDeletedFalse(req.diaryId()).orElse(null);
+        }
+        if (req.partyId() != null && req.diaryId() == null) {
+            return postRepo.findFirstByPartyIdAndDeletedFalse(req.partyId()).orElse(null);
+        }
+        return null;
     }
 }
