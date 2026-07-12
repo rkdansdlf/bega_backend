@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
@@ -47,11 +48,13 @@ public class AiProxyController {
 
     @PostMapping("/chat/stream")
     @RateLimit(limit = 60, window = 60, key = "ai:chat", failClosed = true)
-    public ResponseEntity<StreamingResponseBody> chatStream(@RequestBody String payload) {
+    public ResponseEntity<StreamingResponseBody> chatStream(
+            @RequestBody String payload,
+            @RequestHeader(value = AiProxyService.AI_EVENT_VERSION_HEADER, required = false) String eventVersion) {
         requestLimits.validateChatJson(payload);
         Permit streamPermit = streamConcurrencyLimiter.acquire("chat_stream");
         try {
-            ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/chat/stream", payload);
+            ProxyStreamResponse proxyResponse = forwardJsonStream("/ai/chat/stream", payload, eventVersion);
             return toStreamResponse(proxyResponse, streamPermit);
         } catch (RuntimeException exception) {
             streamPermit.close();
@@ -69,7 +72,9 @@ public class AiProxyController {
 
     @PostMapping("/coach/analyze")
     @RateLimit(limit = 25, window = 60, key = "ai:coach", failClosed = true)
-    public ResponseEntity<StreamingResponseBody> coachAnalyze(@RequestBody String payload) {
+    public ResponseEntity<StreamingResponseBody> coachAnalyze(
+            @RequestBody String payload,
+            @RequestHeader(value = AiProxyService.AI_EVENT_VERSION_HEADER, required = false) String eventVersion) {
         requestLimits.validateCoachJson(payload);
         String requestMode = coachAutoBriefMonitoringService.extractRequestMode(payload);
         String analysisType = coachAutoBriefMonitoringService.extractAnalysisType(payload);
@@ -79,7 +84,7 @@ public class AiProxyController {
         try {
             streamPermit = streamConcurrencyLimiter.acquire("coach_analyze");
             log.info("Coach analyze proxy start request_mode={} analysis_type={}", requestMode, analysisType);
-            ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/coach/analyze", payload);
+            ProxyStreamResponse proxyResponse = forwardJsonStream("/ai/coach/analyze", payload, eventVersion);
             log.info(
                     "Coach analyze upstream stream established request_mode={} analysis_type={} status={} header_wait_ms={}",
                     requestMode,
@@ -173,6 +178,13 @@ public class AiProxyController {
         return ResponseEntity.status(proxyResponse.status())
                 .headers(headers)
                 .body(proxyResponse.body());
+    }
+
+    private ProxyStreamResponse forwardJsonStream(String uri, String payload, String eventVersion) {
+        if (eventVersion == null || eventVersion.isBlank()) {
+            return aiProxyService.forwardJsonStream(uri, payload);
+        }
+        return aiProxyService.forwardJsonStream(uri, payload, eventVersion);
     }
 
     private ResponseEntity<StreamingResponseBody> toStreamResponse(ProxyStreamResponse proxyResponse, Permit streamPermit) {

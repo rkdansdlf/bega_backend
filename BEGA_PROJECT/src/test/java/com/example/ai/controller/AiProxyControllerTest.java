@@ -235,6 +235,40 @@ class AiProxyControllerTest {
     }
 
     @Test
+    @DisplayName("chat stream v2 협상 헤더를 전달하고 응답 헤더를 노출한다")
+    void chatStreamForwardsV2NegotiationHeader() throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_EVENT_STREAM);
+        headers.add("X-AI-Event-Version", "2");
+        String payload = "{\"question\":\"테스트\"}";
+        DefaultDataBufferFactory bufferFactory = new DefaultDataBufferFactory();
+
+        given(aiProxyService.forwardJsonStream(eq("/ai/chat/stream"), eq(payload), eq("2")))
+                .willReturn(new ProxyStreamResponse(
+                        HttpStatus.OK,
+                        headers,
+                        Flux.just(bufferFactory.wrap("event: stream.done\ndata: {\"version\":2,\"type\":\"stream.done\",\"data\":{\"reason\":\"completed\"}}\n\n".getBytes(StandardCharsets.UTF_8))),
+                        null));
+        willAnswer(invocation -> {
+            OutputStream outputStream = invocation.getArgument(1);
+            outputStream.write("event: stream.done\ndata: {\"version\":2,\"type\":\"stream.done\",\"data\":{\"reason\":\"completed\"}}\n\n".getBytes(StandardCharsets.UTF_8));
+            return null;
+        }).given(aiProxyService).writeStream(any(), any());
+
+        MvcResult result = mockMvc.perform(post("/api/ai/chat/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("X-AI-Event-Version", "2")
+                        .content(payload))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-AI-Event-Version", "2"))
+                .andExpect(content().string(containsString("event: stream.done")));
+    }
+
+    @Test
     @DisplayName("chat stream limiter 포화 시 upstream 호출 전 503을 반환한다")
     void chatStreamSaturatedBulkheadReturns503BeforeProxyForwarding() throws Exception {
         AiProxyStreamConcurrencyLimiter saturatedLimiter = new AiProxyStreamConcurrencyLimiter(1, new SimpleMeterRegistry());
@@ -322,6 +356,37 @@ class AiProxyControllerTest {
                 .andExpect(content().string(containsString("data: [DONE]")));
 
         verify(coachAutoBriefMonitoringService).recordCoachAnalyzeDuration(eq("manual_detail"), eq("game_review"), eq(200), anyLong());
+    }
+
+    @Test
+    @DisplayName("coach analyze v2 협상 헤더를 upstream에 전달한다")
+    void coachAnalyzeForwardsV2NegotiationHeader() throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_EVENT_STREAM);
+        headers.add("X-AI-Event-Version", "2");
+        String payload = "{\"home_team_id\":\"HH\",\"request_mode\":\"manual_detail\"}";
+        given(coachAutoBriefMonitoringService.extractRequestMode(eq(payload))).willReturn("manual_detail");
+        given(coachAutoBriefMonitoringService.extractAnalysisType(eq(payload))).willReturn("game_review");
+        given(aiProxyService.forwardJsonStream(eq("/ai/coach/analyze"), eq(payload), eq("2")))
+                .willReturn(new ProxyStreamResponse(
+                        HttpStatus.OK,
+                        headers,
+                        Flux.empty(),
+                        null));
+        willAnswer(invocation -> null).given(aiProxyService).writeStream(any(), any());
+
+        MvcResult result = mockMvc.perform(post("/api/ai/coach/analyze")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("X-AI-Event-Version", "2")
+                        .content(payload))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-AI-Event-Version", "2"));
+
+        verify(aiProxyService).forwardJsonStream("/ai/coach/analyze", payload, "2");
     }
 
     @Test
@@ -442,13 +507,13 @@ class AiProxyControllerTest {
     @DisplayName("AI 프록시 공개 사용자 엔드포인트는 fail-closed rate limit을 사용한다")
     void aiProxyUserEndpointsHaveFailClosedRateLimits() throws Exception {
         assertRateLimit("chatCompletion", new Class<?>[] {String.class}, 60, "ai:chat");
-        assertRateLimit("chatStream", new Class<?>[] {String.class}, 60, "ai:chat");
+        assertRateLimit("chatStream", new Class<?>[] {String.class, String.class}, 60, "ai:chat");
         assertRateLimit(
                 "chatVoice",
                 new Class<?>[] {org.springframework.web.multipart.MultipartFile.class},
                 20,
                 "ai:chat_voice");
-        assertRateLimit("coachAnalyze", new Class<?>[] {String.class}, 25, "ai:coach");
+        assertRateLimit("coachAnalyze", new Class<?>[] {String.class, String.class}, 25, "ai:coach");
     }
 
     private MockMvc mockMvcWithLimits(AiProxyRequestLimits requestLimits) {
