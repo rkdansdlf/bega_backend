@@ -4,6 +4,8 @@ import com.example.ai.config.AiProxyRequestLimits;
 import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
 import com.example.ai.service.AiProxyService.ProxyStreamResponse;
+import com.example.ai.service.AiProxyStreamConcurrencyLimiter;
+import com.example.ai.service.AiProxyStreamConcurrencyLimiter.Permit;
 import com.example.ai.service.CoachAutoBriefMonitoringService;
 import com.example.common.ratelimit.RateLimit;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,6 +35,7 @@ public class AiProxyController {
     private final AiProxyService aiProxyService;
     private final CoachAutoBriefMonitoringService coachAutoBriefMonitoringService;
     private final AiProxyRequestLimits requestLimits;
+    private final AiProxyStreamConcurrencyLimiter streamConcurrencyLimiter;
 
     @PostMapping("/chat/completion")
     @RateLimit(limit = 60, window = 60, key = "ai:chat", failClosed = true)
@@ -46,8 +49,14 @@ public class AiProxyController {
     @RateLimit(limit = 60, window = 60, key = "ai:chat", failClosed = true)
     public ResponseEntity<StreamingResponseBody> chatStream(@RequestBody String payload) {
         requestLimits.validateChatJson(payload);
-        ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/chat/stream", payload);
-        return toStreamResponse(proxyResponse);
+        Permit streamPermit = streamConcurrencyLimiter.acquire("chat_stream");
+        try {
+            ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/chat/stream", payload);
+            return toStreamResponse(proxyResponse, streamPermit);
+        } catch (RuntimeException exception) {
+            streamPermit.close();
+            throw exception;
+        }
     }
 
     @PostMapping("/chat/voice")
@@ -65,8 +74,10 @@ public class AiProxyController {
         String requestMode = coachAutoBriefMonitoringService.extractRequestMode(payload);
         String analysisType = coachAutoBriefMonitoringService.extractAnalysisType(payload);
         long startNanos = System.nanoTime();
+        Permit streamPermit = null;
 
         try {
+            streamPermit = streamConcurrencyLimiter.acquire("coach_analyze");
             log.info("Coach analyze proxy start request_mode={} analysis_type={}", requestMode, analysisType);
             ProxyStreamResponse proxyResponse = aiProxyService.forwardJsonStream("/ai/coach/analyze", payload);
             log.info(
@@ -75,8 +86,11 @@ public class AiProxyController {
                     analysisType,
                     proxyResponse.status().value(),
                     elapsedMillis(startNanos));
-            return toCoachAnalyzeStreamResponse(proxyResponse, requestMode, analysisType, startNanos);
+            return toCoachAnalyzeStreamResponse(proxyResponse, requestMode, analysisType, startNanos, streamPermit);
         } catch (RuntimeException exception) {
+            if (streamPermit != null) {
+                streamPermit.close();
+            }
             int statusCode = coachAutoBriefMonitoringService.resolveStatusCode(exception);
             coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
                     requestMode,
@@ -161,27 +175,7 @@ public class AiProxyController {
                 .body(proxyResponse.body());
     }
 
-    private ResponseEntity<StreamingResponseBody> toStreamResponse(ProxyStreamResponse proxyResponse) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.putAll(proxyResponse.headers());
-
-        StreamingResponseBody responseBody;
-        if (!proxyResponse.status().is2xxSuccessful()) {
-            byte[] errorBody = proxyResponse.errorBody() != null ? proxyResponse.errorBody() : new byte[0];
-            responseBody = outputStream -> outputStream.write(errorBody);
-        } else {
-            responseBody = outputStream -> aiProxyService.writeStream(proxyResponse.bodyFlux(), outputStream);
-        }
-        return ResponseEntity.status(proxyResponse.status())
-                .headers(headers)
-                .body(responseBody);
-    }
-
-    private ResponseEntity<StreamingResponseBody> toCoachAnalyzeStreamResponse(
-            ProxyStreamResponse proxyResponse,
-            String requestMode,
-            String analysisType,
-            long startNanos) {
+    private ResponseEntity<StreamingResponseBody> toStreamResponse(ProxyStreamResponse proxyResponse, Permit streamPermit) {
         HttpHeaders headers = new HttpHeaders();
         headers.putAll(proxyResponse.headers());
 
@@ -192,17 +186,54 @@ public class AiProxyController {
                 try {
                     outputStream.write(errorBody);
                 } finally {
-                    coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
-                            requestMode,
-                            analysisType,
-                            proxyResponse.status().value(),
-                            System.nanoTime() - startNanos);
-                    log.info(
-                            "Coach analyze proxy error response completed request_mode={} analysis_type={} status={} elapsed_ms={}",
-                            requestMode,
-                            analysisType,
-                            proxyResponse.status().value(),
-                            elapsedMillis(startNanos));
+                    streamPermit.close();
+                }
+            };
+        } else {
+            responseBody = outputStream -> {
+                try {
+                    aiProxyService.writeStream(proxyResponse.bodyFlux(), outputStream);
+                } finally {
+                    streamPermit.close();
+                }
+            };
+        }
+        return ResponseEntity.status(proxyResponse.status())
+                .headers(headers)
+                .body(responseBody);
+    }
+
+    private ResponseEntity<StreamingResponseBody> toCoachAnalyzeStreamResponse(
+            ProxyStreamResponse proxyResponse,
+            String requestMode,
+            String analysisType,
+            long startNanos,
+            Permit streamPermit) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.putAll(proxyResponse.headers());
+
+        StreamingResponseBody responseBody;
+        if (!proxyResponse.status().is2xxSuccessful()) {
+            byte[] errorBody = proxyResponse.errorBody() != null ? proxyResponse.errorBody() : new byte[0];
+            responseBody = outputStream -> {
+                try {
+                    outputStream.write(errorBody);
+                } finally {
+                    try {
+                        coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
+                                requestMode,
+                                analysisType,
+                                proxyResponse.status().value(),
+                                System.nanoTime() - startNanos);
+                        log.info(
+                                "Coach analyze proxy error response completed request_mode={} analysis_type={} status={} elapsed_ms={}",
+                                requestMode,
+                                analysisType,
+                                proxyResponse.status().value(),
+                                elapsedMillis(startNanos));
+                    } finally {
+                        streamPermit.close();
+                    }
                 }
             };
         } else {
@@ -223,6 +254,8 @@ public class AiProxyController {
                             elapsedMillis(startNanos),
                             exception.toString());
                     throw exception;
+                } finally {
+                    streamPermit.close();
                 }
                 coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
                         requestMode,

@@ -5,6 +5,7 @@ import com.example.mate.dto.PartyDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.exception.InvalidPartyStatusException;
 import com.example.mate.service.PartyFavoriteService;
+import com.example.mate.service.MatePartyListMetricsService;
 import com.example.mate.service.PartyService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -39,6 +40,7 @@ public class PartyController {
 
     private final PartyService partyService;
     private final PartyFavoriteService partyFavoriteService;
+    private final MatePartyListMetricsService partyListMetricsService;
 
     // 파티 생성
     @PostMapping
@@ -65,20 +67,50 @@ public class PartyController {
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir,
             @AuthenticationPrincipal Long currentUserId) {
-        Party.PartyStatus parsedStatus = parsePartyStatus(status);
-
-        Sort.Direction direction = sortDir.equalsIgnoreCase("asc") ? Sort.Direction.ASC : Sort.Direction.DESC;
+        long startedAtNanos = System.nanoTime();
+        int resolvedSize = Math.min(size, MAX_PAGE_SIZE);
         String resolvedSortBy = sortBy != null && ALLOWED_SORTS.contains(sortBy) ? sortBy : "createdAt";
-        Pageable pageable = PageRequest.of(page, Math.min(size, MAX_PAGE_SIZE), Sort.by(direction, resolvedSortBy));
-        Page<PartyDTO.PublicResponse> parties = partyService.getAllParties(
-                teamId,
-                stadium,
-                date,
-                searchQuery,
-                pageable,
-                parsedStatus,
-                currentUserId);
-        return ResponseEntity.ok(parties);
+
+        try {
+            Party.PartyStatus parsedStatus = parsePartyStatus(status);
+            Sort.Direction direction = sortDir.equalsIgnoreCase("asc") ? Sort.Direction.ASC : Sort.Direction.DESC;
+            Pageable pageable = PageRequest.of(page, resolvedSize, Sort.by(direction, resolvedSortBy));
+            Page<PartyDTO.PublicResponse> parties = partyService.getAllParties(
+                    teamId,
+                    stadium,
+                    date,
+                    searchQuery,
+                    pageable,
+                    parsedStatus,
+                    currentUserId);
+            recordPartyListMetrics(
+                    teamId,
+                    stadium,
+                    date,
+                    searchQuery,
+                    status,
+                    resolvedSortBy,
+                    sortDir,
+                    resolvedSize,
+                    currentUserId,
+                    "success",
+                    startedAtNanos);
+            return ResponseEntity.ok(parties);
+        } catch (RuntimeException ex) {
+            recordPartyListMetrics(
+                    teamId,
+                    stadium,
+                    date,
+                    searchQuery,
+                    status,
+                    resolvedSortBy,
+                    sortDir,
+                    resolvedSize,
+                    currentUserId,
+                    "failure",
+                    startedAtNanos);
+            throw ex;
+        }
     }
 
     // 파티 ID로 조회
@@ -220,5 +252,31 @@ public class PartyController {
                 .filter(candidate -> candidate.name().equalsIgnoreCase(status.trim()))
                 .findFirst()
                 .orElseThrow(() -> new InvalidPartyStatusException(status));
+    }
+
+    private void recordPartyListMetrics(
+            String teamId,
+            String stadium,
+            LocalDate date,
+            String searchQuery,
+            String status,
+            String sortBy,
+            String sortDir,
+            int size,
+            Long currentUserId,
+            String result,
+            long startedAtNanos) {
+        partyListMetricsService.recordRequest(
+                teamId,
+                stadium,
+                date,
+                searchQuery,
+                status,
+                sortBy,
+                sortDir,
+                size,
+                currentUserId != null,
+                result,
+                System.nanoTime() - startedAtNanos);
     }
 }

@@ -1,12 +1,16 @@
 package com.example.common.clienterror;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Slf4j
 public class ClientErrorAlertingService {
+
+    private static final int FINGERPRINT_QUERY_BATCH_SIZE = 500;
+    private static final String API_ALERT_STATUS_GROUP = "5xx";
 
     private final ClientErrorEventRepository eventRepository;
     private final ClientErrorFeedbackRepository feedbackRepository;
@@ -40,16 +47,22 @@ public class ClientErrorAlertingService {
 
         LocalDateTime now = LocalDateTime.now(ClientErrorSupport.UTC);
         LocalDateTime windowStart = now.minusMinutes(Math.max(alerts.getWindowMinutes(), 1));
-        List<ClientErrorEventEntity> recentEvents =
-                eventRepository.findByOccurredAtGreaterThanEqualOrderByOccurredAtAsc(windowStart);
-        Map<String, AlertCandidate> candidates = buildCandidates(recentEvents);
-        LocalDateTime cooldownCutoff = now.minusMinutes(Math.max(alerts.getCooldownMinutes(), 1));
+        Map<String, AlertCandidate> candidates = loadCandidates(windowStart, alerts);
+        if (candidates.isEmpty()) {
+            return;
+        }
 
-        for (AlertCandidate candidate : candidates.values()) {
-            if (!candidate.shouldAlert(alerts)) {
-                continue;
-            }
-            if (alertNotificationRepository.existsByFingerprintAndNotifiedAtAfter(candidate.fingerprint(), cooldownCutoff)) {
+        LocalDateTime cooldownCutoff = now.minusMinutes(Math.max(alerts.getCooldownMinutes(), 1));
+        List<AlertCandidate> alertableCandidates = candidates.values().stream()
+                .filter(candidate -> candidate.shouldAlert(alerts))
+                .toList();
+        if (alertableCandidates.isEmpty()) {
+            return;
+        }
+        Set<String> cooledDownFingerprints = loadCooledDownFingerprints(alertableCandidates, cooldownCutoff);
+
+        for (AlertCandidate candidate : alertableCandidates) {
+            if (cooledDownFingerprints.contains(candidate.fingerprint())) {
                 continue;
             }
 
@@ -91,16 +104,82 @@ public class ClientErrorAlertingService {
         }
     }
 
-    private Map<String, AlertCandidate> buildCandidates(List<ClientErrorEventEntity> recentEvents) {
+    private Map<String, AlertCandidate> loadCandidates(
+            LocalDateTime windowStart,
+            ClientErrorMonitoringProperties.Alerts alerts) {
+        List<ClientErrorAlertCandidateProjection> summaries = eventRepository.findAlertCandidateSummaries(
+                windowStart,
+                ClientErrorBucket.RUNTIME,
+                ClientErrorBucket.API,
+                API_ALERT_STATUS_GROUP,
+                minimumAlertThreshold(alerts),
+                PageRequest.of(0, normalizedMaxCandidates(alerts)));
+        if (summaries.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<String> fingerprints = summaries.stream()
+                .map(ClientErrorAlertCandidateProjection::getFingerprint)
+                .toList();
+        Map<String, ClientErrorEventSummaryProjection> latestEvents = latestEventsByFingerprint(windowStart, fingerprints);
         Map<String, AlertCandidate> candidates = new LinkedHashMap<>();
-        for (ClientErrorEventEntity event : recentEvents) {
-            if (event.getBucket() == ClientErrorBucket.FEEDBACK) {
+        for (ClientErrorAlertCandidateProjection summary : summaries) {
+            ClientErrorEventSummaryProjection latestEvent = latestEvents.get(summary.getFingerprint());
+            if (latestEvent == null) {
                 continue;
             }
-            candidates.computeIfAbsent(event.getFingerprint(), key -> new AlertCandidate(event.getFingerprint()))
-                    .add(event);
+            candidates.put(summary.getFingerprint(), new AlertCandidate(
+                    summary.getFingerprint(),
+                    summary.getObservedCount(),
+                    latestEvent));
         }
         return candidates;
+    }
+
+    private long minimumAlertThreshold(ClientErrorMonitoringProperties.Alerts alerts) {
+        return Math.max(Math.min(alerts.getRuntimeThreshold(), alerts.getApi5xxThreshold()), 1);
+    }
+
+    private int normalizedMaxCandidates(ClientErrorMonitoringProperties.Alerts alerts) {
+        return Math.max(alerts.getMaxCandidates(), 1);
+    }
+
+    private Map<String, ClientErrorEventSummaryProjection> latestEventsByFingerprint(
+            LocalDateTime windowStart,
+            List<String> fingerprints) {
+        Map<String, ClientErrorEventSummaryProjection> latestEvents = new LinkedHashMap<>();
+        for (int start = 0; start < fingerprints.size(); start += FINGERPRINT_QUERY_BATCH_SIZE) {
+            int end = Math.min(start + FINGERPRINT_QUERY_BATCH_SIZE, fingerprints.size());
+            List<ClientErrorEventSummaryProjection> batch = eventRepository.findLatestAlertEventsByFingerprint(
+                    windowStart,
+                    ClientErrorBucket.RUNTIME,
+                    ClientErrorBucket.API,
+                    API_ALERT_STATUS_GROUP,
+                    fingerprints.subList(start, end));
+            for (ClientErrorEventSummaryProjection event : batch) {
+                latestEvents.putIfAbsent(event.getFingerprint(), event);
+            }
+        }
+        return latestEvents;
+    }
+
+    private Set<String> loadCooledDownFingerprints(
+            List<AlertCandidate> candidates,
+            LocalDateTime cooldownCutoff) {
+        if (candidates.isEmpty()) {
+            return Collections.emptySet();
+        }
+        List<String> fingerprints = candidates.stream()
+                .map(AlertCandidate::fingerprint)
+                .toList();
+        Set<String> cooledDownFingerprints = new HashSet<>();
+        for (int start = 0; start < fingerprints.size(); start += FINGERPRINT_QUERY_BATCH_SIZE) {
+            int end = Math.min(start + FINGERPRINT_QUERY_BATCH_SIZE, fingerprints.size());
+            cooledDownFingerprints.addAll(alertNotificationRepository.findFingerprintsNotifiedAfter(
+                    fingerprints.subList(start, end),
+                    cooldownCutoff));
+        }
+        return cooledDownFingerprints;
     }
 
     private ClientErrorAlertPayload buildAlertPayload(AlertCandidate candidate, int windowMinutes) {
@@ -144,21 +223,16 @@ public class ClientErrorAlertingService {
         private String latestMessage;
         private LocalDateTime latestOccurredAt;
 
-        private AlertCandidate(String fingerprint) {
+        private AlertCandidate(String fingerprint, long count, ClientErrorEventSummaryProjection latestEvent) {
             this.fingerprint = fingerprint;
-        }
-
-        void add(ClientErrorEventEntity event) {
-            count += 1;
-            if (latestOccurredAt == null || event.getOccurredAt().isAfter(latestOccurredAt)) {
-                bucket = event.getBucket();
-                source = event.getSource();
-                route = event.getRoute();
-                statusGroup = event.getStatusGroup();
-                latestEventId = event.getEventId();
-                latestMessage = event.getMessage();
-                latestOccurredAt = event.getOccurredAt();
-            }
+            this.count = count;
+            this.bucket = latestEvent.getBucket();
+            this.source = latestEvent.getSource();
+            this.route = latestEvent.getRoute();
+            this.statusGroup = latestEvent.getStatusGroup();
+            this.latestEventId = latestEvent.getEventId();
+            this.latestMessage = latestEvent.getMessage();
+            this.latestOccurredAt = latestEvent.getOccurredAt();
         }
 
         boolean shouldAlert(ClientErrorMonitoringProperties.Alerts alerts) {
@@ -166,7 +240,7 @@ public class ClientErrorAlertingService {
                 return count >= alerts.getRuntimeThreshold();
             }
             if (bucket == ClientErrorBucket.API) {
-                return "5xx".equals(statusGroup) && count >= alerts.getApi5xxThreshold();
+                return API_ALERT_STATUS_GROUP.equals(statusGroup) && count >= alerts.getApi5xxThreshold();
             }
             return false;
         }
