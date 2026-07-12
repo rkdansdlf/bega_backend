@@ -388,13 +388,16 @@ public class SecurityConfig {
                                 "Accept",
                                 "Origin",
                                 "X-Requested-With",
-                                "X-XSRF-TOKEN"));
+                                "X-XSRF-TOKEN",
+                                "X-AI-Event-Version"));
                 configuration.setAllowCredentials(true);
                 configuration.setMaxAge(3600L);
 
                 // Do not expose Set-Cookie or Authorization to browser JavaScript.
                 // Cookies are set by the browser from credentialed CORS responses.
-                configuration.setExposedHeaders(List.of("Content-Disposition"));
+                configuration.setExposedHeaders(List.of(
+                                "Content-Disposition",
+                                "X-AI-Event-Version"));
 
                 UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
                 source.registerCorsConfiguration("/**", configuration);
