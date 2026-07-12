@@ -93,6 +93,30 @@ class AiProxyServiceTest {
     }
 
     @Test
+    void forwardJsonStreamForwardsNegotiatedVersionAndPreservesResponseHeaderAndBody() throws Exception {
+        AtomicReference<String> requestVersion = new AtomicReference<>();
+        String sseBody = "event: chat.message.delta\ndata: {\"version\":2,\"type\":\"chat.message.delta\",\"data\":{\"delta\":\"안녕\"}}\n\n";
+        server = startServer("/ai/chat/stream", exchange -> {
+            requestVersion.set(exchange.getRequestHeaders().getFirst("X-AI-Event-Version"));
+            exchange.getResponseHeaders().add("X-AI-Event-Version", "2");
+            writeResponse(exchange, 200, sseBody, "text/event-stream");
+        });
+
+        AiProxyService service = newService(Duration.ofSeconds(5), "stream-token");
+
+        AiProxyService.ProxyStreamResponse response = service.forwardJsonStream(
+                "/ai/chat/stream",
+                "{\"test\":true}",
+                "2");
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        service.writeStream(response.bodyFlux(), outputStream);
+
+        assertThat(requestVersion.get()).isEqualTo("2");
+        assertThat(response.headers().getFirst("X-AI-Event-Version")).isEqualTo("2");
+        assertThat(outputStream.toString(StandardCharsets.UTF_8)).isEqualTo(sseBody);
+    }
+
+    @Test
     void forwardJsonRecordsUpstreamRequestMetric() throws Exception {
         server = startServer("/ai/chat/completion", exchange -> writeResponse(exchange, 200, "{\"ok\":true}"));
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
@@ -189,6 +213,36 @@ class AiProxyServiceTest {
         assertThat(requestCount.get()).isEqualTo(2);
         assertThat(firstToken.get()).isEqualTo("mismatched-env-token");
         assertThat(secondToken.get()).isEqualTo("local-dev-ai-internal-token");
+    }
+
+    @Test
+    void forwardJsonStreamPreservesEventVersionAcrossInternalTokenRetry() throws Exception {
+        AtomicInteger requestCount = new AtomicInteger();
+        AtomicReference<String> firstVersion = new AtomicReference<>();
+        AtomicReference<String> secondVersion = new AtomicReference<>();
+        server = startServer("/ai/coach/analyze", exchange -> {
+            int currentAttempt = requestCount.incrementAndGet();
+            String version = exchange.getRequestHeaders().getFirst("X-AI-Event-Version");
+            if (currentAttempt == 1) {
+                firstVersion.set(version);
+                writeResponse(exchange, 401, "unauthorized");
+                return;
+            }
+            secondVersion.set(version);
+            writeResponse(exchange, 200, "event: stream.done\ndata: {\"version\":2,\"type\":\"stream.done\",\"data\":{\"reason\":\"completed\"}}\n\n");
+        });
+
+        AiProxyService service = newService(Duration.ofSeconds(5), "mismatched-env-token");
+
+        AiProxyService.ProxyStreamResponse response = service.forwardJsonStream(
+                "/ai/coach/analyze",
+                "{\"test\":true}",
+                "2");
+
+        assertThat(response.status().value()).isEqualTo(200);
+        assertThat(requestCount.get()).isEqualTo(2);
+        assertThat(firstVersion.get()).isEqualTo("2");
+        assertThat(secondVersion.get()).isEqualTo("2");
     }
 
     @Test

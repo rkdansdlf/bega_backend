@@ -39,6 +39,8 @@ import reactor.netty.resources.ConnectionProvider;
 @Service
 public class AiProxyService {
 
+    public static final String AI_EVENT_VERSION_HEADER = "X-AI-Event-Version";
+
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String CONNECTION_PROVIDER_NAME = "ai-proxy";
     private static final int DEFAULT_MAX_CONNECTIONS = 40;
@@ -49,6 +51,7 @@ public class AiProxyService {
             HttpHeaders.CONTENT_TYPE,
             HttpHeaders.CACHE_CONTROL,
             HttpHeaders.RETRY_AFTER,
+            AI_EVENT_VERSION_HEADER,
             "X-Accel-Buffering");
 
     private final AiServiceSettings aiServiceSettings;
@@ -198,10 +201,19 @@ public class AiProxyService {
     }
 
     public ProxyStreamResponse forwardJsonStream(String uri, String payload) {
+        return forwardJsonStream(uri, payload, null);
+    }
+
+    public ProxyStreamResponse forwardJsonStream(String uri, String payload, String eventVersion) {
         return executeStreamRequest(uri, internalToken -> client().post()
                 .uri(uri)
                 .contentType(MediaType.APPLICATION_JSON)
-                .headers(headers -> applyInternalAuth(headers, internalToken))
+                .headers(headers -> {
+                    applyInternalAuth(headers, internalToken);
+                    if (StringUtils.hasText(eventVersion)) {
+                        headers.set(AI_EVENT_VERSION_HEADER, eventVersion.trim());
+                    }
+                })
                 .bodyValue(payload));
     }
 
