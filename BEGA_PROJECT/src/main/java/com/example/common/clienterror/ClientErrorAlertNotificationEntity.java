@@ -25,7 +25,8 @@ import lombok.Setter;
 @Builder
 @Table(name = "client_error_alert_notifications", indexes = {
         @Index(name = "idx_client_error_alert_notifications_fingerprint", columnList = "fingerprint"),
-        @Index(name = "idx_client_error_alert_notifications_notified_at", columnList = "notified_at")
+        @Index(name = "idx_client_error_alert_notifications_notified_at", columnList = "notified_at"),
+        @Index(name = "idx_client_error_alert_notif_cooldown", columnList = "fingerprint, notified_at")
 })
 public class ClientErrorAlertNotificationEntity {
 

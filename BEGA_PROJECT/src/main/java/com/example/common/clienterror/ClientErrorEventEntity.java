@@ -30,7 +30,11 @@ import org.hibernate.type.SqlTypes;
         @Index(name = "idx_client_error_events_occurred_at", columnList = "occurred_at"),
         @Index(name = "idx_client_error_events_bucket_occurred_at", columnList = "bucket, occurred_at"),
         @Index(name = "idx_client_error_events_fingerprint", columnList = "fingerprint"),
-        @Index(name = "idx_client_error_events_normalized_route", columnList = "normalized_route")
+        @Index(name = "idx_client_error_events_alert_window", columnList = "occurred_at, fingerprint, bucket"),
+        @Index(name = "idx_client_error_events_fp_occurred", columnList = "fingerprint, occurred_at"),
+        @Index(name = "idx_client_error_events_normalized_route", columnList = "normalized_route"),
+        @Index(name = "idx_client_error_events_source_occurred", columnList = "source, occurred_at"),
+        @Index(name = "idx_client_error_events_status_occurred", columnList = "status_group, occurred_at")
 }, uniqueConstraints = {
         @UniqueConstraint(name = "uq_client_error_events_event_id", columnNames = "event_id")
 })

@@ -2,6 +2,8 @@ package com.example.homepage;
 
 import static com.example.common.config.CacheConfig.HOME_RANKING_SNAPSHOT;
 
+import com.example.common.cache.BoundedLocalCache;
+import com.example.common.concurrent.StripedLockRegistry;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
@@ -10,9 +12,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.Lock;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,12 +27,15 @@ public class HomeRankingSnapshotCacheService {
 
     private static final String RANKING_FALLBACK_SOURCE_MESSAGE = "순위 데이터를 불러오지 못했습니다.";
     private static final Duration FALLBACK_CACHE_TTL = Duration.ofSeconds(60);
+    private static final int LOCAL_CACHE_MAX_ENTRIES = 256;
+    private static final int KEY_LOCK_STRIPES = 64;
 
     private final CacheManager cacheManager;
     private final Clock clock;
     private final MeterRegistry meterRegistry;
-    private final ConcurrentHashMap<String, ReentrantLock> keyLocks = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, CachedFallbackSnapshot> fallbackSnapshots = new ConcurrentHashMap<>();
+    private final StripedLockRegistry keyLocks = new StripedLockRegistry(KEY_LOCK_STRIPES);
+    private final BoundedLocalCache<String, CachedFallbackSnapshot> fallbackSnapshots =
+            new BoundedLocalCache<>(LOCAL_CACHE_MAX_ENTRIES);
 
     @Autowired
     public HomeRankingSnapshotCacheService(CacheManager cacheManager, MeterRegistry meterRegistry) {
@@ -67,7 +71,7 @@ public class HomeRankingSnapshotCacheService {
             return firstFallback;
         }
 
-        ReentrantLock lock = keyLocks.computeIfAbsent(cacheKey, ignored -> new ReentrantLock());
+        Lock lock = keyLocks.lockFor(cacheKey);
         lock.lock();
         try {
             CacheLookup secondLookup = lookup(cacheKey);

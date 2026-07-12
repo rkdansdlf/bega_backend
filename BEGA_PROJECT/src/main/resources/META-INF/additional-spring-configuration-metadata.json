@@ -353,6 +353,11 @@
       "description": "Cooldown period in minutes before the same fingerprint can alert again."
     },
     {
+      "name": "app.client-error-monitoring.alerts.max-candidates",
+      "type": "java.lang.Integer",
+      "description": "Maximum alert candidate fingerprints evaluated per polling cycle."
+    },
+    {
       "name": "app.client-error-monitoring.alerts.channel",
       "type": "com.example.common.clienterror.ClientErrorAlertChannel",
       "description": "Alert delivery channel used for backend-driven client error alerts."
@@ -523,6 +528,31 @@
       "description": "Maximum number of games to warm per prediction warm-up run. A value of 0 means no limit."
     },
     {
+      "name": "app.prediction.bootstrap.resource-max-concurrency",
+      "type": "java.lang.Integer",
+      "description": "Maximum concurrent prediction bootstrap detail and vote-status resource loaders."
+    },
+    {
+      "name": "app.prediction.bootstrap.resource-permit-wait-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Maximum time in milliseconds a prediction bootstrap resource loader waits for a bulkhead permit."
+    },
+    {
+      "name": "app.cheer.feed.enrichment.max-concurrency",
+      "type": "java.lang.Integer",
+      "description": "Maximum concurrent cheer feed enrichment operations."
+    },
+    {
+      "name": "app.cheer.feed.enrichment.permit-wait-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Maximum time in milliseconds a cheer feed enrichment task waits for a bulkhead permit."
+    },
+    {
+      "name": "app.cheer.feed.enrichment.task-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Maximum time in milliseconds a cheer feed request waits for an enrichment result before using fallback data."
+    },
+    {
       "name": "app.flyway.auto-repair",
       "type": "java.lang.Boolean",
       "description": "Whether application-level Flyway repair should be enabled."
@@ -546,6 +576,31 @@
       "name": "app.ai.proxy.request-timeout-seconds",
       "type": "java.lang.Long",
       "description": "Request timeout for proxied AI calls in seconds."
+    },
+    {
+      "name": "app.ai.proxy.stream-header-timeout-seconds",
+      "type": "java.lang.Long",
+      "description": "Header wait timeout for proxied AI streaming calls in seconds."
+    },
+    {
+      "name": "app.ai.proxy.max-concurrent-streams",
+      "type": "java.lang.Integer",
+      "description": "Maximum concurrent backend AI streaming proxy responses before returning 503."
+    },
+    {
+      "name": "app.ai.proxy.max-connections",
+      "type": "java.lang.Integer",
+      "description": "Maximum Reactor Netty connections reserved for backend AI proxy upstream calls."
+    },
+    {
+      "name": "app.ai.proxy.pending-acquire-timeout-ms",
+      "type": "java.lang.Long",
+      "description": "Maximum time in milliseconds to wait for a backend AI proxy upstream connection from the dedicated pool."
+    },
+    {
+      "name": "app.ai.proxy.pending-acquire-max-count",
+      "type": "java.lang.Integer",
+      "description": "Maximum queued backend AI proxy upstream connection acquire requests."
     },
     {
       "name": "app.ai.proxy.health-timeout-ms",

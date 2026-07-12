@@ -26,6 +26,7 @@ public class HomeController {
             "navigation",
             "games",
             "scheduledGamesWindow");
+    private static final String WIDGETS_FALLBACK_RANKING_MESSAGE = "순위 데이터를 불러오지 못했습니다.";
 
     private final HomePageFacadeService homePageFacadeService;
     private final HomePageGameService homePageGameService;
@@ -72,12 +73,24 @@ public class HomeController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) Integer seasonYear) {
         LocalDate selectedDate = date == null ? LocalDate.now() : date;
+        long startedAtNanos = System.nanoTime();
+        String result = "success";
+        int statusCode = 200;
         try {
-            return ResponseEntity.ok(normalizeWidgetsResponse(selectedDate, seasonYear,
-                    homePageFacadeService.getWidgets(selectedDate, seasonYear)));
+            HomeWidgetsResponseDto response = normalizeWidgetsResponse(
+                    selectedDate,
+                    seasonYear,
+                    homePageFacadeService.getWidgets(selectedDate, seasonYear));
+            if (isFallbackWidgetsResponse(response)) {
+                result = "fallback";
+            }
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
+            result = "fallback";
             log.warn("Widgets failed for date={}, returning empty fallback: {}", selectedDate, e.getMessage());
             return ResponseEntity.ok(normalizeWidgetsResponse(selectedDate, seasonYear, null));
+        } finally {
+            recordWidgetsRequestDuration(result, statusCode, System.nanoTime() - startedAtNanos);
         }
     }
 
@@ -160,7 +173,7 @@ public class HomeController {
                 : seasonYear;
         return HomeRankingSnapshotDto.builder()
                 .rankingSeasonYear(rankingSeasonYear)
-                .rankingSourceMessage("순위 데이터를 불러오지 못했습니다.")
+                .rankingSourceMessage(WIDGETS_FALLBACK_RANKING_MESSAGE)
                 .isOffSeason(offSeason)
                 .rankings(List.of())
                 .build();
@@ -172,6 +185,12 @@ public class HomeController {
                 && rankingSnapshot.getRankingSourceMessage() != null
                 && !rankingSnapshot.getRankingSourceMessage().isBlank()
                 && rankingSnapshot.getRankings() != null;
+    }
+
+    private boolean isFallbackWidgetsResponse(HomeWidgetsResponseDto response) {
+        return response == null
+                || response.getRankingSnapshot() == null
+                || WIDGETS_FALLBACK_RANKING_MESSAGE.equals(response.getRankingSnapshot().getRankingSourceMessage());
     }
 
     private boolean isAutomaticOffSeason(LocalDate selectedDate) {
@@ -187,6 +206,21 @@ public class HomeController {
 
         Timer.builder("home_bootstrap_request_duration_seconds")
                 .description("Home bootstrap request duration")
+                .publishPercentileHistogram()
+                .tags(
+                        "result", normalizeMetricTag(result),
+                        "status_group", normalizeStatusGroup(statusCode))
+                .register(meterRegistry)
+                .record(durationNanos, TimeUnit.NANOSECONDS);
+    }
+
+    private void recordWidgetsRequestDuration(String result, int statusCode, long durationNanos) {
+        if (durationNanos < 0) {
+            return;
+        }
+
+        Timer.builder("home_widgets_request_duration_seconds")
+                .description("Home widgets request duration")
                 .publishPercentileHistogram()
                 .tags(
                         "result", normalizeMetricTag(result),
