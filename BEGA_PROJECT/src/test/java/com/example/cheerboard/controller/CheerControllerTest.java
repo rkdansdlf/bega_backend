@@ -3,7 +3,10 @@ package com.example.cheerboard.controller;
 import com.example.cheerboard.dto.*;
 import com.example.cheerboard.service.CheerBattleService;
 import com.example.cheerboard.service.CheerService;
+import com.example.cheerboard.service.CheerPostCreationResult;
 import com.example.cheerboard.storage.dto.PostImageDto;
+import com.example.common.ratelimit.RateLimit;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +25,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.security.Principal;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
@@ -213,15 +218,63 @@ class CheerControllerTest {
     // ── create ──
 
     @Test
-    @DisplayName("게시글 생성 시 상세를 반환한다")
-    void create_returnsPostDetail() {
+    @DisplayName("새 게시글 생성은 201을 반환한다")
+    void create_new_returnsCreated() {
         CreatePostReq req = mock(CreatePostReq.class);
         PostDetailRes detail = mock(PostDetailRes.class);
-        when(svc.createPost(req)).thenReturn(detail);
+        when(svc.createPost(req)).thenReturn(new CheerPostCreationResult(detail, true));
 
-        PostDetailRes result = controller.create(req);
+        ResponseEntity<PostDetailRes> result = controller.create(req);
 
-        assertThat(result).isEqualTo(detail);
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(result.getBody()).isSameAs(detail);
+    }
+
+    @Test
+    @DisplayName("반복된 linked 게시글 생성은 기존 게시글과 200을 반환한다")
+    void create_existing_returnsOk() {
+        CreatePostReq req = mock(CreatePostReq.class);
+        PostDetailRes detail = mock(PostDetailRes.class);
+        when(svc.createPost(req)).thenReturn(new CheerPostCreationResult(detail, false));
+
+        ResponseEntity<PostDetailRes> result = controller.create(req);
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(result.getBody()).isSameAs(detail);
+    }
+
+    @Test
+    @DisplayName("linked lookup endpoint delegates both optional source IDs")
+    void linked_delegatesSourceIds() {
+        LinkedPostLookupRes expected = mock(LinkedPostLookupRes.class);
+        when(svc.lookupLinkedPost(41L, null)).thenReturn(expected);
+
+        assertThat(controller.linked(41L, null)).isSameAs(expected);
+    }
+
+    @Test
+    @DisplayName("linked lookup has its independent 30 per minute rate limit")
+    void linked_hasIndependentRateLimit() throws Exception {
+        RateLimit rateLimit = CheerController.class
+                .getMethod("linked", Long.class, Long.class)
+                .getAnnotation(RateLimit.class);
+
+        assertThat(rateLimit.limit()).isEqualTo(30);
+        assertThat(rateLimit.window()).isEqualTo(60);
+        assertThat(rateLimit.key()).isEqualTo("cheer:linked");
+    }
+
+    @Test
+    @DisplayName("create OpenAPI documents both existing and newly-created responses")
+    void create_documentsOkAndCreatedResponses() throws Exception {
+        ApiResponses responses = CheerController.class
+                .getMethod("create", CreatePostReq.class)
+                .getAnnotation(ApiResponses.class);
+
+        Set<String> statusCodes = java.util.Arrays.stream(responses.value())
+                .map(io.swagger.v3.oas.annotations.responses.ApiResponse::responseCode)
+                .collect(Collectors.toSet());
+        assertThat(statusCodes).contains("200", "201");
     }
 
     // ── update ──

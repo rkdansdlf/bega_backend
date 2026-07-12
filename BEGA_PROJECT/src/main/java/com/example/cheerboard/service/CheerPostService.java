@@ -19,10 +19,10 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.BlockService;
 import com.example.auth.service.FollowService;
-import com.example.common.exception.InvalidAuthorException;
 import com.example.common.exception.RepostNotAllowedException;
 import com.example.common.exception.RepostSelfNotAllowedException;
 import com.example.common.exception.RepostTargetNotFoundException;
+import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.service.AIModerationService;
 import com.example.kbo.repository.TeamRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
@@ -88,9 +88,10 @@ public class CheerPostService {
     private final EntityManager entityManager;
     private final MediaLinkService mediaLinkService;
     private final StorageConfig storageConfig;
+    private final CheerLinkedPostService linkedPostService;
 
     @Transactional
-    public PostDetailRes createPost(CreatePostReq req, UserEntity me) {
+    public CheerPostCreationOutcome createPost(CreatePostReq req, UserEntity me) {
         String normalizedTeamId = TeamCodeNormalizer.normalize(req.teamId());
         log.debug("createPost - requested authorId={} normalizedTeamId={}", me != null ? me.getId() : null,
                 normalizedTeamId);
@@ -98,6 +99,16 @@ public class CheerPostService {
         UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
         // 저장 직전 재검증(토큰/계정 상태 동기화 갱신)
         author = CheerAuthorWriteGuard.ensureAuthorRecordStillExists(author, userRepo);
+
+        PostType postType = determinePostType(req, author);
+        CheerLinkedPostService.ValidatedTarget validatedTarget =
+                linkedPostService.validateCreate(postType, req, author);
+        if (postType == PostType.CHECKIN || postType == PostType.RECRUITMENT) {
+            Optional<CheerPost> existing = linkedPostService.findActivePost(validatedTarget);
+            if (existing.isPresent()) {
+                return new CheerPostCreationOutcome(existing.get(), false);
+            }
+        }
 
         String normalizedContent = sanitizeRequiredPostContent(req.content());
 
@@ -118,33 +129,16 @@ public class CheerPostService {
 
         permissionValidator.validateTeamAccess(author, normalizedTeamId, "게시글 작성");
 
-        PostType postType = determinePostType(req, author);
-        CheerPost post = buildNewPost(req, author, postType, normalizedTeamId, normalizedContent, normalizedSourceUrl);
-        CheerPost savedPost;
-        try {
-            savedPost = postRepo.saveAndFlush(Objects.requireNonNull(post));
-        } catch (DataIntegrityViolationException ex) {
-            if (isDeletedAuthorReference(ex)) {
-                try {
-                    CheerAuthorWriteGuard.ensureAuthorRecordStillExists(author, userRepo);
-                } catch (InvalidAuthorException invalidAuthor) {
-                    throw invalidAuthor;
-                }
-                log.warn(
-                        "createPost - foreign key violation on cheer_post insert but author still valid. authorId={}, teamId={}, message={}",
-                        author.getId(), normalizedTeamId,
-                        ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage());
-                throw ex;
-            }
-            throw ex;
-        }
+        CheerPost post = buildNewPost(
+                req, author, postType, validatedTarget, normalizedTeamId, normalizedContent, normalizedSourceUrl);
+        CheerPost savedPost = postRepo.saveAndFlush(Objects.requireNonNull(post));
 
         syncManagedPostImages(savedPost, author.getId(), req.images());
 
         // 팔로워들에게 새 글 알림 (notify_new_posts=true 인 팔로워에게만)
         sendNewPostNotificationToFollowers(savedPost, author);
 
-        return Objects.requireNonNull(postDtoMapper.toNewPostDetailRes(savedPost, author));
+        return new CheerPostCreationOutcome(savedPost, true);
     }
 
     @Transactional
@@ -448,16 +442,26 @@ public class CheerPostService {
     }
 
     private PostType determinePostType(CreatePostReq req, UserEntity user) {
-        if (user != null && "ROLE_ADMIN".equals(user.getRole()) && "NOTICE".equals(req.postType())) {
-            return PostType.NOTICE;
+        String requestedType = req.postType();
+        if (requestedType == null || requestedType.isBlank() || "NORMAL".equals(requestedType)) {
+            return PostType.NORMAL;
         }
-        return PostType.NORMAL;
+        return switch (requestedType) {
+            case "NOTICE" -> user != null && "ROLE_ADMIN".equals(user.getRole())
+                    ? PostType.NOTICE
+                    : PostType.NORMAL;
+            case "CHECKIN" -> PostType.CHECKIN;
+            case "RECRUITMENT" -> PostType.RECRUITMENT;
+            default -> throw new BadRequestBusinessException(
+                    "INVALID_LINKED_POST_REQUEST", "연결 게시글 요청이 올바르지 않습니다.");
+        };
     }
 
     private CheerPost buildNewPost(
             CreatePostReq req,
             UserEntity author,
             PostType postType,
+            CheerLinkedPostService.ValidatedTarget validatedTarget,
             String normalizedTeamId,
             String normalizedContent,
             String normalizedSourceUrl) {
@@ -486,6 +490,8 @@ public class CheerPostService {
                 .sourceSnapshotType(req.sourceSnapshotType())
                 .content(normalizedContent)
                 .postType(postType)
+                .diaryId(validatedTarget.diaryId())
+                .partyId(validatedTarget.partyId())
                 .build();
     }
 
