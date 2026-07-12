@@ -341,7 +341,16 @@ public class AiProxyService {
             statusCodeValue = e.getStatusCode().value();
             result = "upstream_error";
             log.warn("AI upstream returned status={} for stream uri={}", e.getStatusCode().value(), uri);
-            HttpHeaders headers = new HttpHeaders();
+            HttpHeaders headers = filterResponseHeaders(e.getHeaders());
+            byte[] upstreamBody = e.getResponseBodyAsByteArray();
+            if (e.getStatusCode().value() == HttpStatus.NOT_ACCEPTABLE.value()
+                    && upstreamBody.length > 0) {
+                return new ProxyStreamResponse(
+                        e.getStatusCode(),
+                        headers,
+                        Flux.empty(),
+                        upstreamBody);
+            }
             headers.setContentType(MediaType.APPLICATION_JSON);
             return new ProxyStreamResponse(
                     e.getStatusCode(),
