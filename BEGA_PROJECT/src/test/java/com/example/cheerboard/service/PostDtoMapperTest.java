@@ -3,18 +3,26 @@ package com.example.cheerboard.service;
 import com.example.auth.entity.UserEntity;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.PostType;
+import com.example.cheerboard.dto.CheckinLinkedContentRes;
+import com.example.cheerboard.dto.LinkedContentRes;
 import com.example.cheerboard.dto.PostLightweightSummaryRes;
+import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.PostSummaryRes;
+import com.example.cheerboard.dto.RecruitmentLinkedContentRes;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.kbo.entity.TeamEntity;
 import com.example.profile.storage.service.ProfileImageService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -172,6 +180,114 @@ class PostDtoMapperTest {
     }
 
     @Test
+    @DisplayName("prefetch summary mapping attaches linked content to the top-level post")
+    void toPostSummaryRes_attachesPrefetchedLinkedContent() {
+        PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
+        CheerPost post = createPost(49L, 0, PostType.CHECKIN);
+        LinkedContentRes checkinContent = checkinContent();
+
+        PostSummaryRes result = mapper.toPostSummaryRes(
+                post,
+                false,
+                false,
+                false,
+                false,
+                0,
+                Collections.emptyList(),
+                Collections.emptyMap(),
+                Collections.emptyMap(),
+                Collections.emptyMap(),
+                Collections.emptyMap(),
+                Map.of(post.getId(), checkinContent));
+
+        assertThat(result.postType()).isEqualTo("CHECKIN");
+        assertThat(result.linkedContent()).isEqualTo(checkinContent);
+    }
+
+    @Test
+    @DisplayName("detail mapping attaches prefetched linked content")
+    void toPostDetailRes_attachesPrefetchedLinkedContent() {
+        PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
+        CheerPost post = createPost(50L, 0, PostType.RECRUITMENT);
+        LinkedContentRes recruitmentContent = recruitmentContent();
+
+        PostDetailRes result = mapper.toPostDetailRes(
+                post,
+                false,
+                false,
+                false,
+                false,
+                0,
+                Map.of(post.getId(), recruitmentContent));
+
+        assertThat(result.postType()).isEqualTo("RECRUITMENT");
+        assertThat(result.linkedContent()).isEqualTo(recruitmentContent);
+    }
+
+    @Test
+    @DisplayName("new post detail mapping attaches prefetched linked content")
+    void toNewPostDetailRes_attachesPrefetchedLinkedContent() {
+        PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
+        CheerPost post = createPost(54L, 0, PostType.CHECKIN);
+        LinkedContentRes checkinContent = checkinContent();
+
+        PostDetailRes result = mapper.toNewPostDetailRes(
+                post,
+                post.getAuthor(),
+                Map.of(post.getId(), checkinContent));
+
+        assertThat(result.postType()).isEqualTo("CHECKIN");
+        assertThat(result.linkedContent()).isEqualTo(checkinContent);
+    }
+
+    @Test
+    @DisplayName("lightweight mapping attaches prefetched linked content")
+    void toPostLightweightSummaryRes_attachesPrefetchedLinkedContent() {
+        PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
+        CheerPost post = createPost(51L, 0, PostType.CHECKIN);
+        LinkedContentRes checkinContent = checkinContent();
+
+        PostLightweightSummaryRes result = mapper.toPostLightweightSummaryRes(
+                post,
+                Collections.emptyList(),
+                Collections.emptyMap(),
+                Map.of(post.getId(), checkinContent));
+
+        assertThat(result.postType()).isEqualTo("CHECKIN");
+        assertThat(result.linkedContent()).isEqualTo(checkinContent);
+    }
+
+    @ParameterizedTest
+    @EnumSource(CheerPost.RepostType.class)
+    @DisplayName("prefetch summary mapping attaches linked content to the embedded original")
+    void toPostSummaryRes_attachesPrefetchedLinkedContentToEmbeddedOriginal(CheerPost.RepostType repostType) {
+        PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
+        CheerPost original = createPost(52L, 0, PostType.CHECKIN);
+        CheerPost repost = createPost(53L, 0, PostType.NORMAL);
+        repost.setRepostOf(original);
+        repost.setRepostType(repostType);
+        LinkedContentRes checkinContent = checkinContent();
+
+        PostSummaryRes result = mapper.toPostSummaryRes(
+                repost,
+                false,
+                false,
+                false,
+                false,
+                0,
+                Collections.emptyList(),
+                Collections.emptyMap(),
+                Collections.emptyMap(),
+                Collections.emptyMap(),
+                Collections.emptyMap(),
+                Map.of(original.getId(), checkinContent));
+
+        assertThat(result.originalPost()).isNotNull();
+        assertThat(result.originalPost().postType()).isEqualTo("CHECKIN");
+        assertThat(result.originalPost().linkedContent()).isEqualTo(checkinContent);
+    }
+
+    @Test
     @DisplayName("단건 매핑도 stale HOT 캐시보다 현재 계산값을 우선한다")
     void toPostSummaryRes_singleLookupUsesComputedHotStatus() {
         PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
@@ -227,5 +343,34 @@ class PostDtoMapperTest {
                 .createdAt(Instant.parse("2026-03-19T00:00:00Z"))
                 .postType(postType)
                 .build();
+    }
+
+    private LinkedContentRes checkinContent() {
+        return LinkedContentRes.availableCheckin(new CheckinLinkedContentRes(
+                LocalDate.of(2026, 7, 13),
+                "LG",
+                "KT",
+                "LG",
+                "Jamsil",
+                true));
+    }
+
+    private LinkedContentRes recruitmentContent() {
+        return LinkedContentRes.availableRecruitment(new RecruitmentLinkedContentRes(
+                77L,
+                LocalDate.of(2026, 7, 13),
+                LocalTime.of(18, 30),
+                "LG",
+                "KT",
+                "Jamsil",
+                "Blue 201",
+                1,
+                4,
+                "PENDING",
+                true,
+                "Join us",
+                10000,
+                5000,
+                2000));
     }
 }

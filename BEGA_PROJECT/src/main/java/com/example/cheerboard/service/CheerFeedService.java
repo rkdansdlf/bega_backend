@@ -5,6 +5,7 @@ import com.example.cheerboard.domain.PostType;
 import com.example.cheerboard.dto.PostChangesResponse;
 import com.example.cheerboard.dto.PostLightweightSummaryRes;
 import com.example.cheerboard.dto.PostSummaryRes;
+import com.example.cheerboard.dto.LinkedContentRes;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.profile.storage.service.ProfileImageService;
@@ -75,6 +76,7 @@ public class CheerFeedService {
     private final ProfileImageService profileImageService;
     private final com.example.cheerboard.repo.CheerBookmarkRepo bookmarkRepo;
     private final CheerMonitoringMetricsService metricsService;
+    private final CheerLinkedPostService linkedPostService;
 
     private ExecutorService feedEnrichmentExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private volatile Semaphore feedEnrichmentBulkhead = new Semaphore(DEFAULT_FEED_ENRICHMENT_MAX_CONCURRENCY);
@@ -204,6 +206,7 @@ public class CheerFeedService {
 
             Page<CheerPost> page = findVisibleFeedPage(normalizedTeamId, postType, pageable, me);
             List<CheerPost> visiblePosts = filterPostsWithAuthor(page.getContent());
+            Map<Long, LinkedContentRes> linkedContentByPostId = resolveLinkedContent(visiblePosts);
 
             List<Long> postIds = !visiblePosts.isEmpty()
                     ? visiblePosts.stream().map(CheerPost::getId).toList()
@@ -224,7 +227,8 @@ public class CheerFeedService {
             List<PostLightweightSummaryRes> content = visiblePosts.stream().map(post -> {
                 try {
                     List<String> imageUrls = imageUrlsByPostId.getOrDefault(post.getId(), Collections.emptyList());
-                    return postDtoMapper.toPostLightweightSummaryRes(post, imageUrls, feedProfileImageUrls);
+                    return postDtoMapper.toPostLightweightSummaryRes(
+                            post, imageUrls, feedProfileImageUrls, linkedContentByPostId);
                 } catch (Exception e) {
                     log.warn("Cheer lightweight feed enrichment failed for postId={}, fallback to minimal response",
                             post.getId(), e);
@@ -791,6 +795,7 @@ public class CheerFeedService {
         List<Long> postIds = mappedPosts.stream().map(CheerPost::getId).toList();
         List<Long> repostOriginalIds = repostOriginalIds(mappedPosts);
         List<UserEntity> feedProfileAuthors = feedProfileAuthors(mappedPosts);
+        Map<Long, LinkedContentRes> linkedContentByPostId = resolveLinkedContent(mappedPosts);
 
         // enrichment 병렬 실행. 인스턴스 전체 동시성은 bulkhead로 제한해 Redis/DB fan-out을 완화한다.
         CompletableFuture<Map<Long, List<String>>> imageFuture =
@@ -838,7 +843,8 @@ public class CheerFeedService {
                                 bookmarkedPostIds.contains(post.getId()), isOwner,
                                 repostedPostIds.contains(post.getId()),
                                 bookmarkCountMap.getOrDefault(post.getId(), 0), imageUrls,
-                                viewCountMap, Collections.emptyMap(), repostImageUrls, feedProfileImageUrls);
+                                viewCountMap, Collections.emptyMap(), repostImageUrls, feedProfileImageUrls,
+                                linkedContentByPostId);
                     } catch (Exception e) {
                         log.warn("Cheer feed summary enrichment failed for postId={}, fallback to minimal response",
                                 post.getId(), e);
@@ -846,10 +852,34 @@ public class CheerFeedService {
                                 likedPostIds.contains(post.getId()),
                                 bookmarkedPostIds.contains(post.getId()),
                                 repostedPostIds.contains(post.getId()),
-                                bookmarkCountMap.getOrDefault(post.getId(), 0));
+                                bookmarkCountMap.getOrDefault(post.getId(), 0),
+                                feedProfileImageUrls);
                     }
                 })
                 .collect(Collectors.toList());
+    }
+
+    private Map<Long, LinkedContentRes> resolveLinkedContent(List<CheerPost> posts) {
+        List<CheerPost> candidates = linkedResolutionCandidates(posts);
+        boolean hasLinkedCandidate = candidates.stream().anyMatch(this::isLinkedPost);
+        return hasLinkedCandidate ? linkedPostService.resolveForPosts(candidates) : Collections.emptyMap();
+    }
+
+    private List<CheerPost> linkedResolutionCandidates(List<CheerPost> posts) {
+        if (posts == null || posts.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return java.util.stream.Stream.concat(
+                        posts.stream(),
+                        posts.stream()
+                                .map(CheerPost::getRepostOf)
+                                .filter(Objects::nonNull))
+                .distinct()
+                .toList();
+    }
+
+    private boolean isLinkedPost(CheerPost post) {
+        return post.getPostType() == PostType.CHECKIN || post.getPostType() == PostType.RECRUITMENT;
     }
 
     private <T> CompletableFuture<T> supplyEnrichmentAsync(Supplier<T> supplier, T fallback) {
@@ -1020,7 +1050,8 @@ public class CheerFeedService {
             boolean likedByMe,
             boolean bookmarkedByMe,
             boolean repostedByMe,
-            int bookmarkCount) {
+            int bookmarkCount,
+            Map<Long, String> feedProfileImageUrls) {
         boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
         return PostSummaryRes.of(
                 post.getId(),
@@ -1031,7 +1062,7 @@ public class CheerFeedService {
                 post.getContent(),
                 resolveDisplayName(post.getAuthor()),
                 resolveAuthorHandle(post.getAuthor()),
-                resolveAuthorProfileImageUrl(post.getAuthor()),
+                resolveAuthorProfileImageUrl(post.getAuthor(), feedProfileImageUrls),
                 resolveAuthorTeamId(post.getAuthor()),
                 post.getCreatedAt(),
                 post.getCommentCount(),

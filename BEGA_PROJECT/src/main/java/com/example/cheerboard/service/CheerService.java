@@ -16,6 +16,7 @@ import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.dto.RepostToggleResponse;
 import com.example.cheerboard.dto.UpdatePostReq;
 import com.example.cheerboard.dto.LinkedPostLookupRes;
+import com.example.cheerboard.dto.LinkedContentRes;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.dto.PostImageDto;
 import com.example.auth.entity.UserEntity;
@@ -31,6 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Collections;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -204,7 +207,10 @@ public class CheerService {
     public PostDetailRes createQuoteRepost(Long originalPostId, QuoteRepostReq req) {
         UserEntity me = current.get();
         CheerPost quoteRepost = postService.createQuoteRepost(originalPostId, req, me);
-        return postDtoMapper.toNewPostDetailRes(quoteRepost, me);
+        Map<Long, LinkedContentRes> linkedContentByPostId = resolveLinkedContent(quoteRepost);
+        return linkedContentByPostId.isEmpty()
+                ? postDtoMapper.toNewPostDetailRes(quoteRepost, me)
+                : postDtoMapper.toNewPostDetailRes(quoteRepost, me, linkedContentByPostId);
     }
 
     @Transactional
@@ -276,13 +282,33 @@ public class CheerService {
         boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
         boolean repostedByMe = me != null && interactionService.isPostRepostedByUser(post.getId(), me.getId());
         int bookmarkCount = interactionService.getBookmarkCount(post.getId());
+        Map<Long, LinkedContentRes> linkedContentByPostId = resolveLinkedContent(post);
 
-        return postDtoMapper.toPostDetailRes(post, liked, isBookmarked, isOwner, repostedByMe, bookmarkCount);
+        return linkedContentByPostId.isEmpty()
+                ? postDtoMapper.toPostDetailRes(
+                        post, liked, isBookmarked, isOwner, repostedByMe, bookmarkCount)
+                : postDtoMapper.toPostDetailRes(
+                        post, liked, isBookmarked, isOwner, repostedByMe, bookmarkCount, linkedContentByPostId);
     }
 
     private CheerPostCreationResult toCreationResult(CheerPost post, UserEntity actor, boolean created) {
-        PostDetailRes detail = Objects.requireNonNull(postDtoMapper.toNewPostDetailRes(post, actor));
+        Map<Long, LinkedContentRes> linkedContentByPostId = resolveLinkedContent(post);
+        PostDetailRes detail = Objects.requireNonNull(linkedContentByPostId.isEmpty()
+                ? postDtoMapper.toNewPostDetailRes(post, actor)
+                : postDtoMapper.toNewPostDetailRes(post, actor, linkedContentByPostId));
         return new CheerPostCreationResult(detail, created);
+    }
+
+    private Map<Long, LinkedContentRes> resolveLinkedContent(CheerPost post) {
+        List<CheerPost> linkedCandidates = post.getRepostOf() == null
+                ? List.of(post)
+                : List.of(post, post.getRepostOf());
+        boolean hasLinkedCandidate = linkedCandidates.stream()
+                .anyMatch(candidate -> candidate.getPostType() == com.example.cheerboard.domain.PostType.CHECKIN
+                        || candidate.getPostType() == com.example.cheerboard.domain.PostType.RECRUITMENT);
+        return hasLinkedCandidate
+                ? linkedPostService.resolveForPosts(linkedCandidates)
+                : Collections.emptyMap();
     }
 
     private CheerPost reloadActiveLinkedPost(

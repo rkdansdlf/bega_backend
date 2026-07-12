@@ -8,6 +8,7 @@ import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.PostType;
 import com.example.cheerboard.dto.CreatePostReq;
 import com.example.cheerboard.dto.LinkedPostLookupRes;
+import com.example.cheerboard.dto.LinkedContentRes;
 import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.repo.CheerPostRepo;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -27,6 +28,8 @@ import org.springframework.security.access.AccessDeniedException;
 import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.util.stream.Stream;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -80,6 +83,28 @@ class CheerServiceTest {
 
                 assertThat(result.created()).isTrue();
                 assertThat(result.post()).isSameAs(detail);
+        }
+
+        @Test
+        @DisplayName("Linked create response resolves the new post before detail mapping")
+        void createPost_linked_resolvesContentForResponse() {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                CreatePostReq req = linkedRequest("CHECKIN", 41L, null);
+                CheerPost post = CheerPost.builder()
+                                .id(11L).author(me).postType(PostType.CHECKIN).diaryId(41L).build();
+                LinkedContentRes linkedContent = mock(LinkedContentRes.class);
+                PostDetailRes detail = mock(PostDetailRes.class);
+                when(current.get()).thenReturn(me);
+                when(postService.createPost(req, me)).thenReturn(new CheerPostCreationOutcome(post, true));
+                when(linkedPostService.resolveForPosts(anyCollection()))
+                                .thenReturn(Map.of(post.getId(), linkedContent));
+                when(postDtoMapper.toNewPostDetailRes(post, me, Map.of(post.getId(), linkedContent)))
+                                .thenReturn(detail);
+
+                CheerPostCreationResult result = cheerService.createPost(req);
+
+                assertThat(result.post()).isSameAs(detail);
+                verify(linkedPostService).resolveForPosts(List.of(post));
         }
 
         @Test
@@ -301,7 +326,8 @@ class CheerServiceTest {
                 Long postId = 1L;
                 UserEntity me = UserEntity.builder().id(100L).build();
                 UserEntity author = UserEntity.builder().id(200L).build();
-                CheerPost post = CheerPost.builder().id(postId).author(author).build();
+                CheerPost post = CheerPost.builder()
+                                .id(postId).author(author).postType(PostType.CHECKIN).build();
 
                 when(current.getOrNull()).thenReturn(me);
                 when(postService.findPostById(postId)).thenReturn(post);
@@ -313,9 +339,13 @@ class CheerServiceTest {
                 when(permissionValidator.isOwnerOrAdmin(me, author)).thenReturn(false);
                 when(interactionService.isPostRepostedByUser(postId, me.getId())).thenReturn(false);
                 when(interactionService.getBookmarkCount(postId)).thenReturn(5);
+                LinkedContentRes linkedContent = mock(LinkedContentRes.class);
+                when(linkedPostService.resolveForPosts(anyCollection()))
+                                .thenReturn(Map.of(postId, linkedContent));
 
                 when(postDtoMapper.toPostDetailRes(
-                                eq(post), eq(true), eq(false), eq(false), eq(false), eq(5)))
+                                eq(post), eq(true), eq(false), eq(false), eq(false), eq(5),
+                                eq(Map.of(postId, linkedContent))))
                                 .thenReturn(mock(PostDetailRes.class));
 
                 // When
@@ -323,7 +353,67 @@ class CheerServiceTest {
 
                 // Then
                 verify(redisPostService).incrementViewCount(postId, me.getId());
-                verify(postDtoMapper).toPostDetailRes(eq(post), eq(true), eq(false), eq(false), eq(false), eq(5));
+                @SuppressWarnings("unchecked")
+                org.mockito.ArgumentCaptor<java.util.Collection<CheerPost>> postsCaptor =
+                                org.mockito.ArgumentCaptor.forClass(java.util.Collection.class);
+                verify(linkedPostService).resolveForPosts(postsCaptor.capture());
+                assertThat(postsCaptor.getValue()).containsExactly(post);
+                verify(postDtoMapper).toPostDetailRes(
+                                eq(post), eq(true), eq(false), eq(false), eq(false), eq(5),
+                                eq(Map.of(postId, linkedContent)));
+        }
+
+        @Test
+        @DisplayName("Detail reconstruction resolves the main post and embedded original together")
+        void getPost_resolvesMainAndEmbeddedOriginalTogether() {
+                Long postId = 2L;
+                UserEntity me = UserEntity.builder().id(100L).build();
+                UserEntity author = UserEntity.builder().id(200L).build();
+                CheerPost original = CheerPost.builder()
+                                .id(3L).author(author).postType(PostType.CHECKIN).build();
+                CheerPost repost = CheerPost.builder()
+                                .id(postId).author(author).postType(PostType.NORMAL)
+                                .repostOf(original).repostType(CheerPost.RepostType.QUOTE).build();
+                LinkedContentRes linkedContent = mock(LinkedContentRes.class);
+                when(current.getOrNull()).thenReturn(me);
+                when(postService.findPostById(postId)).thenReturn(repost);
+                when(linkedPostService.resolveForPosts(anyCollection()))
+                                .thenReturn(Map.of(original.getId(), linkedContent));
+
+                cheerService.get(postId);
+
+                @SuppressWarnings("unchecked")
+                org.mockito.ArgumentCaptor<java.util.Collection<CheerPost>> postsCaptor =
+                                org.mockito.ArgumentCaptor.forClass(java.util.Collection.class);
+                verify(linkedPostService, times(1)).resolveForPosts(postsCaptor.capture());
+                assertThat(postsCaptor.getValue()).extracting(CheerPost::getId).containsExactly(2L, 3L);
+                verify(postDtoMapper).toPostDetailRes(
+                                eq(repost), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), anyInt(),
+                                eq(Map.of(original.getId(), linkedContent)));
+        }
+
+        @Test
+        @DisplayName("Quote creation response resolves its linked embedded original")
+        void createQuoteRepost_resolvesLinkedEmbeddedOriginal() {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                CheerPost original = CheerPost.builder()
+                                .id(12L).author(me).postType(PostType.RECRUITMENT).partyId(51L).build();
+                CheerPost quote = CheerPost.builder()
+                                .id(13L).author(me).postType(PostType.NORMAL)
+                                .repostOf(original).repostType(CheerPost.RepostType.QUOTE).build();
+                LinkedContentRes linkedContent = mock(LinkedContentRes.class);
+                com.example.cheerboard.dto.QuoteRepostReq req =
+                                new com.example.cheerboard.dto.QuoteRepostReq("quote");
+                when(current.get()).thenReturn(me);
+                when(postService.createQuoteRepost(original.getId(), req, me)).thenReturn(quote);
+                when(linkedPostService.resolveForPosts(anyCollection()))
+                                .thenReturn(Map.of(original.getId(), linkedContent));
+
+                cheerService.createQuoteRepost(original.getId(), req);
+
+                verify(linkedPostService).resolveForPosts(List.of(quote, original));
+                verify(postDtoMapper).toNewPostDetailRes(
+                                quote, me, Map.of(original.getId(), linkedContent));
         }
 
         @Test

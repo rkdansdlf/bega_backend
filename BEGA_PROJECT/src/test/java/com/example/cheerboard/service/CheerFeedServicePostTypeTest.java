@@ -14,7 +14,7 @@ class CheerFeedServicePostTypeTest {
     void lightweightFallbackPreservesEntityPostType() {
         CheerFeedService service = new CheerFeedService(
                 null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null);
         CheerPost post = CheerPost.builder()
                 .id(51L)
                 .content("notice")
