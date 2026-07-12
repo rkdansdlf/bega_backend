@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -24,6 +25,8 @@ public interface PartyRepository extends JpaRepository<Party, Long>, PartyReposi
         List<Party> findByHostId(Long hostId);
 
         Optional<Party> findByIdAndHostId(Long id, Long hostId);
+
+        List<Party> findByIdIn(Collection<Long> ids);
 
         @Query("""
                         SELECT p
