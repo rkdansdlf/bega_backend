@@ -32,9 +32,22 @@ class CheerDtoSerializationTest {
         String json = objectMapper.writeValueAsString(linkedContent);
         JsonNode checkinNode = objectMapper.readTree(json);
 
-        assertThat(checkinNode.path("kind").asText()).isEqualTo("CHECKIN");
-        assertThat(checkinNode.path("available").asBoolean()).isTrue();
-        assertThat(checkinNode.path("checkin").path("gameDate").asText()).isEqualTo("2026-07-13");
+        assertThat(checkinNode).isEqualTo(objectMapper.readTree("""
+                {
+                  "kind": "CHECKIN",
+                  "available": true,
+                  "unavailableReason": null,
+                  "checkin": {
+                    "gameDate": "2026-07-13",
+                    "homeTeam": "LG",
+                    "awayTeam": "KIA",
+                    "cheeringTeam": "LG",
+                    "stadium": "잠실",
+                    "verified": true
+                  },
+                  "recruitment": null
+                }
+                """));
         assertThat(json).doesNotContain("memo", "photo", "ticket", "seatRow", "diaryId");
     }
 
@@ -61,14 +74,36 @@ class CheerDtoSerializationTest {
         String json = objectMapper.writeValueAsString(linkedContent);
         JsonNode recruitmentNode = objectMapper.readTree(json);
 
-        assertThat(recruitmentNode.path("kind").asText()).isEqualTo("RECRUITMENT");
-        assertThat(recruitmentNode.path("recruitment").path("partyId").asLong()).isEqualTo(44L);
-        assertThat(recruitmentNode.path("recruitment").path("recruiting").asBoolean()).isTrue();
+        assertThat(recruitmentNode).isEqualTo(objectMapper.readTree("""
+                {
+                  "kind": "RECRUITMENT",
+                  "available": true,
+                  "unavailableReason": null,
+                  "checkin": null,
+                  "recruitment": {
+                    "partyId": 44,
+                    "gameDate": "2026-07-13",
+                    "gameTime": "18:30:00",
+                    "homeTeam": "LG",
+                    "awayTeam": "KIA",
+                    "stadium": "잠실",
+                    "section": "블루석",
+                    "currentParticipants": 2,
+                    "maxParticipants": 4,
+                    "status": "RECRUITING",
+                    "recruiting": true,
+                    "description": "같이 응원해요",
+                    "price": 10000,
+                    "ticketPrice": 20000,
+                    "reservationDepositAmount": 5000
+                  }
+                }
+                """));
         assertThat(json).doesNotContain("members", "reservationNumber", "ticketImageUrl");
     }
 
     @Test
-    @DisplayName("linked content variants reject mixed payloads and model manual-data unavailability")
+    @DisplayName("linked content variants reject every invalid availability and payload combination")
     void linkedContent_enforcesVariantBoundary() throws Exception {
         CheckinLinkedContentRes checkin = new CheckinLinkedContentRes(
                 LocalDate.of(2026, 7, 13), "LG", "KIA", "LG", "잠실", true);
@@ -79,6 +114,28 @@ class CheerDtoSerializationTest {
         assertThatThrownBy(() -> new LinkedContentRes(
                 LinkedContentKind.CHECKIN, true, null, checkin, recruitment))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new LinkedContentRes(
+                LinkedContentKind.CHECKIN, true, null, null, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new LinkedContentRes(
+                LinkedContentKind.CHECKIN, true, null, null, recruitment))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new LinkedContentRes(
+                LinkedContentKind.CHECKIN, true, LinkedContentUnavailableReason.SOURCE_MISSING, checkin, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new LinkedContentRes(
+                LinkedContentKind.CHECKIN, false, null, null, null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new LinkedContentRes(
+                LinkedContentKind.CHECKIN, false, LinkedContentUnavailableReason.SOURCE_MISSING, checkin, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new LinkedContentRes(
+                LinkedContentKind.RECRUITMENT, false, LinkedContentUnavailableReason.SOURCE_MISSING,
+                null, recruitment))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new LinkedContentRes(
+                null, false, LinkedContentUnavailableReason.SOURCE_MISSING, null, null))
+                .isInstanceOf(NullPointerException.class);
 
         LinkedContentRes unavailable = LinkedContentRes.unavailable(
                 LinkedContentKind.CHECKIN,
@@ -170,6 +227,17 @@ class CheerDtoSerializationTest {
 
         assertThat(json).contains("\"authorNickname\":\"@author\"");
         assertThat(json).doesNotContain("authorId");
+    }
+
+    @Test
+    @DisplayName("deleted embedded placeholders do not fabricate an unknown post type")
+    void embeddedPostDeletedPlaceholder_doesNotFabricatePostType() {
+        EmbeddedPostDto placeholder = EmbeddedPostDto.deletedPlaceholder(99L);
+
+        assertThat(placeholder.id()).isEqualTo(99L);
+        assertThat(placeholder.deleted()).isTrue();
+        assertThat(placeholder.postType()).isNull();
+        assertThat(placeholder.linkedContent()).isNull();
     }
 
     @Test
