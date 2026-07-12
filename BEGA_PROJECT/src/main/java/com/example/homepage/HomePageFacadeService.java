@@ -1,13 +1,13 @@
 package com.example.homepage;
 
-import static com.example.common.config.CacheConfig.HOME_WIDGETS;
-
 import com.example.cheerboard.dto.PostSummaryRes;
 import com.example.cheerboard.service.CheerService;
 import com.example.kbo.validation.ManualBaseballDataOverrideService;
 import com.example.kbo.validation.ManualBaseballDataRequest;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import com.example.homepage.port.FeaturedMateQuery;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Timer;
@@ -23,6 +23,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
@@ -30,7 +31,6 @@ import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,6 +41,7 @@ public class HomePageFacadeService {
 
     private static final Duration DEFAULT_SECTION_TIMEOUT = Duration.ofMillis(2500);
     private static final Duration DEFAULT_WIDGETS_SECTION_TIMEOUT = Duration.ofMillis(1200);
+    private static final int DEFAULT_SECTION_MAX_CONCURRENCY = 32;
     private static final Duration MANUAL_DATA_NEGATIVE_CACHE_TTL = Duration.ofSeconds(60);
     private static final String SECTION_TIMEOUT_PROPERTY = "${app.home.bootstrap.section-timeout-ms:2500}";
     private static final String WIDGETS_SECTION_TIMEOUT_PROPERTY = "${app.home.widgets.section-timeout-ms:1200}";
@@ -60,6 +61,7 @@ public class HomePageFacadeService {
     private final FeaturedMateQuery partyService;
     private final HomeBootstrapCacheService homeBootstrapCacheService;
     private final HomeRankingSnapshotCacheService homeRankingSnapshotCacheService;
+    private final HomeWidgetsCacheService homeWidgetsCacheService;
     private final Duration sectionTimeout;
     private final Duration widgetsSectionTimeout;
     private final Clock clock;
@@ -67,6 +69,11 @@ public class HomePageFacadeService {
     private final MeterRegistry meterRegistry;
     private final ManualBaseballDataOverrideService manualBaseballDataOverrideService;
     private final ConcurrentMap<String, CachedManualDataFailure> manualDataFailureCache = new ConcurrentHashMap<>();
+    private volatile Semaphore sectionBulkhead = new Semaphore(DEFAULT_SECTION_MAX_CONCURRENCY);
+    private volatile int sectionBulkheadPermits = DEFAULT_SECTION_MAX_CONCURRENCY;
+
+    @Value("${app.home.sections.max-concurrency:32}")
+    private int sectionMaxConcurrency = DEFAULT_SECTION_MAX_CONCURRENCY;
 
     public HomePageFacadeService(
             HomePageGameService homePageGameService,
@@ -92,6 +99,7 @@ public class HomePageFacadeService {
             FeaturedMateQuery partyService,
             HomeBootstrapCacheService homeBootstrapCacheService,
             HomeRankingSnapshotCacheService homeRankingSnapshotCacheService,
+            HomeWidgetsCacheService homeWidgetsCacheService,
             @Value(SECTION_TIMEOUT_PROPERTY) long sectionTimeoutMs,
             @Value(WIDGETS_SECTION_TIMEOUT_PROPERTY) long widgetsSectionTimeoutMs,
             MeterRegistry meterRegistry,
@@ -102,6 +110,7 @@ public class HomePageFacadeService {
                 partyService,
                 homeBootstrapCacheService,
                 homeRankingSnapshotCacheService,
+                homeWidgetsCacheService,
                 Duration.ofMillis(sectionTimeoutMs),
                 Duration.ofMillis(widgetsSectionTimeoutMs),
                 Clock.systemDefaultZone(),
@@ -204,11 +213,40 @@ public class HomePageFacadeService {
             ExecutorService sectionExecutor,
             MeterRegistry meterRegistry,
             ManualBaseballDataOverrideService manualBaseballDataOverrideService) {
+        this(
+                homePageGameService,
+                cheerService,
+                partyService,
+                homeBootstrapCacheService,
+                homeRankingSnapshotCacheService,
+                null,
+                sectionTimeout,
+                widgetsSectionTimeout,
+                clock,
+                sectionExecutor,
+                meterRegistry,
+                manualBaseballDataOverrideService);
+    }
+
+    HomePageFacadeService(
+            HomePageGameService homePageGameService,
+            CheerService cheerService,
+            FeaturedMateQuery partyService,
+            HomeBootstrapCacheService homeBootstrapCacheService,
+            HomeRankingSnapshotCacheService homeRankingSnapshotCacheService,
+            HomeWidgetsCacheService homeWidgetsCacheService,
+            Duration sectionTimeout,
+            Duration widgetsSectionTimeout,
+            Clock clock,
+            ExecutorService sectionExecutor,
+            MeterRegistry meterRegistry,
+            ManualBaseballDataOverrideService manualBaseballDataOverrideService) {
         this.homePageGameService = homePageGameService;
         this.cheerService = cheerService;
         this.partyService = partyService;
         this.homeBootstrapCacheService = homeBootstrapCacheService;
         this.homeRankingSnapshotCacheService = homeRankingSnapshotCacheService;
+        this.homeWidgetsCacheService = homeWidgetsCacheService;
         this.sectionTimeout = (sectionTimeout == null || sectionTimeout.isZero() || sectionTimeout.isNegative())
                 ? DEFAULT_SECTION_TIMEOUT
                 : sectionTimeout;
@@ -225,6 +263,7 @@ public class HomePageFacadeService {
         this.manualBaseballDataOverrideService = manualBaseballDataOverrideService == null
                 ? ManualBaseballDataOverrideService.disabled()
                 : manualBaseballDataOverrideService;
+        registerSectionBulkheadMetrics();
     }
 
     public HomeBootstrapResponseDto getBootstrap(LocalDate date) {
@@ -374,12 +413,20 @@ public class HomePageFacadeService {
         sectionExecutor.shutdownNow();
     }
 
-    @Cacheable(
-            value = HOME_WIDGETS,
-            key = "#date.toString() + ':' + (#seasonYear == null ? 'auto' : #seasonYear.toString())",
-            unless = "#root.target.isUncacheableWidgetsResponse(#result)")
     @Transactional(readOnly = true)
     public HomeWidgetsResponseDto getWidgets(LocalDate date, Integer seasonYear) {
+        LocalDate selectedDate = date == null ? LocalDate.now(clock) : date;
+        if (homeWidgetsCacheService != null) {
+            return homeWidgetsCacheService.getOrLoad(
+                    selectedDate,
+                    seasonYear,
+                    () -> loadWidgetsUncached(selectedDate, seasonYear),
+                    this::isUncacheableWidgetsResponse);
+        }
+        return loadWidgetsUncached(selectedDate, seasonYear);
+    }
+
+    HomeWidgetsResponseDto loadWidgetsUncached(LocalDate date, Integer seasonYear) {
         LocalDate selectedDate = date == null ? LocalDate.now(clock) : date;
         SectionTask<List<PostSummaryRes>> hotPostsTask =
                 submitSection(sectionExecutor, SECTION_HOT_CHEER_POSTS, this::loadHotPosts);
@@ -412,6 +459,14 @@ public class HomePageFacadeService {
                 .featuredMates(featuredMates)
                 .rankingSnapshot(rankingSnapshot)
                 .build();
+    }
+
+    String buildWidgetsCacheKey(LocalDate date, Integer seasonYear) {
+        if (homeWidgetsCacheService != null) {
+            return homeWidgetsCacheService.buildCacheKey(date, seasonYear);
+        }
+        LocalDate selectedDate = date == null ? LocalDate.now(clock) : date;
+        return selectedDate + ":" + (seasonYear == null ? "auto" : seasonYear.toString());
     }
 
     private List<PostSummaryRes> loadHotPosts() {
@@ -468,7 +523,70 @@ public class HomePageFacadeService {
     }
 
     private <T> SectionTask<T> submitSection(ExecutorService executor, String name, Supplier<T> supplier) {
-        return new SectionTask<>(name, executor.submit(supplier::get), System.nanoTime());
+        return new SectionTask<>(name, executor.submit(() -> runWithSectionPermit(supplier)), System.nanoTime());
+    }
+
+    private <T> T runWithSectionPermit(Supplier<T> supplier) {
+        Semaphore bulkhead = currentSectionBulkhead();
+        boolean acquired = false;
+        try {
+            bulkhead.acquire();
+            acquired = true;
+            return supplier.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for home section permit", e);
+        } finally {
+            if (acquired) {
+                bulkhead.release();
+            }
+        }
+    }
+
+    private Semaphore currentSectionBulkhead() {
+        int permits = normalizedSectionMaxConcurrency();
+        Semaphore localBulkhead = sectionBulkhead;
+        if (sectionBulkheadPermits == permits) {
+            return localBulkhead;
+        }
+
+        synchronized (this) {
+            if (sectionBulkheadPermits != permits) {
+                sectionBulkhead = new Semaphore(permits);
+                sectionBulkheadPermits = permits;
+            }
+            return sectionBulkhead;
+        }
+    }
+
+    private int normalizedSectionMaxConcurrency() {
+        return Math.max(1, sectionMaxConcurrency);
+    }
+
+    private void registerSectionBulkheadMetrics() {
+        Gauge.builder(
+                        "home_section_bulkhead_active",
+                        this,
+                        HomePageFacadeService::activeSectionBulkheadPermits)
+                .description("Active home bootstrap/widgets section bulkhead permits")
+                .tag("bulkhead", "home_sections")
+                .register(meterRegistry);
+        Gauge.builder(
+                        "home_section_bulkhead_limit",
+                        this,
+                        HomePageFacadeService::sectionBulkheadLimit)
+                .description("Configured home bootstrap/widgets section bulkhead permits")
+                .tag("bulkhead", "home_sections")
+                .register(meterRegistry);
+    }
+
+    private double activeSectionBulkheadPermits() {
+        Semaphore bulkhead = currentSectionBulkhead();
+        return Math.max(0, normalizedSectionMaxConcurrency() - bulkhead.availablePermits());
+    }
+
+    private double sectionBulkheadLimit() {
+        return normalizedSectionMaxConcurrency();
     }
 
     private <T> T loadManualDataGuardedSection(LocalDate date, String section, Supplier<T> supplier) {
@@ -764,6 +882,7 @@ public class HomePageFacadeService {
             return;
         }
 
+        recordSectionEvent("home_bootstrap_section_events_total", "Home bootstrap section events", section, result);
         Timer.builder("home_bootstrap_section_duration_seconds")
                 .description("Home bootstrap section duration")
                 .publishPercentileHistogram()
@@ -779,6 +898,7 @@ public class HomePageFacadeService {
             return;
         }
 
+        recordSectionEvent("home_widgets_section_events_total", "Home widgets section events", section, result);
         Timer.builder("home_widgets_section_duration_seconds")
                 .description("Home widgets section duration")
                 .publishPercentileHistogram()
@@ -787,6 +907,16 @@ public class HomePageFacadeService {
                         "result", normalizeMetricTag(result))
                 .register(meterRegistry)
                 .record(durationNanos, TimeUnit.NANOSECONDS);
+    }
+
+    private void recordSectionEvent(String metricName, String description, String section, String result) {
+        Counter.builder(metricName)
+                .description(description)
+                .tags(
+                        "section", normalizeMetricTag(section),
+                        "result", normalizeMetricTag(result))
+                .register(meterRegistry)
+                .increment();
     }
 
     private String normalizeMetricTag(String value) {

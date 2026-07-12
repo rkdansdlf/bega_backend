@@ -24,7 +24,8 @@ class FlywayMigrationVersionUniquenessTest {
 
     private static final List<Path> MIGRATION_DIRECTORIES = List.of(
             Path.of("src/main/resources/db/migration"),
-            Path.of("src/main/resources/db/migration_postgresql"));
+            Path.of("src/main/resources/db/migration_postgresql"),
+            Path.of("src/main/resources/db/migration_baseball"));
 
     private static final Set<Set<String>> ALLOWED_DUPLICATE_MIGRATION_CONTENT = Set.of(
             Set.of(
@@ -56,6 +57,12 @@ class FlywayMigrationVersionUniquenessTest {
     @DisplayName("postgres migration versions are unique")
     void postgresMigrationVersionsAreUnique() throws IOException {
         assertUniqueVersions(Path.of("src/main/resources/db/migration_postgresql"));
+    }
+
+    @Test
+    @DisplayName("baseball migration versions are unique")
+    void baseballMigrationVersionsAreUnique() throws IOException {
+        assertUniqueVersions(Path.of("src/main/resources/db/migration_baseball"));
     }
 
     @Test

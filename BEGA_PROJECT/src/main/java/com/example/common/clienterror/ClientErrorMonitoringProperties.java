@@ -38,6 +38,7 @@ public class ClientErrorMonitoringProperties {
         private int api5xxThreshold = 5;
         private int windowMinutes = 5;
         private int cooldownMinutes = 30;
+        private int maxCandidates = 1000;
         private ClientErrorAlertChannel channel = ClientErrorAlertChannel.TELEGRAM;
         private final Telegram telegram = new Telegram();
 
@@ -87,6 +88,14 @@ public class ClientErrorMonitoringProperties {
 
         public void setCooldownMinutes(int cooldownMinutes) {
             this.cooldownMinutes = cooldownMinutes;
+        }
+
+        public int getMaxCandidates() {
+            return maxCandidates;
+        }
+
+        public void setMaxCandidates(int maxCandidates) {
+            this.maxCandidates = maxCandidates;
         }
 
         public ClientErrorAlertChannel getChannel() {

@@ -2,7 +2,9 @@ package com.example.cheerboard.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -239,6 +241,44 @@ public class RedisPostService {
     }
 
     /**
+     * Feed summary enrichment에 필요한 Redis 값을 한 pipeline으로 조회한다.
+     */
+    public FeedRedisStats getFeedRedisStats(Collection<Long> postIds) {
+        if (postIds == null || postIds.isEmpty()) {
+            return FeedRedisStats.empty();
+        }
+        try {
+            List<Long> idList = new ArrayList<>(postIds);
+            List<String> viewKeys = idList.stream()
+                    .map(id -> String.format(VIEW_COUNT_KEY, id))
+                    .toList();
+            List<String> hotStatusKeys = idList.stream()
+                    .map(id -> String.format(HOT_STATUS_KEY, id))
+                    .toList();
+
+            List<Object> pipelineResults = redisTemplate.executePipelined(new SessionCallback<>() {
+                @Override
+                @SuppressWarnings({ "rawtypes", "unchecked" })
+                public Object execute(RedisOperations operations) {
+                    operations.opsForValue().multiGet(viewKeys);
+                    operations.opsForValue().multiGet(hotStatusKeys);
+                    return null;
+                }
+            });
+            if (pipelineResults == null || pipelineResults.size() < 2) {
+                return FeedRedisStats.empty();
+            }
+
+            return new FeedRedisStats(
+                    toIntegerMap(idList, resultList(pipelineResults.get(0))),
+                    toBooleanMap(idList, resultList(pipelineResults.get(1))));
+        } catch (Exception e) {
+            log.warn("Redis error in getFeedRedisStats: {}", e.getMessage());
+            return FeedRedisStats.empty();
+        }
+    }
+
+    /**
      * 여러 게시글의 HOT 상태를 한 번에 조회 (Redis MGET)
      */
     public Map<Long, Boolean> getCachedHotStatuses(Collection<Long> postIds) {
@@ -266,6 +306,48 @@ public class RedisPostService {
         } catch (Exception e) {
             log.warn("Redis error in getCachedHotStatuses: {}", e.getMessage());
             return Collections.emptyMap();
+        }
+    }
+
+    private List<?> resultList(Object result) {
+        return result instanceof List<?> values ? values : Collections.emptyList();
+    }
+
+    private Map<Long, Integer> toIntegerMap(List<Long> idList, List<?> values) {
+        Map<Long, Integer> result = new HashMap<>();
+        for (int i = 0; i < idList.size() && i < values.size(); i++) {
+            Integer value = toInteger(values.get(i));
+            if (value != null) {
+                result.put(idList.get(i), value);
+            }
+        }
+        return result;
+    }
+
+    private Map<Long, Boolean> toBooleanMap(List<Long> idList, List<?> values) {
+        Map<Long, Boolean> result = new HashMap<>();
+        for (int i = 0; i < idList.size() && i < values.size(); i++) {
+            Object value = values.get(i);
+            if (value instanceof Boolean boolValue) {
+                result.put(idList.get(i), boolValue);
+            }
+        }
+        return result;
+    }
+
+    private Integer toInteger(Object value) {
+        if (value instanceof Integer intValue) {
+            return intValue;
+        }
+        if (value instanceof Long longValue) {
+            return longValue.intValue();
+        }
+        return null;
+    }
+
+    public record FeedRedisStats(Map<Long, Integer> viewCounts, Map<Long, Boolean> hotStatuses) {
+        private static FeedRedisStats empty() {
+            return new FeedRedisStats(Collections.emptyMap(), Collections.emptyMap());
         }
     }
 

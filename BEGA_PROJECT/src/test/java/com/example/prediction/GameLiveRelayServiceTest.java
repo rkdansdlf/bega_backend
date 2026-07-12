@@ -3,6 +3,8 @@ package com.example.prediction;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDate;
@@ -55,8 +57,6 @@ class GameLiveRelayServiceTest {
                 eq("GAME-1"),
                 argThat((Pageable pageable) -> pageable.getPageSize() == 50)))
                 .thenReturn(List.of(latest, previous));
-        when(gamePlayByPlayRepository.findFirstByGameIdOrderByIdDesc("GAME-1"))
-                .thenReturn(Optional.of(latest));
 
         GameRelaySnapshotDto snapshot = gameLiveRelayService.getRelaySnapshot("GAME-1", null, 50);
 
@@ -65,6 +65,7 @@ class GameLiveRelayServiceTest {
         assertThat(snapshot.getEvents()).extracting(GameRelayEventDto::getRelayId).containsExactly(11, 12);
         assertThat(snapshot.getEvents()).extracting(GameRelayEventDto::getPlayDescription)
                 .containsExactly("초구 스트라이크", "득점 장면");
+        verify(gamePlayByPlayRepository, never()).findFirstByGameIdOrderByIdDesc("GAME-1");
     }
 
     @Test
@@ -77,14 +78,34 @@ class GameLiveRelayServiceTest {
                 eq(14),
                 argThat((Pageable pageable) -> pageable.getPageSize() == 25)))
                 .thenReturn(List.of(delta));
-        when(gamePlayByPlayRepository.findFirstByGameIdOrderByIdDesc("GAME-2"))
-                .thenReturn(Optional.of(delta));
 
         GameRelaySnapshotDto snapshot = gameLiveRelayService.getRelaySnapshot("GAME-2", 14, 25);
 
         assertThat(snapshot.getLastRelayId()).isEqualTo(15);
         assertThat(snapshot.getEvents()).extracting(GameRelayEventDto::getRelayId).containsExactly(15);
         assertThat(snapshot.getEvents().get(0).getPlayDescription()).isEqualTo("김도영 : 좌익수 왼쪽 2루타");
+        verify(gamePlayByPlayRepository, never()).findFirstByGameIdOrderByIdDesc("GAME-2");
+    }
+
+    @Test
+    void relaySnapshotLooksUpLatestWhenDeltaPageMayBeTruncated() {
+        when(baseballDataIntegrityGuard.requireValidGame("prediction.live_relay", "GAME-2"))
+                .thenReturn(game("GAME-2"));
+        GamePlayByPlayEntity delta = relay(15, "GAME-2", "김도영 : 좌익수 왼쪽 2루타");
+        GamePlayByPlayEntity latest = relay(20, "GAME-2", "최신 중계");
+        when(gamePlayByPlayRepository.findByGameIdAndIdGreaterThanOrderByIdAsc(
+                eq("GAME-2"),
+                eq(14),
+                argThat((Pageable pageable) -> pageable.getPageSize() == 1)))
+                .thenReturn(List.of(delta));
+        when(gamePlayByPlayRepository.findFirstByGameIdOrderByIdDesc("GAME-2"))
+                .thenReturn(Optional.of(latest));
+
+        GameRelaySnapshotDto snapshot = gameLiveRelayService.getRelaySnapshot("GAME-2", 14, 1);
+
+        assertThat(snapshot.getLastRelayId()).isEqualTo(20);
+        assertThat(snapshot.getEvents()).extracting(GameRelayEventDto::getRelayId).containsExactly(15);
+        verify(gamePlayByPlayRepository).findFirstByGameIdOrderByIdDesc("GAME-2");
     }
 
     @Test
@@ -93,13 +114,12 @@ class GameLiveRelayServiceTest {
                 .thenReturn(game("GAME-3"));
         when(gamePlayByPlayRepository.findByGameIdOrderByIdDesc(eq("GAME-3"), argThat((Pageable pageable) -> true)))
                 .thenReturn(List.of());
-        when(gamePlayByPlayRepository.findFirstByGameIdOrderByIdDesc("GAME-3"))
-                .thenReturn(Optional.empty());
 
         GameRelaySnapshotDto snapshot = gameLiveRelayService.getRelaySnapshot("GAME-3", null, 50);
 
         assertThat(snapshot.getLastRelayId()).isNull();
         assertThat(snapshot.getEvents()).isEmpty();
+        verify(gamePlayByPlayRepository, never()).findFirstByGameIdOrderByIdDesc("GAME-3");
     }
 
     @Test
@@ -110,12 +130,11 @@ class GameLiveRelayServiceTest {
                 eq("GAME-4"),
                 argThat((Pageable pageable) -> pageable.getPageSize() == 200)))
                 .thenReturn(List.of());
-        when(gamePlayByPlayRepository.findFirstByGameIdOrderByIdDesc("GAME-4"))
-                .thenReturn(Optional.empty());
 
         GameRelaySnapshotDto snapshot = gameLiveRelayService.getRelaySnapshot("GAME-4", null, 999);
 
         assertThat(snapshot.getEvents()).isEmpty();
+        verify(gamePlayByPlayRepository, never()).findFirstByGameIdOrderByIdDesc("GAME-4");
     }
 
     private GameEntity game(String gameId) {
