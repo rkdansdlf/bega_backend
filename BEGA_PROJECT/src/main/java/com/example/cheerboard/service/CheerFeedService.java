@@ -272,7 +272,9 @@ public class CheerFeedService {
                 post.getCommentCount(),
                 post.getCreatedAt(),
                 resolveDisplayName(post.getAuthor()),
-                resolveAuthorProfileImageUrl(post.getAuthor(), feedProfileImageUrls));
+                resolveAuthorProfileImageUrl(post.getAuthor(), feedProfileImageUrls),
+                post.getPostType().name(),
+                null);
     }
 
     @Transactional(readOnly = true)

@@ -367,7 +367,9 @@ public class PostDtoMapper {
                 originalImageUrls,
                 original.getLikeCount(),
                 original.getCommentCount(),
-                original.getRepostCount());
+                original.getRepostCount(),
+                original.getPostType().name(),
+                null);
     }
 
     /**
@@ -403,7 +405,9 @@ public class PostDtoMapper {
                 originalImageUrls,
                 original.getLikeCount(),
                 original.getCommentCount(),
-                original.getRepostCount());
+                original.getRepostCount(),
+                original.getPostType().name(),
+                null);
     }
 
     private boolean resolveHotStatus(CheerPost post, int combinedViews, Boolean cachedHot) {
@@ -488,7 +492,9 @@ public class PostDtoMapper {
                 post.getCommentCount(),
                 post.getCreatedAt(),
                 resolveDisplayName(post.getAuthor()),
-                resolveAuthorProfileImageUrlForFeed(post.getAuthor(), feedProfileImageUrls));
+                resolveAuthorProfileImageUrlForFeed(post.getAuthor(), feedProfileImageUrls),
+                post.getPostType().name(),
+                null);
     }
 
     private String resolveAuthorProfileImageUrl(UserEntity author) {
