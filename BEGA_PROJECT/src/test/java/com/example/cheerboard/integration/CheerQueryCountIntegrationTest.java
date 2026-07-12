@@ -70,6 +70,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.context.TestPropertySource;
 
 @DataJpaTest
@@ -263,13 +264,16 @@ class CheerQueryCountIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
+        PageRequest oneRequest = PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "id"));
+        PageRequest manyRequest = PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "id"));
+
         Statistics oneStatistics = HibernateQueryCountSupport.reset(entityManagerFactory);
-        var oneLinkedPage = feedService.list(null, null, PageRequest.of(0, 1), null);
+        var oneLinkedPage = feedService.list(null, null, oneRequest, null);
         long oneLinkedQueryCount = oneStatistics.getPrepareStatementCount();
 
         entityManager.clear();
         Statistics manyStatistics = HibernateQueryCountSupport.reset(entityManagerFactory);
-        var manyLinkedPage = feedService.list(null, null, PageRequest.of(0, 10), null);
+        var manyLinkedPage = feedService.list(null, null, manyRequest, null);
         long manyLinkedQueryCount = manyStatistics.getPrepareStatementCount();
         System.out.printf(
                 "linked-query-count one=%d many=%d delta=%d%n",
@@ -278,8 +282,15 @@ class CheerQueryCountIntegrationTest {
                 manyLinkedQueryCount - oneLinkedQueryCount);
 
         assertThat(oneLinkedPage.getContent()).hasSize(1);
+        assertThat(oneLinkedPage.getContent().getFirst().id()).isEqualTo(fixture.quotePostId());
         assertThat(oneLinkedPage.getContent().getFirst().originalPost()).isNotNull();
         assertThat(oneLinkedPage.getContent().getFirst().originalPost().linkedContent()).isNotNull();
+        int naivePerSourceDelta = fixture.uniqueDiarySourceCount()
+                + fixture.uniquePartySourceCount()
+                - fixture.onePageUniqueSourceCount();
+        assertThat(naivePerSourceDelta)
+                .as("naive per-source query delta for expanded linked fixture")
+                .isGreaterThan(2);
         assertThat(manyLinkedPage.getContent())
                 .filteredOn(post -> post.id().equals(fixture.checkinPostId()))
                 .singleElement()
@@ -324,20 +335,32 @@ class CheerQueryCountIntegrationTest {
         UserEntity author = persistUser("linked-author@example.test", "linkedauthor", false);
         GameEntity firstGame = persistGame("LINKED-QC-1", LocalDate.of(2026, 7, 13));
         GameEntity secondGame = persistGame("LINKED-QC-2", LocalDate.of(2026, 7, 14));
+        GameEntity thirdGame = persistGame("LINKED-QC-3", LocalDate.of(2026, 7, 15));
+        GameEntity fourthGame = persistGame("LINKED-QC-4", LocalDate.of(2026, 7, 16));
         BegaDiary firstDiary = persistDiary(author, firstGame);
         BegaDiary secondDiary = persistDiary(author, secondGame);
-        Party party = persistParty(author);
+        BegaDiary thirdDiary = persistDiary(author, thirdGame);
+        BegaDiary fourthDiary = persistDiary(author, fourthGame);
+        Party firstParty = persistParty(author, LocalDate.of(2026, 7, 17), "Blue");
+        Party secondParty = persistParty(author, LocalDate.of(2026, 7, 18), "Red");
+        Party thirdParty = persistParty(author, LocalDate.of(2026, 7, 19), "Green");
+        Party fourthParty = persistParty(author, LocalDate.of(2026, 7, 20), "Navy");
 
         CheerPost checkin = persistLinkedPost(
                 author, team, "checkin", PostType.CHECKIN, firstDiary.getId(), null, null);
         CheerPost recruitment = persistLinkedPost(
-                author, team, "recruitment", PostType.RECRUITMENT, null, party.getId(), null);
+                author, team, "recruitment", PostType.RECRUITMENT, null, firstParty.getId(), null);
         persistLinkedPost(author, team, "second-checkin", PostType.CHECKIN, secondDiary.getId(), null, null);
+        persistLinkedPost(author, team, "third-checkin", PostType.CHECKIN, thirdDiary.getId(), null, null);
+        persistLinkedPost(author, team, "fourth-checkin", PostType.CHECKIN, fourthDiary.getId(), null, null);
+        persistLinkedPost(author, team, "second-recruitment", PostType.RECRUITMENT, null, secondParty.getId(), null);
+        persistLinkedPost(author, team, "third-recruitment", PostType.RECRUITMENT, null, thirdParty.getId(), null);
+        persistLinkedPost(author, team, "fourth-recruitment", PostType.RECRUITMENT, null, fourthParty.getId(), null);
         CheerPost quote = persistLinkedPost(
                 author, team, "quote", PostType.NORMAL, null, null, checkin);
         quote.setRepostType(CheerPost.RepostType.QUOTE);
 
-        return new LinkedFeedFixture(checkin.getId(), recruitment.getId());
+        return new LinkedFeedFixture(checkin.getId(), recruitment.getId(), quote.getId(), 4, 4, 1);
     }
 
     private GameEntity persistGame(String gameId, LocalDate gameDate) {
@@ -374,18 +397,18 @@ class CheerQueryCountIntegrationTest {
         return diary;
     }
 
-    private Party persistParty(UserEntity host) {
+    private Party persistParty(UserEntity host, LocalDate gameDate, String section) {
         Party party = Party.builder()
                 .hostId(host.getId())
                 .hostName(host.getName())
                 .hostBadge(Party.BadgeType.VERIFIED)
                 .teamId("LG")
-                .gameDate(LocalDate.of(2026, 7, 15))
+                .gameDate(gameDate)
                 .gameTime(LocalTime.of(18, 30))
                 .stadium("Jamsil")
                 .homeTeam("LG")
                 .awayTeam("KIA")
-                .section("Blue")
+                .section(section)
                 .maxParticipants(4)
                 .currentParticipants(1)
                 .description("query count fixture")
@@ -498,6 +521,12 @@ class CheerQueryCountIntegrationTest {
     private record FeedFixture(UserEntity viewer) {
     }
 
-    private record LinkedFeedFixture(Long checkinPostId, Long recruitmentPostId) {
+    private record LinkedFeedFixture(
+            Long checkinPostId,
+            Long recruitmentPostId,
+            Long quotePostId,
+            int uniqueDiarySourceCount,
+            int uniquePartySourceCount,
+            int onePageUniqueSourceCount) {
     }
 }
