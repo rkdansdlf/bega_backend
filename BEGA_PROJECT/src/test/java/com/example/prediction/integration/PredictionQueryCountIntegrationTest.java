@@ -1,6 +1,7 @@
 package com.example.prediction.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -137,6 +138,65 @@ class PredictionQueryCountIntegrationTest {
         Mockito.reset(
                 voteFinalResultRepository,
                 userRepository);
+    }
+
+    @Test
+    @DisplayName("inning score batch lookup stays single-query and ordered")
+    void gameInningScoresBatchLookup_keepsSingleQueryAndStableOrdering() {
+        gameInningScoreRepository.saveAllAndFlush(List.of(
+                GameInningScoreEntity.builder()
+                        .gameId("MOCK-GAME-2")
+                        .inning(2)
+                        .teamSide("home")
+                        .teamCode("HT")
+                        .runs(1)
+                        .build(),
+                GameInningScoreEntity.builder()
+                        .gameId("MOCK-GAME-1")
+                        .inning(2)
+                        .teamSide("away")
+                        .teamCode("AT")
+                        .runs(0)
+                        .build(),
+                GameInningScoreEntity.builder()
+                        .gameId("MOCK-GAME-1")
+                        .inning(1)
+                        .teamSide("home")
+                        .teamCode("HT")
+                        .runs(2)
+                        .build(),
+                GameInningScoreEntity.builder()
+                        .gameId("MOCK-GAME-2")
+                        .inning(1)
+                        .teamSide("away")
+                        .teamCode("AT")
+                        .runs(3)
+                        .build(),
+                GameInningScoreEntity.builder()
+                        .gameId("MOCK-GAME-3")
+                        .inning(1)
+                        .teamSide("away")
+                        .teamCode("AT")
+                        .runs(9)
+                        .build()));
+
+        Statistics statistics = HibernateQueryCountSupport.reset(entityManagerFactory);
+
+        List<GameInningScoreEntity> scores = gameInningScoreRepository
+                .findAllByGameIdInOrderByGameIdAscInningAscTeamSideAsc(List.of("MOCK-GAME-2", "MOCK-GAME-1"));
+
+        assertThat(scores)
+                .extracting(
+                        GameInningScoreEntity::getGameId,
+                        GameInningScoreEntity::getInning,
+                        GameInningScoreEntity::getTeamSide,
+                        GameInningScoreEntity::getRuns)
+                .containsExactly(
+                        tuple("MOCK-GAME-1", 1, "home", 2),
+                        tuple("MOCK-GAME-1", 2, "away", 0),
+                        tuple("MOCK-GAME-2", 1, "away", 3),
+                        tuple("MOCK-GAME-2", 2, "home", 1));
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
     }
 
     @Test

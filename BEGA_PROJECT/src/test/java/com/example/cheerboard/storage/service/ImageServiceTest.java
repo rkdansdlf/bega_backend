@@ -14,7 +14,12 @@ import com.example.cheerboard.storage.validator.ImageValidator;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
 import com.example.media.service.MediaObjectKeyGuard;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.concurrent.AbstractExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,14 +32,19 @@ import org.springframework.cache.CacheManager;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.serializer.SerializationException;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
+import reactor.core.publisher.Mono;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -308,5 +318,166 @@ class ImageServiceTest {
 
         org.assertj.core.api.Assertions.assertThat(exception.getCode()).isEqualTo("MEDIA_ASSET_NOT_FOUND");
         verify(storageStrategy, never()).download(any(), any());
+    }
+
+    @Test
+    @DisplayName("다이어리 이미지 업로드는 common pool 대신 전용 이미지 업로드 executor를 사용한다")
+    void uploadDiaryImages_usesImageUploadExecutor() throws Exception {
+        TrackingDirectExecutorService executor = new TrackingDirectExecutorService();
+        imageService.setImageUploadExecutorForTest(executor);
+        MockMultipartFile file = new MockMultipartFile(
+                "images",
+                "seat.png",
+                "image/png",
+                "demo".getBytes(StandardCharsets.UTF_8));
+        var processed = new com.example.common.image.ImageUtil.ProcessedImage(
+                "optimized".getBytes(StandardCharsets.UTF_8),
+                "image/webp",
+                "webp");
+
+        when(config.getMaxImagesPerDiary()).thenReturn(5);
+        when(config.getDiaryBucket()).thenReturn("diary-bucket");
+        when(imageUtil.process(file, "diary")).thenReturn(processed);
+        when(storageStrategy.uploadBytes(
+                eq(processed.getBytes()),
+                eq("image/webp"),
+                eq("diary-bucket"),
+                anyString())).thenReturn(Mono.just("diary/10/100/demo.webp"));
+
+        List<String> result = imageService.uploadDiaryImages(10L, 100L, List.of(file)).block();
+
+        org.assertj.core.api.Assertions.assertThat(result).containsExactly("diary/10/100/demo.webp");
+        org.assertj.core.api.Assertions.assertThat(executor.executeCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("게시글 이미지 URL 일괄 조회는 common pool 대신 전용 이미지 executor를 사용한다")
+    void getPostImageUrlsByPostIds_usesImageUploadExecutorForSignedUrls() {
+        TrackingDirectExecutorService executor = new TrackingDirectExecutorService();
+        imageService.setImageUploadExecutorForTest(executor);
+        CheerPost post1 = CheerPost.builder().id(1L).build();
+        CheerPost post2 = CheerPost.builder().id(2L).build();
+        PostImage image1 = PostImage.builder()
+                .id(11L)
+                .post(post1)
+                .storagePath("posts/1/a.webp")
+                .build();
+        PostImage image2 = PostImage.builder()
+                .id(12L)
+                .post(post1)
+                .storagePath("posts/1/b.webp")
+                .build();
+        PostImage image3 = PostImage.builder()
+                .id(21L)
+                .post(post2)
+                .storagePath("posts/2/a.webp")
+                .build();
+
+        when(postImageRepo.findByPostIdInOrderByPostIdAscCreatedAtAsc(List.of(1L, 2L)))
+                .thenReturn(List.of(image1, image2, image3));
+        when(config.getCheerBucket()).thenReturn("cheer-bucket");
+        when(storageStrategy.getUrl(eq("cheer-bucket"), eq("posts/1/a.webp"), anyInt()))
+                .thenReturn(Mono.just("signed-1a"));
+        when(storageStrategy.getUrl(eq("cheer-bucket"), eq("posts/1/b.webp"), anyInt()))
+                .thenReturn(Mono.just("signed-1b"));
+        when(storageStrategy.getUrl(eq("cheer-bucket"), eq("posts/2/a.webp"), anyInt()))
+                .thenReturn(Mono.just("signed-2a"));
+
+        Map<Long, List<String>> result = imageService.getPostImageUrlsByPostIds(List.of(1L, 2L));
+
+        org.assertj.core.api.Assertions.assertThat(result.get(1L)).containsExactly("signed-1a", "signed-1b");
+        org.assertj.core.api.Assertions.assertThat(result.get(2L)).containsExactly("signed-2a");
+        org.assertj.core.api.Assertions.assertThat(executor.executeCount()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("이미지 전용 executor는 active/queue gauge를 등록한다")
+    void imageUploadExecutorRegistersGauges() throws Exception {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        imageService.setImageUploadMeterRegistryForTest(meterRegistry);
+        MockMultipartFile file = new MockMultipartFile(
+                "images",
+                "seat.png",
+                "image/png",
+                "demo".getBytes(StandardCharsets.UTF_8));
+        var processed = new com.example.common.image.ImageUtil.ProcessedImage(
+                "optimized".getBytes(StandardCharsets.UTF_8),
+                "image/webp",
+                "webp");
+
+        when(config.getMaxImagesPerDiary()).thenReturn(5);
+        when(config.getDiaryBucket()).thenReturn("diary-bucket");
+        when(imageUtil.process(file, "diary")).thenReturn(processed);
+        when(storageStrategy.uploadBytes(
+                eq(processed.getBytes()),
+                eq("image/webp"),
+                eq("diary-bucket"),
+                anyString())).thenReturn(Mono.just("diary/10/100/demo.webp"));
+
+        try {
+            List<String> result = imageService.uploadDiaryImages(10L, 100L, List.of(file)).block();
+
+            org.assertj.core.api.Assertions.assertThat(result).containsExactly("diary/10/100/demo.webp");
+            org.assertj.core.api.Assertions.assertThat(meterRegistry.get("image_upload_executor_active")
+                    .tag("executor", "image_upload")
+                    .gauge()
+                    .value()).isGreaterThanOrEqualTo(0);
+            org.assertj.core.api.Assertions.assertThat(meterRegistry.get("image_upload_executor_limit")
+                    .tag("executor", "image_upload")
+                    .gauge()
+                    .value()).isGreaterThanOrEqualTo(2);
+            org.assertj.core.api.Assertions.assertThat(meterRegistry.get("image_upload_executor_queued")
+                    .tag("executor", "image_upload")
+                    .gauge()
+                    .value()).isEqualTo(0);
+            org.assertj.core.api.Assertions.assertThat(meterRegistry.get("image_upload_executor_queue_capacity")
+                    .tag("executor", "image_upload")
+                    .gauge()
+                    .value()).isEqualTo(64);
+        } finally {
+            imageService.shutdownImageUploadExecutor();
+        }
+    }
+
+    private static final class TrackingDirectExecutorService extends AbstractExecutorService {
+
+        private final AtomicInteger executeCount = new AtomicInteger();
+        private volatile boolean shutdown;
+
+        int executeCount() {
+            return executeCount.get();
+        }
+
+        @Override
+        public void shutdown() {
+            shutdown = true;
+        }
+
+        @Override
+        public List<Runnable> shutdownNow() {
+            shutdown = true;
+            return List.of();
+        }
+
+        @Override
+        public boolean isShutdown() {
+            return shutdown;
+        }
+
+        @Override
+        public boolean isTerminated() {
+            return shutdown;
+        }
+
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit unit) {
+            return shutdown;
+        }
+
+        @Override
+        public void execute(Runnable command) {
+            executeCount.incrementAndGet();
+            command.run();
+        }
     }
 }

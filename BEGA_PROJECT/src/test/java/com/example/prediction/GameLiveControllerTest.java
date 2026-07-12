@@ -1,5 +1,6 @@
 package com.example.prediction;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -9,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.List;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -56,6 +58,60 @@ class GameLiveControllerTest {
                 .andExpect(jsonPath("$.inningScores[0].isExtra").value(false));
 
         verify(gameLiveService).getLiveSnapshot("GAME-1", 10, 25);
+    }
+
+    @Test
+    void liveEndpointsRecordRequestDurationMetrics() throws Exception {
+        GameLiveService gameLiveService = mock(GameLiveService.class);
+        GameLiveRelayService gameLiveRelayService = mock(GameLiveRelayService.class);
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        GameLiveController controller = new GameLiveController(
+                gameLiveService,
+                gameLiveRelayService,
+                new PredictionLiveMetricsService(meterRegistry));
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        when(gameLiveService.getLiveSnapshot("GAME-1", null, null)).thenReturn(
+                GameLiveSnapshotDto.builder()
+                        .gameId("GAME-1")
+                        .gameStatus("LIVE")
+                        .events(List.of())
+                        .inningScores(List.of())
+                        .build());
+        when(gameLiveService.getLiveSummaries(List.of("GAME-1", "GAME-2"))).thenReturn(List.of(
+                GameLiveSummaryDto.builder().gameId("GAME-1").gameStatus("LIVE").build(),
+                GameLiveSummaryDto.builder().gameId("GAME-2").gameStatus("SCHEDULED").build()));
+
+        mockMvc.perform(get("/api/matches/GAME-1/live"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/matches/BAD ID/live"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/matches/live").param("gameIds", "GAME-1,GAME-2"))
+                .andExpect(status().isOk());
+
+        assertThat(meterRegistry.get("prediction_live_request_duration_seconds")
+                .tag("endpoint", "snapshot")
+                .tag("result", "success")
+                .tag("status_group", "2xx")
+                .tag("batch_size", "single")
+                .timer()
+                .count()).isEqualTo(1);
+        assertThat(meterRegistry.get("prediction_live_request_duration_seconds")
+                .tag("endpoint", "snapshot")
+                .tag("result", "bad_request")
+                .tag("status_group", "4xx")
+                .tag("batch_size", "single")
+                .timer()
+                .count()).isEqualTo(1);
+        assertThat(meterRegistry.get("prediction_live_request_duration_seconds")
+                .tag("endpoint", "summary")
+                .tag("result", "success")
+                .tag("status_group", "2xx")
+                .tag("batch_size", "2_5")
+                .timer()
+                .count()).isEqualTo(1);
     }
 
     @Test

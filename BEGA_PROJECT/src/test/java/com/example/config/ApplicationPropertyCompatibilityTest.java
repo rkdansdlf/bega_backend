@@ -140,6 +140,17 @@ class ApplicationPropertyCompatibilityTest {
     }
 
     @Test
+    void applicationYmlDefinesBoundedEnrichmentAndPredictionResourceKeys() throws IOException {
+        String applicationYml = readApplicationYml();
+
+        assertThat(applicationYml)
+                .contains("permit-wait-timeout-ms: ${APP_CHEER_FEED_ENRICHMENT_PERMIT_WAIT_TIMEOUT_MS:50}")
+                .contains("task-timeout-ms: ${APP_CHEER_FEED_ENRICHMENT_TASK_TIMEOUT_MS:800}")
+                .contains("resource-max-concurrency: ${APP_PREDICTION_BOOTSTRAP_RESOURCE_MAX_CONCURRENCY:16}")
+                .contains("resource-permit-wait-timeout-ms: ${APP_PREDICTION_BOOTSTRAP_RESOURCE_PERMIT_WAIT_TIMEOUT_MS:50}");
+    }
+
+    @Test
     void applicationYmlDefinesDevDbHotPathPrewarmEnvKeys() throws IOException {
         String applicationYml = readApplicationYml();
 
