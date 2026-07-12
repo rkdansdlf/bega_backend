@@ -2,10 +2,11 @@ package com.example.cheerboard.service;
 
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.PostType;
+import com.example.cheerboard.dto.EmbeddedPostDto;
+import com.example.cheerboard.dto.LinkedContentRes;
 import com.example.cheerboard.dto.PostChangesResponse;
 import com.example.cheerboard.dto.PostLightweightSummaryRes;
 import com.example.cheerboard.dto.PostSummaryRes;
-import com.example.cheerboard.dto.LinkedContentRes;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.profile.storage.service.ProfileImageService;
@@ -232,7 +233,8 @@ public class CheerFeedService {
                 } catch (Exception e) {
                     log.warn("Cheer lightweight feed enrichment failed for postId={}, fallback to minimal response",
                             post.getId(), e);
-                    return buildFallbackPostLightweightSummary(post, feedProfileImageUrls);
+                    return buildFallbackPostLightweightSummary(
+                            post, feedProfileImageUrls, linkedContentByPostId);
                 }
             }).toList();
 
@@ -262,12 +264,13 @@ public class CheerFeedService {
     }
 
     private com.example.cheerboard.dto.PostLightweightSummaryRes buildFallbackPostLightweightSummary(CheerPost post) {
-        return buildFallbackPostLightweightSummary(post, Collections.emptyMap());
+        return buildFallbackPostLightweightSummary(post, Collections.emptyMap(), Collections.emptyMap());
     }
 
     private com.example.cheerboard.dto.PostLightweightSummaryRes buildFallbackPostLightweightSummary(
             CheerPost post,
-            Map<Long, String> feedProfileImageUrls) {
+            Map<Long, String> feedProfileImageUrls,
+            Map<Long, LinkedContentRes> linkedContentByPostId) {
         return com.example.cheerboard.dto.PostLightweightSummaryRes.of(
                 post.getId(),
                 post.getContent(),
@@ -278,7 +281,7 @@ public class CheerFeedService {
                 resolveDisplayName(post.getAuthor()),
                 resolveAuthorProfileImageUrl(post.getAuthor(), feedProfileImageUrls),
                 post.getPostType().name(),
-                null);
+                linkedContentByPostId.get(post.getId()));
     }
 
     @Transactional(readOnly = true)
@@ -853,7 +856,8 @@ public class CheerFeedService {
                                 bookmarkedPostIds.contains(post.getId()),
                                 repostedPostIds.contains(post.getId()),
                                 bookmarkCountMap.getOrDefault(post.getId(), 0),
-                                feedProfileImageUrls);
+                                feedProfileImageUrls,
+                                linkedContentByPostId);
                     }
                 })
                 .collect(Collectors.toList());
@@ -1051,9 +1055,14 @@ public class CheerFeedService {
             boolean bookmarkedByMe,
             boolean repostedByMe,
             int bookmarkCount,
-            Map<Long, String> feedProfileImageUrls) {
+            Map<Long, String> feedProfileImageUrls,
+            Map<Long, LinkedContentRes> linkedContentByPostId) {
         boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
-        return PostSummaryRes.of(
+        CheerPost original = post.isRepost() ? post.getRepostOf() : null;
+        EmbeddedPostDto originalPost = original != null
+                ? buildFallbackEmbeddedPost(original, feedProfileImageUrls, linkedContentByPostId)
+                : null;
+        return new PostSummaryRes(
                 post.getId(),
                 post.getTeamId(),
                 resolveTeamName(post.getTeam()),
@@ -1076,7 +1085,35 @@ public class CheerFeedService {
                 post.getRepostCount(),
                 repostedByMe,
                 resolvePostTypeName(post),
-                Collections.emptyList());
+                Collections.emptyList(),
+                original != null ? original.getId() : null,
+                post.getRepostType() != null ? post.getRepostType().name() : null,
+                originalPost,
+                post.isRepost() && original == null,
+                null,
+                null,
+                linkedContentByPostId.get(post.getId()));
+    }
+
+    private EmbeddedPostDto buildFallbackEmbeddedPost(
+            CheerPost original,
+            Map<Long, String> feedProfileImageUrls,
+            Map<Long, LinkedContentRes> linkedContentByPostId) {
+        return EmbeddedPostDto.of(
+                original.getId(),
+                original.getTeamId(),
+                resolveTeamColor(original.getTeam()),
+                original.getContent(),
+                resolveDisplayName(original.getAuthor()),
+                resolveAuthorHandle(original.getAuthor()),
+                resolveAuthorProfileImageUrl(original.getAuthor(), feedProfileImageUrls),
+                original.getCreatedAt(),
+                Collections.emptyList(),
+                original.getLikeCount(),
+                original.getCommentCount(),
+                original.getRepostCount(),
+                resolvePostTypeName(original),
+                linkedContentByPostId.get(original.getId()));
     }
 
     private int safeInt(Integer value) {
