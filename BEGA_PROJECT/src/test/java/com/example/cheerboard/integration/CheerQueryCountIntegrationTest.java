@@ -10,6 +10,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.example.auth.entity.UserEntity;
+import com.example.BegaDiary.Entity.BegaDiary;
+import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.auth.repository.UserBlockRepository;
 import com.example.auth.repository.UserFollowRepository;
 import com.example.auth.repository.UserRepository;
@@ -31,6 +33,7 @@ import com.example.cheerboard.repo.CheerPostRepostRepo;
 import com.example.cheerboard.repo.CheerReportRepo;
 import com.example.cheerboard.service.CheerFeedService;
 import com.example.cheerboard.service.CheerInteractionService;
+import com.example.cheerboard.service.CheerLinkedPostService;
 import com.example.cheerboard.service.CheerMonitoringMetricsService;
 import com.example.cheerboard.service.CheerPostService;
 import com.example.cheerboard.service.HotPostChecker;
@@ -40,6 +43,9 @@ import com.example.cheerboard.service.PostDtoMapper;
 import com.example.cheerboard.service.RedisPostService;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.kbo.entity.TeamEntity;
+import com.example.kbo.entity.GameEntity;
+import com.example.mate.entity.Party;
+import com.example.mate.repository.PartyRepository;
 import com.example.notification.service.NotificationService;
 import com.example.profile.storage.service.ProfileImageService;
 import com.example.support.HibernateQueryCountSupport;
@@ -47,7 +53,9 @@ import com.example.support.HibernateStatisticsTestConfig;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -119,6 +127,12 @@ class CheerQueryCountIntegrationTest {
     @Autowired
     private CheerReportRepo reportRepo;
 
+    @Autowired
+    private BegaDiaryRepository diaryRepository;
+
+    @Autowired
+    private PartyRepository partyRepository;
+
     private CheerFeedService feedService;
     private ImageService imageService;
     private RedisPostService redisPostService;
@@ -165,6 +179,8 @@ class CheerQueryCountIntegrationTest {
                 permissionValidator,
                 entityManager,
                 postService);
+        CheerLinkedPostService linkedPostService = new CheerLinkedPostService(
+                diaryRepository, partyRepository, postRepo);
 
         feedService = new CheerFeedService(
                 postRepo,
@@ -180,7 +196,8 @@ class CheerQueryCountIntegrationTest {
                 postDtoMapper,
                 profileImageService,
                 bookmarkRepo,
-                new CheerMonitoringMetricsService(new SimpleMeterRegistry()));
+                new CheerMonitoringMetricsService(new SimpleMeterRegistry()),
+                linkedPostService);
 
         // @DataJpaTest는 테스트 트랜잭션 내 미커밋 데이터를 사용한다.
         // 병렬 virtual thread는 별도 트랜잭션이므로 미커밋 데이터를 볼 수 없다.
@@ -239,6 +256,46 @@ class CheerQueryCountIntegrationTest {
         assertThat(lightweightQueryCount).isLessThanOrEqualTo(fullQueryCount);
     }
 
+    @Test
+    @DisplayName("linked feed query count stays bounded from one source to many mixed sources")
+    void linkedFeed_manySourcesAddAtMostTwoBulkQueries() {
+        LinkedFeedFixture fixture = seedLinkedFeedFixture();
+        entityManager.flush();
+        entityManager.clear();
+
+        Statistics oneStatistics = HibernateQueryCountSupport.reset(entityManagerFactory);
+        var oneLinkedPage = feedService.list(null, null, PageRequest.of(0, 1), null);
+        long oneLinkedQueryCount = oneStatistics.getPrepareStatementCount();
+
+        entityManager.clear();
+        Statistics manyStatistics = HibernateQueryCountSupport.reset(entityManagerFactory);
+        var manyLinkedPage = feedService.list(null, null, PageRequest.of(0, 10), null);
+        long manyLinkedQueryCount = manyStatistics.getPrepareStatementCount();
+        System.out.printf(
+                "linked-query-count one=%d many=%d delta=%d%n",
+                oneLinkedQueryCount,
+                manyLinkedQueryCount,
+                manyLinkedQueryCount - oneLinkedQueryCount);
+
+        assertThat(oneLinkedPage.getContent()).hasSize(1);
+        assertThat(oneLinkedPage.getContent().getFirst().originalPost()).isNotNull();
+        assertThat(oneLinkedPage.getContent().getFirst().originalPost().linkedContent()).isNotNull();
+        assertThat(manyLinkedPage.getContent())
+                .filteredOn(post -> post.id().equals(fixture.checkinPostId()))
+                .singleElement()
+                .extracting("linkedContent.kind")
+                .isEqualTo(com.example.cheerboard.dto.LinkedContentKind.CHECKIN);
+        assertThat(manyLinkedPage.getContent())
+                .filteredOn(post -> post.id().equals(fixture.recruitmentPostId()))
+                .singleElement()
+                .extracting("linkedContent.kind")
+                .isEqualTo(com.example.cheerboard.dto.LinkedContentKind.RECRUITMENT);
+        assertThat(manyLinkedQueryCount)
+                .as("many linked source queries=%s, one linked source queries=%s",
+                        manyLinkedQueryCount, oneLinkedQueryCount)
+                .isLessThanOrEqualTo(oneLinkedQueryCount + 2L);
+    }
+
     private FeedFixture seedFeedFixture() {
         TeamEntity team = persistTeam();
         UserEntity viewer = persistUser("viewer@example.test", "viewer", false);
@@ -260,6 +317,111 @@ class CheerQueryCountIntegrationTest {
         persistRepost(posts.get(3), viewer);
 
         return new FeedFixture(viewer);
+    }
+
+    private LinkedFeedFixture seedLinkedFeedFixture() {
+        TeamEntity team = persistTeam();
+        UserEntity author = persistUser("linked-author@example.test", "linkedauthor", false);
+        GameEntity firstGame = persistGame("LINKED-QC-1", LocalDate.of(2026, 7, 13));
+        GameEntity secondGame = persistGame("LINKED-QC-2", LocalDate.of(2026, 7, 14));
+        BegaDiary firstDiary = persistDiary(author, firstGame);
+        BegaDiary secondDiary = persistDiary(author, secondGame);
+        Party party = persistParty(author);
+
+        CheerPost checkin = persistLinkedPost(
+                author, team, "checkin", PostType.CHECKIN, firstDiary.getId(), null, null);
+        CheerPost recruitment = persistLinkedPost(
+                author, team, "recruitment", PostType.RECRUITMENT, null, party.getId(), null);
+        persistLinkedPost(author, team, "second-checkin", PostType.CHECKIN, secondDiary.getId(), null, null);
+        CheerPost quote = persistLinkedPost(
+                author, team, "quote", PostType.NORMAL, null, null, checkin);
+        quote.setRepostType(CheerPost.RepostType.QUOTE);
+
+        return new LinkedFeedFixture(checkin.getId(), recruitment.getId());
+    }
+
+    private GameEntity persistGame(String gameId, LocalDate gameDate) {
+        GameEntity game = GameEntity.builder()
+                .gameId(gameId)
+                .gameDate(gameDate)
+                .stadium("Jamsil")
+                .homeTeam("LG")
+                .awayTeam("KT")
+                .seasonId(2026)
+                .gameStatus("COMPLETED")
+                .isDummy(false)
+                .build();
+        entityManager.persist(game);
+        return game;
+    }
+
+    private BegaDiary persistDiary(UserEntity owner, GameEntity game) {
+        BegaDiary diary = BegaDiary.builder()
+                .diaryDate(game.getGameDate())
+                .game(game)
+                .memo("private fixture memo")
+                .mood(BegaDiary.DiaryEmoji.HAPPY)
+                .type(BegaDiary.DiaryType.ATTENDED)
+                .winning(BegaDiary.DiaryWinning.WIN)
+                .photoUrls(List.of())
+                .user(owner)
+                .team("LG")
+                .stadium(game.getStadium())
+                .ticketVerified(true)
+                .ticketVerifiedAt(LocalDateTime.now())
+                .build();
+        entityManager.persist(diary);
+        return diary;
+    }
+
+    private Party persistParty(UserEntity host) {
+        Party party = Party.builder()
+                .hostId(host.getId())
+                .hostName(host.getName())
+                .hostBadge(Party.BadgeType.VERIFIED)
+                .teamId("LG")
+                .gameDate(LocalDate.of(2026, 7, 15))
+                .gameTime(LocalTime.of(18, 30))
+                .stadium("Jamsil")
+                .homeTeam("LG")
+                .awayTeam("KIA")
+                .section("Blue")
+                .maxParticipants(4)
+                .currentParticipants(1)
+                .description("query count fixture")
+                .ticketVerified(true)
+                .status(Party.PartyStatus.PENDING)
+                .build();
+        entityManager.persist(party);
+        return party;
+    }
+
+    private CheerPost persistLinkedPost(
+            UserEntity author,
+            TeamEntity team,
+            String content,
+            PostType postType,
+            Long diaryId,
+            Long partyId,
+            CheerPost original) {
+        CheerPost post = CheerPost.builder()
+                .team(team)
+                .postType(postType)
+                .author(author)
+                .content(content)
+                .diaryId(diaryId)
+                .partyId(partyId)
+                .repostOf(original)
+                .likeCount(0)
+                .commentCount(0)
+                .views(0)
+                .repostCount(0)
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .deleted(false)
+                .build();
+        entityManager.persist(post);
+        return post;
     }
 
     private TeamEntity persistTeam() {
@@ -334,5 +496,8 @@ class CheerQueryCountIntegrationTest {
     }
 
     private record FeedFixture(UserEntity viewer) {
+    }
+
+    private record LinkedFeedFixture(Long checkinPostId, Long recruitmentPostId) {
     }
 }
