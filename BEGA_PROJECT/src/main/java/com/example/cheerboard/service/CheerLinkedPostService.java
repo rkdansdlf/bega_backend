@@ -193,9 +193,7 @@ public class CheerLinkedPostService {
     }
 
     private BegaDiary requireShareableDiary(Long diaryId, UserEntity actor) {
-        BegaDiary diary = diaryRepository.findByIdWithOwnerGameAndPhotos(diaryId)
-                .filter(found -> found.getUser() != null)
-                .filter(found -> actor.getId().equals(found.getUser().getId()))
+        BegaDiary diary = diaryRepository.findByIdAndUserIdWithOwnerAndGame(diaryId, actor.getId())
                 .orElseThrow(() -> new NotFoundBusinessException(
                         "DIARY_NOT_FOUND", "다이어리를 찾을 수 없습니다."));
         if (diary.getType() != DiaryType.ATTENDED || !diary.isTicketVerified()) {
@@ -342,11 +340,11 @@ public class CheerLinkedPostService {
         GameEntity game = diary.getGame();
         if (game == null) {
             missingItems.add(missing("game", "경기", "내부 game 연결이 없습니다.", "game.id"));
-            return missingItems;
+        } else {
+            addIfMissing(missingItems, "gameDate", "경기일", game.getGameDate(), "YYYY-MM-DD");
+            addIfBlank(missingItems, "homeTeam", "홈 팀", game.getHomeTeam(), "KBO team id/name");
+            addIfBlank(missingItems, "awayTeam", "원정 팀", game.getAwayTeam(), "KBO team id/name");
         }
-        addIfMissing(missingItems, "gameDate", "경기일", game.getGameDate(), "YYYY-MM-DD");
-        addIfBlank(missingItems, "homeTeam", "홈 팀", game.getHomeTeam(), "KBO team id/name");
-        addIfBlank(missingItems, "awayTeam", "원정 팀", game.getAwayTeam(), "KBO team id/name");
         addIfBlank(missingItems, "cheeringTeam", "응원 팀", diary.getTeam(), "KBO team id/name");
         addIfBlank(missingItems, "stadium", "구장", diary.getStadium(), "stadium name");
         return missingItems;
