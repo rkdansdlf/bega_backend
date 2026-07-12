@@ -5,10 +5,14 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   guard:
     name: Canonical Guard
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       POSTGRES_DB_URL: ${{ secrets.POSTGRES_DB_URL }}
       DB_URL: ${{ secrets.DB_URL }}
@@ -62,6 +66,7 @@ jobs:
         with:
           name: backend-canonical-guard-report
           path: backend_canonical_guard.json
+          retention-days: 14
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -101,6 +106,7 @@ jobs:
     if: ${{ vars.DEPLOY_TO_EC2 == 'true' }}
     needs: guard
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     
     steps:
       - name: Checkout code

@@ -8,10 +8,18 @@ on:
     branches:
       - develop
 
+concurrency:
+  group: backend-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       SPRING_PROFILES_ACTIVE: dev
       DB_URL: ${{ secrets.DB_URL }}
@@ -62,6 +70,7 @@ jobs:
         with:
           name: test-results
           path: BEGA_PROJECT/build/test-results/test/
+          retention-days: 7
       
       - name: Test Summary
         if: always()
@@ -72,6 +81,7 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: test
     steps:
       - name: Checkout code
@@ -90,6 +100,7 @@ jobs:
   build:
     name: Build Application
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [test, security]
     
     steps:
