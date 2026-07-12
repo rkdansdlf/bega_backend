@@ -156,6 +156,66 @@ class CheerFeedServiceTestLinkedContent {
     }
 
     @Test
+    void listLightweight_fallbackKeepsTopLevelLinkedContentAfterResolverSuccess() {
+        PageRequest pageable = PageRequest.of(0, 1);
+        UserEntity author = UserEntity.builder().id(13L).name("author").handle("author").build();
+        CheerPost post = linkedPost(501L, author, PostType.CHECKIN);
+        LinkedContentRes linkedContent = LinkedContentRes.availableCheckin(new CheckinLinkedContentRes(
+                LocalDate.of(2026, 7, 13), "LG", "KT", "LG", "Jamsil", true));
+
+        when(postRepo.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(PageRequest.class)))
+                .thenReturn(new PageImpl<>(List.of(post), pageable, 1));
+        when(linkedPostService.resolveForPosts(anyCollection())).thenReturn(Map.of(post.getId(), linkedContent));
+        when(postDtoMapper.toPostLightweightSummaryRes(
+                any(CheerPost.class), anyList(), anyMap(), anyMap()))
+                .thenThrow(new IllegalStateException("later lightweight mapping failure"));
+
+        PostLightweightSummaryRes result =
+                feedService.listLightweight(null, null, pageable, null).getContent().getFirst();
+
+        assertThat(result.postType()).isEqualTo("CHECKIN");
+        assertThat(result.linkedContent()).isEqualTo(linkedContent);
+        verify(linkedPostService, times(1)).resolveForPosts(anyCollection());
+    }
+
+    @Test
+    void list_fallbackKeepsTopLevelAndImmediateOriginalLinkedContentAfterResolverSuccess() {
+        PageRequest pageable = PageRequest.of(0, 2);
+        UserEntity author = UserEntity.builder().id(14L).name("author").handle("author").build();
+        CheerPost checkin = linkedPost(601L, author, PostType.CHECKIN);
+        CheerPost original = linkedPost(602L, author, PostType.CHECKIN);
+        CheerPost quote = linkedPost(603L, author, PostType.NORMAL);
+        quote.setRepostOf(original);
+        quote.setRepostType(CheerPost.RepostType.QUOTE);
+        LinkedContentRes checkinContent = LinkedContentRes.availableCheckin(new CheckinLinkedContentRes(
+                LocalDate.of(2026, 7, 13), "LG", "KT", "LG", "Jamsil", true));
+        LinkedContentRes originalContent = LinkedContentRes.availableCheckin(new CheckinLinkedContentRes(
+                LocalDate.of(2026, 7, 14), "KT", "LG", "KT", "Suwon", true));
+
+        when(postRepo.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(PageRequest.class)))
+                .thenReturn(new PageImpl<>(List.of(checkin, quote), pageable, 2));
+        when(linkedPostService.resolveForPosts(anyCollection()))
+                .thenReturn(Map.of(checkin.getId(), checkinContent, original.getId(), originalContent));
+        when(postDtoMapper.toPostSummaryRes(
+                any(CheerPost.class), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), anyInt(),
+                anyList(), anyMap(), anyMap(), anyMap(), anyMap(), anyMap()))
+                .thenThrow(new IllegalStateException("later full mapping failure"));
+
+        List<PostSummaryRes> results = feedService.list(null, null, pageable, null).getContent();
+        PostSummaryRes checkinResult = results.getFirst();
+        PostSummaryRes quoteResult = results.get(1);
+
+        assertThat(checkinResult.postType()).isEqualTo("CHECKIN");
+        assertThat(checkinResult.linkedContent()).isEqualTo(checkinContent);
+        assertThat(quoteResult.originalDeleted()).isFalse();
+        assertThat(quoteResult.originalPost()).isNotNull();
+        assertThat(quoteResult.originalPost().id()).isEqualTo(original.getId());
+        assertThat(quoteResult.originalPost().postType()).isEqualTo("CHECKIN");
+        assertThat(quoteResult.originalPost().linkedContent()).isEqualTo(originalContent);
+        verify(linkedPostService, times(1)).resolveForPosts(anyCollection());
+    }
+
+    @Test
     void list_propagatesUnexpectedLinkedSourceDatabaseFailure() {
         PageRequest pageable = PageRequest.of(0, 1);
         UserEntity author = UserEntity.builder().id(9L).name("author").handle("author").build();
