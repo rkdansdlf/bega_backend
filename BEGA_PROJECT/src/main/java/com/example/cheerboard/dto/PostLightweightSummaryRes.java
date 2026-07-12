@@ -17,8 +17,23 @@ public record PostLightweightSummaryRes(
         Instant createdAt,
         // Author info (minimal)
         String authorNickname,
-        String authorProfileImage
+        String authorProfileImage,
+        String postType,
+        LinkedContentRes linkedContent
 ) {
+    public PostLightweightSummaryRes(
+            Long id,
+            String contentPreview,
+            String imageUrl,
+            int likeCount,
+            int commentCount,
+            Instant createdAt,
+            String authorNickname,
+            String authorProfileImage) {
+        this(id, contentPreview, imageUrl, likeCount, commentCount, createdAt, authorNickname,
+                authorProfileImage, "NORMAL", null);
+    }
+
     /**
      * Factory method to create lightweight summary with content truncation
      */
@@ -45,7 +60,9 @@ public record PostLightweightSummaryRes(
                 commentCount,
                 createdAt,
                 authorNickname,
-                authorProfileImage
+                authorProfileImage,
+                "NORMAL",
+                null
         );
     }
 }

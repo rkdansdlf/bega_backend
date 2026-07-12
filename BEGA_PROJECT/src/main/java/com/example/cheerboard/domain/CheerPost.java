@@ -58,6 +58,12 @@ public class CheerPost {
     @Builder.Default
     private PostType postType = PostType.NORMAL;
 
+    @Column(name = "diary_id")
+    private Long diaryId;
+
+    @Column(name = "party_id")
+    private Long partyId;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "author_id", nullable = false)
     private UserEntity author;
