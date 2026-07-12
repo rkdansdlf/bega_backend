@@ -134,6 +134,44 @@ class PostDtoMapperTest {
     }
 
     @Test
+    @DisplayName("lightweight mapping preserves the entity post type")
+    void toPostLightweightSummaryRes_preservesPostType() {
+        PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
+        CheerPost post = createPost(46L, 0, PostType.CHECKIN);
+
+        PostLightweightSummaryRes result = mapper.toPostLightweightSummaryRes(post, Collections.emptyList());
+
+        assertThat(result.postType()).isEqualTo("CHECKIN");
+        assertThat(result.linkedContent()).isNull();
+    }
+
+    @Test
+    @DisplayName("embedded repost mapping preserves the original entity post type")
+    void toPostSummaryRes_embeddedPostPreservesPostType() {
+        PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
+        CheerPost original = createPost(47L, 0, PostType.RECRUITMENT);
+        CheerPost repost = createPost(48L, 0);
+        repost.setRepostOf(original);
+        repost.setRepostType(CheerPost.RepostType.QUOTE);
+
+        PostSummaryRes result = mapper.toPostSummaryRes(
+                repost,
+                false,
+                false,
+                false,
+                false,
+                0,
+                Collections.emptyList(),
+                Collections.emptyMap(),
+                Collections.emptyMap(),
+                Collections.emptyMap());
+
+        assertThat(result.originalPost()).isNotNull();
+        assertThat(result.originalPost().postType()).isEqualTo("RECRUITMENT");
+        assertThat(result.originalPost().linkedContent()).isNull();
+    }
+
+    @Test
     @DisplayName("단건 매핑도 stale HOT 캐시보다 현재 계산값을 우선한다")
     void toPostSummaryRes_singleLookupUsesComputedHotStatus() {
         PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
@@ -158,6 +196,10 @@ class PostDtoMapperTest {
     }
 
     private CheerPost createPost(Long postId, int views) {
+        return createPost(postId, views, PostType.NORMAL);
+    }
+
+    private CheerPost createPost(Long postId, int views, PostType postType) {
         TeamEntity team = TeamEntity.builder()
                 .teamId("NC")
                 .teamName("NC 다이노스")
@@ -183,7 +225,7 @@ class PostDtoMapperTest {
                 .author(author)
                 .views(views)
                 .createdAt(Instant.parse("2026-03-19T00:00:00Z"))
-                .postType(PostType.NORMAL)
+                .postType(postType)
                 .build();
     }
 }

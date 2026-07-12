@@ -46,6 +46,21 @@ public record PostLightweightSummaryRes(
             Instant createdAt,
             String authorNickname,
             String authorProfileImage) {
+        return of(id, fullContent, firstImageUrl, likeCount, commentCount, createdAt,
+                authorNickname, authorProfileImage, "NORMAL", null);
+    }
+
+    public static PostLightweightSummaryRes of(
+            Long id,
+            String fullContent,
+            String firstImageUrl,
+            int likeCount,
+            int commentCount,
+            Instant createdAt,
+            String authorNickname,
+            String authorProfileImage,
+            String postType,
+            LinkedContentRes linkedContent) {
 
         // Truncate content to 100 characters
         String preview = fullContent != null && fullContent.length() > 100
@@ -61,8 +76,8 @@ public record PostLightweightSummaryRes(
                 createdAt,
                 authorNickname,
                 authorProfileImage,
-                "NORMAL",
-                null
+                postType,
+                linkedContent
         );
     }
 }
