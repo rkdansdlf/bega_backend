@@ -1,6 +1,7 @@
 package com.example.BegaDiary.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -52,6 +53,10 @@ public interface BegaDiaryRepository extends JpaRepository<BegaDiary, Long> {
        @EntityGraph(attributePaths = {"user", "game", "photoUrls"})
        @Query("SELECT d FROM BegaDiary d WHERE d.id = :id")
        Optional<BegaDiary> findByIdWithOwnerGameAndPhotos(@Param("id") Long id);
+
+       @EntityGraph(attributePaths = {"user", "game"})
+       @Query("SELECT d FROM BegaDiary d WHERE d.id IN :ids")
+       List<BegaDiary> findAllByIdInWithOwnerAndGame(@Param("ids") Collection<Long> ids);
 
        @EntityGraph(attributePaths = {"user", "game", "photoUrls"})
        Optional<BegaDiary> findByIdAndUserId(Long id, Long userId);
