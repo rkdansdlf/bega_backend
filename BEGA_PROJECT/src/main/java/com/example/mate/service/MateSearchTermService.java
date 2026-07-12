@@ -1,18 +1,24 @@
 package com.example.mate.service;
 
+import com.example.common.config.CacheConfig;
 import com.example.mate.dto.MateSearchTermDTO;
 import com.example.mate.entity.MateSearchTerm;
+import com.example.mate.repository.MateSearchTermLatestDisplayProjection;
+import com.example.mate.repository.MateSearchTermPopularProjection;
 import com.example.mate.repository.MateSearchTermRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.Comparator;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -34,6 +40,7 @@ public class MateSearchTermService {
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     private final MateSearchTermRepository mateSearchTermRepository;
+    private final CacheManager cacheManager;
 
     @Transactional
     public void recordSearchTerm(String rawTerm) {
@@ -52,6 +59,7 @@ public class MateSearchTermService {
                 searchedAt);
 
         if (updatedRows > 0) {
+            evictPopularTermsCache();
             return;
         }
 
@@ -63,6 +71,7 @@ public class MateSearchTermService {
                     .searchCount(1L)
                     .lastSearchedAt(searchedAt)
                     .build());
+            evictPopularTermsCache();
         } catch (DataIntegrityViolationException race) {
             log.debug("Mate search term insert raced; retrying as increment term={}", term.normalized());
             mateSearchTermRepository.incrementDailyTerm(
@@ -70,37 +79,36 @@ public class MateSearchTermService {
                     term.normalized(),
                     term.display(),
                     searchedAt);
+            evictPopularTermsCache();
         }
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = CacheConfig.MATE_POPULAR_SEARCH_TERMS,
+            key = "#root.target.popularTermsCacheKey(#requestedLimit)",
+            sync = true)
     public List<MateSearchTermDTO.PopularResponse> getPopularTerms(Integer requestedLimit) {
         int limit = normalizeLimit(requestedLimit);
         LocalDate startDate = LocalDate.now().minusDays(POPULAR_WINDOW_DAYS - 1L);
-        Map<String, SearchTermAggregate> aggregates = new HashMap<>();
+        List<MateSearchTermPopularProjection> popularTerms =
+                mateSearchTermRepository.findPopularTermSummaries(startDate, PageRequest.of(0, limit));
+        if (popularTerms.isEmpty()) {
+            return List.of();
+        }
 
-        mateSearchTermRepository.findBySearchDateGreaterThanEqual(startDate).forEach(term -> {
-            SearchTermAggregate aggregate = aggregates.computeIfAbsent(
-                    term.getNormalizedTerm(),
-                    ignored -> new SearchTermAggregate(term.getNormalizedTerm()));
-            aggregate.add(term);
-        });
-
-        List<SearchTermAggregate> rankedAggregates = aggregates.values().stream()
-                .sorted(Comparator
-                        .comparingLong(SearchTermAggregate::count).reversed()
-                        .thenComparing(SearchTermAggregate::lastSearchedAt, Comparator.reverseOrder())
-                        .thenComparing(SearchTermAggregate::normalizedTerm))
-                .limit(limit)
-                .toList();
-
-        return IntStream.range(0, rankedAggregates.size())
+        Map<String, String> latestDisplayTerms = latestDisplayTerms(startDate, popularTerms);
+        return IntStream.range(0, popularTerms.size())
                 .mapToObj(index -> MateSearchTermDTO.PopularResponse.builder()
-                        .term(rankedAggregates.get(index).displayTerm())
-                        .count(rankedAggregates.get(index).count())
+                        .term(displayTerm(popularTerms.get(index), latestDisplayTerms))
+                        .count(searchCount(popularTerms.get(index)))
                         .rank(index + 1)
                         .build())
                 .toList();
+    }
+
+    public int popularTermsCacheKey(Integer requestedLimit) {
+        return normalizeLimit(requestedLimit);
     }
 
     private int normalizeLimit(Integer requestedLimit) {
@@ -129,41 +137,35 @@ public class MateSearchTermService {
     private record NormalizedSearchTerm(String display, String normalized) {
     }
 
-    private static class SearchTermAggregate {
-        private final String normalizedTerm;
-        private String displayTerm;
-        private long count;
-        private Instant lastSearchedAt = Instant.EPOCH;
-
-        SearchTermAggregate(String normalizedTerm) {
-            this.normalizedTerm = normalizedTerm;
+    private void evictPopularTermsCache() {
+        Cache cache = cacheManager.getCache(CacheConfig.MATE_POPULAR_SEARCH_TERMS);
+        if (cache != null) {
+            cache.clear();
         }
+    }
 
-        void add(MateSearchTerm term) {
-            count += term.getSearchCount() == null ? 0L : term.getSearchCount();
-            Instant candidateLastSearchedAt = term.getLastSearchedAt() == null
-                    ? Instant.EPOCH
-                    : term.getLastSearchedAt();
-            if (displayTerm == null || candidateLastSearchedAt.isAfter(lastSearchedAt)) {
-                displayTerm = term.getDisplayTerm();
-                lastSearchedAt = candidateLastSearchedAt;
-            }
+    private Map<String, String> latestDisplayTerms(
+            LocalDate startDate,
+            List<MateSearchTermPopularProjection> popularTerms) {
+        List<String> normalizedTerms = popularTerms.stream()
+                .map(MateSearchTermPopularProjection::getNormalizedTerm)
+                .toList();
+        Map<String, String> displayTerms = new LinkedHashMap<>();
+        for (MateSearchTermLatestDisplayProjection latestDisplay :
+                mateSearchTermRepository.findLatestDisplayTerms(startDate, normalizedTerms)) {
+            displayTerms.putIfAbsent(latestDisplay.getNormalizedTerm(), latestDisplay.getDisplayTerm());
         }
+        return displayTerms;
+    }
 
-        String normalizedTerm() {
-            return normalizedTerm;
-        }
+    private String displayTerm(
+            MateSearchTermPopularProjection popularTerm,
+            Map<String, String> latestDisplayTerms) {
+        return Optional.ofNullable(latestDisplayTerms.get(popularTerm.getNormalizedTerm()))
+                .orElse(popularTerm.getNormalizedTerm());
+    }
 
-        String displayTerm() {
-            return displayTerm;
-        }
-
-        long count() {
-            return count;
-        }
-
-        Instant lastSearchedAt() {
-            return lastSearchedAt;
-        }
+    private long searchCount(MateSearchTermPopularProjection popularTerm) {
+        return popularTerm.getSearchCount() == null ? 0L : popularTerm.getSearchCount();
     }
 }

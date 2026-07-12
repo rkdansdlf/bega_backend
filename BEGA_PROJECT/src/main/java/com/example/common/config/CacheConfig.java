@@ -56,6 +56,7 @@ public class CacheConfig {
         public static final String PREDICTION_VOTE_STATUS = "predictionVoteStatus";
         public static final String RANKING_PREDICTION_CONTEXT = "rankingPredictionContext";
         public static final String RANKING_SHARE_IDS = "rankingShareIds";
+        public static final String MATE_POPULAR_SEARCH_TERMS = "matePopularSearchTerms";
 
         public static final String STADIUM_PLACES = "stadiumPlaces";
         public static final String GAME_DETAIL = "gameDetail";
@@ -125,6 +126,12 @@ public class CacheConfig {
                 manager.registerCustomCache(PREDICTION_MATCH_RANGE,
                                 Caffeine.newBuilder()
                                                 .maximumSize(1000)
+                                                .expireAfterWrite(30, TimeUnit.SECONDS)
+                                                .recordStats()
+                                                .build());
+                manager.registerCustomCache(MATE_POPULAR_SEARCH_TERMS,
+                                Caffeine.newBuilder()
+                                                .maximumSize(128)
                                                 .expireAfterWrite(30, TimeUnit.SECONDS)
                                                 .recordStats()
                                                 .build());

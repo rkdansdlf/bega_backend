@@ -20,6 +20,7 @@ import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.web.reactive.function.client.WebClient;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -89,6 +90,48 @@ class AiProxyServiceTest {
                 .contains("event: meta")
                 .contains("event: done")
                 .contains("data: [DONE]");
+    }
+
+    @Test
+    void forwardJsonRecordsUpstreamRequestMetric() throws Exception {
+        server = startServer("/ai/chat/completion", exchange -> writeResponse(exchange, 200, "{\"ok\":true}"));
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        AiProxyService service = newService(
+                Duration.ofSeconds(5),
+                "metric-token",
+                new AiProxyMonitoringMetricsService(meterRegistry));
+
+        AiProxyService.ProxyByteResponse response = service.forwardJson("/ai/chat/completion", "{\"test\":true}");
+
+        assertThat(response.status().value()).isEqualTo(200);
+        assertThat(meterRegistry.get(AiProxyMonitoringMetricsService.UPSTREAM_REQUEST_DURATION_METRIC)
+                .tag("endpoint", "chat_completion")
+                .tag("mode", "byte")
+                .tag("status", "2xx")
+                .tag("result", "success")
+                .timer()
+                .count()).isEqualTo(1);
+    }
+
+    @Test
+    void forwardJsonStreamRecordsUpstreamErrorMetric() throws Exception {
+        server = startServer("/ai/coach/analyze", exchange -> writeResponse(exchange, 503, "down"));
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        AiProxyService service = newService(
+                Duration.ofSeconds(5),
+                "stream-token",
+                new AiProxyMonitoringMetricsService(meterRegistry));
+
+        AiProxyService.ProxyStreamResponse response = service.forwardJsonStream("/ai/coach/analyze", "{\"test\":true}");
+
+        assertThat(response.status().value()).isEqualTo(503);
+        assertThat(meterRegistry.get(AiProxyMonitoringMetricsService.UPSTREAM_REQUEST_DURATION_METRIC)
+                .tag("endpoint", "coach_analyze")
+                .tag("mode", "stream_header")
+                .tag("status", "5xx")
+                .tag("result", "upstream_error")
+                .timer()
+                .count()).isEqualTo(1);
     }
 
     @Test
@@ -193,6 +236,56 @@ class AiProxyServiceTest {
     }
 
     @Test
+    void forwardJsonUsesRequestTimeoutWhenStreamHeaderTimeoutIsShort() throws Exception {
+        server = startServer("/ai/chat/completion", exchange -> {
+            try {
+                Thread.sleep(120);
+                writeResponse(exchange, 200, "{\"ok\":true}");
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        AiProxyService service = newService(
+                Duration.ofSeconds(1),
+                Duration.ofMillis(50),
+                "slow-byte-token");
+
+        AiProxyService.ProxyByteResponse response = service.forwardJson("/ai/chat/completion", "{\"test\":true}");
+
+        assertThat(response.status().value()).isEqualTo(200);
+        assertThat(new String(response.body(), StandardCharsets.UTF_8)).isEqualTo("{\"ok\":true}");
+    }
+
+    @Test
+    void forwardJsonStreamHeaderTimeoutMapsToGatewayTimeout() throws Exception {
+        server = startServer("/ai/coach/analyze", exchange -> {
+            try {
+                Thread.sleep(250);
+                writeResponse(exchange, 200, "event: done\ndata: [DONE]\n\n", "text/event-stream");
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+            } catch (IOException ignored) {
+                // Client timeout closes the socket; the status mapping is what matters.
+            }
+        });
+
+        AiProxyService service = newService(
+                Duration.ofSeconds(5),
+                Duration.ofMillis(50),
+                "slow-stream-token");
+
+        assertThatThrownBy(() -> service.forwardJsonStream("/ai/coach/analyze", "{\"test\":true}"))
+                .isInstanceOf(AiProxyException.class)
+                .satisfies(throwable -> {
+                    AiProxyException ex = (AiProxyException) throwable;
+                    assertThat(ex.getStatus().value()).isEqualTo(504);
+                    assertThat(ex.getCode()).isEqualTo("AI_UPSTREAM_TIMEOUT");
+                    assertThat(ex.getMessage()).isEqualTo("AI 응답 시간이 초과되었습니다.");
+                });
+    }
+
+    @Test
     void forwardJsonStreamConnectionFailureMapsToBadGateway() {
         AiProxyService service = newService(Duration.ofSeconds(1), "stream-token", "http://localhost:1");
 
@@ -261,6 +354,14 @@ class AiProxyServiceTest {
         }
 
         Mockito.verify(spyBuilder, Mockito.times(1)).baseUrl(Mockito.anyString());
+        Mockito.verify(spyBuilder, Mockito.times(1)).clientConnector(Mockito.any());
+    }
+
+    @Test
+    void shutdownConnectionProviderDisposesDedicatedPool() {
+        AiProxyService service = newService(Duration.ofSeconds(1), "shutdown-token", "http://localhost:1");
+
+        assertThatCode(service::shutdownConnectionProvider).doesNotThrowAnyException();
     }
 
     private AiProxyService newService(Duration timeout, String token) {
@@ -268,6 +369,27 @@ class AiProxyServiceTest {
             throw new IllegalStateException("test server is not initialized");
         }
         return newService(timeout, token, "http://localhost:" + server.getAddress().getPort());
+    }
+
+    private AiProxyService newService(Duration requestTimeout, Duration streamHeaderTimeout, String token) {
+        if (server == null) {
+            throw new IllegalStateException("test server is not initialized");
+        }
+        return newService(
+                requestTimeout,
+                streamHeaderTimeout,
+                token,
+                "http://localhost:" + server.getAddress().getPort());
+    }
+
+    private AiProxyService newService(
+            Duration timeout,
+            String token,
+            AiProxyMonitoringMetricsService metricsService) {
+        if (server == null) {
+            throw new IllegalStateException("test server is not initialized");
+        }
+        return newService(timeout, token, "http://localhost:" + server.getAddress().getPort(), metricsService, "dev");
     }
 
     private AiProxyService newServiceForProfile(Duration timeout, String token, String profile) {
@@ -282,13 +404,41 @@ class AiProxyServiceTest {
     }
 
     private AiProxyService newService(Duration timeout, String token, String serviceUrl, String... activeProfiles) {
+        return newService(timeout, token, serviceUrl, AiProxyMonitoringMetricsService.noop(), activeProfiles);
+    }
+
+    private AiProxyService newService(
+            Duration timeout,
+            String token,
+            String serviceUrl,
+            AiProxyMonitoringMetricsService metricsService,
+            String... activeProfiles) {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles(activeProfiles);
         AiServiceSettings settings = new AiServiceSettings(
                 environment,
                 serviceUrl,
                 token);
-        return new AiProxyService(settings, WebClient.builder(), timeout);
+        return new AiProxyService(settings, WebClient.builder(), metricsService, timeout);
+    }
+
+    private AiProxyService newService(
+            Duration requestTimeout,
+            Duration streamHeaderTimeout,
+            String token,
+            String serviceUrl) {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("dev");
+        AiServiceSettings settings = new AiServiceSettings(
+                environment,
+                serviceUrl,
+                token);
+        return new AiProxyService(
+                settings,
+                WebClient.builder(),
+                AiProxyMonitoringMetricsService.noop(),
+                requestTimeout,
+                streamHeaderTimeout);
     }
 
     private HttpServer startServer(String path, HttpHandler handler) throws IOException {
