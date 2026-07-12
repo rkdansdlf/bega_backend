@@ -55,6 +55,12 @@ public interface BegaDiaryRepository extends JpaRepository<BegaDiary, Long> {
        Optional<BegaDiary> findByIdWithOwnerGameAndPhotos(@Param("id") Long id);
 
        @EntityGraph(attributePaths = {"user", "game"})
+       @Query("SELECT d FROM BegaDiary d WHERE d.id = :id AND d.user.id = :userId")
+       Optional<BegaDiary> findByIdAndUserIdWithOwnerAndGame(
+                     @Param("id") Long id,
+                     @Param("userId") Long userId);
+
+       @EntityGraph(attributePaths = {"user", "game"})
        @Query("SELECT d FROM BegaDiary d WHERE d.id IN :ids")
        List<BegaDiary> findAllByIdInWithOwnerAndGame(@Param("ids") Collection<Long> ids);
 

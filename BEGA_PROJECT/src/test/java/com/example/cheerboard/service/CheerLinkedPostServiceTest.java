@@ -2,6 +2,7 @@ package com.example.cheerboard.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -43,6 +44,7 @@ import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.Party.PartyStatus;
 import com.example.mate.repository.PartyRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
 class CheerLinkedPostServiceTest {
@@ -70,27 +72,56 @@ class CheerLinkedPostServiceTest {
     @Test
     void validateCreate_acceptsOwnedAttendedVerifiedDiary() {
         BegaDiary diary = diary(11L, owner, DiaryType.ATTENDED, true, game("LG", "KT"), "LG", "잠실");
-        when(diaryRepository.findByIdWithOwnerGameAndPhotos(11L)).thenReturn(Optional.of(diary));
+        when(diaryRepository.findByIdAndUserIdWithOwnerAndGame(11L, owner.getId())).thenReturn(Optional.of(diary));
 
         assertThat(service.validateCreate(PostType.CHECKIN, checkinRequest(11L), owner).diaryId())
                 .isEqualTo(11L);
+        verify(diaryRepository, never()).findByIdWithOwnerGameAndPhotos(11L);
     }
 
     @Test
     void validateCreate_hidesExistingStrangerDiaryBehindNotFound() {
-        BegaDiary diary = diary(11L, owner, DiaryType.ATTENDED, true, game("LG", "KT"), "LG", "잠실");
-        when(diaryRepository.findByIdWithOwnerGameAndPhotos(11L)).thenReturn(Optional.of(diary));
+        when(diaryRepository.findByIdAndUserIdWithOwnerAndGame(11L, stranger.getId()))
+                .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.validateCreate(PostType.CHECKIN, checkinRequest(11L), stranger))
                 .isInstanceOf(NotFoundBusinessException.class)
                 .hasMessageContaining("다이어리")
                 .satisfies(error -> assertBusinessError(error, HttpStatus.NOT_FOUND, "DIARY_NOT_FOUND"));
+        verify(diaryRepository, never()).findByIdWithOwnerGameAndPhotos(11L);
+    }
+
+    @Test
+    void validateCreate_absentDiaryMatchesStrangerNotFoundBoundary() {
+        when(diaryRepository.findByIdAndUserIdWithOwnerAndGame(11L, owner.getId()))
+                .thenReturn(Optional.empty());
+        when(diaryRepository.findByIdAndUserIdWithOwnerAndGame(11L, stranger.getId()))
+                .thenReturn(Optional.empty());
+
+        Throwable absent = catchThrowable(
+                () -> service.validateCreate(PostType.CHECKIN, checkinRequest(11L), owner));
+        Throwable strangerOwned = catchThrowable(
+                () -> service.validateCreate(PostType.CHECKIN, checkinRequest(11L), stranger));
+
+        assertBusinessError(absent, HttpStatus.NOT_FOUND, "DIARY_NOT_FOUND");
+        assertBusinessError(strangerOwned, HttpStatus.NOT_FOUND, "DIARY_NOT_FOUND");
+        assertThat(strangerOwned.getMessage()).isEqualTo(absent.getMessage());
     }
 
     @Test
     void validateCreate_rejectsDiaryThatIsNotAttendedAndVerified() {
         BegaDiary diary = diary(12L, owner, DiaryType.SCHEDULED, true, game("LG", "KT"), "LG", "잠실");
-        when(diaryRepository.findByIdWithOwnerGameAndPhotos(12L)).thenReturn(Optional.of(diary));
+        when(diaryRepository.findByIdAndUserIdWithOwnerAndGame(12L, owner.getId())).thenReturn(Optional.of(diary));
+
+        assertThatThrownBy(() -> service.validateCreate(PostType.CHECKIN, checkinRequest(12L), owner))
+                .isInstanceOf(ConflictBusinessException.class)
+                .satisfies(error -> assertBusinessError(error, HttpStatus.CONFLICT, "CHECKIN_NOT_SHAREABLE"));
+    }
+
+    @Test
+    void validateCreate_rejectsAttendedButUnverifiedDiary() {
+        BegaDiary diary = diary(12L, owner, DiaryType.ATTENDED, false, game("LG", "KT"), "LG", "잠실");
+        when(diaryRepository.findByIdAndUserIdWithOwnerAndGame(12L, owner.getId())).thenReturn(Optional.of(diary));
 
         assertThatThrownBy(() -> service.validateCreate(PostType.CHECKIN, checkinRequest(12L), owner))
                 .isInstanceOf(ConflictBusinessException.class)
@@ -116,11 +147,21 @@ class CheerLinkedPostServiceTest {
     }
 
     @Test
+    void validateCreate_mapsMissingPartyToExactNotFoundBoundary() {
+        when(partyRepository.findById(22L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.validateCreate(PostType.RECRUITMENT, recruitmentRequest(22L), owner))
+                .isInstanceOf(NotFoundBusinessException.class)
+                .hasMessageContaining("파티")
+                .satisfies(error -> assertBusinessError(error, HttpStatus.NOT_FOUND, "PARTY_NOT_FOUND"));
+    }
+
+    @Test
     void validateCreate_namesEveryMissingDiaryBaseballField() {
         GameEntity incompleteGame = game(null, null);
         incompleteGame.setGameDate(null);
         BegaDiary diary = diary(13L, owner, DiaryType.ATTENDED, true, incompleteGame, null, null);
-        when(diaryRepository.findByIdWithOwnerGameAndPhotos(13L)).thenReturn(Optional.of(diary));
+        when(diaryRepository.findByIdAndUserIdWithOwnerAndGame(13L, owner.getId())).thenReturn(Optional.of(diary));
 
         assertThatThrownBy(() -> service.validateCreate(PostType.CHECKIN, checkinRequest(13L), owner))
                 .isInstanceOf(ManualBaseballDataRequiredException.class)
@@ -132,6 +173,22 @@ class CheerLinkedPostServiceTest {
                     assertThat(request.missingItems())
                             .extracting(item -> item.key())
                             .containsExactly("gameDate", "homeTeam", "awayTeam", "cheeringTeam", "stadium");
+                });
+    }
+
+    @Test
+    void validateCreate_namesDiaryFieldsMissingIndependentlyOfMissingGame() {
+        BegaDiary diary = diary(13L, owner, DiaryType.ATTENDED, true, null, null, null);
+        when(diaryRepository.findByIdAndUserIdWithOwnerAndGame(13L, owner.getId())).thenReturn(Optional.of(diary));
+
+        assertThatThrownBy(() -> service.validateCreate(PostType.CHECKIN, checkinRequest(13L), owner))
+                .isInstanceOf(ManualBaseballDataRequiredException.class)
+                .satisfies(error -> {
+                    ManualBaseballDataRequest request =
+                            (ManualBaseballDataRequest) ((BusinessException) error).getData();
+                    assertThat(request.missingItems())
+                            .extracting(item -> item.key())
+                            .containsExactly("game", "cheeringTeam", "stadium");
                 });
     }
 
@@ -159,7 +216,7 @@ class CheerLinkedPostServiceTest {
     void lookupReturnsSafeCheckinPreviewAndActivePostId() {
         BegaDiary diary = diary(11L, owner, DiaryType.ATTENDED, true, game("LG", "KT"), "LG", "잠실");
         CheerPost post = CheerPost.builder().id(101L).postType(PostType.CHECKIN).diaryId(11L).build();
-        when(diaryRepository.findByIdWithOwnerGameAndPhotos(11L)).thenReturn(Optional.of(diary));
+        when(diaryRepository.findByIdAndUserIdWithOwnerAndGame(11L, owner.getId())).thenReturn(Optional.of(diary));
         when(postRepository.findFirstByDiaryIdAndDeletedFalse(11L)).thenReturn(Optional.of(post));
 
         var result = service.lookup(11L, null, owner);
@@ -176,6 +233,30 @@ class CheerLinkedPostServiceTest {
         assertThat(result.preview().checkin().getClass().getRecordComponents())
                 .extracting(component -> component.getName())
                 .doesNotContain("diaryId", "memo", "photoUrls", "ticketVerifiedAt", "section", "seatRow");
+    }
+
+    @Test
+    void lookupRecruitmentDoesNotSerializePrivatePartySentinels() throws Exception {
+        Party party = party(21L, owner.getId(), PartyStatus.PENDING);
+        party.setHostName("PRIVATE_HOST_NAME_SENTINEL");
+        party.setHostProfileImageUrl("PRIVATE_PROFILE_SENTINEL");
+        party.setSeatDetail("PRIVATE_SEAT_SENTINEL");
+        party.setTicketImageUrl("PRIVATE_TICKET_SENTINEL");
+        party.setReservationNumber("PRIVATE_RESERVATION_SENTINEL");
+        when(partyRepository.findById(21L)).thenReturn(Optional.of(party));
+        when(postRepository.findFirstByPartyIdAndDeletedFalse(21L)).thenReturn(Optional.empty());
+
+        String json = new ObjectMapper().findAndRegisterModules()
+                .writeValueAsString(service.lookup(null, 21L, owner));
+
+        assertThat(json).doesNotContain(
+                "PRIVATE_HOST_NAME_SENTINEL",
+                "PRIVATE_PROFILE_SENTINEL",
+                "PRIVATE_SEAT_SENTINEL",
+                "PRIVATE_TICKET_SENTINEL",
+                "PRIVATE_RESERVATION_SENTINEL");
+        assertThat(json).doesNotContain(
+                "hostName", "hostProfileImageUrl", "seatDetail", "ticketImageUrl", "reservationNumber");
     }
 
     @Test
