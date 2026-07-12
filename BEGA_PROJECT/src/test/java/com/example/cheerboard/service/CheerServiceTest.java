@@ -15,11 +15,18 @@ import org.springframework.transaction.annotation.Transactional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
+
+import java.sql.SQLException;
+import java.sql.SQLIntegrityConstraintViolationException;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -76,8 +83,8 @@ class CheerServiceTest {
         }
 
         @Test
-        @DisplayName("Duplicate recovery reloads after the writer transaction rolls back")
-        void createPost_duplicateConflict_returnsRaceWinner() {
+        @DisplayName("Matching Hibernate diary constraint reloads after the writer transaction rolls back")
+        void createPost_matchingDiaryConstraint_returnsRaceWinner() {
                 Long diaryId = 41L;
                 UserEntity me = UserEntity.builder().id(100L).build();
                 CreatePostReq req = new CreatePostReq(
@@ -87,7 +94,8 @@ class CheerServiceTest {
                                 .id(7L).author(me).postType(PostType.CHECKIN).diaryId(diaryId).build();
                 PostDetailRes detail = mock(PostDetailRes.class);
                 when(current.get()).thenReturn(me);
-                when(postService.createPost(req, me)).thenThrow(new DataIntegrityViolationException("duplicate"));
+                when(postService.createPost(req, me))
+                                .thenThrow(hibernateConflict("\"PUBLIC\".\"UQ_CHEER_POST_ACTIVE_DIARY\""));
                 when(postRepo.findFirstByDiaryIdAndDeletedFalse(diaryId)).thenReturn(java.util.Optional.of(winner));
                 when(postDtoMapper.toNewPostDetailRes(winner, me)).thenReturn(detail);
 
@@ -96,6 +104,121 @@ class CheerServiceTest {
                 assertThat(result.created()).isFalse();
                 assertThat(result.post()).isSameAs(detail);
                 verify(postRepo).findFirstByDiaryIdAndDeletedFalse(diaryId);
+        }
+
+        @Test
+        @DisplayName("Matching Oracle party constraint reloads the active party post")
+        void createPost_matchingPartyConstraint_returnsRaceWinner() {
+                Long partyId = 51L;
+                UserEntity me = UserEntity.builder().id(100L).build();
+                CreatePostReq req = linkedRequest("RECRUITMENT", null, partyId);
+                CheerPost winner = CheerPost.builder()
+                                .id(8L).author(me).postType(PostType.RECRUITMENT).partyId(partyId).build();
+                PostDetailRes detail = mock(PostDetailRes.class);
+                when(current.get()).thenReturn(me);
+                when(postService.createPost(req, me)).thenThrow(jdbcConflict(
+                                "ORA-00001: unique constraint (APP.UQ_CHEER_POST_ACTIVE_PARTY) violated"));
+                when(postRepo.findFirstByPartyIdAndDeletedFalse(partyId)).thenReturn(java.util.Optional.of(winner));
+                when(postDtoMapper.toNewPostDetailRes(winner, me)).thenReturn(detail);
+
+                CheerPostCreationResult result = cheerService.createPost(req);
+
+                assertThat(result.created()).isFalse();
+                assertThat(result.post()).isSameAs(detail);
+                verify(postRepo).findFirstByPartyIdAndDeletedFalse(partyId);
+        }
+
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("diaryConstraintVariants")
+        @DisplayName("Exact diary constraint variants recover narrowly across supported databases")
+        void createPost_exactDiaryConstraintVariants_returnRaceWinner(
+                        String variant,
+                        DataIntegrityViolationException conflict) {
+                Long diaryId = 41L;
+                UserEntity me = UserEntity.builder().id(100L).build();
+                CreatePostReq req = linkedRequest("CHECKIN", diaryId, null);
+                CheerPost winner = CheerPost.builder()
+                                .id(7L).author(me).postType(PostType.CHECKIN).diaryId(diaryId).build();
+                when(current.get()).thenReturn(me);
+                when(postService.createPost(req, me)).thenThrow(conflict);
+                when(postRepo.findFirstByDiaryIdAndDeletedFalse(diaryId)).thenReturn(java.util.Optional.of(winner));
+                when(postDtoMapper.toNewPostDetailRes(winner, me)).thenReturn(mock(PostDetailRes.class));
+
+                assertThat(cheerService.createPost(req).created()).isFalse();
+
+                verify(postRepo).findFirstByDiaryIdAndDeletedFalse(diaryId);
+        }
+
+        @Test
+        @DisplayName("Unrelated integrity failure on valid check-in is rethrown without winner lookup")
+        void createPost_unrelatedConstraint_rethrowsWithoutWinnerLookup() {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                CreatePostReq req = linkedRequest("CHECKIN", 41L, null);
+                DataIntegrityViolationException conflict = hibernateConflict("uk_cheer_post_author");
+                when(current.get()).thenReturn(me);
+                when(postService.createPost(req, me)).thenThrow(conflict);
+
+                assertThatThrownBy(() -> cheerService.createPost(req)).isSameAs(conflict);
+
+                verifyNoInteractions(postRepo);
+        }
+
+        @Test
+        @DisplayName("Normal post carrying diary ID cannot enter duplicate recovery")
+        void createPost_normalWithDiaryId_rethrowsWithoutWinnerLookup() {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                CreatePostReq req = linkedRequest("NORMAL", 41L, null);
+                DataIntegrityViolationException conflict = hibernateConflict("uq_cheer_post_active_diary");
+                when(current.get()).thenReturn(me);
+                when(postService.createPost(req, me)).thenThrow(conflict);
+
+                assertThatThrownBy(() -> cheerService.createPost(req)).isSameAs(conflict);
+
+                verifyNoInteractions(postRepo);
+        }
+
+        @Test
+        @DisplayName("Check-in carrying both linked IDs cannot enter duplicate recovery")
+        void createPost_checkinWithBothIds_rethrowsWithoutWinnerLookup() {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                CreatePostReq req = linkedRequest("CHECKIN", 41L, 51L);
+                DataIntegrityViolationException conflict = hibernateConflict("uq_cheer_post_active_diary");
+                when(current.get()).thenReturn(me);
+                when(postService.createPost(req, me)).thenThrow(conflict);
+
+                assertThatThrownBy(() -> cheerService.createPost(req)).isSameAs(conflict);
+
+                verifyNoInteractions(postRepo);
+        }
+
+        @Test
+        @DisplayName("Party unique constraint cannot recover a check-in request")
+        void createPost_mismatchedPartyConstraint_rethrowsWithoutWinnerLookup() {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                CreatePostReq req = linkedRequest("CHECKIN", 41L, null);
+                DataIntegrityViolationException conflict = hibernateConflict("uq_cheer_post_active_party");
+                when(current.get()).thenReturn(me);
+                when(postService.createPost(req, me)).thenThrow(conflict);
+
+                assertThatThrownBy(() -> cheerService.createPost(req)).isSameAs(conflict);
+
+                verifyNoInteractions(postRepo);
+        }
+
+        @ParameterizedTest
+        @MethodSource("nearMatchDiaryConstraints")
+        @DisplayName("Near-match constraint identifiers cannot trigger recovery")
+        void createPost_nearMatchConstraint_rethrowsWithoutWinnerLookup(String constraintName) {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                CreatePostReq req = linkedRequest("CHECKIN", 41L, null);
+                DataIntegrityViolationException conflict = jdbcConflict(
+                                "duplicate key violates unique constraint " + constraintName);
+                when(current.get()).thenReturn(me);
+                when(postService.createPost(req, me)).thenThrow(conflict);
+
+                assertThatThrownBy(() -> cheerService.createPost(req)).isSameAs(conflict);
+
+                verifyNoInteractions(postRepo);
         }
 
         @Test
@@ -114,12 +237,50 @@ class CheerServiceTest {
                 CreatePostReq req = new CreatePostReq(
                                 "LG", "content", null, "RECRUITMENT", null,
                                 null, null, null, null, null, null, null, null, 51L);
-                DataIntegrityViolationException conflict = new DataIntegrityViolationException("duplicate");
+                DataIntegrityViolationException conflict = hibernateConflict("uq_cheer_post_active_party");
                 when(current.get()).thenReturn(me);
                 when(postService.createPost(req, me)).thenThrow(conflict);
                 when(postRepo.findFirstByPartyIdAndDeletedFalse(51L)).thenReturn(java.util.Optional.empty());
 
                 assertThatThrownBy(() -> cheerService.createPost(req)).isSameAs(conflict);
+        }
+
+        private static Stream<Arguments> diaryConstraintVariants() {
+                return Stream.of(
+                                Arguments.of("Hibernate metadata", hibernateConflict("uq_cheer_post_active_diary")),
+                                Arguments.of("PostgreSQL message", jdbcConflict(
+                                                "duplicate key value violates unique constraint \"UQ_CHEER_POST_ACTIVE_DIARY\"")),
+                                Arguments.of("Oracle message", jdbcConflict(
+                                                "ORA-00001: unique constraint (APP.UQ_CHEER_POST_ACTIVE_DIARY) violated")),
+                                Arguments.of("H2 message", jdbcConflict(
+                                                "Unique index or primary key violation: \"PUBLIC.UQ_CHEER_POST_ACTIVE_DIARY ON PUBLIC.CHEER_POST(DIARY_ID NULLS FIRST)\"")));
+        }
+
+        private static Stream<String> nearMatchDiaryConstraints() {
+                return Stream.of(
+                                "uq_cheer_post_active_diary_archive",
+                                "prefix_uq_cheer_post_active_diary",
+                                "uq_cheer_post_active_diary2");
+        }
+
+        private static CreatePostReq linkedRequest(String postType, Long diaryId, Long partyId) {
+                return new CreatePostReq(
+                                "LG", "content", null, postType, null,
+                                null, null, null, null, null, null, null, diaryId, partyId);
+        }
+
+        private static DataIntegrityViolationException hibernateConflict(String constraintName) {
+                SQLException sqlException = new SQLException("duplicate", "23505");
+                org.hibernate.exception.ConstraintViolationException constraint =
+                                new org.hibernate.exception.ConstraintViolationException(
+                                                "could not execute statement", sqlException, constraintName);
+                return new DataIntegrityViolationException("write failed", constraint);
+        }
+
+        private static DataIntegrityViolationException jdbcConflict(String message) {
+                return new DataIntegrityViolationException(
+                                "write failed",
+                                new SQLIntegrityConstraintViolationException(message, "23505"));
         }
 
         @Test

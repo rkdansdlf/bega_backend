@@ -131,7 +131,7 @@ class CheerConcurrencyIntegrationTest {
                 .build();
         userRepo.save(author);
 
-        jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_task4_test_cheer_diary ON cheer_post(diary_id)");
+        jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_cheer_post_active_diary ON cheer_post(diary_id)");
     }
 
     @Test

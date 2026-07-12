@@ -131,7 +131,7 @@ public class CheerService {
             CheerPostCreationOutcome outcome = postService.createPost(req, me);
             return toCreationResult(outcome.post(), me, outcome.created());
         } catch (DataIntegrityViolationException exception) {
-            CheerPost winner = reloadActiveLinkedPost(req);
+            CheerPost winner = reloadActiveLinkedPost(req, exception);
             if (winner == null) {
                 throw exception;
             }
@@ -285,11 +285,19 @@ public class CheerService {
         return new CheerPostCreationResult(detail, created);
     }
 
-    private CheerPost reloadActiveLinkedPost(CreatePostReq req) {
-        if (req.diaryId() != null && req.partyId() == null) {
+    private CheerPost reloadActiveLinkedPost(
+            CreatePostReq req,
+            DataIntegrityViolationException exception) {
+        if ("CHECKIN".equals(req.postType())
+                && req.diaryId() != null
+                && req.partyId() == null
+                && CheerLinkedPostConstraintDetector.isActiveDiaryConflict(exception)) {
             return postRepo.findFirstByDiaryIdAndDeletedFalse(req.diaryId()).orElse(null);
         }
-        if (req.partyId() != null && req.diaryId() == null) {
+        if ("RECRUITMENT".equals(req.postType())
+                && req.partyId() != null
+                && req.diaryId() == null
+                && CheerLinkedPostConstraintDetector.isActivePartyConflict(exception)) {
             return postRepo.findFirstByPartyIdAndDeletedFalse(req.partyId()).orElse(null);
         }
         return null;
