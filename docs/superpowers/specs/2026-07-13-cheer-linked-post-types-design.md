@@ -56,10 +56,12 @@ The linked type and source ID are immutable after creation. `UpdatePostReq` does
 
 ## Database Design
 
-Create these migrations using the next currently available versions:
+At design time, the latest observed versions are Oracle `V166` and PostgreSQL `V172`, making these candidate filenames only:
 
 - Oracle: `db/migration/V167__add_cheer_linked_post_types.sql`;
 - PostgreSQL: `db/migration_postgresql/V173__add_cheer_linked_post_types.sql`.
+
+These numbers are not reserved. Immediately before creating either migration, enumerate both migration directories, identify the actual highest versions, and choose the next unused version independently for each dialect. Do not copy the candidate numbers from this document without that preflight. Migration tests and documentation must use the final filenames selected at implementation time.
 
 Each migration adds:
 
@@ -108,6 +110,8 @@ postId: number | null
 preview: LinkedContentRes
 ```
 
+The lookup method receives its own `@RateLimit(limit = 30, window = 60, key = "cheer:linked")`. The current rate-limit aspect is method-annotation based, so the existing create-post limit does not protect this new GET endpoint. The authenticated user ID remains part of the generated Redis key, and the custom key keeps linked-target reads separate from create-post buckets.
+
 If `postId` is present, the client navigates to the existing cheer post. If it is absent, the safe preview is used by the composer.
 
 Creation is idempotent per active linked source. The service checks for an active post before insertion. The database unique index resolves concurrent races. On a unique conflict, the service reloads the active post and returns its normal detail DTO without applying the losing request's body or images to the existing post. The controller returns `201 Created` for a new post and `200 OK` for an existing post; the response body shape is identical.
@@ -149,6 +153,12 @@ linkedContent:
 ```
 
 The frontend represents this as a discriminated TypeScript union so an invalid combination cannot be rendered accidentally.
+
+### Post Type Normalization
+
+Update both response and creation normalization in `src/api/cheerApi.ts`. `normalizePostType` and `normalizeCreatePostType` must use an explicit four-value allowlist for `NORMAL`, `NOTICE`, `CHECKIN`, and `RECRUITMENT`.
+
+An absent legacy value may retain the current `NORMAL` fallback. Any present value outside the four-value allowlist, including an empty string, is a contract error and must not be silently converted to `NORMAL`. Focused tests cover all four accepted values and the unknown-value failure path. This change must land in the same frontend delivery as linked-content rendering so a backend `CHECKIN` or `RECRUITMENT` response cannot be quietly downgraded.
 
 ### Public Check-in Fields
 
@@ -218,6 +228,18 @@ The cheer route validates and reloads the safe preview. This avoids importing th
 
 Direct URL manipulation cannot bypass ownership or eligibility checks. A missing, unauthorized, or no-longer-eligible target does not open a writable linked composer.
 
+## OpenAPI Contract Regeneration
+
+Backend DTO and endpoint changes must be reflected in the generated frontend contract. After the backend OpenAPI document exposes the final request and response shapes:
+
+1. inspect the current generated-file diff so unrelated in-progress schema work is not lost;
+2. run `npm run api:types` against the updated backend `/v3/api-docs`;
+3. use generated request and response types in the cheer API adapter;
+4. run `npm run api:types:check` against the same backend schema;
+5. reject handwritten casts or local shadow interfaces used only to bypass stale generated types.
+
+The generated `src/api/generated/openapi.ts` change is a required deliverable, not a follow-up task. If unrelated backend schema changes are present concurrently, regenerate from the complete current schema and audit the resulting diff rather than overwriting or deleting those changes.
+
 ## Composer Behavior
 
 For linked posts, the existing composer:
@@ -243,7 +265,17 @@ Replace the single cheer badge constant with a type map for:
 
 Check-in uses an emerald semantic palette and recruitment uses a violet semantic palette. Light and dark text/background pairs must meet a 4.5:1 contrast ratio.
 
-A cheer-owned linked-content component renders consistently in feed cards, detail pages, bookmarks, profiles, hot content, and embedded reposts. It stays in the cheer route chunk rather than moving into a broad shared module.
+A cheer-owned linked-content component renders consistently in feed cards, detail pages, bookmarks, profiles, hot content, and embedded reposts. It remains behind a cheer-feature-owned lazy boundary rather than moving into an eager app-wide shared chunk. Routes that render cheer posts may load that feature chunk; unrelated routes must not.
+
+The component boundary is provisional until its first production build. This repository has previously allowed a small cheer helper extraction to be coalesced with the `ImageGrid` chunk, removing the expected `ImageGrid-*.js` artifact and pushing unrelated routes such as `/login` and `/stadium` over their gzip budgets. Therefore, immediately after the first linked-content extraction or import fan-out:
+
+1. run `npm run build`;
+2. inspect `reports/bundle-guard-report.json` and `reports/dist-assets-report.json` directly;
+3. verify every route budget, including routes unrelated to cheer;
+4. verify that expected lazy chunk identities such as `ImageGrid-*.js` have not disappeared or been merged unexpectedly;
+5. compare route gzip deltas rather than checking only whether cheer routes pass.
+
+Do not assume `manualChunks` is a safe repair. If extraction perturbs unrelated routes, first keep the substantial renderer behind a cheer-owned lazy runtime and use thin route-local adapters. Small badge mappings may remain route-local if that avoids cross-route chunk coupling. Any `manualChunks` change requires a second full-route report audit.
 
 Feed cards clamp the recruitment description to two lines. Detail pages show the full description.
 
@@ -287,11 +319,13 @@ Backend coverage includes:
 9. source deletion and eligibility/status transitions;
 10. bulk resolution without source-query growth per post;
 11. controller `201` versus `200` behavior;
-12. Oracle and PostgreSQL migration structure and safety.
+12. forged update JSON containing `postType`, `diaryId`, or `partyId` does not change the persisted linked type or references;
+13. the linked-target lookup has the intended rate-limit annotation, uses a separate key, and returns `429` after its configured limit;
+14. Oracle and PostgreSQL migration structure and safety.
 
 Frontend unit and component coverage includes:
 
-1. preservation of all four post types during normalization;
+1. explicit preservation of all four post types during response and creation normalization, plus rejection of any present value outside the allowlist, including an empty string;
 2. Diary and Mate share-action visibility;
 3. direct navigation for an existing linked post;
 4. linked composer initialization and locked preview;
@@ -310,12 +344,16 @@ Before completion, run and report:
 - `./gradlew migrationSafetyCheck`;
 - broader backend tests proportional to the final blast radius;
 - relevant frontend unit/component tests;
+- `npm run api:types` followed by `npm run api:types:check` against the same updated backend schema;
 - `npm run build`, including bundle guard;
+- direct review of `reports/bundle-guard-report.json` and `reports/dist-assets-report.json` for every route and expected lazy chunks;
 - targeted production-build Cypress scenarios;
 - `python3 scripts/validate_baseball_data_policy.py` from the workspace root;
 - cross-service release verification.
 
-No completion claim is valid if either dialect migration, the bundle guard, or the baseball-data policy check fails.
+`scripts/validate_baseball_data_policy.py` is confirmed to exist in the workspace at design-review time. No task to create a replacement validator is required. If it is missing at implementation time, stop and restore or explicitly replace the internal policy gate before completion rather than silently skipping the check.
+
+No completion claim is valid if either dialect migration, OpenAPI generation check, any route bundle budget, expected lazy-chunk audit, or the baseball-data policy check fails.
 
 ## Rollout and Rollback
 
@@ -336,6 +374,9 @@ The slice is complete when:
 - deleting or invalidating a source preserves the post with an unavailable card;
 - Mate state transitions update the recruitment card without a snapshot refresh job;
 - approved fields render consistently across every cheer surface and no private fields leak;
+- generated OpenAPI types include the linked request and response contract without cast-based bypasses;
+- forged update fields cannot mutate linked type or source references;
+- linked-target reads are rate limited independently from post creation;
 - feed segments and existing post types retain their current behavior;
-- route bundle budgets stay green;
+- all route bundle budgets stay green and expected lazy chunks remain present;
 - Oracle, PostgreSQL, backend, frontend, Cypress, release, and baseball-policy verification pass.
