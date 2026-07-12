@@ -45,6 +45,13 @@ public record EmbeddedPostDto(
      * 삭제된 게시글을 위한 플레이스홀더 생성
      */
     public static EmbeddedPostDto deletedPlaceholder(Long originalPostId) {
+        return deletedPlaceholder(originalPostId, null, null);
+    }
+
+    public static EmbeddedPostDto deletedPlaceholder(
+            Long originalPostId,
+            String postType,
+            LinkedContentRes linkedContent) {
         return new EmbeddedPostDto(
                 originalPostId,
                 null,
@@ -59,8 +66,8 @@ public record EmbeddedPostDto(
                 0,
                 0,
                 0,
-                "NORMAL",
-                null);
+                postType,
+                linkedContent);
     }
 
     /**
@@ -79,6 +86,25 @@ public record EmbeddedPostDto(
             int likeCount,
             int commentCount,
             int repostCount) {
+        return of(id, teamId, teamColor, content, author, authorHandle, authorProfileImageUrl,
+                createdAt, imageUrls, likeCount, commentCount, repostCount, "NORMAL", null);
+    }
+
+    public static EmbeddedPostDto of(
+            Long id,
+            String teamId,
+            String teamColor,
+            String content,
+            String author,
+            String authorHandle,
+            String authorProfileImageUrl,
+            Instant createdAt,
+            List<String> imageUrls,
+            int likeCount,
+            int commentCount,
+            int repostCount,
+            String postType,
+            LinkedContentRes linkedContent) {
         String truncatedContent = content != null && content.length() > 100
                 ? content.substring(0, 100) + "..."
                 : content;
@@ -97,7 +123,7 @@ public record EmbeddedPostDto(
                 likeCount,
                 commentCount,
                 repostCount,
-                "NORMAL",
-                null);
+                postType,
+                linkedContent);
     }
 }
