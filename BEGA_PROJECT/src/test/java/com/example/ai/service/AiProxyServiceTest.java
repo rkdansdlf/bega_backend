@@ -117,6 +117,27 @@ class AiProxyServiceTest {
     }
 
     @Test
+    void forwardJsonStreamPreservesUnsupportedVersionContract() throws Exception {
+        String errorBody = "{\"detail\":{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"supported_versions\":[\"1\",\"2\"]}}";
+        server = startServer("/ai/chat/stream", exchange -> {
+            exchange.getResponseHeaders().add("X-AI-Event-Version", "2");
+            writeResponse(exchange, 406, errorBody, "application/json");
+        });
+
+        AiProxyService service = newService(Duration.ofSeconds(5), "stream-token");
+
+        AiProxyService.ProxyStreamResponse response = service.forwardJsonStream(
+                "/ai/chat/stream",
+                "{\"test\":true}",
+                "3");
+
+        assertThat(response.status().value()).isEqualTo(406);
+        assertThat(response.headers().getFirst("X-AI-Event-Version")).isEqualTo("2");
+        assertThat(response.headers().getContentType()).isEqualTo(org.springframework.http.MediaType.APPLICATION_JSON);
+        assertThat(new String(response.errorBody(), StandardCharsets.UTF_8)).isEqualTo(errorBody);
+    }
+
+    @Test
     void forwardJsonRecordsUpstreamRequestMetric() throws Exception {
         server = startServer("/ai/chat/completion", exchange -> writeResponse(exchange, 200, "{\"ok\":true}"));
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
