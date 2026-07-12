@@ -14,9 +14,15 @@ import com.example.cheerboard.dto.RepostToggleResponse;
 import com.example.cheerboard.dto.QuoteRepostReq;
 import com.example.cheerboard.dto.BookmarkResponse;
 import com.example.cheerboard.dto.ReportCaseRes;
+import com.example.cheerboard.dto.LinkedPostLookupRes;
 import jakarta.validation.Valid;
 import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.service.CheerService;
+import com.example.cheerboard.service.CheerPostCreationResult;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -121,9 +127,25 @@ public class CheerController {
     @RateLimit(limit = 5, window = 60) // 1분에 최대 5개 게시글
     @PostMapping("/posts")
     @PreAuthorize("isAuthenticated()")
-    @ResponseStatus(HttpStatus.CREATED)
-    public PostDetailRes create(@Valid @RequestBody CreatePostReq req) {
-        return svc.createPost(req);
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "기존 활성 연결 게시글 반환",
+                    content = @Content(schema = @Schema(implementation = PostDetailRes.class))),
+            @ApiResponse(responseCode = "201", description = "새 게시글 생성",
+                    content = @Content(schema = @Schema(implementation = PostDetailRes.class)))
+    })
+    public ResponseEntity<PostDetailRes> create(@Valid @RequestBody CreatePostReq req) {
+        CheerPostCreationResult result = svc.createPost(req);
+        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
+                .body(result.post());
+    }
+
+    @GetMapping("/posts/linked")
+    @PreAuthorize("isAuthenticated()")
+    @RateLimit(limit = 30, window = 60, key = "cheer:linked")
+    public LinkedPostLookupRes linked(
+            @RequestParam(required = false) Long diaryId,
+            @RequestParam(required = false) Long partyId) {
+        return svc.lookupLinkedPost(diaryId, partyId);
     }
 
     @PutMapping("/posts/{id}")

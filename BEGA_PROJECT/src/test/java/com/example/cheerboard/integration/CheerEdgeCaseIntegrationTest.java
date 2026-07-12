@@ -1,16 +1,24 @@
 package com.example.cheerboard.integration;
 
+import com.example.BegaDiary.Entity.BegaDiary;
+import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.PostType;
 import com.example.cheerboard.dto.CreatePostReq;
 import com.example.cheerboard.dto.QuoteRepostReq;
+import com.example.cheerboard.dto.UpdatePostReq;
 import com.example.cheerboard.repo.CheerPostRepo;
+import com.example.cheerboard.service.CheerPostCreationOutcome;
 import com.example.cheerboard.service.CheerPostService;
 import com.example.common.exception.RepostNotAllowedException;
 import com.example.kbo.entity.TeamEntity;
+import com.example.kbo.entity.GameEntity;
+import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.TeamRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,7 +32,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
@@ -60,6 +71,18 @@ class CheerEdgeCaseIntegrationTest {
         @Autowired
         private TeamRepository teamRepo;
 
+        @Autowired
+        private BegaDiaryRepository diaryRepository;
+
+        @Autowired
+        private GameRepository gameRepository;
+
+        @Autowired
+        private ObjectMapper objectMapper;
+
+        @Autowired
+        private EntityManager entityManager;
+
         private UserEntity author1;
         private UserEntity author2;
         private TeamEntity team;
@@ -87,6 +110,7 @@ class CheerEdgeCaseIntegrationTest {
                                 .uniqueId(UUID.randomUUID())
                                 .provider("LOCAL")
                                 .role("ROLE_USER")
+                                .favoriteTeam(team)
                                 .build();
                 return userRepo.save(u);
         }
@@ -169,5 +193,83 @@ class CheerEdgeCaseIntegrationTest {
                 assertThatThrownBy(() -> postService.createQuoteRepost(savedRootPost.getId(), quoteReq, author2))
                                 .isInstanceOf(IllegalArgumentException.class)
                                 .hasMessageContaining("부적절한 내용이 포함되어 리포스트를 작성할 수 없습니다.");
+        }
+
+        @Test
+        @DisplayName("Soft-deleting a linked post permits the same source to be shared again")
+        void softDelete_allowsLinkedSourceReshare() {
+                BegaDiary diary = persistEligibleDiary(author1);
+                CreatePostReq req = new CreatePostReq(
+                                "LG", "첫 직관 인증", List.of(), "CHECKIN", null,
+                                null, null, null, null, null, null, null, diary.getId(), null);
+
+                CheerPostCreationOutcome first = postService.createPost(req, author1);
+                first.post().setDeleted(true);
+                postRepo.saveAndFlush(first.post());
+
+                CheerPostCreationOutcome reshared = postService.createPost(req, author1);
+
+                assertThat(first.created()).isTrue();
+                assertThat(reshared.created()).isTrue();
+                assertThat(reshared.post().getId()).isNotEqualTo(first.post().getId());
+                assertThat(postRepo.findFirstByDiaryIdAndDeletedFalse(diary.getId()))
+                                .get().extracting(CheerPost::getId).isEqualTo(reshared.post().getId());
+        }
+
+        @Test
+        @DisplayName("Raw forged linked fields in update JSON cannot mutate persisted source identity")
+        void rawForgedUpdate_keepsLinkedTypeAndSourceImmutable() throws Exception {
+                CheerPost linked = postRepo.saveAndFlush(CheerPost.builder()
+                                .author(author1)
+                                .team(team)
+                                .content("원문")
+                                .postType(PostType.CHECKIN)
+                                .diaryId(7001L)
+                                .shareMode(CheerPost.ShareMode.INTERNAL_REPOST)
+                                .build());
+                String rawJson = """
+                                {
+                                  "content": "수정된 본문",
+                                  "postType": "RECRUITMENT",
+                                  "diaryId": 9001,
+                                  "partyId": 9002
+                                }
+                                """;
+                UpdatePostReq update = objectMapper.readValue(rawJson, UpdatePostReq.class);
+
+                CheerPost response = postService.updatePostEntity(linked.getId(), update, author1);
+                postRepo.flush();
+                entityManager.clear();
+                CheerPost persisted = postRepo.findById(linked.getId()).orElseThrow();
+
+                assertThat(response.getContent()).isEqualTo("수정된 본문");
+                assertThat(persisted.getPostType()).isEqualTo(PostType.CHECKIN);
+                assertThat(persisted.getDiaryId()).isEqualTo(7001L);
+                assertThat(persisted.getPartyId()).isNull();
+        }
+
+        private BegaDiary persistEligibleDiary(UserEntity owner) {
+                String suffix = UUID.randomUUID().toString().substring(0, 8);
+                GameEntity game = gameRepository.save(GameEntity.builder()
+                                .gameId("T4" + suffix)
+                                .gameDate(LocalDate.of(2026, 7, 13))
+                                .homeTeam("LG")
+                                .awayTeam("KIA")
+                                .stadium("잠실")
+                                .build());
+                return diaryRepository.saveAndFlush(BegaDiary.builder()
+                                .diaryDate(game.getGameDate())
+                                .game(game)
+                                .memo("internal test fixture")
+                                .mood(BegaDiary.DiaryEmoji.HAPPY)
+                                .type(BegaDiary.DiaryType.ATTENDED)
+                                .winning(BegaDiary.DiaryWinning.WIN)
+                                .photoUrls(List.of())
+                                .user(owner)
+                                .team("LG")
+                                .stadium("잠실")
+                                .ticketVerified(true)
+                                .ticketVerifiedAt(LocalDateTime.now())
+                                .build());
         }
 }
