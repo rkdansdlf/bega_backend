@@ -4,6 +4,7 @@ import com.example.mate.entity.Party;
 import com.example.mate.entity.Party.PartyStatus;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -14,6 +15,8 @@ import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+
+import jakarta.persistence.LockModeType;
 
 @Repository
 public interface PartyRepository extends JpaRepository<Party, Long>, PartyRepositoryCustom {
@@ -27,6 +30,10 @@ public interface PartyRepository extends JpaRepository<Party, Long>, PartyReposi
         Optional<Party> findByIdAndHostId(Long id, Long hostId);
 
         List<Party> findByIdIn(Collection<Long> ids);
+
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @Query("select p from Party p where p.id = :partyId")
+        Optional<Party> findByIdForUpdate(@Param("partyId") Long partyId);
 
         @Query("""
                         SELECT p
