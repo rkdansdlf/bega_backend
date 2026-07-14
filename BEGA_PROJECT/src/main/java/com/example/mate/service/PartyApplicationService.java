@@ -650,7 +650,7 @@ public class PartyApplicationService {
             throw new InvalidApplicationStatusException("직거래 모드에서는 SELLING 상태에서만 전액 신청이 가능합니다.");
         }
 
-        if (matePaymentModeService.isTossTest()) {
+        if (matePaymentModeService.isInAppPayment()) {
             if (sellingPaymentEnforced) {
                 throw new InvalidApplicationStatusException("전액 결제 신청은 결제 승인 API를 통해서만 생성할 수 있습니다.");
             }
