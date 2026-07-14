@@ -310,6 +310,8 @@ public class PartyService {
         Party.PartyStatus originalStatus = party.getStatus();
         boolean sellingConversionRequested = request.getStatus() == Party.PartyStatus.SELLING;
 
+        validateHostStatusChange(originalStatus, request.getStatus());
+
         if (request.getDescription() != null) {
             MateContentPolicyValidator.validatePartyDescription(request.getDescription());
             party.setDescription(request.getDescription());
@@ -399,6 +401,18 @@ public class PartyService {
         }
     }
 
+    private void validateHostStatusChange(
+            Party.PartyStatus originalStatus,
+            Party.PartyStatus requestedStatus) {
+        if (requestedStatus == null || requestedStatus == originalStatus
+                || requestedStatus == Party.PartyStatus.SELLING) {
+            return;
+        }
+
+        throw new InvalidApplicationStatusException(
+                "파티 상태는 승인·체크인·수명주기 처리에서만 변경할 수 있습니다.");
+    }
+
     private void applyFavoriteState(List<PartyDTO.PublicResponse> responses, Long currentUserId) {
         if (responses == null || responses.isEmpty()) {
             return;
@@ -454,7 +468,7 @@ public class PartyService {
     // 파티 참여 인원 증가
     @Transactional
     public PartyDTO.Response incrementParticipants(@NonNull Long id) {
-        Party party = partyRepository.findById(id)
+        Party party = partyRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         if (party.getCurrentParticipants() >= party.getMaxParticipants()) {
@@ -475,7 +489,7 @@ public class PartyService {
     // 파티 참여 인원 감소
     @Transactional
     public PartyDTO.Response decrementParticipants(@NonNull Long id) {
-        Party party = partyRepository.findById(id)
+        Party party = partyRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         if (party.getCurrentParticipants() <= 1) {

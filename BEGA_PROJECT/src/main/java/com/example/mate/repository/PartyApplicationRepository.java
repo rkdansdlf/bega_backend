@@ -47,6 +47,12 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
 
     Optional<PartyApplication> findByIdAndApplicantId(Long id, Long applicantId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select pa from PartyApplication pa where pa.id = :applicationId and pa.applicantId = :applicantId")
+    Optional<PartyApplication> findByIdAndApplicantIdForUpdate(
+            @Param("applicationId") Long applicationId,
+            @Param("applicantId") Long applicantId);
+
     @Query("""
             select pa
             from PartyApplication pa
@@ -59,6 +65,22 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
               )
             """)
     Optional<PartyApplication> findByIdAndPartyHostId(
+            @Param("applicationId") Long applicationId,
+            @Param("hostId") Long hostId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select pa
+            from PartyApplication pa
+            where pa.id = :applicationId
+              and exists (
+                  select 1
+                  from Party p
+                  where p.id = pa.partyId
+                    and p.hostId = :hostId
+              )
+            """)
+    Optional<PartyApplication> findByIdAndPartyHostIdForUpdate(
             @Param("applicationId") Long applicationId,
             @Param("hostId") Long hostId);
 

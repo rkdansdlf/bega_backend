@@ -375,7 +375,7 @@ public class PartyApplicationService {
     @Transactional
     public PartyApplicationDTO.Response approveApplication(Long applicationId, Long userId) {
         Long hostId = requireUserId(userId);
-        PartyApplication application = requireHostedApplication(applicationId, hostId);
+        PartyApplication application = requireHostedApplicationForUpdate(applicationId, hostId);
 
         if (application.getIsApproved()) {
             throw new InvalidApplicationStatusException("이미 승인된 신청입니다.");
@@ -416,7 +416,7 @@ public class PartyApplicationService {
     @Transactional
     public PartyApplicationDTO.Response rejectApplication(Long applicationId, Long userId) {
         Long hostId = requireUserId(userId);
-        PartyApplication application = requireHostedApplication(applicationId, hostId);
+        PartyApplication application = requireHostedApplicationForUpdate(applicationId, hostId);
 
         if (application.getIsApproved()) {
             throw new InvalidApplicationStatusException("승인된 신청은 거절할 수 없습니다.");
@@ -484,7 +484,7 @@ public class PartyApplicationService {
             Long userId,
             PartyApplicationDTO.CancelRequest cancelRequest) {
         Long applicantId = requireUserId(userId);
-        PartyApplication application = requireApplicantApplication(applicationId, applicantId);
+        PartyApplication application = requireApplicantApplicationForUpdate(applicationId, applicantId);
 
         // 거절된 신청은 취소 불필요
         if (application.getIsRejected()) {
@@ -544,8 +544,20 @@ public class PartyApplicationService {
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
     }
 
+    private PartyApplication requireHostedApplicationForUpdate(Long applicationId, Long hostId) {
+        return applicationRepository.findByIdAndPartyHostIdForUpdate(
+                        java.util.Objects.requireNonNull(applicationId), hostId)
+                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+    }
+
     private PartyApplication requireApplicantApplication(Long applicationId, Long applicantId) {
         return applicationRepository.findByIdAndApplicantId(java.util.Objects.requireNonNull(applicationId), applicantId)
+                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+    }
+
+    private PartyApplication requireApplicantApplicationForUpdate(Long applicationId, Long applicantId) {
+        return applicationRepository.findByIdAndApplicantIdForUpdate(
+                        java.util.Objects.requireNonNull(applicationId), applicantId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
     }
 
