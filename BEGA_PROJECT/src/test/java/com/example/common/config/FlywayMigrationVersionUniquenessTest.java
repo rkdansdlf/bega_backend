@@ -29,6 +29,9 @@ class FlywayMigrationVersionUniquenessTest {
 
     private static final Set<Set<String>> ALLOWED_DUPLICATE_MIGRATION_CONTENT = Set.of(
             Set.of(
+                    "src/main/resources/db/migration/V168__canonicalize_cheer_linked_attribution.sql",
+                    "src/main/resources/db/migration_postgresql/V174__canonicalize_cheer_linked_attribution.sql"),
+            Set.of(
                     "src/main/resources/db/migration/V138__prefix_existing_bcrypt_password_hashes.sql",
                     "src/main/resources/db/migration_postgresql/V138__prefix_existing_bcrypt_password_hashes.sql"),
             Set.of(

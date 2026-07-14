@@ -1,6 +1,7 @@
 package com.example.cheerboard.service;
 
 import com.example.cheerboard.domain.CheerPost;
+import com.example.cheerboard.domain.PostType;
 import com.example.cheerboard.dto.EmbeddedPostDto;
 import com.example.cheerboard.dto.PostDetailRes;
 import com.example.cheerboard.dto.LinkedContentRes;
@@ -500,10 +501,16 @@ public class PostDtoMapper {
     }
 
     private String resolveShareMode(CheerPost post) {
+        if (isLinkedPost(post)) {
+            return CheerPost.ShareMode.INTERNAL_REPOST.name();
+        }
         return post.getShareMode() != null ? post.getShareMode().name() : null;
     }
 
     private SourceInfoRes toSourceInfo(CheerPost post) {
+        if (isLinkedPost(post)) {
+            return null;
+        }
         boolean hasSourceInfo = post.getSourceUrl() != null
                 || post.getSourceTitle() != null
                 || post.getSourceAuthor() != null
@@ -523,6 +530,10 @@ public class PostDtoMapper {
                 post.getSourceLicenseUrl(),
                 post.getSourceChangedNote(),
                 post.getSourceSnapshotType());
+    }
+
+    private boolean isLinkedPost(CheerPost post) {
+        return post.getPostType() == PostType.CHECKIN || post.getPostType() == PostType.RECRUITMENT;
     }
 
     /**

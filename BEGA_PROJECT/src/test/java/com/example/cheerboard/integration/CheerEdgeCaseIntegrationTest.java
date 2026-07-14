@@ -12,7 +12,6 @@ import com.example.cheerboard.dto.UpdatePostReq;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.service.CheerPostCreationOutcome;
 import com.example.cheerboard.service.CheerPostService;
-import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.RepostNotAllowedException;
 import com.example.kbo.entity.TeamEntity;
 import com.example.kbo.entity.GameEntity;
@@ -27,9 +26,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.MediaType;
 
 import java.util.List;
 import java.util.UUID;
@@ -38,8 +40,11 @@ import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
+@AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
                 "spring.profiles.active=test",
@@ -80,6 +85,9 @@ class CheerEdgeCaseIntegrationTest {
 
         @Autowired
         private ObjectMapper objectMapper;
+
+        @Autowired
+        private MockMvc mockMvc;
 
         @Autowired
         private EntityManager entityManager;
@@ -265,18 +273,37 @@ class CheerEdgeCaseIntegrationTest {
                                   "content": "위조된 출처",
                                   "shareMode": "EXTERNAL_LINK",
                                   "sourceUrl": "https://attacker.invalid/phishing",
-                                  "sourceTitle": "신뢰할 수 있는 원본"
+                                  "sourceTitle": "신뢰할 수 있는 원본",
+                                  "sourceAuthor": "위조 작성자",
+                                  "sourceLicense": "위조 라이선스",
+                                  "sourceLicenseUrl": "https://attacker.invalid/license",
+                                  "sourceChangedNote": "위조 변경사항",
+                                  "sourceSnapshotType": "위조 스냅샷"
                                 }
                                 """;
-                UpdatePostReq update = objectMapper.readValue(rawJson, UpdatePostReq.class);
+                authenticate(author1);
 
-                assertThatThrownBy(() -> postService.updatePostEntity(linked.getId(), update, author1))
-                                .isInstanceOf(BadRequestBusinessException.class)
-                                .hasMessageContaining("연결 게시글");
-                assertThat(linked.getContent()).isEqualTo("원문");
-                assertThat(linked.getShareMode()).isEqualTo(CheerPost.ShareMode.INTERNAL_REPOST);
-                assertThat(linked.getSourceUrl()).isNull();
-                assertThat(linked.getSourceTitle()).isNull();
+                mockMvc.perform(put("/api/cheer/posts/{id}", linked.getId())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(rawJson))
+                                .andExpect(status().isBadRequest());
+
+                postRepo.flush();
+                entityManager.clear();
+                CheerPost persisted = postRepo.findById(linked.getId()).orElseThrow();
+
+                assertThat(persisted.getContent()).isEqualTo("원문");
+                assertThat(persisted.getPostType()).isEqualTo(PostType.RECRUITMENT);
+                assertThat(persisted.getPartyId()).isEqualTo(7002L);
+                assertThat(persisted.getDiaryId()).isNull();
+                assertThat(persisted.getShareMode()).isEqualTo(CheerPost.ShareMode.INTERNAL_REPOST);
+                assertThat(persisted.getSourceUrl()).isNull();
+                assertThat(persisted.getSourceTitle()).isNull();
+                assertThat(persisted.getSourceAuthor()).isNull();
+                assertThat(persisted.getSourceLicense()).isNull();
+                assertThat(persisted.getSourceLicenseUrl()).isNull();
+                assertThat(persisted.getSourceChangedNote()).isNull();
+                assertThat(persisted.getSourceSnapshotType()).isNull();
         }
 
         private BegaDiary persistEligibleDiary(UserEntity owner) {
