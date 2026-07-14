@@ -14,6 +14,7 @@ import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.exception.PartyFullException;
 import com.example.mate.exception.PartyNotFoundException;
+import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PartyReviewRepository;
@@ -553,7 +554,7 @@ class PartyServiceTest {
                 Party party = createParty(1L, 10L, null);
                 party.setCurrentParticipants(3); // maxParticipants=4, one away from full
 
-                when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+                when(partyRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(party));
                 when(partyRepository.save(any(Party.class))).thenAnswer(inv -> inv.getArgument(0));
 
                 PartyDTO.Response response = partyService.incrementParticipants(1L);
@@ -568,7 +569,7 @@ class PartyServiceTest {
                 Party party = createParty(1L, 10L, null);
                 party.setCurrentParticipants(4); // already at max
 
-                when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+                when(partyRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(party));
 
                 assertThrows(PartyFullException.class, () -> partyService.incrementParticipants(1L));
                 verify(partyRepository, never()).save(any());
@@ -626,6 +627,22 @@ class PartyServiceTest {
 
                 verify(partyRepository).findByIdAndHostId(700L, 99L);
                 verify(partyRepository, never()).findById(700L);
+                verify(partyRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("updateParty - 호스트가 수명주기 상태를 직접 변경할 수 없다")
+        void updateParty_rejectsHostDrivenLifecycleStatusChange() {
+                Party party = createParty(702L, 10L, null);
+                PartyDTO.UpdateRequest request = PartyDTO.UpdateRequest.builder()
+                                .status(Party.PartyStatus.COMPLETED)
+                                .build();
+
+                when(partyRepository.findByIdAndHostId(702L, 10L)).thenReturn(Optional.of(party));
+                when(applicationRepository.countByPartyIdAndIsApprovedTrue(702L)).thenReturn(0L);
+
+                assertThrows(InvalidApplicationStatusException.class,
+                                () -> partyService.updateParty(702L, request, 10L));
                 verify(partyRepository, never()).save(any());
         }
 
