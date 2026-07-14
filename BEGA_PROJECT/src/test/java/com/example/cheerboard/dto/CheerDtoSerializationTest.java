@@ -2,6 +2,7 @@ package com.example.cheerboard.dto;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -100,6 +101,19 @@ class CheerDtoSerializationTest {
                 }
                 """));
         assertThat(json).doesNotContain("members", "reservationNumber", "ticketImageUrl");
+    }
+
+    @Test
+    @DisplayName("recruitment game time documents the same string shape emitted by Jackson")
+    void recruitmentLinkedContent_documentsGameTimeAsString() throws Exception {
+        Schema schema = RecruitmentLinkedContentRes.class
+                .getMethod("gameTime")
+                .getAnnotation(Schema.class);
+
+        assertThat(schema).isNotNull();
+        assertThat(schema.type()).isEqualTo("string");
+        assertThat(schema.format()).isEqualTo("time");
+        assertThat(schema.example()).isEqualTo("18:30:00");
     }
 
     @Test

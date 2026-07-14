@@ -292,6 +292,12 @@ public class CheerService {
     }
 
     private CheerPostCreationResult toCreationResult(CheerPost post, UserEntity actor, boolean created) {
+        if (!created) {
+            return new CheerPostCreationResult(
+                    Objects.requireNonNull(reconstructPostDetailRes(post, actor)),
+                    false);
+        }
+
         Map<Long, LinkedContentRes> linkedContentByPostId = resolveLinkedContent(post);
         PostDetailRes detail = Objects.requireNonNull(linkedContentByPostId.isEmpty()
                 ? postDtoMapper.toNewPostDetailRes(post, actor)

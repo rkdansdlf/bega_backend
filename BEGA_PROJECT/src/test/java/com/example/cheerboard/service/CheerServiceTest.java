@@ -108,6 +108,36 @@ class CheerServiceTest {
         }
 
         @Test
+        @DisplayName("Existing linked create response preserves actual interactions instead of new-post defaults")
+        void createPost_existingLinked_returnsActualDetailState() {
+                UserEntity me = UserEntity.builder().id(100L).build();
+                CreatePostReq req = linkedRequest("CHECKIN", 41L, null);
+                CheerPost post = CheerPost.builder()
+                                .id(12L).author(me).postType(PostType.CHECKIN).diaryId(41L).build();
+                LinkedContentRes linkedContent = mock(LinkedContentRes.class);
+                Map<Long, LinkedContentRes> linkedContentByPostId = Map.of(post.getId(), linkedContent);
+                PostDetailRes detail = mock(PostDetailRes.class);
+                when(current.get()).thenReturn(me);
+                when(postService.createPost(req, me)).thenReturn(new CheerPostCreationOutcome(post, false));
+                when(interactionService.isPostLikedByUser(post.getId(), me.getId())).thenReturn(true);
+                when(interactionService.isPostBookmarkedByUser(post.getId(), me.getId())).thenReturn(true);
+                when(interactionService.isPostRepostedByUser(post.getId(), me.getId())).thenReturn(true);
+                when(interactionService.getBookmarkCount(post.getId())).thenReturn(4);
+                when(permissionValidator.isOwnerOrAdmin(me, post.getAuthor())).thenReturn(true);
+                when(linkedPostService.resolveForPosts(anyCollection())).thenReturn(linkedContentByPostId);
+                when(postDtoMapper.toPostDetailRes(
+                                post, true, true, true, true, 4, linkedContentByPostId))
+                                .thenReturn(detail);
+
+                CheerPostCreationResult result = cheerService.createPost(req);
+
+                assertThat(result.created()).isFalse();
+                assertThat(result.post()).isSameAs(detail);
+                verify(postDtoMapper, never()).toNewPostDetailRes(any(), any());
+                verify(postDtoMapper, never()).toNewPostDetailRes(any(), any(), anyMap());
+        }
+
+        @Test
         @DisplayName("Matching Hibernate diary constraint reloads after the writer transaction rolls back")
         void createPost_matchingDiaryConstraint_returnsRaceWinner() {
                 Long diaryId = 41L;
@@ -122,7 +152,7 @@ class CheerServiceTest {
                 when(postService.createPost(req, me))
                                 .thenThrow(hibernateConflict("\"PUBLIC\".\"UQ_CHEER_POST_ACTIVE_DIARY\""));
                 when(postRepo.findFirstByDiaryIdAndDeletedFalse(diaryId)).thenReturn(java.util.Optional.of(winner));
-                when(postDtoMapper.toNewPostDetailRes(winner, me)).thenReturn(detail);
+                when(postDtoMapper.toPostDetailRes(winner, false, false, false, false, 0)).thenReturn(detail);
 
                 CheerPostCreationResult result = cheerService.createPost(req);
 
@@ -144,7 +174,7 @@ class CheerServiceTest {
                 when(postService.createPost(req, me)).thenThrow(jdbcConflict(
                                 "ORA-00001: unique constraint (APP.UQ_CHEER_POST_ACTIVE_PARTY) violated"));
                 when(postRepo.findFirstByPartyIdAndDeletedFalse(partyId)).thenReturn(java.util.Optional.of(winner));
-                when(postDtoMapper.toNewPostDetailRes(winner, me)).thenReturn(detail);
+                when(postDtoMapper.toPostDetailRes(winner, false, false, false, false, 0)).thenReturn(detail);
 
                 CheerPostCreationResult result = cheerService.createPost(req);
 
@@ -167,7 +197,8 @@ class CheerServiceTest {
                 when(current.get()).thenReturn(me);
                 when(postService.createPost(req, me)).thenThrow(conflict);
                 when(postRepo.findFirstByDiaryIdAndDeletedFalse(diaryId)).thenReturn(java.util.Optional.of(winner));
-                when(postDtoMapper.toNewPostDetailRes(winner, me)).thenReturn(mock(PostDetailRes.class));
+                when(postDtoMapper.toPostDetailRes(winner, false, false, false, false, 0))
+                                .thenReturn(mock(PostDetailRes.class));
 
                 assertThat(cheerService.createPost(req).created()).isFalse();
 
