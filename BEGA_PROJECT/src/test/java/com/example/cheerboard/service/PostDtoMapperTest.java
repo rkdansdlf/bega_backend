@@ -179,6 +179,42 @@ class PostDtoMapperTest {
         assertThat(result.originalPost().linkedContent()).isNull();
     }
 
+    @ParameterizedTest
+    @EnumSource(value = PostType.class, names = { "CHECKIN", "RECRUITMENT" })
+    @DisplayName("linked attribution is canonicalized even when a legacy row contains external source fields")
+    void linkedAttribution_isCanonicalizedAcrossPublicResponses(PostType postType) {
+        PostDtoMapper mapper = new PostDtoMapper(hotPostChecker, imageService, redisPostService, profileImageService);
+        CheerPost linked = createPost(55L, 0, postType);
+        linked.setShareMode(CheerPost.ShareMode.EXTERNAL_LINK);
+        linked.setSourceUrl("https://attacker.invalid/phishing");
+        linked.setSourceTitle("위조된 원본");
+
+        PostSummaryRes topLevel = mapper.toPostSummaryRes(
+                linked,
+                false,
+                false,
+                false,
+                false,
+                0,
+                Collections.emptyList(),
+                Collections.emptyMap(),
+                Collections.emptyMap(),
+                Collections.emptyMap());
+
+        PostDetailRes detail = mapper.toPostDetailRes(
+                linked,
+                false,
+                false,
+                false,
+                false,
+                0);
+
+        assertThat(topLevel.shareMode()).isEqualTo("INTERNAL_REPOST");
+        assertThat(topLevel.sourceInfo()).isNull();
+        assertThat(detail.shareMode()).isEqualTo("INTERNAL_REPOST");
+        assertThat(detail.sourceInfo()).isNull();
+    }
+
     @Test
     @DisplayName("prefetch summary mapping attaches linked content to the top-level post")
     void toPostSummaryRes_attachesPrefetchedLinkedContent() {
