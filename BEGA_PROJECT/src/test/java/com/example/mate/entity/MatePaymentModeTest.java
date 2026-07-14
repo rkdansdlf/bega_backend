@@ -18,4 +18,11 @@ class MatePaymentModeTest {
         assertThat(MatePaymentMode.from("TOSS_TEST")).isEqualTo(MatePaymentMode.TOSS_TEST);
         assertThat(MatePaymentMode.from("toss_test")).isEqualTo(MatePaymentMode.TOSS_TEST);
     }
+
+    @Test
+    void from_inAppPaymentMode_parsesSuccessfully() {
+        assertThat(MatePaymentMode.from("IN_APP_PAYMENT")).isEqualTo(MatePaymentMode.IN_APP_PAYMENT);
+        assertThat(MatePaymentMode.IN_APP_PAYMENT.isInAppPayment()).isTrue();
+        assertThat(MatePaymentMode.DIRECT_TRADE.isInAppPayment()).isFalse();
+    }
 }
