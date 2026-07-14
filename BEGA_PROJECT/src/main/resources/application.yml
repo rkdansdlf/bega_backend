@@ -350,6 +350,8 @@ mate:
     require-social-verification: ${MATE_REQUIRE_SOCIAL_VERIFICATION:true}
   payment:
     mode: ${MATE_PAYMENT_MODE:DIRECT_TRADE}
+    provider: ${MATE_PAYMENT_PROVIDER:TOSS}
+    environment: ${MATE_PAYMENT_ENVIRONMENT:TEST}
     deposit-amount: ${MATE_PAYMENT_DEPOSIT_AMOUNT:10000}
     intent-ttl-minutes: ${MATE_PAYMENT_INTENT_TTL_MINUTES:30}
     fee-rate: ${MATE_FEE_RATE:0.10}
