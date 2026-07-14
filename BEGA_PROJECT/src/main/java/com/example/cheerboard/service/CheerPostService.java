@@ -228,14 +228,24 @@ public class CheerPostService {
             throw new IllegalArgumentException("부적절한 내용이 포함되어 게시글을 수정할 수 없습니다.");
         }
 
+        boolean linkedPost = isLinkedPost(post);
+        if (linkedPost) {
+            validateLinkedPostAttributionUpdate(req);
+        }
+
         CheerPost.ShareMode shareModeForValidation = req.shareMode() != null ? req.shareMode() : post.getShareMode();
-        String normalizedSourceUrl = validateSharePolicy(
-                shareModeForValidation,
-                req.content(),
-                req.sourceUrl() != null ? req.sourceUrl() : post.getSourceUrl(),
-                req.sourceLicense() != null ? req.sourceLicense() : post.getSourceLicense());
+        String normalizedSourceUrl = linkedPost
+                ? null
+                : validateSharePolicy(
+                        shareModeForValidation,
+                        req.content(),
+                        req.sourceUrl() != null ? req.sourceUrl() : post.getSourceUrl(),
+                        req.sourceLicense() != null ? req.sourceLicense() : post.getSourceLicense());
 
         updatePostContent(post, req, normalizedContent, normalizedSourceUrl);
+        if (linkedPost) {
+            enforceLinkedPostAttribution(post);
+        }
         if (req.images() != null) {
             syncManagedPostImages(post, author.getId(), req.images());
         }
@@ -552,6 +562,31 @@ public class CheerPostService {
                 || req.sourceLicenseUrl() != null
                 || req.sourceChangedNote() != null
                 || req.sourceSnapshotType() != null;
+    }
+
+    private boolean isLinkedPost(CheerPost post) {
+        return post.getPostType() == PostType.CHECKIN || post.getPostType() == PostType.RECRUITMENT;
+    }
+
+    private void validateLinkedPostAttributionUpdate(UpdatePostReq req) {
+        boolean invalidShareMode = req.shareMode() != null
+                && req.shareMode() != CheerPost.ShareMode.INTERNAL_REPOST;
+        if (invalidShareMode || hasAnySourceMeta(req)) {
+            throw new BadRequestBusinessException(
+                    "LINKED_POST_ATTRIBUTION_IMMUTABLE",
+                    "연결 게시글의 공유 방식과 출처 정보는 변경할 수 없습니다.");
+        }
+    }
+
+    private void enforceLinkedPostAttribution(CheerPost post) {
+        post.setShareMode(CheerPost.ShareMode.INTERNAL_REPOST);
+        post.setSourceUrl(null);
+        post.setSourceTitle(null);
+        post.setSourceAuthor(null);
+        post.setSourceLicense(null);
+        post.setSourceLicenseUrl(null);
+        post.setSourceChangedNote(null);
+        post.setSourceSnapshotType(null);
     }
 
     private void syncManagedPostImages(CheerPost post, Long userId, List<String> requestedImages) {

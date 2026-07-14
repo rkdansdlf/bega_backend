@@ -12,6 +12,7 @@ import com.example.cheerboard.dto.UpdatePostReq;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.service.CheerPostCreationOutcome;
 import com.example.cheerboard.service.CheerPostService;
+import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.RepostNotAllowedException;
 import com.example.kbo.entity.TeamEntity;
 import com.example.kbo.entity.GameEntity;
@@ -246,6 +247,36 @@ class CheerEdgeCaseIntegrationTest {
                 assertThat(persisted.getPostType()).isEqualTo(PostType.CHECKIN);
                 assertThat(persisted.getDiaryId()).isEqualTo(7001L);
                 assertThat(persisted.getPartyId()).isNull();
+        }
+
+        @Test
+        @DisplayName("Raw forged linked attribution cannot add an external source to a trusted linked post")
+        void rawForgedLinkedAttribution_isRejected() throws Exception {
+                CheerPost linked = postRepo.saveAndFlush(CheerPost.builder()
+                                .author(author1)
+                                .team(team)
+                                .content("원문")
+                                .postType(PostType.RECRUITMENT)
+                                .partyId(7002L)
+                                .shareMode(CheerPost.ShareMode.INTERNAL_REPOST)
+                                .build());
+                String rawJson = """
+                                {
+                                  "content": "위조된 출처",
+                                  "shareMode": "EXTERNAL_LINK",
+                                  "sourceUrl": "https://attacker.invalid/phishing",
+                                  "sourceTitle": "신뢰할 수 있는 원본"
+                                }
+                                """;
+                UpdatePostReq update = objectMapper.readValue(rawJson, UpdatePostReq.class);
+
+                assertThatThrownBy(() -> postService.updatePostEntity(linked.getId(), update, author1))
+                                .isInstanceOf(BadRequestBusinessException.class)
+                                .hasMessageContaining("연결 게시글");
+                assertThat(linked.getContent()).isEqualTo("원문");
+                assertThat(linked.getShareMode()).isEqualTo(CheerPost.ShareMode.INTERNAL_REPOST);
+                assertThat(linked.getSourceUrl()).isNull();
+                assertThat(linked.getSourceTitle()).isNull();
         }
 
         private BegaDiary persistEligibleDiary(UserEntity owner) {
