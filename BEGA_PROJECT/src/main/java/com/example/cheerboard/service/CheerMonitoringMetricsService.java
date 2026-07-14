@@ -20,7 +20,7 @@ public class CheerMonitoringMetricsService {
     static final String FEED_ENRICHMENT_EVENT_METRIC = "cheer_feed_enrichment_events_total";
 
     private static final Set<String> FEED_ENDPOINTS = Set.of("feed", "feed_lightweight", "search", "hot");
-    private static final Set<String> POST_TYPES = Set.of("normal", "notice");
+    private static final Set<String> POST_TYPES = Set.of("normal", "notice", "checkin", "recruitment");
     private static final Set<String> HOT_ALGORITHMS = Set.of("time_decay", "engagement_rate", "hybrid");
     private static final Set<String> FEED_ENRICHMENT_RESULTS = Set.of("success", "timeout", "busy", "failure");
 
