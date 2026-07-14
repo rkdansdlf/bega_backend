@@ -123,7 +123,7 @@ class PartyApplicationServicePaymentPolicyTest {
                 .build();
 
         given(userService.getUserIdByEmail("user@example.com")).willReturn(applicantId);
-        given(applicationRepository.findByIdAndApplicantId(applicationId, applicantId)).willReturn(Optional.of(application));
+        given(applicationRepository.findByIdAndApplicantIdForUpdate(applicationId, applicantId)).willReturn(Optional.of(application));
         given(partyRepository.findById(5L)).willReturn(Optional.of(party));
 
         assertThatThrownBy(() -> partyApplicationService.cancelApplication(
@@ -166,7 +166,7 @@ class PartyApplicationServicePaymentPolicyTest {
     @Test
     void cancelApplication_nonApplicantApplicationId_isTreatedAsNotFoundBeforeRefund() {
         given(userService.getUserIdByEmail("user@example.com")).willReturn(7L);
-        given(applicationRepository.findByIdAndApplicantId(11L, 7L)).willReturn(Optional.empty());
+        given(applicationRepository.findByIdAndApplicantIdForUpdate(11L, 7L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> partyApplicationService.cancelApplication(
                 11L,
