@@ -51,8 +51,24 @@ public class ChatMessageController {
     @GetMapping("/party/{partyId}")
     public ResponseEntity<List<ChatMessageDTO.Response>> getMessagesByPartyId(
             @PathVariable Long partyId,
-            @AuthenticationPrincipal Long userId) {
-        List<ChatMessageDTO.Response> messages = chatMessageService.getMessagesByPartyId(partyId, AuthenticatedUserIds.require(userId));
+            @AuthenticationPrincipal Long userId,
+            @RequestParam(defaultValue = "50") Integer limit,
+            @RequestParam(required = false) Long beforeId) {
+        List<ChatMessageDTO.Response> messages = chatMessageService.getMessagesByPartyId(
+                partyId,
+                AuthenticatedUserIds.require(userId),
+                limit,
+                beforeId);
+        return ResponseEntity.ok(messages);
+    }
+
+    // 기존 직접 호출 호환용 오버로드 (HTTP 매핑 없음)
+    public ResponseEntity<List<ChatMessageDTO.Response>> getMessagesByPartyId(
+            Long partyId,
+            Long userId) {
+        List<ChatMessageDTO.Response> messages = chatMessageService.getMessagesByPartyId(
+                partyId,
+                AuthenticatedUserIds.require(userId));
         return ResponseEntity.ok(messages);
     }
 

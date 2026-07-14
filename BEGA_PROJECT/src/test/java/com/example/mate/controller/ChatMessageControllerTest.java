@@ -56,6 +56,19 @@ class ChatMessageControllerTest {
     }
 
     @Test
+    @DisplayName("파티별 메시지 조회 시 페이지 커서를 서비스에 전달한다")
+    void getMessagesByPartyId_forwardsPagingArguments() {
+        ChatMessageDTO.Response resp = ChatMessageDTO.Response.builder().id(1L).build();
+        when(chatMessageService.getMessagesByPartyId(5L, 42L, 20, 100L)).thenReturn(List.of(resp));
+
+        ResponseEntity<?> result = controller.getMessagesByPartyId(5L, 42L, 20, 100L);
+
+        assertThat((List<?>) result.getBody()).hasSize(1);
+        assertThat(((List<?>) result.getBody()).get(0)).isEqualTo(resp);
+        verify(chatMessageService).getMessagesByPartyId(5L, 42L, 20, 100L);
+    }
+
+    @Test
     @DisplayName("최신 메시지가 있으면 200을 반환한다")
     void getLatestMessage_whenExists_returnsMessage() {
         ChatMessageDTO.Response resp = ChatMessageDTO.Response.builder().id(1L).build();
