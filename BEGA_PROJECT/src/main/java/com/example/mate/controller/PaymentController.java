@@ -3,6 +3,7 @@ package com.example.mate.controller;
 import com.example.common.dto.ApiResponse;
 import com.example.common.web.AuthenticatedUserIds;
 import com.example.mate.dto.PartyApplicationDTO;
+import com.example.mate.dto.MatePaymentCapabilityDTO;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.PaymentIntent;
 import com.example.mate.entity.PartyApplication;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.GetMapping;
 
 import java.util.Optional;
 
@@ -44,6 +46,24 @@ public class PaymentController {
     private final PaymentTransactionService paymentTransactionService;
     private final PaymentMetricsService paymentMetricsService;
     private final MatePaymentModeService matePaymentModeService;
+
+    @Operation(summary = "Get Mate payment capability")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "OK",
+            content = @Content(schema = @Schema(implementation = MatePaymentCapabilityDTO.Response.class)))
+    @GetMapping("/capability")
+    public ResponseEntity<MatePaymentCapabilityDTO.Response> getPaymentCapability() {
+        return ResponseEntity.ok(new MatePaymentCapabilityDTO.Response(
+                matePaymentModeService.paymentMode(),
+                matePaymentModeService.businessMode(),
+                matePaymentModeService.paymentProvider(),
+                matePaymentModeService.paymentEnvironment(),
+                matePaymentModeService.isTossPaymentEnabled(),
+                matePaymentModeService.isSellingPaymentRequired(),
+                matePaymentModeService.isPayoutEnabled(),
+                matePaymentModeService.payoutProvider()));
+    }
 
     /**
      * POST /api/payments/toss/prepare

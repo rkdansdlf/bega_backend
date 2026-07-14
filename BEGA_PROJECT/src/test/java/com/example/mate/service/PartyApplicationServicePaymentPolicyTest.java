@@ -82,6 +82,7 @@ class PartyApplicationServicePaymentPolicyTest {
                 .build();
 
         given(matePaymentModeService.isTossTest()).willReturn(true);
+        given(matePaymentModeService.isInAppPayment()).willReturn(true);
         given(userService.getUserIdByEmail("user@example.com")).willReturn(applicantId);
         given(userService.findUserById(applicantId)).willReturn(applicant);
         given(userService.isSocialVerified(applicantId)).willReturn(true);
