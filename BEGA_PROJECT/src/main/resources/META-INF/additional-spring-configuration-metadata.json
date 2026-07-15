@@ -11,6 +11,11 @@
       "description": "Mail delivery toggles for the backend."
     },
     {
+      "name": "app.ai-ingest",
+      "type": "com.example.ai.config.AiIngestProperties",
+      "description": "Durable internal baseball-to-AI ingestion scheduling and status monitoring settings."
+    },
+    {
       "name": "app.tomcat",
       "type": "java.lang.Object",
       "description": "Application-level embedded Tomcat hardening settings."
@@ -311,6 +316,40 @@
       "name": "app.mail.enabled",
       "type": "java.lang.Boolean",
       "description": "Whether outbound mail sending is enabled."
+    },
+    {
+      "name": "app.ai-ingest.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the backend registers the single recurring AI ingestion submission job.",
+      "defaultValue": false
+    },
+    {
+      "name": "app.ai-ingest.cron",
+      "type": "java.lang.String",
+      "description": "Five-field JobRunr cron expression for recurring ingestion submission.",
+      "defaultValue": "30 4 * * *"
+    },
+    {
+      "name": "app.ai-ingest.tables",
+      "type": "java.util.List<java.lang.String>",
+      "description": "Explicit trusted internal source tables submitted to the AI ingestion queue."
+    },
+    {
+      "name": "app.ai-ingest.season-year",
+      "type": "java.lang.Integer",
+      "description": "Optional operator-selected season year; unset means no inferred season filter."
+    },
+    {
+      "name": "app.ai-ingest.check-interval",
+      "type": "java.time.Duration",
+      "description": "Delay between separately persisted JobRunr status checks.",
+      "defaultValue": "30s"
+    },
+    {
+      "name": "app.ai-ingest.monitoring-duration",
+      "type": "java.time.Duration",
+      "description": "Maximum backend monitoring window for a submitted durable ingestion run.",
+      "defaultValue": "2h"
     },
     {
       "name": "app.client-error-monitoring.retention-days",
