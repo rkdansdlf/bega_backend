@@ -24,6 +24,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.HashMap;
 import java.time.Instant;
@@ -97,14 +99,13 @@ public class PaymentTransactionService {
         return paymentTransactionRepository.findById(paymentId);
     }
 
-    @Transactional
     public PayoutTransaction requestManualPayout(Long paymentId) {
         if (matePaymentModeService.isDirectTrade()) {
             throw new TossPaymentException(
                     "직거래 모드에서는 수동 정산 지급을 요청할 수 없습니다.",
                     HttpStatus.SERVICE_UNAVAILABLE);
         }
-        PaymentTransaction tx = paymentTransactionRepository.findByIdForUpdate(paymentId)
+        PaymentTransaction tx = paymentTransactionRepository.findById(paymentId)
                 .orElseThrow(() -> new IllegalArgumentException("결제 트랜잭션을 찾을 수 없습니다: " + paymentId));
         if (tx.getPaymentStatus() == PaymentStatus.CANCELED) {
             throw new IllegalStateException("취소된 결제는 정산 지급을 요청할 수 없습니다.");
@@ -112,8 +113,6 @@ public class PaymentTransactionService {
         if (tx.getPaymentStatus() != PaymentStatus.PAID) {
             throw new IllegalStateException("결제 완료 상태에서만 정산 지급을 요청할 수 있습니다.");
         }
-        tx.setSettlementStatus(SettlementStatus.REQUESTED);
-        paymentTransactionRepository.save(tx);
         try {
             return payoutService.requestPayout(tx);
         } catch (RuntimeException e) {
@@ -175,17 +174,26 @@ public class PaymentTransactionService {
             return;
         }
 
-        tx.setSettlementStatus(SettlementStatus.REQUESTED);
-        paymentTransactionRepository.save(tx);
+        Runnable requestPayout = () -> requestPayoutAfterCommit(application.getId(), tx);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    requestPayout.run();
+                }
+            });
+        } else {
+            requestPayout.run();
+        }
+    }
+
+    private void requestPayoutAfterCommit(Long applicationId, PaymentTransaction tx) {
         try {
             payoutService.requestPayout(tx);
         } catch (RuntimeException e) {
-            tx.setSettlementStatus(SettlementStatus.FAILED);
-            paymentTransactionRepository.save(tx);
-            metricsService.recordPayout("fail");
             log.error(
-                    "[Payment] 승인 즉시 정산 처리 중 오류: applicationId={}, paymentTransactionId={}",
-                    application.getId(),
+                    "[Payment] 승인 후 정산 요청 처리 중 오류: applicationId={}, paymentTransactionId={}",
+                    applicationId,
                     tx.getId(),
                     e);
         }
@@ -222,7 +230,7 @@ public class PaymentTransactionService {
         }
 
         if (tx.getPaymentStatus() == PaymentStatus.CANCELED) {
-            return buildCancelResponse(application.getId(), tx);
+            return buildExistingCanceledResponse(application.getId(), tx);
         }
 
         PaymentCancellationIntentService.CancellationIntent proposed = resolveCancellationIntent(tx, request);
@@ -235,7 +243,7 @@ public class PaymentTransactionService {
             entityManager.clear();
         }
         if (tx.getPaymentStatus() == PaymentStatus.CANCELED) {
-            return buildCancelResponse(application.getId(), tx);
+            return buildExistingCanceledResponse(application.getId(), tx);
         }
 
         try {
@@ -273,14 +281,12 @@ public class PaymentTransactionService {
                             tossPaymentService.getPayment(tx.getPaymentKey()));
                     return finalizeReconciledCancellation(application.getId(), tx, intent, cancellation);
                 } catch (RuntimeException reconciliationFailure) {
-                    tx.setPaymentStatus(PaymentStatus.REFUND_FAILED);
-                    paymentTransactionRepository.save(tx);
+                    tx = cancellationIntentService.markRefundFailed(tx);
                     metricsService.recordRefund("failed");
                     throw reconciliationFailure;
                 }
             }
-            tx.setPaymentStatus(PaymentStatus.REFUND_FAILED);
-            paymentTransactionRepository.save(tx);
+            tx = cancellationIntentService.markRefundFailed(tx);
             metricsService.recordRefund("failed");
             throw e;
         }
@@ -326,26 +332,9 @@ public class PaymentTransactionService {
             throw new IllegalStateException("결제사 취소 금액이 요청된 환불 금액보다 작습니다.");
         }
 
-        boolean wasSettled = tx.getSettlementStatus() == SettlementStatus.COMPLETED;
-        int originalPaidAmount = Math.max(
-                0,
-                Objects.requireNonNullElse(tx.getNetAmount(), tx.getGrossAmount()));
-        int actualRefundAmount = Math.min(tx.getGrossAmount(), cancellation.canceledAmount());
-        int actualFeeAmount = Math.max(0, tx.getGrossAmount() - actualRefundAmount);
-        tx.setRefundAmount(actualRefundAmount);
-        tx.setFeeAmount(actualFeeAmount);
-        tx.setNetAmount(actualFeeAmount);
-        tx.setPaymentStatus(PaymentStatus.CANCELED);
-        tx.setProviderReconciledAt(Instant.now());
-        if (wasSettled) {
-            tx.setSettlementStatus(SettlementStatus.REFUNDED_AFTER_SETTLEMENT);
-        } else {
-            tx.setSettlementStatus(SettlementStatus.SKIPPED);
-        }
-        paymentTransactionRepository.save(tx);
-        if (wasSettled) {
-            sellerRecoveryService.recordSettledRefund(tx, originalPaidAmount);
-        }
+        tx = cancellationIntentService.finalizeReconciledCancellation(
+                tx,
+                cancellation.canceledAmount());
         metricsService.recordRefund(intent.policyApplied());
         return buildCancelResponse(applicationId, tx);
     }
@@ -492,6 +481,18 @@ public class PaymentTransactionService {
                 .paymentStatus(tx.getPaymentStatus())
                 .settlementStatus(tx.getSettlementStatus())
                 .build();
+    }
+
+    private PartyApplicationDTO.CancelResponse buildExistingCanceledResponse(
+            Long applicationId,
+            PaymentTransaction tx) {
+        if (tx.getSettlementStatus() == SettlementStatus.REFUNDED_AFTER_SETTLEMENT) {
+            int originalPaidAmount = Math.max(
+                    0,
+                    Objects.requireNonNullElse(tx.getGrossAmount(), 0));
+            sellerRecoveryService.recordSettledRefund(tx, originalPaidAmount);
+        }
+        return buildCancelResponse(applicationId, tx);
     }
 
     private PaymentTransaction findExistingTransaction(String orderId, String paymentKey) {

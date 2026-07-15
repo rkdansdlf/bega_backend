@@ -32,4 +32,9 @@ public interface SellerPayoutRecoveryRepository extends JpaRepository<SellerPayo
     default List<SellerPayoutRecovery> findOutstandingBySellerUserIdForUpdate(Long sellerUserId) {
         return findOutstandingBySellerUserIdForUpdate(sellerUserId, SellerRecoveryStatus.RECOVERED);
     }
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select recovery from SellerPayoutRecovery recovery "
+            + "where recovery.sellerUserId = :sellerUserId order by recovery.id")
+    List<SellerPayoutRecovery> findAllBySellerUserIdForUpdate(@Param("sellerUserId") Long sellerUserId);
 }
