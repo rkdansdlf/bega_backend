@@ -4,6 +4,7 @@ import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.CancelReasonType;
+import com.example.mate.entity.PaymentStatus;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.service.PartyLifecycleMutationService;
@@ -33,6 +34,8 @@ import java.util.stream.Collectors;
 @Component
 @RequiredArgsConstructor
 public class PartyLifecycleScheduler implements ApplicationRunner {
+
+    private static final long REFUND_CLAIM_LEASE_SECONDS = 15 * 60L;
 
     private final PartyRepository partyRepository;
     private final PartyApplicationRepository applicationRepository;
@@ -268,12 +271,7 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
         }
 
         for (PartyApplication candidate : refundRetryCandidates) {
-            PartyLifecycleMutationService.ExpiredApplicationMutation mutation =
-                    lifecycleMutationService.loadRetryableRejectedPaidApplication(
-                            candidate.getPartyId(), candidate.getId(), candidate.getApplicantId());
-            if (mutation != null) {
-                refundRejectedPaidApplication(mutation.application());
-            }
+            refundRejectedPaidApplication(candidate);
         }
 
         if (expiredCount > 0 || autoCompletedCount > 0 || autoRejectedCount > 0) {
@@ -286,19 +284,38 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
         if (!Boolean.TRUE.equals(application.getIsPaid())) {
             return;
         }
+        PartyLifecycleMutationService.RefundAttemptClaim claim = lifecycleMutationService.claimRefundAttempt(
+                application.getPartyId(),
+                application.getId(),
+                application.getApplicantId(),
+                Instant.now().minusSeconds(REFUND_CLAIM_LEASE_SECONDS));
+        if (claim == null) {
+            return;
+        }
+        if (claim.alreadyCanceled()) {
+            lifecycleMutationService.markApplicationUnpaidAfterRefund(
+                    application.getPartyId(), application.getId(), application.getApplicantId());
+            return;
+        }
+        PartyApplication claimedApplication = claim.application();
         try {
-            paymentTransactionService.processCancellation(
-                    application,
+            PartyApplicationDTO.CancelResponse response = paymentTransactionService.processCancellation(
+                    claimedApplication,
                     PartyApplicationDTO.CancelRequest.builder()
                             .cancelReasonType(CancelReasonType.SYSTEM)
                             .cancelMemo("거절된 메이트 신청 자동 환불")
                             .build());
+            if (response == null || response.getPaymentStatus() != PaymentStatus.CANCELED) {
+                throw new IllegalStateException("환불 처리 결과가 CANCELED가 아닙니다.");
+            }
             lifecycleMutationService.markApplicationUnpaidAfterRefund(
-                    application.getPartyId(), application.getId(), application.getApplicantId());
+                    claimedApplication.getPartyId(),
+                    claimedApplication.getId(),
+                    claimedApplication.getApplicantId());
         } catch (RuntimeException e) {
-            lifecycleMutationService.recordRefundFailure(application.getOrderId());
+            lifecycleMutationService.recordRefundFailure(claimedApplication.getOrderId());
             log.error("거절 신청 환불 처리 실패: applicationId={}, applicantId={}",
-                    application.getId(), application.getApplicantId(), e);
+                    claimedApplication.getId(), claimedApplication.getApplicantId(), e);
         }
     }
 

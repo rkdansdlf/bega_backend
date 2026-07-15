@@ -616,6 +616,12 @@ public class UserService {
                 .orElseThrow(() -> new UserNotFoundException(id));
     }
 
+    @Transactional
+    public UserEntity findUserByIdForUpdate(@NonNull Long id) {
+        return userRepository.findByIdForWrite(id)
+                .orElseThrow(() -> new UserNotFoundException(id));
+    }
+
     /**
      * 이메일 중복 체크
      */
