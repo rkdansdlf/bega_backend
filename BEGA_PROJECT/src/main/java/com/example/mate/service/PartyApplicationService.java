@@ -498,6 +498,7 @@ public class PartyApplicationService {
             PartyApplicationDTO.CancelRequest cancelRequest) {
         Long applicantId = requireUserId(userId);
         PartyApplication application = requireApplicantApplicationForUpdate(applicationId, applicantId);
+        PartyApplicationDTO.CancelRequest applicantCancelRequest = sanitizeApplicantCancelRequest(cancelRequest);
 
         // 거절된 신청은 취소 불필요
         if (application.getIsRejected()) {
@@ -510,7 +511,7 @@ public class PartyApplicationService {
         // 승인 전: 자유롭게 취소 가능
         if (!application.getIsApproved()) {
             PartyApplicationDTO.CancelResponse cancelResponse = paymentTransactionService
-                    .processCancellation(application, cancelRequest);
+                    .processCancellation(application, applicantCancelRequest);
             applicationRepository.delete(application);
             return Objects.requireNonNull(cancelResponse);
         }
@@ -529,8 +530,9 @@ public class PartyApplicationService {
             throw new InvalidApplicationStatusException("체크인 이후에는 참여를 취소할 수 없습니다.");
         }
 
-        PartyApplicationDTO.CancelResponse cancelResponse = paymentTransactionService.processCancellation(application,
-                cancelRequest);
+        PartyApplicationDTO.CancelResponse cancelResponse = paymentTransactionService.processCancellation(
+                application,
+                applicantCancelRequest);
 
         // 승인된 신청 취소 시 참여 인원 감소
         partyService.decrementParticipants(application.getPartyId());
@@ -538,6 +540,14 @@ public class PartyApplicationService {
         // 신청 삭제
         applicationRepository.delete(application);
         return Objects.requireNonNull(cancelResponse);
+    }
+
+    private PartyApplicationDTO.CancelRequest sanitizeApplicantCancelRequest(
+            PartyApplicationDTO.CancelRequest request) {
+        return PartyApplicationDTO.CancelRequest.builder()
+                .cancelReasonType(CancelReasonType.BUYER_CHANGED_MIND)
+                .cancelMemo(request != null ? request.getCancelMemo() : null)
+                .build();
     }
 
     @Transactional(readOnly = true)

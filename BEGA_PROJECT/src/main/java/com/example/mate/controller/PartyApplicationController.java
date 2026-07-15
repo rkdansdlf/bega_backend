@@ -117,7 +117,7 @@ public class PartyApplicationController {
     @PostMapping("/{applicationId}/cancel")
     public ResponseEntity<PartyApplicationDTO.CancelResponse> cancelApplicationWithReason(
             @PathVariable Long applicationId,
-            @RequestBody(required = false) PartyApplicationDTO.CancelRequest request,
+            @Valid @RequestBody(required = false) PartyApplicationDTO.CancelRequest request,
             @AuthenticationPrincipal Long userId) {
         PartyApplicationDTO.CancelRequest cancelRequest = request != null
                 ? request
