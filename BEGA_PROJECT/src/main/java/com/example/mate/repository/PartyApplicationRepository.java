@@ -143,6 +143,9 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
     // 응답 기한이 지난 미처리 신청 조회 (자동 거절용)
     List<PartyApplication> findByIsApprovedFalseAndIsRejectedFalseAndResponseDeadlineBefore(Instant deadline);
 
+    // 환불 실패 또는 환불 후 상태 반영 실패로 남은 신청 재시도용
+    List<PartyApplication> findByIsRejectedTrueAndIsPaidTrue();
+
     // 통계
     @Query("SELECT COUNT(DISTINCT p.id) FROM Party p " +
             "WHERE p.status = com.example.mate.entity.Party$PartyStatus.CHECKED_IN AND " +

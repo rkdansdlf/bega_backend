@@ -23,6 +23,7 @@ import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -197,6 +198,9 @@ class PartyServiceUserDeletionTest {
         when(partyRepository.findByIdForUpdate(101L)).thenReturn(Optional.of(matchedParty));
         when(applicationRepository.findByPartyIdAndIsApprovedTrue(101L))
                 .thenReturn(List.of(application2));
+        when(applicationRepository.findByPartyId(101L)).thenReturn(List.of(application2));
+        when(applicationRepository.findByIdAndApplicantIdForUpdate(201L, participantUserId2))
+                .thenReturn(Optional.of(application2));
         when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(hostUserId))
                 .thenReturn(List.of());
 
@@ -217,6 +221,10 @@ class PartyServiceUserDeletionTest {
                 anyString(),
                 eq(101L)
         );
+        verify(applicationRepository).save(application2);
+        assertThat(application2.getIsApproved()).isFalse();
+        assertThat(application2.getIsRejected()).isTrue();
+        assertThat(application2.getIsPaid()).isTrue();
     }
 
     @Test
@@ -246,6 +254,8 @@ class PartyServiceUserDeletionTest {
                 .thenReturn(List.of());
         when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(participantUserId1))
                 .thenReturn(List.of(participantApplication));
+        when(applicationRepository.findByApplicantId(participantUserId1))
+                .thenReturn(List.of(participantApplication));
         when(partyRepository.findByIdForUpdate(300L))
                 .thenReturn(Optional.of(hostParty));
         when(applicationRepository.findByIdAndApplicantIdForUpdate(202L, participantUserId1))
@@ -271,8 +281,12 @@ class PartyServiceUserDeletionTest {
                 eq(300L)
         );
 
-        // 신청이 삭제되었는지 확인
-        verify(applicationRepository, times(1)).delete(participantApplication);
+        // 결제된 신청은 환불 재시도를 위해 거절 상태로 보존
+        verify(applicationRepository, times(1)).save(participantApplication);
+        verify(applicationRepository, never()).delete(participantApplication);
+        assertThat(participantApplication.getIsApproved()).isFalse();
+        assertThat(participantApplication.getIsRejected()).isTrue();
+        assertThat(participantApplication.getIsPaid()).isTrue();
     }
 
     @Test
@@ -325,6 +339,8 @@ class PartyServiceUserDeletionTest {
                 .thenReturn(List.of(application2));
         when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(hostUserId))
                 .thenReturn(List.of(asParticipant));
+        when(applicationRepository.findByApplicantId(hostUserId))
+                .thenReturn(List.of(asParticipant));
         when(partyRepository.findByIdForUpdate(400L))
                 .thenReturn(Optional.of(anotherHostParty));
         when(applicationRepository.findByIdAndApplicantIdForUpdate(203L, hostUserId))
@@ -363,8 +379,9 @@ class PartyServiceUserDeletionTest {
                 eq(400L)
         );
 
-        // 참여자로서의 신청 삭제
-        verify(applicationRepository, times(1)).delete(asParticipant);
+        // 결제된 참여 신청은 환불 재시도를 위해 보존
+        verify(applicationRepository, times(1)).save(asParticipant);
+        verify(applicationRepository, never()).delete(asParticipant);
     }
 
     @Test
@@ -420,6 +437,7 @@ class PartyServiceUserDeletionTest {
         when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList())).thenReturn(List.of(hosted));
         when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
                 .thenReturn(List.of(joinedApplication));
+        when(applicationRepository.findByApplicantId(userId)).thenReturn(List.of(joinedApplication));
         when(partyRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(joined));
         when(partyRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(hosted));
         when(applicationRepository.findByPartyIdAndIsApprovedTrue(200L)).thenReturn(List.of());
@@ -431,5 +449,51 @@ class PartyServiceUserDeletionTest {
         InOrder lockOrder = inOrder(partyRepository);
         lockOrder.verify(partyRepository).findByIdForUpdate(100L);
         lockOrder.verify(partyRepository).findByIdForUpdate(200L);
+    }
+
+    @Test
+    @DisplayName("잠금 대기 중 승인된 신청은 잠금 후 재조회하여 정리한다")
+    void handleUserDeletion_reloadsApprovedApplicationsAfterPartyLocks() {
+        Long userId = 60L;
+        Party party = Party.builder()
+                .id(100L)
+                .hostId(999L)
+                .gameDate(LocalDate.now().plusDays(2))
+                .stadium("수원")
+                .currentParticipants(2)
+                .maxParticipants(4)
+                .status(Party.PartyStatus.MATCHED)
+                .build();
+        PartyApplication pendingSnapshot = PartyApplication.builder()
+                .id(301L)
+                .partyId(100L)
+                .applicantId(userId)
+                .isApproved(false)
+                .isRejected(false)
+                .isPaid(false)
+                .build();
+        PartyApplication approvedAfterLock = PartyApplication.builder()
+                .id(301L)
+                .partyId(100L)
+                .applicantId(userId)
+                .applicantName("탈퇴 사용자")
+                .isApproved(true)
+                .isRejected(false)
+                .isPaid(false)
+                .build();
+
+        when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList())).thenReturn(List.of());
+        when(applicationRepository.findByApplicantId(userId)).thenReturn(List.of(pendingSnapshot));
+        when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
+                .thenReturn(List.of(), List.of(approvedAfterLock));
+        when(partyRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(party));
+        when(applicationRepository.findByIdAndApplicantIdForUpdate(301L, userId))
+                .thenReturn(Optional.of(approvedAfterLock));
+
+        partyService.handleUserDeletion(userId);
+
+        verify(partyRepository).findByIdForUpdate(100L);
+        verify(applicationRepository).delete(approvedAfterLock);
+        assertThat(party.getCurrentParticipants()).isEqualTo(1);
     }
 }

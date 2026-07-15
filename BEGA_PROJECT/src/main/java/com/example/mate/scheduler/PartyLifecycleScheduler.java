@@ -225,6 +225,8 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
         }
 
         // 4. 응답 기한이 지난 미처리 신청 자동 거절
+        List<PartyApplication> refundRetryCandidates = applicationRepository
+                .findByIsRejectedTrueAndIsPaidTrue();
         List<PartyApplication> expiredApplications = applicationRepository
                 .findByIsApprovedFalseAndIsRejectedFalseAndResponseDeadlineBefore(now);
 
@@ -238,22 +240,7 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
             PartyApplication application = mutation.application();
             Party party = mutation.party();
 
-            // 결제된 신청의 경우 실제 환불 처리
-            if (Boolean.TRUE.equals(application.getIsPaid())) {
-                try {
-                    paymentTransactionService.processCancellation(
-                            application,
-                            PartyApplicationDTO.CancelRequest.builder()
-                                    .cancelReasonType(CancelReasonType.SYSTEM)
-                                    .cancelMemo("48시간 응답 기한 만료 자동 거절")
-                                    .build());
-                    lifecycleMutationService.markApplicationUnpaidAfterRefund(
-                            application.getPartyId(), application.getId(), application.getApplicantId());
-                } catch (RuntimeException e) {
-                    log.error("자동 거절 신청 환불 처리 실패: applicationId={}, applicantId={}",
-                            application.getId(), application.getApplicantId(), e);
-                }
-            }
+            refundRejectedPaidApplication(application);
 
             // 신청자에게 알림
             notificationService.createNotification(
@@ -280,9 +267,38 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
             autoRejectedCount++;
         }
 
+        for (PartyApplication candidate : refundRetryCandidates) {
+            PartyLifecycleMutationService.ExpiredApplicationMutation mutation =
+                    lifecycleMutationService.loadRetryableRejectedPaidApplication(
+                            candidate.getPartyId(), candidate.getId(), candidate.getApplicantId());
+            if (mutation != null) {
+                refundRejectedPaidApplication(mutation.application());
+            }
+        }
+
         if (expiredCount > 0 || autoCompletedCount > 0 || autoRejectedCount > 0) {
             log.info("Party Lifecycle Management completed - Expired: {}, Auto-completed: {}, Auto-rejected applications: {}",
                     expiredCount, autoCompletedCount, autoRejectedCount);
+        }
+    }
+
+    private void refundRejectedPaidApplication(PartyApplication application) {
+        if (!Boolean.TRUE.equals(application.getIsPaid())) {
+            return;
+        }
+        try {
+            paymentTransactionService.processCancellation(
+                    application,
+                    PartyApplicationDTO.CancelRequest.builder()
+                            .cancelReasonType(CancelReasonType.SYSTEM)
+                            .cancelMemo("거절된 메이트 신청 자동 환불")
+                            .build());
+            lifecycleMutationService.markApplicationUnpaidAfterRefund(
+                    application.getPartyId(), application.getId(), application.getApplicantId());
+        } catch (RuntimeException e) {
+            lifecycleMutationService.recordRefundFailure(application.getOrderId());
+            log.error("거절 신청 환불 처리 실패: applicationId={}, applicantId={}",
+                    application.getId(), application.getApplicantId(), e);
         }
     }
 

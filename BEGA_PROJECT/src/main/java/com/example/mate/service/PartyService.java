@@ -32,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.security.Principal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -652,12 +653,15 @@ public class PartyService {
                 Party.PartyStatus.PENDING,
                 Party.PartyStatus.MATCHED);
         List<Party> hostedParties = partyRepository.findByHostIdAndStatusIn(userId, activeStatuses);
-        List<PartyApplication> approvedApplicationsAsParticipant = applicationRepository
+        List<PartyApplication> allApplicationsAsParticipant = applicationRepository.findByApplicantId(userId);
+        List<PartyApplication> approvedApplicationsSnapshot = applicationRepository
                 .findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId);
 
-        List<Long> relatedPartyIds = java.util.stream.Stream.concat(
+        List<Long> relatedPartyIds = java.util.stream.Stream.of(
                         hostedParties.stream().map(Party::getId),
-                        approvedApplicationsAsParticipant.stream().map(PartyApplication::getPartyId))
+                        allApplicationsAsParticipant.stream().map(PartyApplication::getPartyId),
+                        approvedApplicationsSnapshot.stream().map(PartyApplication::getPartyId))
+                .flatMap(stream -> stream)
                 .filter(Objects::nonNull)
                 .distinct()
                 .sorted()
@@ -667,6 +671,8 @@ public class PartyService {
             partyRepository.findByIdForUpdate(partyId)
                     .ifPresent(party -> lockedParties.put(partyId, party));
         }
+        List<PartyApplication> approvedApplicationsAsParticipant = applicationRepository
+                .findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId);
 
         for (Party candidate : hostedParties) {
             Party party = lockedParties.get(candidate.getId());
@@ -679,9 +685,25 @@ public class PartyService {
             party.setStatus(Party.PartyStatus.FAILED);
             partyRepository.save(party);
 
-            // 승인된 신청자들에게 알림 발송
+            // 승인된 신청자들은 상태 변경 전에 알림 대상으로 고정
             List<PartyApplication> approvedApplications = applicationRepository
                     .findByPartyIdAndIsApprovedTrue(party.getId());
+            List<PartyApplication> paidApplications = applicationRepository.findByPartyId(party.getId()).stream()
+                    .filter(application -> Boolean.TRUE.equals(application.getIsPaid()))
+                    .sorted(java.util.Comparator.comparing(PartyApplication::getId))
+                    .toList();
+            for (PartyApplication candidateApplication : paidApplications) {
+                PartyApplication application = applicationRepository.findByIdAndApplicantIdForUpdate(
+                                candidateApplication.getId(), candidateApplication.getApplicantId())
+                        .orElse(null);
+                if (application == null || !party.getId().equals(application.getPartyId())) {
+                    continue;
+                }
+                application.setIsApproved(false);
+                application.setIsRejected(true);
+                application.setRejectedAt(Instant.now());
+                applicationRepository.save(application);
+            }
 
             for (PartyApplication application : approvedApplications) {
                 try {
@@ -702,7 +724,10 @@ public class PartyService {
         }
 
         // 2. 참여자로 승인된 신청 처리
-        for (PartyApplication candidate : approvedApplicationsAsParticipant) {
+        for (PartyApplication candidate : approvedApplicationsAsParticipant.stream()
+                .sorted(java.util.Comparator.comparing(PartyApplication::getPartyId)
+                        .thenComparing(PartyApplication::getId))
+                .toList()) {
             try {
                 Long partyId = candidate.getPartyId();
                 Long applicationId = candidate.getId();
@@ -714,7 +739,7 @@ public class PartyService {
                 if (party == null) {
                     log.warn("파티를 찾을 수 없음: partyId={}", partyId);
                     if (application != null) {
-                        applicationRepository.delete(application);
+                        preservePaidApplicationForRefundOrDelete(application);
                     }
                     continue;
                 }
@@ -760,18 +785,29 @@ public class PartyService {
                             party.getHostId(), e.getMessage());
                 }
 
-                // 신청 삭제
-                applicationRepository.delete(application);
+                preservePaidApplicationForRefundOrDelete(application);
 
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("참여자 신청 처리 중 오류: applicationId={}, error={}",
                         candidate.getId(), e.getMessage());
+                throw e;
             }
         }
 
         log.info("사용자 삭제로 인한 메이트 cascade cleanup 완료: userId={}, " +
                 "취소된 호스트 파티={}, 취소된 참여 신청={}",
                 userId, hostedParties.size(), approvedApplicationsAsParticipant.size());
+    }
+
+    private void preservePaidApplicationForRefundOrDelete(PartyApplication application) {
+        if (!Boolean.TRUE.equals(application.getIsPaid())) {
+            applicationRepository.delete(application);
+            return;
+        }
+        application.setIsApproved(false);
+        application.setIsRejected(true);
+        application.setRejectedAt(Instant.now());
+        applicationRepository.save(application);
     }
 
     private String normalizeSearchQuery(String searchQuery) {
