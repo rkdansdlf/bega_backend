@@ -170,6 +170,65 @@ class PartyLifecycleSchedulerTest {
         order.verify(lifecycleMutationService).markApplicationUnpaidAfterRefund(700L, 800L, 9001L);
     }
 
+    @Test
+    @DisplayName("환불 실패로 남은 결제된 자동 거절 신청은 다음 실행에서 재시도한다")
+    void managePartyLifecycle_retriesPaidRejectedExpiredApplication() {
+        Party party = newParty(701L, 7L, LocalDate.now().plusDays(2));
+        PartyApplication application = newApplication(701L, 9002L);
+        application.setId(801L);
+        application.setIsApproved(false);
+        application.setIsRejected(true);
+        application.setIsPaid(true);
+        application.setOrderId("MATE-701-9002");
+        application.setResponseDeadline(Instant.now().minusSeconds(60));
+
+        when(partyRepository.findByStatusAndGameDateBefore(any(), any())).thenReturn(List.of());
+        when(partyRepository.findByStatusAndGameDate(any(), any())).thenReturn(List.of());
+        when(partyRepository.findByStatus(Party.PartyStatus.CHECKED_IN)).thenReturn(List.of());
+        when(applicationRepository
+                .findByIsRejectedTrueAndIsPaidTrue())
+                .thenReturn(List.of(application));
+        when(lifecycleMutationService.loadRetryableRejectedPaidApplication(
+                701L, 801L, 9002L))
+                .thenReturn(new PartyLifecycleMutationService.ExpiredApplicationMutation(application, party));
+
+        scheduler.managePartyLifecycle();
+
+        verify(paymentTransactionService).processCancellation(eq(application), any());
+        verify(lifecycleMutationService).markApplicationUnpaidAfterRefund(701L, 801L, 9002L);
+        verify(notificationService, never()).createNotification(
+                anyLong(), any(), anyString(), anyString(), anyLong());
+    }
+
+    @Test
+    @DisplayName("자동 거절 환불 실패는 결제 실패 상태를 별도 트랜잭션으로 기록한다")
+    void managePartyLifecycle_recordsRefundFailureForRetry() {
+        Party party = newParty(702L, 7L, LocalDate.now().plusDays(2));
+        PartyApplication application = newApplication(702L, 9003L);
+        application.setId(802L);
+        application.setIsApproved(false);
+        application.setIsRejected(false);
+        application.setIsPaid(true);
+        application.setOrderId("MATE-702-9003");
+        application.setResponseDeadline(Instant.now().minusSeconds(60));
+
+        when(partyRepository.findByStatusAndGameDateBefore(any(), any())).thenReturn(List.of());
+        when(partyRepository.findByStatusAndGameDate(any(), any())).thenReturn(List.of());
+        when(partyRepository.findByStatus(Party.PartyStatus.CHECKED_IN)).thenReturn(List.of());
+        when(applicationRepository.findByIsApprovedFalseAndIsRejectedFalseAndResponseDeadlineBefore(any()))
+                .thenReturn(List.of(application));
+        when(lifecycleMutationService.rejectExpiredApplication(
+                eq(702L), eq(802L), eq(9003L), any()))
+                .thenReturn(new PartyLifecycleMutationService.ExpiredApplicationMutation(application, party));
+        when(paymentTransactionService.processCancellation(eq(application), any()))
+                .thenThrow(new RuntimeException("temporary Toss failure"));
+
+        scheduler.managePartyLifecycle();
+
+        verify(lifecycleMutationService).recordRefundFailure("MATE-702-9003");
+        verify(lifecycleMutationService, never()).markApplicationUnpaidAfterRefund(702L, 802L, 9003L);
+    }
+
     private Party newParty(Long id, Long hostId, LocalDate gameDate) {
         Party party = new Party();
         party.setId(id);

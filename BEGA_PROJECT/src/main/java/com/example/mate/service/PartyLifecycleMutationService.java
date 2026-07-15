@@ -2,8 +2,10 @@ package com.example.mate.service;
 
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
+import com.example.mate.entity.PaymentStatus;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
+import com.example.mate.repository.PaymentTransactionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -20,6 +22,7 @@ public class PartyLifecycleMutationService {
 
     private final PartyRepository partyRepository;
     private final PartyApplicationRepository applicationRepository;
+    private final PaymentTransactionRepository paymentTransactionRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Party expirePendingParty(Long partyId, LocalDate today) {
@@ -102,6 +105,37 @@ public class PartyLifecycleMutationService {
                 .ifPresent(application -> {
                     application.setIsPaid(false);
                     applicationRepository.save(application);
+                });
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public ExpiredApplicationMutation loadRetryableRejectedPaidApplication(
+            Long partyId,
+            Long applicationId,
+            Long applicantId) {
+        Party party = partyRepository.findByIdForUpdate(partyId).orElse(null);
+        PartyApplication application = applicationRepository.findByIdAndApplicantIdForUpdate(
+                        applicationId, applicantId)
+                .orElse(null);
+        if (application == null
+                || !partyId.equals(application.getPartyId())
+                || !Boolean.TRUE.equals(application.getIsRejected())
+                || !Boolean.TRUE.equals(application.getIsPaid())) {
+            return null;
+        }
+        return new ExpiredApplicationMutation(application, party);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordRefundFailure(String orderId) {
+        if (orderId == null || orderId.isBlank()) {
+            return;
+        }
+        paymentTransactionRepository.findByOrderIdForUpdate(orderId)
+                .filter(transaction -> transaction.getPaymentStatus() != PaymentStatus.CANCELED)
+                .ifPresent(transaction -> {
+                    transaction.setPaymentStatus(PaymentStatus.REFUND_FAILED);
+                    paymentTransactionRepository.save(transaction);
                 });
     }
 
