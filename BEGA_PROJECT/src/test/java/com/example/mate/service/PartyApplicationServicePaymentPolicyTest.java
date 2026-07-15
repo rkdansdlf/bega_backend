@@ -18,6 +18,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -176,6 +177,52 @@ class PartyApplicationServicePaymentPolicyTest {
 
         verify(paymentTransactionService, never()).processCancellation(any(), any());
         verify(applicationRepository, never()).delete(any());
+    }
+
+    @Test
+    void cancelApplication_publicApplicantCannotOverrideBuyerChangedMindReason() {
+        Long applicationId = 12L;
+        Long applicantId = 7L;
+        PartyApplication application = PartyApplication.builder()
+                .id(applicationId)
+                .partyId(6L)
+                .applicantId(applicantId)
+                .isApproved(false)
+                .isRejected(false)
+                .isPaid(true)
+                .build();
+        Party party = Party.builder()
+                .id(6L)
+                .gameDate(LocalDate.now().plusDays(3))
+                .status(Party.PartyStatus.PENDING)
+                .build();
+        PartyApplicationDTO.CancelResponse cancelResponse = PartyApplicationDTO.CancelResponse.builder()
+                .applicationId(applicationId)
+                .paymentStatus(PaymentStatus.CANCELED)
+                .build();
+
+        given(applicationRepository.findByIdAndApplicantId(applicationId, applicantId))
+                .willReturn(Optional.of(application));
+        given(partyRepository.findByIdForUpdate(6L)).willReturn(Optional.of(party));
+        given(applicationRepository.findByIdAndApplicantIdForUpdate(applicationId, applicantId))
+                .willReturn(Optional.of(application));
+        given(partyRepository.findById(6L)).willReturn(Optional.of(party));
+        given(paymentTransactionService.processCancellation(any(), any())).willReturn(cancelResponse);
+
+        partyApplicationService.cancelApplication(
+                applicationId,
+                applicantId,
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.SYSTEM)
+                        .cancelMemo("개인 일정이 생겼습니다.")
+                        .build());
+
+        ArgumentCaptor<PartyApplicationDTO.CancelRequest> requestCaptor =
+                ArgumentCaptor.forClass(PartyApplicationDTO.CancelRequest.class);
+        verify(paymentTransactionService).processCancellation(any(), requestCaptor.capture());
+        assertThat(requestCaptor.getValue().getCancelReasonType())
+                .isEqualTo(CancelReasonType.BUYER_CHANGED_MIND);
+        assertThat(requestCaptor.getValue().getCancelMemo()).isEqualTo("개인 일정이 생겼습니다.");
     }
 
     @Test
