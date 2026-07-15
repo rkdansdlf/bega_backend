@@ -1,20 +1,26 @@
 package com.example.ai.adapter;
 
 import com.example.ai.config.AiServiceSettings;
-import com.example.cheerboard.service.port.RagIngestionPort;
-import java.util.HashMap;
-import java.util.Map;
+import com.example.ai.ingest.AiIngestRunRequest;
+import com.example.ai.ingest.AiIngestRunStatusResponse;
+import com.example.ai.ingest.AiIngestRunSubmission;
+import com.example.ai.ingest.RagIngestionPort;
+import java.util.List;
+import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 @Component
 @Slf4j
-public class AiRagIngestionAdapter implements RagIngestionPort {
+public class AiRagIngestionAdapter
+        implements RagIngestionPort, com.example.cheerboard.service.port.RagIngestionPort {
 
     private final AiServiceSettings aiServiceSettings;
     private final RestTemplate restTemplate;
@@ -27,34 +33,75 @@ public class AiRagIngestionAdapter implements RagIngestionPort {
     }
 
     @Override
-    public void trigger() {
-        String ingestUrl = aiServiceSettings.buildUrl("/ai/ingest/run");
-        String aiInternalToken = aiServiceSettings.getResolvedInternalToken();
-
-        if (ingestUrl.isBlank()) {
-            log.error("AI service URL is not configured; cannot trigger RAG ingestion.");
-            throw new IllegalStateException("AI service URL is not configured");
-        }
-        if (aiInternalToken.isBlank()) {
-            log.error("AI internal token is not configured; cannot trigger RAG ingestion.");
-            throw new IllegalStateException("AI internal authentication is not configured");
-        }
-
-        log.info("Triggering RAG ingestion job at: {}", ingestUrl);
-
+    public AiIngestRunSubmission submit(AiIngestRunRequest payload) {
+        RequestTarget target = requireTarget("/ai/ingest/run");
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("X-Internal-Api-Key", aiInternalToken);
-            Map<String, Object> payload = new HashMap<>();
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
-
-            restTemplate.postForEntity(ingestUrl, request, String.class);
-
-            log.info("Successfully triggered RAG ingestion job.");
+            ResponseEntity<AiIngestRunSubmission> response = restTemplate.postForEntity(
+                    target.url(),
+                    new HttpEntity<>(payload, target.headers()),
+                    AiIngestRunSubmission.class);
+            AiIngestRunSubmission body = response.getBody();
+            if (body == null) {
+                throw new IllegalStateException("AI ingestion submission returned an empty response");
+            }
+            log.info("AI ingestion run submitted target={} runId={} status={}",
+                    aiServiceSettings.sanitizedServiceTarget(), body.runId(), body.status());
+            return body;
         } catch (Exception exception) {
-            log.error("Failed to trigger RAG ingestion: {}", exception.getMessage(), exception);
+            log.error("AI ingestion submission failed target={} errorType={}",
+                    aiServiceSettings.sanitizedServiceTarget(),
+                    exception.getClass().getSimpleName());
             throw exception;
         }
     }
+
+    @Override
+    public AiIngestRunStatusResponse getStatus(UUID runId) {
+        RequestTarget target = requireTarget("/ai/ingest/runs/" + runId);
+        try {
+            ResponseEntity<AiIngestRunStatusResponse> response = restTemplate.exchange(
+                    target.url(),
+                    HttpMethod.GET,
+                    new HttpEntity<>(target.headers()),
+                    AiIngestRunStatusResponse.class);
+            AiIngestRunStatusResponse body = response.getBody();
+            if (body == null) {
+                throw new IllegalStateException("AI ingestion status returned an empty response");
+            }
+            return body;
+        } catch (Exception exception) {
+            log.error("AI ingestion status lookup failed target={} runId={} errorType={}",
+                    aiServiceSettings.sanitizedServiceTarget(),
+                    runId,
+                    exception.getClass().getSimpleName());
+            throw exception;
+        }
+    }
+
+    @Override
+    public void trigger() {
+        submit(new AiIngestRunRequest(
+                List.of("game", "game_metadata", "game_summary"),
+                null,
+                "INCREMENTAL",
+                "BACKEND_SCHEDULED"));
+    }
+
+    private RequestTarget requireTarget(String path) {
+        String url = aiServiceSettings.buildUrl(path);
+        String internalToken = aiServiceSettings.getResolvedInternalToken();
+        if (url.isBlank()) {
+            throw new IllegalStateException("AI service URL is not configured");
+        }
+        if (internalToken.isBlank()) {
+            throw new IllegalStateException("AI internal authentication is not configured");
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        headers.set("X-Internal-Api-Key", internalToken);
+        return new RequestTarget(url, headers);
+    }
+
+    private record RequestTarget(String url, HttpHeaders headers) {}
 }
