@@ -6,6 +6,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 class TossRestClientTimeoutConfigTest {
 
@@ -29,6 +30,17 @@ class TossRestClientTimeoutConfigTest {
         RestClient client = config.tossPayoutRestClient(RestClient.builder());
 
         assertTimeouts(client, 2_345, 6_789);
+    }
+
+    @Test
+    void timeoutConfiguration_rejectsUnboundedOrExcessiveValues() {
+        TossPaymentConfig paymentConfig = new TossPaymentConfig();
+        TossPayoutConfig payoutConfig = new TossPayoutConfig();
+
+        assertThatIllegalArgumentException().isThrownBy(() -> paymentConfig.setConnectTimeoutMillis(0));
+        assertThatIllegalArgumentException().isThrownBy(() -> paymentConfig.setReadTimeoutMillis(60_001));
+        assertThatIllegalArgumentException().isThrownBy(() -> payoutConfig.setConnectTimeoutMillis(0));
+        assertThatIllegalArgumentException().isThrownBy(() -> payoutConfig.setReadTimeoutMillis(60_001));
     }
 
     private void assertTimeouts(RestClient client, int connectTimeout, int readTimeout) {

@@ -90,7 +90,7 @@ class PartyApplicationServicePaymentPolicyTest {
         given(applicationRepository.existsByPartyIdAndApplicantIdAndIsRejectedTrue(1L, applicantId)).willReturn(false);
         given(applicationRepository.countByPartyIdAndIsApprovedFalseAndIsRejectedFalse(1L)).willReturn(0L);
         given(applicationRepository.countByApplicantIdAndIsApprovedTrue(applicantId)).willReturn(0L);
-        given(partyRepository.findById(1L)).willReturn(Optional.of(party));
+        given(partyRepository.findByIdForUpdate(1L)).willReturn(Optional.of(party));
 
         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
                 .partyId(1L)

@@ -530,6 +530,12 @@ public class PartyService {
 
         // 대기 중인 신청들은 함께 삭제
         List<PartyApplication> applicationsToDelete = applicationRepository.findByPartyId(id);
+        boolean hasPaidApplication = applicationsToDelete != null && applicationsToDelete.stream()
+                .anyMatch(application -> Boolean.TRUE.equals(application.getIsPaid()));
+        if (hasPaidApplication) {
+            throw new InvalidApplicationStatusException(
+                    "결제된 신청이 있는 파티는 삭제할 수 없습니다. 신청을 취소하거나 환불한 뒤 다시 시도해주세요.");
+        }
         if (applicationsToDelete != null) {
             applicationRepository.deleteAll(applicationsToDelete);
         }
@@ -646,9 +652,24 @@ public class PartyService {
                 Party.PartyStatus.PENDING,
                 Party.PartyStatus.MATCHED);
         List<Party> hostedParties = partyRepository.findByHostIdAndStatusIn(userId, activeStatuses);
+        List<PartyApplication> approvedApplicationsAsParticipant = applicationRepository
+                .findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId);
+
+        List<Long> relatedPartyIds = java.util.stream.Stream.concat(
+                        hostedParties.stream().map(Party::getId),
+                        approvedApplicationsAsParticipant.stream().map(PartyApplication::getPartyId))
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+        Map<Long, Party> lockedParties = new java.util.HashMap<>();
+        for (Long partyId : relatedPartyIds) {
+            partyRepository.findByIdForUpdate(partyId)
+                    .ifPresent(party -> lockedParties.put(partyId, party));
+        }
 
         for (Party candidate : hostedParties) {
-            Party party = partyRepository.findByIdForUpdate(candidate.getId()).orElse(null);
+            Party party = lockedParties.get(candidate.getId());
             if (party == null || !userId.equals(party.getHostId()) || !activeStatuses.contains(party.getStatus())) {
                 continue;
             }
@@ -681,14 +702,11 @@ public class PartyService {
         }
 
         // 2. 참여자로 승인된 신청 처리
-        List<PartyApplication> approvedApplicationsAsParticipant = applicationRepository
-                .findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId);
-
         for (PartyApplication candidate : approvedApplicationsAsParticipant) {
             try {
                 Long partyId = candidate.getPartyId();
                 Long applicationId = candidate.getId();
-                Party party = partyRepository.findByIdForUpdate(partyId).orElse(null);
+                Party party = lockedParties.get(partyId);
                 PartyApplication application = applicationRepository
                         .findByIdAndApplicantIdForUpdate(applicationId, userId)
                         .orElse(null);

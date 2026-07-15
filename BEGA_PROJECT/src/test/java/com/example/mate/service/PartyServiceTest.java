@@ -663,6 +663,31 @@ class PartyServiceTest {
         }
 
         @Test
+        @DisplayName("deleteParty - 결제된 대기 신청이 있으면 삭제할 수 없다")
+        void deleteParty_paidPendingApplicationBlocksDeletion() {
+                Party party = createParty(703L, 10L, null);
+                PartyApplication paidPending = PartyApplication.builder()
+                                .id(900L)
+                                .partyId(703L)
+                                .isPaid(true)
+                                .isApproved(false)
+                                .isRejected(false)
+                                .build();
+
+                when(partyRepository.findByIdAndHostIdForUpdate(703L, 10L)).thenReturn(Optional.of(party));
+                when(applicationRepository.findByPartyIdAndIsApprovedTrue(703L)).thenReturn(List.of());
+                when(applicationRepository.findByPartyId(703L)).thenReturn(List.of(paidPending));
+
+                InvalidApplicationStatusException exception = assertThrows(
+                                InvalidApplicationStatusException.class,
+                                () -> partyService.deleteParty(703L, 10L));
+
+                assertThat(exception.getMessage()).contains("결제");
+                verify(applicationRepository, never()).deleteAll(anyList());
+                verify(partyRepository, never()).delete(any());
+        }
+
+        @Test
         @DisplayName("deleteParty - 비호스트는 없는 파티처럼 처리한다")
         void deleteParty_nonHostIsTreatedAsNotFound() {
                 when(partyRepository.findByIdAndHostIdForUpdate(701L, 99L)).thenReturn(Optional.empty());

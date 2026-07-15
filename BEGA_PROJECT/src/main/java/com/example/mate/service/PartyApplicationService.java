@@ -599,26 +599,28 @@ public class PartyApplicationService {
 
         MateContentPolicyValidator.validateApplicationMessage(request.getMessage());
 
-        applicationRepository.findByPartyIdAndApplicantId(request.getPartyId(), applicantId)
+        Long partyId = java.util.Objects.requireNonNull(request.getPartyId());
+        Party party = partyRepository.findByIdForUpdate(partyId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+
+        applicationRepository.findByPartyIdAndApplicantId(partyId, applicantId)
                 .ifPresent(app -> {
-                    throw new DuplicateApplicationException(request.getPartyId(), applicantId);
+                    throw new DuplicateApplicationException(partyId, applicantId);
                 });
 
         if (applicationRepository.existsByPartyIdAndApplicantIdAndIsRejectedTrue(
-                request.getPartyId(), applicantId)) {
+                partyId, applicantId)) {
             throw new InvalidApplicationStatusException("거절된 파티에 다시 신청할 수 없습니다.");
         }
 
         long pendingCount = applicationRepository.countByPartyIdAndIsApprovedFalseAndIsRejectedFalse(
-                request.getPartyId());
+                partyId);
         if (pendingCount >= 10) {
             throw new InvalidApplicationStatusException("이 파티의 대기 중인 신청이 최대(10건)에 도달했습니다.");
         }
 
-        Party party = partyRepository.findById(request.getPartyId())
-                .orElseThrow(() -> new PartyNotFoundException(java.util.Objects.requireNonNull(request.getPartyId())));
         if (party.getCurrentParticipants() >= party.getMaxParticipants()) {
-            throw new PartyFullException(request.getPartyId());
+            throw new PartyFullException(partyId);
         }
 
         boolean ticketVerified = consumeAndValidateTicketToken(request, party, applicantId);
