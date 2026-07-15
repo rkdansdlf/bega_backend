@@ -236,6 +236,7 @@ public class SecurityConfig {
         private boolean isDevOrLocalProfile() {
                 return Arrays.stream(environment.getActiveProfiles())
                                 .anyMatch(profile -> "dev".equalsIgnoreCase(profile)
+                                                || "dev-adb".equalsIgnoreCase(profile)
                                                 || "local".equalsIgnoreCase(profile));
         }
 

@@ -62,6 +62,25 @@ class ApplicationPropertyCompatibilityTest {
     }
 
     @Test
+    void devAdbProfileUsesDedicatedOracleCredentialsAndPostgresBaseballReadModel() throws IOException {
+        String applicationYml = readDevAdbApplicationYml();
+
+        assertThat(applicationYml)
+                .contains("on-profile: dev-adb")
+                .contains("url: ${DEV_ADB_URL:?DEV_ADB_URL is required when SPRING_PROFILES_ACTIVE=dev-adb}")
+                .contains("username: ${DEV_ADB_USERNAME:?DEV_ADB_USERNAME is required when SPRING_PROFILES_ACTIVE=dev-adb}")
+                .contains("password: ${DEV_ADB_PASSWORD:?DEV_ADB_PASSWORD is required when SPRING_PROFILES_ACTIVE=dev-adb}")
+                .contains("url: ${BASEBALL_DB_URL:?BASEBALL_DB_URL is required when SPRING_PROFILES_ACTIVE=dev-adb}")
+                .contains("ddl-auto: validate")
+                .contains("ddl-auto: none")
+                .contains("enabled: ${APP_DEV_DATA_ENABLED:false}");
+
+        assertThat(applicationYml)
+                .doesNotContain("${SPRING_DATASOURCE_URL}")
+                .doesNotContain("${DB_URL}");
+    }
+
+    @Test
     void applicationYmlDoesNotUseDevOAuth2CookieSecretFallback() throws IOException {
         String applicationYml = readApplicationYml();
 
@@ -166,5 +185,9 @@ class ApplicationPropertyCompatibilityTest {
 
     private String readApplicationYml() throws IOException {
         return Files.readString(Path.of("src/main/resources/application.yml"), StandardCharsets.UTF_8);
+    }
+
+    private String readDevAdbApplicationYml() throws IOException {
+        return Files.readString(Path.of("src/main/resources/application-dev-adb.yml"), StandardCharsets.UTF_8);
     }
 }

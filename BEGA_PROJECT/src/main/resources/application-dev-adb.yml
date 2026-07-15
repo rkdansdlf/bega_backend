@@ -1,0 +1,129 @@
+# 'dev-adb' profile: development primary data on a dedicated Oracle Autonomous DB.
+#
+# This profile intentionally does not reuse SPRING_DATASOURCE_* or DB_*.
+# Use a separate ADB service/user and keep baseball read data on PostgreSQL.
+spring:
+  config:
+    activate:
+      on-profile: dev-adb
+  datasource:
+    driver-class-name: ${DEV_ADB_DRIVER_CLASS_NAME:oracle.jdbc.OracleDriver}
+    url: ${DEV_ADB_URL:?DEV_ADB_URL is required when SPRING_PROFILES_ACTIVE=dev-adb}
+    username: ${DEV_ADB_USERNAME:?DEV_ADB_USERNAME is required when SPRING_PROFILES_ACTIVE=dev-adb}
+    password: ${DEV_ADB_PASSWORD:?DEV_ADB_PASSWORD is required when SPRING_PROFILES_ACTIVE=dev-adb}
+    hikari:
+      maximum-pool-size: ${DEV_ADB_HIKARI_MAXIMUM_POOL_SIZE:20}
+      minimum-idle: ${DEV_ADB_HIKARI_MINIMUM_IDLE:5}
+      connection-timeout: ${DEV_ADB_HIKARI_CONNECTION_TIMEOUT:30000}
+      validation-timeout: 5000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+      keepalive-time: 45000
+  jpa:
+    show-sql: false
+    generate-ddl: false
+    hibernate:
+      ddl-auto: validate
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    properties:
+      "[hibernate.format_sql]": false
+      "[hibernate.jdbc.batch_size]": 50
+      "[hibernate.order_updates]": true
+      "[hibernate.order_inserts]": true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration/
+    baseline-on-migrate: true
+    validate-on-migrate: true
+    out-of-order: false
+
+  sql:
+    init:
+      mode: never
+
+  mail:
+    host: localhost
+    port: 25
+    username:
+    password:
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:dev-google}
+            client-secret: ${GOOGLE_CLIENT_SECRET:dev-google-secret}
+          kakao:
+            client-id: ${KAKAO_CLIENT_ID:dev-kakao}
+            client-secret: ${KAKAO_CLIENT_SECRET:dev-kakao-secret}
+          naver:
+            client-id: ${NAVER_CLIENT_ID:dev-naver}
+            client-secret: ${NAVER_CLIENT_SECRET:dev-naver-secret}
+
+baseball:
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: ${BASEBALL_DB_URL:?BASEBALL_DB_URL is required when SPRING_PROFILES_ACTIVE=dev-adb}
+    username: ${BASEBALL_DB_USERNAME:?BASEBALL_DB_USERNAME is required when SPRING_PROFILES_ACTIVE=dev-adb}
+    password: ${BASEBALL_DB_PASSWORD:?BASEBALL_DB_PASSWORD is required when SPRING_PROFILES_ACTIVE=dev-adb}
+    data-source-properties:
+      currentSchema: public
+      targetServerType: primary
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 3
+      connection-timeout: 30000
+      validation-timeout: 5000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+      keepalive-time: 45000
+  jpa:
+    hibernate:
+      ddl-auto: none
+
+app:
+  mail:
+    enabled: ${APP_MAIL_ENABLED:false}
+  cookie:
+    secure: false
+  oauth2:
+    cookie-secret: ${OAUTH2_COOKIE_SECRET:local-runtime-cookie-signing-secret}
+  dev-data:
+    # Explicit opt-in prevents a new ADB environment from being reseeded by default.
+    enabled: ${APP_DEV_DATA_ENABLED:false}
+    repair-existing: ${APP_DEV_DATA_REPAIR_EXISTING:false}
+  home:
+    bootstrap:
+      warmup:
+        enabled: ${APP_HOME_BOOTSTRAP_WARMUP_ENABLED:false}
+  prediction:
+    warmup:
+      enabled: ${APP_PREDICTION_WARMUP_ENABLED:false}
+
+org:
+  jobrunr:
+    dashboard:
+      port: ${JOBRUNR_DASHBOARD_PORT:0}
+
+ai:
+  internal-token: ${AI_INTERNAL_TOKEN:local-dev-ai-internal-token}
+
+kbo:
+  game:
+    db:
+      enabled: ${KBO_GAME_DB_ENABLED:true}
+  schema-guard:
+    strict: ${KBO_SCHEMA_GUARD_STRICT:true}
+
+management:
+  health:
+    jobrunr:
+      enabled: false

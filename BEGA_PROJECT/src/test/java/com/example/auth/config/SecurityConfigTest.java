@@ -109,6 +109,18 @@ class SecurityConfigTest {
     }
 
     @Test
+    @DisplayName("dev-adb profile should keep development diagnostics available")
+    void publicSystemEndpoints_includeDiagnosticsInDevAdb() {
+        SecurityConfig securityConfig = newSecurityConfig("dev-adb");
+
+        assertThat(securityConfig.publicSystemEndpoints())
+                .contains("/actuator/health/readiness", "/actuator/health/liveness", "/api/test/**",
+                        "/actuator/prometheus", "/swagger-ui.html", "/v3/api-docs/**")
+                .doesNotContain("/actuator/health", "/actuator/health/**")
+                .doesNotContain("/ws", "/ws/**");
+    }
+
+    @Test
     @DisplayName("prod CSP should reject inline scripts and unsafe eval")
     void buildContentSecurityPolicy_prodRejectsInlineScripts() {
         SecurityConfig securityConfig = newSecurityConfig("prod");
