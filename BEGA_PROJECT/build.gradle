@@ -248,6 +248,15 @@ tasks.register('migrationSafetyCheck') {
 	dependsOn tasks.named('verifyFlywayResourceSync')
 }
 
+tasks.register('migrationLiveValidation', Test) {
+	group = 'verification'
+	description = 'Validates configured PostgreSQL and Oracle Flyway histories without applying migrations'
+	systemProperty 'liveMigrationValidation', System.getenv().getOrDefault('MIGRATION_LIVE_VALIDATION', 'false')
+	filter {
+		includeTestsMatching 'com.example.common.config.FlywayLiveDatabaseValidationTest'
+	}
+}
+
 tasks.register('dbSafetyTest') {
 	group = 'verification'
 	description = 'Runs Flyway safety regression tests and schema validation context checks'
