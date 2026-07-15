@@ -25,6 +25,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -131,13 +132,13 @@ class CheerLikeCountReconciliationIntegrationTest {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @DisplayName("deleteUser reconciles likecount for posts liked by the deleted user")
     void deleteUser_reconcilesAffectedPostLikeCounts() {
         CheerPost post = createPost(author, 4);
         saveLike(post, liker);
 
         adminService.deleteUser(liker.getId(), null);
-        clearPersistenceContext();
 
         assertThat(likeRepo.countByPostId(post.getId())).isEqualTo(0L);
         assertThat(postRepo.findLikeCountById(post.getId())).isEqualTo(0);

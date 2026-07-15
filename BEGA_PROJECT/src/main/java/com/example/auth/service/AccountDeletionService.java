@@ -62,6 +62,10 @@ public class AccountDeletionService {
             throw new BadRequestBusinessException("ACCOUNT_DELETION_ALREADY_SCHEDULED", "이미 계정 삭제가 예약되어 있습니다.");
         }
 
+        if (!user.isEnabled()) {
+            throw new BadRequestBusinessException("ACCOUNT_DISABLED", "비활성화된 계정은 삭제를 예약할 수 없습니다.");
+        }
+
         if (!user.isOAuth2User()) {
             if (password == null || password.isEmpty()) {
                 throw new BadRequestBusinessException("PASSWORD_REQUIRED", "비밀번호를 입력해주세요.");
@@ -116,7 +120,10 @@ public class AccountDeletionService {
     @Transactional
     public void recoverAccount(String token) {
         AccountDeletionToken deletionToken = validateRecoveryToken(token);
-        UserEntity user = deletionToken.getUser();
+        Long userId = deletionToken.getUser().getId();
+        UserEntity user = userRepository.findByIdForWrite(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
+        validateRecoverableDeletion(user);
 
         user.setPendingDeletion(false);
         user.setDeletionRequestedAt(null);
@@ -162,5 +169,13 @@ public class AccountDeletionService {
                     "복구 가능한 계정 삭제 예약을 찾을 수 없습니다.");
         }
         return deletionToken;
+    }
+
+    private void validateRecoverableDeletion(UserEntity user) {
+        if (user == null || user.getId() == null || !user.isPendingDeletion() || user.getDeletionScheduledFor() == null) {
+            throw new BadRequestBusinessException(
+                    "RECOVERABLE_DELETION_NOT_FOUND",
+                    "복구 가능한 계정 삭제 예약을 찾을 수 없습니다.");
+        }
     }
 }
