@@ -1,6 +1,7 @@
 package com.example.mate.repository;
 
 import com.example.mate.entity.PayoutTransaction;
+import com.example.mate.entity.SettlementStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -8,6 +9,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -23,4 +27,8 @@ public interface PayoutTransactionRepository extends JpaRepository<PayoutTransac
     @Query("select pt from PayoutTransaction pt where pt.paymentTransactionId = :paymentTransactionId order by pt.id desc")
     Optional<PayoutTransaction> findTopByPaymentTransactionIdForUpdateOrderByIdDesc(
             @Param("paymentTransactionId") Long paymentTransactionId);
+
+    List<PayoutTransaction> findTop100ByStatusInAndNextRetryAtLessThanEqualOrderByNextRetryAtAsc(
+            Collection<SettlementStatus> statuses,
+            Instant nextRetryAt);
 }
