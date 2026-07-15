@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
@@ -51,15 +50,15 @@ class HomePageControllerTest {
     }
 
     @Test
-    @DisplayName("홈 일정 조회 실패 시 빈 배열 fallback을 반환한다")
-    void getGamesByDateReturnsEmptyListFallback() throws Exception {
+    @DisplayName("홈 일정 조회 실패는 성공 응답으로 위장하지 않는다")
+    void getGamesByDateReturnsServerError() throws Exception {
         given(homePageGameService.getGamesByDate(eq(LocalDate.of(2026, 3, 13))))
                 .willThrow(new RuntimeException("db unavailable"));
 
         mockMvc.perform(get("/api/kbo/schedule")
                         .param("date", "2026-03-13"))
-                .andExpect(status().isOk())
-                .andExpect(content().json("[]"));
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"));
     }
 
     @Test
@@ -91,17 +90,14 @@ class HomePageControllerTest {
     }
 
     @Test
-    @DisplayName("리그 시작일 조회 실패 시 정규시즌 fallback만 반환한다")
-    void getLeagueStartDatesReturnsTodayFallback() throws Exception {
-        String today = LocalDate.now().toString();
+    @DisplayName("리그 시작일 조회 실패는 성공 응답으로 위장하지 않는다")
+    void getLeagueStartDatesReturnsServerError() throws Exception {
         given(homePageGameService.getLeagueStartDates())
                 .willThrow(new RuntimeException("db unavailable"));
 
         mockMvc.perform(get("/api/kbo/league-start-dates"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.regularSeasonStart").value(today))
-                .andExpect(jsonPath("$.postseasonStart").value(nullValue()))
-                .andExpect(jsonPath("$.koreanSeriesStart").value(nullValue()));
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"));
     }
 
     @Test
@@ -129,18 +125,15 @@ class HomePageControllerTest {
     }
 
     @Test
-    @DisplayName("일정 네비게이션 조회 실패 시 빈 네비게이션 fallback을 반환한다")
-    void getScheduleNavigationReturnsEmptyFallback() throws Exception {
+    @DisplayName("일정 네비게이션 조회 실패는 성공 응답으로 위장하지 않는다")
+    void getScheduleNavigationReturnsServerError() throws Exception {
         given(homePageGameService.getScheduleNavigation(eq(LocalDate.of(2026, 3, 13))))
                 .willThrow(new RuntimeException("db unavailable"));
 
         mockMvc.perform(get("/api/kbo/schedule/navigation")
                         .param("date", "2026-03-13"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.prevGameDate").doesNotExist())
-                .andExpect(jsonPath("$.nextGameDate").doesNotExist())
-                .andExpect(jsonPath("$.hasPrev").value(false))
-                .andExpect(jsonPath("$.hasNext").value(false));
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"));
     }
 
     @Test
@@ -155,14 +148,14 @@ class HomePageControllerTest {
     }
 
     @Test
-    @DisplayName("팀 순위 조회 실패 시 빈 배열 fallback을 반환한다")
-    void getTeamRankingsReturnsEmptyListFallback() throws Exception {
+    @DisplayName("팀 순위 조회 실패는 성공 응답으로 위장하지 않는다")
+    void getTeamRankingsReturnsServerError() throws Exception {
         given(homePageGameService.getTeamRankings(eq(2026)))
                 .willThrow(new RuntimeException("db unavailable"));
 
         mockMvc.perform(get("/api/kbo/rankings/2026"))
-                .andExpect(status().isOk())
-                .andExpect(content().json("[]"));
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"));
     }
 
     @Test
@@ -197,18 +190,15 @@ class HomePageControllerTest {
     }
 
     @Test
-    @DisplayName("랭킹 스냅샷 조회 실패 시 자동 시즌 fallback을 반환한다")
-    void getRankingSnapshotReturnsFallbackPayload() throws Exception {
+    @DisplayName("랭킹 스냅샷 조회 실패는 성공 응답으로 위장하지 않는다")
+    void getRankingSnapshotReturnsServerError() throws Exception {
         LocalDate selectedDate = LocalDate.of(2026, 3, 13);
         given(homePageFacadeService.getRankingSnapshot(eq(selectedDate), isNull()))
                 .willThrow(new RuntimeException("db unavailable"));
 
         mockMvc.perform(get("/api/kbo/rankings/snapshot")
                         .param("date", "2026-03-13"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.rankingSeasonYear").value(2025))
-                .andExpect(jsonPath("$.rankingSourceMessage").value("순위 데이터를 불러오지 못했습니다."))
-                .andExpect(jsonPath("$.isOffSeason").value(true))
-                .andExpect(jsonPath("$.rankings").isArray());
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"));
     }
 }
