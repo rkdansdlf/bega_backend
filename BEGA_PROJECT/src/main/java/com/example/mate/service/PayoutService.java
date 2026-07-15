@@ -14,6 +14,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,15 +30,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PayoutService {
 
-    private static final int MAX_PAYOUT_RETRY_ATTEMPTS = 5;
-    private static final long BASE_RETRY_DELAY_SECONDS = 30;
-    private static final long MAX_RETRY_DELAY_SECONDS = 3600;
-
     private final PayoutTransactionRepository payoutTransactionRepository;
     private final PaymentTransactionRepository paymentTransactionRepository;
-    private final PaymentMetricsService metricsService;
     private final SellerPayoutProfileService sellerPayoutProfileService;
-    private final SellerRecoveryService sellerRecoveryService;
+    private final PayoutClaimService payoutClaimService;
+    private final PayoutStateService payoutStateService;
     private final JobScheduler jobScheduler;
 
     private final Map<String, PayoutGateway> payoutGateways;
@@ -45,16 +43,16 @@ public class PayoutService {
     public PayoutService(
             PayoutTransactionRepository payoutTransactionRepository,
             PaymentTransactionRepository paymentTransactionRepository,
-            PaymentMetricsService metricsService,
             SellerPayoutProfileService sellerPayoutProfileService,
-            SellerRecoveryService sellerRecoveryService,
+            PayoutClaimService payoutClaimService,
+            PayoutStateService payoutStateService,
             JobScheduler jobScheduler,
             java.util.List<PayoutGateway> payoutGateways) {
         this.payoutTransactionRepository = payoutTransactionRepository;
         this.paymentTransactionRepository = paymentTransactionRepository;
-        this.metricsService = metricsService;
         this.sellerPayoutProfileService = sellerPayoutProfileService;
-        this.sellerRecoveryService = sellerRecoveryService;
+        this.payoutClaimService = payoutClaimService;
+        this.payoutStateService = payoutStateService;
         this.jobScheduler = jobScheduler;
         this.payoutGateways = payoutGateways.stream()
                 .collect(Collectors.toMap(
@@ -69,228 +67,238 @@ public class PayoutService {
     @Value("${payment.payout.provider:SIM}")
     private String payoutProvider;
 
-    @Transactional(noRollbackFor = RuntimeException.class)
     public PayoutTransaction requestPayout(PaymentTransaction paymentTransaction) {
         if (paymentTransaction == null || paymentTransaction.getId() == null) {
             throw new IllegalArgumentException("결제 트랜잭션이 올바르지 않습니다.");
         }
-
-        PaymentTransaction lockedPayment = paymentTransactionRepository
-                .findByIdForUpdate(paymentTransaction.getId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "결제 트랜잭션을 찾을 수 없습니다: " + paymentTransaction.getId()));
-
-        PayoutTransaction payout = payoutTransactionRepository
-                .findTopByPaymentTransactionIdForUpdateOrderByIdDesc(lockedPayment.getId())
-                .orElseGet(() -> PayoutTransaction.builder()
-                        .paymentTransactionId(lockedPayment.getId())
-                        .sellerId(lockedPayment.getSellerUserId())
-                        .requestedAmount(lockedPayment.getNetAmount())
-                        .status(SettlementStatus.PENDING)
-                        .build());
-
-        if (payout.getStatus() == SettlementStatus.COMPLETED
-                || payout.getStatus() == SettlementStatus.REQUESTED) {
-            return payout;
+        PayoutClaimService.ClaimedPayout claim = payoutClaimService.claimInitial(
+                paymentTransaction.getId(),
+                payoutEnabled);
+        if (claim.payout() == null || claim.action() == PayoutClaimService.ClaimAction.NONE) {
+            return claim.payout();
         }
-
-        if (payout.getStatus() == SettlementStatus.SKIPPED) {
-            return payout;
-        }
-
-        if (!isPayable(lockedPayment)) {
-            return markPayoutSkipped(
-                    lockedPayment,
-                    payout,
-                    "PAYMENT_NOT_PAYABLE",
-                    "paymentStatus=" + lockedPayment.getPaymentStatus(),
-                    false);
-        }
-
-        if (payout.getStatus() == SettlementStatus.FAILED
-                && payout.getRetryCount() != null
-                && payout.getRetryCount() >= MAX_PAYOUT_RETRY_ATTEMPTS) {
-            return payout;
-        }
-
-        if (!payoutEnabled) {
-            return markPayoutSkipped(
-                    lockedPayment,
-                    payout,
-                    "PAYMENT_PAYOUT_DISABLED",
-                    "payment.payout.enabled=false");
-        }
-
-        return executePayoutRequest(lockedPayment, payout);
+        return executePayoutRequest(claim.payment(), claim.payout());
     }
 
     @Job(name = "Retry Payout")
-    @Transactional
     public void retryPayout(Long payoutId) {
-        payoutTransactionRepository.findById(payoutId).ifPresent(candidate -> {
-            PaymentTransaction paymentTransaction = paymentTransactionRepository
-                    .findByIdForUpdate(candidate.getPaymentTransactionId())
-                    .orElse(null);
-            if (paymentTransaction == null) {
-                return;
-            }
-            payoutTransactionRepository.findByIdForUpdate(payoutId).ifPresent(payout -> {
-            if (payout.getStatus() != SettlementStatus.FAILED) {
-                return;
-            }
+        PayoutClaimService.ClaimedPayout claim = payoutClaimService.claimRetry(payoutId, payoutEnabled);
+        if (claim.payout() == null || claim.action() == PayoutClaimService.ClaimAction.NONE) {
+            return;
+        }
+        if (claim.action() == PayoutClaimService.ClaimAction.POLL_PROVIDER) {
+            reconcileRequestedPayout(claim.payment(), claim.payout());
+            return;
+        }
+        try {
+            executePayoutRequest(claim.payment(), claim.payout());
+        } catch (RuntimeException e) {
+            log.error("[Payout] 재시도 지급 처리 실패: payoutId={}", payoutId, e);
+        }
+    }
 
-            if (payout.getRetryCount() != null
-                    && payout.getRetryCount() >= MAX_PAYOUT_RETRY_ATTEMPTS) {
-                return;
-            }
+    @Scheduled(fixedDelayString = "${payment.payout.reconciliation-sweep-ms:60000}")
+    public void reconcileDuePayouts() {
+        payoutTransactionRepository
+                .findTop100ByStatusInAndNextRetryAtLessThanEqualOrderByNextRetryAtAsc(
+                        java.util.List.of(SettlementStatus.REQUESTED),
+                        Instant.now())
+                .forEach(payout -> {
+                    try {
+                        retryPayout(payout.getId());
+                    } catch (RuntimeException e) {
+                        log.error("[Payout] due payout reconciliation failed: payoutId={}", payout.getId(), e);
+                    }
+                });
+    }
 
-            if (!payoutEnabled) {
-                return;
-            }
-
-            if (payout.getNextRetryAt() != null && payout.getNextRetryAt().isAfter(Instant.now())) {
-                return;
-            }
-
-            if (!isPayable(paymentTransaction)) {
-                markPayoutSkipped(
-                        paymentTransaction,
-                        payout,
-                        "PAYMENT_NOT_PAYABLE",
-                        "paymentStatus=" + paymentTransaction.getPaymentStatus(),
-                        false);
-                return;
-            }
-            try {
-                executePayoutRequest(paymentTransaction, payout);
-            } catch (RuntimeException e) {
-                log.error("[Payout] 재시도 지급 처리 실패: payoutId={}", payoutId, e);
-            }
-            });
-        });
+    @Scheduled(fixedDelayString = "${payment.payout.missing-claim-sweep-ms:60000}")
+    public void recoverMissingPayoutClaims() {
+        paymentTransactionRepository.findApprovedWithoutPayout(
+                        PaymentStatus.PAID,
+                        SettlementStatus.PENDING,
+                        PageRequest.of(0, 100))
+                .forEach(payment -> {
+                    try {
+                        requestPayout(payment);
+                    } catch (RuntimeException e) {
+                        log.error("[Payout] missing durable claim recovery failed: paymentTransactionId={}",
+                                payment.getId(), e);
+                    }
+                });
     }
 
     private PayoutTransaction executePayoutRequest(PaymentTransaction paymentTransaction, PayoutTransaction payout) {
-        if (!isPayable(paymentTransaction)) {
-            return markPayoutSkipped(
-                    paymentTransaction,
-                    payout,
-                    "PAYMENT_NOT_PAYABLE",
-                    "paymentStatus=" + paymentTransaction.getPaymentStatus(),
-                    false);
-        }
-        if (!payoutEnabled) {
-            return markPayoutSkipped(
-                    paymentTransaction,
-                    payout,
-                    "PAYMENT_PAYOUT_DISABLED",
-                    "payment.payout.enabled=false");
-        }
-
-        String providerCode = resolveProviderCode();
-        int payoutAmount = reserveRecoveryOffset(paymentTransaction, payout);
-        if (payoutAmount == 0) {
-            return completeWithRecoveryOffset(paymentTransaction, payout);
-        }
-
-        payout.setStatus(SettlementStatus.REQUESTED);
-        payout.setRequestedAmount(payoutAmount);
-        payout.setRequestedAt(Instant.now());
-        payout.setFailReason(null);
-        payout.setFailureCode(null);
-        payout.setLastRetryAt(Instant.now());
-        payout.setNextRetryAt(null);
-        PayoutTransaction claimed = payoutTransactionRepository.saveAndFlush(payout);
-        if (claimed != null) {
-            payout = claimed;
-        }
-
+        int payoutAmount = Math.max(0, Objects.requireNonNullElse(payout.getRequestedAmount(), 0));
+        PayoutGateway.PayoutResult gatewayResult;
         try {
+            payout = ensureProviderPayloadBound(paymentTransaction, payout);
+            String providerCode = payout.getProviderCode();
             PayoutGateway.PayoutRequest payoutRequest = buildPayoutRequest(
                     paymentTransaction,
-                    providerCode,
+                    payout,
                     payoutAmount);
             PayoutGateway payoutGateway = resolveGateway(providerCode);
-            PayoutGateway.PayoutResult gatewayResult = payoutGateway.requestPayout(payoutRequest);
-            payout.setProviderRef(gatewayResult.providerRef());
-            payout.setCompletedAt(Instant.now());
-            payout.setStatus(SettlementStatus.COMPLETED);
-            payout = payoutTransactionRepository.save(payout);
-
-            paymentTransaction.setSettlementStatus(SettlementStatus.COMPLETED);
-            paymentTransactionRepository.save(paymentTransaction);
-            log.info("[Payout] payout completed: paymentTransactionId={}, payoutId={}",
-                    paymentTransaction.getId(), payout.getId());
-            metricsService.recordPayout("success");
+            gatewayResult = payoutGateway.requestPayout(payoutRequest);
         } catch (RuntimeException e) {
             String failureCode = resolveFailureCode(e);
-            payout.setStatus(SettlementStatus.FAILED);
-            payout.setRetryCount(payout.getRetryCount() == null ? 1 : payout.getRetryCount() + 1);
-            payout.setFailureCode(failureCode);
-            payout.setFailReason(String.valueOf(e.getMessage()));
-            long nextDelaySeconds = calculateRetryDelaySeconds(payout.getRetryCount());
-            payout.setNextRetryAt(Instant.now().plusSeconds(nextDelaySeconds));
-            payoutTransactionRepository.save(payout);
-
-            paymentTransaction.setSettlementStatus(SettlementStatus.FAILED);
-            paymentTransactionRepository.save(paymentTransaction);
-            metricsService.recordPayout("fail");
-
-            if (isRetryableFailure(failureCode)
-                    && payout.getRetryCount() < MAX_PAYOUT_RETRY_ATTEMPTS) {
-                scheduleRetry(payout.getId(), payout.getNextRetryAt());
+            try {
+                if (isAmbiguousPayoutFailure(e, failureCode)) {
+                    keepPayoutRequested(
+                            paymentTransaction,
+                            payout,
+                            failureCode,
+                            String.valueOf(e.getMessage()),
+                            true);
+                } else {
+                    markPayoutFailed(
+                            paymentTransaction,
+                            payout,
+                            failureCode,
+                            String.valueOf(e.getMessage()),
+                            true);
+                }
+            } catch (RuntimeException persistenceFailure) {
+                log.error("[Payout] provider failure state persistence failed; durable claim remains REQUESTED: payoutId={}",
+                        payout.getId(), persistenceFailure);
             }
-
             log.error("[Payout] payout failed: paymentTransactionId={}, payoutId={}",
                     paymentTransaction.getId(), payout.getId(), e);
             throw e;
         }
 
-        return payout;
-    }
-
-    private int reserveRecoveryOffset(
-            PaymentTransaction paymentTransaction,
-            PayoutTransaction payout) {
-        int netAmount = Math.max(0, Objects.requireNonNullElse(paymentTransaction.getNetAmount(), 0));
-        if (payout.getRecoveryOffsetReservedAt() == null) {
-            SellerRecoveryService.RecoveryOffsetResult result = sellerRecoveryService.reserveOffset(
-                    paymentTransaction.getSellerUserId(),
-                    netAmount);
-            int offsetAmount = result != null ? result.offsetAmount() : 0;
-            payout.setRecoveryOffsetAmount(Math.min(netAmount, Math.max(0, offsetAmount)));
-            payout.setRecoveryOffsetReservedAt(Instant.now());
-            payoutTransactionRepository.save(payout);
+        try {
+            payout.setProviderRef(gatewayResult.providerRef());
+            String rawStatus = normalizeProviderStatus(gatewayResult.rawStatus());
+            if (isProviderCompleted(rawStatus)) {
+                payout = markPayoutCompleted(paymentTransaction, payout);
+            } else if (isProviderDefinitivelyFailed(rawStatus)) {
+                payout = markPayoutFailed(
+                        paymentTransaction,
+                        payout,
+                        "PAYOUT_PROVIDER_STATUS_" + rawStatus,
+                        "providerStatus=" + rawStatus,
+                        true);
+            } else {
+                payout = keepPayoutRequested(
+                        paymentTransaction,
+                        payout,
+                        null,
+                        "providerStatus=" + rawStatus,
+                        false);
+            }
+        } catch (RuntimeException localFailure) {
+            log.error("[Payout] provider response persistence failed; durable claim remains conservative: payoutId={}",
+                    payout.getId(), localFailure);
+            throw localFailure;
         }
-        int reservedOffset = Math.min(
-                netAmount,
-                Math.max(0, Objects.requireNonNullElse(payout.getRecoveryOffsetAmount(), 0)));
-        return netAmount - reservedOffset;
-    }
 
-    private PayoutTransaction completeWithRecoveryOffset(
-            PaymentTransaction paymentTransaction,
-            PayoutTransaction payout) {
-        Instant now = Instant.now();
-        payout.setStatus(SettlementStatus.COMPLETED);
-        payout.setRequestedAmount(0);
-        payout.setProviderRef("RECOVERY_OFFSET");
-        payout.setRequestedAt(now);
-        payout.setCompletedAt(now);
-        payout.setFailReason(null);
-        payout.setFailureCode(null);
-        payout.setNextRetryAt(null);
-        payout = payoutTransactionRepository.save(payout);
-
-        paymentTransaction.setSettlementStatus(SettlementStatus.COMPLETED);
-        paymentTransactionRepository.save(paymentTransaction);
-        metricsService.recordPayout("recovery_offset");
         return payout;
     }
 
-    private long calculateRetryDelaySeconds(int retryCount) {
-        long delay = BASE_RETRY_DELAY_SECONDS * (1L << Math.max(0, retryCount - 1));
-        return Math.min(MAX_RETRY_DELAY_SECONDS, delay);
+    private void reconcileRequestedPayout(
+            PaymentTransaction paymentTransaction,
+            PayoutTransaction payout) {
+        PayoutGateway.PayoutStatusResult providerResult;
+        try {
+            payout = ensureProviderPayloadBound(paymentTransaction, payout);
+            providerResult = resolveGateway(payout.getProviderCode())
+                    .getPayoutStatus(payout.getProviderRef());
+        } catch (RuntimeException lookupFailure) {
+            String failureCode = resolveFailureCode(lookupFailure);
+            try {
+                keepPayoutRequested(
+                        paymentTransaction,
+                        payout,
+                        failureCode,
+                        String.valueOf(lookupFailure.getMessage()),
+                        true);
+            } catch (RuntimeException persistenceFailure) {
+                log.error("[Payout] status lookup failure persistence failed; durable claim remains REQUESTED: payoutId={}",
+                        payout.getId(), persistenceFailure);
+            }
+            log.error("[Payout] provider status lookup failed: payoutId={}", payout.getId(), lookupFailure);
+            return;
+        }
+
+        try {
+            if (providerResult != null
+                    && providerResult.providerRef() != null
+                    && !providerResult.providerRef().isBlank()) {
+                payout.setProviderRef(providerResult.providerRef());
+            }
+            String rawStatus = normalizeProviderStatus(
+                    providerResult != null ? providerResult.rawStatus() : null);
+            if (isProviderCompleted(rawStatus)) {
+                markPayoutCompleted(paymentTransaction, payout);
+            } else if (isProviderDefinitivelyFailed(rawStatus)) {
+                String failureCode = providerResult != null && providerResult.failureCode() != null
+                        ? providerResult.failureCode()
+                        : "PAYOUT_PROVIDER_STATUS_" + rawStatus;
+                markPayoutFailed(
+                        paymentTransaction,
+                        payout,
+                        failureCode,
+                        providerResult != null ? providerResult.failureMessage() : null,
+                        true);
+            } else {
+                keepPayoutRequested(
+                        paymentTransaction,
+                        payout,
+                        providerResult != null ? providerResult.failureCode() : null,
+                        providerResult != null ? providerResult.failureMessage() : "providerStatus=" + rawStatus,
+                        true);
+            }
+        } catch (RuntimeException localFailure) {
+            log.error("[Payout] provider status persistence failed; durable claim remains conservative: payoutId={}",
+                    payout.getId(), localFailure);
+            throw localFailure;
+        }
+    }
+
+    private PayoutTransaction markPayoutCompleted(
+            PaymentTransaction paymentTransaction,
+            PayoutTransaction payout) {
+        payout = payoutStateService.complete(paymentTransaction, payout, payout.getProviderRef());
+        log.info("[Payout] payout completed: paymentTransactionId={}, payoutId={}",
+                paymentTransaction.getId(), payout.getId());
+        return payout;
+    }
+
+    private PayoutTransaction keepPayoutRequested(
+            PaymentTransaction paymentTransaction,
+            PayoutTransaction payout,
+            String failureCode,
+            String failReason,
+            boolean incrementRetryCount) {
+        payout = payoutStateService.keepRequested(
+                paymentTransaction,
+                payout,
+                payout.getProviderRef(),
+                failureCode,
+                failReason,
+                incrementRetryCount);
+        if (payout.getNextRetryAt() != null) {
+            scheduleRetry(payout.getId(), payout.getNextRetryAt());
+        }
+        return payout;
+    }
+
+    private PayoutTransaction markPayoutFailed(
+            PaymentTransaction paymentTransaction,
+            PayoutTransaction payout,
+            String failureCode,
+            String failReason,
+            boolean incrementRetryCount) {
+        payout = payoutStateService.fail(
+                paymentTransaction,
+                payout,
+                payout.getProviderRef(),
+                failureCode,
+                failReason,
+                incrementRetryCount,
+                false);
+        return payout;
     }
 
     private void scheduleRetry(Long payoutId, Instant retryAt) {
@@ -307,50 +315,10 @@ public class PayoutService {
                 () -> retryPayout(payoutId));
     }
 
-    private PayoutTransaction markPayoutSkipped(
-            PaymentTransaction paymentTransaction,
-            PayoutTransaction payout,
-            String failureCode,
-            String failReason) {
-        return markPayoutSkipped(paymentTransaction, payout, failureCode, failReason, true);
-    }
-
-    private PayoutTransaction markPayoutSkipped(
-            PaymentTransaction paymentTransaction,
-            PayoutTransaction payout,
-            String failureCode,
-            String failReason,
-            boolean updatePaymentSettlement) {
-        if (payout.getStatus() == SettlementStatus.SKIPPED) {
-            return payout;
-        }
-
-        payout.setStatus(SettlementStatus.SKIPPED);
-        payout.setRequestedAmount(paymentTransaction.getNetAmount());
-        payout.setRequestedAt(Instant.now());
-        payout.setLastRetryAt(null);
-        payout.setNextRetryAt(null);
-        payout.setFailureCode(failureCode);
-        payout.setFailReason(failReason);
-        payout = payoutTransactionRepository.save(payout);
-
-        if (updatePaymentSettlement) {
-            paymentTransaction.setSettlementStatus(SettlementStatus.SKIPPED);
-            paymentTransactionRepository.save(paymentTransaction);
-        }
-        metricsService.recordPayout("skip");
-
-        return payout;
-    }
-
-    private boolean isPayable(PaymentTransaction paymentTransaction) {
-        return paymentTransaction.getPaymentStatus() == PaymentStatus.PAID;
-    }
-
     private PayoutGateway resolveGateway(String providerCode) {
         PayoutGateway gateway = payoutGateways.get(providerCode);
         if (gateway == null) {
-            throw new IllegalStateException("지원되지 않는 지급대행 provider: " + payoutProvider);
+            throw new IllegalStateException("지원되지 않는 지급대행 provider: " + providerCode);
         }
         return gateway;
 
@@ -358,23 +326,36 @@ public class PayoutService {
 
     private PayoutGateway.PayoutRequest buildPayoutRequest(
             PaymentTransaction paymentTransaction,
-            String providerCode,
+            PayoutTransaction payout,
             int payoutAmount) {
-        String providerSellerId = null;
-        if ("TOSS".equals(providerCode)) {
-            providerSellerId = sellerPayoutProfileService.getRequiredProviderSellerId(
-                    paymentTransaction.getSellerUserId(),
-                    providerCode);
-        }
-
         return new PayoutGateway.PayoutRequest(
                 paymentTransaction.getId(),
                 paymentTransaction.getOrderId(),
                 paymentTransaction.getSellerUserId(),
-                providerSellerId,
+                payout.getProviderSellerId(),
                 payoutAmount,
                 "KRW",
                 "mate-payout-" + paymentTransaction.getId());
+    }
+
+    private PayoutTransaction ensureProviderPayloadBound(
+            PaymentTransaction paymentTransaction,
+            PayoutTransaction payout) {
+        String providerCode = payout.getProviderCode() == null || payout.getProviderCode().isBlank()
+                ? resolveProviderCode()
+                : payout.getProviderCode().trim().toUpperCase(Locale.ROOT);
+        String providerSellerId = payout.getProviderSellerId();
+        if ("TOSS".equals(providerCode)
+                && (providerSellerId == null || providerSellerId.isBlank())) {
+            providerSellerId = sellerPayoutProfileService.getRequiredProviderSellerId(
+                    paymentTransaction.getSellerUserId(),
+                    providerCode);
+        }
+        return payoutClaimService.bindProviderPayload(
+                paymentTransaction.getId(),
+                payout.getId(),
+                providerCode,
+                providerSellerId);
     }
 
     private String resolveProviderCode() {
@@ -393,12 +374,41 @@ public class PayoutService {
         return e.getClass().getSimpleName();
     }
 
-    private boolean isRetryableFailure(String failureCode) {
-        if (failureCode == null) {
+    private String normalizeProviderStatus(String rawStatus) {
+        return Objects.toString(rawStatus, "UNKNOWN").trim().toUpperCase(Locale.ROOT);
+    }
+
+    private boolean isProviderCompleted(String rawStatus) {
+        return "COMPLETED".equals(rawStatus);
+    }
+
+    private boolean isProviderDefinitivelyFailed(String rawStatus) {
+        return "FAILED".equals(rawStatus)
+                || "REJECTED".equals(rawStatus)
+                || "CANCELED".equals(rawStatus)
+                || "CANCELLED".equals(rawStatus)
+                || "DELETED".equals(rawStatus);
+    }
+
+    private boolean isAmbiguousPayoutFailure(String failureCode) {
+        return "TOSS_PAYOUT_REQUEST_FAILED".equals(failureCode)
+                || "TOSS_PAYOUT_EMPTY_RESPONSE".equals(failureCode)
+                || "TOSS_PAYOUT_NO_PROVIDER_REF".equals(failureCode);
+    }
+
+    private boolean isAmbiguousPayoutFailure(RuntimeException exception, String failureCode) {
+        if (isAmbiguousPayoutFailure(failureCode)) {
             return true;
         }
-        return !"SELLER_PROFILE_MISSING".equals(failureCode)
-                && !"PAYMENT_PAYOUT_DISABLED".equals(failureCode);
+        if ("SELLER_PROFILE_MISSING".equals(failureCode)) {
+            return false;
+        }
+        if (exception instanceof PayoutGatewayException payoutGatewayException) {
+            return !("TOSS_SELLER_INVALID".equals(failureCode)
+                    && payoutGatewayException.getStatusCode() != null
+                    && payoutGatewayException.getStatusCode().value() == 400);
+        }
+        return true;
     }
 
     @Transactional(readOnly = true)

@@ -31,6 +31,7 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -83,6 +84,43 @@ class PaymentTransactionServiceTest {
                 .thenAnswer(invocation -> new PaymentCancellationIntentService.PreparedCancellation(
                         invocation.getArgument(0),
                         invocation.getArgument(1)));
+        lenient().when(cancellationIntentService.finalizeReconciledCancellation(
+                        any(PaymentTransaction.class),
+                        anyInt()))
+                .thenAnswer(invocation -> {
+                    PaymentTransaction transaction = invocation.getArgument(0);
+                    int canceledAmount = invocation.getArgument(1);
+                    boolean wasSettled = transaction.getSettlementStatus() == SettlementStatus.COMPLETED;
+                    int originalPaidAmount = Math.max(
+                            0,
+                            java.util.Objects.requireNonNullElse(
+                                    transaction.getNetAmount(),
+                                    transaction.getGrossAmount()));
+                    int grossAmount = Math.max(
+                            0,
+                            java.util.Objects.requireNonNullElse(transaction.getGrossAmount(), 0));
+                    int actualRefundAmount = Math.min(grossAmount, Math.max(0, canceledAmount));
+                    transaction.setRefundAmount(actualRefundAmount);
+                    transaction.setFeeAmount(Math.max(0, grossAmount - actualRefundAmount));
+                    transaction.setNetAmount(transaction.getFeeAmount());
+                    transaction.setPaymentStatus(PaymentStatus.CANCELED);
+                    transaction.setProviderReconciledAt(Instant.now());
+                    transaction.setSettlementStatus(wasSettled
+                            ? SettlementStatus.REFUNDED_AFTER_SETTLEMENT
+                            : SettlementStatus.SKIPPED);
+                    paymentTransactionRepository.save(transaction);
+                    if (wasSettled) {
+                        sellerRecoveryService.recordSettledRefund(transaction, originalPaidAmount);
+                    }
+                    return transaction;
+                });
+        lenient().when(cancellationIntentService.markRefundFailed(any(PaymentTransaction.class)))
+                .thenAnswer(invocation -> {
+                    PaymentTransaction transaction = invocation.getArgument(0);
+                    transaction.setPaymentStatus(PaymentStatus.REFUND_FAILED);
+                    paymentTransactionRepository.save(transaction);
+                    return transaction;
+                });
     }
 
     @Test
@@ -321,7 +359,7 @@ class PaymentTransactionServiceTest {
     }
 
     @Test
-    void requestSettlementOnApproval_marksFailedWhenPayoutFails() {
+    void requestSettlementOnApproval_doesNotOverwriteDurablePayoutStateWhenRequestFails() {
         PartyApplication application = PartyApplication.builder()
                 .id(99L)
                 .orderId("ORDER-1")
@@ -343,9 +381,9 @@ class PaymentTransactionServiceTest {
 
         paymentTransactionService.requestSettlementOnApproval(application);
 
-        assertThat(tx.getSettlementStatus()).isEqualTo(SettlementStatus.FAILED);
-        verify(paymentTransactionRepository, times(2)).save(tx);
-        verify(paymentMetricsService).recordPayout("fail");
+        assertThat(tx.getSettlementStatus()).isEqualTo(SettlementStatus.PENDING);
+        verify(paymentTransactionRepository, never()).save(tx);
+        verify(paymentMetricsService, never()).recordPayout(any());
         verify(payoutService).requestPayout(tx);
     }
 
@@ -732,6 +770,39 @@ class PaymentTransactionServiceTest {
     }
 
     @Test
+    void processCancellation_backfillsRecoveryForPreviouslyCanceledSettledRefund() {
+        PartyApplication application = PartyApplication.builder()
+                .id(304L)
+                .orderId("ORDER-REFUNDED-AFTER-SETTLEMENT")
+                .isPaid(true)
+                .build();
+        PaymentTransaction transaction = PaymentTransaction.builder()
+                .id(404L)
+                .orderId(application.getOrderId())
+                .grossAmount(20000)
+                .netAmount(18000)
+                .paymentStatus(PaymentStatus.CANCELED)
+                .settlementStatus(SettlementStatus.REFUNDED_AFTER_SETTLEMENT)
+                .refundAmount(20000)
+                .feeAmount(0)
+                .refundPolicyApplied("FULL_REFUND")
+                .build();
+        given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
+                .willReturn(Optional.of(transaction));
+
+        PartyApplicationDTO.CancelResponse response = paymentTransactionService.processCancellation(
+                application,
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.SYSTEM)
+                        .build());
+
+        assertThat(response.getPaymentStatus()).isEqualTo(PaymentStatus.CANCELED);
+        assertThat(response.getSettlementStatus()).isEqualTo(SettlementStatus.REFUNDED_AFTER_SETTLEMENT);
+        verify(sellerRecoveryService).recordSettledRefund(transaction, 20000);
+        verify(tossPaymentService, never()).cancelPayment(any(), any(), any());
+    }
+
+    @Test
     void processCancellation_rejectsPaidApplicationWithoutOrderId() {
         PartyApplication application = PartyApplication.builder()
                 .id(301L)
@@ -782,7 +853,7 @@ class PaymentTransactionServiceTest {
                 .paymentStatus(PaymentStatus.CANCELED)
                 .settlementStatus(SettlementStatus.SKIPPED)
                 .build();
-        given(paymentTransactionRepository.findByIdForUpdate(700L)).willReturn(Optional.of(transaction));
+        given(paymentTransactionRepository.findById(700L)).willReturn(Optional.of(transaction));
 
         assertThrows(IllegalStateException.class, () -> paymentTransactionService.requestManualPayout(700L));
 
