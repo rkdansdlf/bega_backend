@@ -77,7 +77,13 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
         List<Party> pendingParties = partyRepository.findByStatusAndGameDateBefore(
                 Party.PartyStatus.PENDING, today);
 
-        for (Party party : pendingParties) {
+        for (Party candidate : pendingParties) {
+            Party party = partyRepository.findByIdForUpdate(candidate.getId()).orElse(null);
+            if (party == null
+                    || party.getStatus() != Party.PartyStatus.PENDING
+                    || !party.getGameDate().isBefore(today)) {
+                continue;
+            }
             party.setStatus(Party.PartyStatus.FAILED);
             partyRepository.save(party);
 
@@ -99,7 +105,13 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
 
         Map<Long, List<PartyApplication>> matchedYesterdayApplicants = loadApprovedApplicantsByParty(matchedYesterdayParties);
 
-        for (Party party : matchedYesterdayParties) {
+        for (Party candidate : matchedYesterdayParties) {
+            Party party = partyRepository.findByIdForUpdate(candidate.getId()).orElse(null);
+            if (party == null
+                    || party.getStatus() != Party.PartyStatus.MATCHED
+                    || !yesterday.equals(party.getGameDate())) {
+                continue;
+            }
             party.setStatus(Party.PartyStatus.COMPLETED);
             partyRepository.save(party);
 
@@ -161,13 +173,22 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
                 .toList();
         Map<Long, List<PartyApplication>> checkedInExpiredApplicants = loadApprovedApplicantsByParty(checkedInExpired);
 
-        for (Party party : checkedInParties) {
+        for (Party candidate : checkedInParties) {
             // 경기 날짜와 시간을 Instant로 변환
-            LocalDateTime gameDateTime = LocalDateTime.of(party.getGameDate(), party.getGameTime());
+            LocalDateTime gameDateTime = LocalDateTime.of(candidate.getGameDate(), candidate.getGameTime());
             Instant gameInstant = gameDateTime.atZone(ZoneId.systemDefault()).toInstant();
 
             // 경기 시간이 3시간 이상 지났는지 확인
             if (gameInstant.isBefore(threeHoursAgo)) {
+                Party party = partyRepository.findByIdForUpdate(candidate.getId()).orElse(null);
+                if (party == null || party.getStatus() != Party.PartyStatus.CHECKED_IN) {
+                    continue;
+                }
+                Instant lockedGameInstant = LocalDateTime.of(party.getGameDate(), party.getGameTime())
+                        .atZone(ZoneId.systemDefault()).toInstant();
+                if (!lockedGameInstant.isBefore(threeHoursAgo)) {
+                    continue;
+                }
                 party.setStatus(Party.PartyStatus.COMPLETED);
                 partyRepository.save(party);
 
@@ -221,7 +242,19 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
         List<PartyApplication> expiredApplications = applicationRepository
                 .findByIsApprovedFalseAndIsRejectedFalseAndResponseDeadlineBefore(now);
 
-        for (PartyApplication application : expiredApplications) {
+        for (PartyApplication candidate : expiredApplications) {
+            Party party = partyRepository.findByIdForUpdate(candidate.getPartyId()).orElse(null);
+            PartyApplication application = applicationRepository.findByIdAndApplicantIdForUpdate(
+                            candidate.getId(), candidate.getApplicantId())
+                    .orElse(null);
+            if (application == null
+                    || !candidate.getPartyId().equals(application.getPartyId())
+                    || Boolean.TRUE.equals(application.getIsApproved())
+                    || Boolean.TRUE.equals(application.getIsRejected())
+                    || application.getResponseDeadline() == null
+                    || !application.getResponseDeadline().isBefore(now)) {
+                continue;
+            }
             application.setIsRejected(true);
             application.setRejectedAt(now);
 
@@ -253,7 +286,6 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
             );
 
             // 호스트에게 자동 거절 알림
-            Party party = partyRepository.findById(application.getPartyId()).orElse(null);
             if (party != null) {
                 String applicantName = application.getApplicantName() != null
                         ? application.getApplicantName() : "신청자";
