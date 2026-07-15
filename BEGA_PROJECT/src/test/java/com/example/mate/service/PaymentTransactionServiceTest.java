@@ -19,6 +19,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 
 import java.util.Optional;
 import java.util.List;
@@ -424,6 +425,40 @@ class PaymentTransactionServiceTest {
     }
 
     @Test
+    void processCancellation_treatsProviderAlreadyCanceledAsSuccess() {
+        PartyApplication application = PartyApplication.builder()
+                .id(202L)
+                .orderId("ORDER-ALREADY-CANCELED")
+                .isPaid(true)
+                .build();
+        PaymentTransaction tx = PaymentTransaction.builder()
+                .id(602L)
+                .orderId("ORDER-ALREADY-CANCELED")
+                .paymentKey("pay_key_already_canceled")
+                .grossAmount(20000)
+                .paymentStatus(PaymentStatus.REFUND_FAILED)
+                .settlementStatus(SettlementStatus.PENDING)
+                .build();
+        given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
+                .willReturn(Optional.of(tx));
+        given(cancelPolicyService.decide(20000, CancelReasonType.SYSTEM))
+                .willReturn(new CancelPolicyService.RefundDecision(20000, 0, "FULL_REFUND"));
+        given(tossPaymentService.cancelPayment(any(), any(), any()))
+                .willThrow(new TossPaymentException(
+                        "이미 취소된 결제입니다.", HttpStatus.CONFLICT, "ALREADY_CANCELED_PAYMENT"));
+
+        PartyApplicationDTO.CancelResponse response = paymentTransactionService.processCancellation(
+                application,
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.SYSTEM)
+                        .build());
+
+        assertThat(response.getPaymentStatus()).isEqualTo(PaymentStatus.CANCELED);
+        assertThat(tx.getPaymentStatus()).isEqualTo(PaymentStatus.CANCELED);
+        assertThat(tx.getSettlementStatus()).isEqualTo(SettlementStatus.SKIPPED);
+    }
+
+    @Test
     void processCancellation_returnsNoPaymentWhenApplicationIsNotPaid() {
         PartyApplication application = PartyApplication.builder()
                 .id(300L)
@@ -444,6 +479,42 @@ class PaymentTransactionServiceTest {
         assertThat(response.getPaymentStatus()).isNull();
         assertThat(response.getSettlementStatus()).isNull();
         verify(paymentTransactionRepository, never()).findByOrderId(any());
+        verify(tossPaymentService, never()).cancelPayment(any(), any(), any());
+    }
+
+    @Test
+    void processCancellation_rejectsPaidApplicationWithoutOrderId() {
+        PartyApplication application = PartyApplication.builder()
+                .id(301L)
+                .isPaid(true)
+                .build();
+
+        assertThrows(IllegalStateException.class, () -> paymentTransactionService.processCancellation(
+                application,
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.SYSTEM)
+                        .build()));
+
+        verify(paymentTransactionRepository, never()).findByOrderId(any());
+        verify(tossPaymentService, never()).cancelPayment(any(), any(), any());
+    }
+
+    @Test
+    void processCancellation_rejectsPaidApplicationWithoutTransaction() {
+        PartyApplication application = PartyApplication.builder()
+                .id(302L)
+                .orderId("ORDER-MISSING-TX")
+                .isPaid(true)
+                .build();
+        given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
+                .willReturn(Optional.empty());
+
+        assertThrows(IllegalStateException.class, () -> paymentTransactionService.processCancellation(
+                application,
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.SYSTEM)
+                        .build()));
+
         verify(tossPaymentService, never()).cancelPayment(any(), any(), any());
     }
 

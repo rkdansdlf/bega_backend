@@ -167,8 +167,6 @@ class PartyServiceUserDeletionTest {
         when(partyRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(pendingParty));
         when(applicationRepository.findByPartyIdAndIsApprovedTrue(100L))
                 .thenReturn(List.of(application1));
-        when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(hostUserId))
-                .thenReturn(List.of());
 
         // when
         partyService.handleUserDeletion(hostUserId);
@@ -201,8 +199,6 @@ class PartyServiceUserDeletionTest {
         when(applicationRepository.findByPartyId(101L)).thenReturn(List.of(application2));
         when(applicationRepository.findByIdAndApplicantIdForUpdate(201L, participantUserId2))
                 .thenReturn(Optional.of(application2));
-        when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(hostUserId))
-                .thenReturn(List.of());
 
         // when
         partyService.handleUserDeletion(hostUserId);
@@ -252,8 +248,6 @@ class PartyServiceUserDeletionTest {
 
         when(partyRepository.findByHostIdAndStatusIn(eq(participantUserId1), anyList()))
                 .thenReturn(List.of());
-        when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(participantUserId1))
-                .thenReturn(List.of(participantApplication));
         when(applicationRepository.findByApplicantId(participantUserId1))
                 .thenReturn(List.of(participantApplication));
         when(partyRepository.findByIdForUpdate(300L))
@@ -337,8 +331,6 @@ class PartyServiceUserDeletionTest {
                 .thenReturn(List.of(application1));
         when(applicationRepository.findByPartyIdAndIsApprovedTrue(101L))
                 .thenReturn(List.of(application2));
-        when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(hostUserId))
-                .thenReturn(List.of(asParticipant));
         when(applicationRepository.findByApplicantId(hostUserId))
                 .thenReturn(List.of(asParticipant));
         when(partyRepository.findByIdForUpdate(400L))
@@ -391,8 +383,6 @@ class PartyServiceUserDeletionTest {
         Long userId = 999L;
         when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList()))
                 .thenReturn(List.of());
-        when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
-                .thenReturn(List.of());
 
         // when
         partyService.handleUserDeletion(userId);
@@ -435,8 +425,6 @@ class PartyServiceUserDeletionTest {
                 .build();
 
         when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList())).thenReturn(List.of(hosted));
-        when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
-                .thenReturn(List.of(joinedApplication));
         when(applicationRepository.findByApplicantId(userId)).thenReturn(List.of(joinedApplication));
         when(partyRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(joined));
         when(partyRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(hosted));
@@ -483,9 +471,8 @@ class PartyServiceUserDeletionTest {
                 .build();
 
         when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList())).thenReturn(List.of());
-        when(applicationRepository.findByApplicantId(userId)).thenReturn(List.of(pendingSnapshot));
-        when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
-                .thenReturn(List.of(), List.of(approvedAfterLock));
+        when(applicationRepository.findByApplicantId(userId))
+                .thenReturn(List.of(pendingSnapshot), List.of(approvedAfterLock));
         when(partyRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(party));
         when(applicationRepository.findByIdAndApplicantIdForUpdate(301L, userId))
                 .thenReturn(Optional.of(approvedAfterLock));
@@ -495,5 +482,100 @@ class PartyServiceUserDeletionTest {
         verify(partyRepository).findByIdForUpdate(100L);
         verify(applicationRepository).delete(approvedAfterLock);
         assertThat(party.getCurrentParticipants()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("SELLING 호스트 파티도 활성 파티로 취소한다")
+    void handleUserDeletion_cancelsHostedSellingParty() {
+        Long userId = 70L;
+        Party sellingParty = Party.builder()
+                .id(500L)
+                .hostId(userId)
+                .status(Party.PartyStatus.SELLING)
+                .currentParticipants(1)
+                .maxParticipants(2)
+                .build();
+
+        when(partyRepository.findByHostIdAndStatusIn(
+                eq(userId), argThat(statuses -> statuses.contains(Party.PartyStatus.SELLING))))
+                .thenReturn(List.of(sellingParty));
+        when(partyRepository.findByIdForUpdate(500L)).thenReturn(Optional.of(sellingParty));
+        when(applicationRepository.findByPartyIdAndIsApprovedTrue(500L)).thenReturn(List.of());
+
+        partyService.handleUserDeletion(userId);
+
+        assertThat(sellingParty.getStatus()).isEqualTo(Party.PartyStatus.FAILED);
+        verify(partyRepository).save(sellingParty);
+    }
+
+    @Test
+    @DisplayName("활성 파티의 승인 전 결제 신청도 환불 대기 상태로 보존한다")
+    void handleUserDeletion_preservesPendingPaidApplicationForRefund() {
+        Long userId = 71L;
+        Party party = Party.builder()
+                .id(501L)
+                .hostId(999L)
+                .status(Party.PartyStatus.PENDING)
+                .currentParticipants(1)
+                .maxParticipants(3)
+                .build();
+        PartyApplication application = PartyApplication.builder()
+                .id(601L)
+                .partyId(501L)
+                .applicantId(userId)
+                .isApproved(false)
+                .isRejected(false)
+                .isPaid(true)
+                .orderId("MATE-501-71")
+                .build();
+
+        when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList())).thenReturn(List.of());
+        when(applicationRepository.findByApplicantId(userId)).thenReturn(List.of(application));
+        when(partyRepository.findByIdForUpdate(501L)).thenReturn(Optional.of(party));
+        when(applicationRepository.findByIdAndApplicantIdForUpdate(601L, userId))
+                .thenReturn(Optional.of(application));
+
+        partyService.handleUserDeletion(userId);
+
+        assertThat(application.getIsRejected()).isTrue();
+        assertThat(application.getIsPaid()).isTrue();
+        verify(applicationRepository).save(application);
+        verify(applicationRepository, never()).delete(application);
+        verify(partyRepository, never()).save(party);
+    }
+
+    @Test
+    @DisplayName("종료된 파티의 결제 신청 이력은 환불 대상으로 바꾸지 않는다")
+    void handleUserDeletion_preservesTerminalPaidApplicationHistory() {
+        Long userId = 72L;
+        Party party = Party.builder()
+                .id(502L)
+                .hostId(999L)
+                .status(Party.PartyStatus.COMPLETED)
+                .currentParticipants(2)
+                .maxParticipants(3)
+                .build();
+        PartyApplication application = PartyApplication.builder()
+                .id(602L)
+                .partyId(502L)
+                .applicantId(userId)
+                .isApproved(true)
+                .isRejected(false)
+                .isPaid(true)
+                .orderId("MATE-502-72")
+                .build();
+
+        when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList())).thenReturn(List.of());
+        when(applicationRepository.findByApplicantId(userId)).thenReturn(List.of(application));
+        when(partyRepository.findByIdForUpdate(502L)).thenReturn(Optional.of(party));
+
+        partyService.handleUserDeletion(userId);
+
+        assertThat(application.getIsApproved()).isTrue();
+        assertThat(application.getIsRejected()).isFalse();
+        assertThat(party.getCurrentParticipants()).isEqualTo(2);
+        verify(applicationRepository, never()).save(application);
+        verify(applicationRepository, never()).delete(application);
+        verify(partyRepository, never()).save(party);
     }
 }

@@ -2,7 +2,10 @@ package com.example.mate.service;
 
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
+import com.example.mate.entity.PaymentFlowType;
+import com.example.mate.entity.PaymentTransaction;
 import com.example.mate.entity.PaymentStatus;
+import com.example.mate.entity.SettlementStatus;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PaymentTransactionRepository;
@@ -109,21 +112,68 @@ public class PartyLifecycleMutationService {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public ExpiredApplicationMutation loadRetryableRejectedPaidApplication(
+    public RefundAttemptClaim claimRefundAttempt(
             Long partyId,
             Long applicationId,
-            Long applicantId) {
+            Long applicantId,
+            Instant retryBefore) {
         Party party = partyRepository.findByIdForUpdate(partyId).orElse(null);
+        if (party == null) {
+            return null;
+        }
+
         PartyApplication application = applicationRepository.findByIdAndApplicantIdForUpdate(
                         applicationId, applicantId)
                 .orElse(null);
         if (application == null
                 || !partyId.equals(application.getPartyId())
                 || !Boolean.TRUE.equals(application.getIsRejected())
-                || !Boolean.TRUE.equals(application.getIsPaid())) {
+                || !Boolean.TRUE.equals(application.getIsPaid())
+                || application.getOrderId() == null
+                || application.getOrderId().isBlank()) {
             return null;
         }
-        return new ExpiredApplicationMutation(application, party);
+
+        PaymentTransaction transaction = paymentTransactionRepository
+                .findByOrderIdForUpdate(application.getOrderId())
+                .orElse(null);
+        if (transaction == null) {
+            if (application.getPaymentKey() == null || application.getPaymentKey().isBlank()) {
+                return null;
+            }
+            int grossAmount = application.getDepositAmount() != null ? application.getDepositAmount() : 0;
+            transaction = PaymentTransaction.builder()
+                    .partyId(partyId)
+                    .applicationId(applicationId)
+                    .buyerUserId(applicantId)
+                    .sellerUserId(party.getHostId())
+                    .flowType(application.getPaymentType() == PartyApplication.PaymentType.FULL
+                            ? PaymentFlowType.SELLING_FULL
+                            : PaymentFlowType.DEPOSIT)
+                    .orderId(application.getOrderId())
+                    .paymentKey(application.getPaymentKey())
+                    .grossAmount(grossAmount)
+                    .feeAmount(0)
+                    .refundAmount(0)
+                    .netAmount(grossAmount)
+                    .paymentStatus(PaymentStatus.PAID)
+                    .settlementStatus(SettlementStatus.PENDING)
+                    .build();
+        }
+        if (transaction.getPaymentStatus() == PaymentStatus.CANCELED) {
+            return new RefundAttemptClaim(application, true);
+        }
+        if (transaction.getPaymentStatus() == PaymentStatus.REFUND_REQUESTED
+                && transaction.getUpdatedAt() != null
+                && retryBefore != null
+                && !transaction.getUpdatedAt().isBefore(retryBefore)) {
+            return null;
+        }
+
+        transaction.setPaymentStatus(PaymentStatus.REFUND_REQUESTED);
+        transaction.setUpdatedAt(Instant.now());
+        paymentTransactionRepository.save(transaction);
+        return new RefundAttemptClaim(application, false);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -140,5 +190,8 @@ public class PartyLifecycleMutationService {
     }
 
     public record ExpiredApplicationMutation(PartyApplication application, Party party) {
+    }
+
+    public record RefundAttemptClaim(PartyApplication application, boolean alreadyCanceled) {
     }
 }
