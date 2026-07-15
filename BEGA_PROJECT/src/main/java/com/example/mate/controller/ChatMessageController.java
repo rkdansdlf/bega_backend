@@ -4,6 +4,7 @@ import com.example.common.web.AuthenticatedUserIds;
 import com.example.mate.dto.ChatMessageDTO;
 import com.example.mate.service.ChatMessageService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -58,6 +59,7 @@ public class ChatMessageController {
             @PathVariable Long partyId,
             @AuthenticationPrincipal Long userId,
             @RequestParam(defaultValue = "50") @Min(1) @Max(100) Integer limit,
+            @Parameter(schema = @Schema(type = "integer", format = "int64", minimum = "1"))
             @RequestParam(required = false) @Positive Long beforeId) {
         List<ChatMessageDTO.Response> messages = chatMessageService.getMessagesByPartyId(
                 partyId,
