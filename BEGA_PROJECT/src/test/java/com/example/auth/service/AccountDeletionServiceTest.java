@@ -5,7 +5,11 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.auth.entity.AccountDeletionToken;
 import com.example.auth.entity.UserEntity;
@@ -60,6 +64,7 @@ class AccountDeletionServiceTest {
                 .handle("@user")
                 .password("encoded-password")
                 .provider("LOCAL")
+                .enabled(true)
                 .build();
 
         when(userRepository.findByIdForWrite(41L)).thenReturn(Optional.of(user));
@@ -77,5 +82,52 @@ class AccountDeletionServiceTest {
                 any(),
                 eq("/mypage?view=accountSettings"));
         verify(accountSecurityService).recordAccountDeletionScheduled(anyLong(), any());
+    }
+
+    @Test
+    void scheduleAccountDeletionRejectsAdministrativelyDisabledUser() {
+        UserEntity user = UserEntity.builder()
+                .id(42L)
+                .email("disabled@example.com")
+                .enabled(false)
+                .provider("LOCAL")
+                .password("encoded-password")
+                .build();
+        when(userRepository.findByIdForWrite(42L)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> accountDeletionService.scheduleAccountDeletion(42L, "Password1!"))
+                .hasMessageContaining("비활성화");
+
+        verify(accountDeletionTokenRepository, never()).save(any());
+        verify(emailService, never()).sendAccountDeletionRecoveryEmail(any(), any(), any(), any());
+    }
+
+    @Test
+    void recoverAccountLocksUserAndRejectsClearedAdminDeletionState() {
+        UserEntity tokenUser = UserEntity.builder()
+                .id(43L)
+                .enabled(false)
+                .pendingDeletion(true)
+                .deletionScheduledFor(java.time.LocalDateTime.now().plusDays(3))
+                .build();
+        UserEntity lockedUser = UserEntity.builder()
+                .id(43L)
+                .enabled(false)
+                .pendingDeletion(false)
+                .build();
+        AccountDeletionToken token = AccountDeletionToken.builder()
+                .token("recovery-token")
+                .user(tokenUser)
+                .expiryDate(java.time.LocalDateTime.now().plusDays(3))
+                .build();
+        when(accountDeletionTokenRepository.findByToken("recovery-token")).thenReturn(Optional.of(token));
+        when(userRepository.findByIdForWrite(43L)).thenReturn(Optional.of(lockedUser));
+
+        assertThatThrownBy(() -> accountDeletionService.recoverAccount("recovery-token"))
+                .hasMessageContaining("복구 가능한");
+
+        verify(userRepository).findByIdForWrite(43L);
+        verify(userRepository, never()).save(any());
+        assertThat(lockedUser.isEnabled()).isFalse();
     }
 }

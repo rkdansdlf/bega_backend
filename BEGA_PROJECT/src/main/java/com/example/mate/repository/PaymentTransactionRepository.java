@@ -16,6 +16,10 @@ import java.util.Optional;
 public interface PaymentTransactionRepository extends JpaRepository<PaymentTransaction, Long> {
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select pt from PaymentTransaction pt where pt.id = :id")
+    Optional<PaymentTransaction> findByIdForUpdate(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select pt from PaymentTransaction pt where pt.orderId = :orderId")
     Optional<PaymentTransaction> findByOrderIdForUpdate(@Param("orderId") String orderId);
 
