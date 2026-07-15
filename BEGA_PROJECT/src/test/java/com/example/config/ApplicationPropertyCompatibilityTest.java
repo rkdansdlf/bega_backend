@@ -183,11 +183,43 @@ class ApplicationPropertyCompatibilityTest {
                 .contains("season-id: ${APP_DEV_DB_HOT_PATH_PREWARM_SEASON_ID:2026}");
     }
 
+    @Test
+    void applicationYmlDefinesDurableAiIngestSchedulerKeys() throws IOException {
+        String applicationYml = readApplicationYml();
+
+        assertThat(applicationYml)
+                .contains("enabled: ${AI_INGEST_ENABLED:false}")
+                .contains("cron: \"${AI_INGEST_CRON:30 4 * * *}\"")
+                .contains("tables: ${AI_INGEST_TABLES:game,game_metadata,game_summary}")
+                .contains("check-interval: ${AI_INGEST_CHECK_INTERVAL:30s}")
+                .contains("monitoring-duration: ${AI_INGEST_MONITORING_DURATION:2h}");
+    }
+
+    @Test
+    void configurationMetadataRegistersDurableAiIngestSchedulerKeys() throws IOException {
+        String metadata = readConfigurationMetadata();
+
+        assertThat(metadata)
+                .contains("\"name\": \"app.ai-ingest\"")
+                .contains("\"name\": \"app.ai-ingest.enabled\"")
+                .contains("\"name\": \"app.ai-ingest.cron\"")
+                .contains("\"name\": \"app.ai-ingest.tables\"")
+                .contains("\"name\": \"app.ai-ingest.season-year\"")
+                .contains("\"name\": \"app.ai-ingest.check-interval\"")
+                .contains("\"name\": \"app.ai-ingest.monitoring-duration\"");
+    }
+
     private String readApplicationYml() throws IOException {
         return Files.readString(Path.of("src/main/resources/application.yml"), StandardCharsets.UTF_8);
     }
 
     private String readDevAdbApplicationYml() throws IOException {
         return Files.readString(Path.of("src/main/resources/application-dev-adb.yml"), StandardCharsets.UTF_8);
+    }
+
+    private String readConfigurationMetadata() throws IOException {
+        return Files.readString(
+                Path.of("src/main/resources/META-INF/additional-spring-configuration-metadata.json"),
+                StandardCharsets.UTF_8);
     }
 }
