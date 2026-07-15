@@ -22,9 +22,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -44,6 +46,8 @@ public class PaymentTransactionService {
     private final PayoutService payoutService;
     private final PaymentMetricsService metricsService;
     private final MatePaymentModeService matePaymentModeService;
+    private final SellerRecoveryService sellerRecoveryService;
+    private final PaymentCancellationIntentService cancellationIntentService;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -100,8 +104,14 @@ public class PaymentTransactionService {
                     "직거래 모드에서는 수동 정산 지급을 요청할 수 없습니다.",
                     HttpStatus.SERVICE_UNAVAILABLE);
         }
-        PaymentTransaction tx = paymentTransactionRepository.findById(paymentId)
+        PaymentTransaction tx = paymentTransactionRepository.findByIdForUpdate(paymentId)
                 .orElseThrow(() -> new IllegalArgumentException("결제 트랜잭션을 찾을 수 없습니다: " + paymentId));
+        if (tx.getPaymentStatus() == PaymentStatus.CANCELED) {
+            throw new IllegalStateException("취소된 결제는 정산 지급을 요청할 수 없습니다.");
+        }
+        if (tx.getPaymentStatus() != PaymentStatus.PAID) {
+            throw new IllegalStateException("결제 완료 상태에서만 정산 지급을 요청할 수 있습니다.");
+        }
         tx.setSettlementStatus(SettlementStatus.REQUESTED);
         paymentTransactionRepository.save(tx);
         try {
@@ -170,18 +180,18 @@ public class PaymentTransactionService {
         try {
             payoutService.requestPayout(tx);
         } catch (RuntimeException e) {
-        tx.setSettlementStatus(SettlementStatus.FAILED);
-        paymentTransactionRepository.save(tx);
+            tx.setSettlementStatus(SettlementStatus.FAILED);
+            paymentTransactionRepository.save(tx);
             metricsService.recordPayout("fail");
-        log.error(
-                "[Payment] 승인 즉시 정산 처리 중 오류: applicationId={}, paymentTransactionId={}",
-                application.getId(),
-                tx.getId(),
+            log.error(
+                    "[Payment] 승인 즉시 정산 처리 중 오류: applicationId={}, paymentTransactionId={}",
+                    application.getId(),
+                    tx.getId(),
                     e);
         }
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = RuntimeException.class)
     public PartyApplicationDTO.CancelResponse processCancellation(
             PartyApplication application,
             PartyApplicationDTO.CancelRequest request) {
@@ -201,12 +211,11 @@ public class PaymentTransactionService {
         }
 
         PaymentTransaction tx = paymentTransactionRepository.findByOrderId(application.getOrderId())
-                .orElseGet(() -> {
-                    if (application.getPaymentKey() == null || application.getPaymentKey().isBlank()) {
-                        return null;
-                    }
-                    return createFallbackTransaction(application);
-                });
+                .orElse(null);
+
+        if (tx == null && application.getPaymentKey() != null && !application.getPaymentKey().isBlank()) {
+            tx = cancellationIntentService.createFallbackTransaction(application);
+        }
 
         if (tx == null) {
             throw new IllegalStateException("결제된 신청의 결제 트랜잭션을 찾을 수 없어 환불할 수 없습니다.");
@@ -216,60 +225,194 @@ public class PaymentTransactionService {
             return buildCancelResponse(application.getId(), tx);
         }
 
-        CancelReasonType reasonType = request != null && request.getCancelReasonType() != null
-                ? request.getCancelReasonType()
-                : CancelReasonType.BUYER_CHANGED_MIND;
-        String cancelMemo = request != null ? request.getCancelMemo() : null;
-
-        CancelPolicyService.RefundDecision decision = cancelPolicyService.decide(
-                tx.getGrossAmount(),
-                reasonType);
-
-        tx.setCancelReasonType(reasonType);
-        tx.setCancelMemo(cancelMemo);
-        tx.setRefundPolicyApplied(decision.policyApplied());
-        tx.setPaymentStatus(PaymentStatus.REFUND_REQUESTED);
-        paymentTransactionRepository.save(tx);
+        PaymentCancellationIntentService.CancellationIntent proposed = resolveCancellationIntent(tx, request);
+        PaymentCancellationIntentService.PreparedCancellation prepared = cancellationIntentService.prepare(
+                tx,
+                proposed);
+        tx = prepared.transaction();
+        PaymentCancellationIntentService.CancellationIntent intent = prepared.intent();
+        if (entityManager != null) {
+            entityManager.clear();
+        }
+        if (tx.getPaymentStatus() == PaymentStatus.CANCELED) {
+            return buildCancelResponse(application.getId(), tx);
+        }
 
         try {
-            tossPaymentService.cancelPayment(
-                    tx.getPaymentKey(),
-                    "메이트 취소 처리: " + reasonType,
-                    decision.refundAmount());
-
-            tx.setRefundAmount(decision.refundAmount());
-            tx.setFeeAmount(decision.feeAmount());
-            tx.setNetAmount(decision.feeAmount()); // 취소 수수료가 있는 경우 해당 금액이 순정산액
-            tx.setPaymentStatus(PaymentStatus.CANCELED);
-            if (tx.getSettlementStatus() == SettlementStatus.COMPLETED) {
-                // 판매자에게 이미 지급 완료된 후 환불: 판매자로부터 환수 필요
-                tx.setSettlementStatus(SettlementStatus.REFUNDED_AFTER_SETTLEMENT);
-            } else {
-                // 아직 지급되지 않은 경우: 정산 건너뜀
-                tx.setSettlementStatus(SettlementStatus.SKIPPED);
+            ProviderCancellation currentCancellation = resolveProviderCancellation(
+                    tx,
+                    tossPaymentService.getPayment(tx.getPaymentKey()));
+            if (!currentCancellation.verified()) {
+                throw new IllegalStateException("결제사의 현재 취소 금액을 확인할 수 없습니다.");
             }
-            paymentTransactionRepository.save(tx);
-            metricsService.recordRefund(decision.policyApplied());
-            return buildCancelResponse(application.getId(), tx);
+            if (currentCancellation.provesAtLeast(intent.refundAmount())) {
+                return finalizeReconciledCancellation(
+                        application.getId(),
+                        tx,
+                        intent,
+                        currentCancellation);
+            }
+            int cancelAmount = Math.max(
+                    0,
+                    intent.refundAmount() - currentCancellation.canceledAmount());
+            com.example.mate.dto.TossPaymentDTO.CancelResponse providerResponse = tossPaymentService.cancelPayment(
+                    tx.getPaymentKey(),
+                    "메이트 취소 처리: " + intent.reasonType(),
+                    cancelAmount);
+
+            ProviderCancellation cancellation = resolveProviderCancellation(tx, providerResponse);
+            if (!cancellation.provesAtLeast(intent.refundAmount())) {
+                cancellation = resolveProviderCancellation(tx, tossPaymentService.getPayment(tx.getPaymentKey()));
+            }
+            return finalizeReconciledCancellation(application.getId(), tx, intent, cancellation);
         } catch (RuntimeException e) {
             if (isAlreadyCancelledByProvider(e)) {
-                tx.setRefundAmount(decision.refundAmount());
-                tx.setFeeAmount(decision.feeAmount());
-                tx.setNetAmount(decision.feeAmount());
-                tx.setPaymentStatus(PaymentStatus.CANCELED);
-                if (tx.getSettlementStatus() == SettlementStatus.COMPLETED) {
-                    tx.setSettlementStatus(SettlementStatus.REFUNDED_AFTER_SETTLEMENT);
-                } else {
-                    tx.setSettlementStatus(SettlementStatus.SKIPPED);
+                try {
+                    ProviderCancellation cancellation = resolveProviderCancellation(
+                            tx,
+                            tossPaymentService.getPayment(tx.getPaymentKey()));
+                    return finalizeReconciledCancellation(application.getId(), tx, intent, cancellation);
+                } catch (RuntimeException reconciliationFailure) {
+                    tx.setPaymentStatus(PaymentStatus.REFUND_FAILED);
+                    paymentTransactionRepository.save(tx);
+                    metricsService.recordRefund("failed");
+                    throw reconciliationFailure;
                 }
-                paymentTransactionRepository.save(tx);
-                metricsService.recordRefund(decision.policyApplied());
-                return buildCancelResponse(application.getId(), tx);
             }
             tx.setPaymentStatus(PaymentStatus.REFUND_FAILED);
             paymentTransactionRepository.save(tx);
             metricsService.recordRefund("failed");
             throw e;
+        }
+    }
+
+    private PaymentCancellationIntentService.CancellationIntent resolveCancellationIntent(
+            PaymentTransaction tx,
+            PartyApplicationDTO.CancelRequest request) {
+        if (tx.getCancellationRequestedAt() != null
+                && tx.getRequestedRefundAmount() != null
+                && tx.getRequestedFeeAmount() != null
+                && tx.getCancelReasonType() != null
+                && tx.getRefundPolicyApplied() != null) {
+            return new PaymentCancellationIntentService.CancellationIntent(
+                    tx.getCancelReasonType(),
+                    tx.getCancelMemo(),
+                    tx.getRequestedRefundAmount(),
+                    tx.getRequestedFeeAmount(),
+                    tx.getRefundPolicyApplied(),
+                    true);
+        }
+
+        CancelReasonType reasonType = request != null && request.getCancelReasonType() != null
+                ? request.getCancelReasonType()
+                : CancelReasonType.BUYER_CHANGED_MIND;
+        CancelPolicyService.RefundDecision decision = cancelPolicyService.decide(tx.getGrossAmount(), reasonType);
+
+        return new PaymentCancellationIntentService.CancellationIntent(
+                reasonType,
+                request != null ? request.getCancelMemo() : null,
+                decision.refundAmount(),
+                decision.feeAmount(),
+                decision.policyApplied(),
+                false);
+    }
+
+    private PartyApplicationDTO.CancelResponse finalizeReconciledCancellation(
+            Long applicationId,
+            PaymentTransaction tx,
+            PaymentCancellationIntentService.CancellationIntent intent,
+            ProviderCancellation cancellation) {
+        if (!cancellation.provesAtLeast(intent.refundAmount())) {
+            throw new IllegalStateException("결제사 취소 금액이 요청된 환불 금액보다 작습니다.");
+        }
+
+        boolean wasSettled = tx.getSettlementStatus() == SettlementStatus.COMPLETED;
+        int originalPaidAmount = Math.max(
+                0,
+                Objects.requireNonNullElse(tx.getNetAmount(), tx.getGrossAmount()));
+        int actualRefundAmount = Math.min(tx.getGrossAmount(), cancellation.canceledAmount());
+        int actualFeeAmount = Math.max(0, tx.getGrossAmount() - actualRefundAmount);
+        tx.setRefundAmount(actualRefundAmount);
+        tx.setFeeAmount(actualFeeAmount);
+        tx.setNetAmount(actualFeeAmount);
+        tx.setPaymentStatus(PaymentStatus.CANCELED);
+        tx.setProviderReconciledAt(Instant.now());
+        if (wasSettled) {
+            tx.setSettlementStatus(SettlementStatus.REFUNDED_AFTER_SETTLEMENT);
+        } else {
+            tx.setSettlementStatus(SettlementStatus.SKIPPED);
+        }
+        paymentTransactionRepository.save(tx);
+        if (wasSettled) {
+            sellerRecoveryService.recordSettledRefund(tx, originalPaidAmount);
+        }
+        metricsService.recordRefund(intent.policyApplied());
+        return buildCancelResponse(applicationId, tx);
+    }
+
+    private ProviderCancellation resolveProviderCancellation(
+            PaymentTransaction tx,
+            com.example.mate.dto.TossPaymentDTO.CancelResponse response) {
+        if (response == null || !Objects.equals(tx.getPaymentKey(), response.getPaymentKey())) {
+            return ProviderCancellation.unverified();
+        }
+        return providerCancellation(
+                response.getTotalAmount(),
+                response.getBalanceAmount(),
+                response.getCancels());
+    }
+
+    private ProviderCancellation resolveProviderCancellation(
+            PaymentTransaction tx,
+            com.example.mate.dto.TossPaymentDTO.ConfirmResponse response) {
+        if (response == null || !Objects.equals(tx.getPaymentKey(), response.getPaymentKey())) {
+            return ProviderCancellation.unverified();
+        }
+        return providerCancellation(
+                response.getTotalAmount(),
+                response.getBalanceAmount(),
+                response.getCancels());
+    }
+
+    private ProviderCancellation providerCancellation(
+            Integer totalAmount,
+            Integer balanceAmount,
+            List<com.example.mate.dto.TossPaymentDTO.CancelDetail> cancels) {
+        if (cancels != null && !cancels.isEmpty()) {
+            int canceledAmount = cancels.stream()
+                    .filter(Objects::nonNull)
+                    .filter(cancel -> isCompletedProviderCancellation(cancel.getCancelStatus()))
+                    .map(com.example.mate.dto.TossPaymentDTO.CancelDetail::getCancelAmount)
+                    .filter(Objects::nonNull)
+                    .filter(amount -> amount > 0)
+                    .mapToInt(Integer::intValue)
+                    .sum();
+            if (canceledAmount > 0) {
+                return new ProviderCancellation(canceledAmount, true);
+            }
+        }
+        if (totalAmount != null && balanceAmount != null
+                && totalAmount >= 0 && balanceAmount >= 0 && balanceAmount <= totalAmount) {
+            return new ProviderCancellation(totalAmount - balanceAmount, true);
+        }
+        return ProviderCancellation.unverified();
+    }
+
+    private boolean isCompletedProviderCancellation(String cancelStatus) {
+        if (cancelStatus == null || cancelStatus.isBlank()) {
+            return false;
+        }
+        return "DONE".equalsIgnoreCase(cancelStatus)
+                || "COMPLETED".equalsIgnoreCase(cancelStatus);
+    }
+
+    private record ProviderCancellation(int canceledAmount, boolean verified) {
+        private static ProviderCancellation unverified() {
+            return new ProviderCancellation(0, false);
+        }
+
+        private boolean provesAtLeast(int requestedAmount) {
+            return verified && canceledAmount >= requestedAmount;
         }
     }
 
@@ -304,28 +447,6 @@ public class PaymentTransactionService {
             return intent.getFlowType();
         }
         return inferFlowType(application.getPaymentType());
-    }
-
-    private PaymentTransaction createFallbackTransaction(PartyApplication application) {
-        Party party = partyRepository.findById(application.getPartyId())
-                .orElseThrow(() -> new PartyNotFoundException(application.getPartyId()));
-        int grossAmount = application.getDepositAmount() != null ? application.getDepositAmount() : 0;
-        PaymentTransaction tx = PaymentTransaction.builder()
-                .partyId(application.getPartyId())
-                .applicationId(application.getId())
-                .buyerUserId(application.getApplicantId())
-                .sellerUserId(party.getHostId())
-                .flowType(inferFlowType(application.getPaymentType()))
-                .orderId(application.getOrderId())
-                .paymentKey(application.getPaymentKey())
-                .grossAmount(grossAmount)
-                .feeAmount(0)
-                .refundAmount(0)
-                .netAmount(grossAmount)
-                .paymentStatus(PaymentStatus.PAID)
-                .settlementStatus(SettlementStatus.PENDING)
-                .build();
-        return paymentTransactionRepository.save(tx);
     }
 
     private PaymentFlowType inferFlowType(PartyApplication.PaymentType paymentType) {
