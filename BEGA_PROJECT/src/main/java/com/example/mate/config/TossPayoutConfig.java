@@ -10,6 +10,9 @@ import org.springframework.web.client.RestClient;
 @ConfigurationProperties(prefix = "toss.payout")
 public class TossPayoutConfig {
 
+    private static final int MIN_TIMEOUT_MILLIS = 100;
+    private static final int MAX_TIMEOUT_MILLIS = 60_000;
+
     private String apiSecret;
     private String baseUrl = "https://api.tosspayments.com";
     private String requestPath = "/v2/payouts";
@@ -90,7 +93,7 @@ public class TossPayoutConfig {
     }
 
     public void setConnectTimeoutMillis(int connectTimeoutMillis) {
-        this.connectTimeoutMillis = connectTimeoutMillis;
+        this.connectTimeoutMillis = requireBoundedTimeout("connectTimeoutMillis", connectTimeoutMillis);
     }
 
     public int getReadTimeoutMillis() {
@@ -98,7 +101,7 @@ public class TossPayoutConfig {
     }
 
     public void setReadTimeoutMillis(int readTimeoutMillis) {
-        this.readTimeoutMillis = readTimeoutMillis;
+        this.readTimeoutMillis = requireBoundedTimeout("readTimeoutMillis", readTimeoutMillis);
     }
 
     @Bean
@@ -107,5 +110,13 @@ public class TossPayoutConfig {
         requestFactory.setConnectTimeout(connectTimeoutMillis);
         requestFactory.setReadTimeout(readTimeoutMillis);
         return builder.requestFactory(requestFactory).build();
+    }
+
+    private int requireBoundedTimeout(String property, int value) {
+        if (value < MIN_TIMEOUT_MILLIS || value > MAX_TIMEOUT_MILLIS) {
+            throw new IllegalArgumentException(
+                    property + " must be between " + MIN_TIMEOUT_MILLIS + " and " + MAX_TIMEOUT_MILLIS);
+        }
+        return value;
     }
 }

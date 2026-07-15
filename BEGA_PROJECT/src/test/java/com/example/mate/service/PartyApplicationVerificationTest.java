@@ -106,7 +106,7 @@ class PartyApplicationVerificationTest {
                                 .willReturn(false);
                 given(applicationRepository.countByPartyIdAndIsApprovedFalseAndIsRejectedFalse(1L))
                                 .willReturn(0L);
-                given(partyRepository.findById(1L)).willReturn(Optional.of(testParty));
+                given(partyRepository.findByIdForUpdate(1L)).willReturn(Optional.of(testParty));
                 given(applicationRepository.save(any(PartyApplication.class)))
                                 .willAnswer(inv -> {
                                         PartyApplication app = inv.getArgument(0);
