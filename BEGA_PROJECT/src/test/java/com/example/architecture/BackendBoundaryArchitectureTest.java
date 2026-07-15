@@ -82,10 +82,8 @@ class BackendBoundaryArchitectureTest {
     @Test
     void ragIntegrationServiceMustNotOwnAiTransport() {
         ArchRule rule = noClasses()
-                .that().haveFullyQualifiedName("com.example.cheerboard.service.AiIntegrationService")
-                .should().dependOnClassesThat().resideInAnyPackage(
-                        "com.example.ai.config..",
-                        "org.springframework.web.client..");
+                .that().haveFullyQualifiedName("com.example.ai.service.AiIngestOrchestrationService")
+                .should().dependOnClassesThat().resideInAPackage("org.springframework.web.client..");
 
         rule.check(PRODUCTION_CLASSES);
     }

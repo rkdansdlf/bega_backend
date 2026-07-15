@@ -183,6 +183,13 @@ kbo:
 
 # 애플리케이션 공통 설정
 app:
+  ai-ingest:
+    enabled: ${AI_INGEST_ENABLED:false}
+    cron: "${AI_INGEST_CRON:30 4 * * *}"
+    tables: ${AI_INGEST_TABLES:game,game_metadata,game_summary}
+    season-year: ${AI_INGEST_SEASON_YEAR:}
+    check-interval: ${AI_INGEST_CHECK_INTERVAL:30s}
+    monitoring-duration: ${AI_INGEST_MONITORING_DURATION:2h}
   tomcat:
     # Spring Boot does not expose Tomcat's upload body read timeout directly.
     # TomcatUploadTimeoutConfig maps these values to connectionUploadTimeout / disableUploadTimeout.
