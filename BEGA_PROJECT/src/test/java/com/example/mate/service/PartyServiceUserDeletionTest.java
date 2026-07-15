@@ -13,6 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -383,5 +384,52 @@ class PartyServiceUserDeletionTest {
         verify(partyRepository, never()).save(any(Party.class));
         verify(notificationService, never()).createNotification(anyLong(), any(), anyString(), anyString(), anyLong());
         verify(applicationRepository, never()).delete(any(PartyApplication.class));
+    }
+
+    @Test
+    @DisplayName("여러 파티 잠금은 partyId 오름차순으로 획득한다")
+    void handleUserDeletion_locksAllRelatedPartiesInStableOrder() {
+        Long userId = 50L;
+        Party hosted = Party.builder()
+                .id(200L)
+                .hostId(userId)
+                .gameDate(LocalDate.now().plusDays(2))
+                .stadium("잠실")
+                .currentParticipants(1)
+                .maxParticipants(4)
+                .status(Party.PartyStatus.PENDING)
+                .build();
+        Party joined = Party.builder()
+                .id(100L)
+                .hostId(999L)
+                .gameDate(LocalDate.now().plusDays(2))
+                .stadium("수원")
+                .currentParticipants(2)
+                .maxParticipants(4)
+                .status(Party.PartyStatus.MATCHED)
+                .build();
+        PartyApplication joinedApplication = PartyApplication.builder()
+                .id(300L)
+                .partyId(100L)
+                .applicantId(userId)
+                .applicantName("탈퇴 사용자")
+                .isApproved(true)
+                .isRejected(false)
+                .build();
+
+        when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList())).thenReturn(List.of(hosted));
+        when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
+                .thenReturn(List.of(joinedApplication));
+        when(partyRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(joined));
+        when(partyRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(hosted));
+        when(applicationRepository.findByPartyIdAndIsApprovedTrue(200L)).thenReturn(List.of());
+        when(applicationRepository.findByIdAndApplicantIdForUpdate(300L, userId))
+                .thenReturn(Optional.of(joinedApplication));
+
+        partyService.handleUserDeletion(userId);
+
+        InOrder lockOrder = inOrder(partyRepository);
+        lockOrder.verify(partyRepository).findByIdForUpdate(100L);
+        lockOrder.verify(partyRepository).findByIdForUpdate(200L);
     }
 }

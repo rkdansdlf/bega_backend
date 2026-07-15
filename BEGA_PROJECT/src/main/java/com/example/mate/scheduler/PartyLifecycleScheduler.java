@@ -6,6 +6,7 @@ import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.CancelReasonType;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
+import com.example.mate.service.PartyLifecycleMutationService;
 import com.example.mate.service.PaymentTransactionService;
 import com.example.notification.entity.Notification;
 import com.example.notification.service.NotificationService;
@@ -38,6 +39,7 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
     private final NotificationService notificationService;
     private final JobScheduler jobScheduler;
     private final PaymentTransactionService paymentTransactionService;
+    private final PartyLifecycleMutationService lifecycleMutationService;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -62,7 +64,6 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
      * - 응답 기한이 지난 미처리 신청 → 자동 거절
      */
     @Job(name = "Manage Party Lifecycle")
-    @Transactional
     public void managePartyLifecycle() {
         LocalDate today = LocalDate.now();
         LocalDate yesterday = today.minusDays(1);
@@ -78,14 +79,10 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
                 Party.PartyStatus.PENDING, today);
 
         for (Party candidate : pendingParties) {
-            Party party = partyRepository.findByIdForUpdate(candidate.getId()).orElse(null);
-            if (party == null
-                    || party.getStatus() != Party.PartyStatus.PENDING
-                    || !party.getGameDate().isBefore(today)) {
+            Party party = lifecycleMutationService.expirePendingParty(candidate.getId(), today);
+            if (party == null) {
                 continue;
             }
-            party.setStatus(Party.PartyStatus.FAILED);
-            partyRepository.save(party);
 
             // 호스트에게 알림
             notificationService.createNotification(
@@ -106,14 +103,10 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
         Map<Long, List<PartyApplication>> matchedYesterdayApplicants = loadApprovedApplicantsByParty(matchedYesterdayParties);
 
         for (Party candidate : matchedYesterdayParties) {
-            Party party = partyRepository.findByIdForUpdate(candidate.getId()).orElse(null);
-            if (party == null
-                    || party.getStatus() != Party.PartyStatus.MATCHED
-                    || !yesterday.equals(party.getGameDate())) {
+            Party party = lifecycleMutationService.completeMatchedParty(candidate.getId(), yesterday);
+            if (party == null) {
                 continue;
             }
-            party.setStatus(Party.PartyStatus.COMPLETED);
-            partyRepository.save(party);
 
             // 승인된 참여자들 조회 (bulk pre-fetched)
             List<PartyApplication> approvedApplicants = matchedYesterdayApplicants
@@ -180,17 +173,10 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
 
             // 경기 시간이 3시간 이상 지났는지 확인
             if (gameInstant.isBefore(threeHoursAgo)) {
-                Party party = partyRepository.findByIdForUpdate(candidate.getId()).orElse(null);
-                if (party == null || party.getStatus() != Party.PartyStatus.CHECKED_IN) {
+                Party party = lifecycleMutationService.completeCheckedInParty(candidate.getId(), threeHoursAgo);
+                if (party == null) {
                     continue;
                 }
-                Instant lockedGameInstant = LocalDateTime.of(party.getGameDate(), party.getGameTime())
-                        .atZone(ZoneId.systemDefault()).toInstant();
-                if (!lockedGameInstant.isBefore(threeHoursAgo)) {
-                    continue;
-                }
-                party.setStatus(Party.PartyStatus.COMPLETED);
-                partyRepository.save(party);
 
                 // 승인된 참여자들 조회 (bulk pre-fetched)
                 List<PartyApplication> approvedApplicants = checkedInExpiredApplicants
@@ -243,20 +229,14 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
                 .findByIsApprovedFalseAndIsRejectedFalseAndResponseDeadlineBefore(now);
 
         for (PartyApplication candidate : expiredApplications) {
-            Party party = partyRepository.findByIdForUpdate(candidate.getPartyId()).orElse(null);
-            PartyApplication application = applicationRepository.findByIdAndApplicantIdForUpdate(
-                            candidate.getId(), candidate.getApplicantId())
-                    .orElse(null);
-            if (application == null
-                    || !candidate.getPartyId().equals(application.getPartyId())
-                    || Boolean.TRUE.equals(application.getIsApproved())
-                    || Boolean.TRUE.equals(application.getIsRejected())
-                    || application.getResponseDeadline() == null
-                    || !application.getResponseDeadline().isBefore(now)) {
+            PartyLifecycleMutationService.ExpiredApplicationMutation mutation =
+                    lifecycleMutationService.rejectExpiredApplication(
+                            candidate.getPartyId(), candidate.getId(), candidate.getApplicantId(), now);
+            if (mutation == null) {
                 continue;
             }
-            application.setIsRejected(true);
-            application.setRejectedAt(now);
+            PartyApplication application = mutation.application();
+            Party party = mutation.party();
 
             // 결제된 신청의 경우 실제 환불 처리
             if (Boolean.TRUE.equals(application.getIsPaid())) {
@@ -267,14 +247,13 @@ public class PartyLifecycleScheduler implements ApplicationRunner {
                                     .cancelReasonType(CancelReasonType.SYSTEM)
                                     .cancelMemo("48시간 응답 기한 만료 자동 거절")
                                     .build());
-                    application.setIsPaid(false);
+                    lifecycleMutationService.markApplicationUnpaidAfterRefund(
+                            application.getPartyId(), application.getId(), application.getApplicantId());
                 } catch (RuntimeException e) {
                     log.error("자동 거절 신청 환불 처리 실패: applicationId={}, applicantId={}",
                             application.getId(), application.getApplicantId(), e);
                 }
             }
-
-            applicationRepository.save(application);
 
             // 신청자에게 알림
             notificationService.createNotification(
