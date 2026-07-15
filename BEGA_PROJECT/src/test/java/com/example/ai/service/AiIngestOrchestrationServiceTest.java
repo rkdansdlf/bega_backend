@@ -70,7 +70,7 @@ class AiIngestOrchestrationServiceTest {
         assertThat(requestCaptor.getValue().seasonYear()).isEqualTo(2026);
         assertThat(requestCaptor.getValue().mode()).isEqualTo("INCREMENTAL");
         assertThat(requestCaptor.getValue().triggerSource()).isEqualTo("BACKEND_SCHEDULED");
-        verify(jobScheduler).schedule(eq(NOW.plusSeconds(30)), any(JobLambda.class));
+        verify(jobScheduler).schedule(any(UUID.class), eq(NOW.plusSeconds(30)), any(JobLambda.class));
     }
 
     @Test
@@ -79,7 +79,7 @@ class AiIngestOrchestrationServiceTest {
 
         service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)));
 
-        verify(jobScheduler).schedule(eq(NOW.plusSeconds(30)), any(JobLambda.class));
+        verify(jobScheduler).schedule(any(UUID.class), eq(NOW.plusSeconds(30)), any(JobLambda.class));
         verify(cacheInvalidator, never()).invalidateAll();
     }
 
@@ -90,7 +90,7 @@ class AiIngestOrchestrationServiceTest {
         service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)));
 
         verify(cacheInvalidator).invalidateAll();
-        verify(jobScheduler, never()).schedule(any(Instant.class), any(JobLambda.class));
+        verify(jobScheduler, never()).schedule(any(UUID.class), any(Instant.class), any(JobLambda.class));
     }
 
     @Test
@@ -117,6 +117,41 @@ class AiIngestOrchestrationServiceTest {
                 .isInstanceOf(AiIngestManualDataRequiredException.class)
                 .hasMessageContaining("MANUAL_BASEBALL_DATA_REQUIRED")
                 .hasMessageContaining("Operator verified game_date is required.");
+    }
+
+    @Test
+    void terminalStatusAtDeadlineIsHandledBeforeTimeout() {
+        when(port.getStatus(RUN_ID)).thenReturn(status(AiIngestRunStatus.SUCCEEDED, Map.of()));
+
+        service.monitor(RUN_ID, NOW);
+
+        verify(port).getStatus(RUN_ID);
+        verify(cacheInvalidator).invalidateAll();
+    }
+
+    @Test
+    void pendingStatusAtDeadlineTimesOutAfterFinalStatusCheck() {
+        when(port.getStatus(RUN_ID)).thenReturn(status(AiIngestRunStatus.RUNNING, Map.of()));
+
+        assertThatThrownBy(() -> service.monitor(RUN_ID, NOW))
+                .isInstanceOf(AiIngestRunFailedException.class)
+                .hasMessageContaining("INGEST_MONITOR_TIMEOUT");
+
+        verify(port).getStatus(RUN_ID);
+        verify(jobScheduler, never()).schedule(any(UUID.class), any(Instant.class), any(JobLambda.class));
+    }
+
+    @Test
+    void duplicatePendingMonitorUsesDeterministicNextJobId() {
+        when(port.getStatus(RUN_ID)).thenReturn(status(AiIngestRunStatus.QUEUED, Map.of()));
+        ArgumentCaptor<UUID> idCaptor = ArgumentCaptor.forClass(UUID.class);
+
+        service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)));
+        service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)));
+
+        verify(jobScheduler, org.mockito.Mockito.times(2))
+                .schedule(idCaptor.capture(), eq(NOW.plusSeconds(30)), any(JobLambda.class));
+        assertThat(idCaptor.getAllValues()).containsOnly(idCaptor.getAllValues().getFirst());
     }
 
     private AiIngestRunStatusResponse status(AiIngestRunStatus status, Map<String, Object> error) {

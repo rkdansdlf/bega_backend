@@ -5,6 +5,7 @@ import com.example.ai.ingest.AiIngestRunRequest;
 import com.example.ai.ingest.AiIngestRunStatusResponse;
 import com.example.ai.ingest.AiIngestRunSubmission;
 import com.example.ai.ingest.RagIngestionPort;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
@@ -67,13 +68,12 @@ public class AiIngestOrchestrationService {
     @Job(name = "Monitor AI ingestion run %0")
     public void monitor(UUID runId, Instant deadline) {
         Instant now = clock.instant();
-        if (!now.isBefore(deadline)) {
-            throw new AiIngestRunFailedException("INGEST_MONITOR_TIMEOUT");
-        }
-
         AiIngestRunStatusResponse response = ragIngestionPort.getStatus(runId);
         switch (response.status()) {
             case QUEUED, RUNNING -> {
+                if (!now.isBefore(deadline)) {
+                    throw new AiIngestRunFailedException("INGEST_MONITOR_TIMEOUT");
+                }
                 Instant nextCheck = now.plus(properties.getCheckInterval());
                 scheduleMonitor(runId, deadline, nextCheck.isAfter(deadline) ? deadline : nextCheck);
             }
@@ -87,7 +87,10 @@ public class AiIngestOrchestrationService {
     }
 
     private void scheduleMonitor(UUID runId, Instant deadline, Instant scheduledAt) {
-        jobScheduler.schedule(scheduledAt, () -> monitor(runId, deadline));
+        UUID jobId = UUID.nameUUIDFromBytes(
+                ("ai-ingest-monitor:" + runId + ":" + scheduledAt)
+                        .getBytes(StandardCharsets.UTF_8));
+        jobScheduler.schedule(jobId, scheduledAt, () -> monitor(runId, deadline));
     }
 
     private String errorValue(Map<String, Object> error, String key) {

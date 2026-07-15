@@ -15,6 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 
 @Component
@@ -47,6 +48,8 @@ public class AiRagIngestionAdapter
             log.info("AI ingestion run submitted target={} runId={} status={}",
                     aiServiceSettings.sanitizedServiceTarget(), body.runId(), body.status());
             return body;
+        } catch (RestClientResponseException exception) {
+            throw sanitizedUpstreamFailure("submission", null, exception);
         } catch (Exception exception) {
             log.error("AI ingestion submission failed target={} errorType={}",
                     aiServiceSettings.sanitizedServiceTarget(),
@@ -69,6 +72,8 @@ public class AiRagIngestionAdapter
                 throw new IllegalStateException("AI ingestion status returned an empty response");
             }
             return body;
+        } catch (RestClientResponseException exception) {
+            throw sanitizedUpstreamFailure("status lookup", runId, exception);
         } catch (Exception exception) {
             log.error("AI ingestion status lookup failed target={} runId={} errorType={}",
                     aiServiceSettings.sanitizedServiceTarget(),
@@ -92,6 +97,20 @@ public class AiRagIngestionAdapter
         headers.setAccept(List.of(MediaType.APPLICATION_JSON));
         headers.set("X-Internal-Api-Key", internalToken);
         return new RequestTarget(url, headers);
+    }
+
+    private AiIngestUpstreamException sanitizedUpstreamFailure(
+            String operation,
+            UUID runId,
+            RestClientResponseException exception) {
+        log.error("AI ingestion {} failed target={} runId={} status={}",
+                operation,
+                aiServiceSettings.sanitizedServiceTarget(),
+                runId,
+                exception.getStatusCode().value());
+        return new AiIngestUpstreamException(
+                exception.getStatusCode(),
+                "AI_INGEST_UPSTREAM_HTTP_ERROR");
     }
 
     private record RequestTarget(String url, HttpHeaders headers) {}
