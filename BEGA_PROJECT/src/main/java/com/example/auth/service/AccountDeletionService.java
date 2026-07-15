@@ -54,7 +54,7 @@ public class AccountDeletionService {
 
     @Transactional
     public LocalDateTime scheduleAccountDeletion(Long userId, String password) {
-        UserEntity user = userRepository.findById(userId)
+        UserEntity user = userRepository.findByIdForWrite(userId)
                 .orElseThrow(() -> new UserNotFoundException(userId));
 
         if (user.isPendingDeletion() && user.getDeletionScheduledFor() != null

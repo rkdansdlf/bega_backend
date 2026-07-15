@@ -712,8 +712,6 @@ class PartyServiceTest {
                 when(partyRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(hostedParty));
                 when(applicationRepository.findByPartyIdAndIsApprovedTrue(1L))
                                 .thenReturn(List.of());
-                when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
-                                .thenReturn(List.of());
 
                 partyService.handleUserDeletion(userId);
 
@@ -738,7 +736,7 @@ class PartyServiceTest {
 
                 when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList()))
                                 .thenReturn(List.of());
-                when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
+                when(applicationRepository.findByApplicantId(userId))
                                 .thenReturn(List.of(application));
                 when(partyRepository.findByIdForUpdate(2L)).thenReturn(Optional.of(matchedParty));
                 when(applicationRepository.findByIdAndApplicantIdForUpdate(55L, userId))

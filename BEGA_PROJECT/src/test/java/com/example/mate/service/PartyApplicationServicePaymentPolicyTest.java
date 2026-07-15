@@ -7,6 +7,7 @@ import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.CancelReasonType;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
+import com.example.mate.entity.PaymentStatus;
 import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.exception.PartyApplicationNotFoundException;
 import com.example.mate.repository.PartyApplicationRepository;
@@ -85,7 +86,7 @@ class PartyApplicationServicePaymentPolicyTest {
         given(matePaymentModeService.isTossTest()).willReturn(true);
         given(matePaymentModeService.isInAppPayment()).willReturn(true);
         given(userService.getUserIdByEmail("user@example.com")).willReturn(applicantId);
-        given(userService.findUserById(applicantId)).willReturn(applicant);
+        given(userService.findUserByIdForUpdate(applicantId)).willReturn(applicant);
         given(userService.isSocialVerified(applicantId)).willReturn(true);
         given(applicationRepository.findByPartyIdAndApplicantId(1L, applicantId)).willReturn(Optional.empty());
         given(applicationRepository.existsByPartyIdAndApplicantIdAndIsRejectedTrue(1L, applicantId)).willReturn(false);
@@ -103,6 +104,41 @@ class PartyApplicationServicePaymentPolicyTest {
         assertThatThrownBy(() -> partyApplicationService.createApplication(request, () -> "user@example.com"))
                 .isInstanceOf(InvalidApplicationStatusException.class)
                 .hasMessageContaining("결제 승인 API");
+    }
+
+    @Test
+    void createApplication_pendingDeletionApplicant_isRejectedAfterPartyAndUserLocks() {
+        Long applicantId = 17L;
+        Party party = Party.builder()
+                .id(2L)
+                .hostId(99L)
+                .status(Party.PartyStatus.PENDING)
+                .currentParticipants(0)
+                .maxParticipants(3)
+                .build();
+        UserEntity applicant = UserEntity.builder()
+                .id(applicantId)
+                .name("탈퇴예정")
+                .enabled(false)
+                .pendingDeletion(true)
+                .build();
+        PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
+                .partyId(2L)
+                .message("함께 즐겁게 관람하고 싶어 신청합니다.")
+                .paymentType(PartyApplication.PaymentType.DEPOSIT)
+                .build();
+
+        given(partyRepository.findByIdForUpdate(2L)).willReturn(Optional.of(party));
+        given(userService.findUserByIdForUpdate(applicantId)).willReturn(applicant);
+
+        assertThatThrownBy(() -> partyApplicationService.createApplication(request, applicantId))
+                .isInstanceOf(InvalidApplicationStatusException.class)
+                .hasMessageContaining("탈퇴");
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(partyRepository, userService);
+        order.verify(partyRepository).findByIdForUpdate(2L);
+        order.verify(userService).findUserByIdForUpdate(applicantId);
+        verify(applicationRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -196,7 +232,7 @@ class PartyApplicationServicePaymentPolicyTest {
         given(applicationRepository.findByIdAndPartyHostIdForUpdate(11L, 99L))
                 .willReturn(Optional.of(application));
         given(partyRepository.findById(5L)).willReturn(Optional.of(party));
-        given(userService.findUserById(7L)).willReturn(applicant);
+        given(userService.findUserByIdForUpdate(7L)).willReturn(applicant);
 
         assertThatThrownBy(() -> partyApplicationService.approveApplication(11L, 99L))
                 .isInstanceOf(InvalidApplicationStatusException.class)
@@ -204,6 +240,7 @@ class PartyApplicationServicePaymentPolicyTest {
 
         verify(applicationRepository, never()).save(any());
         verify(partyService, never()).incrementParticipants(any());
+        verify(userService).findUserByIdForUpdate(7L);
     }
 
     @Test
@@ -235,6 +272,11 @@ class PartyApplicationServicePaymentPolicyTest {
         given(applicationRepository.findByIdAndPartyHostIdForUpdate(12L, 99L))
                 .willReturn(Optional.of(application));
         given(applicationRepository.save(application)).willReturn(application);
+        given(paymentTransactionService.processCancellation(any(), any()))
+                .willReturn(PartyApplicationDTO.CancelResponse.builder()
+                        .applicationId(12L)
+                        .paymentStatus(PaymentStatus.CANCELED)
+                        .build());
         given(userService.findUserById(8L))
                 .willReturn(UserEntity.builder().id(8L).handle("applicant-8").build());
 
@@ -242,6 +284,37 @@ class PartyApplicationServicePaymentPolicyTest {
 
         assertThat(application.getIsRejected()).isTrue();
         assertThat(application.getIsPaid()).isFalse();
+    }
+
+    @Test
+    void rejectApplication_paidRefundWithoutCanceledStatus_doesNotPersistRejection() {
+        PartyApplication application = PartyApplication.builder()
+                .id(14L)
+                .partyId(8L)
+                .applicantId(10L)
+                .isApproved(false)
+                .isRejected(false)
+                .isPaid(true)
+                .build();
+        Party party = Party.builder().id(8L).hostId(99L).status(Party.PartyStatus.PENDING).build();
+
+        given(applicationRepository.findByIdAndPartyHostId(14L, 99L)).willReturn(Optional.of(application));
+        given(partyRepository.findByIdForUpdate(8L)).willReturn(Optional.of(party));
+        given(applicationRepository.findByIdAndPartyHostIdForUpdate(14L, 99L))
+                .willReturn(Optional.of(application));
+        given(paymentTransactionService.processCancellation(any(), any()))
+                .willReturn(PartyApplicationDTO.CancelResponse.builder()
+                        .applicationId(14L)
+                        .refundPolicyApplied("NO_PAYMENT")
+                        .build());
+
+        assertThatThrownBy(() -> partyApplicationService.rejectApplication(14L, 99L))
+                .isInstanceOf(InvalidApplicationStatusException.class)
+                .hasMessageContaining("환불 완료");
+
+        assertThat(application.getIsRejected()).isFalse();
+        assertThat(application.getIsPaid()).isTrue();
+        verify(applicationRepository, never()).save(any());
     }
 
     @Test
