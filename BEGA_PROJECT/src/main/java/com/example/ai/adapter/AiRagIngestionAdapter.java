@@ -20,7 +20,7 @@ import org.springframework.web.client.RestTemplate;
 @Component
 @Slf4j
 public class AiRagIngestionAdapter
-        implements RagIngestionPort, com.example.cheerboard.service.port.RagIngestionPort {
+        implements RagIngestionPort {
 
     private final AiServiceSettings aiServiceSettings;
     private final RestTemplate restTemplate;
@@ -76,15 +76,6 @@ public class AiRagIngestionAdapter
                     exception.getClass().getSimpleName());
             throw exception;
         }
-    }
-
-    @Override
-    public void trigger() {
-        submit(new AiIngestRunRequest(
-                List.of("game", "game_metadata", "game_summary"),
-                null,
-                "INCREMENTAL",
-                "BACKEND_SCHEDULED"));
     }
 
     private RequestTarget requireTarget(String path) {
