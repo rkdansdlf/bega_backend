@@ -190,6 +190,31 @@ class HomePageControllerTest {
     }
 
     @Test
+    @DisplayName("랭킹 스냅샷은 수동 야구 데이터 요청 계약을 그대로 노출한다")
+    void getRankingSnapshotReturnsManualBaseballDataRequiredPayload() throws Exception {
+        LocalDate selectedDate = LocalDate.of(2026, 4, 5);
+        given(homePageFacadeService.getRankingSnapshot(eq(selectedDate), isNull()))
+                .willThrow(new ManualBaseballDataRequiredException(
+                        new ManualBaseballDataRequest(
+                                "home.rankings",
+                                List.of(new ManualBaseballDataMissingItem(
+                                        "team_rankings",
+                                        "팀 순위",
+                                        "요청 시즌의 내부 순위 row가 없습니다.",
+                                        "season_year, team_id, rank")),
+                                "다음 야구 데이터가 필요합니다: 시즌=2026, 팀 순위",
+                                true
+                        )));
+
+        mockMvc.perform(get("/api/kbo/rankings/snapshot")
+                        .param("date", "2026-04-05"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("MANUAL_BASEBALL_DATA_REQUIRED"))
+                .andExpect(jsonPath("$.data.scope").value("home.rankings"))
+                .andExpect(jsonPath("$.data.missingItems[0].key").value("team_rankings"));
+    }
+
+    @Test
     @DisplayName("랭킹 스냅샷 조회 실패는 성공 응답으로 위장하지 않는다")
     void getRankingSnapshotReturnsServerError() throws Exception {
         LocalDate selectedDate = LocalDate.of(2026, 3, 13);
