@@ -185,10 +185,7 @@ public class PaymentTransactionService {
     public PartyApplicationDTO.CancelResponse processCancellation(
             PartyApplication application,
             PartyApplicationDTO.CancelRequest request) {
-        if (application == null
-                || !Boolean.TRUE.equals(application.getIsPaid())
-                || application.getOrderId() == null
-                || application.getOrderId().isBlank()) {
+        if (application == null || !Boolean.TRUE.equals(application.getIsPaid())) {
             return PartyApplicationDTO.CancelResponse.builder()
                     .applicationId(application != null ? application.getId() : null)
                     .refundAmount(0)
@@ -197,6 +194,10 @@ public class PaymentTransactionService {
                     .paymentStatus(null)
                     .settlementStatus(null)
                     .build();
+        }
+
+        if (application.getOrderId() == null || application.getOrderId().isBlank()) {
+            throw new IllegalStateException("결제된 신청에 주문 ID가 없어 환불할 수 없습니다.");
         }
 
         PaymentTransaction tx = paymentTransactionRepository.findByOrderId(application.getOrderId())
@@ -208,14 +209,7 @@ public class PaymentTransactionService {
                 });
 
         if (tx == null) {
-            return PartyApplicationDTO.CancelResponse.builder()
-                    .applicationId(application.getId())
-                    .refundAmount(0)
-                    .feeCharged(0)
-                    .refundPolicyApplied("NO_PAYMENT")
-                    .paymentStatus(null)
-                    .settlementStatus(null)
-                    .build();
+            throw new IllegalStateException("결제된 신청의 결제 트랜잭션을 찾을 수 없어 환불할 수 없습니다.");
         }
 
         if (tx.getPaymentStatus() == PaymentStatus.CANCELED) {
@@ -258,6 +252,20 @@ public class PaymentTransactionService {
             metricsService.recordRefund(decision.policyApplied());
             return buildCancelResponse(application.getId(), tx);
         } catch (RuntimeException e) {
+            if (isAlreadyCancelledByProvider(e)) {
+                tx.setRefundAmount(decision.refundAmount());
+                tx.setFeeAmount(decision.feeAmount());
+                tx.setNetAmount(decision.feeAmount());
+                tx.setPaymentStatus(PaymentStatus.CANCELED);
+                if (tx.getSettlementStatus() == SettlementStatus.COMPLETED) {
+                    tx.setSettlementStatus(SettlementStatus.REFUNDED_AFTER_SETTLEMENT);
+                } else {
+                    tx.setSettlementStatus(SettlementStatus.SKIPPED);
+                }
+                paymentTransactionRepository.save(tx);
+                metricsService.recordRefund(decision.policyApplied());
+                return buildCancelResponse(application.getId(), tx);
+            }
             tx.setPaymentStatus(PaymentStatus.REFUND_FAILED);
             paymentTransactionRepository.save(tx);
             metricsService.recordRefund("failed");
@@ -325,6 +333,26 @@ public class PaymentTransactionService {
             return PaymentFlowType.SELLING_FULL;
         }
         return PaymentFlowType.DEPOSIT;
+    }
+
+    private boolean isAlreadyCancelledByProvider(RuntimeException ex) {
+        if (!(ex instanceof TossPaymentException tossEx)) {
+            return false;
+        }
+
+        String tossErrorCode = tossEx.getTossErrorCode();
+        if (tossErrorCode != null) {
+            return "ALREADY_CANCELED_PAYMENT".equals(tossErrorCode)
+                    || "ALREADY_FULLY_CANCELED".equals(tossErrorCode)
+                    || "PAYMENT_ALREADY_CANCELED".equals(tossErrorCode);
+        }
+
+        HttpStatus status = tossEx.getStatusCode() instanceof HttpStatus
+                ? (HttpStatus) tossEx.getStatusCode()
+                : null;
+        boolean conflictStatus = status == HttpStatus.CONFLICT || status == HttpStatus.NOT_FOUND;
+        String message = tossEx.getMessage() == null ? "" : tossEx.getMessage().toLowerCase();
+        return conflictStatus && (message.contains("already") || message.contains("이미 취소된"));
     }
 
     private void applyTransactionFields(PartyApplicationDTO.Response response, PaymentTransaction tx) {

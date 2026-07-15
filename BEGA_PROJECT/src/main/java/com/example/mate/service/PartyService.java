@@ -635,12 +635,12 @@ public class PartyService {
      * 사용자 계정 삭제 시 cascade cleanup 처리
      *
      * 호스트인 경우:
-     * - PENDING 상태 파티는 FAILED로 변경하고 승인된 신청자들에게 알림
-     * - MATCHED 상태 파티는 FAILED로 변경하고 모든 참여자에게 알림
+     * - 활성(PENDING/MATCHED/SELLING) 파티를 FAILED로 변경
+     * - 결제 신청은 환불 재시도를 위해 거절 상태로 보존
      *
      * 참여자인 경우:
-     * - 승인된 신청을 취소하고 currentParticipants 감소
-     * - 호스트에게 알림 발송
+     * - 활성 파티의 승인 신청은 currentParticipants 감소 후 호스트에게 알림
+     * - 활성 파티의 결제 신청은 환불 재시도를 위해 보존하고 종료 파티 이력은 유지
      *
      * @param userId 삭제될 사용자 ID
      */
@@ -648,20 +648,17 @@ public class PartyService {
     public void handleUserDeletion(Long userId) {
         log.info("사용자 삭제로 인한 메이트 cascade cleanup 시작: userId={}", userId);
 
-        // 1. 호스트로 생성한 PENDING/MATCHED 파티 처리
+        // 1. 호스트로 생성한 활성 파티 처리
         List<Party.PartyStatus> activeStatuses = List.of(
                 Party.PartyStatus.PENDING,
-                Party.PartyStatus.MATCHED);
+                Party.PartyStatus.MATCHED,
+                Party.PartyStatus.SELLING);
         List<Party> hostedParties = partyRepository.findByHostIdAndStatusIn(userId, activeStatuses);
-        List<PartyApplication> allApplicationsAsParticipant = applicationRepository.findByApplicantId(userId);
-        List<PartyApplication> approvedApplicationsSnapshot = applicationRepository
-                .findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId);
+        List<PartyApplication> applicationsSnapshot = applicationRepository.findByApplicantId(userId);
 
-        List<Long> relatedPartyIds = java.util.stream.Stream.of(
+        List<Long> relatedPartyIds = java.util.stream.Stream.concat(
                         hostedParties.stream().map(Party::getId),
-                        allApplicationsAsParticipant.stream().map(PartyApplication::getPartyId),
-                        approvedApplicationsSnapshot.stream().map(PartyApplication::getPartyId))
-                .flatMap(stream -> stream)
+                        applicationsSnapshot.stream().map(PartyApplication::getPartyId))
                 .filter(Objects::nonNull)
                 .distinct()
                 .sorted()
@@ -671,8 +668,7 @@ public class PartyService {
             partyRepository.findByIdForUpdate(partyId)
                     .ifPresent(party -> lockedParties.put(partyId, party));
         }
-        List<PartyApplication> approvedApplicationsAsParticipant = applicationRepository
-                .findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId);
+        List<PartyApplication> applicationsAsParticipant = applicationRepository.findByApplicantId(userId);
 
         for (Party candidate : hostedParties) {
             Party party = lockedParties.get(candidate.getId());
@@ -723,8 +719,8 @@ public class PartyService {
             }
         }
 
-        // 2. 참여자로 승인된 신청 처리
-        for (PartyApplication candidate : approvedApplicationsAsParticipant.stream()
+        // 2. 참여자로 만든 활성 파티 신청 처리
+        for (PartyApplication candidate : applicationsAsParticipant.stream()
                 .sorted(java.util.Comparator.comparing(PartyApplication::getPartyId)
                         .thenComparing(PartyApplication::getId))
                 .toList()) {
@@ -732,57 +728,60 @@ public class PartyService {
                 Long partyId = candidate.getPartyId();
                 Long applicationId = candidate.getId();
                 Party party = lockedParties.get(partyId);
+
+                if (party == null) {
+                    log.warn("파티를 찾을 수 없음: partyId={}", partyId);
+                    continue;
+                }
+                if (userId.equals(party.getHostId()) || !activeStatuses.contains(party.getStatus())) {
+                    continue;
+                }
+
                 PartyApplication application = applicationRepository
                         .findByIdAndApplicantIdForUpdate(applicationId, userId)
                         .orElse(null);
 
-                if (party == null) {
-                    log.warn("파티를 찾을 수 없음: partyId={}", partyId);
-                    if (application != null) {
-                        preservePaidApplicationForRefundOrDelete(application);
-                    }
-                    continue;
-                }
-
                 if (application == null
-                        || !partyId.equals(application.getPartyId())
-                        || !Boolean.TRUE.equals(application.getIsApproved())
-                        || Boolean.TRUE.equals(application.getIsRejected())) {
+                        || !partyId.equals(application.getPartyId())) {
                     continue;
                 }
 
-                log.info("참여자 신청 취소 처리: partyId={}, applicantId={}",
-                        party.getId(), userId);
+                boolean approved = Boolean.TRUE.equals(application.getIsApproved())
+                        && !Boolean.TRUE.equals(application.getIsRejected());
+                if (approved) {
+                    log.info("참여자 신청 취소 처리: partyId={}, applicantId={}",
+                            party.getId(), userId);
 
-                // currentParticipants 감소
-                if (party.getCurrentParticipants() > 1) {
-                    party.setCurrentParticipants(party.getCurrentParticipants() - 1);
+                    // currentParticipants 감소
+                    if (party.getCurrentParticipants() > 1) {
+                        party.setCurrentParticipants(party.getCurrentParticipants() - 1);
 
-                    // MATCHED 상태였다면 다시 PENDING으로 변경
-                    if (party.getStatus() == Party.PartyStatus.MATCHED) {
-                        party.setStatus(Party.PartyStatus.PENDING);
+                        // MATCHED 상태였다면 다시 PENDING으로 변경
+                        if (party.getStatus() == Party.PartyStatus.MATCHED) {
+                            party.setStatus(Party.PartyStatus.PENDING);
+                        }
+
+                        partyRepository.save(party);
                     }
 
-                    partyRepository.save(party);
-                }
+                    // 호스트에게 알림 발송
+                    try {
+                        String applicantName = application.getApplicantName() != null ? application.getApplicantName()
+                                : "참여자";
 
-                // 호스트에게 알림 발송
-                try {
-                    String applicantName = application.getApplicantName() != null ? application.getApplicantName()
-                            : "참여자";
-
-                    notificationService.createNotification(
-                            party.getHostId(),
-                            com.example.notification.entity.Notification.NotificationType.PARTY_PARTICIPANT_LEFT,
-                            "참여자가 탈퇴했습니다",
-                            applicantName + "님이 계정 삭제로 인해 파티에서 자동 탈퇴되었습니다. (현재 인원: " +
-                                    party.getCurrentParticipants() + "/" + party.getMaxParticipants() + ")",
-                            party.getId());
-                    log.info("참여자 탈퇴 알림 발송: hostId={}, partyId={}",
-                            party.getHostId(), party.getId());
-                } catch (Exception e) {
-                    log.error("참여자 탈퇴 알림 발송 실패: hostId={}, error={}",
-                            party.getHostId(), e.getMessage());
+                        notificationService.createNotification(
+                                party.getHostId(),
+                                com.example.notification.entity.Notification.NotificationType.PARTY_PARTICIPANT_LEFT,
+                                "참여자가 탈퇴했습니다",
+                                applicantName + "님이 계정 삭제로 인해 파티에서 자동 탈퇴되었습니다. (현재 인원: " +
+                                        party.getCurrentParticipants() + "/" + party.getMaxParticipants() + ")",
+                                party.getId());
+                        log.info("참여자 탈퇴 알림 발송: hostId={}, partyId={}",
+                                party.getHostId(), party.getId());
+                    } catch (Exception e) {
+                        log.error("참여자 탈퇴 알림 발송 실패: hostId={}, error={}",
+                                party.getHostId(), e.getMessage());
+                    }
                 }
 
                 preservePaidApplicationForRefundOrDelete(application);
@@ -796,7 +795,7 @@ public class PartyService {
 
         log.info("사용자 삭제로 인한 메이트 cascade cleanup 완료: userId={}, " +
                 "취소된 호스트 파티={}, 취소된 참여 신청={}",
-                userId, hostedParties.size(), approvedApplicationsAsParticipant.size());
+                userId, hostedParties.size(), applicationsAsParticipant.size());
     }
 
     private void preservePaidApplicationForRefundOrDelete(PartyApplication application) {

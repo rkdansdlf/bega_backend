@@ -62,7 +62,7 @@ class AccountDeletionServiceTest {
                 .provider("LOCAL")
                 .build();
 
-        when(userRepository.findById(41L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForWrite(41L)).thenReturn(Optional.of(user));
         when(bCryptPasswordEncoder.matches("Password1!", "encoded-password")).thenReturn(true);
         when(accountDeletionTokenRepository.save(any(AccountDeletionToken.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));

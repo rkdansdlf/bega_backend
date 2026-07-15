@@ -1,7 +1,9 @@
 package com.example.mate.scheduler;
 
+import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
+import com.example.mate.entity.PaymentStatus;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.service.PartyLifecycleMutationService;
@@ -159,6 +161,10 @@ class PartyLifecycleSchedulerTest {
         when(lifecycleMutationService.rejectExpiredApplication(
                 eq(700L), eq(800L), eq(9001L), any()))
                 .thenReturn(new PartyLifecycleMutationService.ExpiredApplicationMutation(application, party));
+        when(lifecycleMutationService.claimRefundAttempt(eq(700L), eq(800L), eq(9001L), any()))
+                .thenReturn(new PartyLifecycleMutationService.RefundAttemptClaim(application, false));
+        when(paymentTransactionService.processCancellation(eq(application), any()))
+                .thenReturn(canceledRefund(800L));
 
         scheduler.managePartyLifecycle();
 
@@ -166,6 +172,7 @@ class PartyLifecycleSchedulerTest {
                 lifecycleMutationService, paymentTransactionService);
         order.verify(lifecycleMutationService).rejectExpiredApplication(
                 eq(700L), eq(800L), eq(9001L), any());
+        order.verify(lifecycleMutationService).claimRefundAttempt(eq(700L), eq(800L), eq(9001L), any());
         order.verify(paymentTransactionService).processCancellation(eq(application), any());
         order.verify(lifecycleMutationService).markApplicationUnpaidAfterRefund(700L, 800L, 9001L);
     }
@@ -188,9 +195,10 @@ class PartyLifecycleSchedulerTest {
         when(applicationRepository
                 .findByIsRejectedTrueAndIsPaidTrue())
                 .thenReturn(List.of(application));
-        when(lifecycleMutationService.loadRetryableRejectedPaidApplication(
-                701L, 801L, 9002L))
-                .thenReturn(new PartyLifecycleMutationService.ExpiredApplicationMutation(application, party));
+        when(lifecycleMutationService.claimRefundAttempt(eq(701L), eq(801L), eq(9002L), any()))
+                .thenReturn(new PartyLifecycleMutationService.RefundAttemptClaim(application, false));
+        when(paymentTransactionService.processCancellation(eq(application), any()))
+                .thenReturn(canceledRefund(801L));
 
         scheduler.managePartyLifecycle();
 
@@ -220,6 +228,8 @@ class PartyLifecycleSchedulerTest {
         when(lifecycleMutationService.rejectExpiredApplication(
                 eq(702L), eq(802L), eq(9003L), any()))
                 .thenReturn(new PartyLifecycleMutationService.ExpiredApplicationMutation(application, party));
+        when(lifecycleMutationService.claimRefundAttempt(eq(702L), eq(802L), eq(9003L), any()))
+                .thenReturn(new PartyLifecycleMutationService.RefundAttemptClaim(application, false));
         when(paymentTransactionService.processCancellation(eq(application), any()))
                 .thenThrow(new RuntimeException("temporary Toss failure"));
 
@@ -227,6 +237,69 @@ class PartyLifecycleSchedulerTest {
 
         verify(lifecycleMutationService).recordRefundFailure("MATE-702-9003");
         verify(lifecycleMutationService, never()).markApplicationUnpaidAfterRefund(702L, 802L, 9003L);
+    }
+
+    @Test
+    @DisplayName("환불 응답이 CANCELED가 아니면 결제 상태를 지우지 않는다")
+    void managePartyLifecycle_keepsPaidWhenRefundResponseIsNotCanceled() {
+        Party party = newParty(703L, 7L, LocalDate.now().plusDays(2));
+        PartyApplication application = newApplication(703L, 9004L);
+        application.setId(803L);
+        application.setIsApproved(false);
+        application.setIsRejected(false);
+        application.setIsPaid(true);
+        application.setOrderId("MATE-703-9004");
+        application.setResponseDeadline(Instant.now().minusSeconds(60));
+
+        when(partyRepository.findByStatusAndGameDateBefore(any(), any())).thenReturn(List.of());
+        when(partyRepository.findByStatusAndGameDate(any(), any())).thenReturn(List.of());
+        when(partyRepository.findByStatus(Party.PartyStatus.CHECKED_IN)).thenReturn(List.of());
+        when(applicationRepository.findByIsApprovedFalseAndIsRejectedFalseAndResponseDeadlineBefore(any()))
+                .thenReturn(List.of(application));
+        when(lifecycleMutationService.rejectExpiredApplication(
+                eq(703L), eq(803L), eq(9004L), any()))
+                .thenReturn(new PartyLifecycleMutationService.ExpiredApplicationMutation(application, party));
+        when(lifecycleMutationService.claimRefundAttempt(eq(703L), eq(803L), eq(9004L), any()))
+                .thenReturn(new PartyLifecycleMutationService.RefundAttemptClaim(application, false));
+        when(paymentTransactionService.processCancellation(eq(application), any()))
+                .thenReturn(PartyApplicationDTO.CancelResponse.builder()
+                        .applicationId(803L)
+                        .refundPolicyApplied("NO_PAYMENT")
+                        .build());
+
+        scheduler.managePartyLifecycle();
+
+        verify(lifecycleMutationService).recordRefundFailure("MATE-703-9004");
+        verify(lifecycleMutationService, never()).markApplicationUnpaidAfterRefund(703L, 803L, 9004L);
+    }
+
+    @Test
+    @DisplayName("결제 트랜잭션이 이미 취소됐으면 외부 취소 없이 신청만 미결제로 동기화한다")
+    void managePartyLifecycle_syncsAlreadyCanceledClaimWithoutProviderCall() {
+        PartyApplication application = newApplication(704L, 9005L);
+        application.setId(804L);
+        application.setIsRejected(true);
+        application.setIsPaid(true);
+        application.setOrderId("MATE-704-9005");
+
+        when(partyRepository.findByStatusAndGameDateBefore(any(), any())).thenReturn(List.of());
+        when(partyRepository.findByStatusAndGameDate(any(), any())).thenReturn(List.of());
+        when(partyRepository.findByStatus(Party.PartyStatus.CHECKED_IN)).thenReturn(List.of());
+        when(applicationRepository.findByIsRejectedTrueAndIsPaidTrue()).thenReturn(List.of(application));
+        when(lifecycleMutationService.claimRefundAttempt(eq(704L), eq(804L), eq(9005L), any()))
+                .thenReturn(new PartyLifecycleMutationService.RefundAttemptClaim(application, true));
+
+        scheduler.managePartyLifecycle();
+
+        verify(paymentTransactionService, never()).processCancellation(any(), any());
+        verify(lifecycleMutationService).markApplicationUnpaidAfterRefund(704L, 804L, 9005L);
+    }
+
+    private PartyApplicationDTO.CancelResponse canceledRefund(Long applicationId) {
+        return PartyApplicationDTO.CancelResponse.builder()
+                .applicationId(applicationId)
+                .paymentStatus(PaymentStatus.CANCELED)
+                .build();
     }
 
     private Party newParty(Long id, Long hostId, LocalDate gameDate) {

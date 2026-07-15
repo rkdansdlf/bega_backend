@@ -9,6 +9,7 @@ import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.CancelReasonType;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
+import com.example.mate.entity.PaymentStatus;
 import com.example.mate.exception.DuplicateApplicationException;
 import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.exception.PartyApplicationNotFoundException;
@@ -77,7 +78,7 @@ public class PartyApplicationService {
             Long userId,
             String principalName) {
         try {
-            ApplicationCreationContext context = prepareCreationContext(request, userId, principalName);
+            ApplicationCreationContext context = prepareCreationContext(request, userId);
             validateFullPaymentPolicy(request, context.party());
             ApplicationPaymentSnapshot paymentSnapshot = resolveApplicationPaymentSnapshot(request, context.party());
 
@@ -226,7 +227,7 @@ public class PartyApplicationService {
             request.setMessage("함께 즐거운 관람 부탁드립니다!");
         }
 
-        ApplicationCreationContext context = prepareCreationContext(request, applicantId, principalName);
+        ApplicationCreationContext context = prepareCreationContext(request, applicantId);
         PartyApplication contextExisting = resolveExistingPaymentApplication(orderId, paymentKey,
                 context.applicantId());
         if (contextExisting != null) {
@@ -385,7 +386,7 @@ public class PartyApplicationService {
             throw new InvalidApplicationStatusException("모집 중인 파티의 신청만 승인할 수 있습니다.");
         }
 
-        UserEntity applicant = userService.findUserById(application.getApplicantId());
+        UserEntity applicant = userService.findUserByIdForUpdate(application.getApplicantId());
         if (!applicant.isEnabled() || applicant.isPendingDeletion()) {
             throw new InvalidApplicationStatusException("탈퇴 예정이거나 비활성화된 사용자의 신청은 승인할 수 없습니다.");
         }
@@ -440,12 +441,15 @@ public class PartyApplicationService {
         }
 
         if (Boolean.TRUE.equals(application.getIsPaid())) {
-            paymentTransactionService.processCancellation(
+            PartyApplicationDTO.CancelResponse cancelResponse = paymentTransactionService.processCancellation(
                     application,
                     PartyApplicationDTO.CancelRequest.builder()
                             .cancelReasonType(CancelReasonType.SELLER_CHANGED_MIND)
                             .cancelMemo("호스트 신청 거절")
                             .build());
+            if (cancelResponse == null || cancelResponse.getPaymentStatus() != PaymentStatus.CANCELED) {
+                throw new InvalidApplicationStatusException("환불 완료를 확인할 수 없어 신청을 거절하지 않았습니다.");
+            }
             application.setIsPaid(false);
         }
 
@@ -595,22 +599,24 @@ public class PartyApplicationService {
 
     private ApplicationCreationContext prepareCreationContext(
             PartyApplicationDTO.Request request,
-            Long applicantId,
-            String principalName) {
+            Long applicantId) {
         requireUserId(applicantId);
-        String applicantName = resolveUserName(principalName, applicantId);
+        MateContentPolicyValidator.validateApplicationMessage(request.getMessage());
+
+        Long partyId = java.util.Objects.requireNonNull(request.getPartyId());
+        Party party = partyRepository.findByIdForUpdate(partyId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+        UserEntity applicant = userService.findUserByIdForUpdate(applicantId);
+        if (!applicant.isEnabled() || applicant.isPendingDeletion()) {
+            throw new InvalidApplicationStatusException("탈퇴 예정이거나 비활성화된 사용자는 신청할 수 없습니다.");
+        }
+        String applicantName = applicant.getName();
         log.info("[Application] Resolved applicantId={}", applicantId);
 
         if (requireSocialVerification && !userService.isSocialVerified(applicantId)) {
             throw new com.example.common.exception.IdentityVerificationRequiredException(
                     "메이트에 신청하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
         }
-
-        MateContentPolicyValidator.validateApplicationMessage(request.getMessage());
-
-        Long partyId = java.util.Objects.requireNonNull(request.getPartyId());
-        Party party = partyRepository.findByIdForUpdate(partyId)
-                .orElseThrow(() -> new PartyNotFoundException(partyId));
 
         applicationRepository.findByPartyIdAndApplicantId(partyId, applicantId)
                 .ifPresent(app -> {
@@ -787,17 +793,6 @@ public class PartyApplicationService {
             throw new AuthenticationRequiredException("인증 정보가 없습니다.");
         }
         return userId;
-    }
-
-    private String resolveUserName(String principalName, Long userId) {
-        if (principalName != null && !principalName.isBlank() && principalName.contains("@")) {
-            try {
-                return userService.findUserByEmail(principalName).getName();
-            } catch (RuntimeException ignored) {
-                // principal name이 email이 아닌 userId일 수 있어 ID 조회로 fallback
-            }
-        }
-        return userService.findUserById(userId).getName();
     }
 
     private PartyApplicationDTO.Response toResponse(PartyApplication application) {
