@@ -2,12 +2,50 @@ package com.example.ai.config;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
 @ConfigurationProperties(prefix = "app.ai-ingest")
 public class AiIngestProperties {
+
+    private static final Set<String> TRUSTED_SOURCE_TABLES = Set.of(
+            "teams",
+            "team_franchises",
+            "team_history",
+            "stadiums",
+            "kbo_seasons",
+            "player_basic",
+            "awards",
+            "player_movements",
+            "player_season_batting",
+            "player_season_pitching",
+            "team_season_batting",
+            "team_season_pitching",
+            "stat_rankings",
+            "game",
+            "game_metadata",
+            "game_flow_summary",
+            "game_lineups",
+            "game_batting_stats",
+            "game_pitching_stats",
+            "game_summary",
+            "kbo_metrics_explained",
+            "markdown_docs_rules_terms",
+            "markdown_docs_strategy_metrics",
+            "markdown_docs_culture_history",
+            "markdown_docs_2025_storylines",
+            "markdown_docs_chatbot_kb_v2",
+            "kbo_regulations_basic",
+            "kbo_regulations_player",
+            "kbo_regulations_game",
+            "kbo_regulations_technical",
+            "kbo_regulations_discipline",
+            "kbo_regulations_postseason",
+            "kbo_regulations_special",
+            "kbo_regulations_terms");
 
     private boolean enabled;
     private String cron = "30 4 * * *";
@@ -37,7 +75,19 @@ public class AiIngestProperties {
     }
 
     public void setTables(List<String> tables) {
-        this.tables = tables == null ? List.of() : List.copyOf(tables);
+        List<String> normalized = tables == null
+                ? List.of()
+                : tables.stream()
+                        .map(table -> table == null ? "" : table.trim().toLowerCase(Locale.ROOT))
+                        .distinct()
+                        .toList();
+        if (normalized.isEmpty()
+                || normalized.size() > TRUSTED_SOURCE_TABLES.size()
+                || normalized.stream().anyMatch(table -> table.length() > 128)
+                || !TRUSTED_SOURCE_TABLES.containsAll(normalized)) {
+            throw new IllegalArgumentException("unsupported trusted ingestion source table");
+        }
+        this.tables = normalized;
     }
 
     public Integer getSeasonYear() {

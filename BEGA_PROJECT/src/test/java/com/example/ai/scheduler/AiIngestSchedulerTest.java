@@ -43,5 +43,6 @@ class AiIngestSchedulerTest {
 
         verify(jobScheduler, never()).scheduleRecurrently(
                 any(String.class), any(String.class), any(JobLambda.class));
+        verify(jobScheduler).deleteRecurringJob("ai-rag-ingestion");
     }
 }

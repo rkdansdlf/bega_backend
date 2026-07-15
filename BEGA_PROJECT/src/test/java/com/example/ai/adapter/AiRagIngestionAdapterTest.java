@@ -25,7 +25,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.client.HttpServerErrorException;
 
 class AiRagIngestionAdapterTest {
 
@@ -122,19 +121,24 @@ class AiRagIngestionAdapterTest {
     }
 
     @Test
-    void submitPreservesNonSuccessResponse() {
+    void submitSanitizesNonSuccessResponseBody() {
         AiServiceSettings settings = mock(AiServiceSettings.class);
         RestTemplate restTemplate = new RestTemplate();
         MockRestServiceServer server = MockRestServiceServer.createServer(restTemplate);
         when(settings.buildUrl("/ai/ingest/run")).thenReturn("http://ai/ai/ingest/run");
         when(settings.getResolvedInternalToken()).thenReturn("internal-token");
         server.expect(requestTo("http://ai/ai/ingest/run"))
-                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"message\":\"secret-bearing upstream body\"}"));
         AiRagIngestionAdapter adapter = new AiRagIngestionAdapter(settings, restTemplate);
 
         assertThatThrownBy(() -> adapter.submit(new AiIngestRunRequest(
                 List.of("game"), 2026, "INCREMENTAL", "BACKEND_SCHEDULED")))
-                .isInstanceOf(HttpServerErrorException.ServiceUnavailable.class);
+                .isInstanceOf(AiIngestUpstreamException.class)
+                .hasMessageContaining("status=503")
+                .hasMessageContaining("AI_INGEST_UPSTREAM_HTTP_ERROR")
+                .hasMessageNotContaining("secret-bearing upstream body");
 
         server.verify();
     }

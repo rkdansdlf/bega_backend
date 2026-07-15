@@ -14,6 +14,8 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class AiIngestScheduler implements ApplicationRunner {
 
+    private static final String RECURRING_JOB_ID = "ai-rag-ingestion";
+
     private final JobScheduler jobScheduler;
     private final AiIngestOrchestrationService orchestrationService;
     private final AiIngestProperties properties;
@@ -21,12 +23,13 @@ public class AiIngestScheduler implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         if (!properties.isEnabled()) {
+            jobScheduler.deleteRecurringJob(RECURRING_JOB_ID);
             log.info("AI ingestion scheduler is disabled");
             return;
         }
 
         jobScheduler.scheduleRecurrently(
-                "ai-rag-ingestion",
+                RECURRING_JOB_ID,
                 properties.getCron(),
                 orchestrationService::submitScheduled);
         log.info("AI ingestion scheduler registered cron={}", properties.getCron());
