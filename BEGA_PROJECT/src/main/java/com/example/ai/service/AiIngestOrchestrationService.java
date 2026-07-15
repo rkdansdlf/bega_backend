@@ -7,6 +7,8 @@ import com.example.ai.ingest.AiIngestRunSubmission;
 import com.example.ai.ingest.RagIngestionPort;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.DateTimeException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
@@ -25,6 +27,7 @@ public class AiIngestOrchestrationService {
     private final JobScheduler jobScheduler;
     private final BaseballReadCacheInvalidator cacheInvalidator;
     private final AiIngestProperties properties;
+    private final AiIngestMonitoringMetrics metrics;
     private final Clock clock;
 
     @Autowired
@@ -32,8 +35,9 @@ public class AiIngestOrchestrationService {
             RagIngestionPort ragIngestionPort,
             JobScheduler jobScheduler,
             BaseballReadCacheInvalidator cacheInvalidator,
-            AiIngestProperties properties) {
-        this(ragIngestionPort, jobScheduler, cacheInvalidator, properties, Clock.systemUTC());
+            AiIngestProperties properties,
+            AiIngestMonitoringMetrics metrics) {
+        this(ragIngestionPort, jobScheduler, cacheInvalidator, properties, metrics, Clock.systemUTC());
     }
 
     AiIngestOrchestrationService(
@@ -41,11 +45,13 @@ public class AiIngestOrchestrationService {
             JobScheduler jobScheduler,
             BaseballReadCacheInvalidator cacheInvalidator,
             AiIngestProperties properties,
+            AiIngestMonitoringMetrics metrics,
             Clock clock) {
         this.ragIngestionPort = ragIngestionPort;
         this.jobScheduler = jobScheduler;
         this.cacheInvalidator = cacheInvalidator;
         this.properties = properties;
+        this.metrics = metrics;
         this.clock = clock;
     }
 
@@ -56,8 +62,16 @@ public class AiIngestOrchestrationService {
                 properties.getSeasonYear(),
                 "INCREMENTAL",
                 "BACKEND_SCHEDULED");
-        AiIngestRunSubmission submission = ragIngestionPort.submit(request);
-        UUID runId = Objects.requireNonNull(submission.runId(), "AI ingestion submission is missing run_id");
+        AiIngestRunSubmission submission;
+        UUID runId;
+        try {
+            submission = ragIngestionPort.submit(request);
+            runId = Objects.requireNonNull(submission.runId(), "AI ingestion submission is missing run_id");
+            metrics.recordSubmissionAccepted(submission.deduplicated());
+        } catch (RuntimeException exception) {
+            metrics.recordSubmissionFailure();
+            throw exception;
+        }
         Instant now = clock.instant();
         Instant deadline = now.plus(properties.getMonitoringDuration());
         scheduleMonitor(runId, deadline, now.plus(properties.getCheckInterval()), 1);
@@ -72,6 +86,10 @@ public class AiIngestOrchestrationService {
         switch (response.status()) {
             case QUEUED, RUNNING -> {
                 if (!now.isBefore(deadline)) {
+                    metrics.recordTerminal(
+                            runId,
+                            "MONITOR_TIMEOUT",
+                            orchestrationElapsed(response, now, deadline));
                     throw new AiIngestRunFailedException("INGEST_MONITOR_TIMEOUT");
                 }
                 Instant nextCheck = now.plus(properties.getCheckInterval());
@@ -81,13 +99,62 @@ public class AiIngestOrchestrationService {
                         nextCheck.isAfter(deadline) ? deadline : nextCheck,
                         pollSequence + 1);
             }
-            case SUCCEEDED -> cacheInvalidator.invalidateAll();
-            case FAILED -> throw new AiIngestRunFailedException(errorValue(response.error(), "code"));
-            case MANUAL_BASEBALL_DATA_REQUIRED -> throw new AiIngestManualDataRequiredException(
-                    firstNonBlank(
-                            errorValue(response.error(), "operator_message"),
-                            errorValue(response.error(), "message")));
+            case SUCCEEDED -> {
+                metrics.recordTerminal(
+                        runId,
+                        response.status().name(),
+                        orchestrationElapsed(response, now, deadline));
+                try {
+                    cacheInvalidator.invalidateAll();
+                    metrics.recordCacheInvalidation(true);
+                } catch (RuntimeException exception) {
+                    metrics.recordCacheInvalidation(false);
+                    throw exception;
+                }
+            }
+            case FAILED -> {
+                metrics.recordTerminal(
+                        runId,
+                        response.status().name(),
+                        orchestrationElapsed(response, now, deadline));
+                throw new AiIngestRunFailedException(errorValue(response.error(), "code"));
+            }
+            case MANUAL_BASEBALL_DATA_REQUIRED -> {
+                metrics.recordTerminal(
+                        runId,
+                        response.status().name(),
+                        orchestrationElapsed(response, now, deadline));
+                metrics.recordManualDataRequired(runId);
+                throw new AiIngestManualDataRequiredException(
+                        firstNonBlank(
+                                errorValue(response.error(), "operator_message"),
+                                errorValue(response.error(), "message")));
+            }
         }
+    }
+
+    private Duration orchestrationElapsed(
+            AiIngestRunStatusResponse response,
+            Instant now,
+            Instant deadline) {
+        Instant submissionWindowStart = deadline.minus(properties.getMonitoringDuration());
+        Instant startedAt = submissionWindowStart;
+        try {
+            if (response.requestedAt() != null && !response.requestedAt().isBlank()) {
+                Instant requestedAt = Instant.parse(response.requestedAt());
+                if (requestedAt.isBefore(submissionWindowStart)) {
+                    startedAt = submissionWindowStart;
+                } else if (requestedAt.isAfter(now)) {
+                    startedAt = now;
+                } else {
+                    startedAt = requestedAt;
+                }
+            }
+        } catch (DateTimeException ignored) {
+            // Fall back to the backend submission window without exposing the raw value.
+        }
+        Duration elapsed = Duration.between(startedAt, now);
+        return elapsed.isNegative() ? Duration.ZERO : elapsed;
     }
 
     private void scheduleMonitor(
