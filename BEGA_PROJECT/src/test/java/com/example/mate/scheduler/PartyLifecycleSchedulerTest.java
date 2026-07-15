@@ -4,6 +4,7 @@ import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
+import com.example.mate.service.PartyLifecycleMutationService;
 import com.example.mate.service.PaymentTransactionService;
 import com.example.notification.entity.Notification;
 import com.example.notification.service.NotificationService;
@@ -15,6 +16,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Collections;
@@ -46,6 +48,9 @@ class PartyLifecycleSchedulerTest {
 
     @Mock
     private PaymentTransactionService paymentTransactionService;
+
+    @Mock
+    private PartyLifecycleMutationService lifecycleMutationService;
 
     @InjectMocks
     private PartyLifecycleScheduler scheduler;
@@ -132,6 +137,37 @@ class PartyLifecycleSchedulerTest {
                 eq(7L),
                 eq(Notification.NotificationType.GAME_TOMORROW_REMINDER),
                 anyString(), anyString(), eq(500L));
+    }
+
+    @Test
+    @DisplayName("자동 거절 환불은 신청 상태 선점 트랜잭션이 끝난 뒤 실행한다")
+    void managePartyLifecycle_refundsAfterApplicationMutationTransaction() {
+        Party party = newParty(700L, 7L, LocalDate.now().plusDays(2));
+        PartyApplication application = newApplication(700L, 9001L);
+        application.setId(800L);
+        application.setIsApproved(false);
+        application.setIsRejected(false);
+        application.setIsPaid(true);
+        application.setOrderId("MATE-700-9001");
+        application.setResponseDeadline(Instant.now().minusSeconds(60));
+
+        when(partyRepository.findByStatusAndGameDateBefore(any(), any())).thenReturn(List.of());
+        when(partyRepository.findByStatusAndGameDate(any(), any())).thenReturn(List.of());
+        when(partyRepository.findByStatus(Party.PartyStatus.CHECKED_IN)).thenReturn(List.of());
+        when(applicationRepository.findByIsApprovedFalseAndIsRejectedFalseAndResponseDeadlineBefore(any()))
+                .thenReturn(List.of(application));
+        when(lifecycleMutationService.rejectExpiredApplication(
+                eq(700L), eq(800L), eq(9001L), any()))
+                .thenReturn(new PartyLifecycleMutationService.ExpiredApplicationMutation(application, party));
+
+        scheduler.managePartyLifecycle();
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(
+                lifecycleMutationService, paymentTransactionService);
+        order.verify(lifecycleMutationService).rejectExpiredApplication(
+                eq(700L), eq(800L), eq(9001L), any());
+        order.verify(paymentTransactionService).processCancellation(eq(application), any());
+        order.verify(lifecycleMutationService).markApplicationUnpaidAfterRefund(700L, 800L, 9001L);
     }
 
     private Party newParty(Long id, Long hostId, LocalDate gameDate) {
