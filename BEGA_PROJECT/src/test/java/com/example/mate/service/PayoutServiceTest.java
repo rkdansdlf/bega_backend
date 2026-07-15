@@ -2,6 +2,7 @@ package com.example.mate.service;
 
 import com.example.mate.entity.PayoutTransaction;
 import com.example.mate.entity.PaymentTransaction;
+import com.example.mate.entity.PaymentStatus;
 import com.example.mate.entity.SettlementStatus;
 import com.example.mate.repository.PayoutTransactionRepository;
 import com.example.mate.repository.PaymentTransactionRepository;
@@ -27,6 +28,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.inOrder;
 
 @ExtendWith(MockitoExtension.class)
 class PayoutServiceTest {
@@ -42,6 +44,9 @@ class PayoutServiceTest {
 
     @Mock
     private SellerPayoutProfileService sellerPayoutProfileService;
+
+    @Mock
+    private SellerRecoveryService sellerRecoveryService;
 
     @Mock
     private JobScheduler jobScheduler;
@@ -70,6 +75,7 @@ class PayoutServiceTest {
                 paymentTransactionRepository,
                 paymentMetricsService,
                 sellerPayoutProfileService,
+                sellerRecoveryService,
                 jobScheduler,
                 gateways);
 
@@ -101,6 +107,7 @@ class PayoutServiceTest {
                 .retryCount(0)
                 .build();
 
+        givenLockedPayment(paymentTransaction);
         given(payoutTransactionRepository.findTopByPaymentTransactionIdForUpdateOrderByIdDesc(10L))
                 .willReturn(Optional.of(existing));
 
@@ -128,6 +135,7 @@ class PayoutServiceTest {
                 .retryCount(0)
                 .build();
 
+        givenLockedPayment(paymentTransaction);
         given(payoutTransactionRepository.findTopByPaymentTransactionIdForUpdateOrderByIdDesc(10L))
                 .willReturn(Optional.of(pending));
         given(payoutTransactionRepository.save(any(PayoutTransaction.class)))
@@ -158,6 +166,7 @@ class PayoutServiceTest {
                 .retryCount(0)
                 .build();
 
+        givenLockedPayment(paymentTransaction);
         given(simGateway.requestPayout(any(PayoutGateway.PayoutRequest.class)))
                 .willThrow(new RuntimeException("provider unavailable"));
         given(payoutTransactionRepository.findTopByPaymentTransactionIdForUpdateOrderByIdDesc(10L))
@@ -200,6 +209,7 @@ class PayoutServiceTest {
                 .retryCount(0)
                 .build();
 
+        givenLockedPayment(paymentTransaction);
         given(payoutTransactionRepository.findTopByPaymentTransactionIdForUpdateOrderByIdDesc(44L))
                 .willReturn(Optional.of(pending));
         given(payoutTransactionRepository.save(any(PayoutTransaction.class)))
@@ -238,6 +248,7 @@ class PayoutServiceTest {
                 .retryCount(0)
                 .build();
 
+        givenLockedPayment(paymentTransaction);
         given(payoutTransactionRepository.findTopByPaymentTransactionIdForUpdateOrderByIdDesc(66L))
                 .willReturn(Optional.of(pending));
         given(payoutTransactionRepository.save(any(PayoutTransaction.class)))
@@ -279,6 +290,7 @@ class PayoutServiceTest {
                 .retryCount(0)
                 .build();
 
+        givenLockedPayment(paymentTransaction);
         given(payoutTransactionRepository.findTopByPaymentTransactionIdForUpdateOrderByIdDesc(77L))
                 .willReturn(Optional.of(pending));
         given(payoutTransactionRepository.save(any(PayoutTransaction.class)))
@@ -303,5 +315,195 @@ class PayoutServiceTest {
         assertThat(pending.getFailureCode()).isEqualTo("TOSS_SELLER_INVALID");
         assertThat(paymentTransaction.getSettlementStatus()).isEqualTo(SettlementStatus.FAILED);
         verify(jobScheduler).schedule(any(Instant.class), any(JobLambda.class));
+    }
+
+    @Test
+    void requestPayout_fullRecoveryOffsetCompletesWithoutProviderCall() throws Exception {
+        PaymentTransaction paymentTransaction = PaymentTransaction.builder()
+                .id(90L)
+                .orderId("MATE-90-2-1700000000000")
+                .sellerUserId(120L)
+                .netAmount(12000)
+                .build();
+        PayoutTransaction pending = PayoutTransaction.builder()
+                .id(91L)
+                .paymentTransactionId(90L)
+                .sellerId(120L)
+                .requestedAmount(12000)
+                .status(SettlementStatus.PENDING)
+                .retryCount(0)
+                .build();
+
+        givenLockedPayment(paymentTransaction);
+        given(payoutTransactionRepository.findTopByPaymentTransactionIdForUpdateOrderByIdDesc(90L))
+                .willReturn(Optional.of(pending));
+        given(payoutTransactionRepository.save(any(PayoutTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(paymentTransactionRepository.save(any(PaymentTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(sellerRecoveryService.reserveOffset(120L, 12000))
+                .willReturn(new SellerRecoveryService.RecoveryOffsetResult(12000));
+
+        PayoutTransaction result = newServiceWithEnabled(true).requestPayout(paymentTransaction);
+
+        assertThat(result.getStatus()).isEqualTo(SettlementStatus.COMPLETED);
+        assertThat(result.getRequestedAmount()).isZero();
+        assertThat(result.getRecoveryOffsetAmount()).isEqualTo(12000);
+        assertThat(result.getRecoveryOffsetReservedAt()).isNotNull();
+        assertThat(result.getProviderRef()).isEqualTo("RECOVERY_OFFSET");
+        assertThat(paymentTransaction.getSettlementStatus()).isEqualTo(SettlementStatus.COMPLETED);
+        verify(simGateway, never()).requestPayout(any());
+    }
+
+    @Test
+    void requestPayout_partialRecoveryOffsetSendsOnlyRemainder() throws Exception {
+        PaymentTransaction paymentTransaction = PaymentTransaction.builder()
+                .id(92L)
+                .orderId("MATE-92-2-1700000000000")
+                .sellerUserId(121L)
+                .netAmount(12000)
+                .build();
+        PayoutTransaction pending = PayoutTransaction.builder()
+                .id(93L)
+                .paymentTransactionId(92L)
+                .sellerId(121L)
+                .requestedAmount(12000)
+                .status(SettlementStatus.PENDING)
+                .retryCount(0)
+                .build();
+
+        givenLockedPayment(paymentTransaction);
+        given(payoutTransactionRepository.findTopByPaymentTransactionIdForUpdateOrderByIdDesc(92L))
+                .willReturn(Optional.of(pending));
+        given(payoutTransactionRepository.save(any(PayoutTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(paymentTransactionRepository.save(any(PaymentTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(sellerRecoveryService.reserveOffset(121L, 12000))
+                .willReturn(new SellerRecoveryService.RecoveryOffsetResult(3000));
+        given(simGateway.requestPayout(any(PayoutGateway.PayoutRequest.class)))
+                .willReturn(new PayoutGateway.PayoutResult("sim-partial-offset", "COMPLETED"));
+
+        PayoutTransaction result = newServiceWithEnabled(true).requestPayout(paymentTransaction);
+
+        assertThat(result.getRecoveryOffsetAmount()).isEqualTo(3000);
+        assertThat(result.getRequestedAmount()).isEqualTo(9000);
+        verify(simGateway).requestPayout(argThat(request -> Integer.valueOf(9000).equals(request.amount())));
+    }
+
+    @Test
+    void retryPayout_reusesReservedOffsetWithoutConsumingDebtAgain() throws Exception {
+        PaymentTransaction paymentTransaction = PaymentTransaction.builder()
+                .id(94L)
+                .orderId("MATE-94-2-1700000000000")
+                .sellerUserId(122L)
+                .netAmount(12000)
+                .paymentStatus(PaymentStatus.PAID)
+                .build();
+        PayoutTransaction failed = PayoutTransaction.builder()
+                .id(95L)
+                .paymentTransactionId(94L)
+                .sellerId(122L)
+                .requestedAmount(9000)
+                .recoveryOffsetAmount(3000)
+                .recoveryOffsetReservedAt(Instant.now().minusSeconds(60))
+                .status(SettlementStatus.FAILED)
+                .retryCount(1)
+                .nextRetryAt(Instant.now().minusSeconds(1))
+                .build();
+
+        given(payoutTransactionRepository.findByIdForUpdate(95L)).willReturn(Optional.of(failed));
+        given(payoutTransactionRepository.findById(95L)).willReturn(Optional.of(failed));
+        given(paymentTransactionRepository.findByIdForUpdate(94L)).willReturn(Optional.of(paymentTransaction));
+        given(payoutTransactionRepository.save(any(PayoutTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(paymentTransactionRepository.save(any(PaymentTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(simGateway.requestPayout(any(PayoutGateway.PayoutRequest.class)))
+                .willReturn(new PayoutGateway.PayoutResult("sim-retry-offset", "COMPLETED"));
+
+        newServiceWithEnabled(true).retryPayout(95L);
+
+        verify(sellerRecoveryService, never()).reserveOffset(any(), any(Integer.class));
+        verify(simGateway).requestPayout(argThat(request -> Integer.valueOf(9000).equals(request.amount())));
+    }
+
+    @Test
+    void retryPayout_canceledPaymentSkipsWithoutProviderCall() throws Exception {
+        PaymentTransaction paymentTransaction = PaymentTransaction.builder()
+                .id(96L)
+                .orderId("MATE-96-2-1700000000000")
+                .sellerUserId(123L)
+                .netAmount(12000)
+                .paymentStatus(PaymentStatus.CANCELED)
+                .settlementStatus(SettlementStatus.SKIPPED)
+                .build();
+        PayoutTransaction failed = PayoutTransaction.builder()
+                .id(97L)
+                .paymentTransactionId(96L)
+                .sellerId(123L)
+                .requestedAmount(12000)
+                .status(SettlementStatus.FAILED)
+                .retryCount(1)
+                .nextRetryAt(Instant.now().minusSeconds(1))
+                .build();
+
+        given(payoutTransactionRepository.findByIdForUpdate(97L)).willReturn(Optional.of(failed));
+        given(payoutTransactionRepository.findById(97L)).willReturn(Optional.of(failed));
+        given(paymentTransactionRepository.findByIdForUpdate(96L)).willReturn(Optional.of(paymentTransaction));
+        given(payoutTransactionRepository.save(any(PayoutTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+
+        newServiceWithEnabled(true).retryPayout(97L);
+
+        assertThat(failed.getStatus()).isEqualTo(SettlementStatus.SKIPPED);
+        assertThat(failed.getFailureCode()).isEqualTo("PAYMENT_NOT_PAYABLE");
+        assertThat(paymentTransaction.getSettlementStatus()).isEqualTo(SettlementStatus.SKIPPED);
+        verify(simGateway, never()).requestPayout(any());
+        verify(sellerRecoveryService, never()).reserveOffset(any(), any(Integer.class));
+    }
+
+    @Test
+    void requestPayout_flushesUniqueClaimBeforeCallingProvider() throws Exception {
+        PaymentTransaction paymentTransaction = PaymentTransaction.builder()
+                .id(98L)
+                .orderId("MATE-98-2-1700000000000")
+                .sellerUserId(124L)
+                .netAmount(12000)
+                .paymentStatus(PaymentStatus.PAID)
+                .build();
+        PayoutTransaction pending = PayoutTransaction.builder()
+                .paymentTransactionId(98L)
+                .sellerId(124L)
+                .requestedAmount(12000)
+                .status(SettlementStatus.PENDING)
+                .retryCount(0)
+                .build();
+
+        given(payoutTransactionRepository.findTopByPaymentTransactionIdForUpdateOrderByIdDesc(98L))
+                .willReturn(Optional.of(pending));
+        given(paymentTransactionRepository.findByIdForUpdate(98L))
+                .willReturn(Optional.of(paymentTransaction));
+        given(payoutTransactionRepository.save(any(PayoutTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(payoutTransactionRepository.saveAndFlush(any(PayoutTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(paymentTransactionRepository.save(any(PaymentTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(simGateway.requestPayout(any(PayoutGateway.PayoutRequest.class)))
+                .willReturn(new PayoutGateway.PayoutResult("sim-unique-claim", "COMPLETED"));
+
+        newServiceWithEnabled(true).requestPayout(paymentTransaction);
+
+        org.mockito.InOrder order = inOrder(payoutTransactionRepository, simGateway);
+        order.verify(payoutTransactionRepository).saveAndFlush(pending);
+        order.verify(simGateway).requestPayout(argThat(request ->
+                "mate-payout-98".equals(request.requestId())));
+    }
+
+    private void givenLockedPayment(PaymentTransaction paymentTransaction) {
+        paymentTransaction.setPaymentStatus(PaymentStatus.PAID);
+        given(paymentTransactionRepository.findByIdForUpdate(paymentTransaction.getId()))
+                .willReturn(Optional.of(paymentTransaction));
     }
 }

@@ -2,6 +2,7 @@ package com.example.mate.service;
 
 import com.example.mate.entity.PayoutTransaction;
 import com.example.mate.entity.PaymentTransaction;
+import com.example.mate.entity.PaymentStatus;
 import com.example.mate.entity.SettlementStatus;
 import com.example.mate.service.payout.PayoutGateway;
 import com.example.mate.service.payout.PayoutGateway.PayoutGatewayException;
@@ -35,6 +36,7 @@ public class PayoutService {
     private final PaymentTransactionRepository paymentTransactionRepository;
     private final PaymentMetricsService metricsService;
     private final SellerPayoutProfileService sellerPayoutProfileService;
+    private final SellerRecoveryService sellerRecoveryService;
     private final JobScheduler jobScheduler;
 
     private final Map<String, PayoutGateway> payoutGateways;
@@ -45,12 +47,14 @@ public class PayoutService {
             PaymentTransactionRepository paymentTransactionRepository,
             PaymentMetricsService metricsService,
             SellerPayoutProfileService sellerPayoutProfileService,
+            SellerRecoveryService sellerRecoveryService,
             JobScheduler jobScheduler,
             java.util.List<PayoutGateway> payoutGateways) {
         this.payoutTransactionRepository = payoutTransactionRepository;
         this.paymentTransactionRepository = paymentTransactionRepository;
         this.metricsService = metricsService;
         this.sellerPayoutProfileService = sellerPayoutProfileService;
+        this.sellerRecoveryService = sellerRecoveryService;
         this.jobScheduler = jobScheduler;
         this.payoutGateways = payoutGateways.stream()
                 .collect(Collectors.toMap(
@@ -71,12 +75,17 @@ public class PayoutService {
             throw new IllegalArgumentException("결제 트랜잭션이 올바르지 않습니다.");
         }
 
+        PaymentTransaction lockedPayment = paymentTransactionRepository
+                .findByIdForUpdate(paymentTransaction.getId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "결제 트랜잭션을 찾을 수 없습니다: " + paymentTransaction.getId()));
+
         PayoutTransaction payout = payoutTransactionRepository
-                .findTopByPaymentTransactionIdForUpdateOrderByIdDesc(paymentTransaction.getId())
+                .findTopByPaymentTransactionIdForUpdateOrderByIdDesc(lockedPayment.getId())
                 .orElseGet(() -> PayoutTransaction.builder()
-                        .paymentTransactionId(paymentTransaction.getId())
-                        .sellerId(paymentTransaction.getSellerUserId())
-                        .requestedAmount(paymentTransaction.getNetAmount())
+                        .paymentTransactionId(lockedPayment.getId())
+                        .sellerId(lockedPayment.getSellerUserId())
+                        .requestedAmount(lockedPayment.getNetAmount())
                         .status(SettlementStatus.PENDING)
                         .build());
 
@@ -89,6 +98,15 @@ public class PayoutService {
             return payout;
         }
 
+        if (!isPayable(lockedPayment)) {
+            return markPayoutSkipped(
+                    lockedPayment,
+                    payout,
+                    "PAYMENT_NOT_PAYABLE",
+                    "paymentStatus=" + lockedPayment.getPaymentStatus(),
+                    false);
+        }
+
         if (payout.getStatus() == SettlementStatus.FAILED
                 && payout.getRetryCount() != null
                 && payout.getRetryCount() >= MAX_PAYOUT_RETRY_ATTEMPTS) {
@@ -97,19 +115,26 @@ public class PayoutService {
 
         if (!payoutEnabled) {
             return markPayoutSkipped(
-                    paymentTransaction,
+                    lockedPayment,
                     payout,
                     "PAYMENT_PAYOUT_DISABLED",
                     "payment.payout.enabled=false");
         }
 
-        return executePayoutRequest(paymentTransaction, payout);
+        return executePayoutRequest(lockedPayment, payout);
     }
 
     @Job(name = "Retry Payout")
     @Transactional
     public void retryPayout(Long payoutId) {
-        payoutTransactionRepository.findByIdForUpdate(payoutId).ifPresent(payout -> {
+        payoutTransactionRepository.findById(payoutId).ifPresent(candidate -> {
+            PaymentTransaction paymentTransaction = paymentTransactionRepository
+                    .findByIdForUpdate(candidate.getPaymentTransactionId())
+                    .orElse(null);
+            if (paymentTransaction == null) {
+                return;
+            }
+            payoutTransactionRepository.findByIdForUpdate(payoutId).ifPresent(payout -> {
             if (payout.getStatus() != SettlementStatus.FAILED) {
                 return;
             }
@@ -127,17 +152,33 @@ public class PayoutService {
                 return;
             }
 
-            paymentTransactionRepository.findById(payout.getPaymentTransactionId()).ifPresent(paymentTransaction -> {
-                try {
-                    executePayoutRequest(paymentTransaction, payout);
-                } catch (RuntimeException e) {
-                    log.error("[Payout] 재시도 지급 처리 실패: payoutId={}", payoutId, e);
-                }
+            if (!isPayable(paymentTransaction)) {
+                markPayoutSkipped(
+                        paymentTransaction,
+                        payout,
+                        "PAYMENT_NOT_PAYABLE",
+                        "paymentStatus=" + paymentTransaction.getPaymentStatus(),
+                        false);
+                return;
+            }
+            try {
+                executePayoutRequest(paymentTransaction, payout);
+            } catch (RuntimeException e) {
+                log.error("[Payout] 재시도 지급 처리 실패: payoutId={}", payoutId, e);
+            }
             });
         });
     }
 
     private PayoutTransaction executePayoutRequest(PaymentTransaction paymentTransaction, PayoutTransaction payout) {
+        if (!isPayable(paymentTransaction)) {
+            return markPayoutSkipped(
+                    paymentTransaction,
+                    payout,
+                    "PAYMENT_NOT_PAYABLE",
+                    "paymentStatus=" + paymentTransaction.getPaymentStatus(),
+                    false);
+        }
         if (!payoutEnabled) {
             return markPayoutSkipped(
                     paymentTransaction,
@@ -147,18 +188,28 @@ public class PayoutService {
         }
 
         String providerCode = resolveProviderCode();
+        int payoutAmount = reserveRecoveryOffset(paymentTransaction, payout);
+        if (payoutAmount == 0) {
+            return completeWithRecoveryOffset(paymentTransaction, payout);
+        }
 
         payout.setStatus(SettlementStatus.REQUESTED);
-        payout.setRequestedAmount(paymentTransaction.getNetAmount());
+        payout.setRequestedAmount(payoutAmount);
         payout.setRequestedAt(Instant.now());
         payout.setFailReason(null);
         payout.setFailureCode(null);
         payout.setLastRetryAt(Instant.now());
         payout.setNextRetryAt(null);
-        payout = payoutTransactionRepository.save(payout);
+        PayoutTransaction claimed = payoutTransactionRepository.saveAndFlush(payout);
+        if (claimed != null) {
+            payout = claimed;
+        }
 
         try {
-            PayoutGateway.PayoutRequest payoutRequest = buildPayoutRequest(paymentTransaction, providerCode);
+            PayoutGateway.PayoutRequest payoutRequest = buildPayoutRequest(
+                    paymentTransaction,
+                    providerCode,
+                    payoutAmount);
             PayoutGateway payoutGateway = resolveGateway(providerCode);
             PayoutGateway.PayoutResult gatewayResult = payoutGateway.requestPayout(payoutRequest);
             payout.setProviderRef(gatewayResult.providerRef());
@@ -198,6 +249,45 @@ public class PayoutService {
         return payout;
     }
 
+    private int reserveRecoveryOffset(
+            PaymentTransaction paymentTransaction,
+            PayoutTransaction payout) {
+        int netAmount = Math.max(0, Objects.requireNonNullElse(paymentTransaction.getNetAmount(), 0));
+        if (payout.getRecoveryOffsetReservedAt() == null) {
+            SellerRecoveryService.RecoveryOffsetResult result = sellerRecoveryService.reserveOffset(
+                    paymentTransaction.getSellerUserId(),
+                    netAmount);
+            int offsetAmount = result != null ? result.offsetAmount() : 0;
+            payout.setRecoveryOffsetAmount(Math.min(netAmount, Math.max(0, offsetAmount)));
+            payout.setRecoveryOffsetReservedAt(Instant.now());
+            payoutTransactionRepository.save(payout);
+        }
+        int reservedOffset = Math.min(
+                netAmount,
+                Math.max(0, Objects.requireNonNullElse(payout.getRecoveryOffsetAmount(), 0)));
+        return netAmount - reservedOffset;
+    }
+
+    private PayoutTransaction completeWithRecoveryOffset(
+            PaymentTransaction paymentTransaction,
+            PayoutTransaction payout) {
+        Instant now = Instant.now();
+        payout.setStatus(SettlementStatus.COMPLETED);
+        payout.setRequestedAmount(0);
+        payout.setProviderRef("RECOVERY_OFFSET");
+        payout.setRequestedAt(now);
+        payout.setCompletedAt(now);
+        payout.setFailReason(null);
+        payout.setFailureCode(null);
+        payout.setNextRetryAt(null);
+        payout = payoutTransactionRepository.save(payout);
+
+        paymentTransaction.setSettlementStatus(SettlementStatus.COMPLETED);
+        paymentTransactionRepository.save(paymentTransaction);
+        metricsService.recordPayout("recovery_offset");
+        return payout;
+    }
+
     private long calculateRetryDelaySeconds(int retryCount) {
         long delay = BASE_RETRY_DELAY_SECONDS * (1L << Math.max(0, retryCount - 1));
         return Math.min(MAX_RETRY_DELAY_SECONDS, delay);
@@ -222,6 +312,15 @@ public class PayoutService {
             PayoutTransaction payout,
             String failureCode,
             String failReason) {
+        return markPayoutSkipped(paymentTransaction, payout, failureCode, failReason, true);
+    }
+
+    private PayoutTransaction markPayoutSkipped(
+            PaymentTransaction paymentTransaction,
+            PayoutTransaction payout,
+            String failureCode,
+            String failReason,
+            boolean updatePaymentSettlement) {
         if (payout.getStatus() == SettlementStatus.SKIPPED) {
             return payout;
         }
@@ -235,11 +334,17 @@ public class PayoutService {
         payout.setFailReason(failReason);
         payout = payoutTransactionRepository.save(payout);
 
-        paymentTransaction.setSettlementStatus(SettlementStatus.SKIPPED);
-        paymentTransactionRepository.save(paymentTransaction);
+        if (updatePaymentSettlement) {
+            paymentTransaction.setSettlementStatus(SettlementStatus.SKIPPED);
+            paymentTransactionRepository.save(paymentTransaction);
+        }
         metricsService.recordPayout("skip");
 
         return payout;
+    }
+
+    private boolean isPayable(PaymentTransaction paymentTransaction) {
+        return paymentTransaction.getPaymentStatus() == PaymentStatus.PAID;
     }
 
     private PayoutGateway resolveGateway(String providerCode) {
@@ -251,7 +356,10 @@ public class PayoutService {
 
     }
 
-    private PayoutGateway.PayoutRequest buildPayoutRequest(PaymentTransaction paymentTransaction, String providerCode) {
+    private PayoutGateway.PayoutRequest buildPayoutRequest(
+            PaymentTransaction paymentTransaction,
+            String providerCode,
+            int payoutAmount) {
         String providerSellerId = null;
         if ("TOSS".equals(providerCode)) {
             providerSellerId = sellerPayoutProfileService.getRequiredProviderSellerId(
@@ -264,8 +372,9 @@ public class PayoutService {
                 paymentTransaction.getOrderId(),
                 paymentTransaction.getSellerUserId(),
                 providerSellerId,
-                paymentTransaction.getNetAmount(),
-                "KRW");
+                payoutAmount,
+                "KRW",
+                "mate-payout-" + paymentTransaction.getId());
     }
 
     private String resolveProviderCode() {

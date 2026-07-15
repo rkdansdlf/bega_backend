@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,7 +19,11 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 @Entity
-@Table(name = "payout_transactions")
+@Table(
+        name = "payout_transactions",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_payout_payment_tx",
+                columnNames = "payment_transaction_id"))
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -66,6 +71,12 @@ public class PayoutTransaction {
     @Column(name = "failure_code", length = 100)
     private String failureCode;
 
+    @Column(name = "recovery_offset_amount", nullable = false)
+    private Integer recoveryOffsetAmount;
+
+    @Column(name = "recovery_offset_reserved_at")
+    private Instant recoveryOffsetReservedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -82,6 +93,9 @@ public class PayoutTransaction {
         }
         if (retryCount == null) {
             retryCount = 0;
+        }
+        if (recoveryOffsetAmount == null) {
+            recoveryOffsetAmount = 0;
         }
     }
 

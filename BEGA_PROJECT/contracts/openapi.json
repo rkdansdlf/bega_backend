@@ -1901,8 +1901,8 @@
           "required" : true
         },
         "responses" : {
-          "201" : {
-            "description" : "새 게시글 생성",
+          "200" : {
+            "description" : "기존 활성 연결 게시글 반환",
             "content" : {
               "*/*" : {
                 "schema" : {
@@ -1911,8 +1911,8 @@
               }
             }
           },
-          "200" : {
-            "description" : "기존 활성 연결 게시글 반환",
+          "201" : {
+            "description" : "새 게시글 생성",
             "content" : {
               "*/*" : {
                 "schema" : {
@@ -7110,9 +7110,6 @@
           }
         } ],
         "responses" : {
-          "204" : {
-            "description" : "No Content"
-          },
           "200" : {
             "description" : "OK",
             "content" : {
@@ -7122,6 +7119,9 @@
                 }
               }
             }
+          },
+          "204" : {
+            "description" : "No Content"
           }
         }
       }
@@ -11218,7 +11218,9 @@
             "enum" : [ "BUYER_CHANGED_MIND", "SELLER_CHANGED_MIND", "SYSTEM", "EVENT_CANCELED", "OTHER" ]
           },
           "cancelMemo" : {
-            "type" : "string"
+            "type" : "string",
+            "maxLength" : 500,
+            "minLength" : 0
           }
         }
       },
@@ -15341,6 +15343,19 @@
             "type" : "integer",
             "format" : "int64"
           },
+          "pageable" : {
+            "$ref" : "#/components/schemas/PageableObject"
+          },
+          "first" : {
+            "type" : "boolean"
+          },
+          "last" : {
+            "type" : "boolean"
+          },
+          "numberOfElements" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
           "size" : {
             "type" : "integer",
             "format" : "int32"
@@ -15358,19 +15373,6 @@
           "sort" : {
             "$ref" : "#/components/schemas/SortObject"
           },
-          "pageable" : {
-            "$ref" : "#/components/schemas/PageableObject"
-          },
-          "first" : {
-            "type" : "boolean"
-          },
-          "last" : {
-            "type" : "boolean"
-          },
-          "numberOfElements" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
           "empty" : {
             "type" : "boolean"
           }
@@ -15379,12 +15381,8 @@
       "PageableObject" : {
         "type" : "object",
         "properties" : {
-          "offset" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "sort" : {
-            "$ref" : "#/components/schemas/SortObject"
+          "unpaged" : {
+            "type" : "boolean"
           },
           "paged" : {
             "type" : "boolean"
@@ -15397,21 +15395,25 @@
             "type" : "integer",
             "format" : "int32"
           },
-          "unpaged" : {
-            "type" : "boolean"
+          "offset" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "sort" : {
+            "$ref" : "#/components/schemas/SortObject"
           }
         }
       },
       "SortObject" : {
         "type" : "object",
         "properties" : {
-          "empty" : {
+          "unsorted" : {
             "type" : "boolean"
           },
           "sorted" : {
             "type" : "boolean"
           },
-          "unsorted" : {
+          "empty" : {
             "type" : "boolean"
           }
         }
