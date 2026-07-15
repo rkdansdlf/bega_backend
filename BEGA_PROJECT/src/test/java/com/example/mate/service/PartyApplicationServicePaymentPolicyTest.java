@@ -26,6 +26,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDate;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
@@ -154,6 +155,58 @@ class PartyApplicationServicePaymentPolicyTest {
     }
 
     @Test
+    void approveApplication_failedParty_isRejectedAfterPartyLock() {
+        PartyApplication application = PartyApplication.builder()
+                .id(11L)
+                .partyId(5L)
+                .applicantId(7L)
+                .isApproved(false)
+                .isRejected(false)
+                .build();
+        Party party = Party.builder().id(5L).hostId(99L).status(Party.PartyStatus.FAILED).build();
+
+        given(applicationRepository.findByIdAndPartyHostId(11L, 99L)).willReturn(Optional.of(application));
+        given(partyRepository.findByIdForUpdate(5L)).willReturn(Optional.of(party));
+        given(applicationRepository.findByIdAndPartyHostIdForUpdate(11L, 99L))
+                .willReturn(Optional.of(application));
+        given(partyRepository.findById(5L)).willReturn(Optional.of(party));
+
+        assertThatThrownBy(() -> partyApplicationService.approveApplication(11L, 99L))
+                .isInstanceOf(InvalidApplicationStatusException.class)
+                .hasMessageContaining("모집 중");
+
+        verify(applicationRepository, never()).save(any());
+        verify(partyService, never()).incrementParticipants(any());
+    }
+
+    @Test
+    void approveApplication_pendingDeletionApplicant_isRejectedAfterLocks() {
+        PartyApplication application = PartyApplication.builder()
+                .id(11L)
+                .partyId(5L)
+                .applicantId(7L)
+                .isApproved(false)
+                .isRejected(false)
+                .build();
+        Party party = Party.builder().id(5L).hostId(99L).status(Party.PartyStatus.PENDING).build();
+        UserEntity applicant = UserEntity.builder().id(7L).enabled(false).pendingDeletion(true).build();
+
+        given(applicationRepository.findByIdAndPartyHostId(11L, 99L)).willReturn(Optional.of(application));
+        given(partyRepository.findByIdForUpdate(5L)).willReturn(Optional.of(party));
+        given(applicationRepository.findByIdAndPartyHostIdForUpdate(11L, 99L))
+                .willReturn(Optional.of(application));
+        given(partyRepository.findById(5L)).willReturn(Optional.of(party));
+        given(userService.findUserById(7L)).willReturn(applicant);
+
+        assertThatThrownBy(() -> partyApplicationService.approveApplication(11L, 99L))
+                .isInstanceOf(InvalidApplicationStatusException.class)
+                .hasMessageContaining("탈퇴");
+
+        verify(applicationRepository, never()).save(any());
+        verify(partyService, never()).incrementParticipants(any());
+    }
+
+    @Test
     void rejectApplication_nonHostApplicationId_isTreatedAsNotFoundBeforeMutation() {
         given(userService.getUserIdByEmail("host@example.com")).willReturn(99L);
         given(applicationRepository.findByIdAndPartyHostId(11L, 99L)).willReturn(Optional.empty());
@@ -163,6 +216,60 @@ class PartyApplicationServicePaymentPolicyTest {
 
         verify(applicationRepository, never()).save(any());
         verify(paymentTransactionService, never()).processCancellation(any(), any());
+    }
+
+    @Test
+    void rejectApplication_paidRefundSuccess_marksApplicationUnpaid() {
+        PartyApplication application = PartyApplication.builder()
+                .id(12L)
+                .partyId(6L)
+                .applicantId(8L)
+                .isApproved(false)
+                .isRejected(false)
+                .isPaid(true)
+                .build();
+        Party party = Party.builder().id(6L).hostId(99L).status(Party.PartyStatus.PENDING).build();
+
+        given(applicationRepository.findByIdAndPartyHostId(12L, 99L)).willReturn(Optional.of(application));
+        given(partyRepository.findByIdForUpdate(6L)).willReturn(Optional.of(party));
+        given(applicationRepository.findByIdAndPartyHostIdForUpdate(12L, 99L))
+                .willReturn(Optional.of(application));
+        given(applicationRepository.save(application)).willReturn(application);
+        given(userService.findUserById(8L))
+                .willReturn(UserEntity.builder().id(8L).handle("applicant-8").build());
+
+        partyApplicationService.rejectApplication(12L, 99L);
+
+        assertThat(application.getIsRejected()).isTrue();
+        assertThat(application.getIsPaid()).isFalse();
+    }
+
+    @Test
+    void rejectApplication_paidRefundFailure_doesNotPersistRejection() {
+        PartyApplication application = PartyApplication.builder()
+                .id(13L)
+                .partyId(7L)
+                .applicantId(9L)
+                .isApproved(false)
+                .isRejected(false)
+                .isPaid(true)
+                .build();
+        Party party = Party.builder().id(7L).hostId(99L).status(Party.PartyStatus.PENDING).build();
+
+        given(applicationRepository.findByIdAndPartyHostId(13L, 99L)).willReturn(Optional.of(application));
+        given(partyRepository.findByIdForUpdate(7L)).willReturn(Optional.of(party));
+        given(applicationRepository.findByIdAndPartyHostIdForUpdate(13L, 99L))
+                .willReturn(Optional.of(application));
+        given(paymentTransactionService.processCancellation(any(), any()))
+                .willThrow(new RuntimeException("temporary Toss failure"));
+
+        assertThatThrownBy(() -> partyApplicationService.rejectApplication(13L, 99L))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("temporary Toss failure");
+
+        assertThat(application.getIsRejected()).isFalse();
+        assertThat(application.getIsPaid()).isTrue();
+        verify(applicationRepository, never()).save(any());
     }
 
     @Test
