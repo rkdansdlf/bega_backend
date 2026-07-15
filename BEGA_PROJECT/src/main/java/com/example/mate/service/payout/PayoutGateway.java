@@ -22,7 +22,8 @@ public interface PayoutGateway {
             Long sellerUserId,
             String providerSellerId,
             Integer amount,
-            String currency) {
+            String currency,
+            String requestId) {
     }
 
     record PayoutResult(String providerRef, String rawStatus) {
