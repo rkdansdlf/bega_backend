@@ -77,7 +77,7 @@ class AiIngestOrchestrationServiceTest {
     void queuedStatusSchedulesExactlyOneFutureMonitor() {
         when(port.getStatus(RUN_ID)).thenReturn(status(AiIngestRunStatus.QUEUED, Map.of()));
 
-        service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)));
+        service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)), 1);
 
         verify(jobScheduler).schedule(any(UUID.class), eq(NOW.plusSeconds(30)), any(JobLambda.class));
         verify(cacheInvalidator, never()).invalidateAll();
@@ -87,7 +87,7 @@ class AiIngestOrchestrationServiceTest {
     void succeededStatusInvalidatesBaseballReadCaches() {
         when(port.getStatus(RUN_ID)).thenReturn(status(AiIngestRunStatus.SUCCEEDED, Map.of()));
 
-        service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)));
+        service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)), 1);
 
         verify(cacheInvalidator).invalidateAll();
         verify(jobScheduler, never()).schedule(any(UUID.class), any(Instant.class), any(JobLambda.class));
@@ -99,7 +99,7 @@ class AiIngestOrchestrationServiceTest {
                 AiIngestRunStatus.FAILED,
                 Map.of("code", "INGEST_EXECUTION_FAILED", "message", "secret response body")));
 
-        assertThatThrownBy(() -> service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2))))
+        assertThatThrownBy(() -> service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)), 1))
                 .isInstanceOf(AiIngestRunFailedException.class)
                 .hasMessageContaining("INGEST_EXECUTION_FAILED")
                 .hasMessageNotContaining("secret response body");
@@ -113,7 +113,7 @@ class AiIngestOrchestrationServiceTest {
                         "code", "MANUAL_BASEBALL_DATA_REQUIRED",
                         "operator_message", "Operator verified game_date is required.")));
 
-        assertThatThrownBy(() -> service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2))))
+        assertThatThrownBy(() -> service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)), 1))
                 .isInstanceOf(AiIngestManualDataRequiredException.class)
                 .hasMessageContaining("MANUAL_BASEBALL_DATA_REQUIRED")
                 .hasMessageContaining("Operator verified game_date is required.");
@@ -123,7 +123,7 @@ class AiIngestOrchestrationServiceTest {
     void terminalStatusAtDeadlineIsHandledBeforeTimeout() {
         when(port.getStatus(RUN_ID)).thenReturn(status(AiIngestRunStatus.SUCCEEDED, Map.of()));
 
-        service.monitor(RUN_ID, NOW);
+        service.monitor(RUN_ID, NOW, 1);
 
         verify(port).getStatus(RUN_ID);
         verify(cacheInvalidator).invalidateAll();
@@ -133,7 +133,7 @@ class AiIngestOrchestrationServiceTest {
     void pendingStatusAtDeadlineTimesOutAfterFinalStatusCheck() {
         when(port.getStatus(RUN_ID)).thenReturn(status(AiIngestRunStatus.RUNNING, Map.of()));
 
-        assertThatThrownBy(() -> service.monitor(RUN_ID, NOW))
+        assertThatThrownBy(() -> service.monitor(RUN_ID, NOW, 1))
                 .isInstanceOf(AiIngestRunFailedException.class)
                 .hasMessageContaining("INGEST_MONITOR_TIMEOUT");
 
@@ -142,15 +142,23 @@ class AiIngestOrchestrationServiceTest {
     }
 
     @Test
-    void duplicatePendingMonitorUsesDeterministicNextJobId() {
+    void retriedPendingMonitorUsesSequenceBasedNextJobIdWhenClockMoves() {
         when(port.getStatus(RUN_ID)).thenReturn(status(AiIngestRunStatus.QUEUED, Map.of()));
         ArgumentCaptor<UUID> idCaptor = ArgumentCaptor.forClass(UUID.class);
+        Clock movingClock = org.mockito.Mockito.mock(Clock.class);
+        when(movingClock.instant()).thenReturn(NOW, NOW.plusSeconds(5));
+        AiIngestOrchestrationService movingClockService = new AiIngestOrchestrationService(
+                port,
+                jobScheduler,
+                cacheInvalidator,
+                properties,
+                movingClock);
 
-        service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)));
-        service.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)));
+        movingClockService.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)), 7);
+        movingClockService.monitor(RUN_ID, NOW.plus(Duration.ofHours(2)), 7);
 
         verify(jobScheduler, org.mockito.Mockito.times(2))
-                .schedule(idCaptor.capture(), eq(NOW.plusSeconds(30)), any(JobLambda.class));
+                .schedule(idCaptor.capture(), any(Instant.class), any(JobLambda.class));
         assertThat(idCaptor.getAllValues()).containsOnly(idCaptor.getAllValues().getFirst());
     }
 

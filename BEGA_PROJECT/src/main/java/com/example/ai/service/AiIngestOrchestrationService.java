@@ -60,13 +60,13 @@ public class AiIngestOrchestrationService {
         UUID runId = Objects.requireNonNull(submission.runId(), "AI ingestion submission is missing run_id");
         Instant now = clock.instant();
         Instant deadline = now.plus(properties.getMonitoringDuration());
-        scheduleMonitor(runId, deadline, now.plus(properties.getCheckInterval()));
+        scheduleMonitor(runId, deadline, now.plus(properties.getCheckInterval()), 1);
         log.info("AI ingestion monitoring scheduled runId={} status={} deduplicated={}",
                 runId, submission.status(), submission.deduplicated());
     }
 
     @Job(name = "Monitor AI ingestion run %0")
-    public void monitor(UUID runId, Instant deadline) {
+    public void monitor(UUID runId, Instant deadline, long pollSequence) {
         Instant now = clock.instant();
         AiIngestRunStatusResponse response = ragIngestionPort.getStatus(runId);
         switch (response.status()) {
@@ -75,7 +75,11 @@ public class AiIngestOrchestrationService {
                     throw new AiIngestRunFailedException("INGEST_MONITOR_TIMEOUT");
                 }
                 Instant nextCheck = now.plus(properties.getCheckInterval());
-                scheduleMonitor(runId, deadline, nextCheck.isAfter(deadline) ? deadline : nextCheck);
+                scheduleMonitor(
+                        runId,
+                        deadline,
+                        nextCheck.isAfter(deadline) ? deadline : nextCheck,
+                        pollSequence + 1);
             }
             case SUCCEEDED -> cacheInvalidator.invalidateAll();
             case FAILED -> throw new AiIngestRunFailedException(errorValue(response.error(), "code"));
@@ -86,11 +90,15 @@ public class AiIngestOrchestrationService {
         }
     }
 
-    private void scheduleMonitor(UUID runId, Instant deadline, Instant scheduledAt) {
+    private void scheduleMonitor(
+            UUID runId,
+            Instant deadline,
+            Instant scheduledAt,
+            long pollSequence) {
         UUID jobId = UUID.nameUUIDFromBytes(
-                ("ai-ingest-monitor:" + runId + ":" + scheduledAt)
+                ("ai-ingest-monitor:" + runId + ":" + pollSequence)
                         .getBytes(StandardCharsets.UTF_8));
-        jobScheduler.schedule(jobId, scheduledAt, () -> monitor(runId, deadline));
+        jobScheduler.schedule(jobId, scheduledAt, () -> monitor(runId, deadline, pollSequence));
     }
 
     private String errorValue(Map<String, Object> error, String key) {
