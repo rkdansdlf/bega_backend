@@ -50,6 +50,15 @@ public class PayoutTransaction {
     @Column(name = "provider_ref", length = 200)
     private String providerRef;
 
+    @Column(name = "provider_code", length = 30)
+    private String providerCode;
+
+    @Column(name = "provider_seller_id", length = 200)
+    private String providerSellerId;
+
+    @Column(name = "claim_protocol", length = 30)
+    private String claimProtocol;
+
     @Column(name = "requested_at")
     private Instant requestedAt;
 

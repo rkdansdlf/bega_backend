@@ -144,25 +144,25 @@ class PayoutTossProviderIntegrationTest {
         saveSellerProfile(702L, "seller-toss-702");
 
         controlledTossGateway.configureFailure(new PayoutGateway.PayoutGatewayException(
-                "toss gateway down",
-                "TOSS_GATEWAY_DOWN",
-                HttpStatusCode.valueOf(502)));
+                "invalid seller profile",
+                "TOSS_SELLER_INVALID",
+                HttpStatusCode.valueOf(400)));
 
         PayoutTransaction result = paymentTransactionService.requestManualPayout(paymentTransaction.getId());
         assertThat(result.getStatus()).isEqualTo(SettlementStatus.FAILED);
-        assertThat(result.getFailureCode()).isEqualTo("TOSS_GATEWAY_DOWN");
+        assertThat(result.getFailureCode()).isEqualTo("TOSS_SELLER_INVALID");
 
         PayoutTransaction failedPayout = payoutTransactionRepository
                 .findTopByPaymentTransactionIdOrderByIdDesc(paymentTransaction.getId())
                 .orElseThrow();
         assertThat(failedPayout.getStatus()).isEqualTo(SettlementStatus.FAILED);
-        assertThat(failedPayout.getFailureCode()).isEqualTo("TOSS_GATEWAY_DOWN");
-        assertThat(failedPayout.getFailReason()).contains("toss gateway down");
+        assertThat(failedPayout.getFailureCode()).isEqualTo("TOSS_SELLER_INVALID");
+        assertThat(failedPayout.getFailReason()).contains("invalid seller profile");
 
         PaymentTransaction savedPayment = paymentTransactionRepository.findById(paymentTransaction.getId()).orElseThrow();
         assertThat(savedPayment.getSettlementStatus()).isEqualTo(SettlementStatus.FAILED);
 
-        verify(jobScheduler).schedule(any(Instant.class), any(JobLambda.class));
+        verify(jobScheduler, never()).schedule(any(Instant.class), any(JobLambda.class));
     }
 
     @Test
@@ -255,7 +255,7 @@ class PayoutTossProviderIntegrationTest {
 
         void configureSuccess(String providerRef) {
             this.nextFailure = null;
-            this.successResult = new PayoutResult(providerRef, "REQUESTED");
+            this.successResult = new PayoutResult(providerRef, "COMPLETED");
         }
 
         void configureFailure(RuntimeException failure) {

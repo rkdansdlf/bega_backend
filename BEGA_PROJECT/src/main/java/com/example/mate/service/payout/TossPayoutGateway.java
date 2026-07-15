@@ -97,9 +97,15 @@ public class TossPayoutGateway implements PayoutGateway {
         } catch (RestClientResponseException e) {
             return new PayoutStatusResult(
                     providerRef,
-                    "FAILED",
+                    "UNKNOWN",
                     parseFailureCode(e.getResponseBodyAsString()),
                     e.getResponseBodyAsString());
+        } catch (RuntimeException e) {
+            return new PayoutStatusResult(
+                    providerRef,
+                    "UNKNOWN",
+                    "TOSS_PAYOUT_STATUS_LOOKUP_FAILED",
+                    e.getMessage());
         }
     }
 
