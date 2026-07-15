@@ -438,10 +438,10 @@ public class PaymentController {
     }
 
     private void ensureTossPaymentEnabled() {
-        if (matePaymentModeService.isDirectTrade()) {
+        if (!matePaymentModeService.isTossPaymentEnabled()) {
             throw paymentServiceUnavailable(
                     "TOSS_PAYMENT_DISABLED",
-                    "직거래 모드에서는 앱 내 Toss 결제를 지원하지 않습니다.");
+                    "현재 설정에서는 앱 내 Toss 결제를 지원하지 않습니다.");
         }
     }
 

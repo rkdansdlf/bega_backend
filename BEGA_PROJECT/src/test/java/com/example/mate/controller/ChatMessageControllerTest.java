@@ -12,6 +12,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Positive;
+
+import java.lang.reflect.Method;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -66,6 +71,17 @@ class ChatMessageControllerTest {
         assertThat((List<?>) result.getBody()).hasSize(1);
         assertThat(((List<?>) result.getBody()).get(0)).isEqualTo(resp);
         verify(chatMessageService).getMessagesByPartyId(5L, 42L, 20, 100L);
+    }
+
+    @Test
+    @DisplayName("채팅 페이지 파라미터에 공개 API 제약 조건을 선언한다")
+    void getMessagesByPartyId_declaresPagingConstraints() throws Exception {
+        Method method = ChatMessageController.class.getMethod(
+                "getMessagesByPartyId", Long.class, Long.class, Integer.class, Long.class);
+
+        assertThat(method.getParameters()[2].getAnnotation(Min.class).value()).isEqualTo(1L);
+        assertThat(method.getParameters()[2].getAnnotation(Max.class).value()).isEqualTo(100L);
+        assertThat(method.getParameters()[3].getAnnotation(Positive.class)).isNotNull();
     }
 
     @Test

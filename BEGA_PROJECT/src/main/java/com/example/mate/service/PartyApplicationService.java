@@ -545,9 +545,20 @@ public class PartyApplicationService {
     }
 
     private PartyApplication requireHostedApplicationForUpdate(Long applicationId, Long hostId) {
-        return applicationRepository.findByIdAndPartyHostIdForUpdate(
-                        java.util.Objects.requireNonNull(applicationId), hostId)
+        Long requiredApplicationId = java.util.Objects.requireNonNull(applicationId);
+        PartyApplication candidate = applicationRepository.findByIdAndPartyHostId(requiredApplicationId, hostId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+        Long partyId = java.util.Objects.requireNonNull(candidate.getPartyId());
+
+        partyRepository.findByIdForUpdate(partyId)
+                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+
+        PartyApplication locked = applicationRepository.findByIdAndPartyHostIdForUpdate(requiredApplicationId, hostId)
+                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+        if (!partyId.equals(locked.getPartyId())) {
+            throw new PartyApplicationNotFoundException(applicationId);
+        }
+        return locked;
     }
 
     private PartyApplication requireApplicantApplication(Long applicationId, Long applicantId) {
@@ -556,9 +567,21 @@ public class PartyApplicationService {
     }
 
     private PartyApplication requireApplicantApplicationForUpdate(Long applicationId, Long applicantId) {
-        return applicationRepository.findByIdAndApplicantIdForUpdate(
-                        java.util.Objects.requireNonNull(applicationId), applicantId)
+        Long requiredApplicationId = java.util.Objects.requireNonNull(applicationId);
+        PartyApplication candidate = applicationRepository.findByIdAndApplicantId(requiredApplicationId, applicantId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+        Long partyId = java.util.Objects.requireNonNull(candidate.getPartyId());
+
+        partyRepository.findByIdForUpdate(partyId)
+                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+
+        PartyApplication locked = applicationRepository.findByIdAndApplicantIdForUpdate(
+                        requiredApplicationId, applicantId)
+                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+        if (!partyId.equals(locked.getPartyId())) {
+            throw new PartyApplicationNotFoundException(applicationId);
+        }
+        return locked;
     }
 
     private ApplicationCreationContext prepareCreationContext(

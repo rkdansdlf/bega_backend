@@ -162,6 +162,7 @@ class PartyServiceUserDeletionTest {
         // given
         when(partyRepository.findByHostIdAndStatusIn(eq(hostUserId), anyList()))
                 .thenReturn(List.of(pendingParty));
+        when(partyRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(pendingParty));
         when(applicationRepository.findByPartyIdAndIsApprovedTrue(100L))
                 .thenReturn(List.of(application1));
         when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(hostUserId))
@@ -192,6 +193,7 @@ class PartyServiceUserDeletionTest {
         // given
         when(partyRepository.findByHostIdAndStatusIn(eq(hostUserId), anyList()))
                 .thenReturn(List.of(matchedParty));
+        when(partyRepository.findByIdForUpdate(101L)).thenReturn(Optional.of(matchedParty));
         when(applicationRepository.findByPartyIdAndIsApprovedTrue(101L))
                 .thenReturn(List.of(application2));
         when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(hostUserId))
@@ -243,8 +245,10 @@ class PartyServiceUserDeletionTest {
                 .thenReturn(List.of());
         when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(participantUserId1))
                 .thenReturn(List.of(participantApplication));
-        when(partyRepository.findById(300L))
+        when(partyRepository.findByIdForUpdate(300L))
                 .thenReturn(Optional.of(hostParty));
+        when(applicationRepository.findByIdAndApplicantIdForUpdate(202L, participantUserId1))
+                .thenReturn(Optional.of(participantApplication));
 
         // when
         partyService.handleUserDeletion(participantUserId1);
@@ -312,14 +316,18 @@ class PartyServiceUserDeletionTest {
 
         when(partyRepository.findByHostIdAndStatusIn(eq(hostUserId), anyList()))
                 .thenReturn(List.of(pendingParty, matchedParty));
+        when(partyRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(pendingParty));
+        when(partyRepository.findByIdForUpdate(101L)).thenReturn(Optional.of(matchedParty));
         when(applicationRepository.findByPartyIdAndIsApprovedTrue(100L))
                 .thenReturn(List.of(application1));
         when(applicationRepository.findByPartyIdAndIsApprovedTrue(101L))
                 .thenReturn(List.of(application2));
         when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(hostUserId))
                 .thenReturn(List.of(asParticipant));
-        when(partyRepository.findById(400L))
+        when(partyRepository.findByIdForUpdate(400L))
                 .thenReturn(Optional.of(anotherHostParty));
+        when(applicationRepository.findByIdAndApplicantIdForUpdate(203L, hostUserId))
+                .thenReturn(Optional.of(asParticipant));
 
         // when
         partyService.handleUserDeletion(hostUserId);

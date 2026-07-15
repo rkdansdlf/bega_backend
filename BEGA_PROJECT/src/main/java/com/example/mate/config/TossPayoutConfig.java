@@ -3,6 +3,7 @@ package com.example.mate.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 @Configuration
@@ -17,6 +18,8 @@ public class TossPayoutConfig {
     private String securityMode = "ENCRYPTION";
     private String encryptionPublicKey;
     private String encryptionPublicKeyPath;
+    private int connectTimeoutMillis = 3_000;
+    private int readTimeoutMillis = 10_000;
 
     public String getApiSecret() {
         return apiSecret;
@@ -82,9 +85,27 @@ public class TossPayoutConfig {
         this.encryptionPublicKeyPath = encryptionPublicKeyPath;
     }
 
+    public int getConnectTimeoutMillis() {
+        return connectTimeoutMillis;
+    }
+
+    public void setConnectTimeoutMillis(int connectTimeoutMillis) {
+        this.connectTimeoutMillis = connectTimeoutMillis;
+    }
+
+    public int getReadTimeoutMillis() {
+        return readTimeoutMillis;
+    }
+
+    public void setReadTimeoutMillis(int readTimeoutMillis) {
+        this.readTimeoutMillis = readTimeoutMillis;
+    }
+
     @Bean
     public RestClient tossPayoutRestClient(RestClient.Builder builder) {
-        return builder.build();
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(connectTimeoutMillis);
+        requestFactory.setReadTimeout(readTimeoutMillis);
+        return builder.requestFactory(requestFactory).build();
     }
 }
-
