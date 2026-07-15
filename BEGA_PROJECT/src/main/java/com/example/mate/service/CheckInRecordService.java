@@ -82,7 +82,7 @@ public class CheckInRecordService {
     }
 
     private CheckInRecordDTO.Response checkInForUser(CheckInRecordDTO.Request request, Long userId) {
-        Party party = requireAccessibleParty(request.getPartyId(), userId);
+        Party party = requireAccessiblePartyForUpdate(request.getPartyId(), userId);
 
         String qrSessionId = request.getQrSessionId() == null ? null : request.getQrSessionId().trim();
         String manualCode = request.getManualCode() == null ? null : request.getManualCode().trim();
@@ -253,7 +253,7 @@ public class CheckInRecordService {
     // 모든 참여자가 체크인했는지 확인하고 파티 상태 업데이트
     @Transactional
     public void checkAndUpdatePartyStatus(Long partyId) {
-        Party party = partyRepository.findById(java.util.Objects.requireNonNull(partyId))
+        Party party = partyRepository.findByIdForUpdate(java.util.Objects.requireNonNull(partyId))
                 .orElseThrow(() -> new PartyNotFoundException(partyId));
 
         long checkInCount = checkInRecordRepository.countByPartyId(partyId);
@@ -272,6 +272,12 @@ public class CheckInRecordService {
 
     private Party requireAccessibleParty(Long partyId, Long userId) {
         return partyRepository.findAccessibleByIdAndParticipantId(java.util.Objects.requireNonNull(partyId), userId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+    }
+
+    private Party requireAccessiblePartyForUpdate(Long partyId, Long userId) {
+        return partyRepository.findAccessibleByIdAndParticipantIdForUpdate(
+                        java.util.Objects.requireNonNull(partyId), userId)
                 .orElseThrow(() -> new PartyNotFoundException(partyId));
     }
 

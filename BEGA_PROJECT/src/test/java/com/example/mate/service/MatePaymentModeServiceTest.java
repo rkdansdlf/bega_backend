@@ -36,14 +36,33 @@ class MatePaymentModeServiceTest {
         assertThat(service.paymentEnvironment()).isEqualTo("TEST");
     }
 
+    @Test
+    void inAppPayment_withUnsupportedProvider_disablesTossEndpoints() {
+        MatePaymentModeService service = configured("IN_APP_PAYMENT", "PAYCO", "LIVE", true, false);
+
+        assertThat(service.businessMode()).isEqualTo("IN_APP_PAYMENT");
+        assertThat(service.paymentProvider()).isEqualTo("UNSUPPORTED");
+        assertThat(service.isTossPaymentEnabled()).isFalse();
+        assertThat(service.isSellingPaymentRequired()).isTrue();
+    }
+
     private MatePaymentModeService configured(
             String mode,
             String environment,
             boolean sellingEnforced,
             boolean payoutEnabled) {
+        return configured(mode, "TOSS", environment, sellingEnforced, payoutEnabled);
+    }
+
+    private MatePaymentModeService configured(
+            String mode,
+            String provider,
+            String environment,
+            boolean sellingEnforced,
+            boolean payoutEnabled) {
         MatePaymentModeService service = new MatePaymentModeService();
         ReflectionTestUtils.setField(service, "configuredMode", mode);
-        ReflectionTestUtils.setField(service, "configuredProvider", "TOSS");
+        ReflectionTestUtils.setField(service, "configuredProvider", provider);
         ReflectionTestUtils.setField(service, "configuredEnvironment", environment);
         ReflectionTestUtils.setField(service, "paymentSellingEnforced", sellingEnforced);
         ReflectionTestUtils.setField(service, "paymentPayoutEnabled", payoutEnabled);

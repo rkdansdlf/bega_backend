@@ -67,7 +67,7 @@ public class MatePaymentModeService {
     }
 
     public String paymentProvider() {
-        return normalize(configuredProvider, "TOSS");
+        return "TOSS".equals(normalize(configuredProvider, "TOSS")) ? "TOSS" : "UNSUPPORTED";
     }
 
     public String paymentEnvironment() {
@@ -81,7 +81,7 @@ public class MatePaymentModeService {
     }
 
     public boolean isTossPaymentEnabled() {
-        return isInAppPayment();
+        return isInAppPayment() && "TOSS".equals(paymentProvider());
     }
 
     public boolean isSellingPaymentRequired() {
@@ -93,7 +93,8 @@ public class MatePaymentModeService {
     }
 
     public String payoutProvider() {
-        return normalize(paymentPayoutProvider, "SIM");
+        String provider = normalize(paymentPayoutProvider, "SIM");
+        return "SIM".equals(provider) || "TOSS".equals(provider) ? provider : "UNSUPPORTED";
     }
 
     private String normalize(String value, String fallback) {

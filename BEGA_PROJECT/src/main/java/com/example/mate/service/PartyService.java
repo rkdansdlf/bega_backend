@@ -303,7 +303,7 @@ public class PartyService {
     @Transactional
     public PartyDTO.Response updateParty(@NonNull Long id, @NonNull PartyDTO.UpdateRequest request,
             @NonNull Long requesterId) {
-        Party party = partyRepository.findByIdAndHostId(id, requesterId)
+        Party party = partyRepository.findByIdAndHostIdForUpdate(id, requesterId)
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         boolean hasApprovedApplications = applicationRepository.countByPartyIdAndIsApprovedTrue(id) > 0;
@@ -510,7 +510,7 @@ public class PartyService {
 
     @Transactional
     public void deleteParty(@NonNull Long id, @NonNull Long requesterId) {
-        Party party = partyRepository.findByIdAndHostId(id, requesterId)
+        Party party = partyRepository.findByIdAndHostIdForUpdate(id, requesterId)
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         // 이미 매칭된 파티는 삭제 불가
@@ -647,7 +647,11 @@ public class PartyService {
                 Party.PartyStatus.MATCHED);
         List<Party> hostedParties = partyRepository.findByHostIdAndStatusIn(userId, activeStatuses);
 
-        for (Party party : hostedParties) {
+        for (Party candidate : hostedParties) {
+            Party party = partyRepository.findByIdForUpdate(candidate.getId()).orElse(null);
+            if (party == null || !userId.equals(party.getHostId()) || !activeStatuses.contains(party.getStatus())) {
+                continue;
+            }
             log.info("호스트 파티 취소 처리: partyId={}, status={}", party.getId(), party.getStatus());
 
             // 파티 상태를 FAILED로 변경
@@ -680,14 +684,27 @@ public class PartyService {
         List<PartyApplication> approvedApplicationsAsParticipant = applicationRepository
                 .findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId);
 
-        for (PartyApplication application : approvedApplicationsAsParticipant) {
+        for (PartyApplication candidate : approvedApplicationsAsParticipant) {
             try {
-                Party party = partyRepository.findById(application.getPartyId())
+                Long partyId = candidate.getPartyId();
+                Long applicationId = candidate.getId();
+                Party party = partyRepository.findByIdForUpdate(partyId).orElse(null);
+                PartyApplication application = applicationRepository
+                        .findByIdAndApplicantIdForUpdate(applicationId, userId)
                         .orElse(null);
 
                 if (party == null) {
-                    log.warn("파티를 찾을 수 없음: partyId={}", application.getPartyId());
-                    applicationRepository.delete(application);
+                    log.warn("파티를 찾을 수 없음: partyId={}", partyId);
+                    if (application != null) {
+                        applicationRepository.delete(application);
+                    }
+                    continue;
+                }
+
+                if (application == null
+                        || !partyId.equals(application.getPartyId())
+                        || !Boolean.TRUE.equals(application.getIsApproved())
+                        || Boolean.TRUE.equals(application.getIsRejected())) {
                     continue;
                 }
 
@@ -730,7 +747,7 @@ public class PartyService {
 
             } catch (Exception e) {
                 log.error("참여자 신청 처리 중 오류: applicationId={}, error={}",
-                        application.getId(), e.getMessage());
+                        candidate.getId(), e.getMessage());
             }
         }
 

@@ -55,6 +55,7 @@ class PaymentControllerTest {
     @BeforeEach
     void setUp() {
         lenient().when(matePaymentModeService.isDirectTrade()).thenReturn(false);
+        lenient().when(matePaymentModeService.isTossPaymentEnabled()).thenReturn(true);
     }
 
     @Test
@@ -241,8 +242,8 @@ class PaymentControllerTest {
     }
 
     @Test
-    void prepareTossPayment_directTradeMode_throws503() {
-        given(matePaymentModeService.isDirectTrade()).willReturn(true);
+    void prepareTossPayment_whenTossProviderIsUnavailable_throws503() {
+        given(matePaymentModeService.isTossPaymentEnabled()).willReturn(false);
 
         TossPaymentDTO.PrepareClientRequest request = TossPaymentDTO.PrepareClientRequest.builder()
                 .partyId(1L)
@@ -250,7 +251,7 @@ class PaymentControllerTest {
 
         assertThatThrownBy(() -> paymentController.prepareTossPayment(request, 10L))
                 .isInstanceOf(TossPaymentException.class)
-                .hasMessageContaining("직거래 모드")
+                .hasMessageContaining("Toss 결제")
                 .extracting("code")
                 .isEqualTo("TOSS_PAYMENT_DISABLED");
     }
