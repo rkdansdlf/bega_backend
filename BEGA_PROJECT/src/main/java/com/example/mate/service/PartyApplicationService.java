@@ -1,13 +1,14 @@
 package com.example.mate.service;
 
-import com.example.mate.dto.PartyApplicationDTO;
-import com.example.mate.entity.Party;
-import com.example.mate.entity.PartyApplication;
-import com.example.mate.entity.CancelReasonType;
-import com.example.common.exception.AuthenticationRequiredException;
+import com.example.auth.entity.UserEntity;
 import com.example.auth.service.UserService;
+import com.example.common.exception.AuthenticationRequiredException;
 import com.example.kbo.service.TicketVerificationTokenStore;
 import com.example.kbo.util.TicketTeamNormalizer;
+import com.example.mate.dto.PartyApplicationDTO;
+import com.example.mate.entity.CancelReasonType;
+import com.example.mate.entity.Party;
+import com.example.mate.entity.PartyApplication;
 import com.example.mate.exception.DuplicateApplicationException;
 import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.exception.PartyApplicationNotFoundException;
@@ -376,6 +377,18 @@ public class PartyApplicationService {
     public PartyApplicationDTO.Response approveApplication(Long applicationId, Long userId) {
         Long hostId = requireUserId(userId);
         PartyApplication application = requireHostedApplicationForUpdate(applicationId, hostId);
+        Party lockedParty = partyRepository.findById(application.getPartyId())
+                .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+
+        if (lockedParty.getStatus() != Party.PartyStatus.PENDING
+                && lockedParty.getStatus() != Party.PartyStatus.SELLING) {
+            throw new InvalidApplicationStatusException("모집 중인 파티의 신청만 승인할 수 있습니다.");
+        }
+
+        UserEntity applicant = userService.findUserById(application.getApplicantId());
+        if (!applicant.isEnabled() || applicant.isPendingDeletion()) {
+            throw new InvalidApplicationStatusException("탈퇴 예정이거나 비활성화된 사용자의 신청은 승인할 수 없습니다.");
+        }
 
         if (application.getIsApproved()) {
             throw new InvalidApplicationStatusException("이미 승인된 신청입니다.");
@@ -427,17 +440,13 @@ public class PartyApplicationService {
         }
 
         if (Boolean.TRUE.equals(application.getIsPaid())) {
-            try {
-                paymentTransactionService.processCancellation(
-                        application,
-                        PartyApplicationDTO.CancelRequest.builder()
-                                .cancelReasonType(CancelReasonType.SELLER_CHANGED_MIND)
-                                .cancelMemo("호스트 신청 거절")
-                                .build());
-            } catch (RuntimeException e) {
-                log.error("[Application] 거절 신청 환불 실패: applicationId={}", application.getId(), e);
-                // 환불 실패해도 거절 자체는 진행
-            }
+            paymentTransactionService.processCancellation(
+                    application,
+                    PartyApplicationDTO.CancelRequest.builder()
+                            .cancelReasonType(CancelReasonType.SELLER_CHANGED_MIND)
+                            .cancelMemo("호스트 신청 거절")
+                            .build());
+            application.setIsPaid(false);
         }
 
         application.setIsRejected(true);
