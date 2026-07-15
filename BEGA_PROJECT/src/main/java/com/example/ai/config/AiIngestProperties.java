@@ -103,6 +103,9 @@ public class AiIngestProperties {
     }
 
     public void setCheckInterval(Duration checkInterval) {
+        if (checkInterval == null || checkInterval.isZero() || checkInterval.isNegative()) {
+            throw new IllegalArgumentException("AI ingestion check interval must be positive");
+        }
         this.checkInterval = checkInterval;
     }
 
@@ -111,6 +114,11 @@ public class AiIngestProperties {
     }
 
     public void setMonitoringDuration(Duration monitoringDuration) {
+        if (monitoringDuration == null
+                || monitoringDuration.isZero()
+                || monitoringDuration.isNegative()) {
+            throw new IllegalArgumentException("AI ingestion monitoring duration must be positive");
+        }
         this.monitoringDuration = monitoringDuration;
     }
 }
