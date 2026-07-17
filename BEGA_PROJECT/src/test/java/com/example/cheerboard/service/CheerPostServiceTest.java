@@ -21,6 +21,7 @@ import com.example.notification.service.NotificationService;
 import com.example.common.exception.RepostNotAllowedException;
 import com.example.common.exception.RepostSelfNotAllowedException;
 import com.example.common.exception.RepostTargetNotFoundException;
+import com.example.common.exception.BadRequestBusinessException;
 import jakarta.persistence.EntityManager;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +38,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_QUOTE_NOT_ALLOWED_CODE;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CANCEL_NOT_ALLOWED_CODE;
@@ -104,6 +106,9 @@ class CheerPostServiceTest {
 
         @Mock
         private com.example.auth.service.FollowService followService;
+
+        @Mock
+        private CheerLinkedPostService linkedPostService;
 
         @BeforeEach
         void setUp() {
@@ -754,13 +759,15 @@ class CheerPostServiceTest {
                 Long userId = 100L;
                 TeamEntity team = TeamEntity.builder().teamId("LG").teamName("LG").build();
                 UserEntity me = UserEntity.builder().id(userId).name("Me").favoriteTeam(team).build();
-                CreatePostReq req = new CreatePostReq("LG", "My Content", null, "CHEER");
+                CreatePostReq req = new CreatePostReq("LG", "My Content", null, "NORMAL");
 
                 mockWriteEnabledAuthor(me);
                 when(teamRepo.findById("LG")).thenReturn(Optional.of(team));
                 doNothing().when(permissionValidator).validateTeamAccess(any(), any(), any());
                 when(moderationService.checkContent(any()))
                                 .thenReturn(com.example.common.service.AIModerationService.ModerationResult.allow());
+                when(linkedPostService.validateCreate(eq(PostType.NORMAL), eq(req), eq(me)))
+                                .thenReturn(new CheerLinkedPostService.ValidatedTarget(PostType.NORMAL, null, null));
 
                 CheerPost savedPost = CheerPost.builder()
                                 .id(1L)
@@ -770,17 +777,13 @@ class CheerPostServiceTest {
                                 .build();
 
                 when(postRepo.saveAndFlush(any(CheerPost.class))).thenReturn(savedPost);
-                when(postDtoMapper.toNewPostDetailRes(any(CheerPost.class), any(UserEntity.class)))
-                                .thenReturn(PostDetailRes.of(
-                                                1L, "LG", "LG", "LG", "#C30452", "My Content", "Me",
-                                                "me", "http://example.com/me.jpg", null,
-                                                0, 0, 0, false, false, false, null, 0, 0, false, "CHEER"));
 
                 // When
-                PostDetailRes res = postService.createPost(req, me);
+                CheerPostCreationOutcome outcome = postService.createPost(req, me);
 
                 // Then
-                assertThat(res.content()).isEqualTo("My Content");
+                assertThat(outcome.created()).isTrue();
+                assertThat(outcome.post().getContent()).isEqualTo("My Content");
                 org.mockito.ArgumentCaptor<CheerPost> postCaptor = org.mockito.ArgumentCaptor.forClass(CheerPost.class);
                 verify(postRepo).saveAndFlush(postCaptor.capture());
                 CheerPost capturedPost = postCaptor.getValue();
@@ -797,7 +800,7 @@ class CheerPostServiceTest {
                                 "LG",
                                 "My Content",
                                 null,
-                                "CHEER",
+                                "NORMAL",
                                 CheerPost.ShareMode.EXTERNAL_LINK,
                                 "javascript:alert(1)",
                                 null,
@@ -829,7 +832,7 @@ class CheerPostServiceTest {
                                 "LG",
                                 "My Content",
                                 null,
-                                "CHEER",
+                                "NORMAL",
                                 CheerPost.ShareMode.EXTERNAL_LINK,
                                 " https://example.com/news ",
                                 null,
@@ -844,18 +847,130 @@ class CheerPostServiceTest {
                 doNothing().when(permissionValidator).validateTeamAccess(any(), any(), any());
                 when(moderationService.checkContent(any()))
                                 .thenReturn(com.example.common.service.AIModerationService.ModerationResult.allow());
+                when(linkedPostService.validateCreate(eq(PostType.NORMAL), eq(req), eq(me)))
+                                .thenReturn(new CheerLinkedPostService.ValidatedTarget(PostType.NORMAL, null, null));
                 when(postRepo.saveAndFlush(any(CheerPost.class))).thenAnswer(invocation -> invocation.getArgument(0));
-                when(postDtoMapper.toNewPostDetailRes(any(CheerPost.class), any(UserEntity.class)))
-                                .thenReturn(PostDetailRes.of(
-                                                1L, "LG", "LG", "LG", "#C30452", "My Content", "Me",
-                                                "me", "http://example.com/me.jpg", null,
-                                                0, 0, 0, false, false, false, null, 0, 0, false, "CHEER"));
 
                 postService.createPost(req, me);
 
                 org.mockito.ArgumentCaptor<CheerPost> postCaptor = org.mockito.ArgumentCaptor.forClass(CheerPost.class);
                 verify(postRepo).saveAndFlush(postCaptor.capture());
                 assertThat(postCaptor.getValue().getSourceUrl()).isEqualTo("https://example.com/news");
+        }
+
+        @Test
+        @DisplayName("CHECKIN creation returns a new outcome and assigns only the validated diary source")
+        void createPost_checkin_assignsOnlyValidatedDiarySource() {
+                Long diaryId = 41L;
+                TeamEntity team = TeamEntity.builder().teamId("LG").teamName("LG").build();
+                UserEntity owner = UserEntity.builder().id(100L).name("Owner").favoriteTeam(team).build();
+                CreatePostReq req = new CreatePostReq(
+                                "LG", "직관 인증", List.of(), "CHECKIN", CheerPost.ShareMode.INTERNAL_REPOST,
+                                null, null, null, null, null, null, null, diaryId, null);
+                CheerLinkedPostService.ValidatedTarget target =
+                                new CheerLinkedPostService.ValidatedTarget(PostType.CHECKIN, diaryId, null);
+
+                mockWriteEnabledAuthor(owner);
+                when(teamRepo.findById("LG")).thenReturn(Optional.of(team));
+                when(moderationService.checkContent(any()))
+                                .thenReturn(com.example.common.service.AIModerationService.ModerationResult.allow());
+                when(linkedPostService.validateCreate(PostType.CHECKIN, req, owner)).thenReturn(target);
+                when(linkedPostService.findActivePost(target)).thenReturn(Optional.empty());
+                when(postRepo.saveAndFlush(any(CheerPost.class))).thenAnswer(invocation -> {
+                        CheerPost post = invocation.getArgument(0);
+                        post.setId(77L);
+                        return post;
+                });
+
+                CheerPostCreationOutcome outcome = postService.createPost(req, owner);
+
+                assertThat(outcome.created()).isTrue();
+                assertThat(outcome.post().getDiaryId()).isEqualTo(diaryId);
+                assertThat(outcome.post().getPartyId()).isNull();
+                assertThat(outcome.post().getPostType()).isEqualTo(PostType.CHECKIN);
+        }
+
+        @Test
+        @DisplayName("A repeated active linked source returns the existing post without writing")
+        void createPost_existingLinkedSource_returnsExistingOutcome() {
+                Long partyId = 52L;
+                TeamEntity team = TeamEntity.builder().teamId("LG").teamName("LG").build();
+                UserEntity owner = UserEntity.builder().id(100L).name("Owner").favoriteTeam(team).build();
+                CreatePostReq req = new CreatePostReq(
+                                "LG", "같이 봐요", List.of(), "RECRUITMENT", null,
+                                null, null, null, null, null, null, null, null, partyId);
+                CheerLinkedPostService.ValidatedTarget target =
+                                new CheerLinkedPostService.ValidatedTarget(PostType.RECRUITMENT, null, partyId);
+                CheerPost existing = CheerPost.builder()
+                                .id(91L).author(owner).team(team).postType(PostType.RECRUITMENT).partyId(partyId).build();
+
+                mockWriteEnabledAuthor(owner);
+                when(linkedPostService.validateCreate(PostType.RECRUITMENT, req, owner)).thenReturn(target);
+                when(linkedPostService.findActivePost(target)).thenReturn(Optional.of(existing));
+
+                CheerPostCreationOutcome outcome = postService.createPost(req, owner);
+
+                assertThat(outcome.created()).isFalse();
+                assertThat(outcome.post()).isSameAs(existing);
+                verify(postRepo, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("Unknown present post types are rejected instead of normalized")
+        void createPost_unknownType_isInvalidLinkedRequest() {
+                UserEntity owner = UserEntity.builder().id(100L).name("Owner").role("ROLE_USER").build();
+                CreatePostReq req = new CreatePostReq("LG", "content", null, "CHEER");
+                mockWriteEnabledAuthor(owner);
+
+                assertThatThrownBy(() -> postService.createPost(req, owner))
+                                .isInstanceOf(BadRequestBusinessException.class)
+                                .satisfies(error -> assertThat(((BadRequestBusinessException) error).getCode())
+                                                .isEqualTo("INVALID_LINKED_POST_REQUEST"));
+                verifyNoInteractions(linkedPostService);
+        }
+
+        @Test
+        @DisplayName("Blank type and non-admin NOTICE use NORMAL while admin NOTICE is preserved")
+        void createPost_effectiveType_preservesExistingNoticeRules() {
+                RuntimeException marker = new RuntimeException("validated");
+                UserEntity member = UserEntity.builder().id(100L).name("Member").role("ROLE_USER").build();
+                CreatePostReq blank = new CreatePostReq("LG", "content", null, "   ");
+                mockWriteEnabledAuthor(member);
+                when(linkedPostService.validateCreate(PostType.NORMAL, blank, member)).thenThrow(marker);
+                assertThatThrownBy(() -> postService.createPost(blank, member)).isSameAs(marker);
+
+                reset(linkedPostService, userRepo, entityManager);
+                UserEntity admin = UserEntity.builder().id(101L).name("Admin").role("ROLE_ADMIN").build();
+                CreatePostReq notice = new CreatePostReq("LG", "content", null, "NOTICE");
+                mockWriteEnabledAuthor(admin);
+                when(linkedPostService.validateCreate(PostType.NOTICE, notice, admin)).thenThrow(marker);
+                assertThatThrownBy(() -> postService.createPost(notice, admin)).isSameAs(marker);
+
+                reset(linkedPostService, userRepo, entityManager);
+                mockWriteEnabledAuthor(member);
+                when(linkedPostService.validateCreate(PostType.NORMAL, notice, member)).thenThrow(marker);
+                assertThatThrownBy(() -> postService.createPost(notice, member)).isSameAs(marker);
+        }
+
+        @Test
+        @DisplayName("The transactional writer lets DataIntegrityViolationException escape")
+        void createPost_uniqueConflict_escapesWriterTransaction() {
+                TeamEntity team = TeamEntity.builder().teamId("LG").teamName("LG").build();
+                UserEntity owner = UserEntity.builder().id(100L).name("Owner").favoriteTeam(team).build();
+                CreatePostReq req = new CreatePostReq("LG", "content", null, "NORMAL");
+                DataIntegrityViolationException conflict = new DataIntegrityViolationException("duplicate");
+                CheerLinkedPostService.ValidatedTarget target =
+                                new CheerLinkedPostService.ValidatedTarget(PostType.NORMAL, null, null);
+                mockWriteEnabledAuthor(owner);
+                when(linkedPostService.validateCreate(PostType.NORMAL, req, owner)).thenReturn(target);
+                when(moderationService.checkContent(any()))
+                                .thenReturn(com.example.common.service.AIModerationService.ModerationResult.allow());
+                when(teamRepo.findById("LG")).thenReturn(Optional.of(team));
+                when(postRepo.saveAndFlush(any())).thenThrow(conflict);
+
+                assertThatThrownBy(() -> postService.createPost(req, owner)).isSameAs(conflict);
+                verify(postRepo, never()).findFirstByDiaryIdAndDeletedFalse(anyLong());
+                verify(postRepo, never()).findFirstByPartyIdAndDeletedFalse(anyLong());
         }
 
         @Test

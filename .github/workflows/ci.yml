@@ -51,6 +51,14 @@ jobs:
             --tests "*FollowDtoSerializationTest*" \
             --tests "*BooleanIsFieldSerializationTest*" \
             -Dwebp.strict=false
+
+      - name: Verify committed OpenAPI contract
+        working-directory: ./BEGA_PROJECT
+        run: ./gradlew test --tests "*BackendOpenApiContractTest" -Dwebp.strict=false
+
+      - name: Run migration safety gate
+        working-directory: ./BEGA_PROJECT
+        run: ./gradlew migrationSafetyCheck -Dwebp.strict=false
       
       - name: Run tests
         working-directory: ./BEGA_PROJECT

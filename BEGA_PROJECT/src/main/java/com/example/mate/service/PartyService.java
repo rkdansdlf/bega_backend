@@ -32,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.security.Principal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -303,12 +304,14 @@ public class PartyService {
     @Transactional
     public PartyDTO.Response updateParty(@NonNull Long id, @NonNull PartyDTO.UpdateRequest request,
             @NonNull Long requesterId) {
-        Party party = partyRepository.findByIdAndHostId(id, requesterId)
+        Party party = partyRepository.findByIdAndHostIdForUpdate(id, requesterId)
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         boolean hasApprovedApplications = applicationRepository.countByPartyIdAndIsApprovedTrue(id) > 0;
         Party.PartyStatus originalStatus = party.getStatus();
         boolean sellingConversionRequested = request.getStatus() == Party.PartyStatus.SELLING;
+
+        validateHostStatusChange(originalStatus, request.getStatus());
 
         if (request.getDescription() != null) {
             MateContentPolicyValidator.validatePartyDescription(request.getDescription());
@@ -399,6 +402,18 @@ public class PartyService {
         }
     }
 
+    private void validateHostStatusChange(
+            Party.PartyStatus originalStatus,
+            Party.PartyStatus requestedStatus) {
+        if (requestedStatus == null || requestedStatus == originalStatus
+                || requestedStatus == Party.PartyStatus.SELLING) {
+            return;
+        }
+
+        throw new InvalidApplicationStatusException(
+                "파티 상태는 승인·체크인·수명주기 처리에서만 변경할 수 있습니다.");
+    }
+
     private void applyFavoriteState(List<PartyDTO.PublicResponse> responses, Long currentUserId) {
         if (responses == null || responses.isEmpty()) {
             return;
@@ -454,7 +469,7 @@ public class PartyService {
     // 파티 참여 인원 증가
     @Transactional
     public PartyDTO.Response incrementParticipants(@NonNull Long id) {
-        Party party = partyRepository.findById(id)
+        Party party = partyRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         if (party.getCurrentParticipants() >= party.getMaxParticipants()) {
@@ -475,7 +490,7 @@ public class PartyService {
     // 파티 참여 인원 감소
     @Transactional
     public PartyDTO.Response decrementParticipants(@NonNull Long id) {
-        Party party = partyRepository.findById(id)
+        Party party = partyRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         if (party.getCurrentParticipants() <= 1) {
@@ -496,7 +511,7 @@ public class PartyService {
 
     @Transactional
     public void deleteParty(@NonNull Long id, @NonNull Long requesterId) {
-        Party party = partyRepository.findByIdAndHostId(id, requesterId)
+        Party party = partyRepository.findByIdAndHostIdForUpdate(id, requesterId)
                 .orElseThrow(() -> new PartyNotFoundException(id));
 
         // 이미 매칭된 파티는 삭제 불가
@@ -516,6 +531,12 @@ public class PartyService {
 
         // 대기 중인 신청들은 함께 삭제
         List<PartyApplication> applicationsToDelete = applicationRepository.findByPartyId(id);
+        boolean hasPaidApplication = applicationsToDelete != null && applicationsToDelete.stream()
+                .anyMatch(application -> Boolean.TRUE.equals(application.getIsPaid()));
+        if (hasPaidApplication) {
+            throw new InvalidApplicationStatusException(
+                    "결제된 신청이 있는 파티는 삭제할 수 없습니다. 신청을 취소하거나 환불한 뒤 다시 시도해주세요.");
+        }
         if (applicationsToDelete != null) {
             applicationRepository.deleteAll(applicationsToDelete);
         }
@@ -614,12 +635,12 @@ public class PartyService {
      * 사용자 계정 삭제 시 cascade cleanup 처리
      *
      * 호스트인 경우:
-     * - PENDING 상태 파티는 FAILED로 변경하고 승인된 신청자들에게 알림
-     * - MATCHED 상태 파티는 FAILED로 변경하고 모든 참여자에게 알림
+     * - 활성(PENDING/MATCHED/SELLING) 파티를 FAILED로 변경
+     * - 결제 신청은 환불 재시도를 위해 거절 상태로 보존
      *
      * 참여자인 경우:
-     * - 승인된 신청을 취소하고 currentParticipants 감소
-     * - 호스트에게 알림 발송
+     * - 활성 파티의 승인 신청은 currentParticipants 감소 후 호스트에게 알림
+     * - 활성 파티의 결제 신청은 환불 재시도를 위해 보존하고 종료 파티 이력은 유지
      *
      * @param userId 삭제될 사용자 ID
      */
@@ -627,22 +648,58 @@ public class PartyService {
     public void handleUserDeletion(Long userId) {
         log.info("사용자 삭제로 인한 메이트 cascade cleanup 시작: userId={}", userId);
 
-        // 1. 호스트로 생성한 PENDING/MATCHED 파티 처리
+        // 1. 호스트로 생성한 활성 파티 처리
         List<Party.PartyStatus> activeStatuses = List.of(
                 Party.PartyStatus.PENDING,
-                Party.PartyStatus.MATCHED);
+                Party.PartyStatus.MATCHED,
+                Party.PartyStatus.SELLING);
         List<Party> hostedParties = partyRepository.findByHostIdAndStatusIn(userId, activeStatuses);
+        List<PartyApplication> applicationsSnapshot = applicationRepository.findByApplicantId(userId);
 
-        for (Party party : hostedParties) {
+        List<Long> relatedPartyIds = java.util.stream.Stream.concat(
+                        hostedParties.stream().map(Party::getId),
+                        applicationsSnapshot.stream().map(PartyApplication::getPartyId))
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+        Map<Long, Party> lockedParties = new java.util.HashMap<>();
+        for (Long partyId : relatedPartyIds) {
+            partyRepository.findByIdForUpdate(partyId)
+                    .ifPresent(party -> lockedParties.put(partyId, party));
+        }
+        List<PartyApplication> applicationsAsParticipant = applicationRepository.findByApplicantId(userId);
+
+        for (Party candidate : hostedParties) {
+            Party party = lockedParties.get(candidate.getId());
+            if (party == null || !userId.equals(party.getHostId()) || !activeStatuses.contains(party.getStatus())) {
+                continue;
+            }
             log.info("호스트 파티 취소 처리: partyId={}, status={}", party.getId(), party.getStatus());
 
             // 파티 상태를 FAILED로 변경
             party.setStatus(Party.PartyStatus.FAILED);
             partyRepository.save(party);
 
-            // 승인된 신청자들에게 알림 발송
+            // 승인된 신청자들은 상태 변경 전에 알림 대상으로 고정
             List<PartyApplication> approvedApplications = applicationRepository
                     .findByPartyIdAndIsApprovedTrue(party.getId());
+            List<PartyApplication> paidApplications = applicationRepository.findByPartyId(party.getId()).stream()
+                    .filter(application -> Boolean.TRUE.equals(application.getIsPaid()))
+                    .sorted(java.util.Comparator.comparing(PartyApplication::getId))
+                    .toList();
+            for (PartyApplication candidateApplication : paidApplications) {
+                PartyApplication application = applicationRepository.findByIdAndApplicantIdForUpdate(
+                                candidateApplication.getId(), candidateApplication.getApplicantId())
+                        .orElse(null);
+                if (application == null || !party.getId().equals(application.getPartyId())) {
+                    continue;
+                }
+                application.setIsApproved(false);
+                application.setIsRejected(true);
+                application.setRejectedAt(Instant.now());
+                applicationRepository.save(application);
+            }
 
             for (PartyApplication application : approvedApplications) {
                 try {
@@ -662,67 +719,94 @@ public class PartyService {
             }
         }
 
-        // 2. 참여자로 승인된 신청 처리
-        List<PartyApplication> approvedApplicationsAsParticipant = applicationRepository
-                .findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId);
-
-        for (PartyApplication application : approvedApplicationsAsParticipant) {
+        // 2. 참여자로 만든 활성 파티 신청 처리
+        for (PartyApplication candidate : applicationsAsParticipant.stream()
+                .sorted(java.util.Comparator.comparing(PartyApplication::getPartyId)
+                        .thenComparing(PartyApplication::getId))
+                .toList()) {
             try {
-                Party party = partyRepository.findById(application.getPartyId())
-                        .orElse(null);
+                Long partyId = candidate.getPartyId();
+                Long applicationId = candidate.getId();
+                Party party = lockedParties.get(partyId);
 
                 if (party == null) {
-                    log.warn("파티를 찾을 수 없음: partyId={}", application.getPartyId());
-                    applicationRepository.delete(application);
+                    log.warn("파티를 찾을 수 없음: partyId={}", partyId);
+                    continue;
+                }
+                if (userId.equals(party.getHostId()) || !activeStatuses.contains(party.getStatus())) {
                     continue;
                 }
 
-                log.info("참여자 신청 취소 처리: partyId={}, applicantId={}",
-                        party.getId(), userId);
+                PartyApplication application = applicationRepository
+                        .findByIdAndApplicantIdForUpdate(applicationId, userId)
+                        .orElse(null);
 
-                // currentParticipants 감소
-                if (party.getCurrentParticipants() > 1) {
-                    party.setCurrentParticipants(party.getCurrentParticipants() - 1);
+                if (application == null
+                        || !partyId.equals(application.getPartyId())) {
+                    continue;
+                }
 
-                    // MATCHED 상태였다면 다시 PENDING으로 변경
-                    if (party.getStatus() == Party.PartyStatus.MATCHED) {
-                        party.setStatus(Party.PartyStatus.PENDING);
+                boolean approved = Boolean.TRUE.equals(application.getIsApproved())
+                        && !Boolean.TRUE.equals(application.getIsRejected());
+                if (approved) {
+                    log.info("참여자 신청 취소 처리: partyId={}, applicantId={}",
+                            party.getId(), userId);
+
+                    // currentParticipants 감소
+                    if (party.getCurrentParticipants() > 1) {
+                        party.setCurrentParticipants(party.getCurrentParticipants() - 1);
+
+                        // MATCHED 상태였다면 다시 PENDING으로 변경
+                        if (party.getStatus() == Party.PartyStatus.MATCHED) {
+                            party.setStatus(Party.PartyStatus.PENDING);
+                        }
+
+                        partyRepository.save(party);
                     }
 
-                    partyRepository.save(party);
+                    // 호스트에게 알림 발송
+                    try {
+                        String applicantName = application.getApplicantName() != null ? application.getApplicantName()
+                                : "참여자";
+
+                        notificationService.createNotification(
+                                party.getHostId(),
+                                com.example.notification.entity.Notification.NotificationType.PARTY_PARTICIPANT_LEFT,
+                                "참여자가 탈퇴했습니다",
+                                applicantName + "님이 계정 삭제로 인해 파티에서 자동 탈퇴되었습니다. (현재 인원: " +
+                                        party.getCurrentParticipants() + "/" + party.getMaxParticipants() + ")",
+                                party.getId());
+                        log.info("참여자 탈퇴 알림 발송: hostId={}, partyId={}",
+                                party.getHostId(), party.getId());
+                    } catch (Exception e) {
+                        log.error("참여자 탈퇴 알림 발송 실패: hostId={}, error={}",
+                                party.getHostId(), e.getMessage());
+                    }
                 }
 
-                // 호스트에게 알림 발송
-                try {
-                    String applicantName = application.getApplicantName() != null ? application.getApplicantName()
-                            : "참여자";
+                preservePaidApplicationForRefundOrDelete(application);
 
-                    notificationService.createNotification(
-                            party.getHostId(),
-                            com.example.notification.entity.Notification.NotificationType.PARTY_PARTICIPANT_LEFT,
-                            "참여자가 탈퇴했습니다",
-                            applicantName + "님이 계정 삭제로 인해 파티에서 자동 탈퇴되었습니다. (현재 인원: " +
-                                    party.getCurrentParticipants() + "/" + party.getMaxParticipants() + ")",
-                            party.getId());
-                    log.info("참여자 탈퇴 알림 발송: hostId={}, partyId={}",
-                            party.getHostId(), party.getId());
-                } catch (Exception e) {
-                    log.error("참여자 탈퇴 알림 발송 실패: hostId={}, error={}",
-                            party.getHostId(), e.getMessage());
-                }
-
-                // 신청 삭제
-                applicationRepository.delete(application);
-
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("참여자 신청 처리 중 오류: applicationId={}, error={}",
-                        application.getId(), e.getMessage());
+                        candidate.getId(), e.getMessage());
+                throw e;
             }
         }
 
         log.info("사용자 삭제로 인한 메이트 cascade cleanup 완료: userId={}, " +
                 "취소된 호스트 파티={}, 취소된 참여 신청={}",
-                userId, hostedParties.size(), approvedApplicationsAsParticipant.size());
+                userId, hostedParties.size(), applicationsAsParticipant.size());
+    }
+
+    private void preservePaidApplicationForRefundOrDelete(PartyApplication application) {
+        if (!Boolean.TRUE.equals(application.getIsPaid())) {
+            applicationRepository.delete(application);
+            return;
+        }
+        application.setIsApproved(false);
+        application.setIsRejected(true);
+        application.setRejectedAt(Instant.now());
+        applicationRepository.save(application);
     }
 
     private String normalizeSearchQuery(String searchQuery) {

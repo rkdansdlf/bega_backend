@@ -4,7 +4,16 @@ import java.util.Locale;
 
 public enum MatePaymentMode {
     DIRECT_TRADE,
-    TOSS_TEST;
+    /**
+     * Legacy name kept for existing test/deployment configuration.
+     * The public capability contract exposes this as IN_APP_PAYMENT + TEST.
+     */
+    TOSS_TEST,
+    IN_APP_PAYMENT;
+
+    public boolean isInAppPayment() {
+        return this != DIRECT_TRADE;
+    }
 
     public static MatePaymentMode from(String rawMode) {
         if (rawMode == null || rawMode.isBlank()) {

@@ -92,12 +92,13 @@ class PartyApplicationVerificationTest {
                 given(userService.getUserIdByEmail("test@example.com")).willReturn(applicantId);
                 given(userService.findUserByEmail("test@example.com")).willReturn(
                                 UserDto.builder().name("TestUser").build());
-                given(userService.findUserById(applicantId)).willReturn(
-                                com.example.auth.entity.UserEntity.builder()
-                                                .id(applicantId)
-                                                .handle("@test-user")
-                                                .name("TestUser")
-                                                .build());
+                com.example.auth.entity.UserEntity applicant = com.example.auth.entity.UserEntity.builder()
+                                .id(applicantId)
+                                .handle("@test-user")
+                                .name("TestUser")
+                                .build();
+                given(userService.findUserById(applicantId)).willReturn(applicant);
+                given(userService.findUserByIdForUpdate(applicantId)).willReturn(applicant);
                 given(userService.isSocialVerified(applicantId)).willReturn(true);
                 given(partyReviewRepository.calculateAverageRating(applicantId)).willReturn(4.4);
                 given(applicationRepository.findByPartyIdAndApplicantId(1L, applicantId))
@@ -106,7 +107,7 @@ class PartyApplicationVerificationTest {
                                 .willReturn(false);
                 given(applicationRepository.countByPartyIdAndIsApprovedFalseAndIsRejectedFalse(1L))
                                 .willReturn(0L);
-                given(partyRepository.findById(1L)).willReturn(Optional.of(testParty));
+                given(partyRepository.findByIdForUpdate(1L)).willReturn(Optional.of(testParty));
                 given(applicationRepository.save(any(PartyApplication.class)))
                                 .willAnswer(inv -> {
                                         PartyApplication app = inv.getArgument(0);

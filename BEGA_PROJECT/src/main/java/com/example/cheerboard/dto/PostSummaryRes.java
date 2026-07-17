@@ -33,8 +33,46 @@ public record PostSummaryRes(
                 EmbeddedPostDto originalPost, // 원본 게시글 임베드 정보
                 boolean originalDeleted, // 원본 삭제 여부
                 String shareMode,
-                SourceInfoRes sourceInfo
+                SourceInfoRes sourceInfo,
+                LinkedContentRes linkedContent
 ) {
+        public PostSummaryRes(
+                        Long id,
+                        String teamId,
+                        String teamName,
+                        String teamShortName,
+                        String teamColor,
+                        String content,
+                        String author,
+                        String authorHandle,
+                        String authorProfileImageUrl,
+                        String authorTeamId,
+                        Instant createdAt,
+                        int comments,
+                        int likes,
+                        int bookmarkCount,
+                        boolean liked,
+                        int views,
+                        boolean isHot,
+                        boolean isBookmarked,
+                        boolean isOwner,
+                        int repostCount,
+                        boolean repostedByMe,
+                        String postType,
+                        java.util.List<String> imageUrls,
+                        Long repostOfId,
+                        String repostType,
+                        EmbeddedPostDto originalPost,
+                        boolean originalDeleted,
+                        String shareMode,
+                        SourceInfoRes sourceInfo) {
+                this(id, teamId, teamName, teamShortName, teamColor, content, author, authorHandle,
+                                authorProfileImageUrl, authorTeamId, createdAt, comments, likes, bookmarkCount,
+                                liked, views, isHot, isBookmarked, isOwner, repostCount, repostedByMe, postType,
+                                imageUrls, repostOfId, repostType, originalPost, originalDeleted, shareMode,
+                                sourceInfo, null);
+        }
+
         /**
          * 기존 생성자와 호환성을 위한 팩토리 메서드 (리포스트가 아닌 경우)
          */
@@ -69,6 +107,6 @@ public record PostSummaryRes(
                                 authorProfileImageUrl, authorTeamId, createdAt,
                                 comments, likes, bookmarkCount, liked, views, isHot, isBookmarked,
                                 isOwner, repostCount, repostedByMe, postType, imageUrls,
-                                null, null, null, false, null, null);
+                                null, null, null, false, null, null, null);
         }
 }

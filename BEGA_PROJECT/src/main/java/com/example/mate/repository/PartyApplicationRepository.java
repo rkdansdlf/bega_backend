@@ -6,9 +6,11 @@ import java.util.List;
 import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
+import jakarta.persistence.QueryHint;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
@@ -47,6 +49,13 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
 
     Optional<PartyApplication> findByIdAndApplicantId(Long id, Long applicantId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
+    @Query("select pa from PartyApplication pa where pa.id = :applicationId and pa.applicantId = :applicantId")
+    Optional<PartyApplication> findByIdAndApplicantIdForUpdate(
+            @Param("applicationId") Long applicationId,
+            @Param("applicantId") Long applicantId);
+
     @Query("""
             select pa
             from PartyApplication pa
@@ -62,13 +71,32 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
             @Param("applicationId") Long applicationId,
             @Param("hostId") Long hostId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
+    @Query("""
+            select pa
+            from PartyApplication pa
+            where pa.id = :applicationId
+              and exists (
+                  select 1
+                  from Party p
+                  where p.id = pa.partyId
+                    and p.hostId = :hostId
+              )
+            """)
+    Optional<PartyApplication> findByIdAndPartyHostIdForUpdate(
+            @Param("applicationId") Long applicationId,
+            @Param("hostId") Long hostId);
+
     Optional<PartyApplication> findByOrderId(String orderId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
     @Query("select pa from PartyApplication pa where pa.orderId = :orderId")
     Optional<PartyApplication> findByOrderIdForUpdate(@Param("orderId") String orderId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
     @Query("select pa from PartyApplication pa where pa.paymentKey = :paymentKey")
     Optional<PartyApplication> findByPaymentKeyForUpdate(@Param("paymentKey") String paymentKey);
 
@@ -114,6 +142,9 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
 
     // 응답 기한이 지난 미처리 신청 조회 (자동 거절용)
     List<PartyApplication> findByIsApprovedFalseAndIsRejectedFalseAndResponseDeadlineBefore(Instant deadline);
+
+    // 환불 실패 또는 환불 후 상태 반영 실패로 남은 신청 재시도용
+    List<PartyApplication> findByIsRejectedTrueAndIsPaidTrue();
 
     // 통계
     @Query("SELECT COUNT(DISTINCT p.id) FROM Party p " +

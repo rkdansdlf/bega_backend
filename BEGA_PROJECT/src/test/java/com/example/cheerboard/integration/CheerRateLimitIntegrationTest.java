@@ -16,12 +16,18 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
@@ -119,5 +125,33 @@ class CheerRateLimitIntegrationTest {
                 .andDo(org.springframework.test.web.servlet.result.MockMvcResultHandlers.print())
                 .andDo(print())
                 .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    @DisplayName("Linked lookup permits 30 requests and rejects request 31 in its own bucket")
+    void linkedLookup_usesIndependentThirtyRequestBucket() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        when(rateLimitService.isAllowed(anyString(), eq(30), eq(60), anyBoolean()))
+                .thenAnswer(invocation -> attempts.incrementAndGet() <= 30);
+
+        for (int i = 0; i < 30; i++) {
+            mockMvc.perform(get("/api/cheer/posts/linked")
+                    .with(user(user.getId().toString()).roles("USER"))
+                    .param("diaryId", "999999"))
+                    .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(429));
+        }
+
+        mockMvc.perform(get("/api/cheer/posts/linked")
+                .with(user(user.getId().toString()).roles("USER"))
+                .param("diaryId", "999999"))
+                .andExpect(status().isTooManyRequests());
+
+        org.mockito.ArgumentCaptor<String> keyCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(rateLimitService, atLeastOnce()).isAllowed(keyCaptor.capture(), eq(30), eq(60), anyBoolean());
+        assertThat(keyCaptor.getAllValues())
+                .allSatisfy(key -> {
+                    assertThat(key).contains("cheer:linked");
+                    assertThat(key).doesNotContain("create(");
+                });
     }
 }

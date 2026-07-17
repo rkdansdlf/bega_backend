@@ -119,6 +119,7 @@ public class PartyApplicationDTO {
     public static class CancelRequest {
         @Builder.Default
         private CancelReasonType cancelReasonType = CancelReasonType.BUYER_CHANGED_MIND;
+        @Size(max = 500, message = "취소 메모는 500자 이하여야 합니다.")
         private String cancelMemo;
     }
 

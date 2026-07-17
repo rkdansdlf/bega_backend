@@ -69,6 +69,27 @@ class CheerMonitoringMetricsServiceTest {
     }
 
     @Test
+    void recordFeedRequest_preservesLinkedPostTypeTags() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        CheerMonitoringMetricsService metricsService = new CheerMonitoringMetricsService(meterRegistry);
+
+        metricsService.recordFeedRequest(
+                "feed", false, "CHECKIN", null, false, 20, "success", TimeUnit.MILLISECONDS.toNanos(10));
+        metricsService.recordFeedRequest(
+                "feed", false, "RECRUITMENT", null, false, 20, "success", TimeUnit.MILLISECONDS.toNanos(10));
+
+        assertThat(meterRegistry.find(CheerMonitoringMetricsService.FEED_REQUEST_DURATION_METRIC)
+                .tag("post_type", "checkin")
+                .timer()).isNotNull();
+        assertThat(meterRegistry.find(CheerMonitoringMetricsService.FEED_REQUEST_DURATION_METRIC)
+                .tag("post_type", "recruitment")
+                .timer()).isNotNull();
+        assertThat(meterRegistry.find(CheerMonitoringMetricsService.FEED_REQUEST_DURATION_METRIC)
+                .tag("post_type", "invalid")
+                .timer()).isNull();
+    }
+
+    @Test
     void recordFeedRequest_usesFallbackTagsAndIgnoresNegativeDuration() {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         CheerMonitoringMetricsService metricsService = new CheerMonitoringMetricsService(meterRegistry);

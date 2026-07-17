@@ -101,6 +101,12 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
 
         List<CheerPost> findByAuthor(UserEntity author);
 
+        @EntityGraph(attributePaths = { "author", "team" })
+        Optional<CheerPost> findFirstByDiaryIdAndDeletedFalse(Long diaryId);
+
+        @EntityGraph(attributePaths = { "author", "team" })
+        Optional<CheerPost> findFirstByPartyIdAndDeletedFalse(Long partyId);
+
         @Query(value = """
                         SELECT *
                         FROM cheer_post
