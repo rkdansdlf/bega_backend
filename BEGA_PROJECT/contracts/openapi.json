@@ -1043,8 +1043,8 @@
           "required" : true
         },
         "responses" : {
-          "200" : {
-            "description" : "OK",
+          "201" : {
+            "description" : "Created",
             "content" : {
               "*/*" : {
                 "schema" : {
@@ -1053,8 +1053,8 @@
               }
             }
           },
-          "201" : {
-            "description" : "Created",
+          "200" : {
+            "description" : "OK",
             "content" : {
               "*/*" : {
                 "schema" : {
@@ -2871,14 +2871,6 @@
       "post" : {
         "tags" : [ "ai-proxy-controller" ],
         "operationId" : "coachAnalyze",
-        "parameters" : [ {
-          "name" : "X-AI-Event-Version",
-          "in" : "header",
-          "required" : false,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -2942,14 +2934,6 @@
       "post" : {
         "tags" : [ "ai-proxy-controller" ],
         "operationId" : "chatStream",
-        "parameters" : [ {
-          "name" : "X-AI-Event-Version",
-          "in" : "header",
-          "required" : false,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
         "requestBody" : {
           "content" : {
             "application/json" : {
@@ -7057,26 +7041,6 @@
             "type" : "integer",
             "format" : "int64"
           }
-        }, {
-          "name" : "limit",
-          "in" : "query",
-          "required" : false,
-          "schema" : {
-            "type" : "integer",
-            "format" : "int32",
-            "default" : 50,
-            "maximum" : 100,
-            "minimum" : 1
-          }
-        }, {
-          "name" : "beforeId",
-          "in" : "query",
-          "required" : false,
-          "schema" : {
-            "type" : "integer",
-            "format" : "int64",
-            "minimum" : 1
-          }
         } ],
         "responses" : {
           "200" : {
@@ -7110,6 +7074,9 @@
           }
         } ],
         "responses" : {
+          "204" : {
+            "description" : "No Content"
+          },
           "200" : {
             "description" : "OK",
             "content" : {
@@ -7119,9 +7086,6 @@
                 }
               }
             }
-          },
-          "204" : {
-            "description" : "No Content"
           }
         }
       }
@@ -14150,7 +14114,8 @@
             "format" : "int32"
           },
           "status" : {
-            "type" : "string"
+            "type" : "string",
+            "enum" : [ "PENDING", "MATCHED", "FAILED", "SELLING", "SOLD", "CHECKED_IN", "COMPLETED" ]
           }
         }
       },
@@ -14506,12 +14471,12 @@
           "aliases" : {
             "type" : "string"
           },
+          "activeKboTeam" : {
+            "type" : "boolean"
+          },
           "franchiseId" : {
             "type" : "integer",
             "format" : "int32"
-          },
-          "activeKboTeam" : {
-            "type" : "boolean"
           }
         }
       },
@@ -15335,24 +15300,11 @@
       "PageObject" : {
         "type" : "object",
         "properties" : {
-          "totalPages" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
           "totalElements" : {
             "type" : "integer",
             "format" : "int64"
           },
-          "pageable" : {
-            "$ref" : "#/components/schemas/PageableObject"
-          },
-          "first" : {
-            "type" : "boolean"
-          },
-          "last" : {
-            "type" : "boolean"
-          },
-          "numberOfElements" : {
+          "totalPages" : {
             "type" : "integer",
             "format" : "int32"
           },
@@ -15373,6 +15325,19 @@
           "sort" : {
             "$ref" : "#/components/schemas/SortObject"
           },
+          "numberOfElements" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "first" : {
+            "type" : "boolean"
+          },
+          "last" : {
+            "type" : "boolean"
+          },
+          "pageable" : {
+            "$ref" : "#/components/schemas/PageableObject"
+          },
           "empty" : {
             "type" : "boolean"
           }
@@ -15381,8 +15346,12 @@
       "PageableObject" : {
         "type" : "object",
         "properties" : {
-          "unpaged" : {
-            "type" : "boolean"
+          "offset" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "sort" : {
+            "$ref" : "#/components/schemas/SortObject"
           },
           "paged" : {
             "type" : "boolean"
@@ -15395,25 +15364,21 @@
             "type" : "integer",
             "format" : "int32"
           },
-          "offset" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "sort" : {
-            "$ref" : "#/components/schemas/SortObject"
+          "unpaged" : {
+            "type" : "boolean"
           }
         }
       },
       "SortObject" : {
         "type" : "object",
         "properties" : {
-          "unsorted" : {
+          "empty" : {
             "type" : "boolean"
           },
           "sorted" : {
             "type" : "boolean"
           },
-          "empty" : {
+          "unsorted" : {
             "type" : "boolean"
           }
         }
