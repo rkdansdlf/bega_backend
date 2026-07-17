@@ -3,6 +3,7 @@ package com.example.mate.controller;
 import com.example.common.dto.ApiResponse;
 import com.example.common.web.AuthenticatedUserIds;
 import com.example.mate.dto.PartyApplicationDTO;
+import com.example.mate.dto.MatePaymentCapabilityDTO;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.PaymentIntent;
 import com.example.mate.entity.PartyApplication;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.GetMapping;
 
 import java.util.Optional;
 
@@ -44,6 +46,24 @@ public class PaymentController {
     private final PaymentTransactionService paymentTransactionService;
     private final PaymentMetricsService paymentMetricsService;
     private final MatePaymentModeService matePaymentModeService;
+
+    @Operation(summary = "Get Mate payment capability")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "OK",
+            content = @Content(schema = @Schema(implementation = MatePaymentCapabilityDTO.Response.class)))
+    @GetMapping("/capability")
+    public ResponseEntity<MatePaymentCapabilityDTO.Response> getPaymentCapability() {
+        return ResponseEntity.ok(new MatePaymentCapabilityDTO.Response(
+                matePaymentModeService.paymentMode(),
+                matePaymentModeService.businessMode(),
+                matePaymentModeService.paymentProvider(),
+                matePaymentModeService.paymentEnvironment(),
+                matePaymentModeService.isTossPaymentEnabled(),
+                matePaymentModeService.isSellingPaymentRequired(),
+                matePaymentModeService.isPayoutEnabled(),
+                matePaymentModeService.payoutProvider()));
+    }
 
     /**
      * POST /api/payments/toss/prepare
@@ -418,10 +438,10 @@ public class PaymentController {
     }
 
     private void ensureTossPaymentEnabled() {
-        if (matePaymentModeService.isDirectTrade()) {
+        if (!matePaymentModeService.isTossPaymentEnabled()) {
             throw paymentServiceUnavailable(
                     "TOSS_PAYMENT_DISABLED",
-                    "직거래 모드에서는 앱 내 Toss 결제를 지원하지 않습니다.");
+                    "현재 설정에서는 앱 내 Toss 결제를 지원하지 않습니다.");
         }
     }
 

@@ -22,12 +22,21 @@ public class MatePaymentModeService {
     @Value("${payment.payout.provider:SIM}")
     private String paymentPayoutProvider;
 
+    @Value("${mate.payment.provider:TOSS}")
+    private String configuredProvider;
+
+    @Value("${mate.payment.environment:TEST}")
+    private String configuredEnvironment;
+
     @PostConstruct
     public void logPaymentModeConfiguration() {
         log.info(
-                "[MatePaymentMode] configuredMode={}, resolvedMode={}, payment.selling.enforced={}, payment.payout.enabled={}, payment.payout.provider={}",
+                "[MatePaymentMode] configuredMode={}, resolvedMode={}, businessMode={}, provider={}, environment={}, payment.selling.enforced={}, payment.payout.enabled={}, payment.payout.provider={}",
                 configuredMode,
                 currentMode(),
+                businessMode(),
+                paymentProvider(),
+                paymentEnvironment(),
                 paymentSellingEnforced,
                 paymentPayoutEnabled,
                 paymentPayoutProvider);
@@ -41,7 +50,62 @@ public class MatePaymentModeService {
         return currentMode() == MatePaymentMode.DIRECT_TRADE;
     }
 
+    public boolean isInAppPayment() {
+        return !isDirectTrade();
+    }
+
     public boolean isTossTest() {
         return currentMode() == MatePaymentMode.TOSS_TEST;
+    }
+
+    public String businessMode() {
+        return isInAppPayment() ? "IN_APP_PAYMENT" : "DIRECT_TRADE";
+    }
+
+    public String paymentMode() {
+        return currentMode().name();
+    }
+
+    public String paymentProvider() {
+        return "TOSS".equals(normalize(configuredProvider, "TOSS")) ? "TOSS" : "UNSUPPORTED";
+    }
+
+    public String paymentEnvironment() {
+        if (isDirectTrade()) {
+            return "NONE";
+        }
+        if (isTossTest()) {
+            return "TEST";
+        }
+        return normalizeEnvironment(configuredEnvironment);
+    }
+
+    public boolean isTossPaymentEnabled() {
+        return isInAppPayment() && "TOSS".equals(paymentProvider());
+    }
+
+    public boolean isSellingPaymentRequired() {
+        return isInAppPayment() && paymentSellingEnforced;
+    }
+
+    public boolean isPayoutEnabled() {
+        return paymentPayoutEnabled;
+    }
+
+    public String payoutProvider() {
+        String provider = normalize(paymentPayoutProvider, "SIM");
+        return "SIM".equals(provider) || "TOSS".equals(provider) ? provider : "UNSUPPORTED";
+    }
+
+    private String normalize(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return value.trim().toUpperCase(java.util.Locale.ROOT);
+    }
+
+    private String normalizeEnvironment(String value) {
+        String normalized = normalize(value, "TEST");
+        return "LIVE".equals(normalized) ? "LIVE" : "TEST";
     }
 }

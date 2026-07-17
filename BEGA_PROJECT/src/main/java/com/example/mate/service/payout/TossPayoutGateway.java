@@ -42,6 +42,7 @@ public class TossPayoutGateway implements PayoutGateway {
         payload.put("currency", request.currency());
         payload.put("orderId", request.orderId());
         payload.put("paymentTransactionId", request.paymentTransactionId());
+        payload.put("refPayoutId", request.requestId());
 
         Object requestBody = buildRequestBody(payload);
         try {
@@ -50,6 +51,7 @@ public class TossPayoutGateway implements PayoutGateway {
                     .uri(resolveUrl(tossPayoutConfig.getRequestPath()))
                     .header("TossPayments-Api-Secret", tossPayoutConfig.getApiSecret())
                     .header("TossPayments-api-security-mode", resolveSecurityMode())
+                    .header("Idempotency-Key", request.requestId())
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(requestBody)
                     .retrieve()
@@ -95,9 +97,15 @@ public class TossPayoutGateway implements PayoutGateway {
         } catch (RestClientResponseException e) {
             return new PayoutStatusResult(
                     providerRef,
-                    "FAILED",
+                    "UNKNOWN",
                     parseFailureCode(e.getResponseBodyAsString()),
                     e.getResponseBodyAsString());
+        } catch (RuntimeException e) {
+            return new PayoutStatusResult(
+                    providerRef,
+                    "UNKNOWN",
+                    "TOSS_PAYOUT_STATUS_LOOKUP_FAILED",
+                    e.getMessage());
         }
     }
 

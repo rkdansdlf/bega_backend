@@ -15,6 +15,9 @@ import com.example.cheerboard.dto.ReportCaseRes;
 import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.dto.RepostToggleResponse;
 import com.example.cheerboard.dto.UpdatePostReq;
+import com.example.cheerboard.dto.LinkedPostLookupRes;
+import com.example.cheerboard.dto.LinkedContentRes;
+import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.dto.PostImageDto;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.service.PublicVisibilityVerifier;
@@ -24,10 +27,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Collections;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * CheerService Core Facade
@@ -50,6 +57,8 @@ public class CheerService {
     private final RedisPostService redisPostService;
     private final PublicVisibilityVerifier publicVisibilityVerifier;
     private final PermissionValidator permissionValidator;
+    private final CheerLinkedPostService linkedPostService;
+    private final CheerPostRepo postRepo;
 
     // --- Feed Operations ---
 
@@ -119,10 +128,23 @@ public class CheerService {
 
     // --- Post CRUD ---
 
-    @Transactional
-    public PostDetailRes createPost(CreatePostReq req) {
+    public CheerPostCreationResult createPost(CreatePostReq req) {
         UserEntity me = current.get();
-        return postService.createPost(req, me);
+        try {
+            CheerPostCreationOutcome outcome = postService.createPost(req, me);
+            return toCreationResult(outcome.post(), me, outcome.created());
+        } catch (DataIntegrityViolationException exception) {
+            CheerPost winner = reloadActiveLinkedPost(req, exception);
+            if (winner == null) {
+                throw exception;
+            }
+            return toCreationResult(winner, me, false);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public LinkedPostLookupRes lookupLinkedPost(Long diaryId, Long partyId) {
+        return linkedPostService.lookup(diaryId, partyId, current.get());
     }
 
     @Transactional
@@ -185,7 +207,10 @@ public class CheerService {
     public PostDetailRes createQuoteRepost(Long originalPostId, QuoteRepostReq req) {
         UserEntity me = current.get();
         CheerPost quoteRepost = postService.createQuoteRepost(originalPostId, req, me);
-        return postDtoMapper.toNewPostDetailRes(quoteRepost, me);
+        Map<Long, LinkedContentRes> linkedContentByPostId = resolveLinkedContent(quoteRepost);
+        return linkedContentByPostId.isEmpty()
+                ? postDtoMapper.toNewPostDetailRes(quoteRepost, me)
+                : postDtoMapper.toNewPostDetailRes(quoteRepost, me, linkedContentByPostId);
     }
 
     @Transactional
@@ -257,7 +282,56 @@ public class CheerService {
         boolean isOwner = me != null && permissionValidator.isOwnerOrAdmin(me, post.getAuthor());
         boolean repostedByMe = me != null && interactionService.isPostRepostedByUser(post.getId(), me.getId());
         int bookmarkCount = interactionService.getBookmarkCount(post.getId());
+        Map<Long, LinkedContentRes> linkedContentByPostId = resolveLinkedContent(post);
 
-        return postDtoMapper.toPostDetailRes(post, liked, isBookmarked, isOwner, repostedByMe, bookmarkCount);
+        return linkedContentByPostId.isEmpty()
+                ? postDtoMapper.toPostDetailRes(
+                        post, liked, isBookmarked, isOwner, repostedByMe, bookmarkCount)
+                : postDtoMapper.toPostDetailRes(
+                        post, liked, isBookmarked, isOwner, repostedByMe, bookmarkCount, linkedContentByPostId);
+    }
+
+    private CheerPostCreationResult toCreationResult(CheerPost post, UserEntity actor, boolean created) {
+        if (!created) {
+            return new CheerPostCreationResult(
+                    Objects.requireNonNull(reconstructPostDetailRes(post, actor)),
+                    false);
+        }
+
+        Map<Long, LinkedContentRes> linkedContentByPostId = resolveLinkedContent(post);
+        PostDetailRes detail = Objects.requireNonNull(linkedContentByPostId.isEmpty()
+                ? postDtoMapper.toNewPostDetailRes(post, actor)
+                : postDtoMapper.toNewPostDetailRes(post, actor, linkedContentByPostId));
+        return new CheerPostCreationResult(detail, created);
+    }
+
+    private Map<Long, LinkedContentRes> resolveLinkedContent(CheerPost post) {
+        List<CheerPost> linkedCandidates = post.getRepostOf() == null
+                ? List.of(post)
+                : List.of(post, post.getRepostOf());
+        boolean hasLinkedCandidate = linkedCandidates.stream()
+                .anyMatch(candidate -> candidate.getPostType() == com.example.cheerboard.domain.PostType.CHECKIN
+                        || candidate.getPostType() == com.example.cheerboard.domain.PostType.RECRUITMENT);
+        return hasLinkedCandidate
+                ? linkedPostService.resolveForPosts(linkedCandidates)
+                : Collections.emptyMap();
+    }
+
+    private CheerPost reloadActiveLinkedPost(
+            CreatePostReq req,
+            DataIntegrityViolationException exception) {
+        if ("CHECKIN".equals(req.postType())
+                && req.diaryId() != null
+                && req.partyId() == null
+                && CheerLinkedPostConstraintDetector.isActiveDiaryConflict(exception)) {
+            return postRepo.findFirstByDiaryIdAndDeletedFalse(req.diaryId()).orElse(null);
+        }
+        if ("RECRUITMENT".equals(req.postType())
+                && req.partyId() != null
+                && req.diaryId() == null
+                && CheerLinkedPostConstraintDetector.isActivePartyConflict(exception)) {
+            return postRepo.findFirstByPartyIdAndDeletedFalse(req.partyId()).orElse(null);
+        }
+        return null;
     }
 }

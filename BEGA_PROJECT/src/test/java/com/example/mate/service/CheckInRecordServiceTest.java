@@ -139,7 +139,7 @@ class CheckInRecordServiceTest {
         Principal principal = () -> "host@test.com";
         Party party = createParty(1L, 10L);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(1L, 10L)).thenReturn(Optional.of(party));
 
         CheckInRecordDTO.Request request = CheckInRecordDTO.Request.builder()
                 .partyId(1L)
@@ -157,7 +157,7 @@ class CheckInRecordServiceTest {
         Principal principal = () -> "host@test.com";
         Party party = createParty(1L, 10L);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(1L, 10L)).thenReturn(Optional.of(party));
 
         CheckInRecordDTO.Request request = CheckInRecordDTO.Request.builder()
                 .partyId(1L)
@@ -182,7 +182,7 @@ class CheckInRecordServiceTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(1L, 10L)).thenReturn(Optional.of(party));
         when(valueOperations.get(QR_SESSION_PREFIX + sessionId)).thenReturn(serializedPayload);
 
         CheckInRecordDTO.Request request = CheckInRecordDTO.Request.builder()
@@ -218,8 +218,8 @@ class CheckInRecordServiceTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
-        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(1L, 10L)).thenReturn(Optional.of(party));
+        when(partyRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(party));
         when(valueOperations.get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + 1L)).thenReturn(sessionId);
         when(valueOperations.get(QR_SESSION_PREFIX + sessionId)).thenReturn(serializedPayload);
         when(valueOperations.get(MANUAL_CODE_PREFIX + sessionId)).thenReturn("1234");
@@ -261,8 +261,8 @@ class CheckInRecordServiceTest {
                 .build();
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 20L)).thenReturn(Optional.of(party));
-        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(1L, 20L)).thenReturn(Optional.of(party));
+        when(partyRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(party));
         when(valueOperations.get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + 1L)).thenReturn(sessionId);
         when(valueOperations.get(QR_SESSION_PREFIX + sessionId)).thenReturn(serializedPayload);
         when(valueOperations.get(MANUAL_CODE_PREFIX + sessionId)).thenReturn("1234");
@@ -306,8 +306,8 @@ class CheckInRecordServiceTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userService.getUserIdByEmail("participant@test.com")).thenReturn(20L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 20L)).thenReturn(Optional.of(party));
-        when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(1L, 20L)).thenReturn(Optional.of(party));
+        when(partyRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(party));
         when(valueOperations.get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + 1L)).thenReturn(sessionId);
         when(valueOperations.get(QR_SESSION_PREFIX + sessionId)).thenReturn(serializedPayload);
         when(valueOperations.get(MANUAL_CODE_PREFIX + sessionId)).thenReturn("1234");
@@ -333,7 +333,7 @@ class CheckInRecordServiceTest {
     void checkIn_rejectsNonParticipantBeforeSaving() {
         Principal principal = () -> "outsider@test.com";
         when(userService.getUserIdByEmail("outsider@test.com")).thenReturn(77L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 77L)).thenReturn(Optional.empty());
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(1L, 77L)).thenReturn(Optional.empty());
 
         CheckInRecordDTO.Request request = CheckInRecordDTO.Request.builder()
                 .partyId(1L)
@@ -358,7 +358,7 @@ class CheckInRecordServiceTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(1L, 10L)).thenReturn(Optional.of(party));
         when(valueOperations.get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + 1L)).thenReturn(sessionId);
         when(valueOperations.get(QR_SESSION_PREFIX + sessionId)).thenReturn(serializedPayload);
         when(valueOperations.get(MANUAL_CODE_PREFIX + sessionId)).thenReturn("9999");
@@ -385,7 +385,7 @@ class CheckInRecordServiceTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(1L, 10L)).thenReturn(Optional.of(party));
         when(valueOperations.get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + 1L)).thenReturn(sessionId);
         when(valueOperations.get(QR_SESSION_PREFIX + sessionId)).thenReturn(serializedPayload);
 
@@ -408,7 +408,7 @@ class CheckInRecordServiceTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(1L, 10L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(1L, 10L)).thenReturn(Optional.of(party));
         when(valueOperations.get(MANUAL_CODE_ACTIVE_SESSION_PREFIX + 1L)).thenReturn(null);
 
         CheckInRecordDTO.Request request = CheckInRecordDTO.Request.builder()

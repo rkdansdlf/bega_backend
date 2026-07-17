@@ -5,6 +5,7 @@ import com.example.mate.entity.PaymentFlowType;
 import com.example.mate.entity.PaymentIntent;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Size;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -54,7 +55,6 @@ public class TossPaymentDTO {
     /** Toss API로부터 받는 결제 승인 응답 */
     @Data
     @NoArgsConstructor
-    @AllArgsConstructor
     @Schema(name = "MatePaymentConfirmProviderResponse")
     public static class ConfirmResponse {
         private String paymentKey;
@@ -62,6 +62,21 @@ public class TossPaymentDTO {
         private String status;       // e.g. "DONE"
         private Integer totalAmount;
         private String method;       // e.g. "카드"
+        private Integer balanceAmount;
+        private List<CancelDetail> cancels;
+
+        public ConfirmResponse(
+                String paymentKey,
+                String orderId,
+                String status,
+                Integer totalAmount,
+                String method) {
+            this.paymentKey = paymentKey;
+            this.orderId = orderId;
+            this.status = status;
+            this.totalAmount = totalAmount;
+            this.method = method;
+        }
     }
 
     /** Toss API에 전송하는 결제 취소 요청 */
@@ -77,12 +92,29 @@ public class TossPaymentDTO {
     /** Toss API 결제 취소 응답 */
     @Data
     @NoArgsConstructor
-    @AllArgsConstructor
     @Schema(name = "MatePaymentCancelProviderResponse")
     public static class CancelResponse {
         private String paymentKey;
         private String status;
         private Integer totalAmount;
+        private Integer balanceAmount;
+        private List<CancelDetail> cancels;
+
+        public CancelResponse(String paymentKey, String status, Integer totalAmount) {
+            this.paymentKey = paymentKey;
+            this.status = status;
+            this.totalAmount = totalAmount;
+        }
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CancelDetail {
+        private Integer cancelAmount;
+        private String cancelStatus;
+        private String canceledAt;
+        private String transactionKey;
     }
 
     /** Toss API 오류 응답 파싱용 */

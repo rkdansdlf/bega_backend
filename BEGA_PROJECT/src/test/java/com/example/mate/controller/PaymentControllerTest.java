@@ -31,6 +31,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentControllerTest {
@@ -53,7 +54,8 @@ class PaymentControllerTest {
 
     @BeforeEach
     void setUp() {
-        given(matePaymentModeService.isDirectTrade()).willReturn(false);
+        lenient().when(matePaymentModeService.isDirectTrade()).thenReturn(false);
+        lenient().when(matePaymentModeService.isTossPaymentEnabled()).thenReturn(true);
     }
 
     @Test
@@ -240,8 +242,8 @@ class PaymentControllerTest {
     }
 
     @Test
-    void prepareTossPayment_directTradeMode_throws503() {
-        given(matePaymentModeService.isDirectTrade()).willReturn(true);
+    void prepareTossPayment_whenTossProviderIsUnavailable_throws503() {
+        given(matePaymentModeService.isTossPaymentEnabled()).willReturn(false);
 
         TossPaymentDTO.PrepareClientRequest request = TossPaymentDTO.PrepareClientRequest.builder()
                 .partyId(1L)
@@ -249,8 +251,28 @@ class PaymentControllerTest {
 
         assertThatThrownBy(() -> paymentController.prepareTossPayment(request, 10L))
                 .isInstanceOf(TossPaymentException.class)
-                .hasMessageContaining("직거래 모드")
+                .hasMessageContaining("Toss 결제")
                 .extracting("code")
                 .isEqualTo("TOSS_PAYMENT_DISABLED");
+    }
+
+    @Test
+    void getPaymentCapability_returnsServerOwnedModeAndGates() {
+        given(matePaymentModeService.paymentMode()).willReturn("DIRECT_TRADE");
+        given(matePaymentModeService.businessMode()).willReturn("DIRECT_TRADE");
+        given(matePaymentModeService.paymentProvider()).willReturn("TOSS");
+        given(matePaymentModeService.paymentEnvironment()).willReturn("NONE");
+        given(matePaymentModeService.isTossPaymentEnabled()).willReturn(false);
+        given(matePaymentModeService.isSellingPaymentRequired()).willReturn(false);
+        given(matePaymentModeService.isPayoutEnabled()).willReturn(false);
+        given(matePaymentModeService.payoutProvider()).willReturn("SIM");
+
+        var response = paymentController.getPaymentCapability();
+
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().businessMode()).isEqualTo("DIRECT_TRADE");
+        assertThat(response.getBody().environment()).isEqualTo("NONE");
+        assertThat(response.getBody().tossPaymentEnabled()).isFalse();
+        assertThat(response.getBody().sellingPaymentRequired()).isFalse();
     }
 }

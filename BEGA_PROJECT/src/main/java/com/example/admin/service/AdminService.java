@@ -73,6 +73,7 @@ public class AdminService {
     private final PartyService partyService;
     private final RefreshRepository refreshRepository;
     private final PredictionService predictionService;
+    private final AdminUserDeletionPreparationService deletionPreparationService;
     private static final Set<String> NON_CANONICAL_TRACKER_STATUSES =
             Set.of("draft", "requested", "in_progress", "done");
 
@@ -187,6 +188,7 @@ public class AdminService {
     @Transactional
     public void deleteUser(Long userId, Long adminId) {
         Objects.requireNonNull(userId, "userId must not be null");
+        deletionPreparationService.disableForDeletion(userId);
 
         UserEntity user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("유저를 찾을 수 없습니다."));
@@ -221,13 +223,6 @@ public class AdminService {
 
         // 메이트 관련 데이터 정리 (파티 취소, 참여 신청 처리, 알림 발송)
         partyService.handleUserDeletion(userId);
-
-        // 유저 비활성화 + 토큰 버전 증가로 접근 무효화
-        int currentTokenVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
-        user.setEnabled(false);
-        user.setTokenVersion(currentTokenVersion + 1);
-        user.setLockExpiresAt(null);
-        userRepository.save(Objects.requireNonNull(user));
 
         // 리프레시 토큰 정리
         refreshRepository.deleteByEmail(userEmail);

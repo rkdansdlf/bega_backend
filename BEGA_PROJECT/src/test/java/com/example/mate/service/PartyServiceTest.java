@@ -14,6 +14,7 @@ import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.exception.PartyFullException;
 import com.example.mate.exception.PartyNotFoundException;
+import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PartyReviewRepository;
@@ -553,7 +554,7 @@ class PartyServiceTest {
                 Party party = createParty(1L, 10L, null);
                 party.setCurrentParticipants(3); // maxParticipants=4, one away from full
 
-                when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+                when(partyRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(party));
                 when(partyRepository.save(any(Party.class))).thenAnswer(inv -> inv.getArgument(0));
 
                 PartyDTO.Response response = partyService.incrementParticipants(1L);
@@ -568,7 +569,7 @@ class PartyServiceTest {
                 Party party = createParty(1L, 10L, null);
                 party.setCurrentParticipants(4); // already at max
 
-                when(partyRepository.findById(1L)).thenReturn(Optional.of(party));
+                when(partyRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(party));
 
                 assertThrows(PartyFullException.class, () -> partyService.incrementParticipants(1L));
                 verify(partyRepository, never()).save(any());
@@ -599,7 +600,7 @@ class PartyServiceTest {
                                 .maxParticipants(5)
                                 .build();
 
-                when(partyRepository.findByIdAndHostId(700L, 10L)).thenReturn(Optional.of(party));
+                when(partyRepository.findByIdAndHostIdForUpdate(700L, 10L)).thenReturn(Optional.of(party));
                 when(applicationRepository.countByPartyIdAndIsApprovedTrue(700L)).thenReturn(0L);
                 when(partyRepository.save(any(Party.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -609,7 +610,7 @@ class PartyServiceTest {
                 assertThat(response.getSeatDetail()).isEqualTo("306블록 10열 8번");
                 assertThat(response.getMaxParticipants()).isEqualTo(5);
                 assertThat(party.getSearchText()).contains("306블록 10열 8번");
-                verify(partyRepository).findByIdAndHostId(700L, 10L);
+                verify(partyRepository).findByIdAndHostIdForUpdate(700L, 10L);
                 verify(partyRepository, never()).findById(700L);
         }
 
@@ -620,12 +621,28 @@ class PartyServiceTest {
                                 .description("수정된 소개글입니다.")
                                 .build();
 
-                when(partyRepository.findByIdAndHostId(700L, 99L)).thenReturn(Optional.empty());
+                when(partyRepository.findByIdAndHostIdForUpdate(700L, 99L)).thenReturn(Optional.empty());
 
                 assertThrows(PartyNotFoundException.class, () -> partyService.updateParty(700L, request, 99L));
 
-                verify(partyRepository).findByIdAndHostId(700L, 99L);
+                verify(partyRepository).findByIdAndHostIdForUpdate(700L, 99L);
                 verify(partyRepository, never()).findById(700L);
+                verify(partyRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("updateParty - 호스트가 수명주기 상태를 직접 변경할 수 없다")
+        void updateParty_rejectsHostDrivenLifecycleStatusChange() {
+                Party party = createParty(702L, 10L, null);
+                PartyDTO.UpdateRequest request = PartyDTO.UpdateRequest.builder()
+                                .status(Party.PartyStatus.COMPLETED)
+                                .build();
+
+                when(partyRepository.findByIdAndHostIdForUpdate(702L, 10L)).thenReturn(Optional.of(party));
+                when(applicationRepository.countByPartyIdAndIsApprovedTrue(702L)).thenReturn(0L);
+
+                assertThrows(InvalidApplicationStatusException.class,
+                                () -> partyService.updateParty(702L, request, 10L));
                 verify(partyRepository, never()).save(any());
         }
 
@@ -634,25 +651,50 @@ class PartyServiceTest {
         void deleteParty_hostCanDeleteParty() {
                 Party party = createParty(701L, 10L, null);
 
-                when(partyRepository.findByIdAndHostId(701L, 10L)).thenReturn(Optional.of(party));
+                when(partyRepository.findByIdAndHostIdForUpdate(701L, 10L)).thenReturn(Optional.of(party));
                 when(applicationRepository.findByPartyIdAndIsApprovedTrue(701L)).thenReturn(List.of());
                 when(applicationRepository.findByPartyId(701L)).thenReturn(List.of());
 
                 partyService.deleteParty(701L, 10L);
 
-                verify(partyRepository).findByIdAndHostId(701L, 10L);
+                verify(partyRepository).findByIdAndHostIdForUpdate(701L, 10L);
                 verify(partyRepository, never()).findById(701L);
                 verify(partyRepository).delete(party);
         }
 
         @Test
+        @DisplayName("deleteParty - 결제된 대기 신청이 있으면 삭제할 수 없다")
+        void deleteParty_paidPendingApplicationBlocksDeletion() {
+                Party party = createParty(703L, 10L, null);
+                PartyApplication paidPending = PartyApplication.builder()
+                                .id(900L)
+                                .partyId(703L)
+                                .isPaid(true)
+                                .isApproved(false)
+                                .isRejected(false)
+                                .build();
+
+                when(partyRepository.findByIdAndHostIdForUpdate(703L, 10L)).thenReturn(Optional.of(party));
+                when(applicationRepository.findByPartyIdAndIsApprovedTrue(703L)).thenReturn(List.of());
+                when(applicationRepository.findByPartyId(703L)).thenReturn(List.of(paidPending));
+
+                InvalidApplicationStatusException exception = assertThrows(
+                                InvalidApplicationStatusException.class,
+                                () -> partyService.deleteParty(703L, 10L));
+
+                assertThat(exception.getMessage()).contains("결제");
+                verify(applicationRepository, never()).deleteAll(anyList());
+                verify(partyRepository, never()).delete(any());
+        }
+
+        @Test
         @DisplayName("deleteParty - 비호스트는 없는 파티처럼 처리한다")
         void deleteParty_nonHostIsTreatedAsNotFound() {
-                when(partyRepository.findByIdAndHostId(701L, 99L)).thenReturn(Optional.empty());
+                when(partyRepository.findByIdAndHostIdForUpdate(701L, 99L)).thenReturn(Optional.empty());
 
                 assertThrows(PartyNotFoundException.class, () -> partyService.deleteParty(701L, 99L));
 
-                verify(partyRepository).findByIdAndHostId(701L, 99L);
+                verify(partyRepository).findByIdAndHostIdForUpdate(701L, 99L);
                 verify(partyRepository, never()).findById(701L);
                 verify(partyRepository, never()).delete(any());
         }
@@ -667,9 +709,8 @@ class PartyServiceTest {
 
                 when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList()))
                                 .thenReturn(List.of(hostedParty));
+                when(partyRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(hostedParty));
                 when(applicationRepository.findByPartyIdAndIsApprovedTrue(1L))
-                                .thenReturn(List.of());
-                when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
                                 .thenReturn(List.of());
 
                 partyService.handleUserDeletion(userId);
@@ -687,14 +728,19 @@ class PartyServiceTest {
                 matchedParty.setCurrentParticipants(2);
 
                 PartyApplication application = mock(PartyApplication.class);
+                when(application.getId()).thenReturn(55L);
                 when(application.getPartyId()).thenReturn(2L);
+                when(application.getIsApproved()).thenReturn(true);
+                when(application.getIsRejected()).thenReturn(false);
                 when(application.getApplicantName()).thenReturn("DeletedUser");
 
                 when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList()))
                                 .thenReturn(List.of());
-                when(applicationRepository.findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(userId))
+                when(applicationRepository.findByApplicantId(userId))
                                 .thenReturn(List.of(application));
-                when(partyRepository.findById(2L)).thenReturn(Optional.of(matchedParty));
+                when(partyRepository.findByIdForUpdate(2L)).thenReturn(Optional.of(matchedParty));
+                when(applicationRepository.findByIdAndApplicantIdForUpdate(55L, userId))
+                                .thenReturn(Optional.of(application));
 
                 partyService.handleUserDeletion(userId);
 

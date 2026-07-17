@@ -4,15 +4,21 @@ import com.example.mate.entity.Party;
 import com.example.mate.entity.Party.PartyStatus;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.QueryHint;
 
 @Repository
 public interface PartyRepository extends JpaRepository<Party, Long>, PartyRepositoryCustom {
@@ -24,6 +30,20 @@ public interface PartyRepository extends JpaRepository<Party, Long>, PartyReposi
         List<Party> findByHostId(Long hostId);
 
         Optional<Party> findByIdAndHostId(Long id, Long hostId);
+
+        List<Party> findByIdIn(Collection<Long> ids);
+
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
+        @Query("select p from Party p where p.id = :partyId")
+        Optional<Party> findByIdForUpdate(@Param("partyId") Long partyId);
+
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
+        @Query("select p from Party p where p.id = :partyId and p.hostId = :hostId")
+        Optional<Party> findByIdAndHostIdForUpdate(
+                        @Param("partyId") Long partyId,
+                        @Param("hostId") Long hostId);
 
         @Query("""
                         SELECT p
@@ -41,6 +61,27 @@ public interface PartyRepository extends JpaRepository<Party, Long>, PartyReposi
                           )
                         """)
         Optional<Party> findAccessibleByIdAndParticipantId(
+                        @Param("partyId") Long partyId,
+                        @Param("userId") Long userId);
+
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
+        @Query("""
+                        SELECT p
+                        FROM Party p
+                        WHERE p.id = :partyId
+                          AND (
+                                p.hostId = :userId
+                                OR EXISTS (
+                                    SELECT 1
+                                    FROM PartyApplication a
+                                    WHERE a.partyId = p.id
+                                      AND a.applicantId = :userId
+                                      AND a.isApproved = true
+                                )
+                          )
+                        """)
+        Optional<Party> findAccessibleByIdAndParticipantIdForUpdate(
                         @Param("partyId") Long partyId,
                         @Param("userId") Long userId);
 

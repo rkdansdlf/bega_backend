@@ -3,11 +3,15 @@ package com.example.mate.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 @Configuration
 @ConfigurationProperties(prefix = "toss.payout")
 public class TossPayoutConfig {
+
+    private static final int MIN_TIMEOUT_MILLIS = 100;
+    private static final int MAX_TIMEOUT_MILLIS = 60_000;
 
     private String apiSecret;
     private String baseUrl = "https://api.tosspayments.com";
@@ -17,6 +21,8 @@ public class TossPayoutConfig {
     private String securityMode = "ENCRYPTION";
     private String encryptionPublicKey;
     private String encryptionPublicKeyPath;
+    private int connectTimeoutMillis = 3_000;
+    private int readTimeoutMillis = 10_000;
 
     public String getApiSecret() {
         return apiSecret;
@@ -82,9 +88,35 @@ public class TossPayoutConfig {
         this.encryptionPublicKeyPath = encryptionPublicKeyPath;
     }
 
+    public int getConnectTimeoutMillis() {
+        return connectTimeoutMillis;
+    }
+
+    public void setConnectTimeoutMillis(int connectTimeoutMillis) {
+        this.connectTimeoutMillis = requireBoundedTimeout("connectTimeoutMillis", connectTimeoutMillis);
+    }
+
+    public int getReadTimeoutMillis() {
+        return readTimeoutMillis;
+    }
+
+    public void setReadTimeoutMillis(int readTimeoutMillis) {
+        this.readTimeoutMillis = requireBoundedTimeout("readTimeoutMillis", readTimeoutMillis);
+    }
+
     @Bean
     public RestClient tossPayoutRestClient(RestClient.Builder builder) {
-        return builder.build();
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(connectTimeoutMillis);
+        requestFactory.setReadTimeout(readTimeoutMillis);
+        return builder.requestFactory(requestFactory).build();
+    }
+
+    private int requireBoundedTimeout(String property, int value) {
+        if (value < MIN_TIMEOUT_MILLIS || value > MAX_TIMEOUT_MILLIS) {
+            throw new IllegalArgumentException(
+                    property + " must be between " + MIN_TIMEOUT_MILLIS + " and " + MAX_TIMEOUT_MILLIS);
+        }
+        return value;
     }
 }
-

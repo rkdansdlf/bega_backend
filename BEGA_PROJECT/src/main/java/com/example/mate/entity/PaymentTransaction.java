@@ -81,6 +81,18 @@ public class PaymentTransaction {
     @Column(name = "refund_policy_applied", length = 100)
     private String refundPolicyApplied;
 
+    @Column(name = "requested_refund_amount")
+    private Integer requestedRefundAmount;
+
+    @Column(name = "requested_fee_amount")
+    private Integer requestedFeeAmount;
+
+    @Column(name = "cancellation_requested_at")
+    private Instant cancellationRequestedAt;
+
+    @Column(name = "provider_reconciled_at")
+    private Instant providerReconciledAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
