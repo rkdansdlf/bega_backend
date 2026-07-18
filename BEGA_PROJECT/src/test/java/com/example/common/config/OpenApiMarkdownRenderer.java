@@ -275,6 +275,9 @@ final class OpenApiMarkdownRenderer {
             JsonNode header = headers.path(name);
             appendLine(out, "| `" + markdownCell(name) + "` | " + schemaCell(header.path("schema"))
                     + " | " + markdownCellOrDash(header.get("description")) + " |");
+        }
+        for (String name : names) {
+            JsonNode header = headers.path(name);
             appendFallback(out, "Header metadata: `" + name + "`", header,
                     Set.of("description", "schema"));
         }
