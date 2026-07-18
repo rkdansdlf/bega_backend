@@ -408,7 +408,8 @@ class OpenApiMarkdownRendererTest {
                         "contracts/openapi.json",
                         "./gradlew updateOpenApiContract");
 
-        assertThat(rendered.schemas())
+        String schemas = rendered.schemas();
+        assertThat(schemas)
                 .startsWith("# Fixture API Schemas\n")
                 .contains("Schemas: **2**")
                 .contains("## SearchResult")
@@ -424,5 +425,79 @@ class OpenApiMarkdownRendererTest {
                 .contains("Example: `\"WIDGET\"")
                 .contains("Enum: `ACTIVE`, `INACTIVE`");
         assertThat(rendered.schemas()).endsWith("\n").doesNotEndWith("\n\n");
+    }
+
+    @Test
+    void preservesSchemaMetadataPropertyExamplesAndUnknownFields() throws Exception {
+        JsonNode schema = objectMapper.readTree("""
+                {
+                  "openapi": "3.0.1",
+                  "info": {"title": "Fixture API", "version": "1"},
+                  "paths": {},
+                  "components": {
+                    "schemas": {
+                      "Decorated": {
+                        "type": "string",
+                        "default": "DEFAULT",
+                        "example": "EXAMPLE",
+                        "examples": {
+                          "zeta": {"value": "Z"},
+                          "alpha": {"summary": "First", "value": "A"}
+                        },
+                        "enum": ["ALPHA", "BETA"],
+                        "const": "ALPHA",
+                        "nullable": true,
+                        "readOnly": false,
+                        "writeOnly": true,
+                        "deprecated": false,
+                        "minLength": 1,
+                        "maxLength": 10,
+                        "pattern": "^[A-Z]+$",
+                        "x-schema": {"z": 2, "a": 1},
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "examples": {
+                              "zeta": {"value": "Z"},
+                              "alpha": {"value": "A"}
+                            },
+                            "x-property": {"z": 4, "a": 3}
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                """);
+
+        OpenApiMarkdownRenderer.RenderedDocuments rendered =
+                OpenApiMarkdownRenderer.render(
+                        schema,
+                        "contracts/openapi.json",
+                        "./gradlew updateOpenApiContract");
+
+        String schemas = rendered.schemas();
+        assertThat(schemas)
+                .contains("Schema constraints: minLength=1, maxLength=10, pattern=`^[A-Z]+$`")
+                .contains("Default: `\"DEFAULT\"`")
+                .contains("Example: `\"EXAMPLE\"`")
+                .contains("Examples:")
+                .contains("\"alpha\" : {")
+                .contains("\"zeta\" : {")
+                .contains("Enum: `ALPHA`, `BETA`")
+                .contains("Const: `\"ALPHA\"`")
+                .contains("nullable: `true`")
+                .contains("readOnly: `false`")
+                .contains("writeOnly: `true`")
+                .contains("deprecated: `false`")
+                .contains("#### Property metadata: `code`")
+                .contains("#### Schema metadata")
+                .contains("\"x-schema\" : {\n    \"a\" : 1,\n    \"z\" : 2\n  }")
+                .contains("#### Property metadata: `code`")
+                .contains("\"x-property\" : {\n    \"a\" : 3,\n    \"z\" : 4\n  }");
+        assertThat(schemas.substring(schemas.indexOf("#### Property metadata: `code`")))
+                .contains("- Examples:")
+                .contains("\"alpha\" : {")
+                .contains("\"zeta\" : {");
     }
 }
