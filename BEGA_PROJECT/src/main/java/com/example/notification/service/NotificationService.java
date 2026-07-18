@@ -6,7 +6,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.lang.NonNull;
+import org.jspecify.annotations.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,7 +32,7 @@ public class NotificationService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void createNotification(
             @NonNull Long userId,
-            @NonNull Notification.NotificationType type,
+            Notification.@NonNull NotificationType type,
             @NonNull String title,
             @NonNull String message,
             Long relatedId) {

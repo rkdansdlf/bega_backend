@@ -41,7 +41,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.springframework.lang.NonNull;
+import org.jspecify.annotations.NonNull;
 
 @Service
 @RequiredArgsConstructor
@@ -62,12 +62,12 @@ public class PartyService {
     private boolean requireSocialVerification;
 
     @Transactional
-    public PartyDTO.Response createParty(@NonNull PartyDTO.Request request, Principal principal) {
+    public PartyDTO.Response createParty(PartyDTO.@NonNull Request request, Principal principal) {
         return createParty(request, getUserIdFromPrincipal(principal));
     }
 
     @Transactional
-    public PartyDTO.Response createParty(@NonNull PartyDTO.Request request, @NonNull Long hostId) {
+    public PartyDTO.Response createParty(PartyDTO.@NonNull Request request, @NonNull Long hostId) {
         UserEntity hostUser = userRepository.findById(hostId)
                 .orElseThrow(() -> new UserNotFoundException(hostId));
         boolean socialVerified = isSocialVerified(hostId);
@@ -296,13 +296,13 @@ public class PartyService {
 
     // 파티 업데이트
     @Transactional
-    public PartyDTO.Response updateParty(@NonNull Long id, @NonNull PartyDTO.UpdateRequest request,
+    public PartyDTO.Response updateParty(@NonNull Long id, PartyDTO.@NonNull UpdateRequest request,
             Principal principal) {
         return updateParty(id, request, getUserIdFromPrincipal(principal));
     }
 
     @Transactional
-    public PartyDTO.Response updateParty(@NonNull Long id, @NonNull PartyDTO.UpdateRequest request,
+    public PartyDTO.Response updateParty(@NonNull Long id, PartyDTO.@NonNull UpdateRequest request,
             @NonNull Long requesterId) {
         Party party = partyRepository.findByIdAndHostIdForUpdate(id, requesterId)
                 .orElseThrow(() -> new PartyNotFoundException(id));

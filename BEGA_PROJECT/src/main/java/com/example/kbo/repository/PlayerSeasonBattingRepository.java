@@ -5,9 +5,7 @@ import java.util.Optional;
 
 import com.example.kbo.entity.PlayerSeasonBattingEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
 
-@Repository
 public interface PlayerSeasonBattingRepository
         extends JpaRepository<PlayerSeasonBattingEntity, Integer> {
 

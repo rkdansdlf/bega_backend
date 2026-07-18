@@ -4,9 +4,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
 
-@Repository
 public interface RankingPredictionRepository extends JpaRepository<RankingPrediction, Long> {
 
 	// 특정 사용자의 특정 시즌 예측 찾기
