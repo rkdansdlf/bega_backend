@@ -10,6 +10,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import com.sun.net.httpserver.HttpExchange;
@@ -159,6 +160,78 @@ class AiProxyServiceTest {
     }
 
     @Test
+    void forwardJsonStreamRejectsMalformedCanonicalUnsupportedVersionBodies() throws Exception {
+        List<String> malformedBodies = List.of(
+                "{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"detail\":null,\"retryable\":false,\"retry_after_seconds\":null,\"supported_versions\":[\"1\",\"2\"]}",
+                "{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"message\":\"지원하지 않는 AI 이벤트 버전입니다.\",\"detail\":null,\"retryable\":false,\"retry_after_seconds\":null,\"supported_versions\":[\"1\",\"2\"],\"secret\":\"secret-bearing\"}",
+                "{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"message\":42,\"detail\":null,\"retryable\":false,\"retry_after_seconds\":null,\"supported_versions\":[\"1\",\"2\"]}",
+                "{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"message\":\"지원하지 않는 AI 이벤트 버전입니다.\",\"detail\":\"secret-bearing\",\"retryable\":false,\"retry_after_seconds\":null,\"supported_versions\":[\"1\",\"2\"]}",
+                "{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"message\":\"지원하지 않는 AI 이벤트 버전입니다.\",\"detail\":null,\"retryable\":true,\"retry_after_seconds\":null,\"supported_versions\":[\"1\",\"2\"]}",
+                "{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"message\":\"지원하지 않는 AI 이벤트 버전입니다.\",\"detail\":null,\"retryable\":false,\"retry_after_seconds\":0,\"supported_versions\":[\"1\",\"2\"]}",
+                "{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"message\":\"지원하지 않는 AI 이벤트 버전입니다.\",\"detail\":null,\"retryable\":false,\"retry_after_seconds\":null,\"supported_versions\":[\"2\",\"1\"]}",
+                "{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"message\":\"지원하지 않는 AI 이벤트 버전입니다.\",\"detail\":null,\"retryable\":false,\"retry_after_seconds\":null,\"supported_versions\":[\"1\",\"1\",\"2\"]}",
+                "{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"message\":\"지원하지 않는 AI 이벤트 버전입니다.\",\"detail\":null,\"retryable\":false,\"retry_after_seconds\":null,\"supported_versions\":[\"1\",\"3\"]}",
+                "{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"message\":\"지원하지 않는 AI 이벤트 버전입니다.\",\"detail\":null,\"retryable\":false,\"retry_after_seconds\":null,\"supported_versions\":[\"1\",2]}");
+        AtomicInteger responseIndex = new AtomicInteger();
+        server = startServer("/ai/chat/stream", exchange -> writeResponse(
+                exchange,
+                406,
+                malformedBodies.get(responseIndex.getAndIncrement()),
+                "application/json"));
+        AiProxyService service = newService(Duration.ofSeconds(5), "stream-token");
+
+        for (String malformedBody : malformedBodies) {
+            AiProxyService.ProxyStreamResponse response = service.forwardJsonStream("/ai/chat/stream", "{}", "3");
+            JsonNode error = json(response.errorBody());
+
+            assertThat(response.status().value()).isEqualTo(406);
+            assertThat(error.get("code").asText()).as(malformedBody).isEqualTo("AI_UPSTREAM_BAD_REQUEST");
+            assertThat(error.get("supported_versions").isEmpty()).as(malformedBody).isTrue();
+            assertThat(new String(response.errorBody(), StandardCharsets.UTF_8)).doesNotContain("secret-bearing");
+        }
+    }
+
+    @Test
+    void forwardJsonStreamRejectsMalformedLegacyUnsupportedVersionBodies() throws Exception {
+        List<String> malformedBodies = List.of(
+                "{\"detail\":{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\"}}",
+                "{\"detail\":{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"supported_versions\":[\"2\",\"1\"]}}",
+                "{\"detail\":{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"supported_versions\":[\"1\",\"1\",\"2\"]}}",
+                "{\"detail\":{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"supported_versions\":[\"1\",\"3\"]}}",
+                "{\"detail\":{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"supported_versions\":[\"1\",2]}}",
+                "{\"detail\":{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"supported_versions\":[\"1\",\"2\"],\"message\":\"secret-bearing\"}}",
+                "{\"detail\":{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"supported_versions\":[\"1\",\"2\"]},\"extra\":true}");
+        AtomicInteger responseIndex = new AtomicInteger();
+        server = startServer("/ai/chat/stream", exchange -> writeResponse(
+                exchange,
+                406,
+                malformedBodies.get(responseIndex.getAndIncrement()),
+                "application/json"));
+        AiProxyService service = newService(Duration.ofSeconds(5), "stream-token");
+
+        for (String malformedBody : malformedBodies) {
+            AiProxyService.ProxyStreamResponse response = service.forwardJsonStream("/ai/chat/stream", "{}", "3");
+            JsonNode error = json(response.errorBody());
+
+            assertThat(error.get("code").asText()).as(malformedBody).isEqualTo("AI_UPSTREAM_BAD_REQUEST");
+            assertThat(error.get("supported_versions").isEmpty()).as(malformedBody).isTrue();
+            assertThat(new String(response.errorBody(), StandardCharsets.UTF_8)).doesNotContain("secret-bearing");
+        }
+    }
+
+    @Test
+    void forwardJsonStreamRejectsUnsupportedVersionWithWrongContentType() throws Exception {
+        String body = "{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"message\":\"지원하지 않는 AI 이벤트 버전입니다.\",\"detail\":null,\"retryable\":false,\"retry_after_seconds\":null,\"supported_versions\":[\"1\",\"2\"]}";
+        server = startServer("/ai/chat/stream", exchange -> writeResponse(exchange, 406, body, "text/plain"));
+
+        AiProxyService.ProxyStreamResponse response = newService(Duration.ofSeconds(5), "stream-token")
+                .forwardJsonStream("/ai/chat/stream", "{}", "3");
+
+        assertThat(json(response.errorBody()).get("code").asText()).isEqualTo("AI_UPSTREAM_BAD_REQUEST");
+        assertThat(json(response.errorBody()).get("supported_versions").isEmpty()).isTrue();
+    }
+
+    @Test
     void forwardJsonStreamDoesNotExposeMalformedUpstreamBody() throws Exception {
         server = startServer("/ai/coach/analyze", exchange -> writeResponse(
                 exchange, 503, "secret-bearing upstream body", "text/plain"));
@@ -175,7 +248,7 @@ class AiProxyServiceTest {
     @Test
     void forwardJsonStreamPreservesIntegerRetryAfterInCanonicalError() throws Exception {
         server = startServer("/ai/chat/stream", exchange -> {
-            exchange.getResponseHeaders().set("Retry-After", "37");
+            exchange.getResponseHeaders().set("Retry-After", "00037");
             writeResponse(exchange, 429, "upstream rate limit", "text/plain");
         });
 
@@ -197,6 +270,25 @@ class AiProxyServiceTest {
                 .forwardJsonStream("/ai/chat/stream", "{}");
 
         assertThat(json(response.errorBody()).get("retry_after_seconds").isNull()).isTrue();
+        assertThat(response.headers().getFirst("Retry-After")).isNull();
+    }
+
+    @Test
+    void forwardJsonStreamRemovesMalformedNegativeAndOverflowRetryAfter() throws Exception {
+        List<String> invalidValues = List.of("not-a-number", "-1", "Wed, 21 Oct 2015 07:28:00 GMT", "9223372036854775808");
+        AtomicInteger responseIndex = new AtomicInteger();
+        server = startServer("/ai/chat/stream", exchange -> {
+            exchange.getResponseHeaders().set("Retry-After", invalidValues.get(responseIndex.getAndIncrement()));
+            writeResponse(exchange, 429, "upstream rate limit", "text/plain");
+        });
+        AiProxyService service = newService(Duration.ofSeconds(5), "stream-token");
+
+        for (String invalidValue : invalidValues) {
+            AiProxyService.ProxyStreamResponse response = service.forwardJsonStream("/ai/chat/stream", "{}");
+
+            assertThat(response.headers().getFirst("Retry-After")).as(invalidValue).isNull();
+            assertThat(json(response.errorBody()).get("retry_after_seconds").isNull()).as(invalidValue).isTrue();
+        }
     }
 
     @Test

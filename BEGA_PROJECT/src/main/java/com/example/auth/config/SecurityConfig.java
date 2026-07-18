@@ -399,7 +399,8 @@ public class SecurityConfig {
                 // Cookies are set by the browser from credentialed CORS responses.
                 configuration.setExposedHeaders(List.of(
                                 "Content-Disposition",
-                                "X-AI-Event-Version"));
+                                "X-AI-Event-Version",
+                                "Retry-After"));
 
                 UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
                 source.registerCorsConfiguration("/**", configuration);
