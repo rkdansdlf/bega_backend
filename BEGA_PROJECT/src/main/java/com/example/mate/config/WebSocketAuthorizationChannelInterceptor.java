@@ -1,6 +1,7 @@
 package com.example.mate.config;
 
 import java.security.Principal;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -16,8 +17,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
-import com.example.dm.service.DmRoomService;
-import com.example.mate.repository.PartyRepository;
+import com.example.common.realtime.authorization.RealtimeAuthorizationService;
+import com.example.common.realtime.authorization.RealtimeAuthorizationUnavailableException;
 
 import lombok.RequiredArgsConstructor;
 
@@ -28,13 +29,15 @@ public class WebSocketAuthorizationChannelInterceptor implements ChannelIntercep
     private static final Pattern PARTY_TOPIC_PATTERN = Pattern.compile("^/topic/party/(\\d+)$");
     private static final Pattern DM_TOPIC_PATTERN = Pattern.compile("^/topic/dm/(\\d+)$");
     private static final Pattern CHAT_SEND_PATTERN = Pattern.compile("^/app/chat/(\\d+)$");
-    private static final Pattern BATTLE_TOPIC_PATTERN = Pattern.compile("^/topic/battle/[^/]+$");
-    private static final Pattern BATTLE_SEND_PATTERN = Pattern.compile("^/app/battle/vote/[^/]+$");
+    private static final String BATTLE_GAME_ID_PATTERN = "[A-Za-z0-9_-]{1,64}";
+    private static final Pattern BATTLE_TOPIC_PATTERN = Pattern.compile(
+            "^/topic/battle/" + BATTLE_GAME_ID_PATTERN + "$");
+    private static final Pattern BATTLE_SEND_PATTERN = Pattern.compile(
+            "^/app/battle/vote/" + BATTLE_GAME_ID_PATTERN + "$");
     private static final String USER_NOTIFICATION_DESTINATION = "/user/queue/notifications";
     private static final String LEGACY_NOTIFICATION_TOPIC_PREFIX = "/topic/notifications/";
 
-    private final PartyRepository partyRepository;
-    private final DmRoomService dmRoomService;
+    private final RealtimeAuthorizationService authorizationService;
 
     @Override
     public Message<?> preSend(@NonNull Message<?> message, @NonNull MessageChannel channel) {
@@ -48,12 +51,13 @@ public class WebSocketAuthorizationChannelInterceptor implements ChannelIntercep
         String destination = accessor.getDestination();
 
         switch (command) {
-            case CONNECT -> requireAuthenticated(principal, "WebSocket 연결에는 로그인이 필요합니다.");
+            case CONNECT, STOMP -> requireAuthenticated(principal, "WebSocket 연결에는 로그인이 필요합니다.");
             case SUBSCRIBE -> authorizeSubscribe(principal, destination);
             case SEND -> authorizeSend(principal, destination);
-            default -> {
-                // no-op
+            case UNSUBSCRIBE, DISCONNECT, ACK, NACK -> {
+                // Authenticated session lifecycle and acknowledgement commands.
             }
+            default -> throw new AccessDeniedException("허용되지 않은 STOMP 명령입니다.");
         }
 
         return message;
@@ -77,10 +81,11 @@ public class WebSocketAuthorizationChannelInterceptor implements ChannelIntercep
 
     private void authorizeSubscribe(Principal principal, String destination) {
         if (destination == null || destination.isBlank()) {
-            return;
+            throw new AccessDeniedException("허용되지 않은 구독 경로입니다.");
         }
 
         if (BATTLE_TOPIC_PATTERN.matcher(destination).matches()) {
+            requireAuthenticated(principal, "응원 배틀 구독에는 로그인이 필요합니다.");
             return;
         }
 
@@ -97,7 +102,7 @@ public class WebSocketAuthorizationChannelInterceptor implements ChannelIntercep
         if (partyMatcher.matches()) {
             Long userId = requireAuthenticatedUserId(principal, "파티 채팅 구독에는 로그인이 필요합니다.");
             Long partyId = Long.valueOf(partyMatcher.group(1));
-            if (!isPartyMember(userId, partyId)) {
+            if (!evaluate(() -> authorizationService.canAccessParty(partyId, userId))) {
                 throw new AccessDeniedException("파티 참여자만 채팅을 구독할 수 있습니다.");
             }
             return;
@@ -107,22 +112,25 @@ public class WebSocketAuthorizationChannelInterceptor implements ChannelIntercep
         if (dmMatcher.matches()) {
             Long userId = requireAuthenticatedUserId(principal, "DM 구독에는 로그인이 필요합니다.");
             Long roomId = Long.valueOf(dmMatcher.group(1));
-            if (!dmRoomService.canSubscribe(roomId, userId)) {
+            if (!evaluate(() -> authorizationService.canAccessDmRoom(roomId, userId))) {
                 throw new AccessDeniedException("대화방 참여자만 DM을 구독할 수 있습니다.");
             }
+            return;
         }
+
+        throw new AccessDeniedException("허용되지 않은 구독 경로입니다.");
     }
 
     private void authorizeSend(Principal principal, String destination) {
         if (destination == null || destination.isBlank()) {
-            return;
+            throw new AccessDeniedException("허용되지 않은 전송 경로입니다.");
         }
 
         Matcher chatMatcher = CHAT_SEND_PATTERN.matcher(destination);
         if (chatMatcher.matches()) {
             Long userId = requireAuthenticatedUserId(principal, "채팅 전송에는 로그인이 필요합니다.");
             Long partyId = Long.valueOf(chatMatcher.group(1));
-            if (!isPartyMember(userId, partyId)) {
+            if (!evaluate(() -> authorizationService.canAccessParty(partyId, userId))) {
                 throw new AccessDeniedException("파티 참여자만 채팅을 전송할 수 있습니다.");
             }
             return;
@@ -130,7 +138,10 @@ public class WebSocketAuthorizationChannelInterceptor implements ChannelIntercep
 
         if (BATTLE_SEND_PATTERN.matcher(destination).matches()) {
             requireAuthenticated(principal, "응원 배틀 투표에는 로그인이 필요합니다.");
+            return;
         }
+
+        throw new AccessDeniedException("허용되지 않은 전송 경로입니다.");
     }
 
     private void requireAuthenticated(Principal principal, String message) {
@@ -164,7 +175,11 @@ public class WebSocketAuthorizationChannelInterceptor implements ChannelIntercep
         }
     }
 
-    private boolean isPartyMember(Long userId, Long partyId) {
-        return partyRepository.findAccessibleByIdAndParticipantId(partyId, userId).isPresent();
+    private boolean evaluate(BooleanSupplier decision) {
+        try {
+            return decision.getAsBoolean();
+        } catch (RealtimeAuthorizationUnavailableException exception) {
+            throw new AccessDeniedException("실시간 권한을 확인할 수 없습니다.", exception);
+        }
     }
 }

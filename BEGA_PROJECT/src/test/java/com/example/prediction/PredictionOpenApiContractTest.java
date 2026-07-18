@@ -71,7 +71,7 @@ class PredictionOpenApiContractTest {
         addSchema(openApi, "PredictionBootstrapResourceDtoPredictionResponseDto", "data", "error");
         addSchema(openApi, "PredictionBootstrapErrorDto", "status", "code");
         addSchema(openApi, "RankingPredictionInitDto", "saved");
-        addSchema(openApi, "RankingPredictionResponseDto", "shareId");
+        addSchema(openApi, "RankingPredictionResponseDto", "shareId", "exactMatchCount", "settledAt");
         addSchema(openApi, "TeamRankingDetail", "currentRank", "lastSeasonRank");
         addSchema(openApi, "PredictionMyVoteEntryDto", "gameId", "votedTeam");
         addSchema(openApi, "PredictionStatsResponseDto", "success", "message", "data", "code", "errors");
@@ -97,6 +97,8 @@ class PredictionOpenApiContractTest {
         assertNullablePrimitive(openApi, "PredictionBootstrapErrorDto", "code", "string", null);
         assertNullableRef(openApi, "RankingPredictionInitDto", "saved", "RankingPredictionResponseDto");
         assertNullablePrimitive(openApi, "RankingPredictionResponseDto", "shareId", "string", null);
+        assertNullablePrimitive(openApi, "RankingPredictionResponseDto", "exactMatchCount", "integer", "int32");
+        assertNullablePrimitive(openApi, "RankingPredictionResponseDto", "settledAt", "string", "date-time");
         assertNullablePrimitive(openApi, "TeamRankingDetail", "currentRank", "integer", "int32");
         assertNullablePrimitive(openApi, "TeamRankingDetail", "lastSeasonRank", "integer", "int32");
         assertNullableEnum(openApi, "PredictionMyVoteEntryDto", "votedTeam", "home", "away");

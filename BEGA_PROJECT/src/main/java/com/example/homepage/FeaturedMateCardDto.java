@@ -1,6 +1,5 @@
 package com.example.homepage;
 
-import com.example.mate.entity.Party;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -25,5 +24,5 @@ public class FeaturedMateCardDto {
     private Integer currentParticipants;
     private Integer maxParticipants;
     private Integer ticketPrice;
-    private Party.PartyStatus status;
+    private String status;
 }

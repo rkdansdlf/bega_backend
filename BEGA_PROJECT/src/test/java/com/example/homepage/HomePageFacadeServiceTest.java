@@ -5,7 +5,7 @@ import com.example.kbo.validation.ManualBaseballDataMissingItem;
 import com.example.kbo.validation.ManualBaseballDataOverrideService;
 import com.example.kbo.validation.ManualBaseballDataRequest;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
-import com.example.mate.service.PartyService;
+import com.example.homepage.port.FeaturedMateQuery;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
@@ -51,7 +51,7 @@ class HomePageFacadeServiceTest {
     private CheerService cheerService;
 
     @Mock
-    private PartyService partyService;
+    private FeaturedMateQuery featuredMateQuery;
 
     private HomePageFacadeService homePageFacadeService;
 
@@ -60,7 +60,7 @@ class HomePageFacadeServiceTest {
         homePageFacadeService = new HomePageFacadeService(
                 homePageGameService,
                 cheerService,
-                partyService,
+                featuredMateQuery,
                 Duration.ofSeconds(6),
                 FIXED_CLOCK);
     }
@@ -80,7 +80,7 @@ class HomePageFacadeServiceTest {
         HomePageFacadeService service = new HomePageFacadeService(
                 homePageGameService,
                 cheerService,
-                partyService,
+                featuredMateQuery,
                 null,
                 null,
                 Duration.ofSeconds(6),
@@ -148,7 +148,7 @@ class HomePageFacadeServiceTest {
         HomePageFacadeService instrumentedService = new HomePageFacadeService(
                 homePageGameService,
                 cheerService,
-                partyService,
+                featuredMateQuery,
                 null,
                 null,
                 Duration.ofSeconds(6),
@@ -205,7 +205,7 @@ class HomePageFacadeServiceTest {
         HomePageFacadeService instrumentedService = new HomePageFacadeService(
                 homePageGameService,
                 cheerService,
-                partyService,
+                featuredMateQuery,
                 null,
                 null,
                 Duration.ofSeconds(6),
@@ -433,7 +433,7 @@ class HomePageFacadeServiceTest {
                         .games(132)
                         .gamesBehind(0.0)
                         .build()));
-        when(partyService.getFeaturedMateCards(selectedDate, 4)).thenReturn(List.of(
+        when(featuredMateQuery.getFeaturedMateCards(selectedDate, 4)).thenReturn(List.of(
                 FeaturedMateCardDto.builder()
                         .id(99L)
                         .teamId("LG")
@@ -457,7 +457,7 @@ class HomePageFacadeServiceTest {
         assertThat(response.getRankingSnapshot().isOffSeason()).isTrue();
         assertThat(response.getRankingSnapshot().getRankings()).hasSize(1);
         assertThat(homePageFacadeService.isUncacheableWidgetsResponse(response)).isFalse();
-        verify(partyService).getFeaturedMateCards(selectedDate, 4);
+        verify(featuredMateQuery).getFeaturedMateCards(selectedDate, 4);
     }
 
     @Test
@@ -468,7 +468,7 @@ class HomePageFacadeServiceTest {
         HomePageFacadeService cachedService = new HomePageFacadeService(
                 homePageGameService,
                 cheerService,
-                partyService,
+                featuredMateQuery,
                 null,
                 null,
                 widgetsCacheService,
@@ -496,7 +496,7 @@ class HomePageFacadeServiceTest {
         assertThat(response).isSameAs(cachedWidgets);
         verify(widgetsCacheService).getOrLoad(eq(selectedDate), isNull(), any(), any());
         verify(cheerService, never()).getHotPostsPublic(any(), any());
-        verify(partyService, never()).getFeaturedMateCards(any(), any(Integer.class));
+        verify(featuredMateQuery, never()).getFeaturedMateCards(any(), any(Integer.class));
         verify(homePageGameService, never()).getTeamRankings(any(Integer.class));
     }
 
@@ -521,7 +521,7 @@ class HomePageFacadeServiceTest {
 
         when(cheerService.getHotPostsPublic(PageRequest.of(0, 3), "HYBRID"))
                 .thenAnswer(invocation -> trackedSectionResult(new PageImpl<>(List.of()), activeLoaders, maxActiveLoaders));
-        when(partyService.getFeaturedMateCards(selectedDate, 4))
+        when(featuredMateQuery.getFeaturedMateCards(selectedDate, 4))
                 .thenAnswer(invocation -> trackedSectionResult(List.of(), activeLoaders, maxActiveLoaders));
         when(homePageGameService.getTeamRankings(2024))
                 .thenAnswer(invocation -> trackedSectionResult(rankings, activeLoaders, maxActiveLoaders));
@@ -538,7 +538,7 @@ class HomePageFacadeServiceTest {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
         when(cheerService.getHotPostsPublic(PageRequest.of(0, 3), "HYBRID"))
                 .thenReturn(new PageImpl<>(List.of()));
-        when(partyService.getFeaturedMateCards(selectedDate, 4)).thenReturn(List.of());
+        when(featuredMateQuery.getFeaturedMateCards(selectedDate, 4)).thenReturn(List.of());
         when(homePageGameService.getTeamRankings(2024)).thenReturn(List.of(
                 HomePageTeamRankingDto.builder()
                         .rank(1)
@@ -568,7 +568,7 @@ class HomePageFacadeServiceTest {
         HomePageFacadeService cachedService = new HomePageFacadeService(
                 homePageGameService,
                 cheerService,
-                partyService,
+                featuredMateQuery,
                 null,
                 rankingSnapshotCacheService,
                 Duration.ofSeconds(6),
@@ -608,7 +608,7 @@ class HomePageFacadeServiceTest {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
         when(cheerService.getHotPostsPublic(PageRequest.of(0, 3), "HYBRID"))
                 .thenReturn(new PageImpl<>(List.of()));
-        when(partyService.getFeaturedMateCards(selectedDate, 4)).thenReturn(List.of());
+        when(featuredMateQuery.getFeaturedMateCards(selectedDate, 4)).thenReturn(List.of());
         when(homePageGameService.getLeagueStartDates()).thenReturn(LeagueStartDatesDto.builder()
                 .regularSeasonStart("2026-03-22")
                 .postseasonStart("2026-10-06")
@@ -629,11 +629,11 @@ class HomePageFacadeServiceTest {
     @DisplayName("widgets는 랭킹 스냅샷이 지연되면 fallback으로 빠르게 응답한다")
     void getWidgetsFallsBackWhenRankingSnapshotTimesOut() {
         HomePageFacadeService timeoutAwareService =
-                new HomePageFacadeService(homePageGameService, cheerService, partyService, Duration.ofMillis(80), FIXED_CLOCK);
+                new HomePageFacadeService(homePageGameService, cheerService, featuredMateQuery, Duration.ofMillis(80), FIXED_CLOCK);
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
         when(cheerService.getHotPostsPublic(PageRequest.of(0, 3), "HYBRID"))
                 .thenReturn(new PageImpl<>(List.of()));
-        when(partyService.getFeaturedMateCards(selectedDate, 4)).thenReturn(List.of());
+        when(featuredMateQuery.getFeaturedMateCards(selectedDate, 4)).thenReturn(List.of());
         when(homePageGameService.getLeagueStartDates()).thenReturn(LeagueStartDatesDto.builder()
                 .regularSeasonStart("2026-03-22")
                 .postseasonStart("2026-10-06")
@@ -672,11 +672,11 @@ class HomePageFacadeServiceTest {
     @DisplayName("widgets는 메이트 카드가 지연되면 해당 섹션만 fallback으로 빠르게 응답한다")
     void getWidgetsFallsBackWhenFeaturedMatesTimeOut() {
         HomePageFacadeService timeoutAwareService =
-                new HomePageFacadeService(homePageGameService, cheerService, partyService, Duration.ofMillis(80), FIXED_CLOCK);
+                new HomePageFacadeService(homePageGameService, cheerService, featuredMateQuery, Duration.ofMillis(80), FIXED_CLOCK);
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
         when(cheerService.getHotPostsPublic(PageRequest.of(0, 3), "HYBRID"))
                 .thenReturn(new PageImpl<>(List.of()));
-        when(partyService.getFeaturedMateCards(selectedDate, 4)).thenAnswer(invocation -> {
+        when(featuredMateQuery.getFeaturedMateCards(selectedDate, 4)).thenAnswer(invocation -> {
             Thread.sleep(200);
             return List.of(FeaturedMateCardDto.builder()
                     .id(99L)
@@ -719,7 +719,7 @@ class HomePageFacadeServiceTest {
         HomePageFacadeService timeoutAwareService = new HomePageFacadeService(
                 homePageGameService,
                 cheerService,
-                partyService,
+                featuredMateQuery,
                 null,
                 null,
                 Duration.ofMillis(20),
@@ -773,7 +773,7 @@ class HomePageFacadeServiceTest {
     @DisplayName("bootstrap은 timeout된 섹션 task를 interrupt해 DB 작업 누수를 줄인다")
     void getBootstrapInterruptsTimedOutSectionTask() throws Exception {
         HomePageFacadeService timeoutAwareService =
-                new HomePageFacadeService(homePageGameService, cheerService, partyService, Duration.ofMillis(20), FIXED_CLOCK);
+                new HomePageFacadeService(homePageGameService, cheerService, featuredMateQuery, Duration.ofMillis(20), FIXED_CLOCK);
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
         CountDownLatch sectionStarted = new CountDownLatch(1);
         CountDownLatch sectionFinished = new CountDownLatch(1);
@@ -816,7 +816,7 @@ class HomePageFacadeServiceTest {
     @DisplayName("bootstrap은 이전 대기 섹션이 timeout되어도 이미 완료된 다음 섹션을 timeout 처리하지 않는다")
     void getBootstrapUsesCompletedLaterSectionsAfterEarlierSectionTimeout() {
         HomePageFacadeService timeoutAwareService =
-                new HomePageFacadeService(homePageGameService, cheerService, partyService, Duration.ofMillis(40), FIXED_CLOCK);
+                new HomePageFacadeService(homePageGameService, cheerService, featuredMateQuery, Duration.ofMillis(40), FIXED_CLOCK);
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
 
         when(homePageGameService.getLeagueStartDates()).thenReturn(LeagueStartDatesDto.builder()
@@ -902,7 +902,7 @@ class HomePageFacadeServiceTest {
         HomePageFacadeService mayService = new HomePageFacadeService(
                 homePageGameService,
                 cheerService,
-                partyService,
+                featuredMateQuery,
                 Duration.ofSeconds(6),
                 fixedMayClock);
         LocalDate selectedDate = LocalDate.of(2026, 5, 13);

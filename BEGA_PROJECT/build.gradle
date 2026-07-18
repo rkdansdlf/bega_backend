@@ -1,6 +1,6 @@
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '3.5.16'
+	id 'org.springframework.boot' version '4.0.6'
 	id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -77,20 +77,26 @@ repositories {
 }
 
 dependencies {
-	implementation 'org.springframework.boot:spring-boot-starter-web'
-	implementation 'org.springframework.boot:spring-boot-starter-web-services'
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.springframework.boot:spring-boot-starter-webservices'
+	implementation 'org.springframework.boot:spring-boot-tomcat'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
     implementation 'nz.net.ultraq.thymeleaf:thymeleaf-layout-dialect'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-jdbc'
+	implementation 'org.springframework.boot:spring-boot-jpa'
 	    implementation 'org.springframework.boot:spring-boot-starter-security'
 	    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	    implementation 'org.springframework.boot:spring-boot-health'
 	    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
 	    implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
 
     implementation 'org.springframework.boot:spring-boot-starter-validation'
-    implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+    implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-client'
+    // Keep the existing com.fasterxml.jackson API surface while the application migrates to Jackson 3.
+    implementation 'org.springframework.boot:spring-boot-jackson2'
     implementation 'io.jsonwebtoken:jjwt-api:0.12.3'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.3'
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.3'
@@ -124,7 +130,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     
     // AWS S3
-    implementation 'io.awspring.cloud:spring-cloud-aws-starter-s3:3.1.1'
+    implementation 'io.awspring.cloud:spring-cloud-aws-starter-s3:4.0.2'
     
     // Image resizing
     implementation 'net.coobird:thumbnailator:0.4.20'
@@ -142,25 +148,33 @@ dependencies {
     
     // WebFlux (WebClient)
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
+    implementation 'org.springframework.boot:spring-boot-webclient'
+    implementation 'org.springframework.boot:spring-boot-restclient'
     implementation 'com.nimbusds:nimbus-jose-jwt:9.37.3'
 
     // Caffeine Cache
     implementation 'com.github.ben-manes.caffeine:caffeine'
 
-    // JobRunr (Spring Boot 3)
-    implementation 'org.jobrunr:jobrunr-spring-boot-3-starter:7.2.0'
+    // JobRunr (Spring Boot 4)
+    implementation 'org.jobrunr:jobrunr-spring-boot-4-starter:8.7.0'
     
     // Flyway
+    implementation 'org.springframework.boot:spring-boot-flyway'
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-mysql'
     implementation 'org.flywaydb:flyway-database-postgresql'
     implementation 'org.flywaydb:flyway-database-oracle'
 
     // Swagger / OpenAPI
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.3'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
 
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test-classic'
+	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-data-redis-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-jdbc-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 	testImplementation 'org.springframework.security:spring-security-test'
+	testImplementation 'com.tngtech.archunit:archunit-junit5:1.4.2'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -301,6 +315,20 @@ tasks.named('processResources') {
 
 tasks.withType(Test).configureEach {
 	useJUnitPlatform()
+
+	[
+		'realtime.redis.integration',
+		'realtime.redis.host',
+		'realtime.redis.port',
+		'realtime.postgres.integration',
+		'realtime.postgres.url',
+		'realtime.postgres.username',
+		'realtime.postgres.password'
+	].each { propertyName ->
+		if (System.getProperty(propertyName) != null) {
+			systemProperty propertyName, System.getProperty(propertyName)
+		}
+	}
 
 	// Stabilize local/CI runs for heavy integration suites.
 	maxParallelForks = 1

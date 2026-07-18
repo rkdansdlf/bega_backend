@@ -3,6 +3,7 @@ package com.example.mate.service;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.UserService;
 import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.realtime.RealtimeOutboxWriter;
 import com.example.media.service.MediaLinkService;
 import com.example.mate.dto.ChatMessageDTO;
 import com.example.mate.entity.ChatMessage;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
 
 import java.security.Principal;
 import java.time.Instant;
@@ -58,6 +60,9 @@ class ChatMessageServiceTest {
 
     @Mock
     private MediaLinkService mediaLinkService;
+
+    @Mock
+    private RealtimeOutboxWriter realtimeOutboxWriter;
 
     @InjectMocks
     private ChatMessageService chatMessageService;
@@ -137,6 +142,7 @@ class ChatMessageServiceTest {
         assertThat(response.getId()).isEqualTo(100L);
         assertThat(response.getClientMessageId()).isEqualTo("client-msg-1");
         verify(chatMessageRepository, never()).save(any(ChatMessage.class));
+        verifyNoInteractions(realtimeOutboxWriter);
     }
 
     @Test
@@ -167,6 +173,7 @@ class ChatMessageServiceTest {
         assertThat(response.getId()).isEqualTo(101L);
         assertThat(response.getSenderId()).isEqualTo(88L);
         verify(chatMessageRepository).save(any(ChatMessage.class));
+        verify(realtimeOutboxWriter).broadcast("/topic/party/56", response);
     }
 
     @Test
@@ -258,6 +265,77 @@ class ChatMessageServiceTest {
                 .isInstanceOf(PartyNotFoundException.class);
 
         verify(chatMessageRepository, never()).findByPartyIdOrderByCreatedAtAsc(anyLong());
+    }
+
+    @Test
+    @DisplayName("getMessagesByPartyId returns the bounded latest page in chronological order")
+    void getMessagesByPartyId_returnsLatestPageInChronologicalOrder() {
+        Party party = Party.builder()
+                .id(56L)
+                .hostId(77L)
+                .status(Party.PartyStatus.MATCHED)
+                .build();
+        ChatMessage newest = ChatMessage.builder()
+                .id(103L)
+                .partyId(56L)
+                .senderId(77L)
+                .senderName("Host")
+                .message("three")
+                .createdAt(Instant.parse("2026-03-10T09:02:00Z"))
+                .build();
+        ChatMessage middle = ChatMessage.builder()
+                .id(102L)
+                .partyId(56L)
+                .senderId(77L)
+                .senderName("Host")
+                .message("two")
+                .createdAt(Instant.parse("2026-03-10T09:01:00Z"))
+                .build();
+        ChatMessage oldest = ChatMessage.builder()
+                .id(101L)
+                .partyId(56L)
+                .senderId(77L)
+                .senderName("Host")
+                .message("one")
+                .createdAt(Instant.parse("2026-03-10T09:00:00Z"))
+                .build();
+
+        when(partyRepository.findAccessibleByIdAndParticipantId(56L, 77L)).thenReturn(Optional.of(party));
+        when(chatMessageRepository.findByPartyIdOrderByIdDesc(eq(56L), any(Pageable.class)))
+                .thenReturn(List.of(newest, middle, oldest));
+
+        List<ChatMessageDTO.Response> responses = chatMessageService.getMessagesByPartyId(56L, 77L, 3, null);
+
+        assertThat(responses).extracting(ChatMessageDTO.Response::getId)
+                .containsExactly(101L, 102L, 103L);
+        verify(chatMessageRepository).findByPartyIdOrderByIdDesc(eq(56L), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("getMessagesByPartyId uses beforeId for older pages")
+    void getMessagesByPartyId_usesBeforeIdForOlderPage() {
+        Party party = Party.builder()
+                .id(56L)
+                .hostId(77L)
+                .status(Party.PartyStatus.MATCHED)
+                .build();
+        ChatMessage older = ChatMessage.builder()
+                .id(99L)
+                .partyId(56L)
+                .senderId(77L)
+                .senderName("Host")
+                .message("older")
+                .createdAt(Instant.parse("2026-03-10T08:59:00Z"))
+                .build();
+
+        when(partyRepository.findAccessibleByIdAndParticipantId(56L, 77L)).thenReturn(Optional.of(party));
+        when(chatMessageRepository.findByPartyIdAndIdLessThanOrderByIdDesc(eq(56L), eq(100L), any(Pageable.class)))
+                .thenReturn(List.of(older));
+
+        List<ChatMessageDTO.Response> responses = chatMessageService.getMessagesByPartyId(56L, 77L, 50, 100L);
+
+        assertThat(responses).extracting(ChatMessageDTO.Response::getId).containsExactly(99L);
+        verify(chatMessageRepository).findByPartyIdAndIdLessThanOrderByIdDesc(eq(56L), eq(100L), any(Pageable.class));
     }
 
     @Test

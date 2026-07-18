@@ -11,7 +11,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @RestController
-@Profile({ "dev", "local" })
+@Profile({ "dev", "dev-adb", "local" })
 @RequestMapping("/api/test")
 @RequiredArgsConstructor
 @Slf4j

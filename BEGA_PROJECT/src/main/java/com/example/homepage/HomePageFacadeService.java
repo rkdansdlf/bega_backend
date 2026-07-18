@@ -5,7 +5,7 @@ import com.example.cheerboard.service.CheerService;
 import com.example.kbo.validation.ManualBaseballDataOverrideService;
 import com.example.kbo.validation.ManualBaseballDataRequest;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
-import com.example.mate.service.PartyService;
+import com.example.homepage.port.FeaturedMateQuery;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -58,7 +58,7 @@ public class HomePageFacadeService {
 
     private final HomePageGameService homePageGameService;
     private final CheerService cheerService;
-    private final PartyService partyService;
+    private final FeaturedMateQuery partyService;
     private final HomeBootstrapCacheService homeBootstrapCacheService;
     private final HomeRankingSnapshotCacheService homeRankingSnapshotCacheService;
     private final HomeWidgetsCacheService homeWidgetsCacheService;
@@ -78,7 +78,7 @@ public class HomePageFacadeService {
     public HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService) {
+            FeaturedMateQuery partyService) {
         this(
                 homePageGameService,
                 cheerService,
@@ -96,7 +96,7 @@ public class HomePageFacadeService {
     public HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService,
+            FeaturedMateQuery partyService,
             HomeBootstrapCacheService homeBootstrapCacheService,
             HomeRankingSnapshotCacheService homeRankingSnapshotCacheService,
             HomeWidgetsCacheService homeWidgetsCacheService,
@@ -122,7 +122,7 @@ public class HomePageFacadeService {
     HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService,
+            FeaturedMateQuery partyService,
             Duration sectionTimeout) {
         this(
                 homePageGameService,
@@ -140,7 +140,7 @@ public class HomePageFacadeService {
     HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService,
+            FeaturedMateQuery partyService,
             Duration sectionTimeout,
             Clock clock) {
         this(
@@ -159,7 +159,7 @@ public class HomePageFacadeService {
     HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService,
+            FeaturedMateQuery partyService,
             Duration sectionTimeout,
             Clock clock,
             ExecutorService sectionExecutor) {
@@ -179,7 +179,7 @@ public class HomePageFacadeService {
     HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService,
+            FeaturedMateQuery partyService,
             HomeBootstrapCacheService homeBootstrapCacheService,
             HomeRankingSnapshotCacheService homeRankingSnapshotCacheService,
             Duration sectionTimeout,
@@ -204,7 +204,7 @@ public class HomePageFacadeService {
     HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService,
+            FeaturedMateQuery partyService,
             HomeBootstrapCacheService homeBootstrapCacheService,
             HomeRankingSnapshotCacheService homeRankingSnapshotCacheService,
             Duration sectionTimeout,
@@ -231,7 +231,7 @@ public class HomePageFacadeService {
     HomePageFacadeService(
             HomePageGameService homePageGameService,
             CheerService cheerService,
-            PartyService partyService,
+            FeaturedMateQuery partyService,
             HomeBootstrapCacheService homeBootstrapCacheService,
             HomeRankingSnapshotCacheService homeRankingSnapshotCacheService,
             HomeWidgetsCacheService homeWidgetsCacheService,
@@ -523,7 +523,8 @@ public class HomePageFacadeService {
     }
 
     private <T> SectionTask<T> submitSection(ExecutorService executor, String name, Supplier<T> supplier) {
-        return new SectionTask<>(name, executor.submit(() -> runWithSectionPermit(supplier)), System.nanoTime());
+        long startedAtNanos = System.nanoTime();
+        return new SectionTask<>(name, executor.submit(() -> runWithSectionPermit(supplier)), startedAtNanos);
     }
 
     private <T> T runWithSectionPermit(Supplier<T> supplier) {
@@ -605,9 +606,9 @@ public class HomePageFacadeService {
             SectionTask<T> task,
             T fallbackValue,
             Duration sectionTimeout) {
-        long elapsedBeforeWaitMs = elapsedMillis(task.startedAtNanos());
-        long remainingTimeoutMs = sectionTimeout.toMillis() - elapsedBeforeWaitMs;
-        if (remainingTimeoutMs <= 0) {
+        long elapsedBeforeWaitNanos = elapsedNanos(task.startedAtNanos());
+        long remainingTimeoutNanos = sectionTimeout.toNanos() - elapsedBeforeWaitNanos;
+        if (remainingTimeoutNanos <= 0) {
             if (task.future().isDone()) {
                 return getCompletedBootstrapSection(date, task, fallbackValue, sectionTimeout);
             }
@@ -617,13 +618,19 @@ public class HomePageFacadeService {
                     "event=home_bootstrap_section_timed_out date={} section={} elapsedMs={} timeoutMs={}",
                     date,
                     task.name(),
-                    elapsedBeforeWaitMs,
+                    TimeUnit.NANOSECONDS.toMillis(elapsedBeforeWaitNanos),
                     sectionTimeout.toMillis());
-            return new SectionResult<>(task.name(), fallbackValue, true, true, elapsedBeforeWaitMs, null);
+            return new SectionResult<>(
+                    task.name(),
+                    fallbackValue,
+                    true,
+                    true,
+                    TimeUnit.NANOSECONDS.toMillis(elapsedBeforeWaitNanos),
+                    null);
         }
 
         try {
-            T value = task.future().get(remainingTimeoutMs, TimeUnit.MILLISECONDS);
+            T value = task.future().get(remainingTimeoutNanos, TimeUnit.NANOSECONDS);
             long elapsedMs = elapsedMillis(task.startedAtNanos());
             recordSectionDuration(task.name(), "success", elapsedNanos(task.startedAtNanos()));
             log.info(
@@ -634,7 +641,9 @@ public class HomePageFacadeService {
                     sectionTimeout.toMillis());
             return new SectionResult<>(task.name(), value, false, false, elapsedMs, null);
         } catch (TimeoutException ex) {
-            task.future().cancel(true);
+            if (task.future().isDone() && !task.future().isCancelled()) {
+                return getCompletedBootstrapSection(date, task, fallbackValue, sectionTimeout);
+            }
             long elapsedMs = elapsedMillis(task.startedAtNanos());
             recordSectionDuration(task.name(), "timeout", elapsedNanos(task.startedAtNanos()));
             log.warn(
@@ -643,6 +652,7 @@ public class HomePageFacadeService {
                     task.name(),
                     elapsedMs,
                     sectionTimeout.toMillis());
+            task.future().cancel(true);
             return new SectionResult<>(task.name(), fallbackValue, true, true, elapsedMs, null);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
@@ -932,9 +942,9 @@ public class HomePageFacadeService {
             SectionTask<T> task,
             Supplier<T> fallbackSupplier,
             Function<T, String> resultClassifier) {
-        long elapsedBeforeWaitMs = elapsedMillis(task.startedAtNanos());
-        long remainingTimeoutMs = widgetsSectionTimeout.toMillis() - elapsedBeforeWaitMs;
-        if (remainingTimeoutMs <= 0) {
+        long elapsedBeforeWaitNanos = elapsedNanos(task.startedAtNanos());
+        long remainingTimeoutNanos = widgetsSectionTimeout.toNanos() - elapsedBeforeWaitNanos;
+        if (remainingTimeoutNanos <= 0) {
             if (task.future().isDone()) {
                 return getCompletedWidgetSection(date, seasonYear, task, fallbackSupplier, resultClassifier);
             }
@@ -945,20 +955,22 @@ public class HomePageFacadeService {
                     date,
                     seasonYear,
                     task.name(),
-                    elapsedBeforeWaitMs,
+                    TimeUnit.NANOSECONDS.toMillis(elapsedBeforeWaitNanos),
                     widgetsSectionTimeout.toMillis());
             return fallbackSupplier.get();
         }
 
         try {
-            T value = task.future().get(remainingTimeoutMs, TimeUnit.MILLISECONDS);
+            T value = task.future().get(remainingTimeoutNanos, TimeUnit.NANOSECONDS);
             recordWidgetsSectionDuration(
                     task.name(),
                     resultClassifier.apply(value),
                     elapsedNanos(task.startedAtNanos()));
             return value;
         } catch (TimeoutException ex) {
-            task.future().cancel(true);
+            if (task.future().isDone() && !task.future().isCancelled()) {
+                return getCompletedWidgetSection(date, seasonYear, task, fallbackSupplier, resultClassifier);
+            }
             recordWidgetsSectionDuration(task.name(), "timeout", elapsedNanos(task.startedAtNanos()));
             log.warn(
                     "event=home_widgets_section_timed_out date={} seasonYear={} section={} elapsedMs={} timeoutMs={}",
@@ -967,6 +979,7 @@ public class HomePageFacadeService {
                     task.name(),
                     elapsedMillis(task.startedAtNanos()),
                     widgetsSectionTimeout.toMillis());
+            task.future().cancel(true);
             return fallbackSupplier.get();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();

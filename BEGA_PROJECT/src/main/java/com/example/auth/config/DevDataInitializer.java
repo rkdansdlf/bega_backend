@@ -23,7 +23,7 @@ import java.util.Locale;
 
 @Slf4j
 @Component
-@Profile({ "dev", "local" })
+@Profile({ "dev", "dev-adb", "local" })
 @ConditionalOnProperty(prefix = "app.dev-data", name = "enabled", havingValue = "true")
 @RequiredArgsConstructor
 public class DevDataInitializer implements CommandLineRunner {

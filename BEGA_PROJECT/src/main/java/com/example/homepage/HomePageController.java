@@ -1,9 +1,7 @@
 package com.example.homepage;
 
-import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.function.Supplier;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,12 +11,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping("/api/kbo")
 @RequiredArgsConstructor
-@Slf4j
 public class HomePageController {
 
     private final HomePageGameService homePageGameService;
@@ -29,22 +25,14 @@ public class HomePageController {
     public ResponseEntity<List<HomePageGameDto>> getGamesByDate(
             // @RequestParam으로 "date" 파라미터를 받고, ISO_DATE 형식(YYYY-MM-DD)으로 LocalDate 변환
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return respondWithFallback(
-                () -> homePageGameService.getGamesByDate(date),
-                List::of,
-                "KBO schedule",
-                "date=" + date);
+        return ResponseEntity.ok(homePageGameService.getGamesByDate(date));
     }
 
     // 특정 시즌의 팀 순위 조회
     @GetMapping("/rankings/{seasonYear:\\d+}")
     public ResponseEntity<List<HomePageTeamRankingDto>> getTeamRankings(
             @PathVariable int seasonYear) {
-        return respondWithFallback(
-                () -> homePageGameService.getTeamRankings(seasonYear),
-                List::of,
-                "KBO rankings",
-                "seasonYear=" + seasonYear);
+        return ResponseEntity.ok(homePageGameService.getTeamRankings(seasonYear));
     }
 
     @GetMapping("/rankings/snapshot")
@@ -52,84 +40,19 @@ public class HomePageController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) Integer seasonYear) {
         LocalDate selectedDate = date == null ? LocalDate.now() : date;
-        try {
-            return ResponseEntity.ok(homePageFacadeService.getRankingSnapshot(selectedDate, seasonYear));
-        } catch (RuntimeException ex) {
-            log.warn("KBO ranking snapshot fallback applied - date={}, seasonYear={}, reason={}", selectedDate, seasonYear, ex.getMessage());
-            return ResponseEntity.ok(buildRankingSnapshotFallback(selectedDate, seasonYear));
-        }
+        return ResponseEntity.ok(homePageFacadeService.getRankingSnapshot(selectedDate, seasonYear));
     }
 
     // 각 리그별 시즌 시작 날짜를 조회
     @GetMapping("/league-start-dates")
     public ResponseEntity<LeagueStartDatesDto> getLeagueStartDates() {
-        return respondWithFallback(
-                homePageGameService::getLeagueStartDates,
-                this::buildLeagueStartDatesFallback,
-                "KBO league start dates",
-                "currentDate=" + LocalDate.now());
+        return ResponseEntity.ok(homePageGameService.getLeagueStartDates());
     }
 
     // 날짜 네비게이션 정보 조회
     @GetMapping("/schedule/navigation")
     public ResponseEntity<ScheduleNavigationDto> getScheduleNavigation(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return respondWithFallback(
-                () -> homePageGameService.getScheduleNavigation(date),
-                this::buildScheduleNavigationFallback,
-                "KBO schedule navigation",
-                "date=" + date);
-    }
-
-    private <T> ResponseEntity<T> respondWithFallback(
-            Supplier<T> primarySupplier,
-            Supplier<T> fallbackSupplier,
-            String operation,
-            String context) {
-        try {
-            return ResponseEntity.ok(primarySupplier.get());
-        } catch (ManualBaseballDataRequiredException ex) {
-            throw ex;
-        } catch (RuntimeException ex) {
-            log.warn("{} fallback applied - {}, reason={}", operation, context, ex.getMessage());
-            return ResponseEntity.ok(fallbackSupplier.get());
-        }
-    }
-
-    private LeagueStartDatesDto buildLeagueStartDatesFallback() {
-        LocalDate today = LocalDate.now();
-        return LeagueStartDatesDto.builder()
-                .regularSeasonStart(today.toString())
-                .postseasonStart(null)
-                .koreanSeriesStart(null)
-                .build();
-    }
-
-    private ScheduleNavigationDto buildScheduleNavigationFallback() {
-        return ScheduleNavigationDto.builder()
-                .prevGameDate(null)
-                .nextGameDate(null)
-                .hasPrev(false)
-                .hasNext(false)
-                .build();
-    }
-
-    private HomeRankingSnapshotDto buildRankingSnapshotFallback(LocalDate selectedDate, Integer seasonYear) {
-        boolean offSeason = seasonYear == null && isAutomaticOffSeason(selectedDate);
-        int rankingSeasonYear = seasonYear == null
-                ? (offSeason ? selectedDate.getYear() - 1 : selectedDate.getYear())
-                : seasonYear;
-        return HomeRankingSnapshotDto.builder()
-                .rankingSeasonYear(rankingSeasonYear)
-                .rankingSourceMessage("순위 데이터를 불러오지 못했습니다.")
-                .isOffSeason(offSeason)
-                .rankings(List.of())
-                .build();
-    }
-
-    private boolean isAutomaticOffSeason(LocalDate selectedDate) {
-        int month = selectedDate.getMonthValue();
-        int day = selectedDate.getDayOfMonth();
-        return month >= 11 || month <= 2 || (month == 3 && day < 22);
+        return ResponseEntity.ok(homePageGameService.getScheduleNavigation(date));
     }
 }

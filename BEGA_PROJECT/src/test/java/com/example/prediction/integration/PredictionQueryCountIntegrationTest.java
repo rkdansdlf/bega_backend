@@ -41,7 +41,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import com.example.auth.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
@@ -368,16 +368,10 @@ class PredictionQueryCountIntegrationTest {
         mockMvc.perform(get("/api/matches/day")
                         .param("date", targetDate.toString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.date[0]").value(targetDate.getYear()))
-                .andExpect(jsonPath("$.date[1]").value(targetDate.getMonthValue()))
-                .andExpect(jsonPath("$.date[2]").value(targetDate.getDayOfMonth()))
+                .andExpect(jsonPath("$.date").value(targetDate.toString()))
                 .andExpect(jsonPath("$.games.length()").value(1))
-                .andExpect(jsonPath("$.prevDate[0]").value(targetDate.minusDays(1).getYear()))
-                .andExpect(jsonPath("$.prevDate[1]").value(targetDate.minusDays(1).getMonthValue()))
-                .andExpect(jsonPath("$.prevDate[2]").value(targetDate.minusDays(1).getDayOfMonth()))
-                .andExpect(jsonPath("$.nextDate[0]").value(targetDate.plusDays(1).getYear()))
-                .andExpect(jsonPath("$.nextDate[1]").value(targetDate.plusDays(1).getMonthValue()))
-                .andExpect(jsonPath("$.nextDate[2]").value(targetDate.plusDays(1).getDayOfMonth()))
+                .andExpect(jsonPath("$.prevDate").value(targetDate.minusDays(1).toString()))
+                .andExpect(jsonPath("$.nextDate").value(targetDate.plusDays(1).toString()))
                 .andExpect(jsonPath("$.hasPrev").value(true))
                 .andExpect(jsonPath("$.hasNext").value(true));
 
@@ -398,12 +392,8 @@ class PredictionQueryCountIntegrationTest {
         mockMvc.perform(get("/api/matches/bounds"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.hasData").value(true))
-                .andExpect(jsonPath("$.earliestGameDate[0]").value(earliest.getYear()))
-                .andExpect(jsonPath("$.earliestGameDate[1]").value(earliest.getMonthValue()))
-                .andExpect(jsonPath("$.earliestGameDate[2]").value(earliest.getDayOfMonth()))
-                .andExpect(jsonPath("$.latestGameDate[0]").value(latest.getYear()))
-                .andExpect(jsonPath("$.latestGameDate[1]").value(latest.getMonthValue()))
-                .andExpect(jsonPath("$.latestGameDate[2]").value(latest.getDayOfMonth()));
+                .andExpect(jsonPath("$.earliestGameDate").value(earliest.toString()))
+                .andExpect(jsonPath("$.latestGameDate").value(latest.toString()));
 
         assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(1);
     }
@@ -499,8 +489,7 @@ class PredictionQueryCountIntegrationTest {
                 .andExpect(jsonPath("$.gameId").value(gameId))
                 .andExpect(jsonPath("$.stadiumName").value("잠실야구장"))
                 .andExpect(jsonPath("$.attendance").value(12345))
-                .andExpect(jsonPath("$.startTime[0]").value(18))
-                .andExpect(jsonPath("$.startTime[1]").value(30))
+                .andExpect(jsonPath("$.startTime").value("18:30:00"))
                 .andExpect(jsonPath("$.inningScores.length()").value(1))
                 .andExpect(jsonPath("$.inningScores[0].teamCode").value("LG"))
                 .andExpect(jsonPath("$.summary.length()").value(1))

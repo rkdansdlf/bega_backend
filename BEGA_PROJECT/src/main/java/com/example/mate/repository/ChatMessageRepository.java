@@ -1,6 +1,7 @@
 package com.example.mate.repository;
 
 import com.example.mate.entity.ChatMessage;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -12,6 +13,13 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
 
     // 파티별 채팅 메시지 조회 (생성일 기준 오름차순)
     List<ChatMessage> findByPartyIdOrderByCreatedAtAsc(Long partyId);
+
+    List<ChatMessage> findByPartyIdOrderByIdDesc(Long partyId, Pageable pageable);
+
+    List<ChatMessage> findByPartyIdAndIdLessThanOrderByIdDesc(
+            Long partyId,
+            Long beforeId,
+            Pageable pageable);
 
     // 파티별 최근 메시지 조회
     ChatMessage findTopByPartyIdOrderByCreatedAtDesc(Long partyId);

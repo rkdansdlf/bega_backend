@@ -7,10 +7,19 @@ import com.example.homepage.FeaturedMateCardDto;
 import com.example.homepage.HomePageTeamRankingDto;
 import com.example.homepage.HomeRankingSnapshotDto;
 import com.example.homepage.HomeWidgetsResponseDto;
-import com.example.mate.entity.Party;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
+import org.springframework.boot.data.redis.autoconfigure.DataRedisProperties;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
+import org.springframework.core.io.FileSystemResource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
@@ -18,6 +27,26 @@ import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSeriali
 class RedisConfigTest {
 
     private final RedisConfig redisConfig = new RedisConfig();
+
+    @Test
+    @DisplayName("Redis command and connection timeouts are both two seconds")
+    void applicationRedisTimeoutsBindToTwoSeconds() {
+        YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
+        yaml.setResources(new FileSystemResource("src/main/resources/application.yml"));
+        Properties applicationProperties = yaml.getObject();
+        Map<String, Object> timeoutProperties = new HashMap<>();
+        timeoutProperties.put("spring.data.redis.timeout", applicationProperties.getProperty("spring.data.redis.timeout"));
+        String connectTimeout = applicationProperties.getProperty("spring.data.redis.connect-timeout");
+        if (connectTimeout != null) {
+            timeoutProperties.put("spring.data.redis.connect-timeout", connectTimeout);
+        }
+        DataRedisProperties properties = new Binder(new MapConfigurationPropertySource(timeoutProperties))
+                .bind("spring.data.redis", Bindable.of(DataRedisProperties.class))
+                .orElseThrow(() -> new IllegalStateException("Redis properties were not bound"));
+
+        assertThat(properties.getTimeout()).isEqualTo(Duration.ofSeconds(2));
+        assertThat(properties.getConnectTimeout()).isEqualTo(Duration.ofSeconds(2));
+    }
 
     @Test
     @DisplayName("Redis serializer round-trips home widgets responses with Instant fields")
@@ -66,7 +95,7 @@ class RedisConfigTest {
                                 .currentParticipants(1)
                                 .maxParticipants(4)
                                 .ticketPrice(15000)
-                                .status(Party.PartyStatus.PENDING)
+                                .status("PENDING")
                                 .build()))
                 .rankingSnapshot(HomeRankingSnapshotDto.builder()
                         .rankingSeasonYear(2025)
@@ -96,7 +125,7 @@ class RedisConfigTest {
         assertThat(response.getHotCheerPosts()).hasSize(1);
         assertThat(response.getHotCheerPosts().get(0).createdAt()).isEqualTo(createdAt);
         assertThat(response.getFeaturedMates()).hasSize(1);
-        assertThat(response.getFeaturedMates().get(0).getStatus()).isEqualTo(Party.PartyStatus.PENDING);
+        assertThat(response.getFeaturedMates().get(0).getStatus()).isEqualTo("PENDING");
         assertThat(response.getRankingSnapshot().getRankingSeasonYear()).isEqualTo(2025);
         assertThat(response.getRankingSnapshot().isOffSeason()).isTrue();
         assertThat(response.getRankingSnapshot().getRankings()).hasSize(1);

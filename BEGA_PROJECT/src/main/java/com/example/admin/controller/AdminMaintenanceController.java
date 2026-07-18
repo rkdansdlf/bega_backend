@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@Profile("dev")
+@Profile({ "dev", "dev-adb" })
 @RequiredArgsConstructor
 @RequestMapping("/api/admin/maintenance")
 public class AdminMaintenanceController {

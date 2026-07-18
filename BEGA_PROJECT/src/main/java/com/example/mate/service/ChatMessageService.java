@@ -4,6 +4,7 @@ import com.example.mate.dto.ChatMessageDTO;
 import com.example.mate.entity.ChatMessage;
 import com.example.mate.entity.Party;
 import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.realtime.RealtimeOutboxWriter;
 import com.example.mate.repository.ChatMessageRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,10 +22,14 @@ import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.entity.Party.PartyStatus;
 import com.example.media.entity.MediaDomain;
 import com.example.media.service.MediaLinkService;
+import org.springframework.data.domain.PageRequest;
 
 @Service
 @RequiredArgsConstructor
 public class ChatMessageService {
+
+    private static final int DEFAULT_HISTORY_LIMIT = 50;
+    private static final int MAX_HISTORY_LIMIT = 100;
 
     private final ChatMessageRepository chatMessageRepository;
     private final UserService userService;
@@ -33,6 +38,7 @@ public class ChatMessageService {
     private final PartyApplicationRepository applicationRepository;
     private final ChatImageService chatImageService;
     private final MediaLinkService mediaLinkService;
+    private final RealtimeOutboxWriter realtimeOutboxWriter;
 
     // 메시지 전송
     @Transactional
@@ -78,7 +84,9 @@ public class ChatMessageService {
 
         ChatMessage savedMessage = chatMessageRepository.save(chatMessage);
         mediaLinkService.syncChatLink(savedMessage.getId(), userId, savedMessage.getImageUrl());
-        return toResponseWithResolvedImage(savedMessage);
+        ChatMessageDTO.Response response = toResponseWithResolvedImage(savedMessage);
+        realtimeOutboxWriter.broadcast("/topic/party/" + response.getPartyId(), response);
+        return response;
     }
 
     // 파티별 채팅 메시지 조회
@@ -89,10 +97,32 @@ public class ChatMessageService {
 
     @Transactional(readOnly = true)
     public List<ChatMessageDTO.Response> getMessagesByPartyId(Long partyId, Long userId) {
+        return getMessagesByPartyId(partyId, userId, DEFAULT_HISTORY_LIMIT, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ChatMessageDTO.Response> getMessagesByPartyId(
+            Long partyId,
+            Long userId,
+            Integer limit,
+            Long beforeId) {
         assertPartyMember(partyId, userId);
-        return chatMessageRepository.findByPartyIdOrderByCreatedAtAsc(partyId).stream()
+        int resolvedLimit = resolveHistoryLimit(limit);
+        PageRequest pageRequest = PageRequest.of(0, resolvedLimit);
+        List<ChatMessage> messages = beforeId == null
+                ? chatMessageRepository.findByPartyIdOrderByIdDesc(partyId, pageRequest)
+                : chatMessageRepository.findByPartyIdAndIdLessThanOrderByIdDesc(partyId, beforeId, pageRequest);
+
+        return messages.reversed().stream()
                 .map(this::toResponseWithResolvedImage)
                 .collect(Collectors.toList());
+    }
+
+    private int resolveHistoryLimit(Integer limit) {
+        if (limit == null) {
+            return DEFAULT_HISTORY_LIMIT;
+        }
+        return Math.max(1, Math.min(limit, MAX_HISTORY_LIMIT));
     }
 
     // 파티별 최근 메시지 조회

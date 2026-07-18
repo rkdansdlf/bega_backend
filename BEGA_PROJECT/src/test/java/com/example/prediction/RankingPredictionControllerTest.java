@@ -51,7 +51,9 @@ class RankingPredictionControllerTest {
                 2026,
                 List.of("LG", "SS"),
                 List.of(),
-                java.time.LocalDateTime.now());
+                java.time.LocalDateTime.now(),
+                null,
+                null);
 
         when(rankingPredictionService.getPredictionByShareIdAndSeason(shareId, 2026)).thenReturn(dto);
 

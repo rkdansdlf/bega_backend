@@ -165,6 +165,40 @@ class DmRoomServiceTest {
         assertThat(dmRoomService.canSubscribe(88L, 30L)).isFalse();
     }
 
+    @Test
+    @DisplayName("accessible participant can subscribe when neither user blocked the other")
+    void canSubscribe_allowsAccessibleParticipantWithoutBidirectionalBlock() {
+        DmRoom room = DmRoom.builder()
+                .id(88L)
+                .participantOneId(30L)
+                .participantTwoId(40L)
+                .build();
+        when(dmRoomRepository.findAccessibleByIdAndParticipantId(88L, 30L)).thenReturn(Optional.of(room));
+        when(userBlockRepository.existsBidirectionalBlock(30L, 40L)).thenReturn(false);
+
+        assertThat(dmRoomService.canSubscribe(88L, 30L)).isTrue();
+
+        verify(dmRoomRepository).findAccessibleByIdAndParticipantId(88L, 30L);
+        verify(userBlockRepository).existsBidirectionalBlock(30L, 40L);
+    }
+
+    @Test
+    @DisplayName("accessible participant cannot subscribe when either user blocked the other")
+    void canSubscribe_deniesAccessibleParticipantWithBidirectionalBlock() {
+        DmRoom room = DmRoom.builder()
+                .id(88L)
+                .participantOneId(30L)
+                .participantTwoId(40L)
+                .build();
+        when(dmRoomRepository.findAccessibleByIdAndParticipantId(88L, 30L)).thenReturn(Optional.of(room));
+        when(userBlockRepository.existsBidirectionalBlock(30L, 40L)).thenReturn(true);
+
+        assertThat(dmRoomService.canSubscribe(88L, 30L)).isFalse();
+
+        verify(dmRoomRepository).findAccessibleByIdAndParticipantId(88L, 30L);
+        verify(userBlockRepository).existsBidirectionalBlock(30L, 40L);
+    }
+
     private UserEntity targetUser() {
         return UserEntity.builder()
                 .id(20L)
