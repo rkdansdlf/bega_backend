@@ -143,4 +143,80 @@ class OpenApiMarkdownRendererTest {
                 .doesNotContain("\"parameters\"")
                 .doesNotContain("\"responses\"");
     }
+
+    @Test
+    void rendersParametersBodiesResponsesAndOnlyExplicitExamples() throws Exception {
+        JsonNode schema = objectMapper.readTree("""
+                {
+                  "openapi": "3.0.1",
+                  "info": {"title": "Fixture API", "version": "1"},
+                  "paths": {
+                    "/widgets/{id}": {
+                      "parameters": [
+                        {"name": "id", "in": "path", "required": true,
+                         "description": "Widget ID", "schema": {"type": "string"},
+                         "example": "w-1"}
+                      ],
+                      "post": {
+                        "tags": ["widgets"],
+                        "parameters": [
+                          {"name": "verbose", "in": "query", "required": false,
+                           "schema": {"type": "boolean", "default": false}}
+                        ],
+                        "requestBody": {
+                          "required": true,
+                          "content": {
+                            "application/json": {
+                              "schema": {"$ref": "#/components/schemas/WidgetRequest"},
+                              "examples": {"valid": {"value": {"name": "sample"}}}
+                            }
+                          }
+                        },
+                        "responses": {
+                          "201": {
+                            "description": "Created",
+                            "headers": {"Location": {"schema": {"type": "string"}}},
+                            "content": {
+                              "application/json": {
+                                "schema": {"$ref": "#/components/schemas/WidgetResponse"},
+                                "example": {"id": "w-1"}
+                              }
+                            }
+                          },
+                          "default": {"description": "Unexpected error"}
+                        }
+                      }
+                    }
+                  },
+                  "components": {
+                    "schemas": {
+                      "WidgetRequest": {"type": "object"},
+                      "WidgetResponse": {"type": "object"}
+                    }
+                  }
+                }
+                """);
+
+        OpenApiMarkdownRenderer.RenderedDocuments rendered =
+                OpenApiMarkdownRenderer.render(
+                        schema,
+                        "contracts/openapi.json",
+                        "./gradlew updateOpenApiContract");
+
+        assertThat(rendered.endpoints())
+                .contains("| `id` | path | yes | `string` | Widget ID | `\"w-1\"` |")
+                .contains("| `verbose` | query | no | `boolean` | — | — |")
+                .contains("Required: **yes**")
+                .contains("Media type: `application/json`")
+                .contains("[WidgetRequest](openapi-schemas.md#widgetrequest)")
+                .contains("#### Example: valid")
+                .contains("{\n  \"name\" : \"sample\"\n}")
+                .contains("### Response `201`")
+                .contains("[WidgetResponse](openapi-schemas.md#widgetresponse)")
+                .contains("#### Example")
+                .contains("\"id\" : \"w-1\"")
+                .contains("### Response `default`");
+        assertThat(rendered.endpoints())
+                .doesNotContain("Example: false");
+    }
 }
