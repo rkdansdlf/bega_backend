@@ -72,6 +72,8 @@ public class SwaggerConfig {
 
             replaceProperty(schemas, "RankingPredictionInitDto", "saved", nullableRef("RankingPredictionResponseDto"));
             replaceProperty(schemas, "RankingPredictionResponseDto", "shareId", nullablePrimitive("string", null));
+            replaceProperty(schemas, "RankingPredictionResponseDto", "exactMatchCount", nullablePrimitive("integer", "int32"));
+            replaceProperty(schemas, "RankingPredictionResponseDto", "settledAt", nullablePrimitive("string", "date-time"));
             replaceProperty(schemas, "TeamRankingDetail", "currentRank", nullablePrimitive("integer", "int32"));
             replaceProperty(schemas, "TeamRankingDetail", "lastSeasonRank", nullablePrimitive("integer", "int32"));
             replaceProperty(schemas, "PredictionMyVoteEntryDto", "votedTeam", nullableEnum("home", "away"));

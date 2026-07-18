@@ -1,10 +1,8 @@
 package com.example.common.ratelimit;
 
-import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.common.exception.RateLimitExceededException;
 import com.example.common.web.ClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.Aspect;
@@ -13,6 +11,7 @@ import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
+import org.springframework.lang.Nullable;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -21,12 +20,22 @@ import java.lang.reflect.Method;
 @Slf4j
 @Aspect
 @Component
-@RequiredArgsConstructor
 public class RateLimitAspect {
 
     private final RateLimitService rateLimitService;
     private final ClientIpResolver clientIpResolver;
-    private final AuthSecurityMonitoringService authSecurityMonitoringService;
+    private final AuthRateLimitSecurityEventReporter authRateLimitSecurityEventReporter;
+
+    public RateLimitAspect(
+            RateLimitService rateLimitService,
+            ClientIpResolver clientIpResolver,
+            @Nullable AuthRateLimitSecurityEventReporter authRateLimitSecurityEventReporter) {
+        this.rateLimitService = rateLimitService;
+        this.clientIpResolver = clientIpResolver;
+        this.authRateLimitSecurityEventReporter = authRateLimitSecurityEventReporter != null
+                ? authRateLimitSecurityEventReporter
+                : () -> { };
+    }
 
     @Before("@annotation(com.example.common.ratelimit.RateLimit)")
     public void checkRateLimit(JoinPoint joinPoint) {
@@ -52,7 +61,11 @@ public class RateLimitAspect {
 
         if (!rateLimitService.isAllowed(key, limit, window, annotation.failClosed())) {
             if (isAuthRateLimit(annotation)) {
-                authSecurityMonitoringService.recordAuthRateLimitReject();
+                try {
+                    authRateLimitSecurityEventReporter.recordRejected();
+                } catch (RuntimeException exception) {
+                    log.warn("Failed to record auth rate-limit security event", exception);
+                }
             }
             log.warn("Rate limit exceeded for key: {}", key);
             throw new RateLimitExceededException("너무 많은 요청을 보냈습니다. 잠시 후 다시 시도해주세요.");

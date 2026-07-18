@@ -9,7 +9,7 @@ import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.TestPropertySource;
@@ -74,12 +74,13 @@ class CorsIntegrationTest {
         mockMvc.perform(options("/api/auth/signup")
                         .header(HttpHeaders.ORIGIN, "http://127.0.0.1:5176")
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
-                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type"))
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type,x-ai-event-version"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://127.0.0.1:5176"))
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"))
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, Matchers.containsString("POST")))
-                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, Matchers.containsString("content-type")));
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, Matchers.containsString("content-type")))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, Matchers.containsString("x-ai-event-version")));
     }
 
     @Test
@@ -102,7 +103,7 @@ class CorsIntegrationTest {
     }
 
     @Test
-    @DisplayName("CORS response should expose Content-Disposition only")
+    @DisplayName("CORS response should expose only approved application headers")
     void corsResponse_exposedHeadersAreNarrowed() throws Exception {
         mockMvc.perform(get("/api/auth/mypage")
                         .header(HttpHeaders.ORIGIN, "https://www.begabaseball.xyz"))
@@ -110,6 +111,7 @@ class CorsIntegrationTest {
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS,
                         Matchers.allOf(
                                 Matchers.containsString("Content-Disposition"),
+                                Matchers.containsString("X-AI-Event-Version"),
                                 Matchers.not(Matchers.containsString("Set-Cookie")),
                                 Matchers.not(Matchers.containsString("Authorization")))));
     }

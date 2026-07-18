@@ -9,9 +9,6 @@ import com.example.cheerboard.storage.service.ImageService;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
 import com.example.cheerboard.storage.strategy.StoredObject;
 import com.example.common.image.ImageUtil;
-import com.example.mate.entity.ChatMessage;
-import com.example.mate.repository.ChatMessageRepository;
-import com.example.mate.service.ChatImageService;
 import com.example.media.dto.MediaBackfillDomainReport;
 import com.example.media.dto.MediaBackfillIssueSample;
 import com.example.media.dto.MediaBackfillReport;
@@ -25,6 +22,10 @@ import com.example.media.entity.MediaCleanupTarget;
 import com.example.media.entity.MediaDomain;
 import com.example.media.support.ByteArrayMultipartFile;
 import com.example.media.repository.MediaAssetRepository;
+import com.example.media.service.port.ChatMediaReference;
+import com.example.media.service.port.ChatMediaReferenceBatch;
+import com.example.media.service.port.ChatMediaReferenceMaintenance;
+import com.example.media.service.port.ChatMediaReferenceQuery;
 import com.example.profile.storage.service.ProfileImageService;
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -57,12 +58,12 @@ public class MediaMaintenanceService {
     private final MediaAssetRepository mediaAssetRepository;
     private final UserRepository userRepository;
     private final BegaDiaryRepository begaDiaryRepository;
-    private final ChatMessageRepository chatMessageRepository;
+    private final ChatMediaReferenceQuery chatMediaReferenceQuery;
     private final StorageStrategy storageStrategy;
     private final StorageConfig storageConfig;
     private final ProfileImageService profileImageService;
     private final ImageService imageService;
-    private final ChatImageService chatImageService;
+    private final ChatMediaReferenceMaintenance chatMediaReferenceMaintenance;
     private final MediaLinkService mediaLinkService;
     private final MediaObjectKeyGuard mediaObjectKeyGuard;
     private final MediaUploadService mediaUploadService;
@@ -399,82 +400,82 @@ public class MediaMaintenanceService {
         List<String> sampleManualReviewTargets = new ArrayList<>();
         BackfillAudit audit = new BackfillAudit();
 
-        Pageable pageable = PageRequest.of(0, batchSize, Sort.by(Sort.Direction.ASC, "id"));
+        int pageIndex = 0;
         while (true) {
-            Page<ChatMessage> page = chatMessageRepository.findAll(pageable);
-            for (ChatMessage message : page.getContent()) {
+            ChatMediaReferenceBatch batch = chatMediaReferenceQuery.loadBatch(pageIndex, batchSize);
+            for (ChatMediaReference message : batch.references()) {
                 scannedCount++;
 
-                String rawImage = normalizeBlank(message.getImageUrl());
-                String finalImage = normalizeBlank(chatImageService.normalizeChatStoragePath(rawImage));
+                String rawImage = normalizeBlank(message.imageUrl());
+                String finalImage = normalizeBlank(chatMediaReferenceMaintenance.normalizeStoragePath(rawImage));
                 boolean chatReadyForLink = false;
                 boolean skipLinkSync = false;
                 boolean clearedBrokenReference = false;
 
                 try {
                     if (apply) {
-                        finalImage = normalizeBlank(promoteManagedStoragePath(message.getSenderId(), MediaDomain.CHAT, finalImage));
+                        finalImage = normalizeBlank(promoteManagedStoragePath(message.senderId(), MediaDomain.CHAT, finalImage));
                     }
 
                     if (StringUtils.hasText(finalImage) && MediaDomain.CHAT.isManagedPath(finalImage)) {
-                        mediaLinkService.resolveReadyAssets(message.getSenderId(), MediaDomain.CHAT, List.of(finalImage));
+                        mediaLinkService.resolveReadyAssets(message.senderId(), MediaDomain.CHAT, List.of(finalImage));
                         linkSyncedCount++;
                         chatReadyForLink = true;
                     }
                 } catch (RuntimeException ex) {
                     skipLinkSync = true;
-                    String reviewMessage = "messageId=" + message.getId() + ":" + ex.getMessage();
+                    String reviewMessage = "messageId=" + message.messageId() + ":" + ex.getMessage();
                     if (shouldClearBrokenLegacyChatImage(apply, clearBrokenChatImages, finalImage, ex)) {
                         finalImage = null;
                         normalizedCount++;
                         updatedCount++;
                         clearedCount++;
                         clearedBrokenReference = true;
-                        addSample(sampleNormalizedTargets, "messageId=" + message.getId() + ":(cleared broken legacy chat image)");
-                        message.setImageUrl(null);
-                        chatMessageRepository.save(message);
-                        mediaLinkService.unlinkEntity(MediaDomain.CHAT, message.getId());
+                        addSample(sampleNormalizedTargets,
+                                "messageId=" + message.messageId() + ":(cleared broken legacy chat image)");
+                        chatMediaReferenceMaintenance.updateImageReference(message.messageId(), null);
+                        mediaLinkService.unlinkEntity(MediaDomain.CHAT, message.messageId());
                     } else {
                         if (apply) {
                             manualReviewCount++;
                             addSample(sampleManualReviewTargets, reviewMessage);
                         }
                     }
-                    log.warn("Chat media backfill skipped: messageId={}, reason={}", message.getId(), ex.getMessage());
+                    log.warn("Chat media backfill skipped: messageId={}, reason={}",
+                            message.messageId(), ex.getMessage());
                 }
 
                 if (!apply) {
-                    auditChatDryRun(message.getId(), message.getSenderId(), finalImage, audit);
+                    auditChatDryRun(message.messageId(), message.senderId(), finalImage, audit);
                 }
 
                 if (StringUtils.hasText(finalImage) && !MediaDomain.CHAT.isManagedPath(finalImage)) {
                     legacyPathRetainedCount++;
-                    addSample(sampleLegacyTargets, "messageId=" + message.getId() + ":" + finalImage);
+                    addSample(sampleLegacyTargets, "messageId=" + message.messageId() + ":" + finalImage);
                 }
 
                 if (!clearedBrokenReference && !Objects.equals(rawImage, finalImage)) {
                     normalizedCount++;
-                    addSample(sampleNormalizedTargets, "messageId=" + message.getId() + ":" + finalImage);
+                    addSample(sampleNormalizedTargets, "messageId=" + message.messageId() + ":" + finalImage);
                     if (apply) {
-                        message.setImageUrl(finalImage);
-                        chatMessageRepository.save(message);
+                        chatMediaReferenceMaintenance.updateImageReference(message.messageId(), finalImage);
                         updatedCount++;
                     }
                 }
 
                 if (apply) {
                     if (chatReadyForLink) {
-                        mediaLinkService.syncChatLink(message.getId(), message.getSenderId(), finalImage);
+                        mediaLinkService.syncChatLink(message.messageId(), message.senderId(), finalImage);
                     } else if (!skipLinkSync) {
-                        mediaLinkService.unlinkEntity(MediaDomain.CHAT, message.getId());
+                        mediaLinkService.unlinkEntity(MediaDomain.CHAT, message.messageId());
                     }
                 }
             }
 
-            if (!page.hasNext()) {
+            if (!batch.hasNext()) {
                 break;
             }
-            pageable = page.nextPageable();
+            pageIndex++;
         }
 
         return new MediaBackfillDomainReport(

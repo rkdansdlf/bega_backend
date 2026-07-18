@@ -2,6 +2,8 @@ package com.example.ai.service;
 
 import com.example.ai.exception.AiProxyException;
 import com.example.ai.config.AiServiceSettings;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -28,6 +30,7 @@ import reactor.core.publisher.Flux;
 
 class AiProxyServiceTest {
 
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private HttpServer server;
 
     @AfterEach
@@ -90,6 +93,110 @@ class AiProxyServiceTest {
                 .contains("event: meta")
                 .contains("event: done")
                 .contains("data: [DONE]");
+    }
+
+    @Test
+    void forwardJsonStreamForwardsNegotiatedVersionAndPreservesResponseHeaderAndBody() throws Exception {
+        AtomicReference<String> requestVersion = new AtomicReference<>();
+        String sseBody = "event: chat.message.delta\ndata: {\"version\":2,\"type\":\"chat.message.delta\",\"data\":{\"delta\":\"안녕\"}}\n\n";
+        server = startServer("/ai/chat/stream", exchange -> {
+            requestVersion.set(exchange.getRequestHeaders().getFirst("X-AI-Event-Version"));
+            exchange.getResponseHeaders().add("X-AI-Event-Version", "2");
+            writeResponse(exchange, 200, sseBody, "text/event-stream");
+        });
+
+        AiProxyService service = newService(Duration.ofSeconds(5), "stream-token");
+
+        AiProxyService.ProxyStreamResponse response = service.forwardJsonStream(
+                "/ai/chat/stream",
+                "{\"test\":true}",
+                "2");
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        service.writeStream(response.bodyFlux(), outputStream);
+
+        assertThat(requestVersion.get()).isEqualTo("2");
+        assertThat(response.headers().getFirst("X-AI-Event-Version")).isEqualTo("2");
+        assertThat(outputStream.toString(StandardCharsets.UTF_8)).isEqualTo(sseBody);
+    }
+
+    @Test
+    void forwardJsonStreamNormalizesCanonicalUnsupportedVersion() throws Exception {
+        String body = """
+                {"code":"AI_EVENT_VERSION_UNSUPPORTED","message":"지원하지 않는 AI 이벤트 버전입니다.","detail":null,"retryable":false,"retry_after_seconds":null,"supported_versions":["1","2"]}
+                """;
+        server = startServer("/ai/chat/stream", exchange -> {
+            exchange.getResponseHeaders().add("X-AI-Event-Version", "2");
+            writeResponse(exchange, 406, body, "application/json");
+        });
+
+        AiProxyService service = newService(Duration.ofSeconds(5), "stream-token");
+
+        AiProxyService.ProxyStreamResponse response = service.forwardJsonStream(
+                "/ai/chat/stream",
+                "{\"test\":true}",
+                "3");
+
+        assertThat(response.status().value()).isEqualTo(406);
+        assertThat(response.headers().getFirst("X-AI-Event-Version")).isEqualTo("2");
+        assertThat(response.headers().getContentType()).isEqualTo(org.springframework.http.MediaType.APPLICATION_JSON);
+        assertThat(json(response.errorBody())).isEqualTo(json(body));
+    }
+
+    @Test
+    void forwardJsonStreamAdaptsLegacyWrappedUnsupportedVersion() throws Exception {
+        server = startServer("/ai/chat/stream", exchange -> writeResponse(
+                exchange,
+                406,
+                "{\"detail\":{\"code\":\"AI_EVENT_VERSION_UNSUPPORTED\",\"supported_versions\":[\"1\",\"2\"]}}",
+                "application/json"));
+
+        AiProxyService.ProxyStreamResponse response = newService(Duration.ofSeconds(5), "stream-token")
+                .forwardJsonStream("/ai/chat/stream", "{}", "3");
+
+        assertThat(json(response.errorBody()).get("code").asText())
+                .isEqualTo("AI_EVENT_VERSION_UNSUPPORTED");
+        assertThat(json(response.errorBody()).get("detail").isNull()).isTrue();
+    }
+
+    @Test
+    void forwardJsonStreamDoesNotExposeMalformedUpstreamBody() throws Exception {
+        server = startServer("/ai/coach/analyze", exchange -> writeResponse(
+                exchange, 503, "secret-bearing upstream body", "text/plain"));
+
+        AiProxyService.ProxyStreamResponse response = newService(Duration.ofSeconds(5), "stream-token")
+                .forwardJsonStream("/ai/coach/analyze", "{}");
+        String body = new String(response.errorBody(), StandardCharsets.UTF_8);
+
+        assertThat(body).contains("\"code\":\"AI_UPSTREAM_UNAVAILABLE\"");
+        assertThat(body).contains("\"retryable\":true");
+        assertThat(body).doesNotContain("secret-bearing");
+    }
+
+    @Test
+    void forwardJsonStreamPreservesIntegerRetryAfterInCanonicalError() throws Exception {
+        server = startServer("/ai/chat/stream", exchange -> {
+            exchange.getResponseHeaders().set("Retry-After", "37");
+            writeResponse(exchange, 429, "upstream rate limit", "text/plain");
+        });
+
+        AiProxyService.ProxyStreamResponse response = newService(Duration.ofSeconds(5), "stream-token")
+                .forwardJsonStream("/ai/chat/stream", "{}");
+
+        assertThat(response.headers().getFirst("Retry-After")).isEqualTo("37");
+        assertThat(json(response.errorBody()).get("retry_after_seconds").asLong()).isEqualTo(37L);
+    }
+
+    @Test
+    void forwardJsonStreamIgnoresDateFormRetryAfterInCanonicalError() throws Exception {
+        server = startServer("/ai/chat/stream", exchange -> {
+            exchange.getResponseHeaders().set("Retry-After", "Wed, 21 Oct 2015 07:28:00 GMT");
+            writeResponse(exchange, 429, "upstream rate limit", "text/plain");
+        });
+
+        AiProxyService.ProxyStreamResponse response = newService(Duration.ofSeconds(5), "stream-token")
+                .forwardJsonStream("/ai/chat/stream", "{}");
+
+        assertThat(json(response.errorBody()).get("retry_after_seconds").isNull()).isTrue();
     }
 
     @Test
@@ -189,6 +296,36 @@ class AiProxyServiceTest {
         assertThat(requestCount.get()).isEqualTo(2);
         assertThat(firstToken.get()).isEqualTo("mismatched-env-token");
         assertThat(secondToken.get()).isEqualTo("local-dev-ai-internal-token");
+    }
+
+    @Test
+    void forwardJsonStreamPreservesEventVersionAcrossInternalTokenRetry() throws Exception {
+        AtomicInteger requestCount = new AtomicInteger();
+        AtomicReference<String> firstVersion = new AtomicReference<>();
+        AtomicReference<String> secondVersion = new AtomicReference<>();
+        server = startServer("/ai/coach/analyze", exchange -> {
+            int currentAttempt = requestCount.incrementAndGet();
+            String version = exchange.getRequestHeaders().getFirst("X-AI-Event-Version");
+            if (currentAttempt == 1) {
+                firstVersion.set(version);
+                writeResponse(exchange, 401, "unauthorized");
+                return;
+            }
+            secondVersion.set(version);
+            writeResponse(exchange, 200, "event: stream.done\ndata: {\"version\":2,\"type\":\"stream.done\",\"data\":{\"reason\":\"completed\"}}\n\n");
+        });
+
+        AiProxyService service = newService(Duration.ofSeconds(5), "mismatched-env-token");
+
+        AiProxyService.ProxyStreamResponse response = service.forwardJsonStream(
+                "/ai/coach/analyze",
+                "{\"test\":true}",
+                "2");
+
+        assertThat(response.status().value()).isEqualTo(200);
+        assertThat(requestCount.get()).isEqualTo(2);
+        assertThat(firstVersion.get()).isEqualTo("2");
+        assertThat(secondVersion.get()).isEqualTo("2");
     }
 
     @Test
@@ -458,5 +595,13 @@ class AiProxyServiceTest {
         exchange.sendResponseHeaders(status, payload.length);
         exchange.getResponseBody().write(payload);
         exchange.close();
+    }
+
+    private JsonNode json(byte[] value) throws IOException {
+        return objectMapper.readTree(value);
+    }
+
+    private JsonNode json(String value) throws IOException {
+        return objectMapper.readTree(value);
     }
 }

@@ -1,9 +1,9 @@
 package com.example.cheerboard.controller;
 
+import com.example.common.realtime.RealtimeMessagePublisher;
 import com.example.cheerboard.service.CheerBattleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.handler.annotation.MessageMapping;
-import org.springframework.messaging.handler.annotation.SendTo;
 import org.springframework.stereotype.Controller;
 import java.util.Map;
 
@@ -12,10 +12,10 @@ import java.util.Map;
 public class CheerWebSocketController {
 
     private final CheerBattleService battleService;
+    private final RealtimeMessagePublisher realtimeMessagePublisher;
 
     @MessageMapping("/battle/vote/{gameId}")
-    @SendTo("/topic/battle/{gameId}")
-    public Map<String, Integer> vote(
+    public void vote(
             @org.springframework.messaging.handler.annotation.DestinationVariable String gameId,
             String teamId,
             java.security.Principal principal) {
@@ -34,7 +34,7 @@ public class CheerWebSocketController {
         // Increment vote with point deduction
         battleService.vote(gameId, teamId, userId);
 
-        // Return updated stats for this game
-        return battleService.getGameStats(gameId);
+        Map<String, Integer> stats = battleService.getGameStats(gameId);
+        realtimeMessagePublisher.broadcast("/topic/battle/" + gameId, stats);
     }
 }

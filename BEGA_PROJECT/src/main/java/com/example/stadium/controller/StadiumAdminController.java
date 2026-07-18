@@ -2,11 +2,8 @@ package com.example.stadium.controller;
 
 import com.example.common.dto.ApiResponse;
 import com.example.stadium.dto.PlaceDto;
-import com.example.stadium.entity.Place;
-import com.example.stadium.entity.Stadium;
-import com.example.stadium.exception.StadiumNotFoundException;
-import com.example.stadium.repository.PlaceRepository;
-import com.example.stadium.repository.StadiumRepository;
+import com.example.stadium.service.StadiumAdminService;
+import com.example.stadium.service.StadiumPlaceCommand;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.Getter;
@@ -19,8 +16,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
-
 /**
  * 구장 장소 관리자 CRUD API
  * ADMIN 이상 권한 필요
@@ -32,8 +27,7 @@ import java.math.BigDecimal;
 @PreAuthorize("hasRole('ADMIN')")
 public class StadiumAdminController {
 
-    private final PlaceRepository placeRepository;
-    private final StadiumRepository stadiumRepository;
+    private final StadiumAdminService stadiumAdminService;
 
     // ───────────────────────────────────────────
     // Request DTO
@@ -96,27 +90,9 @@ public class StadiumAdminController {
 
         log.info("구장 장소 추가 요청: stadiumId={}, name={}", stadiumId, request.getName());
 
-        Stadium stadium = stadiumRepository.findById(stadiumId)
-                .orElseThrow(() -> new StadiumNotFoundException(stadiumId));
+        PlaceDto dto = stadiumAdminService.createPlace(stadiumId, toCommand(request));
 
-        Place place = Place.builder()
-                .stadium(stadium)
-                .name(request.getName())
-                .category(request.getCategory())
-                .description(request.getDescription())
-                .address(request.getAddress())
-                .phone(request.getPhone())
-                .lat(request.getLat())
-                .lng(request.getLng())
-                .rating(request.getRating() != null ? BigDecimal.valueOf(request.getRating()) : null)
-                .openTime(request.getOpenTime())
-                .closeTime(request.getCloseTime())
-                .build();
-
-        Place saved = placeRepository.save(place);
-        PlaceDto dto = toDto(saved);
-
-        log.info("구장 장소 추가 완료: placeId={}", saved.getId());
+        log.info("구장 장소 추가 완료: placeId={}", dto.getId());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("장소가 추가되었습니다.", dto));
     }
@@ -136,22 +112,7 @@ public class StadiumAdminController {
 
         log.info("구장 장소 수정 요청: placeId={}, name={}", placeId, request.getName());
 
-        Place place = placeRepository.findById(placeId)
-                .orElseThrow(() -> new jakarta.persistence.EntityNotFoundException("장소를 찾을 수 없습니다. id=" + placeId));
-
-        place.setName(request.getName());
-        place.setCategory(request.getCategory());
-        place.setDescription(request.getDescription());
-        place.setAddress(request.getAddress());
-        place.setPhone(request.getPhone());
-        place.setLat(request.getLat());
-        place.setLng(request.getLng());
-        place.setRating(request.getRating() != null ? BigDecimal.valueOf(request.getRating()) : null);
-        place.setOpenTime(request.getOpenTime());
-        place.setCloseTime(request.getCloseTime());
-
-        Place updated = placeRepository.save(place);
-        PlaceDto dto = toDto(updated);
+        PlaceDto dto = stadiumAdminService.updatePlace(placeId, toCommand(request));
 
         log.info("구장 장소 수정 완료: placeId={}", placeId);
         return ResponseEntity.ok(ApiResponse.success("장소가 수정되었습니다.", dto));
@@ -171,11 +132,7 @@ public class StadiumAdminController {
 
         log.info("구장 장소 삭제 요청: placeId={}", placeId);
 
-        if (!placeRepository.existsById(placeId)) {
-            throw new jakarta.persistence.EntityNotFoundException("장소를 찾을 수 없습니다. id=" + placeId);
-        }
-
-        placeRepository.deleteById(placeId);
+        stadiumAdminService.deletePlace(placeId);
 
         log.info("구장 장소 삭제 완료: placeId={}", placeId);
         return ResponseEntity.ok(ApiResponse.success("장소가 삭제되었습니다."));
@@ -185,20 +142,17 @@ public class StadiumAdminController {
     // Helper
     // ───────────────────────────────────────────
 
-    private PlaceDto toDto(Place place) {
-        return PlaceDto.builder()
-                .id(place.getId())
-                .stadiumName(place.getStadium().getStadiumName())
-                .category(place.getCategory())
-                .name(place.getName())
-                .description(place.getDescription())
-                .lat(place.getLat())
-                .lng(place.getLng())
-                .address(place.getAddress())
-                .phone(place.getPhone())
-                .rating(place.getRating() != null ? place.getRating().doubleValue() : null)
-                .openTime(place.getOpenTime())
-                .closeTime(place.getCloseTime())
-                .build();
+    private StadiumPlaceCommand toCommand(PlaceRequest request) {
+        return new StadiumPlaceCommand(
+                request.getName(),
+                request.getCategory(),
+                request.getDescription(),
+                request.getAddress(),
+                request.getPhone(),
+                request.getLat(),
+                request.getLng(),
+                request.getRating(),
+                request.getOpenTime(),
+                request.getCloseTime());
     }
 }

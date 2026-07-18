@@ -10,8 +10,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+
+import jakarta.persistence.EntityManager;
 
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.auth.entity.UserEntity;
@@ -26,7 +27,7 @@ class BegaDiaryRepositoryTest {
     private BegaDiaryRepository diaryRepository;
 
     @Autowired
-    private TestEntityManager entityManager;
+    private EntityManager entityManager;
 
     @Test
     @DisplayName("statistics projection rows map diary and game fields in diary date order")
@@ -67,7 +68,8 @@ class BegaDiaryRepositoryTest {
                 .stadiumName("Jamsil")
                 .color("#c30452")
                 .build();
-        return entityManager.persist(team);
+        entityManager.persist(team);
+        return team;
     }
 
     private UserEntity persistUser(String email, TeamEntity favoriteTeam) {
@@ -82,7 +84,8 @@ class BegaDiaryRepositoryTest {
                 .favoriteTeam(favoriteTeam)
                 .createdAt(LocalDateTime.now())
                 .build();
-        return entityManager.persist(user);
+        entityManager.persist(user);
+        return user;
     }
 
     private GameEntity persistGame(String gameId, LocalDate gameDate, String homeTeam, String awayTeam) {
@@ -101,7 +104,8 @@ class BegaDiaryRepositoryTest {
                 .gameStatus("COMPLETED")
                 .isDummy(false)
                 .build();
-        return entityManager.persist(game);
+        entityManager.persist(game);
+        return game;
     }
 
     private void persistDiary(

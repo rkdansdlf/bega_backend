@@ -12,6 +12,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.authorization.AuthenticatedAuthorizationManager;
 import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationResult;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -236,6 +237,7 @@ public class SecurityConfig {
         private boolean isDevOrLocalProfile() {
                 return Arrays.stream(environment.getActiveProfiles())
                                 .anyMatch(profile -> "dev".equalsIgnoreCase(profile)
+                                                || "dev-adb".equalsIgnoreCase(profile)
                                                 || "local".equalsIgnoreCase(profile));
         }
 
@@ -310,7 +312,7 @@ public class SecurityConfig {
                         return false;
                 }
 
-                AuthorizationDecision decision = AUTHENTICATED_AUTHORIZATION_MANAGER.check(() -> authentication,
+                AuthorizationResult decision = AUTHENTICATED_AUTHORIZATION_MANAGER.authorize(() -> authentication,
                                 object);
                 return decision != null && decision.isGranted();
         }
@@ -388,13 +390,16 @@ public class SecurityConfig {
                                 "Accept",
                                 "Origin",
                                 "X-Requested-With",
-                                "X-XSRF-TOKEN"));
+                                "X-XSRF-TOKEN",
+                                "X-AI-Event-Version"));
                 configuration.setAllowCredentials(true);
                 configuration.setMaxAge(3600L);
 
                 // Do not expose Set-Cookie or Authorization to browser JavaScript.
                 // Cookies are set by the browser from credentialed CORS responses.
-                configuration.setExposedHeaders(List.of("Content-Disposition"));
+                configuration.setExposedHeaders(List.of(
+                                "Content-Disposition",
+                                "X-AI-Event-Version"));
 
                 UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
                 source.registerCorsConfiguration("/**", configuration);

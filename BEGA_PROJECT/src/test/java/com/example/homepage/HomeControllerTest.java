@@ -5,7 +5,6 @@ import com.example.common.exception.GlobalExceptionHandler;
 import com.example.kbo.validation.ManualBaseballDataMissingItem;
 import com.example.kbo.validation.ManualBaseballDataRequest;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
-import com.example.mate.entity.Party;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -214,7 +213,7 @@ class HomeControllerTest {
                                 .currentParticipants(2)
                                 .maxParticipants(4)
                                 .ticketPrice(15000)
-                                .status(Party.PartyStatus.PENDING)
+                                .status("PENDING")
                                 .build()))
                         .rankingSnapshot(HomeRankingSnapshotDto.builder()
                                 .rankingSeasonYear(2024)

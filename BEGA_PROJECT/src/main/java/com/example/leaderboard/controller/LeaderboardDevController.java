@@ -19,7 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 @RestController
 @RequestMapping("/api/leaderboard")
 @RequiredArgsConstructor
-@Profile({ "dev", "local" })
+@Profile({ "dev", "dev-adb", "local" })
 @Slf4j
 public class LeaderboardDevController {
 

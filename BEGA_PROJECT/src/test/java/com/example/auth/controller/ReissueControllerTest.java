@@ -9,6 +9,7 @@ import com.example.auth.service.AuthSessionMetadataResolver;
 import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.auth.service.RefreshTokenReuseDetector;
 import com.example.auth.service.RefreshTokenRevocationService;
+import com.example.auth.service.ReissueService;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.util.JWTUtil;
 import com.example.common.config.AllowedOriginResolver;
@@ -75,16 +76,20 @@ class ReissueControllerTest {
                         "macOS",
                         "127.0.0.1",
                         java.time.LocalDateTime.now()));
-        return new ReissueController(
+        ReissueService reissueService = new ReissueService(
                 jwtUtil,
                 refreshRepository,
                 userRepository,
-                authCookieUtil,
                 authSessionService,
                 authSecurityMonitoringService,
                 refreshTokenReuseDetector,
-                refreshTokenRevocationService,
-                allowedOriginResolver);
+                refreshTokenRevocationService);
+        return new ReissueController(
+                authCookieUtil,
+                authSessionService,
+                authSecurityMonitoringService,
+                allowedOriginResolver,
+                reissueService);
     }
 
     @Test

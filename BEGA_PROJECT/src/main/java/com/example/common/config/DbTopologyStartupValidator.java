@@ -9,20 +9,21 @@ import java.util.List;
 import jakarta.annotation.PostConstruct;
 
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * prod 환경에서 primary/baseball datasource 토폴로지를 fail-fast로 검증한다.
+ * prod/dev-adb 환경에서 primary/baseball datasource 토폴로지를 fail-fast로 검증한다.
  * - primary: Oracle
  * - baseball: PostgreSQL
  */
 @Component
-@Profile("prod")
+@Profile("prod | dev-adb")
 @Slf4j
 public class DbTopologyStartupValidator {
 
@@ -43,6 +44,9 @@ public class DbTopologyStartupValidator {
     @PostConstruct
     public void validate() {
         List<String> failures = new ArrayList<>();
+        String primaryUrlEnvKey = isDevAdbProfile() ? "DEV_ADB_URL" : "SPRING_DATASOURCE_URL";
+        String primaryUsernameEnvKey = isDevAdbProfile() ? "DEV_ADB_USERNAME" : "SPRING_DATASOURCE_USERNAME";
+        String primaryPasswordEnvKey = isDevAdbProfile() ? "DEV_ADB_PASSWORD" : "SPRING_DATASOURCE_PASSWORD";
 
         String primaryDriver = normalize(resolveDriver(primaryDataSourceProperties));
         String primaryUrl = normalize(primaryDataSourceProperties.getUrl());
@@ -52,7 +56,7 @@ public class DbTopologyStartupValidator {
         String baseballPassword = normalize(baseballDataSourceProperties.getPassword());
 
         if (isBlank(primaryUrl)) {
-            failures.add("SPRING_DATASOURCE_URL is required in prod");
+            failures.add(primaryUrlEnvKey + " is required in " + activeProfileLabel());
         }
 
         if (!primaryDriver.contains("oracle")) {
@@ -61,6 +65,12 @@ public class DbTopologyStartupValidator {
 
         if (!primaryUrl.startsWith("jdbc:oracle:")) {
             failures.add("primary datasource url must be Oracle JDBC, but was: " + safe(primaryUrl));
+        }
+
+        if (isDevAdbProfile()) {
+            requireEnvironmentValue(failures, primaryUrlEnvKey);
+            requireEnvironmentValue(failures, primaryUsernameEnvKey);
+            requireEnvironmentValue(failures, primaryPasswordEnvKey);
         }
 
         if (!baseballDriver.contains("postgresql")) {
@@ -95,11 +105,26 @@ public class DbTopologyStartupValidator {
         }
 
         log.info(
-                "db.topology.validation.ok primaryDriver={} baseballDriver={} baseballUrlConfigured={}",
+                "db.topology.validation.ok profile={} primaryDriver={} baseballDriver={} baseballUrlConfigured={}",
+                activeProfileLabel(),
                 primaryDriver,
                 baseballDriver,
                 !isBlank(baseballUrl)
         );
+    }
+
+    private boolean isDevAdbProfile() {
+        return environment.acceptsProfiles(Profiles.of("dev-adb"));
+    }
+
+    private String activeProfileLabel() {
+        return isDevAdbProfile() ? "dev-adb" : "prod";
+    }
+
+    private void requireEnvironmentValue(List<String> failures, String key) {
+        if (isBlank(environment.getProperty(key))) {
+            failures.add(key + " env var is missing for " + activeProfileLabel());
+        }
     }
 
     private String resolveDriver(DataSourceProperties properties) {
@@ -138,7 +163,8 @@ public class DbTopologyStartupValidator {
         }
 
         if (isBlank(tnsAdmin)) {
-            failures.add("ORACLE_TNS_ADMIN is required for Oracle TNS alias datasource (SPRING_DATASOURCE_URL)");
+            failures.add("ORACLE_TNS_ADMIN is required for Oracle TNS alias datasource ("
+                    + (isDevAdbProfile() ? "DEV_ADB_URL" : "SPRING_DATASOURCE_URL") + ")");
             return;
         }
 

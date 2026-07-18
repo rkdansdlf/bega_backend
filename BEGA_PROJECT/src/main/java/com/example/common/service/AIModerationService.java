@@ -1,31 +1,24 @@
 package com.example.common.service;
 
-import com.example.ai.config.AiServiceSettings;
+import com.example.common.service.port.ContentModerationDecision;
+import com.example.common.service.port.ContentModerationPort;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.Arrays;
 import java.util.Locale;
-import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AIModerationService {
 
-    private final AiServiceSettings aiServiceSettings;
-    private final RestTemplate restTemplate;
+    private final ContentModerationPort contentModerationPort;
 
     @Value("${ai.moderation.high-risk-keywords:죽어,죽인다,살인,테러,시발,씨발,병신,개새끼}")
     private String highRiskKeywordsRaw;
@@ -53,51 +46,20 @@ public class AIModerationService {
         }
 
         ModerationResult ruleResult = evaluateRuleBasedRisk(content);
-        String url = aiServiceSettings.buildUrl("/moderation/safety-check");
-        if (!StringUtils.hasText(url)) {
-            log.warn("AI moderation service URL is not configured; using rule fallback.");
+        Optional<ContentModerationDecision> decision = contentModerationPort.moderate(content);
+        if (decision.isEmpty()) {
             return ruleResult.withDecisionSource("FALLBACK");
         }
 
-        String aiInternalToken = aiServiceSettings.getResolvedInternalToken();
-        if (!StringUtils.hasText(aiInternalToken)) {
-            log.warn("AI moderation internal token is not configured; using rule fallback.");
-            return ruleResult.withDecisionSource("FALLBACK");
-        }
+        ContentModerationDecision modelDecision = decision.get();
+        ModerationResult modelResult = new ModerationResult(
+                modelDecision.category(),
+                modelDecision.reason(),
+                "ALLOW".equalsIgnoreCase(modelDecision.action()),
+                modelDecision.decisionSource().toUpperCase(Locale.ROOT),
+                normalizeRiskLevel(modelDecision.riskLevel()));
 
-        try {
-            Map<String, String> request = Map.of("content", content);
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("X-Internal-Api-Key", aiInternalToken);
-            HttpEntity<Map<String, String>> requestEntity = new HttpEntity<>(request, headers);
-
-            @SuppressWarnings("unchecked")
-            Map<String, Object> response = restTemplate.postForObject(url, requestEntity, Map.class);
-
-            if (response == null) {
-                log.warn("AI moderation response is null; using rule fallback.");
-                return ruleResult.withDecisionSource("FALLBACK");
-            }
-
-            String category = asString(response.get("category"), "SAFE");
-            String reason = asString(response.get("reason"), "");
-            String action = asString(response.get("action"), "ALLOW");
-            String decisionSource = asString(response.get("decisionSource"), "MODEL");
-            String riskLevel = normalizeRiskLevel(asString(response.get("riskLevel"), "LOW"));
-
-            ModerationResult modelResult = new ModerationResult(
-                    category,
-                    reason,
-                    "ALLOW".equalsIgnoreCase(action),
-                    decisionSource.toUpperCase(Locale.ROOT),
-                    riskLevel);
-
-            return mergeRuleAndModel(ruleResult, modelResult);
-        } catch (Exception e) {
-            log.error("AI moderation request failed. Using rule fallback.", e);
-            return ruleResult.withDecisionSource("FALLBACK");
-        }
+        return mergeRuleAndModel(ruleResult, modelResult);
     }
 
     private ModerationResult mergeRuleAndModel(ModerationResult ruleResult, ModerationResult modelResult) {
@@ -200,13 +162,6 @@ public class AIModerationService {
                 .filter(keyword -> !keyword.isBlank())
                 .map(keyword -> keyword.toLowerCase(Locale.ROOT))
                 .collect(Collectors.toSet());
-    }
-
-    private String asString(Object value, String defaultValue) {
-        if (value instanceof String s && !s.isBlank()) {
-            return s;
-        }
-        return defaultValue;
     }
 
     private String normalizeRiskLevel(String riskLevel) {
