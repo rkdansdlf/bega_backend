@@ -500,4 +500,57 @@ class OpenApiMarkdownRendererTest {
                 .contains("\"alpha\" : {")
                 .contains("\"zeta\" : {");
     }
+
+    @Test
+    void rendersTitlesAndFencedFallbacksForNonTableAndPropertyCompositionSchemas() throws Exception {
+        JsonNode schema = objectMapper.readTree("""
+                {
+                  "openapi": "3.0.1",
+                  "info": {"title": "Fixture API", "version": "1"},
+                  "paths": {},
+                  "components": {
+                    "schemas": {
+                      "BooleanSchema": true,
+                      "BrokenProperties": {
+                        "type": "object",
+                        "properties": true
+                      },
+                      "Titled": {
+                        "type": "object",
+                        "title": "Titled schema",
+                        "properties": {
+                          "choice": {
+                            "oneOf": [
+                              {"type": "string"},
+                              {"type": "integer"}
+                            ]
+                          },
+                          "named": {
+                            "type": "string",
+                            "title": "Named property"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                """);
+
+        OpenApiMarkdownRenderer.RenderedDocuments rendered =
+                OpenApiMarkdownRenderer.render(
+                        schema,
+                        "contracts/openapi.json",
+                        "./gradlew updateOpenApiContract");
+
+        String schemas = rendered.schemas();
+        assertThat(schemas)
+                .contains("## BooleanSchema\n\n### Schema fallback\n```json\ntrue\n```")
+                .contains("## BrokenProperties")
+                .contains("### Properties fallback\n```json\ntrue\n```")
+                .contains("Title: `Titled schema`")
+                .contains("Title: `Named property`")
+                .contains("#### Property composition: `choice`")
+                .contains("Includes: `oneOf`")
+                .contains("\"oneOf\" : [ {");
+    }
 }
