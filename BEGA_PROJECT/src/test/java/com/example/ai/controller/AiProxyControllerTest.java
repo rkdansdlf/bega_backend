@@ -365,6 +365,72 @@ class AiProxyControllerTest {
     }
 
     @Test
+    @DisplayName("chat stream connection failure는 retry 가능한 canonical JSON 오류를 반환한다")
+    void chatStreamConnectionFailureReturnsCanonicalErrorAndRestoresPermit() throws Exception {
+        String payload = "{\"question\":\"테스트\"}";
+        given(aiProxyService.forwardJsonStream(eq("/ai/chat/stream"), eq(payload)))
+                .willThrow(new AiProxyException(
+                        HttpStatus.BAD_GATEWAY,
+                        "AI_UPSTREAM_CONNECTION_FAILED",
+                        "secret-bearing exception text"));
+
+        MvcResult result = mockMvc.perform(post("/api/ai/chat/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isBadGateway())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.*", org.hamcrest.Matchers.hasSize(6)))
+                .andExpect(jsonPath("$.code").value("AI_UPSTREAM_CONNECTION_FAILED"))
+                .andExpect(jsonPath("$.message").value("AI 서비스 연결에 실패했습니다."))
+                .andExpect(jsonPath("$.detail").isEmpty())
+                .andExpect(jsonPath("$.retryable").value(true))
+                .andExpect(jsonPath("$.retry_after_seconds").isEmpty())
+                .andExpect(jsonPath("$.supported_versions").isEmpty())
+                .andExpect(content().string(org.hamcrest.Matchers.not(containsString("secret-bearing"))));
+
+        verify(aiProxyService, never()).writeStream(any(), any());
+        assertThat(streamConcurrencyLimiter.getAvailablePermits())
+                .isEqualTo(streamConcurrencyLimiter.getMaxConcurrentStreams());
+    }
+
+    @Test
+    @DisplayName("chat stream internal auth misconfiguration은 retry 불가 canonical JSON 오류를 반환한다")
+    void chatStreamInternalAuthMisconfigurationReturnsNonRetryableCanonicalError() throws Exception {
+        String payload = "{\"question\":\"테스트\"}";
+        given(aiProxyService.forwardJsonStream(eq("/ai/chat/stream"), eq(payload)))
+                .willThrow(new AiProxyException(
+                        HttpStatus.SERVICE_UNAVAILABLE,
+                        "AI_INTERNAL_AUTH_MISCONFIGURED",
+                        "secret-bearing exception text"));
+
+        MvcResult result = mockMvc.perform(post("/api/ai/chat/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.*", org.hamcrest.Matchers.hasSize(6)))
+                .andExpect(jsonPath("$.code").value("AI_INTERNAL_AUTH_MISCONFIGURED"))
+                .andExpect(jsonPath("$.message").value("AI 내부 인증 설정이 누락되었습니다."))
+                .andExpect(jsonPath("$.detail").isEmpty())
+                .andExpect(jsonPath("$.retryable").value(false))
+                .andExpect(jsonPath("$.retry_after_seconds").isEmpty())
+                .andExpect(jsonPath("$.supported_versions").isEmpty())
+                .andExpect(content().string(org.hamcrest.Matchers.not(containsString("secret-bearing"))));
+
+        verify(aiProxyService, never()).writeStream(any(), any());
+        assertThat(streamConcurrencyLimiter.getAvailablePermits())
+                .isEqualTo(streamConcurrencyLimiter.getMaxConcurrentStreams());
+    }
+
+    @Test
     @DisplayName("coach analyze 프록시 성공 시 SSE를 스트리밍한다")
     void coachAnalyzeSuccess() throws Exception {
         HttpHeaders headers = new HttpHeaders();
