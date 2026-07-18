@@ -24,6 +24,7 @@ import com.example.common.dto.ApiResponse;
 import com.example.common.exception.ConflictBusinessException;
 import com.example.common.web.ClientIpResolver;
 import com.example.mypage.dto.ChangePasswordRequest;
+import com.example.mypage.dto.DeviceSessionDto;
 import com.example.mypage.dto.UserProviderDto;
 import com.example.profile.storage.service.ProfileImageService;
 import jakarta.servlet.http.Cookie;
@@ -105,7 +106,7 @@ class MypageControllerTest {
         request.setNewPassword("NewPassword1!");
         request.setConfirmPassword("NewPassword1!");
 
-        ResponseEntity<ApiResponse> response = controller.changePassword(1L, request);
+        ResponseEntity<ApiResponse<Void>> response = controller.changePassword(1L, request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getHeaders().get(HttpHeaders.SET_COOKIE))
@@ -128,7 +129,7 @@ class MypageControllerTest {
         when(userService.findUserById(1L)).thenReturn(user);
         when(userService.getConnectedProviders(1L)).thenReturn(List.of(googleProvider));
 
-        ResponseEntity<ApiResponse> response = controller.getConnectedProviders(1L);
+        ResponseEntity<ApiResponse<List<UserProviderDto>>> response = controller.getConnectedProviders(1L);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
@@ -148,7 +149,7 @@ class MypageControllerTest {
         UserEntity user = createUser(1L, "user@example.com");
         when(userService.findUserById(1L)).thenReturn(user);
 
-        ResponseEntity<ApiResponse> response = controller.unlinkProvider(1L, "google");
+        ResponseEntity<ApiResponse<Void>> response = controller.unlinkProvider(1L, "google");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
@@ -186,7 +187,7 @@ class MypageControllerTest {
                 .thenReturn(List.of(otherSession, currentSession));
         when(jwtUtil.getSessionId("stale-cookie")).thenReturn("session-current");
 
-        ResponseEntity<ApiResponse> response = controller.getSessions(1L, request);
+        ResponseEntity<ApiResponse<List<DeviceSessionDto>>> response = controller.getSessions(1L, request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
@@ -229,7 +230,7 @@ class MypageControllerTest {
                 .thenReturn(List.of(expiredSession, currentSession));
         when(jwtUtil.getSessionId("stale-cookie")).thenReturn("session-current");
 
-        ResponseEntity<ApiResponse> response = controller.getSessions(1L, request);
+        ResponseEntity<ApiResponse<List<DeviceSessionDto>>> response = controller.getSessions(1L, request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
@@ -271,7 +272,7 @@ class MypageControllerTest {
                 .thenReturn(List.of(otherSession, currentSession));
         when(jwtUtil.getSessionId("stale-cookie")).thenReturn("session-current");
 
-        ResponseEntity<ApiResponse> response = controller.deleteSessions(1L, true, request);
+        ResponseEntity<ApiResponse<Void>> response = controller.deleteSessions(1L, true, request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         verify(refreshRepository).deleteAll(org.mockito.ArgumentMatchers.argThat(tokens -> {

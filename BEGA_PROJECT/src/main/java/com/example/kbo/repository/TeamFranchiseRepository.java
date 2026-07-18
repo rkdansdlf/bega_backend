@@ -4,7 +4,6 @@ import com.example.kbo.entity.TeamFranchiseEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
 
@@ -13,7 +12,6 @@ import java.util.Optional;
  *
  * <p>프랜차이즈(구단) 데이터에 접근하기 위한 리포지토리입니다.</p>
  */
-@Repository
 public interface TeamFranchiseRepository extends JpaRepository<TeamFranchiseEntity, Integer> {
 
     /**

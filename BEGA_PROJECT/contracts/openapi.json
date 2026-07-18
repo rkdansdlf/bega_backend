@@ -512,27 +512,6 @@
         },
         "type" : "object"
       },
-      "ApiResponse" : {
-        "properties" : {
-          "code" : {
-            "type" : "string"
-          },
-          "data" : { },
-          "errors" : {
-            "additionalProperties" : {
-              "type" : "string"
-            },
-            "type" : "object"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "success" : {
-            "type" : "boolean"
-          }
-        },
-        "type" : "object"
-      },
       "ApiResponseAccountDeletionRecoveryInfoDto" : {
         "properties" : {
           "code" : {
@@ -832,6 +811,29 @@
         },
         "type" : "object"
       },
+      "ApiResponseFinalizeMediaUploadResponse" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/FinalizeMediaUploadResponse"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseGameScoreSyncBatchResultDto" : {
         "properties" : {
           "code" : {
@@ -908,6 +910,29 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/GameStatusRepairBatchResultDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseInitMediaUploadResponse" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/InitMediaUploadResponse"
           },
           "errors" : {
             "additionalProperties" : {
@@ -1156,6 +1181,32 @@
         },
         "type" : "object"
       },
+      "ApiResponseListDeviceSessionDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/DeviceSessionDto"
+            },
+            "type" : "array"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseListInboxItem" : {
         "properties" : {
           "code" : {
@@ -1286,6 +1337,32 @@
         },
         "type" : "object"
       },
+      "ApiResponseListUserProviderDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/UserProviderDto"
+            },
+            "type" : "array"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseMapStringLong" : {
         "properties" : {
           "code" : {
@@ -1320,6 +1397,32 @@
           },
           "data" : {
             "additionalProperties" : { },
+            "type" : "object"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseMapStringString" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
             "type" : "object"
           },
           "errors" : {
@@ -1712,6 +1815,29 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/StoredChatMessage"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseUserProfileDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/UserProfileDto"
           },
           "errors" : {
             "additionalProperties" : {
@@ -2643,6 +2769,44 @@
         },
         "type" : "object"
       },
+      "DeviceSessionDto" : {
+        "properties" : {
+          "browser" : {
+            "type" : "string"
+          },
+          "deviceLabel" : {
+            "type" : "string"
+          },
+          "deviceType" : {
+            "type" : "string"
+          },
+          "id" : {
+            "type" : "string"
+          },
+          "ip" : {
+            "type" : "string"
+          },
+          "isCurrent" : {
+            "type" : "boolean"
+          },
+          "isRevoked" : {
+            "type" : "boolean"
+          },
+          "lastActiveAt" : {
+            "type" : "string"
+          },
+          "lastSeenAt" : {
+            "type" : "string"
+          },
+          "os" : {
+            "type" : "string"
+          },
+          "sessionName" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "DiaryRequestDto" : {
         "properties" : {
           "block" : {
@@ -2996,6 +3160,21 @@
           "ticketPrice" : {
             "format" : "int32",
             "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "FinalizeMediaUploadResponse" : {
+        "properties" : {
+          "assetId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "publicUrl" : {
+            "type" : "string"
+          },
+          "storagePath" : {
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -3975,6 +4154,31 @@
           }
         },
         "required" : [ "contentLength", "contentType", "domain", "fileName", "height", "width" ],
+        "type" : "object"
+      },
+      "InitMediaUploadResponse" : {
+        "properties" : {
+          "assetId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "expiresAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "requiredHeaders" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "stagingObjectKey" : {
+            "type" : "string"
+          },
+          "uploadUrl" : {
+            "type" : "string"
+          }
+        },
         "type" : "object"
       },
       "JsonNode" : { },
@@ -8047,6 +8251,23 @@
         "required" : [ "email", "name" ],
         "type" : "object"
       },
+      "UserProviderDto" : {
+        "properties" : {
+          "connectedAt" : {
+            "type" : "string"
+          },
+          "email" : {
+            "type" : "string"
+          },
+          "provider" : {
+            "type" : "string"
+          },
+          "providerId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "UserRankDto" : {
         "properties" : {
           "level" : {
@@ -10499,7 +10720,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseMapStringString"
                 }
               }
             },
@@ -10685,7 +10906,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseUserProfileDto"
                 }
               }
             },
@@ -10711,7 +10932,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseMapStringObject"
                 }
               }
             },
@@ -10765,7 +10986,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
                 }
               }
             },
@@ -10885,7 +11106,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseListUserProviderDto"
                 }
               }
             },
@@ -10911,7 +11132,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
                 }
               }
             },
@@ -10974,7 +11195,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
                 }
               }
             },
@@ -10990,7 +11211,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseListDeviceSessionDto"
                 }
               }
             },
@@ -11016,7 +11237,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
                 }
               }
             },
@@ -14297,7 +14518,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseInitMediaUploadResponse"
                 }
               }
             },
@@ -14324,7 +14545,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
                 }
               }
             },
@@ -14351,7 +14572,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseFinalizeMediaUploadResponse"
                 }
               }
             },
@@ -15400,7 +15621,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
                 }
               }
             },
@@ -15426,7 +15647,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
                 }
               }
             },

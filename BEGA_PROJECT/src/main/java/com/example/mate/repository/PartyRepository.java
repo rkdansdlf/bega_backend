@@ -10,7 +10,6 @@ import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.Collection;
@@ -20,7 +19,6 @@ import java.util.Optional;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.QueryHint;
 
-@Repository
 public interface PartyRepository extends JpaRepository<Party, Long>, PartyRepositoryCustom {
 
         // 상태별 파티 조회

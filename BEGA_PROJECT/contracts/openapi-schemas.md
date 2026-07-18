@@ -5,7 +5,7 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Schemas: **277**
+Schemas: **286**
 
 <a id="accountdeletionrecoveryinfodto"></a>
 ## AccountDeletionRecoveryInfoDto
@@ -263,30 +263,6 @@ Schema: `{<br>  "properties" : {<br>    "createdAt" : {<br>      "format" : "dat
 | `name` | no | `string` | — | — |
 | `postCount` | no | `integer (int64)` | — | — |
 | `role` | no | `string` | — | — |
-
-<a id="apiresponse"></a>
-## ApiResponse
-Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : { },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
-
-### Properties
-| Property | Required | Schema | Description | Constraints |
-| --- | --- | --- | --- | --- |
-| `code` | no | `string` | — | — |
-| `data` | no | `{ }` | — | — |
-| `errors` | no | `composition` | — | — |
-| `message` | no | `string` | — | — |
-| `success` | no | `boolean` | — | — |
-
-#### Property composition: `errors`
-Includes: `additionalProperties`
-```json
-{
-  "additionalProperties" : {
-    "type" : "string"
-  },
-  "type" : "object"
-}
-```
 
 <a id="apiresponseaccountdeletionrecoveryinfodto"></a>
 ## ApiResponseAccountDeletionRecoveryInfoDto
@@ -600,6 +576,30 @@ Includes: `additionalProperties`
 }
 ```
 
+<a id="apiresponsefinalizemediauploadresponse"></a>
+## ApiResponseFinalizeMediaUploadResponse
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/FinalizeMediaUploadResponse"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [FinalizeMediaUploadResponse](openapi-schemas.md#finalizemediauploadresponse) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
 <a id="apiresponsegamescoresyncbatchresultdto"></a>
 ## ApiResponseGameScoreSyncBatchResultDto
 Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/GameScoreSyncBatchResultDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -681,6 +681,30 @@ Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
 | `data` | no | [GameStatusRepairBatchResultDto](openapi-schemas.md#gamestatusrepairbatchresultdto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponseinitmediauploadresponse"></a>
+## ApiResponseInitMediaUploadResponse
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/InitMediaUploadResponse"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [InitMediaUploadResponse](openapi-schemas.md#initmediauploadresponse) | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -912,6 +936,30 @@ Includes: `additionalProperties`
 }
 ```
 
+<a id="apiresponselistdevicesessiondto"></a>
+## ApiResponseListDeviceSessionDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/DeviceSessionDto"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | `array<[DeviceSessionDto](openapi-schemas.md#devicesessiondto)>` | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
 <a id="apiresponselistinboxitem"></a>
 ## ApiResponseListInboxItem
 Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/InboxItem"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -1032,6 +1080,30 @@ Includes: `additionalProperties`
 }
 ```
 
+<a id="apiresponselistuserproviderdto"></a>
+## ApiResponseListUserProviderDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/UserProviderDto"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | `array<[UserProviderDto](openapi-schemas.md#userproviderdto)>` | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
 <a id="apiresponsemapstringlong"></a>
 ## ApiResponseMapStringLong
 Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "additionalProperties" : {<br>        "format" : "int64",<br>        "type" : "integer"<br>      },<br>      "type" : "object"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -1086,6 +1158,41 @@ Includes: `additionalProperties`
 ```json
 {
   "additionalProperties" : { },
+  "type" : "object"
+}
+```
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponsemapstringstring"></a>
+## ApiResponseMapStringString
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | `composition` | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `data`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
   "type" : "object"
 }
 ```
@@ -1494,6 +1601,30 @@ Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
 | `data` | no | [StoredChatMessage](openapi-schemas.md#storedchatmessage) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponseuserprofiledto"></a>
+## ApiResponseUserProfileDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/UserProfileDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [UserProfileDto](openapi-schemas.md#userprofiledto) | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -1993,6 +2124,25 @@ Schema: `{<br>  "properties" : {<br>    "confirmText" : {<br>      "type" : "str
 | `confirmText` | no | `string` | — | — |
 | `password` | no | `string` | — | — |
 
+<a id="devicesessiondto"></a>
+## DeviceSessionDto
+Schema: `{<br>  "properties" : {<br>    "browser" : {<br>      "type" : "string"<br>    },<br>    "deviceLabel" : {<br>      "type" : "string"<br>    },<br>    "deviceType" : {<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "type" : "string"<br>    },<br>    "ip" : {<br>      "type" : "string"<br>    },<br>    "isCurrent" : {<br>      "type" : "boolean"<br>    },<br>    "isRevoked" : {<br>      "type" : "boolean"<br>    },<br>    "lastActiveAt" : {<br>      "type" : "string"<br>    },<br>    "lastSeenAt" : {<br>      "type" : "string"<br>    },<br>    "os" : {<br>      "type" : "string"<br>    },<br>    "sessionName" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `browser` | no | `string` | — | — |
+| `deviceLabel` | no | `string` | — | — |
+| `deviceType` | no | `string` | — | — |
+| `id` | no | `string` | — | — |
+| `ip` | no | `string` | — | — |
+| `isCurrent` | no | `boolean` | — | — |
+| `isRevoked` | no | `boolean` | — | — |
+| `lastActiveAt` | no | `string` | — | — |
+| `lastSeenAt` | no | `string` | — | — |
+| `os` | no | `string` | — | — |
+| `sessionName` | no | `string` | — | — |
+
 <a id="diaryrequestdto"></a>
 ## DiaryRequestDto
 Schema: `{<br>  "properties" : {<br>    "block" : {<br>      "type" : "string"<br>    },<br>    "date" : {<br>      "type" : "string"<br>    },<br>    "emojiName" : {<br>      "type" : "string"<br>    },<br>    "gameId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "memo" : {<br>      "type" : "string"<br>    },<br>    "photos" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "seatNumber" : {<br>      "type" : "string"<br>    },<br>    "seatRow" : {<br>      "type" : "string"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "ticketVerificationToken" : {<br>      "type" : "string"<br>    },<br>    "type" : {<br>      "type" : "string"<br>    },<br>    "winningName" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -2179,6 +2329,17 @@ Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "type" : "string
 | `status` | no | `string` | — | — |
 | `teamId` | no | `string` | — | — |
 | `ticketPrice` | no | `integer (int32)` | — | — |
+
+<a id="finalizemediauploadresponse"></a>
+## FinalizeMediaUploadResponse
+Schema: `{<br>  "properties" : {<br>    "assetId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "publicUrl" : {<br>      "type" : "string"<br>    },<br>    "storagePath" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `assetId` | no | `integer (int64)` | — | — |
+| `publicUrl` | no | `string` | — | — |
+| `storagePath` | no | `string` | — | — |
 
 <a id="followcountresponse"></a>
 ## FollowCountResponse
@@ -2646,6 +2807,30 @@ Required properties: `contentLength`, `contentType`, `domain`, `fileName`, `heig
 
 #### Property metadata: `domain`
 - Enum: `PROFILE`, `DIARY`, `CHEER`, `CHAT`
+
+<a id="initmediauploadresponse"></a>
+## InitMediaUploadResponse
+Schema: `{<br>  "properties" : {<br>    "assetId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "expiresAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "requiredHeaders" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "stagingObjectKey" : {<br>      "type" : "string"<br>    },<br>    "uploadUrl" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `assetId` | no | `integer (int64)` | — | — |
+| `expiresAt` | no | `string (date-time)` | — | — |
+| `requiredHeaders` | no | `composition` | — | — |
+| `stagingObjectKey` | no | `string` | — | — |
+| `uploadUrl` | no | `string` | — | — |
+
+#### Property composition: `requiredHeaders`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
 
 <a id="jsonnode"></a>
 ## JsonNode
@@ -4983,6 +5168,18 @@ Required properties: `email`, `name`
 | `provider` | no | `string` | — | — |
 | `providerId` | no | `string` | — | — |
 | `role` | no | `string` | — | — |
+
+<a id="userproviderdto"></a>
+## UserProviderDto
+Schema: `{<br>  "properties" : {<br>    "connectedAt" : {<br>      "type" : "string"<br>    },<br>    "email" : {<br>      "type" : "string"<br>    },<br>    "provider" : {<br>      "type" : "string"<br>    },<br>    "providerId" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `connectedAt` | no | `string` | — | — |
+| `email` | no | `string` | — | — |
+| `provider` | no | `string` | — | — |
+| `providerId` | no | `string` | — | — |
 
 <a id="userrankdto"></a>
 ## UserRankDto

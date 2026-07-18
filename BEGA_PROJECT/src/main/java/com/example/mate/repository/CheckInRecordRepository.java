@@ -2,12 +2,10 @@ package com.example.mate.repository;
 
 import com.example.mate.entity.CheckInRecord;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
 
-@Repository
 public interface CheckInRecordRepository extends JpaRepository<CheckInRecord, Long> {
 
     // 파티별 체크인 기록 조회

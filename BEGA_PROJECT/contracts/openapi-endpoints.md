@@ -2222,7 +2222,7 @@ Schema: [InitMediaUploadRequest](openapi-schemas.md#initmediauploadrequest)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseInitMediaUploadResponse](openapi-schemas.md#apiresponseinitmediauploadresponse)
 
 ### DELETE `/api/media/uploads/{assetId}`
 - Operation ID: `deleteUpload`
@@ -2239,7 +2239,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
 ### POST `/api/media/uploads/{assetId}/finalize`
 - Operation ID: `finalizeUpload`
@@ -2256,7 +2256,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseFinalizeMediaUploadResponse](openapi-schemas.md#apiresponsefinalizemediauploadresponse)
 
 ## mypage-controller
 
@@ -2276,7 +2276,7 @@ Schema: [DeleteAccountRequest](openapi-schemas.md#deleteaccountrequest)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseMapStringString](openapi-schemas.md#apiresponsemapstringstring)
 
 ### GET `/api/auth/mypage`
 - Operation ID: `getMyProfile`
@@ -2288,7 +2288,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseUserProfileDto](openapi-schemas.md#apiresponseuserprofiledto)
 
 ### PUT `/api/auth/mypage`
 - Operation ID: `updateMyProfile`
@@ -2306,7 +2306,7 @@ Schema: [UserProfileDto](openapi-schemas.md#userprofiledto)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseMapStringObject](openapi-schemas.md#apiresponsemapstringobject)
 
 ### PUT `/api/auth/password`
 - Operation ID: `changePassword`
@@ -2324,7 +2324,7 @@ Schema: [ChangePasswordRequest](openapi-schemas.md#changepasswordrequest)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
 ### GET `/api/auth/providers`
 - Operation ID: `getConnectedProviders`
@@ -2336,7 +2336,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseListUserProviderDto](openapi-schemas.md#apiresponselistuserproviderdto)
 
 ### DELETE `/api/auth/providers/{provider}`
 - Operation ID: `unlinkProvider`
@@ -2353,7 +2353,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
 ### GET `/api/auth/sessions`
 - Operation ID: `getSessions`
@@ -2365,7 +2365,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseListDeviceSessionDto](openapi-schemas.md#apiresponselistdevicesessiondto)
 
 ### DELETE `/api/auth/sessions`
 - Operation ID: `deleteSessions`
@@ -2382,7 +2382,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
 ### DELETE `/api/auth/sessions/{sessionId}`
 - Operation ID: `deleteSession`
@@ -2399,7 +2399,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
 ## notification-controller
 
@@ -3910,7 +3910,7 @@ Schema: [PredictionRequestDto](openapi-schemas.md#predictionrequestdto)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
 ### DELETE `/api/predictions/{gameId}`
 - Operation ID: `cancelVote`
@@ -3927,7 +3927,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
 ## 리더보드
 
