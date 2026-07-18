@@ -1,13 +1,16 @@
 package com.example.ai.service;
 
 import com.example.ai.config.AiServiceSettings;
+import com.example.ai.dto.AiStreamHttpErrorResponse;
 import com.example.ai.exception.AiProxyException;
 import com.example.common.dto.ApiResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
@@ -342,21 +345,15 @@ public class AiProxyService {
             result = "upstream_error";
             log.warn("AI upstream returned status={} for stream uri={}", e.getStatusCode().value(), uri);
             HttpHeaders headers = filterResponseHeaders(e.getHeaders());
-            byte[] upstreamBody = e.getResponseBodyAsByteArray();
-            if (e.getStatusCode().value() == HttpStatus.NOT_ACCEPTABLE.value()
-                    && upstreamBody.length > 0) {
-                return new ProxyStreamResponse(
-                        e.getStatusCode(),
-                        headers,
-                        Flux.empty(),
-                        upstreamBody);
-            }
             headers.setContentType(MediaType.APPLICATION_JSON);
             return new ProxyStreamResponse(
                     e.getStatusCode(),
                     headers,
                     Flux.empty(),
-                    buildStandardizedErrorBody(e.getStatusCode()));
+                    buildStandardizedStreamErrorBody(
+                            e.getStatusCode(),
+                            headers,
+                            e.getResponseBodyAsByteArray()));
         } catch (WebClientRequestException e) {
             result = "connection_failure";
             throw mapRequestFailure(uri, e);
@@ -519,6 +516,71 @@ public class AiProxyService {
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize AI proxy error response. status={}", statusCode.value(), e);
             return fallbackErrorJson(error);
+        }
+    }
+
+    private byte[] buildStandardizedStreamErrorBody(
+            HttpStatusCode statusCode,
+            HttpHeaders headers,
+            byte[] upstreamBody) {
+        if (statusCode.value() == HttpStatus.NOT_ACCEPTABLE.value()
+                && isUnsupportedEventVersion(upstreamBody)) {
+            return serializeStreamError(new AiStreamHttpErrorResponse(
+                    "AI_EVENT_VERSION_UNSUPPORTED",
+                    "지원하지 않는 AI 이벤트 버전입니다.",
+                    null,
+                    false,
+                    null,
+                    List.of("1", "2")));
+        }
+        return serializeStreamError(resolveStreamError(statusCode, headers));
+    }
+
+    public byte[] serializeStreamError(AiStreamHttpErrorResponse error) {
+        try {
+            return OBJECT_MAPPER.writeValueAsBytes(error);
+        } catch (JsonProcessingException exception) {
+            log.error("Failed to serialize AI stream error response. code={}", error.code(), exception);
+            String fallback = "{\"code\":\"AI_STREAM_REQUEST_FAILED\",\"message\":\"AI 요청을 처리할 수 없습니다. 잠시 후 다시 시도해주세요.\",\"detail\":null,\"retryable\":false,\"retry_after_seconds\":null,\"supported_versions\":[]}";
+            return fallback.getBytes(StandardCharsets.UTF_8);
+        }
+    }
+
+    private boolean isUnsupportedEventVersion(byte[] upstreamBody) {
+        if (upstreamBody == null || upstreamBody.length == 0) {
+            return false;
+        }
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(upstreamBody);
+            JsonNode error = root.path("code").isTextual()
+                    ? root
+                    : root.path("detail").isObject() ? root.path("detail") : null;
+            return error != null
+                    && "AI_EVENT_VERSION_UNSUPPORTED".equals(error.path("code").asText());
+        } catch (IOException ignored) {
+            return false;
+        }
+    }
+
+    private AiStreamHttpErrorResponse resolveStreamError(HttpStatusCode statusCode, HttpHeaders headers) {
+        AiUpstreamError safe = resolveUpstreamError(statusCode);
+        return new AiStreamHttpErrorResponse(
+                safe.code(),
+                safe.message(),
+                null,
+                statusCode.value() == HttpStatus.TOO_MANY_REQUESTS.value() || statusCode.is5xxServerError(),
+                parseRetryAfterSeconds(headers.getFirst(HttpHeaders.RETRY_AFTER)),
+                List.of());
+    }
+
+    private Long parseRetryAfterSeconds(String value) {
+        if (!StringUtils.hasText(value) || !value.trim().matches("\\d+")) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 
