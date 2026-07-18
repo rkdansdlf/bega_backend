@@ -219,4 +219,100 @@ class OpenApiMarkdownRendererTest {
         assertThat(rendered.endpoints())
                 .doesNotContain("Example: false");
     }
+
+    @Test
+    void preservesNestedUnrenderedEndpointDetailsAsStableJson() throws Exception {
+        JsonNode schema = objectMapper.readTree("""
+                {
+                  "openapi": "3.0.1",
+                  "info": {"title": "Fixture API", "version": "1"},
+                  "paths": {
+                    "/widgets": {
+                      "get": {
+                        "parameters": [{
+                          "name": "filter", "in": "query", "schema": {"type": "string"},
+                          "content": {"application/json": {"schema": {"type": "object"}}},
+                          "x-parameter": {"z": 2, "a": 1}
+                        }],
+                        "requestBody": {
+                          "content": {"application/json": {
+                            "schema": {"type": "object"},
+                            "encoding": {"name": {"contentType": "text/plain"}},
+                            "x-media": {"z": 2, "a": 1}
+                          }},
+                          "x-request": {"z": 2, "a": 1}
+                        },
+                        "responses": {"200": {
+                          "description": "OK",
+                          "headers": {"Location": {
+                            "schema": {"type": "string"},
+                            "x-header": {"z": 2, "a": 1}
+                          }},
+                          "content": {"application/json": {
+                            "schema": {"type": "object"},
+                            "encoding": {"name": {"contentType": "text/plain"}},
+                            "x-media": {"z": 2, "a": 1}
+                          }},
+                          "links": {"next": {"operationId": "nextWidget"}},
+                          "x-response": {"z": 2, "a": 1}
+                        }}
+                      }
+                    }
+                  },
+                  "components": {"schemas": {}}
+                }
+                """);
+
+        OpenApiMarkdownRenderer.RenderedDocuments rendered =
+                OpenApiMarkdownRenderer.render(
+                        schema,
+                        "contracts/openapi.json",
+                        "./gradlew updateOpenApiContract");
+
+        assertThat(rendered.endpoints())
+                .contains("#### Parameter metadata: `filter`")
+                .contains("\"x-parameter\" : {\n    \"a\" : 1,\n    \"z\" : 2\n  }")
+                .contains("#### Request body metadata")
+                .contains("\"x-request\" : {\n    \"a\" : 1,\n    \"z\" : 2\n  }")
+                .contains("#### Response metadata: `200`")
+                .contains("\"links\" : {\n    \"next\" : {\n      \"operationId\" : \"nextWidget\"\n    }\n  }")
+                .contains("#### Header metadata: `Location`")
+                .contains("\"x-header\" : {\n    \"a\" : 1,\n    \"z\" : 2\n  }")
+                .contains("#### Media type metadata: `application/json`")
+                .contains("\"encoding\" : {\n    \"name\" : {\n      \"contentType\" : \"text/plain\"\n    }\n  }")
+                .contains("\"x-media\" : {\n    \"a\" : 1,\n    \"z\" : 2\n  }");
+    }
+
+    @Test
+    void preservesComposedSchemasWithTypeAsStableJsonLabels() throws Exception {
+        JsonNode schema = objectMapper.readTree("""
+                {
+                  "openapi": "3.0.1",
+                  "info": {"title": "Fixture API", "version": "1"},
+                  "paths": {"/widgets": {"get": {
+                    "parameters": [{
+                      "name": "widget", "in": "query",
+                      "schema": {"type": "object", "oneOf": [
+                        {"$ref": "#/components/schemas/Widget"},
+                        {"type": "string"}
+                      ]}
+                    }],
+                    "responses": {"200": {"description": "OK"}}
+                  }}},
+                  "components": {"schemas": {"Widget": {"type": "object"}}}
+                }
+                """);
+
+        OpenApiMarkdownRenderer.RenderedDocuments rendered =
+                OpenApiMarkdownRenderer.render(
+                        schema,
+                        "contracts/openapi.json",
+                        "./gradlew updateOpenApiContract");
+
+        assertThat(rendered.endpoints())
+                .contains("`{<br>  \"oneOf\" : [")
+                .contains("\"$ref\" : \"#/components/schemas/Widget\"")
+                .contains("\"type\" : \"object\"")
+                .doesNotContain("| `widget` | query | no | `object` |");
+    }
 }
