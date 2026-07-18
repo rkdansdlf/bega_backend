@@ -1,14 +1,21 @@
 package com.example.common.config;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 final class OpenApiMarkdownRenderer {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Map<String, Integer> METHOD_ORDER = Map.of(
             "get", 0, "post", 1, "put", 2, "patch", 3,
             "delete", 4, "options", 5, "head", 6, "trace", 7);
@@ -137,6 +144,8 @@ final class OpenApiMarkdownRenderer {
         appendLine(markdown, "- Tags: " + renderTags(operation.node().path("tags")));
         appendLine(markdown, "- Security: " + renderSecurity(operation.node().path("security")));
         appendLine(markdown, "- Deprecated: " + (operation.node().path("deprecated").asBoolean(false) ? "yes" : "no"));
+        appendFallback(markdown, "Path-item extensions and metadata", operation.pathItem(), pathItemFields());
+        appendFallback(markdown, "Operation extensions and metadata", operation.node(), operationFields());
     }
 
     private static void appendOptionalLine(StringBuilder markdown, JsonNode value) {
@@ -155,7 +164,77 @@ final class OpenApiMarkdownRenderer {
                 rendered.add("`" + tag.asText() + "`");
             }
         }
+        rendered.sort(String::compareTo);
         return rendered.isEmpty() ? "`untagged`" : String.join(", ", rendered);
+    }
+
+    private static Set<String> pathItemFields() {
+        Set<String> fields = new HashSet<>(METHOD_ORDER.keySet());
+        fields.add("parameters");
+        return fields;
+    }
+
+    private static Set<String> operationFields() {
+        return Set.of(
+                "tags",
+                "summary",
+                "description",
+                "operationId",
+                "security",
+                "deprecated",
+                "parameters",
+                "requestBody",
+                "responses");
+    }
+
+    private static void appendFallback(
+            StringBuilder markdown,
+            String heading,
+            JsonNode source,
+            Set<String> knownFields) {
+        ObjectNode fallback = OBJECT_MAPPER.createObjectNode();
+        source.fields().forEachRemaining(entry -> {
+            if (!knownFields.contains(entry.getKey())) {
+                fallback.set(entry.getKey(), entry.getValue());
+            }
+        });
+        if (fallback.size() == 0) {
+            return;
+        }
+        appendLine(markdown, "");
+        appendLine(markdown, "#### " + heading);
+        appendLine(markdown, "```json");
+        appendLine(markdown, stableJson(fallback));
+        appendLine(markdown, "```");
+    }
+
+    private static String stableJson(JsonNode value) {
+        try {
+            return OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(sortedCopy(value));
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Unable to render OpenAPI JSON", exception);
+        }
+    }
+
+    private static JsonNode sortedCopy(JsonNode value) {
+        if (value.isObject()) {
+            ObjectNode copy = OBJECT_MAPPER.createObjectNode();
+            List<String> names = new ArrayList<>();
+            value.fieldNames().forEachRemaining(names::add);
+            names.sort(String::compareTo);
+            for (String name : names) {
+                copy.set(name, sortedCopy(value.get(name)));
+            }
+            return copy;
+        }
+        if (value.isArray()) {
+            ArrayNode copy = OBJECT_MAPPER.createArrayNode();
+            for (JsonNode item : value) {
+                copy.add(sortedCopy(item));
+            }
+            return copy;
+        }
+        return value;
     }
 
     private static String renderSecurity(JsonNode security) {

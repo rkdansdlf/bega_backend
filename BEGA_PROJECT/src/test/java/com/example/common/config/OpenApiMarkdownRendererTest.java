@@ -78,4 +78,69 @@ class OpenApiMarkdownRendererTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("OpenAPI field must be an object: paths");
     }
+
+    @Test
+    void rendersOperationTagsInSortedOrder() throws Exception {
+        JsonNode schema = objectMapper.readTree("""
+                {
+                  "openapi": "3.0.1",
+                  "info": {"title": "Fixture API", "version": "1"},
+                  "paths": {
+                    "/widgets": {
+                      "get": {
+                        "tags": ["z-tag", "a-tag"],
+                        "responses": {"200": {"description": "OK"}}
+                      }
+                    }
+                  },
+                  "components": {"schemas": {}}
+                }
+                """);
+
+        OpenApiMarkdownRenderer.RenderedDocuments rendered =
+                OpenApiMarkdownRenderer.render(
+                        schema,
+                        "contracts/openapi.json",
+                        "./gradlew updateOpenApiContract");
+
+        assertThat(rendered.endpoints()).contains("- Tags: `a-tag`, `z-tag`");
+    }
+
+    @Test
+    void preservesUnknownPathItemAndOperationFieldsAsStableJson() throws Exception {
+        JsonNode schema = objectMapper.readTree("""
+                {
+                  "openapi": "3.0.1",
+                  "info": {"title": "Fixture API", "version": "1"},
+                  "paths": {
+                    "/widgets": {
+                      "x-path-metadata": {"z": 1, "a": {"d": 4, "c": 3}},
+                      "parameters": [],
+                      "get": {
+                        "responses": {"200": {"description": "OK"}},
+                        "x-operation-metadata": {"z": 2, "a": {"d": 6, "c": 5}},
+                        "externalDocs": {"url": "https://example.test/docs", "description": "Widget docs"},
+                        "parameters": []
+                      }
+                    }
+                  },
+                  "components": {"schemas": {}}
+                }
+                """);
+
+        OpenApiMarkdownRenderer.RenderedDocuments rendered =
+                OpenApiMarkdownRenderer.render(
+                        schema,
+                        "contracts/openapi.json",
+                        "./gradlew updateOpenApiContract");
+
+        assertThat(rendered.endpoints())
+                .contains("#### Path-item extensions and metadata")
+                .contains("\"x-path-metadata\" : {\n    \"a\" : {\n      \"c\" : 3,\n      \"d\" : 4\n    },\n    \"z\" : 1\n  }")
+                .contains("#### Operation extensions and metadata")
+                .contains("\"externalDocs\" : {\n    \"description\" : \"Widget docs\",\n    \"url\" : \"https://example.test/docs\"\n  }")
+                .contains("\"x-operation-metadata\" : {\n    \"a\" : {\n      \"c\" : 5,\n      \"d\" : 6\n    },\n    \"z\" : 2\n  }")
+                .doesNotContain("\"parameters\"")
+                .doesNotContain("\"responses\"");
+    }
 }
