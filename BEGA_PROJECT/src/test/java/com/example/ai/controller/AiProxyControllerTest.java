@@ -9,6 +9,7 @@ import com.example.ai.service.AiProxyStreamConcurrencyLimiter;
 import com.example.ai.service.CoachAutoBriefMonitoringService;
 import com.example.common.exception.GlobalExceptionHandler;
 import com.example.common.ratelimit.RateLimit;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -56,6 +57,10 @@ class AiProxyControllerTest {
     @BeforeEach
     void setup() {
         aiProxyService = mock(AiProxyService.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        willAnswer(invocation -> objectMapper.writeValueAsBytes(invocation.getArgument(0)))
+                .given(aiProxyService)
+                .serializeStreamError(any());
         coachAutoBriefMonitoringService = mock(CoachAutoBriefMonitoringService.class);
         streamConcurrencyLimiter = new AiProxyStreamConcurrencyLimiter(32, new SimpleMeterRegistry());
         AiProxyController controller = new AiProxyController(
@@ -278,14 +283,25 @@ class AiProxyControllerTest {
                 saturatedLimiter);
 
         try {
-            saturatedMockMvc.perform(post("/api/ai/chat/stream")
+            MvcResult result = saturatedMockMvc.perform(post("/api/ai/chat/stream")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"question\":\"테스트\"}"))
+                    .andExpect(request().asyncStarted())
+                    .andReturn();
+
+            saturatedMockMvc.perform(asyncDispatch(result))
                     .andExpect(status().isServiceUnavailable())
-                    .andExpect(jsonPath("$.success").value(false))
-                    .andExpect(jsonPath("$.code").value(AiProxyStreamConcurrencyLimiter.STREAMS_BUSY_CODE));
+                    .andExpect(jsonPath("$.code").value(AiProxyStreamConcurrencyLimiter.STREAMS_BUSY_CODE))
+                    .andExpect(jsonPath("$.message").value("AI 스트리밍 요청이 많습니다. 잠시 후 다시 시도해주세요."))
+                    .andExpect(jsonPath("$.detail").isEmpty())
+                    .andExpect(jsonPath("$.retryable").value(true))
+                    .andExpect(jsonPath("$.retry_after_seconds").isEmpty())
+                    .andExpect(jsonPath("$.supported_versions").isArray())
+                    .andExpect(jsonPath("$.success").doesNotExist());
 
             verify(aiProxyService, never()).forwardJsonStream(any(), any());
+            verify(aiProxyService, never()).writeStream(any(), any());
+            assertThat(saturatedLimiter.getAvailablePermits()).isZero();
         } finally {
             heldPermit.close();
         }
@@ -315,6 +331,37 @@ class AiProxyControllerTest {
         mockMvc.perform(asyncDispatch(result))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().json(responseBody));
+    }
+
+    @Test
+    @DisplayName("chat stream setup timeout은 canonical JSON 오류를 반환한다")
+    void chatStreamSetupTimeoutReturnsCanonicalErrorResponse() throws Exception {
+        String payload = "{\"question\":\"테스트\"}";
+        given(aiProxyService.forwardJsonStream(eq("/ai/chat/stream"), eq(payload)))
+                .willThrow(new AiProxyException(
+                        HttpStatus.GATEWAY_TIMEOUT,
+                        "AI_UPSTREAM_TIMEOUT",
+                        "AI 응답 시간이 초과되었습니다."));
+
+        MvcResult result = mockMvc.perform(post("/api/ai/chat/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isGatewayTimeout())
+                .andExpect(jsonPath("$.code").value("AI_UPSTREAM_TIMEOUT"))
+                .andExpect(jsonPath("$.message").value("AI 응답 시간이 초과되었습니다."))
+                .andExpect(jsonPath("$.detail").isEmpty())
+                .andExpect(jsonPath("$.retryable").value(true))
+                .andExpect(jsonPath("$.retry_after_seconds").isEmpty())
+                .andExpect(jsonPath("$.supported_versions").isArray())
+                .andExpect(jsonPath("$.success").doesNotExist());
+
+        verify(aiProxyService, never()).writeStream(any(), any());
+        assertThat(streamConcurrencyLimiter.getAvailablePermits())
+                .isEqualTo(streamConcurrencyLimiter.getMaxConcurrentStreams());
     }
 
     @Test
@@ -460,14 +507,27 @@ class AiProxyControllerTest {
         MockMvc limitedMockMvc = mockMvcWithLimits(
                 new AiProxyRequestLimits(4096, 8, 1024 * 1024, 1024 * 1024 + 65536, 256 * 1024, 128 * 1024));
 
-        limitedMockMvc.perform(post("/api/ai/coach/analyze")
+        MvcResult result = limitedMockMvc.perform(post("/api/ai/coach/analyze")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"home_team_id\":\"HH\",\"away_team_id\":\"SS\"}"))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        limitedMockMvc.perform(asyncDispatch(result))
                 .andExpect(status().isPayloadTooLarge())
-                .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE));
+                .andExpect(jsonPath("$.code").value(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE))
+                .andExpect(jsonPath("$.message").value("AI 요청 본문이 너무 큽니다."))
+                .andExpect(jsonPath("$.detail").isEmpty())
+                .andExpect(jsonPath("$.retryable").value(false))
+                .andExpect(jsonPath("$.retry_after_seconds").isEmpty())
+                .andExpect(jsonPath("$.supported_versions").isArray())
+                .andExpect(jsonPath("$.success").doesNotExist());
 
         verify(aiProxyService, never()).forwardJsonStream(any(), any());
+        verify(aiProxyService, never()).writeStream(any(), any());
+        verify(coachAutoBriefMonitoringService).recordCoachAnalyzeDuration(any(), any(), eq(413), anyLong());
+        assertThat(streamConcurrencyLimiter.getAvailablePermits())
+                .isEqualTo(streamConcurrencyLimiter.getMaxConcurrentStreams());
     }
 
     @Test

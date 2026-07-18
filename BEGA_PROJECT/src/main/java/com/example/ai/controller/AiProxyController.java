@@ -1,6 +1,8 @@
 package com.example.ai.controller;
 
 import com.example.ai.config.AiProxyRequestLimits;
+import com.example.ai.dto.AiStreamHttpErrorResponse;
+import com.example.ai.exception.AiProxyException;
 import com.example.ai.service.AiProxyService;
 import com.example.ai.service.AiProxyService.ProxyByteResponse;
 import com.example.ai.service.AiProxyService.ProxyStreamResponse;
@@ -10,10 +12,12 @@ import com.example.ai.service.CoachAutoBriefMonitoringService;
 import com.example.common.ratelimit.RateLimit;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -51,13 +55,17 @@ public class AiProxyController {
     public ResponseEntity<StreamingResponseBody> chatStream(
             @RequestBody String payload,
             @RequestHeader(value = AiProxyService.AI_EVENT_VERSION_HEADER, required = false) String eventVersion) {
-        requestLimits.validateChatJson(payload);
-        Permit streamPermit = streamConcurrencyLimiter.acquire("chat_stream");
+        Permit streamPermit = null;
         try {
+            requestLimits.validateChatJson(payload);
+            streamPermit = streamConcurrencyLimiter.acquire("chat_stream");
             ProxyStreamResponse proxyResponse = forwardJsonStream("/ai/chat/stream", payload, eventVersion);
             return toStreamResponse(proxyResponse, streamPermit);
+        } catch (AiProxyException exception) {
+            closeStreamPermit(streamPermit);
+            return toLocalStreamErrorResponse(exception);
         } catch (RuntimeException exception) {
-            streamPermit.close();
+            closeStreamPermit(streamPermit);
             throw exception;
         }
     }
@@ -75,13 +83,13 @@ public class AiProxyController {
     public ResponseEntity<StreamingResponseBody> coachAnalyze(
             @RequestBody String payload,
             @RequestHeader(value = AiProxyService.AI_EVENT_VERSION_HEADER, required = false) String eventVersion) {
-        requestLimits.validateCoachJson(payload);
         String requestMode = coachAutoBriefMonitoringService.extractRequestMode(payload);
         String analysisType = coachAutoBriefMonitoringService.extractAnalysisType(payload);
         long startNanos = System.nanoTime();
         Permit streamPermit = null;
 
         try {
+            requestLimits.validateCoachJson(payload);
             streamPermit = streamConcurrencyLimiter.acquire("coach_analyze");
             log.info("Coach analyze proxy start request_mode={} analysis_type={}", requestMode, analysisType);
             ProxyStreamResponse proxyResponse = forwardJsonStream("/ai/coach/analyze", payload, eventVersion);
@@ -92,10 +100,23 @@ public class AiProxyController {
                     proxyResponse.status().value(),
                     elapsedMillis(startNanos));
             return toCoachAnalyzeStreamResponse(proxyResponse, requestMode, analysisType, startNanos, streamPermit);
+        } catch (AiProxyException exception) {
+            closeStreamPermit(streamPermit);
+            coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
+                    requestMode,
+                    analysisType,
+                    exception.getStatus().value(),
+                    System.nanoTime() - startNanos);
+            log.warn(
+                    "Coach analyze proxy setup failed request_mode={} analysis_type={} status={} elapsed_ms={} code={}",
+                    requestMode,
+                    analysisType,
+                    exception.getStatus().value(),
+                    elapsedMillis(startNanos),
+                    exception.getCode());
+            return toLocalStreamErrorResponse(exception);
         } catch (RuntimeException exception) {
-            if (streamPermit != null) {
-                streamPermit.close();
-            }
+            closeStreamPermit(streamPermit);
             int statusCode = coachAutoBriefMonitoringService.resolveStatusCode(exception);
             coachAutoBriefMonitoringService.recordCoachAnalyzeDuration(
                     requestMode,
@@ -178,6 +199,51 @@ public class AiProxyController {
         return ResponseEntity.status(proxyResponse.status())
                 .headers(headers)
                 .body(proxyResponse.body());
+    }
+
+    private ResponseEntity<StreamingResponseBody> toLocalStreamErrorResponse(AiProxyException exception) {
+        AiStreamHttpErrorResponse error = new AiStreamHttpErrorResponse(
+                exception.getCode(),
+                exception.getStatus().is5xxServerError()
+                        ? safeProxyMessage(exception.getCode())
+                        : exception.getMessage(),
+                null,
+                isRetryableProxySetupFailure(exception),
+                null,
+                List.of());
+        byte[] body = aiProxyService.serializeStreamError(error);
+        return ResponseEntity.status(exception.getStatus())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(outputStream -> outputStream.write(body));
+    }
+
+    private String safeProxyMessage(String code) {
+        return switch (code) {
+            case "AI_UPSTREAM_TIMEOUT" -> "AI 응답 시간이 초과되었습니다.";
+            case "AI_UPSTREAM_CONNECTION_FAILED" -> "AI 서비스 연결에 실패했습니다.";
+            case "AI_PROXY_STREAMS_BUSY" -> "AI 스트리밍 요청이 많습니다. 잠시 후 다시 시도해주세요.";
+            case "AI_SERVICE_URL_NOT_CONFIGURED" -> "AI 서비스 주소가 설정되지 않았습니다.";
+            case "AI_SERVICE_URL_INVALID" -> "AI 서비스 주소 설정이 올바르지 않습니다.";
+            case "AI_INTERNAL_AUTH_MISCONFIGURED" -> "AI 내부 인증 설정이 누락되었습니다.";
+            default -> "AI 요청을 처리할 수 없습니다. 잠시 후 다시 시도해주세요.";
+        };
+    }
+
+    private boolean isRetryableProxySetupFailure(AiProxyException exception) {
+        return exception.getStatus().value() == 429
+                || switch (exception.getCode()) {
+                    case "AI_UPSTREAM_TIMEOUT",
+                            "AI_UPSTREAM_CONNECTION_FAILED",
+                            "AI_UPSTREAM_EMPTY_RESPONSE",
+                            "AI_PROXY_STREAMS_BUSY" -> true;
+                    default -> false;
+                };
+    }
+
+    private void closeStreamPermit(Permit streamPermit) {
+        if (streamPermit != null) {
+            streamPermit.close();
+        }
     }
 
     private ProxyStreamResponse forwardJsonStream(String uri, String payload, String eventVersion) {
