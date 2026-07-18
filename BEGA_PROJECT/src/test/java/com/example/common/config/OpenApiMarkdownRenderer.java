@@ -201,6 +201,10 @@ final class OpenApiMarkdownRenderer {
                     + markdownCellOrDash(parameter.get("description")) + " | "
                     + (example == null ? "—" : "`" + markdownCell(stableJson(example)) + "`") + " |");
         }
+        for (JsonNode parameter : parameters) {
+            appendFallback(out, "Parameter metadata: `" + parameter.path("name").asText() + "`", parameter,
+                    Set.of("name", "in", "required", "schema", "description", "example"));
+        }
     }
 
     private static void appendRequestBody(StringBuilder out, JsonNode requestBody) {
@@ -212,6 +216,8 @@ final class OpenApiMarkdownRenderer {
         appendLine(out, "Required: **" + (requestBody.path("required").asBoolean(false) ? "yes" : "no") + "**");
         appendOptionalLine(out, requestBody.path("description"));
         appendContent(out, requestBody.path("content"));
+        appendFallback(out, "Request body metadata", requestBody,
+                Set.of("required", "description", "content"));
     }
 
     private static void appendResponses(StringBuilder out, JsonNode responses) {
@@ -228,6 +234,8 @@ final class OpenApiMarkdownRenderer {
             appendOptionalLine(out, response.path("description"));
             appendHeaders(out, response.path("headers"));
             appendContent(out, response.path("content"));
+            appendFallback(out, "Response metadata: `" + code + "`", response,
+                    Set.of("description", "headers", "content"));
         }
     }
 
@@ -267,6 +275,8 @@ final class OpenApiMarkdownRenderer {
             JsonNode header = headers.path(name);
             appendLine(out, "| `" + markdownCell(name) + "` | " + schemaCell(header.path("schema"))
                     + " | " + markdownCellOrDash(header.get("description")) + " |");
+            appendFallback(out, "Header metadata: `" + name + "`", header,
+                    Set.of("description", "schema"));
         }
     }
 
@@ -285,6 +295,8 @@ final class OpenApiMarkdownRenderer {
                 appendLine(out, "Schema: " + schemaCell(media.path("schema")));
             }
             appendExamples(out, media);
+            appendFallback(out, "Media type metadata: `" + mediaType + "`", media,
+                    Set.of("schema", "example", "examples"));
         }
     }
 
@@ -318,6 +330,9 @@ final class OpenApiMarkdownRenderer {
         if (!schema.isObject()) {
             return "—";
         }
+        if (hasComplexSchemaFields(schema)) {
+            return stableJson(schema);
+        }
         JsonNode ref = schema.get("$ref");
         if (ref != null && ref.isTextual() && ref.asText().startsWith("#/components/schemas/")) {
             String name = ref.asText().substring("#/components/schemas/".length());
@@ -334,6 +349,21 @@ final class OpenApiMarkdownRenderer {
                     : type;
         }
         return stableJson(schema);
+    }
+
+    private static boolean hasComplexSchemaFields(JsonNode schema) {
+        java.util.Iterator<Map.Entry<String, JsonNode>> fields = schema.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> field = fields.next();
+            if (Set.of("oneOf", "anyOf", "allOf").contains(field.getKey())) {
+                return true;
+            }
+            if (!field.getKey().equals("items")
+                    && (field.getValue().isObject() || field.getValue().isArray())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String githubAnchor(String value) {
