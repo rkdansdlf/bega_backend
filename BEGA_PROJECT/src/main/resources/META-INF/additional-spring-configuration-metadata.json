@@ -172,7 +172,7 @@
     },
     {
       "name": "baseball.datasource",
-      "type": "org.springframework.boot.autoconfigure.jdbc.DataSourceProperties",
+      "type": "org.springframework.boot.jdbc.autoconfigure.DataSourceProperties",
       "description": "Secondary PostgreSQL datasource connection settings."
     },
     {

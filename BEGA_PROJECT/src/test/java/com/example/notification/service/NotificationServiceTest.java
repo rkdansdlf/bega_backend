@@ -23,9 +23,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.realtime.RealtimeOutboxWriter;
 import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.notification.dto.NotificationDTO;
 import com.example.notification.entity.Notification;
@@ -42,7 +42,7 @@ class NotificationServiceTest {
     private NotificationRepository notificationRepository;
 
     @Mock
-    private SimpMessagingTemplate messagingTemplate;
+    private RealtimeOutboxWriter realtimeOutboxWriter;
 
     @Test
     void notificationTypeNamesFitDatabaseColumn() throws NoSuchFieldException {
@@ -185,34 +185,32 @@ class NotificationServiceTest {
 
     @Test
     void createNotification_savesNotification() {
-        // TransactionSynchronizationManager needs an active synchronization context
-        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
-        try {
-            when(notificationRepository.save(any(Notification.class)))
-                    .thenAnswer(invocation -> {
-                        Notification n = invocation.getArgument(0);
-                        return Notification.builder()
-                                .id(1L)
-                                .userId(n.getUserId())
-                                .type(n.getType())
-                                .title(n.getTitle())
-                                .message(n.getMessage())
-                                .relatedId(n.getRelatedId())
-                                .isRead(false)
-                                .build();
-                    });
+        when(notificationRepository.save(any(Notification.class)))
+                .thenAnswer(invocation -> {
+                    Notification n = invocation.getArgument(0);
+                    return Notification.builder()
+                            .id(1L)
+                            .userId(n.getUserId())
+                            .type(n.getType())
+                            .title(n.getTitle())
+                            .message(n.getMessage())
+                            .relatedId(n.getRelatedId())
+                            .isRead(false)
+                            .build();
+                });
 
-            notificationService.createNotification(
-                    10L,
-                    Notification.NotificationType.APPLICATION_APPROVED,
-                    "승인됨",
-                    "신청이 승인되었습니다.",
-                    100L);
+        notificationService.createNotification(
+                10L,
+                Notification.NotificationType.APPLICATION_APPROVED,
+                "승인됨",
+                "신청이 승인되었습니다.",
+                100L);
 
-            verify(notificationRepository).save(any(Notification.class));
-        } finally {
-            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
-        }
+        verify(notificationRepository).save(any(Notification.class));
+        verify(realtimeOutboxWriter).sendToUser(
+                eq("10"),
+                eq("/queue/notifications"),
+                any(NotificationDTO.Response.class));
     }
 
     // --- helpers ---

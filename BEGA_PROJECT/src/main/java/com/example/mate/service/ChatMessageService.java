@@ -4,6 +4,7 @@ import com.example.mate.dto.ChatMessageDTO;
 import com.example.mate.entity.ChatMessage;
 import com.example.mate.entity.Party;
 import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.realtime.RealtimeOutboxWriter;
 import com.example.mate.repository.ChatMessageRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -37,6 +38,7 @@ public class ChatMessageService {
     private final PartyApplicationRepository applicationRepository;
     private final ChatImageService chatImageService;
     private final MediaLinkService mediaLinkService;
+    private final RealtimeOutboxWriter realtimeOutboxWriter;
 
     // 메시지 전송
     @Transactional
@@ -82,7 +84,9 @@ public class ChatMessageService {
 
         ChatMessage savedMessage = chatMessageRepository.save(chatMessage);
         mediaLinkService.syncChatLink(savedMessage.getId(), userId, savedMessage.getImageUrl());
-        return toResponseWithResolvedImage(savedMessage);
+        ChatMessageDTO.Response response = toResponseWithResolvedImage(savedMessage);
+        realtimeOutboxWriter.broadcast("/topic/party/" + response.getPartyId(), response);
+        return response;
     }
 
     // 파티별 채팅 메시지 조회

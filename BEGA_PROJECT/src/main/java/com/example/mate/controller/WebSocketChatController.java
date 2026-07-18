@@ -6,7 +6,6 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
-import org.springframework.messaging.handler.annotation.SendTo;
 
 import org.springframework.stereotype.Controller;
 
@@ -23,8 +22,7 @@ public class WebSocketChatController {
      * STOMP 세션의 Principal을 사용하여 스푸핑 방지
      */
     @MessageMapping("/chat/{partyId}")
-    @SendTo("/topic/party/{partyId}")
-    public ChatMessageDTO.Response sendMessage(
+    public void sendMessage(
             @DestinationVariable Long partyId,
             @Valid ChatMessageDTO.Request request,
             java.security.Principal principal) {
@@ -34,9 +32,6 @@ public class WebSocketChatController {
         request.setPartyId(partyId);
 
         // DB에 메시지 저장 (Principal 기반 인가 확인 포함)
-        ChatMessageDTO.Response savedMessage = chatMessageService.sendMessage(request, principal);
-
-        // 저장된 메시지를 구독자들에게 브로드캐스트
-        return savedMessage;
+        chatMessageService.sendMessage(request, principal);
     }
 }

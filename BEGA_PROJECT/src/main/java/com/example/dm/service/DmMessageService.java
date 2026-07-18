@@ -1,6 +1,7 @@
 package com.example.dm.service;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -8,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.ForbiddenBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
+import com.example.common.realtime.RealtimeOutboxWriter;
 import com.example.dm.dto.DmMessageDto;
 import com.example.dm.entity.DmMessage;
 import com.example.dm.repository.DmMessageRepository;
@@ -22,6 +24,7 @@ public class DmMessageService {
     private final DmMessageRepository dmMessageRepository;
     private final DmRoomRepository dmRoomRepository;
     private final DmRoomService dmRoomService;
+    private final RealtimeOutboxWriter realtimeOutboxWriter;
 
     @Transactional
     public List<DmMessageDto.Response> getMessages(Long roomId, Long currentUserId) {
@@ -54,7 +57,9 @@ public class DmMessageService {
                 .content(normalizedContent)
                 .clientMessageId(blankToNull(request.getClientMessageId()))
                 .build());
-        return DmMessageDto.Response.from(savedMessage);
+        DmMessageDto.Response response = DmMessageDto.Response.from(savedMessage);
+        realtimeOutboxWriter.broadcast("/topic/dm/" + response.getRoomId(), response);
+        return response;
     }
 
     @Transactional
@@ -69,6 +74,9 @@ public class DmMessageService {
         }
         Long roomId = message.getRoomId();
         dmMessageRepository.delete(message);
+        realtimeOutboxWriter.broadcast(
+                "/topic/dm/" + roomId,
+                Map.of("messageId", messageId, "deleted", true, "roomId", roomId));
         return roomId;
     }
 

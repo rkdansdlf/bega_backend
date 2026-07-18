@@ -15,7 +15,6 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -31,7 +30,6 @@ import java.util.List;
 public class ChatMessageController {
 
     private final ChatMessageService chatMessageService;
-    private final SimpMessagingTemplate messagingTemplate;
 
     // 메시지 전송
     @Operation(summary = "Mate chat message send")
@@ -44,7 +42,6 @@ public class ChatMessageController {
             @Valid @RequestBody ChatMessageDTO.Request request,
             @AuthenticationPrincipal Long userId) {
         ChatMessageDTO.Response response = chatMessageService.sendMessage(request, AuthenticatedUserIds.require(userId));
-        messagingTemplate.convertAndSend("/topic/party/" + response.getPartyId(), response);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 

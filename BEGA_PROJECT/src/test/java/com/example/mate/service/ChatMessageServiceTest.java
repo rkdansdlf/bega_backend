@@ -3,6 +3,7 @@ package com.example.mate.service;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.UserService;
 import com.example.common.exception.BadRequestBusinessException;
+import com.example.common.realtime.RealtimeOutboxWriter;
 import com.example.media.service.MediaLinkService;
 import com.example.mate.dto.ChatMessageDTO;
 import com.example.mate.entity.ChatMessage;
@@ -59,6 +60,9 @@ class ChatMessageServiceTest {
 
     @Mock
     private MediaLinkService mediaLinkService;
+
+    @Mock
+    private RealtimeOutboxWriter realtimeOutboxWriter;
 
     @InjectMocks
     private ChatMessageService chatMessageService;
@@ -138,6 +142,7 @@ class ChatMessageServiceTest {
         assertThat(response.getId()).isEqualTo(100L);
         assertThat(response.getClientMessageId()).isEqualTo("client-msg-1");
         verify(chatMessageRepository, never()).save(any(ChatMessage.class));
+        verifyNoInteractions(realtimeOutboxWriter);
     }
 
     @Test
@@ -168,6 +173,7 @@ class ChatMessageServiceTest {
         assertThat(response.getId()).isEqualTo(101L);
         assertThat(response.getSenderId()).isEqualTo(88L);
         verify(chatMessageRepository).save(any(ChatMessage.class));
+        verify(realtimeOutboxWriter).broadcast("/topic/party/56", response);
     }
 
     @Test
