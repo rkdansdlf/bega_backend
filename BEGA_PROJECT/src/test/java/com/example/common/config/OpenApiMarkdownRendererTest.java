@@ -315,4 +315,37 @@ class OpenApiMarkdownRendererTest {
                 .contains("\"type\" : \"object\"")
                 .doesNotContain("| `widget` | query | no | `object` |");
     }
+
+    @Test
+    void rendersAllHeaderRowsBeforeHeaderMetadataFallbacks() throws Exception {
+        JsonNode schema = objectMapper.readTree("""
+                {
+                  "openapi": "3.0.1",
+                  "info": {"title": "Fixture API", "version": "1"},
+                  "paths": {"/widgets": {"get": {
+                    "responses": {"200": {
+                      "description": "OK",
+                      "headers": {
+                        "Alpha": {"schema": {"type": "string"}, "x-alpha": {"enabled": true}},
+                        "Zulu": {"schema": {"type": "integer"}}
+                      }
+                    }}
+                  }}},
+                  "components": {"schemas": {}}
+                }
+                """);
+
+        OpenApiMarkdownRenderer.RenderedDocuments rendered =
+                OpenApiMarkdownRenderer.render(
+                        schema,
+                        "contracts/openapi.json",
+                        "./gradlew updateOpenApiContract");
+
+        String endpoints = rendered.endpoints();
+        assertThat(endpoints).contains("| `Alpha` | `string` | — |")
+                .contains("| `Zulu` | `integer` | — |")
+                .contains("#### Header metadata: `Alpha`");
+        assertThat(endpoints.indexOf("| `Zulu` | `integer` | — |"))
+                .isLessThan(endpoints.indexOf("#### Header metadata: `Alpha`"));
+    }
 }
