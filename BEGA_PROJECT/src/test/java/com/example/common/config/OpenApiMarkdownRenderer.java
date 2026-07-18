@@ -531,6 +531,10 @@ final class OpenApiMarkdownRenderer {
     private static void appendSchema(StringBuilder out, String name, JsonNode schema) {
         appendLine(out, "");
         appendLine(out, "## " + name);
+        if (!schema.isObject()) {
+            appendJsonBlock(out, "### Schema fallback", schema);
+            return;
+        }
         appendOptionalLine(out, schema.path("description"));
         appendLine(out, "Schema: " + schemaCell(schema));
         String constraints = constraintsLabel(schema);
@@ -554,7 +558,7 @@ final class OpenApiMarkdownRenderer {
 
         appendPropertyTable(out, schema.path("properties"), required);
         appendExplicitMetadata(out, "#### Explicit schema metadata", schema);
-        appendComposition(out, schema);
+        appendComposition(out, "### Composition", schema);
         appendFallback(out, "Schema metadata", schema, schemaFields());
     }
 
@@ -562,7 +566,13 @@ final class OpenApiMarkdownRenderer {
             StringBuilder out,
             JsonNode properties,
             JsonNode required) {
-        if (!properties.isObject() || properties.isEmpty()) {
+        if (!properties.isObject()) {
+            if (!properties.isMissingNode()) {
+                appendJsonBlock(out, "### Properties fallback", properties);
+            }
+            return;
+        }
+        if (properties.isEmpty()) {
             return;
         }
         Set<String> requiredNames = new HashSet<>();
@@ -590,7 +600,12 @@ final class OpenApiMarkdownRenderer {
         }
         for (String name : names) {
             JsonNode property = properties.path(name);
+            if (!property.isObject()) {
+                appendJsonBlock(out, "#### Property schema fallback: `" + name + "`", property);
+                continue;
+            }
             appendExplicitMetadata(out, "#### Property metadata: `" + name + "`", property);
+            appendComposition(out, "#### Property composition: `" + name + "`", property);
             appendFallback(out, "Property metadata: `" + name + "`", property, propertyFields());
         }
     }
@@ -621,7 +636,7 @@ final class OpenApiMarkdownRenderer {
     private static String propertySchemaCell(JsonNode schema) {
         if (schema.has("oneOf") || schema.has("anyOf") || schema.has("allOf")
                 || schema.has("additionalProperties")) {
-            return schemaCell(schema);
+            return "`composition`";
         }
         JsonNode ref = schema.get("$ref");
         if (ref != null && ref.isTextual() && ref.asText().startsWith("#/components/schemas/")) {
@@ -644,6 +659,9 @@ final class OpenApiMarkdownRenderer {
 
     private static void appendExplicitMetadata(StringBuilder out, String heading, JsonNode property) {
         List<String> lines = new ArrayList<>();
+        if (property.has("title")) {
+            lines.add("- Title: `" + titleLabel(property.path("title")) + "`");
+        }
         if (property.has("default")) {
             lines.add("- Default: `" + stableJson(property.path("default")) + "`");
         }
@@ -683,7 +701,7 @@ final class OpenApiMarkdownRenderer {
         }
     }
 
-    private static void appendComposition(StringBuilder out, JsonNode schema) {
+    private static void appendComposition(StringBuilder out, String heading, JsonNode schema) {
         boolean hasComposition = schema.has("oneOf")
                 || schema.has("anyOf")
                 || schema.has("allOf")
@@ -693,7 +711,7 @@ final class OpenApiMarkdownRenderer {
             return;
         }
         appendLine(out, "");
-        appendLine(out, "### Composition");
+        appendLine(out, heading);
         List<String> kinds = new ArrayList<>();
         for (String field : List.of("oneOf", "anyOf", "allOf", "discriminator", "additionalProperties")) {
             if (schema.has(field)) {
@@ -703,6 +721,18 @@ final class OpenApiMarkdownRenderer {
         appendLine(out, "Includes: " + String.join(", ", kinds));
         appendLine(out, "```json");
         appendLine(out, stableJson(schema));
+        appendLine(out, "```");
+    }
+
+    private static String titleLabel(JsonNode title) {
+        return title.isTextual() ? markdownCell(title.asText()) : stableJson(title);
+    }
+
+    private static void appendJsonBlock(StringBuilder out, String heading, JsonNode value) {
+        appendLine(out, "");
+        appendLine(out, heading);
+        appendLine(out, "```json");
+        appendLine(out, stableJson(value));
         appendLine(out, "```");
     }
 
