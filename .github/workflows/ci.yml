@@ -92,8 +92,8 @@ jobs:
       - name: Test Summary
         if: always()
         run: |
-          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "Unit tests completed!" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Results" >> "${GITHUB_STEP_SUMMARY}"
+          echo "Unit tests completed!" >> "${GITHUB_STEP_SUMMARY}"
 
   security:
     name: Security Scan
@@ -148,5 +148,5 @@ jobs:
       
       - name: Build Summary
         run: |
-          echo "### Build Success" >> $GITHUB_STEP_SUMMARY
-          echo "Application built successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Success" >> "${GITHUB_STEP_SUMMARY}"
+          echo "Application built successfully!" >> "${GITHUB_STEP_SUMMARY}"
