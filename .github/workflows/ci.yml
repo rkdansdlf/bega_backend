@@ -29,20 +29,22 @@ jobs:
     timeout-minutes: 30
     env:
       SPRING_PROFILES_ACTIVE: dev
-      DB_URL: ${{ secrets.DB_URL }}
-      DB_USERNAME: ${{ secrets.DB_USERNAME }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
-      MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
-      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-      KAKAO_CLIENT_ID: ${{ secrets.KAKAO_CLIENT_ID }}
-      KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
-      NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
-      NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
-      JWT_SECRET: ${{ secrets.JWT_SECRET }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      # Secrets are available only on trusted branch pushes. Pull request code
+      # must never receive repository credentials, even for same-repository PRs.
+      DB_URL: ${{ github.event_name == 'push' && secrets.DB_URL || '' }}
+      DB_USERNAME: ${{ github.event_name == 'push' && secrets.DB_USERNAME || '' }}
+      DB_PASSWORD: ${{ github.event_name == 'push' && secrets.DB_PASSWORD || '' }}
+      MAIL_USERNAME: ${{ github.event_name == 'push' && secrets.MAIL_USERNAME || 'ci' }}
+      MAIL_PASSWORD: ${{ github.event_name == 'push' && secrets.MAIL_PASSWORD || 'ci' }}
+      GOOGLE_CLIENT_ID: ${{ github.event_name == 'push' && secrets.GOOGLE_CLIENT_ID || 'ci-google-client' }}
+      GOOGLE_CLIENT_SECRET: ${{ github.event_name == 'push' && secrets.GOOGLE_CLIENT_SECRET || 'ci-google-secret' }}
+      KAKAO_CLIENT_ID: ${{ github.event_name == 'push' && secrets.KAKAO_CLIENT_ID || 'ci-kakao-client' }}
+      KAKAO_CLIENT_SECRET: ${{ github.event_name == 'push' && secrets.KAKAO_CLIENT_SECRET || 'ci-kakao-secret' }}
+      NAVER_CLIENT_ID: ${{ github.event_name == 'push' && secrets.NAVER_CLIENT_ID || 'ci-naver-client' }}
+      NAVER_CLIENT_SECRET: ${{ github.event_name == 'push' && secrets.NAVER_CLIENT_SECRET || 'ci-naver-secret' }}
+      JWT_SECRET: ${{ github.event_name == 'push' && secrets.JWT_SECRET || 'ci-jwt-secret' }}
+      SUPABASE_URL: ${{ github.event_name == 'push' && secrets.SUPABASE_URL || 'http://127.0.0.1:54321' }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ github.event_name == 'push' && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
     
     steps:
       - name: Checkout code
@@ -103,7 +105,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Run Trivy vulnerability scanner in repo mode
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           scan-type: 'fs'
           ignore-unfixed: true
