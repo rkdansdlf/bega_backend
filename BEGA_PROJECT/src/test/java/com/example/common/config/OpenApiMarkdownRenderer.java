@@ -339,7 +339,7 @@ final class OpenApiMarkdownRenderer {
         JsonNode ref = schema.get("$ref");
         if (ref != null && ref.isTextual() && ref.asText().startsWith("#/components/schemas/")) {
             String name = ref.asText().substring("#/components/schemas/".length());
-            return "[" + name + "](openapi-schemas.md#" + githubAnchor(name) + ")";
+            return "[" + name + "](openapi-schemas.md#" + anchor(name) + ")";
         }
         if (schema.path("type").asText().equals("array")) {
             return "array<" + schemaLabel(schema.path("items")) + ">";
@@ -369,7 +369,7 @@ final class OpenApiMarkdownRenderer {
         return false;
     }
 
-    private static String githubAnchor(String value) {
+    private static String anchor(String value) {
         return value.toLowerCase(Locale.ROOT)
                 .replaceAll("[^a-z0-9 -]", "")
                 .trim()
@@ -519,7 +519,190 @@ final class OpenApiMarkdownRenderer {
         appendLine(markdown, "");
         appendLine(markdown, "Version: `" + infoText(openApi, "version") + "`");
         appendLine(markdown, "Schemas: **" + schemas.size() + "**");
+        List<String> names = new ArrayList<>();
+        schemas.fieldNames().forEachRemaining(names::add);
+        names.sort(String::compareTo);
+        for (String name : names) {
+            appendSchema(markdown, name, schemas.path(name));
+        }
         return finish(markdown);
+    }
+
+    private static void appendSchema(StringBuilder out, String name, JsonNode schema) {
+        appendLine(out, "");
+        appendLine(out, "## " + name);
+        appendOptionalLine(out, schema.path("description"));
+        appendLine(out, "Schema: " + schemaCell(schema));
+
+        JsonNode required = schema.path("required");
+        if (required.isArray() && !required.isEmpty()) {
+            List<String> names = new ArrayList<>();
+            for (JsonNode property : required) {
+                if (property.isTextual()) {
+                    names.add(property.asText());
+                }
+            }
+            names.sort(String::compareTo);
+            if (!names.isEmpty()) {
+                appendLine(out, "Required properties: `" + String.join("`, `", names) + "`");
+            }
+        }
+
+        appendPropertyTable(out, schema.path("properties"), required);
+        appendComposition(out, schema);
+        appendFallback(out, "Schema metadata", schema, schemaFields());
+    }
+
+    private static void appendPropertyTable(
+            StringBuilder out,
+            JsonNode properties,
+            JsonNode required) {
+        if (!properties.isObject() || properties.isEmpty()) {
+            return;
+        }
+        Set<String> requiredNames = new HashSet<>();
+        if (required.isArray()) {
+            for (JsonNode property : required) {
+                if (property.isTextual()) {
+                    requiredNames.add(property.asText());
+                }
+            }
+        }
+        List<String> names = new ArrayList<>();
+        properties.fieldNames().forEachRemaining(names::add);
+        names.sort(String::compareTo);
+        appendLine(out, "");
+        appendLine(out, "### Properties");
+        appendLine(out, "| Property | Required | Schema | Description | Constraints |");
+        appendLine(out, "| --- | --- | --- | --- | --- |");
+        for (String name : names) {
+            JsonNode property = properties.path(name);
+            appendLine(out, "| `" + markdownCell(name) + "` | "
+                    + (requiredNames.contains(name) ? "yes" : "no") + " | "
+                    + propertySchemaCell(property) + " | "
+                    + markdownCellOrDash(property.get("description")) + " | "
+                    + constraintsLabel(property) + " |");
+        }
+        for (String name : names) {
+            JsonNode property = properties.path(name);
+            appendPropertyMetadata(out, name, property);
+            appendFallback(out, "Property metadata: `" + name + "`", property, propertyFields());
+        }
+    }
+
+    private static String constraintsLabel(JsonNode schema) {
+        List<String> labels = new ArrayList<>();
+        for (String field : List.of(
+                "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+                "minLength", "maxLength", "minItems", "maxItems", "minProperties", "maxProperties")) {
+            if (schema.has(field)) {
+                labels.add(field + "=" + stableJson(schema.path(field)));
+            }
+        }
+        if (schema.path("uniqueItems").asBoolean(false)) {
+            labels.add("uniqueItems=true");
+        }
+        if (schema.has("pattern")) {
+            labels.add("pattern=`" + markdownCell(schema.path("pattern").asText()) + "`");
+        }
+        for (String field : List.of("nullable", "readOnly", "writeOnly", "deprecated")) {
+            if (schema.path(field).asBoolean(false)) {
+                labels.add(field + "=true");
+            }
+        }
+        return labels.isEmpty() ? "—" : String.join(", ", labels);
+    }
+
+    private static String propertySchemaCell(JsonNode schema) {
+        if (schema.has("oneOf") || schema.has("anyOf") || schema.has("allOf")
+                || schema.has("additionalProperties")) {
+            return schemaCell(schema);
+        }
+        JsonNode ref = schema.get("$ref");
+        if (ref != null && ref.isTextual() && ref.asText().startsWith("#/components/schemas/")) {
+            String name = ref.asText().substring("#/components/schemas/".length());
+            return "[" + name + "](openapi-schemas.md#" + anchor(name) + ")";
+        }
+        if (schema.path("type").asText().equals("array")) {
+            return "`array<" + markdownCell(schemaLabel(schema.path("items"))) + ">`";
+        }
+        if (schema.path("type").isTextual()) {
+            String type = schema.path("type").asText();
+            JsonNode format = schema.path("format");
+            String label = format.isTextual() && !format.asText().isBlank()
+                    ? type + " (" + format.asText() + ")"
+                    : type;
+            return "`" + markdownCell(label) + "`";
+        }
+        return schemaCell(schema);
+    }
+
+    private static void appendPropertyMetadata(StringBuilder out, String name, JsonNode property) {
+        List<String> lines = new ArrayList<>();
+        if (property.has("default")) {
+            lines.add("- Default: `" + stableJson(property.path("default")) + "`");
+        }
+        if (property.has("example")) {
+            lines.add("- Example: `" + stableJson(property.path("example")) + "`");
+        }
+        JsonNode values = property.path("enum");
+        if (values.isArray()) {
+            List<String> rendered = new ArrayList<>();
+            for (JsonNode value : values) {
+                rendered.add("`" + (value.isTextual() ? value.asText() : stableJson(value)) + "`");
+            }
+            lines.add("- Enum: " + String.join(", ", rendered));
+        }
+        for (String field : List.of("nullable", "readOnly", "writeOnly", "deprecated")) {
+            if (property.has(field)) {
+                lines.add("- " + field + ": `" + property.path(field).asBoolean() + "`");
+            }
+        }
+        if (lines.isEmpty()) {
+            return;
+        }
+        appendLine(out, "");
+        appendLine(out, "#### Property metadata: `" + name + "`");
+        for (String line : lines) {
+            appendLine(out, line);
+        }
+    }
+
+    private static void appendComposition(StringBuilder out, JsonNode schema) {
+        boolean hasComposition = schema.has("oneOf")
+                || schema.has("anyOf")
+                || schema.has("allOf")
+                || schema.has("discriminator")
+                || schema.has("additionalProperties");
+        if (!hasComposition) {
+            return;
+        }
+        appendLine(out, "");
+        appendLine(out, "### Composition");
+        List<String> kinds = new ArrayList<>();
+        for (String field : List.of("oneOf", "anyOf", "allOf", "discriminator", "additionalProperties")) {
+            if (schema.has(field)) {
+                kinds.add("`" + field + "`");
+            }
+        }
+        appendLine(out, "Includes: " + String.join(", ", kinds));
+        appendLine(out, "```json");
+        appendLine(out, stableJson(schema));
+        appendLine(out, "```");
+    }
+
+    private static Set<String> schemaFields() {
+        return Set.of(
+                "$ref", "type", "format", "description", "title", "required", "properties", "items",
+                "oneOf", "anyOf", "allOf", "discriminator", "additionalProperties",
+                "default", "example", "examples", "enum", "const", "nullable", "readOnly", "writeOnly",
+                "deprecated", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+                "minLength", "maxLength", "pattern", "minItems", "maxItems", "uniqueItems",
+                "minProperties", "maxProperties");
+    }
+
+    private static Set<String> propertyFields() {
+        return schemaFields();
     }
 
     private static String infoText(JsonNode openApi, String field) {

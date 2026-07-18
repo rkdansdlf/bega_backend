@@ -348,4 +348,81 @@ class OpenApiMarkdownRendererTest {
         assertThat(endpoints.indexOf("| `Zulu` | `integer` | — |"))
                 .isLessThan(endpoints.indexOf("#### Header metadata: `Alpha`"));
     }
+
+    @Test
+    void rendersSchemaPropertiesConstraintsCompositionAndExplicitMetadata() throws Exception {
+        JsonNode schema = objectMapper.readTree("""
+                {
+                  "openapi": "3.0.1",
+                  "info": {"title": "Fixture API", "version": "1"},
+                  "paths": {},
+                  "components": {
+                    "schemas": {
+                      "SearchResult": {
+                        "description": "Search result union",
+                        "oneOf": [
+                          {"$ref": "#/components/schemas/WidgetRequest"},
+                          {"type": "string"}
+                        ]
+                      },
+                      "WidgetRequest": {
+                        "type": "object",
+                        "description": "Widget creation request",
+                        "required": ["name"],
+                        "properties": {
+                          "count": {
+                            "type": "integer",
+                            "format": "int32",
+                            "minimum": 0,
+                            "maximum": 10,
+                            "readOnly": true
+                          },
+                          "enabled": {
+                            "type": "boolean",
+                            "nullable": true,
+                            "default": false
+                          },
+                          "name": {
+                            "type": "string",
+                            "description": "Display name",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "pattern": "^[A-Z]",
+                            "enum": ["ACTIVE", "INACTIVE"],
+                            "example": "WIDGET"
+                          },
+                          "secret": {
+                            "type": "string",
+                            "writeOnly": true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                """);
+
+        OpenApiMarkdownRenderer.RenderedDocuments rendered =
+                OpenApiMarkdownRenderer.render(
+                        schema,
+                        "contracts/openapi.json",
+                        "./gradlew updateOpenApiContract");
+
+        assertThat(rendered.schemas())
+                .startsWith("# Fixture API Schemas\n")
+                .contains("Schemas: **2**")
+                .contains("## SearchResult")
+                .contains("### Composition")
+                .contains("`oneOf`")
+                .contains("## WidgetRequest")
+                .contains("Required properties: `name`")
+                .contains("| `name` | yes | `string` |")
+                .contains("minLength=1")
+                .contains("maxLength=80")
+                .contains("pattern=`^[A-Z]`")
+                .contains("Default: `false`")
+                .contains("Example: `\"WIDGET\"")
+                .contains("Enum: `ACTIVE`, `INACTIVE`");
+        assertThat(rendered.schemas()).endsWith("\n").doesNotEndWith("\n\n");
+    }
 }
