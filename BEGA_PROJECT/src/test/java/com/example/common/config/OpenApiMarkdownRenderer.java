@@ -533,6 +533,10 @@ final class OpenApiMarkdownRenderer {
         appendLine(out, "## " + name);
         appendOptionalLine(out, schema.path("description"));
         appendLine(out, "Schema: " + schemaCell(schema));
+        String constraints = constraintsLabel(schema);
+        if (!constraints.equals("—")) {
+            appendLine(out, "Schema constraints: " + constraints);
+        }
 
         JsonNode required = schema.path("required");
         if (required.isArray() && !required.isEmpty()) {
@@ -549,6 +553,7 @@ final class OpenApiMarkdownRenderer {
         }
 
         appendPropertyTable(out, schema.path("properties"), required);
+        appendExplicitMetadata(out, "#### Explicit schema metadata", schema);
         appendComposition(out, schema);
         appendFallback(out, "Schema metadata", schema, schemaFields());
     }
@@ -585,7 +590,7 @@ final class OpenApiMarkdownRenderer {
         }
         for (String name : names) {
             JsonNode property = properties.path(name);
-            appendPropertyMetadata(out, name, property);
+            appendExplicitMetadata(out, "#### Property metadata: `" + name + "`", property);
             appendFallback(out, "Property metadata: `" + name + "`", property, propertyFields());
         }
     }
@@ -599,8 +604,8 @@ final class OpenApiMarkdownRenderer {
                 labels.add(field + "=" + stableJson(schema.path(field)));
             }
         }
-        if (schema.path("uniqueItems").asBoolean(false)) {
-            labels.add("uniqueItems=true");
+        if (schema.has("uniqueItems")) {
+            labels.add("uniqueItems=" + schema.path("uniqueItems").asBoolean());
         }
         if (schema.has("pattern")) {
             labels.add("pattern=`" + markdownCell(schema.path("pattern").asText()) + "`");
@@ -637,7 +642,7 @@ final class OpenApiMarkdownRenderer {
         return schemaCell(schema);
     }
 
-    private static void appendPropertyMetadata(StringBuilder out, String name, JsonNode property) {
+    private static void appendExplicitMetadata(StringBuilder out, String heading, JsonNode property) {
         List<String> lines = new ArrayList<>();
         if (property.has("default")) {
             lines.add("- Default: `" + stableJson(property.path("default")) + "`");
@@ -653,18 +658,28 @@ final class OpenApiMarkdownRenderer {
             }
             lines.add("- Enum: " + String.join(", ", rendered));
         }
+        if (property.has("const")) {
+            lines.add("- Const: `" + stableJson(property.path("const")) + "`");
+        }
         for (String field : List.of("nullable", "readOnly", "writeOnly", "deprecated")) {
             if (property.has(field)) {
                 lines.add("- " + field + ": `" + property.path(field).asBoolean() + "`");
             }
         }
-        if (lines.isEmpty()) {
+        JsonNode examples = property.get("examples");
+        if (lines.isEmpty() && examples == null) {
             return;
         }
         appendLine(out, "");
-        appendLine(out, "#### Property metadata: `" + name + "`");
+        appendLine(out, heading);
         for (String line : lines) {
             appendLine(out, line);
+        }
+        if (examples != null) {
+            appendLine(out, "- Examples:");
+            appendLine(out, "```json");
+            appendLine(out, stableJson(examples));
+            appendLine(out, "```");
         }
     }
 
