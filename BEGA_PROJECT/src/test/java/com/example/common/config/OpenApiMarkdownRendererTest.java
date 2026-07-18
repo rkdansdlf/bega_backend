@@ -80,6 +80,64 @@ class OpenApiMarkdownRendererTest {
     }
 
     @Test
+    void rejectsMalformedPathItemParametersInsteadOfDroppingThem() throws Exception {
+        assertMalformedEndpoint("""
+                {"openapi":"3.0.1","info":{"title":"Broken","version":"1"},
+                "paths":{"/widgets":{"parameters":{},"get":{"responses":{"200":{"description":"OK"}}}}},
+                "components":{"schemas":{}}}
+                """, "OpenAPI parameters must be an array: path item /widgets");
+    }
+
+    @Test
+    void rejectsMalformedOperationParametersInsteadOfDroppingThem() throws Exception {
+        assertMalformedEndpoint("""
+                {"openapi":"3.0.1","info":{"title":"Broken","version":"1"},
+                "paths":{"/widgets":{"get":{"parameters":{},"responses":{"200":{"description":"OK"}}}}},
+                "components":{"schemas":{}}}
+                """, "OpenAPI parameters must be an array: GET /widgets");
+    }
+
+    @Test
+    void rejectsMalformedRequestContentInsteadOfDroppingIt() throws Exception {
+        assertMalformedEndpoint("""
+                {"openapi":"3.0.1","info":{"title":"Broken","version":"1"},
+                "paths":{"/widgets":{"post":{"requestBody":{"content":[]},"responses":{"200":{"description":"OK"}}}}},
+                "components":{"schemas":{}}}
+                """, "OpenAPI content must be an object: request body POST /widgets");
+    }
+
+    @Test
+    void rejectsMalformedResponsesInsteadOfDroppingThem() throws Exception {
+        assertMalformedEndpoint("""
+                {"openapi":"3.0.1","info":{"title":"Broken","version":"1"},
+                "paths":{"/widgets":{"get":{"responses":[]}}},"components":{"schemas":{}}}
+                """, "OpenAPI responses must be an object: GET /widgets");
+    }
+
+    @Test
+    void rejectsMalformedResponseContentInsteadOfDroppingIt() throws Exception {
+        assertMalformedEndpoint("""
+                {"openapi":"3.0.1","info":{"title":"Broken","version":"1"},
+                "paths":{"/widgets":{"get":{"responses":{"200":{"description":"OK","content":[]}}}}},
+                "components":{"schemas":{}}}
+                """, "OpenAPI content must be an object: response GET /widgets 200");
+    }
+
+    @Test
+    void rejectsMalformedHeadersAndHeaderContentInsteadOfDroppingThem() throws Exception {
+        assertMalformedEndpoint("""
+                {"openapi":"3.0.1","info":{"title":"Broken","version":"1"},
+                "paths":{"/widgets":{"get":{"responses":{"200":{"description":"OK","headers":[]}}}}},
+                "components":{"schemas":{}}}
+                """, "OpenAPI headers must be an object: response GET /widgets 200");
+        assertMalformedEndpoint("""
+                {"openapi":"3.0.1","info":{"title":"Broken","version":"1"},
+                "paths":{"/widgets":{"get":{"responses":{"200":{"description":"OK","headers":{"X-Trace":{"content":[]}}}}}}},
+                "components":{"schemas":{}}}
+                """, "OpenAPI content must be an object: header X-Trace in response GET /widgets 200");
+    }
+
+    @Test
     void rendersOperationTagsInSortedOrder() throws Exception {
         JsonNode schema = objectMapper.readTree("""
                 {
@@ -204,7 +262,9 @@ class OpenApiMarkdownRendererTest {
                         "./gradlew updateOpenApiContract");
 
         assertThat(rendered.endpoints())
-                .contains("| `id` | path | yes | `string` | Widget ID | `\"w-1\"` |")
+                .contains("| `id` | path | yes | `string` | Widget ID | — |")
+                .contains("#### Parameter example: `id`")
+                .contains("\"w-1\"")
                 .contains("| `verbose` | query | no | `boolean` | — | — |")
                 .contains("Required: **yes**")
                 .contains("Media type: `application/json`")
@@ -218,6 +278,93 @@ class OpenApiMarkdownRendererTest {
                 .contains("### Response `default`");
         assertThat(rendered.endpoints())
                 .doesNotContain("Example: false");
+    }
+
+    @Test
+    void rendersOnlyActualParameterExamplesSemanticallyAndPreservesOtherEntries() throws Exception {
+        JsonNode schema = objectMapper.readTree("""
+                {
+                  "openapi": "3.0.1",
+                  "info": {"title": "Fixture API", "version": "1"},
+                  "paths": {"/widgets": {"get": {
+                    "parameters": [
+                      {"name": "direct", "in": "query", "schema": {"type": "string", "default": "DEFAULT"}, "example": "actual"},
+                      {"name": "plural", "in": "query", "schema": {"type": "string", "enum": ["A", "B"]}, "examples": {
+                        "actual": {"summary": "Actual example", "value": {"sort": "asc"}},
+                        "external": {"externalValue": "https://example.test/value"},
+                        "ref": {"$ref": "#/components/examples/Shared"},
+                        "malformed": "not-an-example-object"
+                      }}
+                    ],
+                    "responses": {"200": {"description": "OK"}}
+                  }}},
+                  "components": {"schemas": {}}
+                }
+                """);
+
+        String endpoints = OpenApiMarkdownRenderer.render(
+                schema,
+                "contracts/openapi.json",
+                "./gradlew updateOpenApiContract").endpoints();
+
+        assertThat(endpoints)
+                .contains("#### Parameter example: `direct`")
+                .contains("\"actual\"")
+                .contains("#### Parameter example: `plural`: actual")
+                .contains("\"sort\" : \"asc\"")
+                .contains("#### Parameter metadata: `plural`")
+                .contains("\"external\"")
+                .contains("\"ref\"")
+                .contains("\"malformed\"")
+                .doesNotContain("#### Parameter example: `plural`: external")
+                .doesNotContain("#### Parameter example: `plural`: ref")
+                .doesNotContain("#### Parameter example: `plural`: malformed")
+                .doesNotContain("DEFAULT");
+        assertThat(occurrences(endpoints, "\"actual\"")).isEqualTo(1);
+        assertThat(occurrences(endpoints, "\"sort\" : \"asc\"")).isEqualTo(1);
+    }
+
+    @Test
+    void rendersOnlyActualResponseHeaderExamplesSemanticallyAndPreservesOtherEntries() throws Exception {
+        JsonNode schema = objectMapper.readTree("""
+                {
+                  "openapi": "3.0.1",
+                  "info": {"title": "Fixture API", "version": "1"},
+                  "paths": {"/widgets": {"get": {
+                    "responses": {"200": {"description": "OK", "headers": {
+                      "X-Direct": {"schema": {"type": "string", "default": "DEFAULT"}, "example": "trace-1"},
+                      "X-Plural": {"schema": {"type": "string", "enum": ["A", "B"]}, "examples": {
+                        "actual": {"value": {"trace": "trace-2"}},
+                        "external": {"externalValue": "https://example.test/value"},
+                        "ref": {"$ref": "#/components/examples/Shared"},
+                        "malformed": 42
+                      }}
+                    }}}
+                  }}},
+                  "components": {"schemas": {}}
+                }
+                """);
+
+        String endpoints = OpenApiMarkdownRenderer.render(
+                schema,
+                "contracts/openapi.json",
+                "./gradlew updateOpenApiContract").endpoints();
+
+        assertThat(endpoints)
+                .contains("#### Header example: `X-Direct`")
+                .contains("\"trace-1\"")
+                .contains("#### Header example: `X-Plural`: actual")
+                .contains("\"trace\" : \"trace-2\"")
+                .contains("#### Header metadata: `X-Plural`")
+                .contains("\"external\"")
+                .contains("\"ref\"")
+                .contains("\"malformed\"")
+                .doesNotContain("#### Header example: `X-Plural`: external")
+                .doesNotContain("#### Header example: `X-Plural`: ref")
+                .doesNotContain("#### Header example: `X-Plural`: malformed")
+                .doesNotContain("DEFAULT");
+        assertThat(occurrences(endpoints, "\"trace-1\"")).isEqualTo(1);
+        assertThat(occurrences(endpoints, "\"trace\" : \"trace-2\"")).isEqualTo(1);
     }
 
     @Test
@@ -606,5 +753,20 @@ class OpenApiMarkdownRendererTest {
                 .contains("[UserInfo-2](openapi-schemas.md#userinfo-2-2)");
         assertThat(rendered.endpoints())
                 .contains("[UserInfo](openapi-schemas.md#userinfo-2)");
+    }
+
+    private void assertMalformedEndpoint(String document, String message) throws Exception {
+        JsonNode malformed = objectMapper.readTree(document);
+
+        assertThatThrownBy(() -> OpenApiMarkdownRenderer.render(
+                malformed,
+                "contracts/openapi.json",
+                "./gradlew updateOpenApiContract"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(message);
+    }
+
+    private static int occurrences(String value, String fragment) {
+        return value.split(java.util.regex.Pattern.quote(fragment), -1).length - 1;
     }
 }
