@@ -36,6 +36,9 @@ final class OpenApiMarkdownRenderer {
             JsonNode node) {
     }
 
+    private record ExampleRendering(JsonNode fallbackExamples) {
+    }
+
     private OpenApiMarkdownRenderer() {
     }
 
@@ -150,17 +153,17 @@ final class OpenApiMarkdownRenderer {
         appendLine(markdown, "- Tags: " + renderTags(operation.node().path("tags")));
         appendLine(markdown, "- Security: " + renderSecurity(operation.node().path("security")));
         appendLine(markdown, "- Deprecated: " + (operation.node().path("deprecated").asBoolean(false) ? "yes" : "no"));
-        appendParameters(markdown, mergedParameters(operation.pathItem(), operation.node()), schemaAnchors);
-        appendRequestBody(markdown, operation.node().path("requestBody"), schemaAnchors);
-        appendResponses(markdown, operation.node().path("responses"), schemaAnchors);
+        appendParameters(markdown, mergedParameters(operation), schemaAnchors);
+        appendRequestBody(markdown, operation, schemaAnchors);
+        appendResponses(markdown, operation, schemaAnchors);
         appendFallback(markdown, "Path-item extensions and metadata", operation.pathItem(), pathItemFields());
         appendFallback(markdown, "Operation extensions and metadata", operation.node(), operationFields());
     }
 
-    private static List<JsonNode> mergedParameters(JsonNode pathItem, JsonNode operation) {
+    private static List<JsonNode> mergedParameters(Operation operation) {
         Map<String, JsonNode> parameters = new HashMap<>();
-        addParameters(parameters, pathItem.path("parameters"));
-        addParameters(parameters, operation.path("parameters"));
+        addParameters(parameters, operation.pathItem(), "path item " + operation.path());
+        addParameters(parameters, operation.node(), operationLocation(operation));
         List<JsonNode> merged = new ArrayList<>(parameters.values());
         merged.sort(Comparator
                 .<JsonNode>comparingInt(parameter -> parameterLocationOrder(parameter.path("in").asText()))
@@ -168,14 +171,21 @@ final class OpenApiMarkdownRenderer {
         return merged;
     }
 
-    private static void addParameters(Map<String, JsonNode> destination, JsonNode parameters) {
-        if (!parameters.isArray()) {
+    private static void addParameters(Map<String, JsonNode> destination, JsonNode owner, String location) {
+        if (!owner.has("parameters")) {
             return;
         }
-        for (JsonNode parameter : parameters) {
-            if (parameter.isObject()) {
-                destination.put(parameter.path("in").asText() + "\u0000" + parameter.path("name").asText(), parameter);
+        JsonNode parameters = owner.get("parameters");
+        if (!parameters.isArray()) {
+            throw new IllegalArgumentException("OpenAPI parameters must be an array: " + location);
+        }
+        for (int index = 0; index < parameters.size(); index++) {
+            JsonNode parameter = parameters.get(index);
+            if (!parameter.isObject()) {
+                throw new IllegalArgumentException(
+                        "OpenAPI parameter must be an object: " + location + "[" + index + "]");
             }
+            destination.put(parameter.path("in").asText() + "\u0000" + parameter.path("name").asText(), parameter);
         }
     }
 
@@ -201,53 +211,67 @@ final class OpenApiMarkdownRenderer {
         appendLine(out, "| Name | In | Required | Schema | Description | Example |");
         appendLine(out, "| --- | --- | --- | --- | --- | --- |");
         for (JsonNode parameter : parameters) {
-            JsonNode example = parameter.get("example");
             appendLine(out, "| `" + markdownCell(parameter.path("name").asText()) + "` | "
                     + markdownCell(parameter.path("in").asText()) + " | "
                     + (parameter.path("required").asBoolean(false) ? "yes" : "no") + " | "
                     + schemaCell(parameter.path("schema"), schemaAnchors) + " | "
                     + markdownCellOrDash(parameter.get("description")) + " | "
-                    + (example == null ? "—" : "`" + markdownCell(stableJson(example)) + "`") + " |");
+                    + "— |");
         }
         for (JsonNode parameter : parameters) {
+            ExampleRendering examples = appendExamples(
+                    out,
+                    parameter,
+                    "#### Parameter example: `" + parameter.path("name").asText() + "`");
             appendFallback(out, "Parameter metadata: `" + parameter.path("name").asText() + "`", parameter,
-                    Set.of("name", "in", "required", "schema", "description", "example"));
+                    knownFieldsWithExamples(
+                            Set.of("name", "in", "required", "schema", "description"), parameter, examples),
+                    fallbackExampleFields(examples));
         }
     }
 
     private static void appendRequestBody(
             StringBuilder out,
-            JsonNode requestBody,
+            Operation operation,
             Map<String, String> schemaAnchors) {
-        if (!requestBody.isObject()) {
+        JsonNode requestBody = operation.node().path("requestBody");
+        if (requestBody.isMissingNode()) {
             return;
+        }
+        if (!requestBody.isObject()) {
+            throw new IllegalArgumentException("OpenAPI request body must be an object: " + operationLocation(operation));
         }
         appendLine(out, "");
         appendLine(out, "#### Request body");
         appendLine(out, "Required: **" + (requestBody.path("required").asBoolean(false) ? "yes" : "no") + "**");
         appendOptionalLine(out, requestBody.path("description"));
-        appendContent(out, requestBody.path("content"), schemaAnchors);
+        appendContent(out, requestBody, "request body " + operationLocation(operation), schemaAnchors);
         appendFallback(out, "Request body metadata", requestBody,
                 Set.of("required", "description", "content"));
     }
 
     private static void appendResponses(
             StringBuilder out,
-            JsonNode responses,
+            Operation operation,
             Map<String, String> schemaAnchors) {
+        JsonNode responses = operation.node().path("responses");
         if (!responses.isObject()) {
-            return;
+            throw new IllegalArgumentException("OpenAPI responses must be an object: " + operationLocation(operation));
         }
         List<String> codes = new ArrayList<>();
         responses.fieldNames().forEachRemaining(codes::add);
         codes.sort(OpenApiMarkdownRenderer::compareResponseCodes);
         for (String code : codes) {
             JsonNode response = responses.path(code);
+            String responseLocation = "response " + operationLocation(operation) + " " + code;
+            if (!response.isObject()) {
+                throw new IllegalArgumentException("OpenAPI response must be an object: " + operationLocation(operation) + " " + code);
+            }
             appendLine(out, "");
             appendLine(out, "### Response `" + code + "`");
             appendOptionalLine(out, response.path("description"));
-            appendHeaders(out, response.path("headers"), schemaAnchors);
-            appendContent(out, response.path("content"), schemaAnchors);
+            appendHeaders(out, response, responseLocation, schemaAnchors);
+            appendContent(out, response, responseLocation, schemaAnchors);
             appendFallback(out, "Response metadata: `" + code + "`", response,
                     Set.of("description", "headers", "content"));
         }
@@ -276,14 +300,27 @@ final class OpenApiMarkdownRenderer {
 
     private static void appendHeaders(
             StringBuilder out,
-            JsonNode headers,
+            JsonNode response,
+            String responseLocation,
             Map<String, String> schemaAnchors) {
-        if (!headers.isObject() || headers.isEmpty()) {
+        if (!response.has("headers")) {
+            return;
+        }
+        JsonNode headers = response.get("headers");
+        if (!headers.isObject()) {
+            throw new IllegalArgumentException("OpenAPI headers must be an object: " + responseLocation);
+        }
+        if (headers.isEmpty()) {
             return;
         }
         List<String> names = new ArrayList<>();
         headers.fieldNames().forEachRemaining(names::add);
         names.sort(String::compareTo);
+        for (String name : names) {
+            if (!headers.path(name).isObject()) {
+                throw new IllegalArgumentException("OpenAPI header must be an object: " + responseLocation + " " + name);
+            }
+        }
         appendLine(out, "");
         appendLine(out, "#### Headers");
         appendLine(out, "| Name | Schema | Description |");
@@ -295,50 +332,95 @@ final class OpenApiMarkdownRenderer {
         }
         for (String name : names) {
             JsonNode header = headers.path(name);
+            ExampleRendering examples = appendExamples(out, header, "#### Header example: `" + name + "`");
+            appendContent(out, header, "header " + name + " in " + responseLocation, schemaAnchors);
             appendFallback(out, "Header metadata: `" + name + "`", header,
-                    Set.of("description", "schema"));
+                    knownFieldsWithExamples(Set.of("description", "schema", "content"), header, examples),
+                    fallbackExampleFields(examples));
         }
     }
 
     private static void appendContent(
             StringBuilder out,
-            JsonNode content,
+            JsonNode owner,
+            String location,
             Map<String, String> schemaAnchors) {
-        if (!content.isObject()) {
+        if (!owner.has("content")) {
             return;
+        }
+        JsonNode content = owner.get("content");
+        if (!content.isObject()) {
+            throw new IllegalArgumentException("OpenAPI content must be an object: " + location);
         }
         List<String> mediaTypes = new ArrayList<>();
         content.fieldNames().forEachRemaining(mediaTypes::add);
         mediaTypes.sort(String::compareTo);
         for (String mediaType : mediaTypes) {
             JsonNode media = content.path(mediaType);
+            if (!media.isObject()) {
+                throw new IllegalArgumentException("OpenAPI media type must be an object: " + location + " " + mediaType);
+            }
             appendLine(out, "");
             appendLine(out, "Media type: `" + mediaType + "`");
             if (media.has("schema")) {
                 appendLine(out, "Schema: " + schemaCell(media.path("schema"), schemaAnchors));
             }
-            appendExamples(out, media);
+            ExampleRendering examples = appendExamples(out, media, "#### Example");
             appendFallback(out, "Media type metadata: `" + mediaType + "`", media,
-                    Set.of("schema", "example", "examples"));
+                    knownFieldsWithExamples(Set.of("schema"), media, examples), fallbackExampleFields(examples));
         }
     }
 
-    private static void appendExamples(StringBuilder out, JsonNode owner) {
+    private static ExampleRendering appendExamples(StringBuilder out, JsonNode owner, String heading) {
         if (owner.has("example")) {
-            appendExample(out, "#### Example", owner.path("example"));
+            appendExample(out, heading, owner.path("example"));
         }
-        JsonNode examples = owner.path("examples");
+        if (!owner.has("examples")) {
+            return new ExampleRendering(null);
+        }
+        JsonNode examples = owner.get("examples");
         if (!examples.isObject()) {
-            return;
+            return new ExampleRendering(examples);
         }
         List<String> names = new ArrayList<>();
         examples.fieldNames().forEachRemaining(names::add);
         names.sort(String::compareTo);
+        ObjectNode fallback = OBJECT_MAPPER.createObjectNode();
+        boolean rendered = false;
         for (String name : names) {
             JsonNode example = examples.path(name);
-            appendExample(out, "#### Example: " + name,
-                    example.has("value") ? example.path("value") : example);
+            if (example.isObject() && example.has("value")) {
+                appendExample(out, heading + ": " + name, example.path("value"));
+                rendered = true;
+            } else {
+                fallback.set(name, example);
+            }
         }
+        return new ExampleRendering(rendered && fallback.isEmpty() ? null : rendered ? fallback : examples);
+    }
+
+    private static Set<String> knownFieldsWithExamples(
+            Set<String> baseFields,
+            JsonNode owner,
+            ExampleRendering examples) {
+        Set<String> knownFields = new HashSet<>(baseFields);
+        if (owner.has("example")) {
+            knownFields.add("example");
+        }
+        if (owner.has("examples") && examples.fallbackExamples() == null) {
+            knownFields.add("examples");
+        }
+        return knownFields;
+    }
+
+    private static Map<String, JsonNode> fallbackExampleFields(ExampleRendering examples) {
+        return examples.fallbackExamples() == null
+                ? Map.of()
+                : Map.of("examples", examples.fallbackExamples());
+    }
+
+    private static String operationLocation(Operation operation) {
+        return operation.method().toUpperCase(Locale.ROOT) + " " + operation.path();
     }
 
     private static void appendExample(StringBuilder out, String heading, JsonNode value) {
@@ -476,12 +558,22 @@ final class OpenApiMarkdownRenderer {
             String heading,
             JsonNode source,
             Set<String> knownFields) {
+        appendFallback(markdown, heading, source, knownFields, Map.of());
+    }
+
+    private static void appendFallback(
+            StringBuilder markdown,
+            String heading,
+            JsonNode source,
+            Set<String> knownFields,
+            Map<String, JsonNode> retainedKnownFields) {
         ObjectNode fallback = OBJECT_MAPPER.createObjectNode();
         source.fields().forEachRemaining(entry -> {
             if (!knownFields.contains(entry.getKey())) {
                 fallback.set(entry.getKey(), entry.getValue());
             }
         });
+        retainedKnownFields.forEach(fallback::set);
         if (fallback.size() == 0) {
             return;
         }
