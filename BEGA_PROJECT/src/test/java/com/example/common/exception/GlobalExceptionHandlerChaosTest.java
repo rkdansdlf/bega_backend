@@ -144,7 +144,7 @@ class GlobalExceptionHandlerChaosTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         // reason이 null이면 HttpStatus.getReasonPhrase()로 폴백
-        assertThat(body.getMessage()).isEqualTo("Unprocessable Entity");
+        assertThat(body.getMessage()).isEqualTo("Unprocessable Content");
     }
 
     // ─────────────────────────────────────────────

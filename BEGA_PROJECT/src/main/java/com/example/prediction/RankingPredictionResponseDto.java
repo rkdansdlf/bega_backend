@@ -21,15 +21,22 @@ public class RankingPredictionResponseDto {
 	private List<TeamRankingDetail> teamDetails; // 상세 정보 추가
 	@Schema(requiredMode = Schema.RequiredMode.REQUIRED)
 	private LocalDateTime createdAt;
+	@Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
+	private Integer exactMatchCount; // 시즌 정산 후 정확히 맞춘 팀 수 (0~10). 정산 전에는 null
+	@Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
+	private LocalDateTime settledAt; // 시즌 정산 시각. 정산 전에는 null
 
 	public RankingPredictionResponseDto(Long id, String shareId, int seasonYear, List<String> teamIdsInOrder,
-			List<TeamRankingDetail> teamDetails, LocalDateTime createdAt) {
+			List<TeamRankingDetail> teamDetails, LocalDateTime createdAt,
+			Integer exactMatchCount, LocalDateTime settledAt) {
 		this.id = id;
 		this.shareId = shareId;
 		this.seasonYear = seasonYear;
 		this.teamIdsInOrder = teamIdsInOrder;
 		this.teamDetails = teamDetails;
 		this.createdAt = createdAt;
+		this.exactMatchCount = exactMatchCount;
+		this.settledAt = settledAt;
 	}
 
 	@Getter

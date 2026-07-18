@@ -1,11 +1,9 @@
 package com.example.dm.controller;
 
 import java.util.List;
-import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,7 +29,6 @@ public class DmController {
 
     private final DmRoomService dmRoomService;
     private final DmMessageService dmMessageService;
-    private final SimpMessagingTemplate messagingTemplate;
 
     @GetMapping("/rooms/my")
     public ResponseEntity<ApiResponse> getMyRooms(
@@ -61,7 +58,6 @@ public class DmController {
             @AuthenticationPrincipal Long currentUserId,
             @Valid @RequestBody DmMessageDto.Request request) {
         DmMessageDto.Response response = dmMessageService.sendMessage(currentUserId, request);
-        messagingTemplate.convertAndSend("/topic/dm/" + response.getRoomId(), response);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("DM 메시지 전송 성공", response));
     }
 
@@ -69,9 +65,7 @@ public class DmController {
     public ResponseEntity<ApiResponse> deleteMessage(
             @AuthenticationPrincipal Long currentUserId,
             @PathVariable Long messageId) {
-        Long roomId = dmMessageService.deleteMessage(messageId, currentUserId);
-        messagingTemplate.convertAndSend("/topic/dm/" + roomId,
-                Map.of("messageId", messageId, "deleted", true, "roomId", roomId));
+        dmMessageService.deleteMessage(messageId, currentUserId);
         return ResponseEntity.ok(ApiResponse.success("메시지 삭제 완료", null));
     }
 }

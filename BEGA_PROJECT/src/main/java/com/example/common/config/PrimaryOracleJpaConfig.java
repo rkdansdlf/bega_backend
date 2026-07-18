@@ -8,11 +8,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.sql.DataSource;
 
-import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariConfig;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.orm.jpa.EntityManagerFactoryBuilder;
+import org.springframework.boot.jpa.EntityManagerFactoryBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;

@@ -5,7 +5,7 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Schemas: **256**
+Schemas: **262**
 
 <a id="accountdeletionrecoveryinfodto"></a>
 ## AccountDeletionRecoveryInfoDto
@@ -18,13 +18,13 @@ Schema: `{<br>  "properties" : {<br>    "scheduledFor" : {<br>      "type" : "st
 
 <a id="accountdeletionrecoveryrequestdto"></a>
 ## AccountDeletionRecoveryRequestDto
-Schema: `{<br>  "properties" : {<br>    "token" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "token" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "token" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "token" ],<br>  "type" : "object"<br>}`
 Required properties: `token`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `token` | yes | `string` | — | — |
+| `token` | yes | `string` | — | minLength=1 |
 
 <a id="accountsecurityeventdto"></a>
 ## AccountSecurityEventDto
@@ -266,13 +266,13 @@ Schema: `{<br>  "properties" : {<br>    "createdAt" : {<br>      "format" : "dat
 
 <a id="apiresponse"></a>
 ## ApiResponse
-Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "type" : "object"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : { },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
-| `data` | no | `object` | — | — |
+| `data` | no | `{ }` | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -950,7 +950,7 @@ Includes: `additionalProperties`
 
 <a id="apiresponsemapstringobject"></a>
 ## ApiResponseMapStringObject
-Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "additionalProperties" : {<br>        "type" : "object"<br>      },<br>      "type" : "object"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "additionalProperties" : { },<br>      "type" : "object"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
@@ -965,9 +965,7 @@ Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br
 Includes: `additionalProperties`
 ```json
 {
-  "additionalProperties" : {
-    "type" : "object"
-  },
+  "additionalProperties" : { },
   "type" : "object"
 }
 ```
@@ -1297,13 +1295,13 @@ Includes: `additionalProperties`
 
 <a id="apiresponsevoid"></a>
 ## ApiResponseVoid
-Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "type" : "object"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : { },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
-| `data` | no | `object` | — | — |
+| `data` | no | `{ }` | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -1384,25 +1382,25 @@ Schema: `{<br>  "properties" : {<br>    "bookmarked" : {<br>      "type" : "bool
 
 <a id="bootstraprequest"></a>
 ## BootstrapRequest
-Schema: `{<br>  "properties" : {<br>    "targetHandle" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "targetHandle" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "targetHandle" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "targetHandle" ],<br>  "type" : "object"<br>}`
 Required properties: `targetHandle`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `targetHandle` | yes | `string` | — | — |
+| `targetHandle` | yes | `string` | — | minLength=1 |
 
 <a id="changepasswordrequest"></a>
 ## ChangePasswordRequest
-Schema: `{<br>  "properties" : {<br>    "confirmPassword" : {<br>      "type" : "string"<br>    },<br>    "currentPassword" : {<br>      "type" : "string"<br>    },<br>    "newPassword" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "confirmPassword", "newPassword" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "confirmPassword" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "currentPassword" : {<br>      "type" : "string"<br>    },<br>    "newPassword" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "confirmPassword", "newPassword" ],<br>  "type" : "object"<br>}`
 Required properties: `confirmPassword`, `newPassword`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `confirmPassword` | yes | `string` | — | — |
+| `confirmPassword` | yes | `string` | — | minLength=1 |
 | `currentPassword` | no | `string` | — | — |
-| `newPassword` | yes | `string` | — | — |
+| `newPassword` | yes | `string` | — | minLength=1 |
 
 <a id="chatfavoriteitem"></a>
 ## ChatFavoriteItem
@@ -1713,13 +1711,13 @@ Required properties: `content`
 
 <a id="createpostreq"></a>
 ## CreatePostReq
-Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "type" : "string"<br>    },<br>    "diaryId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "images" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "partyId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "postType" : {<br>      "type" : "string"<br>    },<br>    "shareMode" : {<br>      "enum" : [ "INTERNAL_REPOST", "INTERNAL_QUOTE", "EXTERNAL_LINK", "EXTERNAL_COPY", "EXTERNAL_EMBED", "EXTERNAL_SUMMARY" ],<br>      "type" : "string"<br>    },<br>    "sourceAuthor" : {<br>      "type" : "string"<br>    },<br>    "sourceChangedNote" : {<br>      "type" : "string"<br>    },<br>    "sourceLicense" : {<br>      "type" : "string"<br>    },<br>    "sourceLicenseUrl" : {<br>      "type" : "string"<br>    },<br>    "sourceSnapshotType" : {<br>      "type" : "string"<br>    },<br>    "sourceTitle" : {<br>      "type" : "string"<br>    },<br>    "sourceUrl" : {<br>      "type" : "string"<br>    },<br>    "teamId" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "content" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "diaryId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "images" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "partyId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "postType" : {<br>      "type" : "string"<br>    },<br>    "shareMode" : {<br>      "enum" : [ "INTERNAL_REPOST", "INTERNAL_QUOTE", "EXTERNAL_LINK", "EXTERNAL_COPY", "EXTERNAL_EMBED", "EXTERNAL_SUMMARY" ],<br>      "type" : "string"<br>    },<br>    "sourceAuthor" : {<br>      "type" : "string"<br>    },<br>    "sourceChangedNote" : {<br>      "type" : "string"<br>    },<br>    "sourceLicense" : {<br>      "type" : "string"<br>    },<br>    "sourceLicenseUrl" : {<br>      "type" : "string"<br>    },<br>    "sourceSnapshotType" : {<br>      "type" : "string"<br>    },<br>    "sourceTitle" : {<br>      "type" : "string"<br>    },<br>    "sourceUrl" : {<br>      "type" : "string"<br>    },<br>    "teamId" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "content" ],<br>  "type" : "object"<br>}`
 Required properties: `content`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `content` | yes | `string` | — | — |
+| `content` | yes | `string` | — | minLength=1 |
 | `diaryId` | no | `integer (int64)` | — | — |
 | `images` | no | `array<string>` | — | — |
 | `partyId` | no | `integer (int64)` | — | — |
@@ -1983,47 +1981,47 @@ Schema: `{<br>  "properties" : {<br>    "followerCount" : {<br>      "format" : 
 
 <a id="gamedetaildto"></a>
 ## GameDetailDto
-Schema: `{<br>  "properties" : {<br>    "attendance" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "awayPitcher" : {<br>      "type" : "string"<br>    },<br>    "awayScore" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "awayTeam" : {<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameId" : {<br>      "type" : "string"<br>    },<br>    "gameStatus" : {<br>      "type" : "string"<br>    },<br>    "gameTimeMinutes" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "homePitcher" : {<br>      "type" : "string"<br>    },<br>    "homeScore" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "homeTeam" : {<br>      "type" : "string"<br>    },<br>    "inningScores" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/GameInningScoreDto"<br>      },<br>      "type" : "array"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "stadiumName" : {<br>      "type" : "string"<br>    },<br>    "startTime" : {<br>      "$ref" : "#/components/schemas/LocalTime"<br>    },<br>    "summary" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/GameSummaryDto"<br>      },<br>      "type" : "array"<br>    },<br>    "weather" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "attendance", "awayPitcher", "awayScore", "awayTeam", "gameDate", "gameId", "gameStatus", "gameTimeMinutes", "homePitcher", "homeScore", "homeTeam", "inningScores", "stadium", "stadiumName", "startTime", "summary", "weather" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "attendance" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "awayPitcher" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "awayScore" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "awayTeam" : {<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameId" : {<br>      "type" : "string"<br>    },<br>    "gameStatus" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "gameTimeMinutes" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "homePitcher" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "homeScore" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "homeTeam" : {<br>      "type" : "string"<br>    },<br>    "inningScores" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/GameInningScoreDto"<br>      },<br>      "type" : "array"<br>    },<br>    "stadium" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "stadiumName" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "startTime" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "summary" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/GameSummaryDto"<br>      },<br>      "type" : "array"<br>    },<br>    "weather" : {<br>      "type" : [ "string", "null" ]<br>    }<br>  },<br>  "required" : [ "attendance", "awayPitcher", "awayScore", "awayTeam", "gameDate", "gameId", "gameStatus", "gameTimeMinutes", "homePitcher", "homeScore", "homeTeam", "inningScores", "stadium", "stadiumName", "startTime", "summary", "weather" ],<br>  "type" : "object"<br>}`
 Required properties: `attendance`, `awayPitcher`, `awayScore`, `awayTeam`, `gameDate`, `gameId`, `gameStatus`, `gameTimeMinutes`, `homePitcher`, `homeScore`, `homeTeam`, `inningScores`, `stadium`, `stadiumName`, `startTime`, `summary`, `weather`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `attendance` | yes | `integer (int32)` | — | — |
-| `awayPitcher` | yes | `string` | — | — |
-| `awayScore` | yes | `integer (int32)` | — | — |
+| `attendance` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `awayPitcher` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `awayScore` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
 | `awayTeam` | yes | `string` | — | — |
 | `gameDate` | yes | `string (date)` | — | — |
 | `gameId` | yes | `string` | — | — |
-| `gameStatus` | yes | `string` | — | — |
-| `gameTimeMinutes` | yes | `integer (int32)` | — | — |
-| `homePitcher` | yes | `string` | — | — |
-| `homeScore` | yes | `integer (int32)` | — | — |
+| `gameStatus` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `gameTimeMinutes` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `homePitcher` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `homeScore` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
 | `homeTeam` | yes | `string` | — | — |
 | `inningScores` | yes | `array<[GameInningScoreDto](openapi-schemas.md#gameinningscoredto)>` | — | — |
-| `stadium` | yes | `string` | — | — |
-| `stadiumName` | yes | `string` | — | — |
-| `startTime` | yes | [LocalTime](openapi-schemas.md#localtime) | — | — |
+| `stadium` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `stadiumName` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `startTime` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 | `summary` | yes | `array<[GameSummaryDto](openapi-schemas.md#gamesummarydto)>` | — | — |
-| `weather` | yes | `string` | — | — |
+| `weather` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 
 <a id="gameinningscoredto"></a>
 ## GameInningScoreDto
-Schema: `{<br>  "properties" : {<br>    "inning" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "isExtra" : {<br>      "type" : "boolean"<br>    },<br>    "runs" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "teamCode" : {<br>      "type" : "string"<br>    },<br>    "teamSide" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "inning", "isExtra", "runs", "teamCode", "teamSide" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "inning" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "isExtra" : {<br>      "type" : [ "boolean", "null" ]<br>    },<br>    "runs" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "teamCode" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "teamSide" : {<br>      "type" : [ "string", "null" ]<br>    }<br>  },<br>  "required" : [ "inning", "isExtra", "runs", "teamCode", "teamSide" ],<br>  "type" : "object"<br>}`
 Required properties: `inning`, `isExtra`, `runs`, `teamCode`, `teamSide`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `inning` | yes | `integer (int32)` | — | — |
-| `isExtra` | yes | `boolean` | — | — |
-| `runs` | yes | `integer (int32)` | — | — |
-| `teamCode` | yes | `string` | — | — |
-| `teamSide` | yes | `string` | — | — |
+| `inning` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `isExtra` | yes | `{<br>  "type" : [ "boolean", "null" ]<br>}` | — | — |
+| `runs` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `teamCode` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `teamSide` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 
 <a id="gameinningscorerequestdto"></a>
 ## GameInningScoreRequestDto
-Schema: `{<br>  "properties" : {<br>    "inning" : {<br>      "format" : "int32",<br>      "maximum" : 20,<br>      "minimum" : 1,<br>      "type" : "integer"<br>    },<br>    "isExtra" : {<br>      "type" : "boolean"<br>    },<br>    "runs" : {<br>      "format" : "int32",<br>      "minimum" : 0,<br>      "type" : "integer"<br>    },<br>    "teamCode" : {<br>      "type" : "string"<br>    },<br>    "teamSide" : {<br>      "pattern" : "^(home\|away)$",<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "inning", "runs", "teamSide" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "inning" : {<br>      "format" : "int32",<br>      "maximum" : 20,<br>      "minimum" : 1,<br>      "type" : "integer"<br>    },<br>    "isExtra" : {<br>      "type" : "boolean"<br>    },<br>    "runs" : {<br>      "format" : "int32",<br>      "minimum" : 0,<br>      "type" : "integer"<br>    },<br>    "teamCode" : {<br>      "type" : "string"<br>    },<br>    "teamSide" : {<br>      "minLength" : 1,<br>      "pattern" : "^(home\|away)$",<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "inning", "runs", "teamSide" ],<br>  "type" : "object"<br>}`
 Required properties: `inning`, `runs`, `teamSide`
 
 ### Properties
@@ -2033,7 +2031,7 @@ Required properties: `inning`, `runs`, `teamSide`
 | `isExtra` | no | `boolean` | — | — |
 | `runs` | yes | `integer (int32)` | — | minimum=0 |
 | `teamCode` | no | `string` | — | — |
-| `teamSide` | yes | `string` | — | pattern=`^(home\|away)$` |
+| `teamSide` | yes | `string` | — | minLength=1, pattern=`^(home\|away)$` |
 
 <a id="gameliveeventdto"></a>
 ## GameLiveEventDto
@@ -2186,7 +2184,7 @@ Schema: `{<br>  "properties" : {<br>    "endDate" : {<br>      "format" : "date"
 
 <a id="gamestatusmismatchdto"></a>
 ## GameStatusMismatchDto
-Schema: `{<br>  "properties" : {<br>    "awayScore" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "effectiveStatus" : {<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameId" : {<br>      "type" : "string"<br>    },<br>    "hasInningScores" : {<br>      "type" : "boolean"<br>    },<br>    "hasKnownScore" : {<br>      "type" : "boolean"<br>    },<br>    "homeScore" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "inningScoreCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "normalizedRawStatus" : {<br>      "type" : "string"<br>    },<br>    "rawStatus" : {<br>      "type" : "string"<br>    },<br>    "reasons" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "startTime" : {<br>      "$ref" : "#/components/schemas/LocalTime"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "awayScore" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "effectiveStatus" : {<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameId" : {<br>      "type" : "string"<br>    },<br>    "hasInningScores" : {<br>      "type" : "boolean"<br>    },<br>    "hasKnownScore" : {<br>      "type" : "boolean"<br>    },<br>    "homeScore" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "inningScoreCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "normalizedRawStatus" : {<br>      "type" : "string"<br>    },<br>    "rawStatus" : {<br>      "type" : "string"<br>    },<br>    "reasons" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "startTime" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
@@ -2202,7 +2200,7 @@ Schema: `{<br>  "properties" : {<br>    "awayScore" : {<br>      "format" : "int
 | `normalizedRawStatus` | no | `string` | — | — |
 | `rawStatus` | no | `string` | — | — |
 | `reasons` | no | `array<string>` | — | — |
-| `startTime` | no | [LocalTime](openapi-schemas.md#localtime) | — | — |
+| `startTime` | no | `string` | — | — |
 
 <a id="gamestatusrepairbatchresultdto"></a>
 ## GameStatusRepairBatchResultDto
@@ -2224,16 +2222,16 @@ Schema: `{<br>  "properties" : {<br>    "dryRun" : {<br>      "type" : "boolean"
 
 <a id="gamesummarydto"></a>
 ## GameSummaryDto
-Schema: `{<br>  "properties" : {<br>    "detail" : {<br>      "type" : "string"<br>    },<br>    "playerId" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "playerName" : {<br>      "type" : "string"<br>    },<br>    "type" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "detail", "playerId", "playerName", "type" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "detail" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "playerId" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "playerName" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "type" : {<br>      "type" : [ "string", "null" ]<br>    }<br>  },<br>  "required" : [ "detail", "playerId", "playerName", "type" ],<br>  "type" : "object"<br>}`
 Required properties: `detail`, `playerId`, `playerName`, `type`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `detail` | yes | `string` | — | — |
-| `playerId` | yes | `integer (int32)` | — | — |
-| `playerName` | yes | `string` | — | — |
-| `type` | yes | `string` | — | — |
+| `detail` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `playerId` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `playerName` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `type` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 
 <a id="homebootstraploadstatedto"></a>
 ## HomeBootstrapLoadStateDto
@@ -2311,33 +2309,33 @@ Schema: `{<br>  "properties" : {<br>    "awayScore" : {<br>      "format" : "int
 
 <a id="homepageteamrankingdto"></a>
 ## HomePageTeamRankingDto
-Schema: `{<br>  "properties" : {<br>    "draws" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "games" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "gamesBehind" : {<br>      "format" : "double",<br>      "type" : "number"<br>    },<br>    "losses" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "rank" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "teamId" : {<br>      "type" : "string"<br>    },<br>    "teamName" : {<br>      "type" : "string"<br>    },<br>    "winRate" : {<br>      "type" : "string"<br>    },<br>    "wins" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "required" : [ "draws", "games", "gamesBehind", "losses", "rank", "teamId", "teamName", "winRate", "wins" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "draws" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "games" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "gamesBehind" : {<br>      "format" : "double",<br>      "type" : [ "number", "null" ]<br>    },<br>    "losses" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "rank" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "teamId" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "teamName" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "winRate" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "wins" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    }<br>  },<br>  "required" : [ "draws", "games", "gamesBehind", "losses", "rank", "teamId", "teamName", "winRate", "wins" ],<br>  "type" : "object"<br>}`
 Required properties: `draws`, `games`, `gamesBehind`, `losses`, `rank`, `teamId`, `teamName`, `winRate`, `wins`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `draws` | yes | `integer (int32)` | — | — |
-| `games` | yes | `integer (int32)` | — | — |
-| `gamesBehind` | yes | `number (double)` | — | — |
-| `losses` | yes | `integer (int32)` | — | — |
-| `rank` | yes | `integer (int32)` | — | — |
-| `teamId` | yes | `string` | — | — |
-| `teamName` | yes | `string` | — | — |
-| `winRate` | yes | `string` | — | — |
-| `wins` | yes | `integer (int32)` | — | — |
+| `draws` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `games` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `gamesBehind` | yes | `{<br>  "format" : "double",<br>  "type" : [ "number", "null" ]<br>}` | — | — |
+| `losses` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `rank` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `teamId` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `teamName` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `winRate` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `wins` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
 
 <a id="homerankingsnapshotdto"></a>
 ## HomeRankingSnapshotDto
-Schema: `{<br>  "properties" : {<br>    "isOffSeason" : {<br>      "type" : "boolean"<br>    },<br>    "rankingSeasonYear" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "rankingSourceMessage" : {<br>      "type" : "string"<br>    },<br>    "rankings" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/HomePageTeamRankingDto"<br>      },<br>      "type" : "array"<br>    }<br>  },<br>  "required" : [ "isOffSeason", "rankingSeasonYear", "rankingSourceMessage", "rankings" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "isOffSeason" : {<br>      "type" : "boolean"<br>    },<br>    "rankingSeasonYear" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "rankingSourceMessage" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "rankings" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/HomePageTeamRankingDto"<br>      },<br>      "type" : "array"<br>    }<br>  },<br>  "required" : [ "isOffSeason", "rankingSeasonYear", "rankingSourceMessage", "rankings" ],<br>  "type" : "object"<br>}`
 Required properties: `isOffSeason`, `rankingSeasonYear`, `rankingSourceMessage`, `rankings`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `isOffSeason` | yes | `boolean` | — | — |
-| `rankingSeasonYear` | yes | `integer (int32)` | — | — |
-| `rankingSourceMessage` | yes | `string` | — | — |
+| `rankingSeasonYear` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `rankingSourceMessage` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 | `rankings` | yes | `array<[HomePageTeamRankingDto](openapi-schemas.md#homepageteamrankingdto)>` | — | — |
 
 <a id="homeschedulenavigationdto"></a>
@@ -2393,16 +2391,16 @@ Schema: `{<br>  "properties" : {<br>    "handle" : {<br>      "type" : "string"<
 
 <a id="initmediauploadrequest"></a>
 ## InitMediaUploadRequest
-Schema: `{<br>  "properties" : {<br>    "contentLength" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "contentType" : {<br>      "type" : "string"<br>    },<br>    "domain" : {<br>      "enum" : [ "PROFILE", "DIARY", "CHEER", "CHAT" ],<br>      "type" : "string"<br>    },<br>    "fileName" : {<br>      "type" : "string"<br>    },<br>    "height" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "width" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "required" : [ "contentLength", "contentType", "domain", "fileName", "height", "width" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "contentLength" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "contentType" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "domain" : {<br>      "enum" : [ "PROFILE", "DIARY", "CHEER", "CHAT" ],<br>      "type" : "string"<br>    },<br>    "fileName" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "height" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "width" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "required" : [ "contentLength", "contentType", "domain", "fileName", "height", "width" ],<br>  "type" : "object"<br>}`
 Required properties: `contentLength`, `contentType`, `domain`, `fileName`, `height`, `width`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `contentLength` | yes | `integer (int64)` | — | — |
-| `contentType` | yes | `string` | — | — |
+| `contentType` | yes | `string` | — | minLength=1 |
 | `domain` | yes | `string` | — | — |
-| `fileName` | yes | `string` | — | — |
+| `fileName` | yes | `string` | — | minLength=1 |
 | `height` | yes | `integer (int32)` | — | — |
 | `width` | yes | `integer (int32)` | — | — |
 
@@ -2411,7 +2409,25 @@ Required properties: `contentLength`, `contentType`, `domain`, `fileName`, `heig
 
 <a id="jsonnode"></a>
 ## JsonNode
-Schema: `object`
+Schema: `{ }`
+
+<a id="leaderboardentrydto"></a>
+## LeaderboardEntryDto
+Schema: `{<br>  "properties" : {<br>    "accuracy" : {<br>      "format" : "double",<br>      "type" : "number"<br>    },<br>    "handle" : {<br>      "type" : "string"<br>    },<br>    "level" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "maxStreak" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "profileImageUrl" : {<br>      "type" : "string"<br>    },<br>    "rank" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "rankTitle" : {<br>      "type" : "string"<br>    },<br>    "score" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "streak" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "userName" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `accuracy` | no | `number (double)` | — | — |
+| `handle` | no | `string` | — | — |
+| `level` | no | `integer (int32)` | — | — |
+| `maxStreak` | no | `integer (int32)` | — | — |
+| `profileImageUrl` | no | `string` | — | — |
+| `rank` | no | `integer (int64)` | — | — |
+| `rankTitle` | no | `string` | — | — |
+| `score` | no | `integer (int64)` | — | — |
+| `streak` | no | `integer (int32)` | — | — |
+| `userName` | no | `string` | — | — |
 
 <a id="leaguestartdatesdto"></a>
 ## LeagueStartDatesDto
@@ -2463,29 +2479,17 @@ Schema: `{<br>  "properties" : {<br>    "postId" : {<br>      "format" : "int64"
 | `postId` | no | `integer (int64)` | — | — |
 | `preview` | no | [LinkedContentRes](openapi-schemas.md#linkedcontentres) | — | — |
 
-<a id="localtime"></a>
-## LocalTime
-Schema: `{<br>  "properties" : {<br>    "hour" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "minute" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "nano" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "second" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
-
-### Properties
-| Property | Required | Schema | Description | Constraints |
-| --- | --- | --- | --- | --- |
-| `hour` | no | `integer (int32)` | — | — |
-| `minute` | no | `integer (int32)` | — | — |
-| `nano` | no | `integer (int32)` | — | — |
-| `second` | no | `integer (int32)` | — | — |
-
 <a id="logindto"></a>
 ## LoginDto
-Schema: `{<br>  "properties" : {<br>    "captchaToken" : {<br>      "type" : "string"<br>    },<br>    "email" : {<br>      "type" : "string"<br>    },<br>    "password" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "email", "password" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "captchaToken" : {<br>      "type" : "string"<br>    },<br>    "email" : {<br>      "format" : "email",<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "password" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "email", "password" ],<br>  "type" : "object"<br>}`
 Required properties: `email`, `password`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `captchaToken` | no | `string` | — | — |
-| `email` | yes | `string` | — | — |
-| `password` | yes | `string` | — | — |
+| `email` | yes | `string (email)` | — | minLength=1 |
+| `password` | yes | `string` | — | minLength=1 |
 
 <a id="manualbaseballdatamissingitem"></a>
 ## ManualBaseballDataMissingItem
@@ -2538,31 +2542,31 @@ Schema: `{<br>  "properties" : {<br>    "date" : {<br>      "format" : "date",<b
 
 <a id="matchdto"></a>
 ## MatchDto
-Schema: `{<br>  "properties" : {<br>    "aiSummary" : {<br>      "type" : "string"<br>    },<br>    "awayPitcher" : {<br>      "$ref" : "#/components/schemas/PitcherDto"<br>    },<br>    "awayScore" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "awayTeam" : {<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameId" : {<br>      "type" : "string"<br>    },<br>    "gameStatus" : {<br>      "type" : "string"<br>    },<br>    "homePitcher" : {<br>      "$ref" : "#/components/schemas/PitcherDto"<br>    },<br>    "homeScore" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "homeTeam" : {<br>      "type" : "string"<br>    },<br>    "isDummy" : {<br>      "type" : "boolean"<br>    },<br>    "leagueType" : {<br>      "type" : "string"<br>    },<br>    "postSeasonSeries" : {<br>      "type" : "string"<br>    },<br>    "seasonId" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "seriesGameNo" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "startTime" : {<br>      "$ref" : "#/components/schemas/LocalTime"<br>    },<br>    "winProbability" : {<br>      "$ref" : "#/components/schemas/WinProbabilityDto"<br>    },<br>    "winner" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "aiSummary", "awayPitcher", "awayScore", "awayTeam", "gameDate", "gameId", "gameStatus", "homePitcher", "homeScore", "homeTeam", "isDummy", "leagueType", "postSeasonSeries", "seasonId", "seriesGameNo", "stadium", "startTime", "winProbability", "winner" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "aiSummary" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "awayPitcher" : {<br>      "$ref" : "#/components/schemas/PitcherDto",<br>      "type" : "null"<br>    },<br>    "awayScore" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "awayTeam" : {<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameId" : {<br>      "type" : "string"<br>    },<br>    "gameStatus" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "homePitcher" : {<br>      "$ref" : "#/components/schemas/PitcherDto",<br>      "type" : "null"<br>    },<br>    "homeScore" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "homeTeam" : {<br>      "type" : "string"<br>    },<br>    "isDummy" : {<br>      "type" : [ "boolean", "null" ]<br>    },<br>    "leagueType" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "postSeasonSeries" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "seasonId" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "seriesGameNo" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "stadium" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "startTime" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "winProbability" : {<br>      "$ref" : "#/components/schemas/WinProbabilityDto",<br>      "type" : "null"<br>    },<br>    "winner" : {<br>      "type" : [ "string", "null" ]<br>    }<br>  },<br>  "required" : [ "aiSummary", "awayPitcher", "awayScore", "awayTeam", "gameDate", "gameId", "gameStatus", "homePitcher", "homeScore", "homeTeam", "isDummy", "leagueType", "postSeasonSeries", "seasonId", "seriesGameNo", "stadium", "startTime", "winProbability", "winner" ],<br>  "type" : "object"<br>}`
 Required properties: `aiSummary`, `awayPitcher`, `awayScore`, `awayTeam`, `gameDate`, `gameId`, `gameStatus`, `homePitcher`, `homeScore`, `homeTeam`, `isDummy`, `leagueType`, `postSeasonSeries`, `seasonId`, `seriesGameNo`, `stadium`, `startTime`, `winProbability`, `winner`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `aiSummary` | yes | `string` | — | — |
+| `aiSummary` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 | `awayPitcher` | yes | [PitcherDto](openapi-schemas.md#pitcherdto) | — | — |
-| `awayScore` | yes | `integer (int32)` | — | — |
+| `awayScore` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
 | `awayTeam` | yes | `string` | — | — |
 | `gameDate` | yes | `string (date)` | — | — |
 | `gameId` | yes | `string` | — | — |
-| `gameStatus` | yes | `string` | — | — |
+| `gameStatus` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 | `homePitcher` | yes | [PitcherDto](openapi-schemas.md#pitcherdto) | — | — |
-| `homeScore` | yes | `integer (int32)` | — | — |
+| `homeScore` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
 | `homeTeam` | yes | `string` | — | — |
-| `isDummy` | yes | `boolean` | — | — |
-| `leagueType` | yes | `string` | — | — |
-| `postSeasonSeries` | yes | `string` | — | — |
-| `seasonId` | yes | `integer (int32)` | — | — |
-| `seriesGameNo` | yes | `integer (int32)` | — | — |
-| `stadium` | yes | `string` | — | — |
-| `startTime` | yes | [LocalTime](openapi-schemas.md#localtime) | — | — |
+| `isDummy` | yes | `{<br>  "type" : [ "boolean", "null" ]<br>}` | — | — |
+| `leagueType` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `postSeasonSeries` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `seasonId` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `seriesGameNo` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `stadium` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `startTime` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 | `winProbability` | yes | [WinProbabilityDto](openapi-schemas.md#winprobabilitydto) | — | — |
-| `winner` | yes | `string` | — | — |
+| `winner` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 
 <a id="matchrangepageresponsedto"></a>
 ## MatchRangePageResponseDto
@@ -2615,7 +2619,7 @@ Schema: `{<br>  "properties" : {<br>    "applicationId" : {<br>      "format" : 
 
 <a id="mateapplicationcreaterequest"></a>
 ## MateApplicationCreateRequest
-Schema: `{<br>  "properties" : {<br>    "depositAmount" : {<br>      "format" : "int32",<br>      "minimum" : 0,<br>      "type" : "integer"<br>    },<br>    "message" : {<br>      "maxLength" : 500,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "partyId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "paymentType" : {<br>      "enum" : [ "DEPOSIT", "FULL" ],<br>      "type" : "string"<br>    },<br>    "ticketImageUrl" : {<br>      "maxLength" : 2048,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "ticketVerified" : {<br>      "type" : "boolean"<br>    },<br>    "verificationToken" : {<br>      "maxLength" : 128,<br>      "minLength" : 0,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "partyId" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "depositAmount" : {<br>      "format" : "int32",<br>      "minimum" : 0,<br>      "type" : "integer"<br>    },<br>    "message" : {<br>      "maxLength" : 500,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "partyId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "paymentType" : {<br>      "enum" : [ "DEPOSIT", "FULL" ],<br>      "type" : "string"<br>    },<br>    "ticketImageUrl" : {<br>      "maxLength" : 2048,<br>      "minLength" : 0,<br>      "type" : [ "string", "null" ]<br>    },<br>    "ticketVerified" : {<br>      "type" : "boolean"<br>    },<br>    "verificationToken" : {<br>      "maxLength" : 128,<br>      "minLength" : 0,<br>      "type" : [ "string", "null" ]<br>    }<br>  },<br>  "required" : [ "partyId" ],<br>  "type" : "object"<br>}`
 Required properties: `partyId`
 
 ### Properties
@@ -2625,9 +2629,9 @@ Required properties: `partyId`
 | `message` | no | `string` | — | minLength=0, maxLength=500 |
 | `partyId` | yes | `integer (int64)` | — | — |
 | `paymentType` | no | `string` | — | — |
-| `ticketImageUrl` | no | `string` | — | minLength=0, maxLength=2048 |
+| `ticketImageUrl` | no | `{<br>  "maxLength" : 2048,<br>  "minLength" : 0,<br>  "type" : [ "string", "null" ]<br>}` | — | minLength=0, maxLength=2048 |
 | `ticketVerified` | no | `boolean` | — | — |
-| `verificationToken` | no | `string` | — | minLength=0, maxLength=128 |
+| `verificationToken` | no | `{<br>  "maxLength" : 128,<br>  "minLength" : 0,<br>  "type" : [ "string", "null" ]<br>}` | — | minLength=0, maxLength=128 |
 
 #### Property metadata: `paymentType`
 - Enum: `DEPOSIT`, `FULL`
@@ -2831,7 +2835,7 @@ Schema: `{<br>  "properties" : {<br>    "completedAt" : {<br>      "format" : "d
 
 <a id="matepartycreaterequest"></a>
 ## MatePartyCreateRequest
-Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "maxLength" : 20,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "cheeringSide" : {<br>      "enum" : [ "HOME", "AWAY", "NEUTRAL" ],<br>      "type" : "string"<br>    },<br>    "description" : {<br>      "maxLength" : 200,<br>      "minLength" : 10,<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameTime" : {<br>      "$ref" : "#/components/schemas/LocalTime"<br>    },<br>    "homeTeam" : {<br>      "maxLength" : 20,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "maxParticipants" : {<br>      "format" : "int32",<br>      "maximum" : 20,<br>      "minimum" : 2,<br>      "type" : "integer"<br>    },<br>    "reservationDepositAmount" : {<br>      "format" : "int32",<br>      "minimum" : 0,<br>      "type" : "integer"<br>    },<br>    "reservationNumber" : {<br>      "maxLength" : 50,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "seatDetail" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "section" : {<br>      "maxLength" : 50,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "teamId" : {<br>      "type" : "string"<br>    },<br>    "ticketImageUrl" : {<br>      "maxLength" : 2048,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "ticketPrice" : {<br>      "format" : "int32",<br>      "minimum" : 0,<br>      "type" : "integer"<br>    },<br>    "verificationToken" : {<br>      "maxLength" : 128,<br>      "minLength" : 0,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "awayTeam", "cheeringSide", "description", "gameDate", "gameTime", "homeTeam", "maxParticipants", "section", "stadium", "verificationToken" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "maxLength" : 20,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "cheeringSide" : {<br>      "enum" : [ "HOME", "AWAY", "NEUTRAL" ],<br>      "type" : "string"<br>    },<br>    "description" : {<br>      "maxLength" : 200,<br>      "minLength" : 10,<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameTime" : {<br>      "type" : "string"<br>    },<br>    "homeTeam" : {<br>      "maxLength" : 20,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "maxParticipants" : {<br>      "format" : "int32",<br>      "maximum" : 20,<br>      "minimum" : 2,<br>      "type" : "integer"<br>    },<br>    "reservationDepositAmount" : {<br>      "format" : "int32",<br>      "minimum" : 0,<br>      "type" : "integer"<br>    },<br>    "reservationNumber" : {<br>      "maxLength" : 50,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "seatDetail" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "section" : {<br>      "maxLength" : 50,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "teamId" : {<br>      "type" : "string"<br>    },<br>    "ticketImageUrl" : {<br>      "maxLength" : 2048,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "ticketPrice" : {<br>      "format" : "int32",<br>      "minimum" : 0,<br>      "type" : "integer"<br>    },<br>    "verificationToken" : {<br>      "maxLength" : 128,<br>      "minLength" : 0,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "awayTeam", "cheeringSide", "description", "gameDate", "gameTime", "homeTeam", "maxParticipants", "section", "stadium", "verificationToken" ],<br>  "type" : "object"<br>}`
 Required properties: `awayTeam`, `cheeringSide`, `description`, `gameDate`, `gameTime`, `homeTeam`, `maxParticipants`, `section`, `stadium`, `verificationToken`
 
 ### Properties
@@ -2841,7 +2845,7 @@ Required properties: `awayTeam`, `cheeringSide`, `description`, `gameDate`, `gam
 | `cheeringSide` | yes | `string` | — | — |
 | `description` | yes | `string` | — | minLength=10, maxLength=200 |
 | `gameDate` | yes | `string (date)` | — | — |
-| `gameTime` | yes | [LocalTime](openapi-schemas.md#localtime) | — | — |
+| `gameTime` | yes | `string` | — | — |
 | `homeTeam` | yes | `string` | — | minLength=0, maxLength=20 |
 | `maxParticipants` | yes | `integer (int32)` | — | minimum=2, maximum=20 |
 | `reservationDepositAmount` | no | `integer (int32)` | — | minimum=0 |
@@ -2857,6 +2861,36 @@ Required properties: `awayTeam`, `cheeringSide`, `description`, `gameDate`, `gam
 #### Property metadata: `cheeringSide`
 - Enum: `HOME`, `AWAY`, `NEUTRAL`
 
+<a id="matepartyhistoryresponse"></a>
+## MatePartyHistoryResponse
+Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "type" : "string"<br>    },<br>    "cheeringSide" : {<br>      "enum" : [ "HOME", "AWAY", "NEUTRAL" ],<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "currentParticipants" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "description" : {<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameTime" : {<br>      "type" : "string"<br>    },<br>    "homeTeam" : {<br>      "type" : "string"<br>    },<br>    "hostHandle" : {<br>      "type" : "string"<br>    },<br>    "hostId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "maxParticipants" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "status" : {<br>      "enum" : [ "PENDING", "MATCHED", "FAILED", "SELLING", "SOLD", "CHECKED_IN", "COMPLETED" ],<br>      "type" : "string"<br>    },<br>    "teamId" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `awayTeam` | no | `string` | — | — |
+| `cheeringSide` | no | `string` | — | — |
+| `createdAt` | no | `string (date-time)` | — | — |
+| `currentParticipants` | no | `integer (int32)` | — | — |
+| `description` | no | `string` | — | — |
+| `gameDate` | no | `string (date)` | — | — |
+| `gameTime` | no | `string` | — | — |
+| `homeTeam` | no | `string` | — | — |
+| `hostHandle` | no | `string` | — | — |
+| `hostId` | no | `integer (int64)` | — | — |
+| `id` | no | `integer (int64)` | — | — |
+| `maxParticipants` | no | `integer (int32)` | — | — |
+| `section` | no | `string` | — | — |
+| `stadium` | no | `string` | — | — |
+| `status` | no | `string` | — | — |
+| `teamId` | no | `string` | — | — |
+
+#### Property metadata: `cheeringSide`
+- Enum: `HOME`, `AWAY`, `NEUTRAL`
+
+#### Property metadata: `status`
+- Enum: `PENDING`, `MATCHED`, `FAILED`, `SELLING`, `SOLD`, `CHECKED_IN`, `COMPLETED`
+
 <a id="matepartymembersummary"></a>
 ## MatePartyMemberSummary
 Schema: `{<br>  "properties" : {<br>    "host" : {<br>      "type" : "boolean"<br>    },<br>    "initial" : {<br>      "type" : "string"<br>    },<br>    "profileImageUrl" : {<br>      "type" : "string"<br>    },<br>    "role" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -2871,7 +2905,7 @@ Schema: `{<br>  "properties" : {<br>    "host" : {<br>      "type" : "boolean"<b
 
 <a id="matepartypublicresponse"></a>
 ## MatePartyPublicResponse
-Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "type" : "string"<br>    },<br>    "cheeringSide" : {<br>      "enum" : [ "HOME", "AWAY", "NEUTRAL" ],<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "currentParticipants" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "description" : {<br>      "type" : "string"<br>    },<br>    "favorited" : {<br>      "type" : "boolean"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameTime" : {<br>      "$ref" : "#/components/schemas/LocalTime"<br>    },<br>    "homeTeam" : {<br>      "type" : "string"<br>    },<br>    "hostAverageRating" : {<br>      "format" : "double",<br>      "type" : "number"<br>    },<br>    "hostBadge" : {<br>      "enum" : [ "NEW", "VERIFIED", "TRUSTED" ],<br>      "type" : "string"<br>    },<br>    "hostFavoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "hostHandle" : {<br>      "type" : "string"<br>    },<br>    "hostName" : {<br>      "type" : "string"<br>    },<br>    "hostProfileImageUrl" : {<br>      "type" : "string"<br>    },<br>    "hostReviewCount" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "hostTrustMetrics" : {<br>      "$ref" : "#/components/schemas/MateHostTrustMetrics"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "maxParticipants" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "members" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/MatePartyMemberSummary"<br>      },<br>      "type" : "array"<br>    },<br>    "price" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "reservationDepositAmount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "seatDetail" : {<br>      "type" : "string"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "status" : {<br>      "enum" : [ "PENDING", "MATCHED", "FAILED", "SELLING", "SOLD", "CHECKED_IN", "COMPLETED" ],<br>      "type" : "string"<br>    },<br>    "teamId" : {<br>      "type" : "string"<br>    },<br>    "ticketPrice" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "ticketVerified" : {<br>      "type" : "boolean"<br>    },<br>    "updatedAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "type" : "string"<br>    },<br>    "cheeringSide" : {<br>      "enum" : [ "HOME", "AWAY", "NEUTRAL" ],<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "currentParticipants" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "description" : {<br>      "type" : "string"<br>    },<br>    "favorited" : {<br>      "type" : "boolean"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameTime" : {<br>      "type" : "string"<br>    },<br>    "homeTeam" : {<br>      "type" : "string"<br>    },<br>    "hostAverageRating" : {<br>      "format" : "double",<br>      "type" : "number"<br>    },<br>    "hostBadge" : {<br>      "enum" : [ "NEW", "VERIFIED", "TRUSTED" ],<br>      "type" : "string"<br>    },<br>    "hostFavoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "hostHandle" : {<br>      "type" : "string"<br>    },<br>    "hostName" : {<br>      "type" : "string"<br>    },<br>    "hostProfileImageUrl" : {<br>      "type" : "string"<br>    },<br>    "hostReviewCount" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "hostTrustMetrics" : {<br>      "$ref" : "#/components/schemas/MateHostTrustMetrics"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "maxParticipants" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "members" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/MatePartyMemberSummary"<br>      },<br>      "type" : "array"<br>    },<br>    "price" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "reservationDepositAmount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "seatDetail" : {<br>      "type" : "string"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "status" : {<br>      "enum" : [ "PENDING", "MATCHED", "FAILED", "SELLING", "SOLD", "CHECKED_IN", "COMPLETED" ],<br>      "type" : "string"<br>    },<br>    "teamId" : {<br>      "type" : "string"<br>    },<br>    "ticketPrice" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "ticketVerified" : {<br>      "type" : "boolean"<br>    },<br>    "updatedAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
@@ -2883,7 +2917,7 @@ Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "type" : "string
 | `description` | no | `string` | — | — |
 | `favorited` | no | `boolean` | — | — |
 | `gameDate` | no | `string (date)` | — | — |
-| `gameTime` | no | [LocalTime](openapi-schemas.md#localtime) | — | — |
+| `gameTime` | no | `string` | — | — |
 | `homeTeam` | no | `string` | — | — |
 | `hostAverageRating` | no | `number (double)` | — | — |
 | `hostBadge` | no | `string` | — | — |
@@ -2918,7 +2952,7 @@ Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "type" : "string
 
 <a id="matepartyresponse"></a>
 ## MatePartyResponse
-Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "type" : "string"<br>    },<br>    "cheeringSide" : {<br>      "enum" : [ "HOME", "AWAY", "NEUTRAL" ],<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "currentParticipants" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "description" : {<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameTime" : {<br>      "$ref" : "#/components/schemas/LocalTime"<br>    },<br>    "homeTeam" : {<br>      "type" : "string"<br>    },<br>    "hostAverageRating" : {<br>      "format" : "double",<br>      "type" : "number"<br>    },<br>    "hostBadge" : {<br>      "enum" : [ "NEW", "VERIFIED", "TRUSTED" ],<br>      "type" : "string"<br>    },<br>    "hostFavoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "hostHandle" : {<br>      "type" : "string"<br>    },<br>    "hostId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "hostName" : {<br>      "type" : "string"<br>    },<br>    "hostProfileImageUrl" : {<br>      "type" : "string"<br>    },<br>    "hostReviewCount" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "hostTrustMetrics" : {<br>      "$ref" : "#/components/schemas/MateHostTrustMetrics"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "maxParticipants" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "price" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "reservationDepositAmount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "reservationNumber" : {<br>      "type" : "string"<br>    },<br>    "seatDetail" : {<br>      "type" : "string"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "status" : {<br>      "enum" : [ "PENDING", "MATCHED", "FAILED", "SELLING", "SOLD", "CHECKED_IN", "COMPLETED" ],<br>      "type" : "string"<br>    },<br>    "teamId" : {<br>      "type" : "string"<br>    },<br>    "ticketImageUrl" : {<br>      "type" : "string"<br>    },<br>    "ticketPrice" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "ticketVerified" : {<br>      "type" : "boolean"<br>    },<br>    "updatedAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "type" : "string"<br>    },<br>    "cheeringSide" : {<br>      "enum" : [ "HOME", "AWAY", "NEUTRAL" ],<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "currentParticipants" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "description" : {<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameTime" : {<br>      "type" : "string"<br>    },<br>    "homeTeam" : {<br>      "type" : "string"<br>    },<br>    "hostAverageRating" : {<br>      "format" : "double",<br>      "type" : "number"<br>    },<br>    "hostBadge" : {<br>      "enum" : [ "NEW", "VERIFIED", "TRUSTED" ],<br>      "type" : "string"<br>    },<br>    "hostFavoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "hostHandle" : {<br>      "type" : "string"<br>    },<br>    "hostId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "hostName" : {<br>      "type" : "string"<br>    },<br>    "hostProfileImageUrl" : {<br>      "type" : "string"<br>    },<br>    "hostReviewCount" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "hostTrustMetrics" : {<br>      "$ref" : "#/components/schemas/MateHostTrustMetrics"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "maxParticipants" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "price" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "reservationDepositAmount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "reservationNumber" : {<br>      "type" : "string"<br>    },<br>    "seatDetail" : {<br>      "type" : "string"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "status" : {<br>      "enum" : [ "PENDING", "MATCHED", "FAILED", "SELLING", "SOLD", "CHECKED_IN", "COMPLETED" ],<br>      "type" : "string"<br>    },<br>    "teamId" : {<br>      "type" : "string"<br>    },<br>    "ticketImageUrl" : {<br>      "type" : "string"<br>    },<br>    "ticketPrice" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "ticketVerified" : {<br>      "type" : "boolean"<br>    },<br>    "updatedAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
@@ -2929,7 +2963,7 @@ Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "type" : "string
 | `currentParticipants` | no | `integer (int32)` | — | — |
 | `description` | no | `string` | — | — |
 | `gameDate` | no | `string (date)` | — | — |
-| `gameTime` | no | [LocalTime](openapi-schemas.md#localtime) | — | — |
+| `gameTime` | no | `string` | — | — |
 | `homeTeam` | no | `string` | — | — |
 | `hostAverageRating` | no | `number (double)` | — | — |
 | `hostBadge` | no | `string` | — | — |
@@ -3279,7 +3313,7 @@ Schema: `{<br>  "properties" : {<br>    "domains" : {<br>      "items" : {<br>  
 
 <a id="noncanonicalgamedto"></a>
 ## NonCanonicalGameDto
-Schema: `{<br>  "properties" : {<br>    "awayScore" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "awayTeam" : {<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameId" : {<br>      "type" : "string"<br>    },<br>    "homeScore" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "homeTeam" : {<br>      "type" : "string"<br>    },<br>    "rawStatus" : {<br>      "type" : "string"<br>    },<br>    "reasons" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "startTime" : {<br>      "$ref" : "#/components/schemas/LocalTime"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "awayScore" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "awayTeam" : {<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "format" : "date",<br>      "type" : "string"<br>    },<br>    "gameId" : {<br>      "type" : "string"<br>    },<br>    "homeScore" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "homeTeam" : {<br>      "type" : "string"<br>    },<br>    "rawStatus" : {<br>      "type" : "string"<br>    },<br>    "reasons" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "startTime" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
@@ -3292,7 +3326,7 @@ Schema: `{<br>  "properties" : {<br>    "awayScore" : {<br>      "format" : "int
 | `homeTeam` | no | `string` | — | — |
 | `rawStatus` | no | `string` | — | — |
 | `reasons` | no | `array<string>` | — | — |
-| `startTime` | no | [LocalTime](openapi-schemas.md#localtime) | — | — |
+| `startTime` | no | `string` | — | — |
 
 <a id="offseasonmetadto"></a>
 ## OffseasonMetaDto
@@ -3446,16 +3480,6 @@ Schema: `{<br>  "properties" : {<br>    "offset" : {<br>      "format" : "int64"
 | `sort` | no | [SortObject](openapi-schemas.md#sortobject) | — | — |
 | `unpaged` | no | `boolean` | — | — |
 
-<a id="pagedmodel"></a>
-## PagedModel
-Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>        "type" : "object"<br>      },<br>      "type" : "array"<br>    },<br>    "page" : {<br>      "$ref" : "#/components/schemas/PageMetadata"<br>    }<br>  },<br>  "type" : "object"<br>}`
-
-### Properties
-| Property | Required | Schema | Description | Constraints |
-| --- | --- | --- | --- | --- |
-| `content` | no | `array<object>` | — | — |
-| `page` | no | [PageMetadata](openapi-schemas.md#pagemetadata) | — | — |
-
 <a id="pagedmodelcommentres"></a>
 ## PagedModelCommentRes
 Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/CommentRes"<br>      },<br>      "type" : "array"<br>    },<br>    "page" : {<br>      "$ref" : "#/components/schemas/PageMetadata"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -3464,6 +3488,36 @@ Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>  
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `content` | no | `array<[CommentRes](openapi-schemas.md#commentres)>` | — | — |
+| `page` | no | [PageMetadata](openapi-schemas.md#pagemetadata) | — | — |
+
+<a id="pagedmodelleaderboardentrydto"></a>
+## PagedModelLeaderboardEntryDto
+Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/LeaderboardEntryDto"<br>      },<br>      "type" : "array"<br>    },<br>    "page" : {<br>      "$ref" : "#/components/schemas/PageMetadata"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `content` | no | `array<[LeaderboardEntryDto](openapi-schemas.md#leaderboardentrydto)>` | — | — |
+| `page` | no | [PageMetadata](openapi-schemas.md#pagemetadata) | — | — |
+
+<a id="pagedmodelmatepartyhistoryresponse"></a>
+## PagedModelMatePartyHistoryResponse
+Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/MatePartyHistoryResponse"<br>      },<br>      "type" : "array"<br>    },<br>    "page" : {<br>      "$ref" : "#/components/schemas/PageMetadata"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `content` | no | `array<[MatePartyHistoryResponse](openapi-schemas.md#matepartyhistoryresponse)>` | — | — |
+| `page` | no | [PageMetadata](openapi-schemas.md#pagemetadata) | — | — |
+
+<a id="pagedmodelmatepartypublicresponse"></a>
+## PagedModelMatePartyPublicResponse
+Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/MatePartyPublicResponse"<br>      },<br>      "type" : "array"<br>    },<br>    "page" : {<br>      "$ref" : "#/components/schemas/PageMetadata"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `content` | no | `array<[MatePartyPublicResponse](openapi-schemas.md#matepartypublicresponse)>` | — | — |
 | `page` | no | [PageMetadata](openapi-schemas.md#pagemetadata) | — | — |
 
 <a id="pagedmodelpostsummaryres"></a>
@@ -3476,42 +3530,62 @@ Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>  
 | `content` | no | `array<[PostSummaryRes](openapi-schemas.md#postsummaryres)>` | — | — |
 | `page` | no | [PageMetadata](openapi-schemas.md#pagemetadata) | — | — |
 
+<a id="pagedmodelrecentscoredto"></a>
+## PagedModelRecentScoreDto
+Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/RecentScoreDto"<br>      },<br>      "type" : "array"<br>    },<br>    "page" : {<br>      "$ref" : "#/components/schemas/PageMetadata"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `content` | no | `array<[RecentScoreDto](openapi-schemas.md#recentscoredto)>` | — | — |
+| `page` | no | [PageMetadata](openapi-schemas.md#pagemetadata) | — | — |
+
+<a id="pagedmodeluserfollowsummarydto"></a>
+## PagedModelUserFollowSummaryDto
+Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/UserFollowSummaryDto"<br>      },<br>      "type" : "array"<br>    },<br>    "page" : {<br>      "$ref" : "#/components/schemas/PageMetadata"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `content` | no | `array<[UserFollowSummaryDto](openapi-schemas.md#userfollowsummarydto)>` | — | — |
+| `page` | no | [PageMetadata](openapi-schemas.md#pagemetadata) | — | — |
+
 <a id="passwordresetconfirmdto"></a>
 ## PasswordResetConfirmDto
-Schema: `{<br>  "properties" : {<br>    "confirmPassword" : {<br>      "type" : "string"<br>    },<br>    "newPassword" : {<br>      "type" : "string"<br>    },<br>    "token" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "confirmPassword", "newPassword", "token" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "confirmPassword" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "newPassword" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "token" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "confirmPassword", "newPassword", "token" ],<br>  "type" : "object"<br>}`
 Required properties: `confirmPassword`, `newPassword`, `token`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `confirmPassword` | yes | `string` | — | — |
-| `newPassword` | yes | `string` | — | — |
-| `token` | yes | `string` | — | — |
+| `confirmPassword` | yes | `string` | — | minLength=1 |
+| `newPassword` | yes | `string` | — | minLength=1 |
+| `token` | yes | `string` | — | minLength=1 |
 
 <a id="passwordresetrequestdto"></a>
 ## PasswordResetRequestDto
-Schema: `{<br>  "properties" : {<br>    "email" : {<br>      "type" : "string"<br>    },<br>    "redirect" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "email" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "email" : {<br>      "format" : "email",<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "redirect" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "email" ],<br>  "type" : "object"<br>}`
 Required properties: `email`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `email` | yes | `string` | — | — |
+| `email` | yes | `string (email)` | — | minLength=1 |
 | `redirect` | no | `string` | — | — |
 
 <a id="pitcherdto"></a>
 ## PitcherDto
-Schema: `{<br>  "properties" : {<br>    "era" : {<br>      "type" : "string"<br>    },<br>    "imgUrl" : {<br>      "type" : "string"<br>    },<br>    "loss" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "name" : {<br>      "type" : "string"<br>    },<br>    "win" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "required" : [ "era", "imgUrl", "loss", "name", "win" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "era" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "imgUrl" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "loss" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "name" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "win" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    }<br>  },<br>  "required" : [ "era", "imgUrl", "loss", "name", "win" ],<br>  "type" : "object"<br>}`
 Required properties: `era`, `imgUrl`, `loss`, `name`, `win`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `era` | yes | `string` | — | — |
-| `imgUrl` | yes | `string` | — | — |
-| `loss` | yes | `integer (int32)` | — | — |
-| `name` | yes | `string` | — | — |
-| `win` | yes | `integer (int32)` | — | — |
+| `era` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `imgUrl` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `loss` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `name` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `win` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
 
 <a id="placedto"></a>
 ## PlaceDto
@@ -3554,7 +3628,7 @@ Required properties: `category`, `lat`, `lng`, `name`
 
 <a id="policyconsentitemdto"></a>
 ## PolicyConsentItemDto
-Schema: `{<br>  "properties" : {<br>    "agreed" : {<br>      "type" : "boolean"<br>    },<br>    "policyType" : {<br>      "enum" : [ "TERMS", "PRIVACY", "DATA_DISCLAIMER" ],<br>      "type" : "string"<br>    },<br>    "version" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "agreed", "policyType", "version" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "agreed" : {<br>      "type" : "boolean"<br>    },<br>    "policyType" : {<br>      "enum" : [ "TERMS", "PRIVACY", "DATA_DISCLAIMER" ],<br>      "type" : "string"<br>    },<br>    "version" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "agreed", "policyType", "version" ],<br>  "type" : "object"<br>}`
 Required properties: `agreed`, `policyType`, `version`
 
 ### Properties
@@ -3562,20 +3636,20 @@ Required properties: `agreed`, `policyType`, `version`
 | --- | --- | --- | --- | --- |
 | `agreed` | yes | `boolean` | — | — |
 | `policyType` | yes | `string` | — | — |
-| `version` | yes | `string` | — | — |
+| `version` | yes | `string` | — | minLength=1 |
 
 #### Property metadata: `policyType`
 - Enum: `TERMS`, `PRIVACY`, `DATA_DISCLAIMER`
 
 <a id="policyconsentsubmitdto"></a>
 ## PolicyConsentSubmitDto
-Schema: `{<br>  "properties" : {<br>    "policyConsents" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/PolicyConsentItemDto"<br>      },<br>      "type" : "array"<br>    }<br>  },<br>  "required" : [ "policyConsents" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "policyConsents" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/PolicyConsentItemDto"<br>      },<br>      "minItems" : 1,<br>      "type" : "array"<br>    }<br>  },<br>  "required" : [ "policyConsents" ],<br>  "type" : "object"<br>}`
 Required properties: `policyConsents`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `policyConsents` | yes | `array<[PolicyConsentItemDto](openapi-schemas.md#policyconsentitemdto)>` | — | — |
+| `policyConsents` | yes | `array<[PolicyConsentItemDto](openapi-schemas.md#policyconsentitemdto)>` | — | minItems=1 |
 
 <a id="policyrequiredresponsedto"></a>
 ## PolicyRequiredResponseDto
@@ -3895,7 +3969,7 @@ Includes: `oneOf`
 
 <a id="predictionmyvotesrequestdto"></a>
 ## PredictionMyVotesRequestDto
-Schema: `{<br>  "properties" : {<br>    "gameIds" : {<br>      "items" : {<br>        "pattern" : "^[A-Za-z0-9_-]+$",<br>        "type" : "string"<br>      },<br>      "maxItems" : 250,<br>      "minItems" : 0,<br>      "type" : "array"<br>    }<br>  },<br>  "required" : [ "gameIds" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "gameIds" : {<br>      "items" : {<br>        "minLength" : 1,<br>        "pattern" : "^[A-Za-z0-9_-]+$",<br>        "type" : "string"<br>      },<br>      "maxItems" : 250,<br>      "minItems" : 0,<br>      "type" : "array"<br>    }<br>  },<br>  "required" : [ "gameIds" ],<br>  "type" : "object"<br>}`
 Required properties: `gameIds`
 
 ### Properties
@@ -3927,13 +4001,13 @@ Includes: `additionalProperties`
 
 <a id="predictionrequestdto"></a>
 ## PredictionRequestDto
-Schema: `{<br>  "properties" : {<br>    "gameId" : {<br>      "pattern" : "^[A-Za-z0-9_-]+$",<br>      "type" : "string"<br>    },<br>    "votedTeam" : {<br>      "pattern" : "(?i)^(home\|away)$",<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "gameId" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "gameId" : {<br>      "minLength" : 1,<br>      "pattern" : "^[A-Za-z0-9_-]+$",<br>      "type" : "string"<br>    },<br>    "votedTeam" : {<br>      "pattern" : "(?i)^(home\|away)$",<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "gameId" ],<br>  "type" : "object"<br>}`
 Required properties: `gameId`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `gameId` | yes | `string` | — | pattern=`^[A-Za-z0-9_-]+$` |
+| `gameId` | yes | `string` | — | minLength=1, pattern=`^[A-Za-z0-9_-]+$` |
 | `votedTeam` | no | `string` | — | pattern=`(?i)^(home\|away)$` |
 
 <a id="predictionresponsedto"></a>
@@ -4280,19 +4354,19 @@ Schema: `{<br>  "properties" : {<br>    "expiresAt" : {<br>      "format" : "dat
 
 <a id="signupdto"></a>
 ## SignupDto
-Schema: `{<br>  "properties" : {<br>    "confirmPassword" : {<br>      "type" : "string"<br>    },<br>    "email" : {<br>      "type" : "string"<br>    },<br>    "favoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "handle" : {<br>      "type" : "string"<br>    },<br>    "name" : {<br>      "type" : "string"<br>    },<br>    "password" : {<br>      "type" : "string"<br>    },<br>    "policyConsents" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/PolicyConsentItemDto"<br>      },<br>      "type" : "array"<br>    },<br>    "provider" : {<br>      "type" : "string"<br>    },<br>    "providerId" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "confirmPassword", "email", "handle", "name", "password", "policyConsents" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "confirmPassword" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "email" : {<br>      "format" : "email",<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "favoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "handle" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "name" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "password" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "policyConsents" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/PolicyConsentItemDto"<br>      },<br>      "minItems" : 1,<br>      "type" : "array"<br>    },<br>    "provider" : {<br>      "type" : "string"<br>    },<br>    "providerId" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "confirmPassword", "email", "handle", "name", "password", "policyConsents" ],<br>  "type" : "object"<br>}`
 Required properties: `confirmPassword`, `email`, `handle`, `name`, `password`, `policyConsents`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `confirmPassword` | yes | `string` | — | — |
-| `email` | yes | `string` | — | — |
+| `confirmPassword` | yes | `string` | — | minLength=1 |
+| `email` | yes | `string (email)` | — | minLength=1 |
 | `favoriteTeam` | no | `string` | — | — |
-| `handle` | yes | `string` | — | — |
-| `name` | yes | `string` | — | — |
-| `password` | yes | `string` | — | — |
-| `policyConsents` | yes | `array<[PolicyConsentItemDto](openapi-schemas.md#policyconsentitemdto)>` | — | — |
+| `handle` | yes | `string` | — | minLength=1 |
+| `name` | yes | `string` | — | minLength=1 |
+| `password` | yes | `string` | — | minLength=1 |
+| `policyConsents` | yes | `array<[PolicyConsentItemDto](openapi-schemas.md#policyconsentitemdto)>` | — | minItems=1 |
 | `provider` | no | `string` | — | — |
 | `providerId` | no | `string` | — | — |
 
@@ -4391,7 +4465,7 @@ Schema: `{<br>  "properties" : {<br>    "cached" : {<br>      "type" : "boolean"
 
 <a id="streamingresponsebody"></a>
 ## StreamingResponseBody
-Schema: `object`
+Schema: `{ }`
 
 <a id="teamentity"></a>
 ## TeamEntity
@@ -4547,13 +4621,13 @@ Schema: `{<br>  "properties" : {<br>    "browser" : {<br>      "type" : "string"
 
 <a id="updatepostreq"></a>
 ## UpdatePostReq
-Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "type" : "string"<br>    },<br>    "images" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "shareMode" : {<br>      "enum" : [ "INTERNAL_REPOST", "INTERNAL_QUOTE", "EXTERNAL_LINK", "EXTERNAL_COPY", "EXTERNAL_EMBED", "EXTERNAL_SUMMARY" ],<br>      "type" : "string"<br>    },<br>    "sourceAuthor" : {<br>      "type" : "string"<br>    },<br>    "sourceChangedNote" : {<br>      "type" : "string"<br>    },<br>    "sourceLicense" : {<br>      "type" : "string"<br>    },<br>    "sourceLicenseUrl" : {<br>      "type" : "string"<br>    },<br>    "sourceSnapshotType" : {<br>      "type" : "string"<br>    },<br>    "sourceTitle" : {<br>      "type" : "string"<br>    },<br>    "sourceUrl" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "content" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "images" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "shareMode" : {<br>      "enum" : [ "INTERNAL_REPOST", "INTERNAL_QUOTE", "EXTERNAL_LINK", "EXTERNAL_COPY", "EXTERNAL_EMBED", "EXTERNAL_SUMMARY" ],<br>      "type" : "string"<br>    },<br>    "sourceAuthor" : {<br>      "type" : "string"<br>    },<br>    "sourceChangedNote" : {<br>      "type" : "string"<br>    },<br>    "sourceLicense" : {<br>      "type" : "string"<br>    },<br>    "sourceLicenseUrl" : {<br>      "type" : "string"<br>    },<br>    "sourceSnapshotType" : {<br>      "type" : "string"<br>    },<br>    "sourceTitle" : {<br>      "type" : "string"<br>    },<br>    "sourceUrl" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "content" ],<br>  "type" : "object"<br>}`
 Required properties: `content`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `content` | yes | `string` | — | — |
+| `content` | yes | `string` | — | minLength=1 |
 | `images` | no | `array<string>` | — | — |
 | `shareMode` | no | `string` | — | — |
 | `sourceAuthor` | no | `string` | — | — |
@@ -4566,6 +4640,20 @@ Required properties: `content`
 
 #### Property metadata: `shareMode`
 - Enum: `INTERNAL_REPOST`, `INTERNAL_QUOTE`, `EXTERNAL_LINK`, `EXTERNAL_COPY`, `EXTERNAL_EMBED`, `EXTERNAL_SUMMARY`
+
+<a id="userfollowsummarydto"></a>
+## UserFollowSummaryDto
+Schema: `{<br>  "properties" : {<br>    "favoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "handle" : {<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "isFollowedByMe" : {<br>      "type" : "boolean"<br>    },<br>    "name" : {<br>      "type" : "string"<br>    },<br>    "profileImageUrl" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `favoriteTeam` | no | `string` | — | — |
+| `handle` | no | `string` | — | — |
+| `id` | no | `integer (int64)` | — | — |
+| `isFollowedByMe` | no | `boolean` | — | — |
+| `name` | no | `string` | — | — |
+| `profileImageUrl` | no | `string` | — | — |
 
 <a id="userpredictionstatsdto"></a>
 ## UserPredictionStatsDto
@@ -4582,7 +4670,7 @@ Required properties: `accuracy`, `correctPredictions`, `streak`, `totalPredictio
 
 <a id="userprofiledto"></a>
 ## UserProfileDto
-Schema: `{<br>  "properties" : {<br>    "bio" : {<br>      "maxLength" : 500,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "cheerPoints" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "createdAt" : {<br>      "type" : "string"<br>    },<br>    "email" : {<br>      "type" : "string"<br>    },<br>    "favoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "handle" : {<br>      "type" : "string"<br>    },<br>    "hasPassword" : {<br>      "type" : "boolean"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "missingPolicyTypes" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "name" : {<br>      "maxLength" : 20,<br>      "minLength" : 2,<br>      "type" : "string"<br>    },<br>    "policyConsentEffectiveDate" : {<br>      "type" : "string"<br>    },<br>    "policyConsentHardGateDate" : {<br>      "type" : "string"<br>    },<br>    "policyConsentNoticeRequired" : {<br>      "type" : "boolean"<br>    },<br>    "policyConsentRequired" : {<br>      "type" : "boolean"<br>    },<br>    "profileImageUrl" : {<br>      "type" : "string"<br>    },<br>    "provider" : {<br>      "type" : "string"<br>    },<br>    "providerId" : {<br>      "type" : "string"<br>    },<br>    "role" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "email", "name" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "bio" : {<br>      "maxLength" : 500,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "cheerPoints" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "createdAt" : {<br>      "type" : "string"<br>    },<br>    "email" : {<br>      "format" : "email",<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "favoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "handle" : {<br>      "type" : "string"<br>    },<br>    "hasPassword" : {<br>      "type" : "boolean"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "missingPolicyTypes" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "name" : {<br>      "maxLength" : 20,<br>      "minLength" : 2,<br>      "type" : "string"<br>    },<br>    "policyConsentEffectiveDate" : {<br>      "type" : "string"<br>    },<br>    "policyConsentHardGateDate" : {<br>      "type" : "string"<br>    },<br>    "policyConsentNoticeRequired" : {<br>      "type" : "boolean"<br>    },<br>    "policyConsentRequired" : {<br>      "type" : "boolean"<br>    },<br>    "profileImageUrl" : {<br>      "type" : "string"<br>    },<br>    "provider" : {<br>      "type" : "string"<br>    },<br>    "providerId" : {<br>      "type" : "string"<br>    },<br>    "role" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "email", "name" ],<br>  "type" : "object"<br>}`
 Required properties: `email`, `name`
 
 ### Properties
@@ -4591,7 +4679,7 @@ Required properties: `email`, `name`
 | `bio` | no | `string` | — | minLength=0, maxLength=500 |
 | `cheerPoints` | no | `integer (int32)` | — | — |
 | `createdAt` | no | `string` | — | — |
-| `email` | yes | `string` | — | — |
+| `email` | yes | `string (email)` | — | minLength=1 |
 | `favoriteTeam` | no | `string` | — | — |
 | `handle` | no | `string` | — | — |
 | `hasPassword` | no | `boolean` | — | — |
@@ -4653,11 +4741,11 @@ Schema: `{<br>  "properties" : {<br>    "accuracy" : {<br>      "format" : "doub
 
 <a id="winprobabilitydto"></a>
 ## WinProbabilityDto
-Schema: `{<br>  "properties" : {<br>    "away" : {<br>      "format" : "double",<br>      "type" : "number"<br>    },<br>    "home" : {<br>      "format" : "double",<br>      "type" : "number"<br>    }<br>  },<br>  "required" : [ "away", "home" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "away" : {<br>      "format" : "double",<br>      "type" : [ "number", "null" ]<br>    },<br>    "home" : {<br>      "format" : "double",<br>      "type" : [ "number", "null" ]<br>    }<br>  },<br>  "required" : [ "away", "home" ],<br>  "type" : "object"<br>}`
 Required properties: `away`, `home`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `away` | yes | `number (double)` | — | — |
-| `home` | yes | `number (double)` | — | — |
+| `away` | yes | `{<br>  "format" : "double",<br>  "type" : [ "number", "null" ]<br>}` | — | — |
+| `home` | yes | `{<br>  "format" : "double",<br>  "type" : [ "number", "null" ]<br>}` | — | — |

@@ -5,8 +5,8 @@ spring:
     import: optional:file:.env[.properties], optional:file:../../.env[.properties]
   autoconfigure:
     exclude:
-      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
-      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration
       - io.awspring.cloud.autoconfigure.s3.S3AutoConfiguration
   jwt:
     secret: test-jwt-secret-64-characters-long-for-hs512-signature-tests-key-1234567890
@@ -59,6 +59,10 @@ ai:
   service-url: http://localhost:8001
 
 app:
+  realtime:
+    transport: local
+    outbox:
+      enabled: false
   home:
     bootstrap:
       warmup:

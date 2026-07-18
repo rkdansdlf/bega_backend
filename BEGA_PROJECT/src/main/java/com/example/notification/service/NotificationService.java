@@ -1,30 +1,32 @@
 package com.example.notification.service;
 
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.lang.NonNull;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.common.exception.AuthenticationRequiredException;
+import com.example.common.realtime.RealtimeOutboxWriter;
+import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.notification.dto.NotificationDTO;
 import com.example.notification.entity.Notification;
 import com.example.notification.exception.NotificationNotFoundException;
 import com.example.notification.repository.NotificationRepository;
-import com.example.common.exception.AuthenticationRequiredException;
+
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
-import java.util.List;
-import java.util.Objects;
-import java.util.stream.Collectors;
-import com.example.mate.exception.UnauthorizedAccessException;
-import org.springframework.lang.NonNull;
 
 @Service
 @RequiredArgsConstructor
-@lombok.extern.slf4j.Slf4j
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final RealtimeOutboxWriter realtimeOutboxWriter;
 
     // 알림 생성
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -48,22 +50,10 @@ public class NotificationService {
         // DTO 생성
         NotificationDTO.Response dto = NotificationDTO.Response.from(saved);
 
-        // WebSocket으로 실시간 알림 전송 (트랜잭션 커밋 후 전송)
-        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
-                new org.springframework.transaction.support.TransactionSynchronization() {
-                    @Override
-                    public void afterCommit() {
-                        try {
-                            messagingTemplate.convertAndSendToUser(
-                                    String.valueOf(userId),
-                                    "/queue/notifications",
-                                    dto);
-                            log.info("알림 전송 성공 (After Commit): userId={}, type={}", userId, type);
-                        } catch (Exception e) {
-                            log.error("알림 전송 실패: {}", e.getMessage());
-                        }
-                    }
-                });
+        realtimeOutboxWriter.sendToUser(
+                String.valueOf(userId),
+                "/queue/notifications",
+                dto);
 
     }
 

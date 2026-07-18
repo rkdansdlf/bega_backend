@@ -10,7 +10,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -29,15 +28,12 @@ class ChatMessageControllerTest {
     @Mock
     private ChatMessageService chatMessageService;
 
-    @Mock
-    private SimpMessagingTemplate messagingTemplate;
-
     @InjectMocks
     private ChatMessageController controller;
 
     @Test
-    @DisplayName("메시지 전송 시 201을 반환하고 WebSocket으로 브로드캐스트한다")
-    void sendMessage_returns201AndBroadcasts() {
+    @DisplayName("메시지 전송 시 서비스 결과와 201을 반환한다")
+    void sendMessage_returns201() {
         ChatMessageDTO.Request req = ChatMessageDTO.Request.builder().partyId(5L).message("hi").build();
         ChatMessageDTO.Response resp = ChatMessageDTO.Response.builder().id(1L).partyId(5L).message("hi").build();
         when(chatMessageService.sendMessage(req, 42L)).thenReturn(resp);
@@ -46,7 +42,7 @@ class ChatMessageControllerTest {
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(result.getBody()).isEqualTo(resp);
-        verify(messagingTemplate).convertAndSend("/topic/party/5", resp);
+        verify(chatMessageService).sendMessage(req, 42L);
     }
 
     @Test

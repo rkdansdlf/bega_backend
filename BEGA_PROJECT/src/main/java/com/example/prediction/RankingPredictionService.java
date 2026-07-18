@@ -6,6 +6,7 @@ import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -134,7 +135,9 @@ public class RankingPredictionService {
 				prediction.getSeasonYear(),
 				predictionData,
 				details,
-				prediction.getCreatedAt()));
+				prediction.getCreatedAt(),
+				prediction.getExactMatchCount(),
+				prediction.getSettledAt()));
 	}
 
 	private RankingPredictionContextSnapshot getRankingContext(int seasonYear) {
@@ -187,6 +190,40 @@ public class RankingPredictionService {
 				.map(this::convertToResponseDto)
 				.orElse(null);
 		return new RankingPredictionInitDto(seasonYear, saved);
+	}
+
+	// 시즌 종료 후 확정 순위와 비교해 예측을 정산 (시즌 정산 스케줄러 전용, 재실행해도 안전)
+	@Transactional(transactionManager = "transactionManager")
+	public int settleSeason(int seasonYear) {
+		List<RankingPrediction> unsettledPredictions =
+				rankingPredictionRepository.findBySeasonYearAndSettledAtIsNull(seasonYear);
+		if (unsettledPredictions.isEmpty()) {
+			return 0;
+		}
+
+		Map<String, Integer> finalRankMap = extractRankMap(gameRepository.findTeamRankingsBySeason(seasonYear));
+		if (finalRankMap.size() < RANKING_TEAM_COUNT) {
+			log.warn("MANUAL_BASEBALL_DATA_REQUIRED: {} 시즌 최종 순위 데이터가 불완전하여 정산을 건너뜁니다 (확보된 팀 수={})",
+					seasonYear, finalRankMap.size());
+			return 0;
+		}
+
+		LocalDateTime settledAt = LocalDateTime.now();
+		for (RankingPrediction prediction : unsettledPredictions) {
+			int exactMatchCount = 0;
+			List<String> predictionData = prediction.getPredictionData();
+			for (int i = 0; i < predictionData.size(); i++) {
+				Integer finalRank = finalRankMap.get(predictionData.get(i));
+				if (finalRank != null && finalRank == i + 1) {
+					exactMatchCount++;
+				}
+			}
+			prediction.markSettled(exactMatchCount, settledAt);
+		}
+		rankingPredictionRepository.saveAll(unsettledPredictions);
+
+		log.info("{} 시즌 순위 예측 정산 완료: {}건", seasonYear, unsettledPredictions.size());
+		return unsettledPredictions.size();
 	}
 
 	private UserEntity findUserByShareId(String shareId) {

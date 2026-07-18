@@ -39,6 +39,7 @@ spring:
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:6379}
       timeout: 2000ms
+      connect-timeout: 2000ms
       lettuce:
         pool:
           max-active: 50
@@ -183,6 +184,23 @@ kbo:
 
 # 애플리케이션 공통 설정
 app:
+  realtime:
+    transport: ${APP_REALTIME_TRANSPORT:redis}
+    redis-channel: ${APP_REALTIME_REDIS_CHANNEL:bega:realtime:v1}
+    authorization-cache:
+      enabled: ${APP_REALTIME_AUTHORIZATION_CACHE_ENABLED:true}
+    outbox:
+      enabled: ${APP_REALTIME_OUTBOX_ENABLED:true}
+      batch-size: ${APP_REALTIME_OUTBOX_BATCH_SIZE:100}
+      poll-interval-ms: ${APP_REALTIME_OUTBOX_POLL_INTERVAL_MS:200}
+      lease-duration: ${APP_REALTIME_OUTBOX_LEASE_DURATION:30s}
+      lease-clock-skew: ${APP_REALTIME_OUTBOX_LEASE_CLOCK_SKEW:5s}
+      retry-base-delay: ${APP_REALTIME_OUTBOX_RETRY_BASE_DELAY:1s}
+      retry-max-delay: ${APP_REALTIME_OUTBOX_RETRY_MAX_DELAY:5m}
+      max-attempts: ${APP_REALTIME_OUTBOX_MAX_ATTEMPTS:100}
+      retention: ${APP_REALTIME_OUTBOX_RETENTION:7d}
+      cleanup-batch-size: ${APP_REALTIME_OUTBOX_CLEANUP_BATCH_SIZE:500}
+      cleanup-max-batches: ${APP_REALTIME_OUTBOX_CLEANUP_MAX_BATCHES:20}
   ai-ingest:
     enabled: ${AI_INGEST_ENABLED:false}
     cron: "${AI_INGEST_CRON:30 4 * * *}"

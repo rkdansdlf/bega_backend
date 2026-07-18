@@ -283,6 +283,67 @@ class RankingPredictionServiceTest {
     }
 
     @Test
+    void settleSeason_computesExactMatchCountAgainstFinalStandings() {
+        RankingPrediction prediction = new RankingPrediction(
+                "7", 2026,
+                List.of("LG", "DB", "SSG", "KT", "KH", "NC", "SS", "LT", "KIA", "HH"));
+
+        when(rankingPredictionRepository.findBySeasonYearAndSettledAtIsNull(2026))
+                .thenReturn(new java.util.ArrayList<>(List.of(prediction)));
+        when(gameRepository.findTeamRankingsBySeason(2026)).thenReturn(List.<Object[]>of(
+                new Object[] { 1, "LG" },
+                new Object[] { 2, "SSG" }, // 예측은 3위였으므로 불일치
+                new Object[] { 3, "DB" },
+                new Object[] { 4, "KT" },
+                new Object[] { 5, "KH" },
+                new Object[] { 6, "NC" },
+                new Object[] { 7, "SS" },
+                new Object[] { 8, "LT" },
+                new Object[] { 9, "KIA" },
+                new Object[] { 10, "HH" }));
+
+        int settledCount = rankingPredictionService.settleSeason(2026);
+
+        assertThat(settledCount).isEqualTo(1);
+        assertThat(prediction.getSettledAt()).isNotNull();
+        // LG(1), KT(4), KH(5), NC(6), SS(7), LT(8), KIA(9), HH(10) 8개 적중, DB/SSG는 순서가 어긋남
+        assertThat(prediction.getExactMatchCount()).isEqualTo(8);
+        verify(rankingPredictionRepository).saveAll(List.of(prediction));
+    }
+
+    @Test
+    void settleSeason_skipsWhenNoUnsettledPredictions() {
+        when(rankingPredictionRepository.findBySeasonYearAndSettledAtIsNull(2026))
+                .thenReturn(List.of());
+
+        int settledCount = rankingPredictionService.settleSeason(2026);
+
+        assertThat(settledCount).isEqualTo(0);
+        verify(gameRepository, org.mockito.Mockito.never()).findTeamRankingsBySeason(org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    void settleSeason_skipsWhenFinalStandingsAreIncomplete() {
+        RankingPrediction prediction = new RankingPrediction(
+                "7", 2026,
+                List.of("LG", "DB", "SSG", "KT", "KH", "NC", "SS", "LT", "KIA", "HH"));
+
+        when(rankingPredictionRepository.findBySeasonYearAndSettledAtIsNull(2026))
+                .thenReturn(new java.util.ArrayList<>(List.of(prediction)));
+        // 팀 순위가 일부만 확보된 상황 (내부 DB 동기화 미완료)
+        when(gameRepository.findTeamRankingsBySeason(2026)).thenReturn(List.<Object[]>of(
+                new Object[] { 1, "LG" },
+                new Object[] { 2, "SSG" }));
+
+        int settledCount = rankingPredictionService.settleSeason(2026);
+
+        assertThat(settledCount).isEqualTo(0);
+        assertThat(prediction.getSettledAt()).isNull();
+        assertThat(prediction.getExactMatchCount()).isNull();
+        verify(rankingPredictionRepository, org.mockito.Mockito.never()).saveAll(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
     void savePrediction_mapsUniqueConstraintViolationToConflict() {
         try (MockedStatic<SeasonUtils> seasonUtils = Mockito.mockStatic(SeasonUtils.class)) {
             seasonUtils.when(SeasonUtils::isPredictionPeriod).thenReturn(true);

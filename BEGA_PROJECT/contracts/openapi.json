@@ -12,6 +12,7 @@
       "AccountDeletionRecoveryRequestDto" : {
         "properties" : {
           "token" : {
+            "minLength" : 1,
             "type" : "string"
           }
         },
@@ -516,9 +517,7 @@
           "code" : {
             "type" : "string"
           },
-          "data" : {
-            "type" : "object"
-          },
+          "data" : { },
           "errors" : {
             "additionalProperties" : {
               "type" : "string"
@@ -1198,9 +1197,7 @@
             "type" : "string"
           },
           "data" : {
-            "additionalProperties" : {
-              "type" : "object"
-            },
+            "additionalProperties" : { },
             "type" : "object"
           },
           "errors" : {
@@ -1522,9 +1519,7 @@
           "code" : {
             "type" : "string"
           },
-          "data" : {
-            "type" : "object"
-          },
+          "data" : { },
           "errors" : {
             "additionalProperties" : {
               "type" : "string"
@@ -1643,6 +1638,7 @@
       "BootstrapRequest" : {
         "properties" : {
           "targetHandle" : {
+            "minLength" : 1,
             "type" : "string"
           }
         },
@@ -1652,12 +1648,14 @@
       "ChangePasswordRequest" : {
         "properties" : {
           "confirmPassword" : {
+            "minLength" : 1,
             "type" : "string"
           },
           "currentPassword" : {
             "type" : "string"
           },
           "newPassword" : {
+            "minLength" : 1,
             "type" : "string"
           }
         },
@@ -2325,6 +2323,7 @@
       "CreatePostReq" : {
         "properties" : {
           "content" : {
+            "minLength" : 1,
             "type" : "string"
           },
           "diaryId" : {
@@ -2820,14 +2819,14 @@
         "properties" : {
           "attendance" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "awayPitcher" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "awayScore" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "awayTeam" : {
             "type" : "string"
@@ -2840,18 +2839,18 @@
             "type" : "string"
           },
           "gameStatus" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "gameTimeMinutes" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "homePitcher" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "homeScore" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "homeTeam" : {
             "type" : "string"
@@ -2863,13 +2862,13 @@
             "type" : "array"
           },
           "stadium" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "stadiumName" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "startTime" : {
-            "$ref" : "#/components/schemas/LocalTime"
+            "type" : [ "string", "null" ]
           },
           "summary" : {
             "items" : {
@@ -2878,7 +2877,7 @@
             "type" : "array"
           },
           "weather" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           }
         },
         "required" : [ "attendance", "awayPitcher", "awayScore", "awayTeam", "gameDate", "gameId", "gameStatus", "gameTimeMinutes", "homePitcher", "homeScore", "homeTeam", "inningScores", "stadium", "stadiumName", "startTime", "summary", "weather" ],
@@ -2888,20 +2887,20 @@
         "properties" : {
           "inning" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "isExtra" : {
-            "type" : "boolean"
+            "type" : [ "boolean", "null" ]
           },
           "runs" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "teamCode" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "teamSide" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           }
         },
         "required" : [ "inning", "isExtra", "runs", "teamCode", "teamSide" ],
@@ -2927,6 +2926,7 @@
             "type" : "string"
           },
           "teamSide" : {
+            "minLength" : 1,
             "pattern" : "^(home|away)$",
             "type" : "string"
           }
@@ -3310,7 +3310,7 @@
             "type" : "array"
           },
           "startTime" : {
-            "$ref" : "#/components/schemas/LocalTime"
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -3368,17 +3368,17 @@
       "GameSummaryDto" : {
         "properties" : {
           "detail" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "playerId" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "playerName" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "type" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           }
         },
         "required" : [ "detail", "playerId", "playerName", "type" ],
@@ -3550,36 +3550,36 @@
         "properties" : {
           "draws" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "games" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "gamesBehind" : {
             "format" : "double",
-            "type" : "number"
+            "type" : [ "number", "null" ]
           },
           "losses" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "rank" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "teamId" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "teamName" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "winRate" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "wins" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           }
         },
         "required" : [ "draws", "games", "gamesBehind", "losses", "rank", "teamId", "teamName", "winRate", "wins" ],
@@ -3592,10 +3592,10 @@
           },
           "rankingSeasonYear" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "rankingSourceMessage" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "rankings" : {
             "items" : {
@@ -3700,6 +3700,7 @@
             "type" : "integer"
           },
           "contentType" : {
+            "minLength" : 1,
             "type" : "string"
           },
           "domain" : {
@@ -3707,6 +3708,7 @@
             "type" : "string"
           },
           "fileName" : {
+            "minLength" : 1,
             "type" : "string"
           },
           "height" : {
@@ -3721,7 +3723,46 @@
         "required" : [ "contentLength", "contentType", "domain", "fileName", "height", "width" ],
         "type" : "object"
       },
-      "JsonNode" : {
+      "JsonNode" : { },
+      "LeaderboardEntryDto" : {
+        "properties" : {
+          "accuracy" : {
+            "format" : "double",
+            "type" : "number"
+          },
+          "handle" : {
+            "type" : "string"
+          },
+          "level" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "maxStreak" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "profileImageUrl" : {
+            "type" : "string"
+          },
+          "rank" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "rankTitle" : {
+            "type" : "string"
+          },
+          "score" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "streak" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "userName" : {
+            "type" : "string"
+          }
+        },
         "type" : "object"
       },
       "LeagueStartDatesDto" : {
@@ -3784,36 +3825,18 @@
         },
         "type" : "object"
       },
-      "LocalTime" : {
-        "properties" : {
-          "hour" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "minute" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "nano" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "second" : {
-            "format" : "int32",
-            "type" : "integer"
-          }
-        },
-        "type" : "object"
-      },
       "LoginDto" : {
         "properties" : {
           "captchaToken" : {
             "type" : "string"
           },
           "email" : {
+            "format" : "email",
+            "minLength" : 1,
             "type" : "string"
           },
           "password" : {
+            "minLength" : 1,
             "type" : "string"
           }
         },
@@ -3905,14 +3928,15 @@
       "MatchDto" : {
         "properties" : {
           "aiSummary" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "awayPitcher" : {
-            "$ref" : "#/components/schemas/PitcherDto"
+            "$ref" : "#/components/schemas/PitcherDto",
+            "type" : "null"
           },
           "awayScore" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "awayTeam" : {
             "type" : "string"
@@ -3925,46 +3949,48 @@
             "type" : "string"
           },
           "gameStatus" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "homePitcher" : {
-            "$ref" : "#/components/schemas/PitcherDto"
+            "$ref" : "#/components/schemas/PitcherDto",
+            "type" : "null"
           },
           "homeScore" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "homeTeam" : {
             "type" : "string"
           },
           "isDummy" : {
-            "type" : "boolean"
+            "type" : [ "boolean", "null" ]
           },
           "leagueType" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "postSeasonSeries" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "seasonId" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "seriesGameNo" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "stadium" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "startTime" : {
-            "$ref" : "#/components/schemas/LocalTime"
+            "type" : [ "string", "null" ]
           },
           "winProbability" : {
-            "$ref" : "#/components/schemas/WinProbabilityDto"
+            "$ref" : "#/components/schemas/WinProbabilityDto",
+            "type" : "null"
           },
           "winner" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           }
         },
         "required" : [ "aiSummary", "awayPitcher", "awayScore", "awayTeam", "gameDate", "gameId", "gameStatus", "homePitcher", "homeScore", "homeTeam", "isDummy", "leagueType", "postSeasonSeries", "seasonId", "seriesGameNo", "stadium", "startTime", "winProbability", "winner" ],
@@ -4068,7 +4094,7 @@
           "ticketImageUrl" : {
             "maxLength" : 2048,
             "minLength" : 0,
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "ticketVerified" : {
             "type" : "boolean"
@@ -4076,7 +4102,7 @@
           "verificationToken" : {
             "maxLength" : 128,
             "minLength" : 0,
-            "type" : "string"
+            "type" : [ "string", "null" ]
           }
         },
         "required" : [ "partyId" ],
@@ -4450,7 +4476,7 @@
             "type" : "string"
           },
           "gameTime" : {
-            "$ref" : "#/components/schemas/LocalTime"
+            "type" : "string"
           },
           "homeTeam" : {
             "maxLength" : 20,
@@ -4510,6 +4536,67 @@
         "required" : [ "awayTeam", "cheeringSide", "description", "gameDate", "gameTime", "homeTeam", "maxParticipants", "section", "stadium", "verificationToken" ],
         "type" : "object"
       },
+      "MatePartyHistoryResponse" : {
+        "properties" : {
+          "awayTeam" : {
+            "type" : "string"
+          },
+          "cheeringSide" : {
+            "enum" : [ "HOME", "AWAY", "NEUTRAL" ],
+            "type" : "string"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "currentParticipants" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "gameDate" : {
+            "format" : "date",
+            "type" : "string"
+          },
+          "gameTime" : {
+            "type" : "string"
+          },
+          "homeTeam" : {
+            "type" : "string"
+          },
+          "hostHandle" : {
+            "type" : "string"
+          },
+          "hostId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "maxParticipants" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "section" : {
+            "type" : "string"
+          },
+          "stadium" : {
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "PENDING", "MATCHED", "FAILED", "SELLING", "SOLD", "CHECKED_IN", "COMPLETED" ],
+            "type" : "string"
+          },
+          "teamId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "MatePartyMemberSummary" : {
         "properties" : {
           "host" : {
@@ -4555,7 +4642,7 @@
             "type" : "string"
           },
           "gameTime" : {
-            "$ref" : "#/components/schemas/LocalTime"
+            "type" : "string"
           },
           "homeTeam" : {
             "type" : "string"
@@ -4664,7 +4751,7 @@
             "type" : "string"
           },
           "gameTime" : {
-            "$ref" : "#/components/schemas/LocalTime"
+            "type" : "string"
           },
           "homeTeam" : {
             "type" : "string"
@@ -5301,7 +5388,7 @@
             "type" : "array"
           },
           "startTime" : {
-            "$ref" : "#/components/schemas/LocalTime"
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -5654,11 +5741,11 @@
         },
         "type" : "object"
       },
-      "PagedModel" : {
+      "PagedModelCommentRes" : {
         "properties" : {
           "content" : {
             "items" : {
-              "type" : "object"
+              "$ref" : "#/components/schemas/CommentRes"
             },
             "type" : "array"
           },
@@ -5668,11 +5755,39 @@
         },
         "type" : "object"
       },
-      "PagedModelCommentRes" : {
+      "PagedModelLeaderboardEntryDto" : {
         "properties" : {
           "content" : {
             "items" : {
-              "$ref" : "#/components/schemas/CommentRes"
+              "$ref" : "#/components/schemas/LeaderboardEntryDto"
+            },
+            "type" : "array"
+          },
+          "page" : {
+            "$ref" : "#/components/schemas/PageMetadata"
+          }
+        },
+        "type" : "object"
+      },
+      "PagedModelMatePartyHistoryResponse" : {
+        "properties" : {
+          "content" : {
+            "items" : {
+              "$ref" : "#/components/schemas/MatePartyHistoryResponse"
+            },
+            "type" : "array"
+          },
+          "page" : {
+            "$ref" : "#/components/schemas/PageMetadata"
+          }
+        },
+        "type" : "object"
+      },
+      "PagedModelMatePartyPublicResponse" : {
+        "properties" : {
+          "content" : {
+            "items" : {
+              "$ref" : "#/components/schemas/MatePartyPublicResponse"
             },
             "type" : "array"
           },
@@ -5696,15 +5811,46 @@
         },
         "type" : "object"
       },
+      "PagedModelRecentScoreDto" : {
+        "properties" : {
+          "content" : {
+            "items" : {
+              "$ref" : "#/components/schemas/RecentScoreDto"
+            },
+            "type" : "array"
+          },
+          "page" : {
+            "$ref" : "#/components/schemas/PageMetadata"
+          }
+        },
+        "type" : "object"
+      },
+      "PagedModelUserFollowSummaryDto" : {
+        "properties" : {
+          "content" : {
+            "items" : {
+              "$ref" : "#/components/schemas/UserFollowSummaryDto"
+            },
+            "type" : "array"
+          },
+          "page" : {
+            "$ref" : "#/components/schemas/PageMetadata"
+          }
+        },
+        "type" : "object"
+      },
       "PasswordResetConfirmDto" : {
         "properties" : {
           "confirmPassword" : {
+            "minLength" : 1,
             "type" : "string"
           },
           "newPassword" : {
+            "minLength" : 1,
             "type" : "string"
           },
           "token" : {
+            "minLength" : 1,
             "type" : "string"
           }
         },
@@ -5714,6 +5860,8 @@
       "PasswordResetRequestDto" : {
         "properties" : {
           "email" : {
+            "format" : "email",
+            "minLength" : 1,
             "type" : "string"
           },
           "redirect" : {
@@ -5726,21 +5874,21 @@
       "PitcherDto" : {
         "properties" : {
           "era" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "imgUrl" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "loss" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "name" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "win" : {
             "format" : "int32",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           }
         },
         "required" : [ "era", "imgUrl", "loss", "name", "win" ],
@@ -5858,6 +6006,7 @@
             "type" : "string"
           },
           "version" : {
+            "minLength" : 1,
             "type" : "string"
           }
         },
@@ -5870,6 +6019,7 @@
             "items" : {
               "$ref" : "#/components/schemas/PolicyConsentItemDto"
             },
+            "minItems" : 1,
             "type" : "array"
           }
         },
@@ -6343,6 +6493,7 @@
         "properties" : {
           "gameIds" : {
             "items" : {
+              "minLength" : 1,
               "pattern" : "^[A-Za-z0-9_-]+$",
               "type" : "string"
             },
@@ -6375,6 +6526,7 @@
       "PredictionRequestDto" : {
         "properties" : {
           "gameId" : {
+            "minLength" : 1,
             "pattern" : "^[A-Za-z0-9_-]+$",
             "type" : "string"
           },
@@ -6903,27 +7055,34 @@
       "SignupDto" : {
         "properties" : {
           "confirmPassword" : {
+            "minLength" : 1,
             "type" : "string"
           },
           "email" : {
+            "format" : "email",
+            "minLength" : 1,
             "type" : "string"
           },
           "favoriteTeam" : {
             "type" : "string"
           },
           "handle" : {
+            "minLength" : 1,
             "type" : "string"
           },
           "name" : {
+            "minLength" : 1,
             "type" : "string"
           },
           "password" : {
+            "minLength" : 1,
             "type" : "string"
           },
           "policyConsents" : {
             "items" : {
               "$ref" : "#/components/schemas/PolicyConsentItemDto"
             },
+            "minItems" : 1,
             "type" : "array"
           },
           "provider" : {
@@ -7115,9 +7274,7 @@
         },
         "type" : "object"
       },
-      "StreamingResponseBody" : {
-        "type" : "object"
-      },
+      "StreamingResponseBody" : { },
       "TeamEntity" : {
         "properties" : {
           "activeKboTeam" : {
@@ -7393,6 +7550,7 @@
       "UpdatePostReq" : {
         "properties" : {
           "content" : {
+            "minLength" : 1,
             "type" : "string"
           },
           "images" : {
@@ -7428,6 +7586,30 @@
           }
         },
         "required" : [ "content" ],
+        "type" : "object"
+      },
+      "UserFollowSummaryDto" : {
+        "properties" : {
+          "favoriteTeam" : {
+            "type" : "string"
+          },
+          "handle" : {
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "isFollowedByMe" : {
+            "type" : "boolean"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "profileImageUrl" : {
+            "type" : "string"
+          }
+        },
         "type" : "object"
       },
       "UserPredictionStatsDto" : {
@@ -7467,6 +7649,8 @@
             "type" : "string"
           },
           "email" : {
+            "format" : "email",
+            "minLength" : 1,
             "type" : "string"
           },
           "favoriteTeam" : {
@@ -7647,11 +7831,11 @@
         "properties" : {
           "away" : {
             "format" : "double",
-            "type" : "number"
+            "type" : [ "number", "null" ]
           },
           "home" : {
             "format" : "double",
-            "type" : "number"
+            "type" : [ "number", "null" ]
           }
         },
         "required" : [ "away", "home" ],
@@ -10620,6 +10804,7 @@
           "name" : "beforeId",
           "required" : false,
           "schema" : {
+            "exclusiveMinimum" : 0,
             "format" : "int64",
             "minimum" : 1,
             "type" : "integer"
@@ -12477,9 +12662,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "additionalProperties" : {
-                    "type" : "object"
-                  },
+                  "additionalProperties" : { },
                   "type" : "object"
                 }
               }
@@ -13042,7 +13225,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/PagedModel"
+                  "$ref" : "#/components/schemas/PagedModelLeaderboardEntryDto"
                 }
               }
             },
@@ -13220,7 +13403,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/PagedModel"
+                  "$ref" : "#/components/schemas/PagedModelRecentScoreDto"
                 }
               }
             },
@@ -13295,9 +13478,7 @@
           "content" : {
             "application/json" : {
               "schema" : {
-                "additionalProperties" : {
-                  "type" : "object"
-                },
+                "additionalProperties" : { },
                 "type" : "object"
               }
             }
@@ -13409,9 +13590,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "additionalProperties" : {
-                    "type" : "object"
-                  },
+                  "additionalProperties" : { },
                   "type" : "object"
                 }
               }
@@ -13430,9 +13609,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "additionalProperties" : {
-                    "type" : "object"
-                  },
+                  "additionalProperties" : { },
                   "type" : "object"
                 }
               }
@@ -14007,7 +14184,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/PagedModel"
+                  "$ref" : "#/components/schemas/PagedModelMatePartyPublicResponse"
                 }
               }
             },
@@ -14099,7 +14276,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/PagedModel"
+                  "$ref" : "#/components/schemas/PagedModelMatePartyHistoryResponse"
                 }
               }
             },
@@ -15587,9 +15764,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "additionalProperties" : {
-                    "type" : "object"
-                  },
+                  "additionalProperties" : { },
                   "type" : "object"
                 }
               }
@@ -15722,9 +15897,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "additionalProperties" : {
-                    "type" : "object"
-                  },
+                  "additionalProperties" : { },
                   "type" : "object"
                 }
               }
@@ -15758,9 +15931,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "additionalProperties" : {
-                    "type" : "object"
-                  },
+                  "additionalProperties" : { },
                   "type" : "object"
                 }
               }
@@ -15821,7 +15992,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/PagedModel"
+                  "$ref" : "#/components/schemas/PagedModelUserFollowSummaryDto"
                 }
               }
             },
@@ -15865,7 +16036,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/PagedModel"
+                  "$ref" : "#/components/schemas/PagedModelUserFollowSummaryDto"
                 }
               }
             },
@@ -15911,7 +16082,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/PagedModel"
+                  "$ref" : "#/components/schemas/PagedModelUserFollowSummaryDto"
                 }
               }
             },
@@ -16081,7 +16252,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/PagedModel"
+                  "$ref" : "#/components/schemas/PagedModelUserFollowSummaryDto"
                 }
               }
             },
@@ -16114,7 +16285,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/PagedModel"
+                  "$ref" : "#/components/schemas/PagedModelUserFollowSummaryDto"
                 }
               }
             },

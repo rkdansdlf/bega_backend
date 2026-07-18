@@ -8,6 +8,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,10 +19,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.example.common.exception.NotFoundBusinessException;
+import com.example.common.realtime.RealtimeOutboxWriter;
 import com.example.dm.dto.DmMessageDto;
 import com.example.dm.entity.DmMessage;
 import com.example.dm.entity.DmRoom;
 import com.example.dm.repository.DmMessageRepository;
+import com.example.dm.repository.DmRoomRepository;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("DmMessageService tests")
@@ -31,6 +35,12 @@ class DmMessageServiceTest {
 
     @Mock
     private DmRoomService dmRoomService;
+
+    @Mock
+    private DmRoomRepository dmRoomRepository;
+
+    @Mock
+    private RealtimeOutboxWriter realtimeOutboxWriter;
 
     @InjectMocks
     private DmMessageService dmMessageService;
@@ -63,6 +73,56 @@ class DmMessageServiceTest {
 
         assertThat(response.getId()).isEqualTo(101L);
         verify(dmMessageRepository, never()).save(any(DmMessage.class));
+        verify(realtimeOutboxWriter, never()).broadcast(any(), any());
+    }
+
+    @Test
+    @DisplayName("new message stores an outbox event in the service transaction")
+    void sendMessage_writesRealtimeOutboxEvent() {
+        DmRoom room = DmRoom.builder()
+                .id(55L)
+                .participantOneId(10L)
+                .participantTwoId(20L)
+                .build();
+        when(dmRoomService.getAccessibleRoom(55L, 10L)).thenReturn(room);
+        when(dmMessageRepository.save(any(DmMessage.class))).thenAnswer(invocation -> {
+            DmMessage message = invocation.getArgument(0);
+            message.setId(102L);
+            return message;
+        });
+
+        DmMessageDto.Response response = dmMessageService.sendMessage(10L, DmMessageDto.Request.builder()
+                .roomId(55L)
+                .content("새 메시지")
+                .build());
+
+        verify(realtimeOutboxWriter).broadcast("/topic/dm/55", response);
+    }
+
+    @Test
+    @DisplayName("message deletion stores a durable deletion event")
+    void deleteMessage_writesRealtimeOutboxEvent() {
+        DmMessage message = DmMessage.builder()
+                .id(101L)
+                .roomId(55L)
+                .senderId(10L)
+                .content("삭제할 메시지")
+                .build();
+        DmRoom room = DmRoom.builder()
+                .id(55L)
+                .participantOneId(10L)
+                .participantTwoId(20L)
+                .build();
+        when(dmMessageRepository.findById(101L)).thenReturn(Optional.of(message));
+        when(dmRoomRepository.findAccessibleByIdAndParticipantId(55L, 10L)).thenReturn(Optional.of(room));
+
+        Long roomId = dmMessageService.deleteMessage(101L, 10L);
+
+        assertThat(roomId).isEqualTo(55L);
+        verify(dmMessageRepository).delete(message);
+        verify(realtimeOutboxWriter).broadcast(
+                "/topic/dm/55",
+                Map.of("messageId", 101L, "deleted", true, "roomId", 55L));
     }
 
     @Test

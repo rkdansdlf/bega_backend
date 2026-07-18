@@ -114,12 +114,8 @@ class HomePageControllerTest {
         mockMvc.perform(get("/api/kbo/schedule/navigation")
                         .param("date", "2026-04-13"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.prevGameDate[0]").value(2026))
-                .andExpect(jsonPath("$.prevGameDate[1]").value(4))
-                .andExpect(jsonPath("$.prevGameDate[2]").value(12))
-                .andExpect(jsonPath("$.nextGameDate[0]").value(2026))
-                .andExpect(jsonPath("$.nextGameDate[1]").value(4))
-                .andExpect(jsonPath("$.nextGameDate[2]").value(14))
+                .andExpect(jsonPath("$.prevGameDate").value("2026-04-12"))
+                .andExpect(jsonPath("$.nextGameDate").value("2026-04-14"))
                 .andExpect(jsonPath("$.hasPrev").value(true))
                 .andExpect(jsonPath("$.hasNext").value(true));
     }

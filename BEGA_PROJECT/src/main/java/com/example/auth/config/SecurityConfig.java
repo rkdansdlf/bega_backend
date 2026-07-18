@@ -12,6 +12,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.authorization.AuthenticatedAuthorizationManager;
 import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationResult;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -311,7 +312,7 @@ public class SecurityConfig {
                         return false;
                 }
 
-                AuthorizationDecision decision = AUTHENTICATED_AUTHORIZATION_MANAGER.check(() -> authentication,
+                AuthorizationResult decision = AUTHENTICATED_AUTHORIZATION_MANAGER.authorize(() -> authentication,
                                 object);
                 return decision != null && decision.isGranted();
         }

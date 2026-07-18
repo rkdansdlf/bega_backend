@@ -1004,7 +1004,7 @@ Schema: `string (byte)`
 OK
 
 Media type: `*/*`
-Schema: [PagedModel](openapi-schemas.md#pagedmodel)
+Schema: [PagedModelUserFollowSummaryDto](openapi-schemas.md#pagedmodeluserfollowsummarydto)
 
 ### POST `/api/users/profile/{handle}/block`
 - Operation ID: `toggleBlockByHandle`
@@ -1255,7 +1255,7 @@ Schema: array<[MateCheckInResponse](openapi-schemas.md#matecheckinresponse)>
 OK
 
 Media type: `*/*`
-Schema: `{<br>  "additionalProperties" : {<br>    "type" : "object"<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "additionalProperties" : { },<br>  "type" : "object"<br>}`
 
 ### GET `/api/test/games-range`
 - Operation ID: `getGamesInRange`
@@ -1273,7 +1273,7 @@ Schema: `{<br>  "additionalProperties" : {<br>    "type" : "object"<br>  },<br> 
 OK
 
 Media type: `*/*`
-Schema: `{<br>  "additionalProperties" : {<br>    "type" : "object"<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "additionalProperties" : { },<br>  "type" : "object"<br>}`
 
 ## client-error-admin-controller
 
@@ -1687,7 +1687,7 @@ Schema: [FollowCountResponse](openapi-schemas.md#followcountresponse)
 OK
 
 Media type: `*/*`
-Schema: [PagedModel](openapi-schemas.md#pagedmodel)
+Schema: [PagedModelUserFollowSummaryDto](openapi-schemas.md#pagedmodeluserfollowsummarydto)
 
 ### DELETE `/api/users/me/followers/{followerId}`
 - Operation ID: `removeFollower`
@@ -1718,7 +1718,7 @@ OK
 OK
 
 Media type: `*/*`
-Schema: [PagedModel](openapi-schemas.md#pagedmodel)
+Schema: [PagedModelUserFollowSummaryDto](openapi-schemas.md#pagedmodeluserfollowsummarydto)
 
 ### POST `/api/users/profile/{handle}/follow`
 - Operation ID: `toggleFollowByHandle`
@@ -1788,7 +1788,7 @@ Schema: [FollowToggleResponse](openapi-schemas.md#followtoggleresponse)
 OK
 
 Media type: `*/*`
-Schema: [PagedModel](openapi-schemas.md#pagedmodel)
+Schema: [PagedModelUserFollowSummaryDto](openapi-schemas.md#pagedmodeluserfollowsummarydto)
 
 ### GET `/api/users/profile/{handle}/following`
 - Operation ID: `getPublicFollowing`
@@ -1806,7 +1806,7 @@ Schema: [PagedModel](openapi-schemas.md#pagedmodel)
 OK
 
 Media type: `*/*`
-Schema: [PagedModel](openapi-schemas.md#pagedmodel)
+Schema: [PagedModelUserFollowSummaryDto](openapi-schemas.md#pagedmodeluserfollowsummarydto)
 
 ## game-live-controller
 
@@ -3463,7 +3463,7 @@ Schema: array<[TeamHistoryEntity](openapi-schemas.md#teamhistoryentity)>
 OK
 
 Media type: `*/*`
-Schema: `{<br>  "additionalProperties" : {<br>    "type" : "object"<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "additionalProperties" : { },<br>  "type" : "object"<br>}`
 
 ### GET `/api/franchises/{id}/teams`
 - Operation ID: `getFranchiseTeams`
@@ -3598,7 +3598,7 @@ Schema: array<[TeamHistoryEntity](openapi-schemas.md#teamhistoryentity)>
 OK
 
 Media type: `*/*`
-Schema: `{<br>  "additionalProperties" : {<br>    "type" : "object"<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "additionalProperties" : { },<br>  "type" : "object"<br>}`
 
 ### GET `/api/team-history/team/{teamCode}`
 - Operation ID: `getTeamCodeHistory`
@@ -3929,7 +3929,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [PagedModel](openapi-schemas.md#pagedmodel)
+Schema: [PagedModelLeaderboardEntryDto](openapi-schemas.md#pagedmodelleaderboardentrydto)
 
 ### GET `/api/leaderboard/achievements`
 - Operation ID: `getAllAchievements`
@@ -4023,7 +4023,7 @@ Schema: [UserStatsDto](openapi-schemas.md#userstatsdto)
 OK
 
 Media type: `*/*`
-Schema: [PagedModel](openapi-schemas.md#pagedmodel)
+Schema: [PagedModelRecentScoreDto](openapi-schemas.md#pagedmodelrecentscoredto)
 
 ### GET `/api/leaderboard/powerups`
 - Operation ID: `getPowerups`
@@ -4065,7 +4065,7 @@ Schema: array<[ActivePowerupDto](openapi-schemas.md#activepowerupdto)>
 Required: **no**
 
 Media type: `application/json`
-Schema: `{<br>  "additionalProperties" : {<br>    "type" : "object"<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "additionalProperties" : { },<br>  "type" : "object"<br>}`
 
 ### Response `200`
 OK
@@ -4134,7 +4134,7 @@ Schema: array<[RecentScoreDto](openapi-schemas.md#recentscoredto)>
 OK
 
 Media type: `*/*`
-Schema: `{<br>  "additionalProperties" : {<br>    "type" : "object"<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "additionalProperties" : { },<br>  "type" : "object"<br>}`
 
 ## 리더보드-개발
 
@@ -4148,7 +4148,7 @@ Schema: `{<br>  "additionalProperties" : {<br>    "type" : "object"<br>  },<br> 
 OK
 
 Media type: `*/*`
-Schema: `{<br>  "additionalProperties" : {<br>    "type" : "object"<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "additionalProperties" : { },<br>  "type" : "object"<br>}`
 
 ## 응원 게시판
 
@@ -4827,7 +4827,7 @@ Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 OK
 
 Media type: `*/*`
-Schema: [PagedModel](openapi-schemas.md#pagedmodel)
+Schema: [PagedModelMatePartyPublicResponse](openapi-schemas.md#pagedmodelmatepartypublicresponse)
 
 ### POST `/api/parties`
 - Operation ID: `createParty`
@@ -4876,7 +4876,7 @@ Schema: array<[MatePartyResponse](openapi-schemas.md#matepartyresponse)>
 OK
 
 Media type: `*/*`
-Schema: [PagedModel](openapi-schemas.md#pagedmodel)
+Schema: [PagedModelMatePartyHistoryResponse](openapi-schemas.md#pagedmodelmatepartyhistoryresponse)
 
 ### GET `/api/parties/profile/{handle}`
 - Operation ID: `getPartiesByHostHandle`
