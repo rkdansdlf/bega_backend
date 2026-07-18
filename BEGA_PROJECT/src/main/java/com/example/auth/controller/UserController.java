@@ -18,7 +18,7 @@ public class UserController {
     private final UserService userService;
 
     @GetMapping("/profile/{handle}")
-    public ResponseEntity<ApiResponse> getPublicUserProfile(
+    public ResponseEntity<ApiResponse<PublicUserProfileDto>> getPublicUserProfile(
             @PathVariable String handle,
             @AuthenticationPrincipal Long currentUserId) {
         PublicUserProfileDto profile = userService.getPublicUserProfileByHandle(handle, currentUserId);
@@ -29,7 +29,7 @@ public class UserController {
      * 사용자의 소셜 연동(카카오/네이버) 여부 확인
      */
     @GetMapping("/{userId}/social-verified")
-    public ResponseEntity<ApiResponse> checkSocialVerified(
+    public ResponseEntity<ApiResponse<Boolean>> checkSocialVerified(
             @PathVariable Long userId,
             @AuthenticationPrincipal Long currentUserId) {
         if (currentUserId == null) {

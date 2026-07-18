@@ -228,7 +228,7 @@ class GlobalExceptionHandlerTest {
 
         var response = handler.handleHttpMessageNotReadableException(ex);
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONTENT_TOO_LARGE);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.getCode()).isEqualTo(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE);
         assertThat(body.getData()).isEqualTo(Map.of("maxBytes", 8L));
@@ -240,7 +240,7 @@ class GlobalExceptionHandlerTest {
 
         var response = handler.handleMultipartException(ex);
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONTENT_TOO_LARGE);
         var body = assertInstanceOf(ApiResponse.class, response.getBody());
         assertThat(body.getCode()).isEqualTo(AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE);
         assertThat(body.getData()).isEqualTo(Map.of("maxBytes", 16L));

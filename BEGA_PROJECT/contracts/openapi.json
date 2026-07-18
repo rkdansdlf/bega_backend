@@ -671,6 +671,52 @@
         },
         "type" : "object"
       },
+      "ApiResponseBoolean" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "type" : "boolean"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseBootstrapResponse" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/BootstrapResponse"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseChatFavoriteItem" : {
         "properties" : {
           "code" : {
@@ -862,6 +908,30 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/GameStatusRepairBatchResultDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseInteger" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "format" : "int32",
+            "type" : "integer"
           },
           "errors" : {
             "additionalProperties" : {
@@ -1086,6 +1156,32 @@
         },
         "type" : "object"
       },
+      "ApiResponseListInboxItem" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/InboxItem"
+            },
+            "type" : "array"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseListOffseasonMovementAdminDto" : {
         "properties" : {
           "code" : {
@@ -1094,6 +1190,32 @@
           "data" : {
             "items" : {
               "$ref" : "#/components/schemas/OffseasonMovementAdminDto"
+            },
+            "type" : "array"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseListResponse" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/Response"
             },
             "type" : "array"
           },
@@ -1445,6 +1567,29 @@
         },
         "type" : "object"
       },
+      "ApiResponsePlaceDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PlaceDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponsePolicyRequiredResponseDto" : {
         "properties" : {
           "code" : {
@@ -1452,6 +1597,75 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/PolicyRequiredResponseDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseProfileImageDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ProfileImageDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponsePublicUserProfileDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PublicUserProfileDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseResponse" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/Response"
           },
           "errors" : {
             "additionalProperties" : {
@@ -1643,6 +1857,21 @@
           }
         },
         "required" : [ "targetHandle" ],
+        "type" : "object"
+      },
+      "BootstrapResponse" : {
+        "properties" : {
+          "membershipState" : {
+            "type" : "string"
+          },
+          "roomId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "targetUser" : {
+            "$ref" : "#/components/schemas/TargetUser"
+          }
+        },
         "type" : "object"
       },
       "ChangePasswordRequest" : {
@@ -3568,6 +3797,13 @@
             "format" : "int32",
             "type" : [ "integer", "null" ]
           },
+          "recentForm" : {
+            "description" : "최근 5경기 결과, 최신순 (W/L/D), 데이터 없으면 null 또는 빈 리스트",
+            "items" : {
+              "type" : "string"
+            },
+            "type" : [ "array", "null" ]
+          },
           "teamId" : {
             "type" : [ "string", "null" ]
           },
@@ -3693,6 +3929,24 @@
         },
         "type" : "object"
       },
+      "InboxItem" : {
+        "properties" : {
+          "hasUnread" : {
+            "type" : "boolean"
+          },
+          "lastMessage" : {
+            "$ref" : "#/components/schemas/LastMessagePreview"
+          },
+          "roomId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "targetUser" : {
+            "$ref" : "#/components/schemas/TargetUser"
+          }
+        },
+        "type" : "object"
+      },
       "InitMediaUploadRequest" : {
         "properties" : {
           "contentLength" : {
@@ -3724,6 +3978,22 @@
         "type" : "object"
       },
       "JsonNode" : { },
+      "LastMessagePreview" : {
+        "properties" : {
+          "content" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "senderId" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "LeaderboardEntryDto" : {
         "properties" : {
           "accuracy" : {
@@ -6599,6 +6869,52 @@
         "required" : [ "code", "data", "errors", "message", "success" ],
         "type" : "object"
       },
+      "ProfileImageDto" : {
+        "properties" : {
+          "bytes" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "mimeType" : {
+            "type" : "string"
+          },
+          "publicUrl" : {
+            "type" : "string"
+          },
+          "storagePath" : {
+            "type" : "string"
+          },
+          "userId" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "PublicUserProfileDto" : {
+        "properties" : {
+          "bio" : {
+            "type" : "string"
+          },
+          "cheerPoints" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "favoriteTeam" : {
+            "type" : "string"
+          },
+          "handle" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "profileImageUrl" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "QuoteRepostReq" : {
         "properties" : {
           "content" : {
@@ -6659,6 +6975,10 @@
             "format" : "date-time",
             "type" : "string"
           },
+          "exactMatchCount" : {
+            "format" : "int32",
+            "type" : [ "integer", "null" ]
+          },
           "id" : {
             "format" : "int64",
             "type" : "integer"
@@ -6666,6 +6986,10 @@
           "seasonYear" : {
             "format" : "int32",
             "type" : "integer"
+          },
+          "settledAt" : {
+            "format" : "date-time",
+            "type" : [ "string", "null" ]
           },
           "shareId" : {
             "type" : [ "string", "null" ]
@@ -6683,7 +7007,7 @@
             "type" : "array"
           }
         },
-        "required" : [ "createdAt", "id", "seasonYear", "shareId", "teamDetails", "teamIdsInOrder" ],
+        "required" : [ "createdAt", "exactMatchCount", "id", "seasonYear", "settledAt", "shareId", "teamDetails", "teamIdsInOrder" ],
         "type" : "object"
       },
       "RecentScoreDto" : {
@@ -6889,6 +7213,12 @@
       },
       "Response" : {
         "properties" : {
+          "clientMessageId" : {
+            "type" : "string"
+          },
+          "content" : {
+            "type" : "string"
+          },
           "createdAt" : {
             "format" : "date-time",
             "type" : "string"
@@ -6897,22 +7227,13 @@
             "format" : "int64",
             "type" : "integer"
           },
-          "isRead" : {
-            "type" : "boolean"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "relatedId" : {
+          "roomId" : {
             "format" : "int64",
             "type" : "integer"
           },
-          "title" : {
-            "type" : "string"
-          },
-          "type" : {
-            "enum" : [ "APPLICATION_RECEIVED", "APPLICATION_APPROVED", "APPLICATION_REJECTED", "PARTY_EXPIRED", "PARTY_AUTO_COMPLETED", "GAME_TOMORROW_REMINDER", "GAME_DAY_REMINDER", "HOST_RESPONSE_NUDGE", "REVIEW_REQUEST", "PARTY_CANCELLED_HOST_DELETED", "PARTY_PARTICIPANT_LEFT", "POST_COMMENT", "COMMENT_REPLY", "POST_LIKE", "POST_REPOST", "NEW_FOLLOWER", "FOLLOWING_NEW_POST", "NEW_DEVICE_LOGIN" ],
-            "type" : "string"
+          "senderId" : {
+            "format" : "int64",
+            "type" : "integer"
           }
         },
         "type" : "object"
@@ -7275,6 +7596,27 @@
         "type" : "object"
       },
       "StreamingResponseBody" : { },
+      "TargetUser" : {
+        "properties" : {
+          "favoriteTeam" : {
+            "type" : "string"
+          },
+          "handle" : {
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "profileImageUrl" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "TeamEntity" : {
         "properties" : {
           "activeKboTeam" : {
@@ -8432,6 +8774,33 @@
         "tags" : [ "admin-media-maintenance-controller" ]
       }
     },
+    "/api/admin/maintenance/ranking-predictions/settle" : {
+      "post" : {
+        "operationId" : "settleSeason",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "seasonYear",
+          "required" : true,
+          "schema" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseInteger"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "admin-ranking-prediction-controller" ]
+      }
+    },
     "/api/admin/mates" : {
       "get" : {
         "operationId" : "getMates",
@@ -9082,12 +9451,12 @@
             "content" : {
               "application/json; charset=UTF-8" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
                 }
               },
               "application/json;charset=UTF-8" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
                 }
               }
             },
@@ -9122,12 +9491,12 @@
             "content" : {
               "application/json; charset=UTF-8" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponsePlaceDto"
                 }
               },
               "application/json;charset=UTF-8" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponsePlaceDto"
                 }
               }
             },
@@ -9163,12 +9532,12 @@
             "content" : {
               "application/json; charset=UTF-8" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponsePlaceDto"
                 }
               },
               "application/json;charset=UTF-8" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponsePlaceDto"
                 }
               }
             },
@@ -10424,7 +10793,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
                 }
               }
             },
@@ -10452,7 +10821,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
                 }
               }
             },
@@ -10560,7 +10929,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
                 }
               }
             },
@@ -12336,7 +12705,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseResponse"
                 }
               }
             },
@@ -12363,7 +12732,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
                 }
               }
             },
@@ -12391,7 +12760,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseBootstrapResponse"
                 }
               }
             },
@@ -12409,7 +12778,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseListInboxItem"
                 }
               }
             },
@@ -12436,7 +12805,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseListResponse"
                 }
               }
             },
@@ -15091,7 +15460,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseProfileImageDto"
                 }
               }
             },
@@ -16108,7 +16477,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponsePublicUserProfileDto"
                 }
               }
             },
@@ -16312,7 +16681,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponse"
+                  "$ref" : "#/components/schemas/ApiResponseBoolean"
                 }
               }
             },

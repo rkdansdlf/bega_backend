@@ -27,7 +27,7 @@ public class MediaUploadController {
 
     @PreAuthorize("isAuthenticated()")
     @PostMapping("/uploads/init")
-    public ResponseEntity<ApiResponse> initUpload(
+    public ResponseEntity<ApiResponse<InitMediaUploadResponse>> initUpload(
             @AuthenticationPrincipal Long userId,
             @Valid @RequestBody InitMediaUploadRequest request) {
         InitMediaUploadResponse response = mediaUploadService.initUpload(AuthenticatedUserIds.require(userId), request);
@@ -36,7 +36,7 @@ public class MediaUploadController {
 
     @PreAuthorize("isAuthenticated()")
     @PostMapping("/uploads/{assetId}/finalize")
-    public ResponseEntity<ApiResponse> finalizeUpload(
+    public ResponseEntity<ApiResponse<FinalizeMediaUploadResponse>> finalizeUpload(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long assetId) {
         FinalizeMediaUploadResponse response = mediaUploadService.finalizeUpload(AuthenticatedUserIds.require(userId), assetId);
@@ -45,7 +45,7 @@ public class MediaUploadController {
 
     @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/uploads/{assetId}")
-    public ResponseEntity<ApiResponse> deleteUpload(
+    public ResponseEntity<ApiResponse<Void>> deleteUpload(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long assetId) {
         mediaUploadService.deleteUpload(AuthenticatedUserIds.require(userId), assetId);

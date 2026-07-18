@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
-import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializer;
 
 class HomeBootstrapCacheServiceTest {
 
@@ -269,7 +269,7 @@ class HomeBootstrapCacheServiceTest {
     @Test
     @DisplayName("bootstrap 응답 DTO는 Redis serializer roundtrip이 가능하다")
     void homeBootstrapResponseDtoSupportsRedisSerializerRoundTrip() {
-        GenericJackson2JsonRedisSerializer serializer =
+        RedisSerializer<Object> serializer =
                 new RedisConfig().redisValueSerializer(new ObjectMapper());
         HomeBootstrapResponseDto response = sampleResponse(false, false);
 

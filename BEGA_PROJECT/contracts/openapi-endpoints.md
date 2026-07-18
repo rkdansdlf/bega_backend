@@ -5,8 +5,8 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Paths: **260**
-Operations: **285**
+Paths: **261**
+Operations: **286**
 
 ## account-security-controller
 
@@ -566,6 +566,25 @@ OK
 
 Media type: `*/*`
 Schema: [ApiResponseMediaSmokeReport](openapi-schemas.md#apiresponsemediasmokereport)
+
+## admin-ranking-prediction-controller
+
+### POST `/api/admin/maintenance/ranking-predictions/settle`
+- Operation ID: `settleSeason`
+- Tags: `admin-ranking-prediction-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `seasonYear` | query | yes | `integer (int32)` | — | — |
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseInteger](openapi-schemas.md#apiresponseinteger)
 
 ## admin-role-controller
 
@@ -1592,7 +1611,7 @@ Schema: [Request](openapi-schemas.md#request)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseResponse](openapi-schemas.md#apiresponseresponse)
 
 ### DELETE `/api/dm/messages/{messageId}`
 - Operation ID: `deleteMessage`
@@ -1609,7 +1628,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
 ### POST `/api/dm/rooms`
 - Operation ID: `bootstrapRoom`
@@ -1627,7 +1646,7 @@ Schema: [BootstrapRequest](openapi-schemas.md#bootstraprequest)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseBootstrapResponse](openapi-schemas.md#apiresponsebootstrapresponse)
 
 ### GET `/api/dm/rooms/my`
 - Operation ID: `getMyRooms`
@@ -1639,7 +1658,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseListInboxItem](openapi-schemas.md#apiresponselistinboxitem)
 
 ### GET `/api/dm/rooms/{roomId}/messages`
 - Operation ID: `getMessages`
@@ -1656,7 +1675,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseListResponse](openapi-schemas.md#apiresponselistresponse)
 
 ## follow-controller
 
@@ -2841,7 +2860,7 @@ Schema: [PasswordResetConfirmDto](openapi-schemas.md#passwordresetconfirmdto)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
 ### POST `/api/auth/password/reset/request`
 - Operation ID: `requestPasswordReset`
@@ -2859,7 +2878,7 @@ Schema: [PasswordResetRequestDto](openapi-schemas.md#passwordresetrequestdto)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
 ## payment-controller
 
@@ -2962,7 +2981,7 @@ Schema: `{<br>  "properties" : {<br>    "file" : {<br>      "format" : "binary",
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseProfileImageDto](openapi-schemas.md#apiresponseprofileimagedto)
 
 ## ranking-prediction-controller
 
@@ -3055,7 +3074,7 @@ Schema: [RankingPredictionResponseDto](openapi-schemas.md#rankingpredictionrespo
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
 ## stadium-admin-controller
 
@@ -3080,10 +3099,10 @@ Schema: [PlaceRequest](openapi-schemas.md#placerequest)
 OK
 
 Media type: `application/json; charset=UTF-8`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponsePlaceDto](openapi-schemas.md#apiresponseplacedto)
 
 Media type: `application/json;charset=UTF-8`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponsePlaceDto](openapi-schemas.md#apiresponseplacedto)
 
 ### DELETE `/api/admin/stadiums/places/{placeId}`
 - Operation ID: `deletePlace`
@@ -3100,10 +3119,10 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `application/json; charset=UTF-8`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
 Media type: `application/json;charset=UTF-8`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
 ### POST `/api/admin/stadiums/{stadiumId}/places`
 - Operation ID: `createPlace`
@@ -3126,10 +3145,10 @@ Schema: [PlaceRequest](openapi-schemas.md#placerequest)
 OK
 
 Media type: `application/json; charset=UTF-8`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponsePlaceDto](openapi-schemas.md#apiresponseplacedto)
 
 Media type: `application/json;charset=UTF-8`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponsePlaceDto](openapi-schemas.md#apiresponseplacedto)
 
 ## stadium-api-controller
 
@@ -3692,7 +3711,7 @@ Schema: [TicketInfo](openapi-schemas.md#ticketinfo)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponsePublicUserProfileDto](openapi-schemas.md#apiresponsepublicuserprofiledto)
 
 ### GET `/api/users/{userId}/social-verified`
 - Operation ID: `checkSocialVerified`
@@ -3709,7 +3728,7 @@ Schema: [ApiResponse](openapi-schemas.md#apiresponse)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponse](openapi-schemas.md#apiresponse)
+Schema: [ApiResponseBoolean](openapi-schemas.md#apiresponseboolean)
 
 ## 경기 예측
 

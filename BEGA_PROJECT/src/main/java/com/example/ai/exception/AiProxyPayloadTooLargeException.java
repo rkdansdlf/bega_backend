@@ -10,7 +10,7 @@ public class AiProxyPayloadTooLargeException extends AiProxyException {
 
     public AiProxyPayloadTooLargeException(long maxBytes) {
         super(
-                HttpStatus.PAYLOAD_TOO_LARGE,
+                HttpStatus.CONTENT_TOO_LARGE,
                 AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE,
                 "AI 요청 본문이 너무 큽니다.",
                 Map.of("maxBytes", maxBytes));

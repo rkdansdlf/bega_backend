@@ -5,6 +5,7 @@ import java.time.LocalTime;
 import java.time.Year;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -331,10 +332,14 @@ public class HomePageGameService {
             logTeamRankingQueryCompleted(seasonYear, "legacy", results.size(), legacyStartedAt);
         }
 
+        Map<String, List<String>> recentFormByTeam = fetchRecentFormByTeam(seasonYear, seasonStart, nextSeasonStart);
+
         return results.stream()
-                .map(row -> HomePageTeamRankingDto.builder()
+                .map(row -> {
+                    String teamId = (String) row[1];
+                    return HomePageTeamRankingDto.builder()
                         .rank(((Number) row[0]).intValue()) // season_rank (bigint)
-                        .teamId((String) row[1]) // team_id
+                        .teamId(teamId) // team_id
                         .teamName((String) row[2]) // team_name
                         .wins(((Number) row[3]).intValue()) // wins (bigint)
                         .losses(((Number) row[4]).intValue()) // losses (bigint)
@@ -342,8 +347,26 @@ public class HomePageGameService {
                         .winRate(row[6].toString()) // win_pct (numeric)
                         .games(((Number) row[7]).intValue()) // games_played (bigint)
                         .gamesBehind(row[8] == null ? null : ((Number) row[8]).doubleValue()) // games_behind (numeric)
-                        .build())
+                        .recentForm(recentFormByTeam.getOrDefault(teamId, List.of()))
+                        .build();
+                })
                 .collect(Collectors.toList());
+    }
+
+    private Map<String, List<String>> fetchRecentFormByTeam(int seasonYear, LocalDate seasonStart, LocalDate nextSeasonStart) {
+        try {
+            List<Object[]> rows = gameRepository.findRecentFormBySeasonAndTeams(seasonYear, seasonStart, nextSeasonStart);
+            Map<String, List<String>> recentFormByTeam = new LinkedHashMap<>();
+            for (Object[] row : rows) {
+                String teamId = (String) row[0];
+                String result = (String) row[2];
+                recentFormByTeam.computeIfAbsent(teamId, key -> new ArrayList<>()).add(result);
+            }
+            return recentFormByTeam;
+        } catch (Exception e) {
+            log.warn("event=home_team_recent_form_query_failed seasonYear={} message={}", seasonYear, e.getMessage());
+            return Map.of();
+        }
     }
 
     private void logTeamRankingQueryCompleted(int seasonYear, String source, int rankingCount, long startedAtNanos) {

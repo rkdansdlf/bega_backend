@@ -75,7 +75,10 @@ public class Notification {
         FOLLOWING_NEW_POST("새로운 게시글"),
 
         // 계정 보안 관련 알림
-        NEW_DEVICE_LOGIN("새 기기 로그인");
+        NEW_DEVICE_LOGIN("새 기기 로그인"),
+
+        // 순위 예측 관련
+        RANKING_PREDICTION_SETTLED("순위 예측 정산 완료");
 
         private final String description;
 

@@ -5,7 +5,7 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Schemas: **262**
+Schemas: **277**
 
 <a id="accountdeletionrecoveryinfodto"></a>
 ## AccountDeletionRecoveryInfoDto
@@ -432,6 +432,54 @@ Includes: `additionalProperties`
 }
 ```
 
+<a id="apiresponseboolean"></a>
+## ApiResponseBoolean
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "type" : "boolean"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | `boolean` | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponsebootstrapresponse"></a>
+## ApiResponseBootstrapResponse
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/BootstrapResponse"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [BootstrapResponse](openapi-schemas.md#bootstrapresponse) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
 <a id="apiresponsechatfavoriteitem"></a>
 ## ApiResponseChatFavoriteItem
 Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/ChatFavoriteItem"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -648,6 +696,30 @@ Includes: `additionalProperties`
 }
 ```
 
+<a id="apiresponseinteger"></a>
+## ApiResponseInteger
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | `integer (int32)` | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
 <a id="apiresponselistaccountsecurityeventdto"></a>
 ## ApiResponseListAccountSecurityEventDto
 Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/AccountSecurityEventDto"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -840,6 +912,30 @@ Includes: `additionalProperties`
 }
 ```
 
+<a id="apiresponselistinboxitem"></a>
+## ApiResponseListInboxItem
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/InboxItem"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | `array<[InboxItem](openapi-schemas.md#inboxitem)>` | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
 <a id="apiresponselistoffseasonmovementadmindto"></a>
 ## ApiResponseListOffseasonMovementAdminDto
 Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/OffseasonMovementAdminDto"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -849,6 +945,30 @@ Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
 | `data` | no | `array<[OffseasonMovementAdminDto](openapi-schemas.md#offseasonmovementadmindto)>` | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponselistresponse"></a>
+## ApiResponseListResponse
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/Response"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | `array<[Response](openapi-schemas.md#response)>` | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -1221,6 +1341,30 @@ Includes: `additionalProperties`
 }
 ```
 
+<a id="apiresponseplacedto"></a>
+## ApiResponsePlaceDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PlaceDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [PlaceDto](openapi-schemas.md#placedto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
 <a id="apiresponsepolicyrequiredresponsedto"></a>
 ## ApiResponsePolicyRequiredResponseDto
 Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PolicyRequiredResponseDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -1230,6 +1374,78 @@ Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
 | `data` | no | [PolicyRequiredResponseDto](openapi-schemas.md#policyrequiredresponsedto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponseprofileimagedto"></a>
+## ApiResponseProfileImageDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/ProfileImageDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [ProfileImageDto](openapi-schemas.md#profileimagedto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponsepublicuserprofiledto"></a>
+## ApiResponsePublicUserProfileDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PublicUserProfileDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [PublicUserProfileDto](openapi-schemas.md#publicuserprofiledto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponseresponse"></a>
+## ApiResponseResponse
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/Response"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [Response](openapi-schemas.md#response) | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -1389,6 +1605,17 @@ Required properties: `targetHandle`
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `targetHandle` | yes | `string` | — | minLength=1 |
+
+<a id="bootstrapresponse"></a>
+## BootstrapResponse
+Schema: `{<br>  "properties" : {<br>    "membershipState" : {<br>      "type" : "string"<br>    },<br>    "roomId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "targetUser" : {<br>      "$ref" : "#/components/schemas/TargetUser"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `membershipState` | no | `string` | — | — |
+| `roomId` | no | `integer (int64)` | — | — |
+| `targetUser` | no | [TargetUser](openapi-schemas.md#targetuser) | — | — |
 
 <a id="changepasswordrequest"></a>
 ## ChangePasswordRequest
@@ -2309,7 +2536,7 @@ Schema: `{<br>  "properties" : {<br>    "awayScore" : {<br>      "format" : "int
 
 <a id="homepageteamrankingdto"></a>
 ## HomePageTeamRankingDto
-Schema: `{<br>  "properties" : {<br>    "draws" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "games" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "gamesBehind" : {<br>      "format" : "double",<br>      "type" : [ "number", "null" ]<br>    },<br>    "losses" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "rank" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "teamId" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "teamName" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "winRate" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "wins" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    }<br>  },<br>  "required" : [ "draws", "games", "gamesBehind", "losses", "rank", "teamId", "teamName", "winRate", "wins" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "draws" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "games" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "gamesBehind" : {<br>      "format" : "double",<br>      "type" : [ "number", "null" ]<br>    },<br>    "losses" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "rank" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "recentForm" : {<br>      "description" : "최근 5경기 결과, 최신순 (W/L/D), 데이터 없으면 null 또는 빈 리스트",<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : [ "array", "null" ]<br>    },<br>    "teamId" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "teamName" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "winRate" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "wins" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    }<br>  },<br>  "required" : [ "draws", "games", "gamesBehind", "losses", "rank", "teamId", "teamName", "winRate", "wins" ],<br>  "type" : "object"<br>}`
 Required properties: `draws`, `games`, `gamesBehind`, `losses`, `rank`, `teamId`, `teamName`, `winRate`, `wins`
 
 ### Properties
@@ -2320,6 +2547,7 @@ Required properties: `draws`, `games`, `gamesBehind`, `losses`, `rank`, `teamId`
 | `gamesBehind` | yes | `{<br>  "format" : "double",<br>  "type" : [ "number", "null" ]<br>}` | — | — |
 | `losses` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
 | `rank` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
+| `recentForm` | no | `{<br>  "description" : "최근 5경기 결과, 최신순 (W/L/D), 데이터 없으면 null 또는 빈 리스트",<br>  "items" : {<br>    "type" : "string"<br>  },<br>  "type" : [ "array", "null" ]<br>}` | 최근 5경기 결과, 최신순 (W/L/D), 데이터 없으면 null 또는 빈 리스트 | — |
 | `teamId` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 | `teamName` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 | `winRate` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
@@ -2389,6 +2617,18 @@ Schema: `{<br>  "properties" : {<br>    "handle" : {<br>      "type" : "string"<
 | `totalScore` | no | `integer (int64)` | — | — |
 | `userName` | no | `string` | — | — |
 
+<a id="inboxitem"></a>
+## InboxItem
+Schema: `{<br>  "properties" : {<br>    "hasUnread" : {<br>      "type" : "boolean"<br>    },<br>    "lastMessage" : {<br>      "$ref" : "#/components/schemas/LastMessagePreview"<br>    },<br>    "roomId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "targetUser" : {<br>      "$ref" : "#/components/schemas/TargetUser"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `hasUnread` | no | `boolean` | — | — |
+| `lastMessage` | no | [LastMessagePreview](openapi-schemas.md#lastmessagepreview) | — | — |
+| `roomId` | no | `integer (int64)` | — | — |
+| `targetUser` | no | [TargetUser](openapi-schemas.md#targetuser) | — | — |
+
 <a id="initmediauploadrequest"></a>
 ## InitMediaUploadRequest
 Schema: `{<br>  "properties" : {<br>    "contentLength" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "contentType" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "domain" : {<br>      "enum" : [ "PROFILE", "DIARY", "CHEER", "CHAT" ],<br>      "type" : "string"<br>    },<br>    "fileName" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "height" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "width" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "required" : [ "contentLength", "contentType", "domain", "fileName", "height", "width" ],<br>  "type" : "object"<br>}`
@@ -2410,6 +2650,17 @@ Required properties: `contentLength`, `contentType`, `domain`, `fileName`, `heig
 <a id="jsonnode"></a>
 ## JsonNode
 Schema: `{ }`
+
+<a id="lastmessagepreview"></a>
+## LastMessagePreview
+Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "senderId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `content` | no | `string` | — | — |
+| `createdAt` | no | `string (date-time)` | — | — |
+| `senderId` | no | `integer (int64)` | — | — |
 
 <a id="leaderboardentrydto"></a>
 ## LeaderboardEntryDto
@@ -4066,6 +4317,33 @@ Includes: `oneOf`
 }
 ```
 
+<a id="profileimagedto"></a>
+## ProfileImageDto
+Schema: `{<br>  "properties" : {<br>    "bytes" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "mimeType" : {<br>      "type" : "string"<br>    },<br>    "publicUrl" : {<br>      "type" : "string"<br>    },<br>    "storagePath" : {<br>      "type" : "string"<br>    },<br>    "userId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `bytes` | no | `integer (int64)` | — | — |
+| `mimeType` | no | `string` | — | — |
+| `publicUrl` | no | `string` | — | — |
+| `storagePath` | no | `string` | — | — |
+| `userId` | no | `integer (int64)` | — | — |
+
+<a id="publicuserprofiledto"></a>
+## PublicUserProfileDto
+Schema: `{<br>  "properties" : {<br>    "bio" : {<br>      "type" : "string"<br>    },<br>    "cheerPoints" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "favoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "handle" : {<br>      "type" : "string"<br>    },<br>    "name" : {<br>      "type" : "string"<br>    },<br>    "profileImageUrl" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `bio` | no | `string` | — | — |
+| `cheerPoints` | no | `integer (int32)` | — | — |
+| `favoriteTeam` | no | `string` | — | — |
+| `handle` | no | `string` | — | — |
+| `name` | no | `string` | — | — |
+| `profileImageUrl` | no | `string` | — | — |
+
 <a id="quoterepostreq"></a>
 ## QuoteRepostReq
 Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "maxLength" : 500,<br>      "minLength" : 0,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "content" ],<br>  "type" : "object"<br>}`
@@ -4122,15 +4400,17 @@ Required properties: `seasonYear`
 
 <a id="rankingpredictionresponsedto"></a>
 ## RankingPredictionResponseDto
-Schema: `{<br>  "properties" : {<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "seasonYear" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "shareId" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "teamDetails" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/TeamRankingDetail"<br>      },<br>      "type" : "array"<br>    },<br>    "teamIdsInOrder" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    }<br>  },<br>  "required" : [ "createdAt", "id", "seasonYear", "shareId", "teamDetails", "teamIdsInOrder" ],<br>  "type" : "object"<br>}`
-Required properties: `createdAt`, `id`, `seasonYear`, `shareId`, `teamDetails`, `teamIdsInOrder`
+Schema: `{<br>  "properties" : {<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "exactMatchCount" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "seasonYear" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "settledAt" : {<br>      "format" : "date-time",<br>      "type" : [ "string", "null" ]<br>    },<br>    "shareId" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "teamDetails" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/TeamRankingDetail"<br>      },<br>      "type" : "array"<br>    },<br>    "teamIdsInOrder" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    }<br>  },<br>  "required" : [ "createdAt", "exactMatchCount", "id", "seasonYear", "settledAt", "shareId", "teamDetails", "teamIdsInOrder" ],<br>  "type" : "object"<br>}`
+Required properties: `createdAt`, `exactMatchCount`, `id`, `seasonYear`, `settledAt`, `shareId`, `teamDetails`, `teamIdsInOrder`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `createdAt` | yes | `string (date-time)` | — | — |
+| `exactMatchCount` | yes | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
 | `id` | yes | `integer (int64)` | — | — |
 | `seasonYear` | yes | `integer (int32)` | — | — |
+| `settledAt` | yes | `{<br>  "format" : "date-time",<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 | `shareId` | yes | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 | `teamDetails` | yes | `array<[TeamRankingDetail](openapi-schemas.md#teamrankingdetail)>` | — | — |
 | `teamIdsInOrder` | yes | `array<string>` | — | — |
@@ -4247,21 +4527,17 @@ Required properties: `content`, `roomId`
 
 <a id="response"></a>
 ## Response
-Schema: `{<br>  "properties" : {<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "isRead" : {<br>      "type" : "boolean"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "relatedId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "title" : {<br>      "type" : "string"<br>    },<br>    "type" : {<br>      "enum" : [ "APPLICATION_RECEIVED", "APPLICATION_APPROVED", "APPLICATION_REJECTED", "PARTY_EXPIRED", "PARTY_AUTO_COMPLETED", "GAME_TOMORROW_REMINDER", "GAME_DAY_REMINDER", "HOST_RESPONSE_NUDGE", "REVIEW_REQUEST", "PARTY_CANCELLED_HOST_DELETED", "PARTY_PARTICIPANT_LEFT", "POST_COMMENT", "COMMENT_REPLY", "POST_LIKE", "POST_REPOST", "NEW_FOLLOWER", "FOLLOWING_NEW_POST", "NEW_DEVICE_LOGIN" ],<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "clientMessageId" : {<br>      "type" : "string"<br>    },<br>    "content" : {<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "roomId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "senderId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
+| `clientMessageId` | no | `string` | — | — |
+| `content` | no | `string` | — | — |
 | `createdAt` | no | `string (date-time)` | — | — |
 | `id` | no | `integer (int64)` | — | — |
-| `isRead` | no | `boolean` | — | — |
-| `message` | no | `string` | — | — |
-| `relatedId` | no | `integer (int64)` | — | — |
-| `title` | no | `string` | — | — |
-| `type` | no | `string` | — | — |
-
-#### Property metadata: `type`
-- Enum: `APPLICATION_RECEIVED`, `APPLICATION_APPROVED`, `APPLICATION_REJECTED`, `PARTY_EXPIRED`, `PARTY_AUTO_COMPLETED`, `GAME_TOMORROW_REMINDER`, `GAME_DAY_REMINDER`, `HOST_RESPONSE_NUDGE`, `REVIEW_REQUEST`, `PARTY_CANCELLED_HOST_DELETED`, `PARTY_PARTICIPANT_LEFT`, `POST_COMMENT`, `COMMENT_REPLY`, `POST_LIKE`, `POST_REPOST`, `NEW_FOLLOWER`, `FOLLOWING_NEW_POST`, `NEW_DEVICE_LOGIN`
+| `roomId` | no | `integer (int64)` | — | — |
+| `senderId` | no | `integer (int64)` | — | — |
 
 <a id="rolechangerequestdto"></a>
 ## RoleChangeRequestDto
@@ -4466,6 +4742,19 @@ Schema: `{<br>  "properties" : {<br>    "cached" : {<br>      "type" : "boolean"
 <a id="streamingresponsebody"></a>
 ## StreamingResponseBody
 Schema: `{ }`
+
+<a id="targetuser"></a>
+## TargetUser
+Schema: `{<br>  "properties" : {<br>    "favoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "handle" : {<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "name" : {<br>      "type" : "string"<br>    },<br>    "profileImageUrl" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `favoriteTeam` | no | `string` | — | — |
+| `handle` | no | `string` | — | — |
+| `id` | no | `integer (int64)` | — | — |
+| `name` | no | `string` | — | — |
+| `profileImageUrl` | no | `string` | — | — |
 
 <a id="teamentity"></a>
 ## TeamEntity

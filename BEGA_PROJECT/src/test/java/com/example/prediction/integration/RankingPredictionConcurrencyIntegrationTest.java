@@ -91,6 +91,9 @@ class RankingPredictionConcurrencyIntegrationTest {
     @MockitoBean
     private UserRepository userRepository;
 
+    @MockitoBean
+    private com.example.notification.service.NotificationService notificationService;
+
     private JdbcTemplate jdbcTemplate;
 
     @BeforeEach

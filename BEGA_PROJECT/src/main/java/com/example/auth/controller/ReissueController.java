@@ -36,7 +36,7 @@ public class ReissueController {
     private final ReissueService reissueService;
 
     @PostMapping("/reissue")
-    public ResponseEntity<ApiResponse> reissue(HttpServletRequest request, HttpServletResponse response) {
+    public ResponseEntity<ApiResponse<Void>> reissue(HttpServletRequest request, HttpServletResponse response) {
         validateProvidedOrigin(request);
 
         String refreshToken = authSessionService.extractRefreshToken(request);

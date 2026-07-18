@@ -22,7 +22,7 @@ import org.springframework.boot.context.properties.source.MapConfigurationProper
 import org.springframework.core.io.FileSystemResource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializer;
 
 class RedisConfigTest {
 
@@ -52,7 +52,7 @@ class RedisConfigTest {
     @DisplayName("Redis serializer round-trips home widgets responses with Instant fields")
     void redisValueSerializerRoundTripsHomeWidgetsResponse() {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
-        GenericJackson2JsonRedisSerializer serializer = redisConfig.redisValueSerializer(objectMapper);
+        RedisSerializer<Object> serializer = redisConfig.redisValueSerializer(objectMapper);
         Instant createdAt = Instant.parse("2026-03-16T04:30:00Z");
         HomeWidgetsResponseDto payload = HomeWidgetsResponseDto.builder()
                 .hotCheerPosts(List.of(

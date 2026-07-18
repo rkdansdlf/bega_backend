@@ -1,6 +1,7 @@
 package com.example.prediction.scheduler;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -19,6 +20,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class RankingPredictionSettlementScheduler {
 
+	private static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
+
 	private final RankingPredictionService rankingPredictionService;
 	private final boolean enabled;
 
@@ -29,7 +32,7 @@ public class RankingPredictionSettlementScheduler {
 		this.enabled = enabled;
 	}
 
-	@Scheduled(cron = "${app.prediction.ranking-settlement-scheduler.cron:0 0 1 1 11 *}")
+	@Scheduled(cron = "${app.prediction.ranking-settlement-scheduler.cron:0 0 1 1 11 *}", zone = "Asia/Seoul")
 	public void settlePreviousSeason() {
 		if (!enabled) {
 			log.debug("Skipping ranking prediction settlement because "
@@ -37,7 +40,7 @@ public class RankingPredictionSettlementScheduler {
 			return;
 		}
 
-		int seasonToSettle = LocalDate.now().getYear();
+		int seasonToSettle = LocalDate.now(SEOUL_ZONE).getYear();
 		try {
 			int settledCount = rankingPredictionService.settleSeason(seasonToSettle);
 			if (settledCount > 0) {

@@ -84,7 +84,7 @@ public class StadiumAdminController {
      * POST /api/admin/stadiums/{stadiumId}/places
      */
     @PostMapping("/{stadiumId}/places")
-    public ResponseEntity<ApiResponse> createPlace(
+    public ResponseEntity<ApiResponse<PlaceDto>> createPlace(
             @PathVariable("stadiumId") String stadiumId,
             @Valid @RequestBody PlaceRequest request) {
 
@@ -106,7 +106,7 @@ public class StadiumAdminController {
      * PUT /api/admin/stadiums/places/{placeId}
      */
     @PutMapping("/places/{placeId}")
-    public ResponseEntity<ApiResponse> updatePlace(
+    public ResponseEntity<ApiResponse<PlaceDto>> updatePlace(
             @PathVariable("placeId") Long placeId,
             @Valid @RequestBody PlaceRequest request) {
 
@@ -127,7 +127,7 @@ public class StadiumAdminController {
      * DELETE /api/admin/stadiums/places/{placeId}
      */
     @DeleteMapping("/places/{placeId}")
-    public ResponseEntity<ApiResponse> deletePlace(
+    public ResponseEntity<ApiResponse<Void>> deletePlace(
             @PathVariable("placeId") Long placeId) {
 
         log.info("구장 장소 삭제 요청: placeId={}", placeId);

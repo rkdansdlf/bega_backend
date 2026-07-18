@@ -51,7 +51,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class ApiExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<ApiResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         if (isDeletedAuthorReference(ex)) {
             return build(HttpStatus.UNAUTHORIZED, "INVALID_AUTHOR", "인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
         }
@@ -63,7 +63,7 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler({RepostSelfNotAllowedException.class, RepostNotAllowedException.class})
-    public ResponseEntity<ApiResponse> handleRepostNotAllowed(Exception ex) {
+    public ResponseEntity<ApiResponse<Void>> handleRepostNotAllowed(Exception ex) {
         String code = ex instanceof RepostNotAllowedException repostEx && repostEx.getErrorCode() != null
                 ? repostEx.getErrorCode()
                 : REPOST_NOT_ALLOWED_CODE;
@@ -71,32 +71,32 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler(RepostTargetNotFoundException.class)
-    public ResponseEntity<ApiResponse> handleRepostTargetNotFound(RepostTargetNotFoundException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleRepostTargetNotFound(RepostTargetNotFoundException ex) {
         String code = ex.getErrorCode() != null ? ex.getErrorCode() : REPOST_TARGET_NOT_FOUND_CODE;
         return build(HttpStatus.NOT_FOUND, code, resolveRepostMessage(code, ex.getMessage()));
     }
 
     @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
-    public ResponseEntity<ApiResponse> handleUnauthorized(AuthenticationCredentialsNotFoundException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleUnauthorized(AuthenticationCredentialsNotFoundException ex) {
         return build(HttpStatus.UNAUTHORIZED, "AUTHENTICATION_REQUIRED", defaultIfBlank(ex.getMessage(), "인증이 필요합니다."));
     }
 
     @ExceptionHandler(InvalidAuthorException.class)
-    public ResponseEntity<ApiResponse> handleInvalidAuthor(InvalidAuthorException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleInvalidAuthor(InvalidAuthorException ex) {
         return build(HttpStatus.UNAUTHORIZED, "INVALID_AUTHOR", ex.getMessage());
     }
 
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ApiResponse> handleForbidden(AccessDeniedException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleForbidden(AccessDeniedException ex) {
         return build(HttpStatus.FORBIDDEN, "FORBIDDEN", ex.getMessage());
     }
 
     @ExceptionHandler(DuplicateCommentException.class)
-    public ResponseEntity<ApiResponse> handleDuplicateComment(DuplicateCommentException ex) {
+    public ResponseEntity<ApiResponse<Void>> handleDuplicateComment(DuplicateCommentException ex) {
         return build(HttpStatus.CONFLICT, DUPLICATE_COMMENT_CODE, defaultIfBlank(ex.getMessage(), DUPLICATE_COMMENT_ERROR));
     }
 
-    private ResponseEntity<ApiResponse> build(HttpStatus status, String code, String message) {
+    private ResponseEntity<ApiResponse<Void>> build(HttpStatus status, String code, String message) {
         return ResponseEntity.status(Objects.requireNonNull(status))
                 .body(ApiResponse.error(code, defaultIfBlank(message, status.getReasonPhrase())));
     }

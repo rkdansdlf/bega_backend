@@ -48,6 +48,7 @@ public class RankingPredictionService {
 	private final com.example.homepage.HomePageTeamRepository homePageTeamRepository;
 	private final UserRepository userRepository;
 	private final CacheManager cacheManager;
+	private final com.example.notification.service.NotificationService notificationService;
 
 	// 순위 예측을 저장 (수정 불가, 1회만 가능)
 	@Transactional(transactionManager = "transactionManager")
@@ -219,11 +220,27 @@ public class RankingPredictionService {
 				}
 			}
 			prediction.markSettled(exactMatchCount, settledAt);
+			notifySettlement(prediction, seasonYear, exactMatchCount);
 		}
 		rankingPredictionRepository.saveAll(unsettledPredictions);
 
 		log.info("{} 시즌 순위 예측 정산 완료: {}건", seasonYear, unsettledPredictions.size());
 		return unsettledPredictions.size();
+	}
+
+	// 정산 완료 알림 발송. 유저 1명 실패가 나머지 배치 정산을 막지 않도록 개별적으로 흡수
+	private void notifySettlement(RankingPrediction prediction, int seasonYear, int exactMatchCount) {
+		try {
+			notificationService.createNotification(
+					Long.valueOf(prediction.getUserId()),
+					com.example.notification.entity.Notification.NotificationType.RANKING_PREDICTION_SETTLED,
+					seasonYear + " 시즌 순위 예측 결과",
+					"예측한 10개 팀 중 " + exactMatchCount + "개 순위를 정확히 맞췄어요!",
+					prediction.getId());
+		} catch (Exception e) {
+			log.warn("순위 예측 정산 알림 발송 실패: predictionId={}, userId={}, reason={}",
+					prediction.getId(), prediction.getUserId(), e.getMessage());
+		}
 	}
 
 	private UserEntity findUserByShareId(String shareId) {

@@ -32,7 +32,7 @@ public class ProfileImageController {
      */
     @RateLimit(limit = 3, window = 60, key = "image:profile")
     @PostMapping(value = "/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<ApiResponse> uploadProfileImage(
+    public ResponseEntity<ApiResponse<ProfileImageDto>> uploadProfileImage(
             @RequestPart("file") MultipartFile file) {
         Long userId = resolveAuthenticatedUserId();
         log.info("프로필 이미지 업로드 요청: userId={}, filename={}", userId, file.getOriginalFilename());

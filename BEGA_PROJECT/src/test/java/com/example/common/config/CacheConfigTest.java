@@ -3,6 +3,7 @@ package com.example.common.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.cache.Cache;
@@ -10,7 +11,6 @@ import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.cache.support.CompositeCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
 
 class CacheConfigTest {
 
@@ -24,7 +24,7 @@ class CacheConfigTest {
                 caffeineCacheManager,
                 cacheConfig.redisCacheManager(
                         mock(RedisConnectionFactory.class),
-                        new GenericJackson2JsonRedisSerializer()));
+                        new RedisConfig().redisValueSerializer(new ObjectMapper())));
 
         assertThat(caffeineCacheManager.getCacheNames())
                 .containsExactlyInAnyOrder(

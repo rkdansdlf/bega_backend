@@ -8,6 +8,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.storage.service.ImageService;
+import com.example.common.config.RedisConfig;
 import com.example.kbo.entity.TeamEntity;
 import com.example.common.config.CacheConfig;
 import com.example.kbo.service.TicketVerificationTokenStore;
@@ -23,7 +24,7 @@ import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -322,8 +323,8 @@ class BegaDiaryStatisticsCacheTest {
     static class TestConfig {
 
         @Bean
-        GenericJackson2JsonRedisSerializer redisValueSerializer() {
-            return new GenericJackson2JsonRedisSerializer(new ObjectMapper());
+        RedisSerializer<Object> redisValueSerializer() {
+            return new RedisConfig().redisValueSerializer(new ObjectMapper());
         }
 
         @Bean

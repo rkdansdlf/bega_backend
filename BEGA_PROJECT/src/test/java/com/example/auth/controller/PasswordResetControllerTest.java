@@ -31,7 +31,7 @@ class PasswordResetControllerTest {
     void requestPasswordReset_returnsGenericSuccessMessage() {
         PasswordResetRequestDto request = new PasswordResetRequestDto("user@example.com", "/mypage");
 
-        ResponseEntity<ApiResponse> response = controller.requestPasswordReset(request);
+        ResponseEntity<ApiResponse<Void>> response = controller.requestPasswordReset(request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
