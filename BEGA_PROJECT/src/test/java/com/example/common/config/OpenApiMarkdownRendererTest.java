@@ -553,4 +553,58 @@ class OpenApiMarkdownRendererTest {
                 .contains("Includes: `oneOf`")
                 .contains("\"oneOf\" : [ {");
     }
+
+    @Test
+    void assignsDistinctStableAnchorsToCollidingSchemaNamesAndReferences() throws Exception {
+        JsonNode schema = objectMapper.readTree("""
+                {
+                  "openapi": "3.0.1",
+                  "info": {"title": "Fixture API", "version": "1"},
+                  "paths": {
+                    "/users": {
+                      "get": {
+                        "parameters": [{
+                          "name": "user", "in": "query",
+                          "schema": {"$ref": "#/components/schemas/UserInfo"}
+                        }],
+                        "responses": {"200": {"description": "OK"}}
+                      }
+                    }
+                  },
+                  "components": {
+                    "schemas": {
+                      "Envelope": {
+                        "type": "object",
+                        "properties": {
+                          "dotted": {"$ref": "#/components/schemas/User.Info"},
+                          "plain": {"$ref": "#/components/schemas/UserInfo"},
+                          "suffixed": {"$ref": "#/components/schemas/UserInfo-2"}
+                        }
+                      },
+                      "User.Info": {"type": "string"},
+                      "UserInfo": {"type": "string"},
+                      "UserInfo-2": {"type": "string"},
+                      "WidgetRequest": {"type": "string"}
+                    }
+                  }
+                }
+                """);
+
+        OpenApiMarkdownRenderer.RenderedDocuments rendered =
+                OpenApiMarkdownRenderer.render(
+                        schema,
+                        "contracts/openapi.json",
+                        "./gradlew updateOpenApiContract");
+
+        assertThat(rendered.schemas())
+                .contains("<a id=\"userinfo\"></a>\n## User.Info")
+                .contains("<a id=\"userinfo-2\"></a>\n## UserInfo")
+                .contains("<a id=\"userinfo-2-2\"></a>\n## UserInfo-2")
+                .contains("<a id=\"widgetrequest\"></a>\n## WidgetRequest")
+                .contains("[User.Info](openapi-schemas.md#userinfo)")
+                .contains("[UserInfo](openapi-schemas.md#userinfo-2)")
+                .contains("[UserInfo-2](openapi-schemas.md#userinfo-2-2)");
+        assertThat(rendered.endpoints())
+                .contains("[UserInfo](openapi-schemas.md#userinfo-2)");
+    }
 }

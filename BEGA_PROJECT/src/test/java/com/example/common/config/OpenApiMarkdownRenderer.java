@@ -45,11 +45,12 @@ final class OpenApiMarkdownRenderer {
             String updateCommand) {
         JsonNode paths = requireObject(openApi, "paths");
         JsonNode schemas = requireObject(openApi.path("components"), "schemas");
+        Map<String, String> schemaAnchors = schemaAnchors(schemas);
         List<Operation> operations = collectOperations(paths);
         String endpointMarkdown = renderEndpoints(
-                openApi, sourcePath, updateCommand, paths, operations);
+                openApi, sourcePath, updateCommand, paths, operations, schemaAnchors);
         String schemaMarkdown = renderSchemas(
-                openApi, sourcePath, updateCommand, schemas);
+                openApi, sourcePath, updateCommand, schemas, schemaAnchors);
         return new RenderedDocuments(
                 endpointMarkdown,
                 schemaMarkdown,
@@ -112,7 +113,8 @@ final class OpenApiMarkdownRenderer {
             String sourcePath,
             String updateCommand,
             JsonNode paths,
-            List<Operation> operations) {
+            List<Operation> operations,
+            Map<String, String> schemaAnchors) {
         StringBuilder markdown = new StringBuilder();
         appendLine(markdown, "# " + infoText(openApi, "title") + " Endpoints");
         appendLine(markdown, "");
@@ -131,12 +133,15 @@ final class OpenApiMarkdownRenderer {
                 appendLine(markdown, "## " + operation.tag());
                 previousTag = operation.tag();
             }
-            appendOperation(markdown, operation);
+            appendOperation(markdown, operation, schemaAnchors);
         }
         return finish(markdown);
     }
 
-    private static void appendOperation(StringBuilder markdown, Operation operation) {
+    private static void appendOperation(
+            StringBuilder markdown,
+            Operation operation,
+            Map<String, String> schemaAnchors) {
         appendLine(markdown, "");
         appendLine(markdown, "### " + operation.method().toUpperCase(Locale.ROOT) + " `" + operation.path() + "`");
         appendOptionalLine(markdown, operation.node().path("summary"));
@@ -145,9 +150,9 @@ final class OpenApiMarkdownRenderer {
         appendLine(markdown, "- Tags: " + renderTags(operation.node().path("tags")));
         appendLine(markdown, "- Security: " + renderSecurity(operation.node().path("security")));
         appendLine(markdown, "- Deprecated: " + (operation.node().path("deprecated").asBoolean(false) ? "yes" : "no"));
-        appendParameters(markdown, mergedParameters(operation.pathItem(), operation.node()));
-        appendRequestBody(markdown, operation.node().path("requestBody"));
-        appendResponses(markdown, operation.node().path("responses"));
+        appendParameters(markdown, mergedParameters(operation.pathItem(), operation.node()), schemaAnchors);
+        appendRequestBody(markdown, operation.node().path("requestBody"), schemaAnchors);
+        appendResponses(markdown, operation.node().path("responses"), schemaAnchors);
         appendFallback(markdown, "Path-item extensions and metadata", operation.pathItem(), pathItemFields());
         appendFallback(markdown, "Operation extensions and metadata", operation.node(), operationFields());
     }
@@ -184,7 +189,10 @@ final class OpenApiMarkdownRenderer {
         };
     }
 
-    private static void appendParameters(StringBuilder out, List<JsonNode> parameters) {
+    private static void appendParameters(
+            StringBuilder out,
+            List<JsonNode> parameters,
+            Map<String, String> schemaAnchors) {
         if (parameters.isEmpty()) {
             return;
         }
@@ -197,7 +205,7 @@ final class OpenApiMarkdownRenderer {
             appendLine(out, "| `" + markdownCell(parameter.path("name").asText()) + "` | "
                     + markdownCell(parameter.path("in").asText()) + " | "
                     + (parameter.path("required").asBoolean(false) ? "yes" : "no") + " | "
-                    + schemaCell(parameter.path("schema")) + " | "
+                    + schemaCell(parameter.path("schema"), schemaAnchors) + " | "
                     + markdownCellOrDash(parameter.get("description")) + " | "
                     + (example == null ? "—" : "`" + markdownCell(stableJson(example)) + "`") + " |");
         }
@@ -207,7 +215,10 @@ final class OpenApiMarkdownRenderer {
         }
     }
 
-    private static void appendRequestBody(StringBuilder out, JsonNode requestBody) {
+    private static void appendRequestBody(
+            StringBuilder out,
+            JsonNode requestBody,
+            Map<String, String> schemaAnchors) {
         if (!requestBody.isObject()) {
             return;
         }
@@ -215,12 +226,15 @@ final class OpenApiMarkdownRenderer {
         appendLine(out, "#### Request body");
         appendLine(out, "Required: **" + (requestBody.path("required").asBoolean(false) ? "yes" : "no") + "**");
         appendOptionalLine(out, requestBody.path("description"));
-        appendContent(out, requestBody.path("content"));
+        appendContent(out, requestBody.path("content"), schemaAnchors);
         appendFallback(out, "Request body metadata", requestBody,
                 Set.of("required", "description", "content"));
     }
 
-    private static void appendResponses(StringBuilder out, JsonNode responses) {
+    private static void appendResponses(
+            StringBuilder out,
+            JsonNode responses,
+            Map<String, String> schemaAnchors) {
         if (!responses.isObject()) {
             return;
         }
@@ -232,8 +246,8 @@ final class OpenApiMarkdownRenderer {
             appendLine(out, "");
             appendLine(out, "### Response `" + code + "`");
             appendOptionalLine(out, response.path("description"));
-            appendHeaders(out, response.path("headers"));
-            appendContent(out, response.path("content"));
+            appendHeaders(out, response.path("headers"), schemaAnchors);
+            appendContent(out, response.path("content"), schemaAnchors);
             appendFallback(out, "Response metadata: `" + code + "`", response,
                     Set.of("description", "headers", "content"));
         }
@@ -260,7 +274,10 @@ final class OpenApiMarkdownRenderer {
         return left.compareTo(right);
     }
 
-    private static void appendHeaders(StringBuilder out, JsonNode headers) {
+    private static void appendHeaders(
+            StringBuilder out,
+            JsonNode headers,
+            Map<String, String> schemaAnchors) {
         if (!headers.isObject() || headers.isEmpty()) {
             return;
         }
@@ -273,7 +290,7 @@ final class OpenApiMarkdownRenderer {
         appendLine(out, "| --- | --- | --- |");
         for (String name : names) {
             JsonNode header = headers.path(name);
-            appendLine(out, "| `" + markdownCell(name) + "` | " + schemaCell(header.path("schema"))
+            appendLine(out, "| `" + markdownCell(name) + "` | " + schemaCell(header.path("schema"), schemaAnchors)
                     + " | " + markdownCellOrDash(header.get("description")) + " |");
         }
         for (String name : names) {
@@ -283,7 +300,10 @@ final class OpenApiMarkdownRenderer {
         }
     }
 
-    private static void appendContent(StringBuilder out, JsonNode content) {
+    private static void appendContent(
+            StringBuilder out,
+            JsonNode content,
+            Map<String, String> schemaAnchors) {
         if (!content.isObject()) {
             return;
         }
@@ -295,7 +315,7 @@ final class OpenApiMarkdownRenderer {
             appendLine(out, "");
             appendLine(out, "Media type: `" + mediaType + "`");
             if (media.has("schema")) {
-                appendLine(out, "Schema: " + schemaCell(media.path("schema")));
+                appendLine(out, "Schema: " + schemaCell(media.path("schema"), schemaAnchors));
             }
             appendExamples(out, media);
             appendFallback(out, "Media type metadata: `" + mediaType + "`", media,
@@ -329,7 +349,7 @@ final class OpenApiMarkdownRenderer {
         appendLine(out, "```");
     }
 
-    private static String schemaLabel(JsonNode schema) {
+    private static String schemaLabel(JsonNode schema, Map<String, String> schemaAnchors) {
         if (!schema.isObject()) {
             return "—";
         }
@@ -339,10 +359,10 @@ final class OpenApiMarkdownRenderer {
         JsonNode ref = schema.get("$ref");
         if (ref != null && ref.isTextual() && ref.asText().startsWith("#/components/schemas/")) {
             String name = ref.asText().substring("#/components/schemas/".length());
-            return "[" + name + "](openapi-schemas.md#" + anchor(name) + ")";
+            return "[" + name + "](openapi-schemas.md#" + schemaAnchors.getOrDefault(name, anchor(name)) + ")";
         }
         if (schema.path("type").asText().equals("array")) {
-            return "array<" + schemaLabel(schema.path("items")) + ">";
+            return "array<" + schemaLabel(schema.path("items"), schemaAnchors) + ">";
         }
         if (schema.path("type").isTextual()) {
             String type = schema.path("type").asText();
@@ -376,8 +396,29 @@ final class OpenApiMarkdownRenderer {
                 .replaceAll("\\s+", "-");
     }
 
-    private static String schemaCell(JsonNode schema) {
-        String label = schemaLabel(schema);
+    private static Map<String, String> schemaAnchors(JsonNode schemas) {
+        List<String> names = new ArrayList<>();
+        schemas.fieldNames().forEachRemaining(names::add);
+        names.sort(String::compareTo);
+        Map<String, String> anchors = new HashMap<>();
+        Set<String> used = new HashSet<>();
+        for (String name : names) {
+            String base = anchor(name);
+            if (base.isBlank()) {
+                base = "schema";
+            }
+            String candidate = base;
+            int suffix = 2;
+            while (!used.add(candidate)) {
+                candidate = base + "-" + suffix++;
+            }
+            anchors.put(name, candidate);
+        }
+        return anchors;
+    }
+
+    private static String schemaCell(JsonNode schema, Map<String, String> schemaAnchors) {
+        String label = schemaLabel(schema, schemaAnchors);
         return label.contains("](openapi-schemas.md#") ? label : "`" + markdownCell(label) + "`";
     }
 
@@ -509,7 +550,8 @@ final class OpenApiMarkdownRenderer {
             JsonNode openApi,
             String sourcePath,
             String updateCommand,
-            JsonNode schemas) {
+            JsonNode schemas,
+            Map<String, String> schemaAnchors) {
         StringBuilder markdown = new StringBuilder();
         appendLine(markdown, "# " + infoText(openApi, "title") + " Schemas");
         appendLine(markdown, "");
@@ -523,20 +565,25 @@ final class OpenApiMarkdownRenderer {
         schemas.fieldNames().forEachRemaining(names::add);
         names.sort(String::compareTo);
         for (String name : names) {
-            appendSchema(markdown, name, schemas.path(name));
+            appendSchema(markdown, name, schemas.path(name), schemaAnchors);
         }
         return finish(markdown);
     }
 
-    private static void appendSchema(StringBuilder out, String name, JsonNode schema) {
+    private static void appendSchema(
+            StringBuilder out,
+            String name,
+            JsonNode schema,
+            Map<String, String> schemaAnchors) {
         appendLine(out, "");
+        appendLine(out, "<a id=\"" + schemaAnchors.get(name) + "\"></a>");
         appendLine(out, "## " + name);
         if (!schema.isObject()) {
             appendJsonBlock(out, "### Schema fallback", schema);
             return;
         }
         appendOptionalLine(out, schema.path("description"));
-        appendLine(out, "Schema: " + schemaCell(schema));
+        appendLine(out, "Schema: " + schemaCell(schema, schemaAnchors));
         String constraints = constraintsLabel(schema);
         if (!constraints.equals("—")) {
             appendLine(out, "Schema constraints: " + constraints);
@@ -556,7 +603,7 @@ final class OpenApiMarkdownRenderer {
             }
         }
 
-        appendPropertyTable(out, schema.path("properties"), required);
+        appendPropertyTable(out, schema.path("properties"), required, schemaAnchors);
         appendExplicitMetadata(out, "#### Explicit schema metadata", schema);
         appendComposition(out, "### Composition", schema);
         appendFallback(out, "Schema metadata", schema, schemaFields());
@@ -565,7 +612,8 @@ final class OpenApiMarkdownRenderer {
     private static void appendPropertyTable(
             StringBuilder out,
             JsonNode properties,
-            JsonNode required) {
+            JsonNode required,
+            Map<String, String> schemaAnchors) {
         if (!properties.isObject()) {
             if (!properties.isMissingNode()) {
                 appendJsonBlock(out, "### Properties fallback", properties);
@@ -594,7 +642,7 @@ final class OpenApiMarkdownRenderer {
             JsonNode property = properties.path(name);
             appendLine(out, "| `" + markdownCell(name) + "` | "
                     + (requiredNames.contains(name) ? "yes" : "no") + " | "
-                    + propertySchemaCell(property) + " | "
+                    + propertySchemaCell(property, schemaAnchors) + " | "
                     + markdownCellOrDash(property.get("description")) + " | "
                     + constraintsLabel(property) + " |");
         }
@@ -633,7 +681,7 @@ final class OpenApiMarkdownRenderer {
         return labels.isEmpty() ? "—" : String.join(", ", labels);
     }
 
-    private static String propertySchemaCell(JsonNode schema) {
+    private static String propertySchemaCell(JsonNode schema, Map<String, String> schemaAnchors) {
         if (schema.has("oneOf") || schema.has("anyOf") || schema.has("allOf")
                 || schema.has("additionalProperties")) {
             return "`composition`";
@@ -641,10 +689,10 @@ final class OpenApiMarkdownRenderer {
         JsonNode ref = schema.get("$ref");
         if (ref != null && ref.isTextual() && ref.asText().startsWith("#/components/schemas/")) {
             String name = ref.asText().substring("#/components/schemas/".length());
-            return "[" + name + "](openapi-schemas.md#" + anchor(name) + ")";
+            return "[" + name + "](openapi-schemas.md#" + schemaAnchors.getOrDefault(name, anchor(name)) + ")";
         }
         if (schema.path("type").asText().equals("array")) {
-            return "`array<" + markdownCell(schemaLabel(schema.path("items"))) + ">`";
+            return "`array<" + markdownCell(schemaLabel(schema.path("items"), schemaAnchors)) + ">`";
         }
         if (schema.path("type").isTextual()) {
             String type = schema.path("type").asText();
@@ -654,7 +702,7 @@ final class OpenApiMarkdownRenderer {
                     : type;
             return "`" + markdownCell(label) + "`";
         }
-        return schemaCell(schema);
+        return schemaCell(schema, schemaAnchors);
     }
 
     private static void appendExplicitMetadata(StringBuilder out, String heading, JsonNode property) {
