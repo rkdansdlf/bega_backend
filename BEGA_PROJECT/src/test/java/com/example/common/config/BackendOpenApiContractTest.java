@@ -50,7 +50,12 @@ import org.springframework.test.web.servlet.MockMvc;
 class BackendOpenApiContractTest {
 
     private static final Path CONTRACT_PATH = Path.of("contracts", "openapi.json");
+    private static final Path ENDPOINTS_PATH =
+            Path.of("contracts", "openapi-endpoints.md");
+    private static final Path SCHEMAS_PATH =
+            Path.of("contracts", "openapi-schemas.md");
     private static final String UPDATE_PROPERTY = "updateOpenApiContract";
+    private static final String UPDATE_COMMAND = "./gradlew updateOpenApiContract";
 
     @Autowired
     private MockMvc mockMvc;
@@ -69,13 +74,26 @@ class BackendOpenApiContractTest {
         JsonNode runtimeContract = objectMapper.readTree(runtimeJson);
         assertOperation(runtimeContract, "/api/payments/capability", "get");
         assertOperation(runtimeContract, "/api/admin/maintenance/cheer-posts/cleanup", "post");
+        JsonNode normalizedRuntime = normalize(runtimeContract);
+        OpenApiMarkdownRenderer.RenderedDocuments rendered =
+                OpenApiMarkdownRenderer.render(
+                        normalizedRuntime,
+                        CONTRACT_PATH.toString(),
+                        UPDATE_COMMAND);
+
+        assertThat(rendered.operationCount()).isEqualTo(countOperations(runtimeContract));
+        assertThat(rendered.operationCount()).isPositive();
+        assertThat(rendered.endpoints()).contains(
+                "Operations: **" + countOperations(runtimeContract) + "**");
+        assertThat(rendered.schemas()).contains(
+                "Schemas: **" + runtimeContract.path("components").path("schemas").size() + "**");
 
         if (Boolean.getBoolean(UPDATE_PROPERTY)) {
-            Files.createDirectories(CONTRACT_PATH.getParent());
-            Files.writeString(
+            writeAtomic(
                     CONTRACT_PATH,
-                    objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(runtimeContract) + System.lineSeparator(),
-                    StandardCharsets.UTF_8);
+                    objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(normalizedRuntime) + "\n");
+            writeAtomic(ENDPOINTS_PATH, rendered.endpoints());
+            writeAtomic(SCHEMAS_PATH, rendered.schemas());
         }
 
         assertThat(CONTRACT_PATH)
@@ -83,9 +101,23 @@ class BackendOpenApiContractTest {
                 .exists();
 
         JsonNode committedContract = objectMapper.readTree(Files.readString(CONTRACT_PATH));
-        assertThat(normalize(runtimeContract))
+        assertThat(normalizedRuntime)
                 .withFailMessage("Backend OpenAPI contract drift detected. Run ./gradlew updateOpenApiContract")
                 .isEqualTo(normalize(committedContract));
+
+        assertThat(ENDPOINTS_PATH)
+                .withFailMessage("Backend OpenAPI Markdown drift detected. Run ./gradlew updateOpenApiContract")
+                .exists();
+        assertThat(Files.readAllBytes(ENDPOINTS_PATH))
+                .withFailMessage("Backend OpenAPI Markdown drift detected. Run ./gradlew updateOpenApiContract")
+                .isEqualTo(rendered.endpoints().getBytes(StandardCharsets.UTF_8));
+
+        assertThat(SCHEMAS_PATH)
+                .withFailMessage("Backend OpenAPI Markdown drift detected. Run ./gradlew updateOpenApiContract")
+                .exists();
+        assertThat(Files.readAllBytes(SCHEMAS_PATH))
+                .withFailMessage("Backend OpenAPI Markdown drift detected. Run ./gradlew updateOpenApiContract")
+                .isEqualTo(rendered.schemas().getBytes(StandardCharsets.UTF_8));
     }
 
     private void assertOperation(JsonNode contract, String path, String method) {
@@ -93,6 +125,44 @@ class BackendOpenApiContractTest {
         assertThat(operation.isMissingNode())
                 .withFailMessage("OpenAPI operation is missing: %s %s", method.toUpperCase(), path)
                 .isFalse();
+    }
+
+    private int countOperations(JsonNode contract) {
+        java.util.Set<String> methods = java.util.Set.of(
+                "get", "post", "put", "patch", "delete", "options", "head", "trace");
+        int count = 0;
+        for (JsonNode pathItem : contract.path("paths")) {
+            java.util.Iterator<String> names = pathItem.fieldNames();
+            while (names.hasNext()) {
+                if (methods.contains(names.next())) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private void writeAtomic(Path target, String content) throws Exception {
+        Files.createDirectories(target.getParent());
+        Path temporary = Files.createTempFile(
+                target.getParent(), "." + target.getFileName(), ".tmp");
+        try {
+            Files.writeString(temporary, content, StandardCharsets.UTF_8);
+            try {
+                Files.move(
+                        temporary,
+                        target,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+                Files.move(
+                        temporary,
+                        target,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     private JsonNode normalize(JsonNode node) {
