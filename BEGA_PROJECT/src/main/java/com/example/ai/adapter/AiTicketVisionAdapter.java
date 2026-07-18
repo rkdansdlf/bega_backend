@@ -136,7 +136,7 @@ public class AiTicketVisionAdapter implements TicketVisionPort {
                     HttpStatus.SERVICE_UNAVAILABLE,
                     "티켓 분석 서비스 인증에 실패했습니다. 서버 설정을 확인해주세요.");
         }
-        if (statusCode == HttpStatus.PAYLOAD_TOO_LARGE.value()) {
+        if (statusCode == HttpStatus.CONTENT_TOO_LARGE.value()) {
             return new TicketAnalysisException(
                     HttpStatus.BAD_REQUEST,
                     "이미지 파일 크기가 너무 큽니다. (최대 5MB)");

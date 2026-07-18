@@ -58,7 +58,7 @@ public class MypageController {
 
         // 프로필 정보 조회 (GET /mypage) - 수정 없음
         @GetMapping("/mypage")
-        public ResponseEntity<ApiResponse> getMyProfile(
+        public ResponseEntity<ApiResponse<UserProfileDto>> getMyProfile(
                         @AuthenticationPrincipal Long userId) {
                 UserEntity userEntity = requireAuthenticatedUser(userId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)");
                 PolicyConsentService.PolicyConsentStatus policyConsentStatus = policyConsentService
@@ -99,7 +99,7 @@ public class MypageController {
 
         // 프로필 정보 수정 (PUT /mypage)
         @PutMapping("/mypage")
-        public ResponseEntity<ApiResponse> updateMyProfile(
+        public ResponseEntity<ApiResponse<Map<String, Object>>> updateMyProfile(
                         @AuthenticationPrincipal Long userId,
                         @Valid @RequestBody UserProfileDto updateDto) {
                 Long authenticatedUserId = AuthenticatedUserIds.require(userId);
@@ -141,7 +141,7 @@ public class MypageController {
          * 비밀번호 변경 (일반 로그인 사용자만)
          */
         @PutMapping("/password")
-        public ResponseEntity<ApiResponse> changePassword(
+        public ResponseEntity<ApiResponse<Void>> changePassword(
                         @AuthenticationPrincipal Long userId,
                         @Valid @RequestBody com.example.mypage.dto.ChangePasswordRequest request) {
                 Long authenticatedUserId = AuthenticatedUserIds.require(userId);
@@ -161,7 +161,7 @@ public class MypageController {
          * 계정 삭제 (회원탈퇴)
          */
         @DeleteMapping("/account")
-        public ResponseEntity<ApiResponse> deleteAccount(
+        public ResponseEntity<ApiResponse<Map<String, String>>> deleteAccount(
                         @AuthenticationPrincipal Long userId,
                         @RequestBody(required = false) com.example.mypage.dto.DeleteAccountRequest request) {
                 Long authenticatedUserId = AuthenticatedUserIds.require(userId);
@@ -185,7 +185,8 @@ public class MypageController {
          * 연동된 계정 목록 조회
          */
         @GetMapping("/providers")
-        public ResponseEntity<ApiResponse> getConnectedProviders(@AuthenticationPrincipal Long userId) {
+        public ResponseEntity<ApiResponse<List<com.example.mypage.dto.UserProviderDto>>> getConnectedProviders(
+                        @AuthenticationPrincipal Long userId) {
                 Long authenticatedUserId = AuthenticatedUserIds.require(userId);
                 requireAuthenticatedUser(authenticatedUserId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다. (재로그인 필요)");
                 java.util.List<com.example.mypage.dto.UserProviderDto> providers = userService
@@ -197,7 +198,7 @@ public class MypageController {
          * 계정 연동 해제
          */
         @DeleteMapping("/providers/{provider}")
-        public ResponseEntity<ApiResponse> unlinkProvider(
+        public ResponseEntity<ApiResponse<Void>> unlinkProvider(
                         @AuthenticationPrincipal Long userId,
                         @PathVariable String provider) {
                 Long authenticatedUserId = AuthenticatedUserIds.require(userId);
@@ -210,7 +211,7 @@ public class MypageController {
          * 로그인 기기 목록 조회
          */
         @GetMapping("/sessions")
-        public ResponseEntity<ApiResponse> getSessions(
+        public ResponseEntity<ApiResponse<List<DeviceSessionDto>>> getSessions(
                         @AuthenticationPrincipal Long userId,
                         HttpServletRequest request) {
                 UserEntity user = requireAuthenticatedUser(userId, "요청한 사용자의 프로필 정보를 찾을 수 없습니다.");
@@ -240,7 +241,7 @@ public class MypageController {
          * 특정 기기 세션 종료
          */
         @DeleteMapping("/sessions/{sessionId}")
-        public ResponseEntity<ApiResponse> deleteSession(
+        public ResponseEntity<ApiResponse<Void>> deleteSession(
                         @AuthenticationPrincipal Long userId,
                         @PathVariable("sessionId") String sessionId,
                         HttpServletRequest request) {
@@ -274,7 +275,7 @@ public class MypageController {
          * 현재 세션 제외 세션 정리
          */
         @DeleteMapping("/sessions")
-        public ResponseEntity<ApiResponse> deleteSessions(
+        public ResponseEntity<ApiResponse<Void>> deleteSessions(
                         @AuthenticationPrincipal Long userId,
                         @RequestParam(name = "allExceptCurrent", defaultValue = "false") boolean allExceptCurrent,
                         HttpServletRequest request) {

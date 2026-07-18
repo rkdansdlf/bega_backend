@@ -15,6 +15,8 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+import com.example.support.RedisIntegrationTestSupport;
+
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class RealtimeAuthorizationCacheRedisIntegrationTest {
@@ -22,23 +24,19 @@ class RealtimeAuthorizationCacheRedisIntegrationTest {
     @Test
     @EnabledIfSystemProperty(named = "realtime.redis.integration", matches = "true")
     void allowAndDenyAreSharedAcrossInstancesAndExpire() throws Exception {
-        String host = System.getProperty("realtime.redis.host", "127.0.0.1");
-        int port = Integer.parseInt(System.getProperty("realtime.redis.port", "16379"));
         long partyId = positiveRandomId();
         long userId = positiveRandomId();
         String key = RealtimeAuthorizationCache.key(
                 RealtimeAuthorizationResource.PARTY, partyId, userId);
 
-        LettuceConnectionFactory connectionFactoryOne = new LettuceConnectionFactory(host, port);
-        LettuceConnectionFactory connectionFactoryTwo = new LettuceConnectionFactory(host, port);
+        LettuceConnectionFactory connectionFactoryOne = RedisIntegrationTestSupport.connectionFactory();
+        LettuceConnectionFactory connectionFactoryTwo = RedisIntegrationTestSupport.connectionFactory();
         SimpleMeterRegistry registryOne = new SimpleMeterRegistry();
         SimpleMeterRegistry registryTwo = new SimpleMeterRegistry();
         StringRedisTemplate redisTemplateOne = new StringRedisTemplate(connectionFactoryOne);
         StringRedisTemplate redisTemplateTwo = new StringRedisTemplate(connectionFactoryTwo);
         Throwable primaryFailure = null;
         try {
-            connectionFactoryOne.afterPropertiesSet();
-            connectionFactoryTwo.afterPropertiesSet();
             redisTemplateOne.afterPropertiesSet();
             redisTemplateTwo.afterPropertiesSet();
 

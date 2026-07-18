@@ -3,6 +3,7 @@ package com.example.auth.repository;
 import com.example.auth.entity.UserBlock;
 import com.example.auth.entity.UserBlock.Id;
 import com.example.auth.entity.UserEntity;
+import org.jspecify.annotations.NonNull;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,7 +15,7 @@ import java.util.List;
 public interface UserBlockRepository extends JpaRepository<UserBlock, Id> {
 
     // 차단 관계 존재 여부 확인
-    boolean existsById(@org.springframework.lang.NonNull Id id);
+    boolean existsById(@NonNull Id id);
 
     // 내가 차단한 유저 목록 (페이징)
     @Query("SELECT ub.blocked FROM UserBlock ub WHERE ub.blocker.id = :userId ORDER BY ub.createdAt DESC")

@@ -130,7 +130,7 @@ public class PredictionController {
 
     // 투표하기
     @PostMapping("/predictions/vote")
-    public ResponseEntity<ApiResponse> vote(@Valid @RequestBody PredictionRequestDto request, Principal principal) {
+    public ResponseEntity<ApiResponse<Void>> vote(@Valid @RequestBody PredictionRequestDto request, Principal principal) {
         PredictionRequestDto normalizedRequest = requireNormalizedPredictionRequest(request);
         Long userId = parsePrincipalUserId(requirePrincipal(principal));
 
@@ -150,7 +150,7 @@ public class PredictionController {
 
     // 투표 취소
     @DeleteMapping("/predictions/{gameId}")
-    public ResponseEntity<ApiResponse> cancelVote(
+    public ResponseEntity<ApiResponse<Void>> cancelVote(
             Principal principal,
             @PathVariable String gameId) {
         Long userId = parsePrincipalUserId(requirePrincipal(principal));

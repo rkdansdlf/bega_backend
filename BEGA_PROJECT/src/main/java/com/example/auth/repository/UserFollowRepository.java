@@ -3,6 +3,7 @@ package com.example.auth.repository;
 import com.example.auth.entity.UserFollow;
 import com.example.auth.entity.UserFollow.Id;
 import com.example.auth.entity.UserEntity;
+import org.jspecify.annotations.NonNull;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -16,7 +17,7 @@ import java.util.Optional;
 public interface UserFollowRepository extends JpaRepository<UserFollow, Id> {
 
         // 팔로우 관계 존재 여부 확인
-        boolean existsById(@org.springframework.lang.NonNull Id id);
+        boolean existsById(@NonNull Id id);
 
         // 내가 팔로우하는 유저 목록 (페이징)
         @Query("SELECT uf.following FROM UserFollow uf WHERE uf.follower.id = :userId ORDER BY uf.createdAt DESC")

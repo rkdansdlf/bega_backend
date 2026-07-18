@@ -153,7 +153,7 @@ class AiTicketVisionAdapterTest {
                         HttpStatus.SERVICE_UNAVAILABLE,
                         "티켓 분석 서비스 인증에 실패했습니다. 서버 설정을 확인해주세요."),
                 Arguments.of(
-                        HttpStatus.PAYLOAD_TOO_LARGE,
+                        HttpStatus.CONTENT_TOO_LARGE,
                         HttpStatus.BAD_REQUEST,
                         "이미지 파일 크기가 너무 큽니다. (최대 5MB)"),
                 Arguments.of(

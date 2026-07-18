@@ -36,7 +36,7 @@ class StadiumAdminControllerTest {
     void createPlace_happyPath_returns201() {
         when(stadiumAdminService.createPlace(any(), any())).thenReturn(placeDto());
 
-        ResponseEntity<ApiResponse> result = controller.createPlace("JAMSIL", createRequest());
+        ResponseEntity<ApiResponse<PlaceDto>> result = controller.createPlace("JAMSIL", createRequest());
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(result.getBody().isSuccess()).isTrue();
@@ -61,7 +61,7 @@ class StadiumAdminControllerTest {
     void updatePlace_happyPath_returnsOk() {
         when(stadiumAdminService.updatePlace(any(), any())).thenReturn(placeDto());
 
-        ResponseEntity<ApiResponse> result = controller.updatePlace(1L, createRequest());
+        ResponseEntity<ApiResponse<PlaceDto>> result = controller.updatePlace(1L, createRequest());
 
         assertThat(result.getBody().isSuccess()).isTrue();
         verify(stadiumAdminService).updatePlace(org.mockito.ArgumentMatchers.eq(1L), any());
@@ -80,7 +80,7 @@ class StadiumAdminControllerTest {
     @Test
     @DisplayName("장소 삭제 시 200을 반환한다")
     void deletePlace_happyPath_returnsOk() {
-        ResponseEntity<ApiResponse> result = controller.deletePlace(1L);
+        ResponseEntity<ApiResponse<Void>> result = controller.deletePlace(1L);
 
         assertThat(result.getBody().isSuccess()).isTrue();
         verify(stadiumAdminService).deletePlace(1L);

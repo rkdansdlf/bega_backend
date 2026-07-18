@@ -1,6 +1,6 @@
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '4.0.6'
+	id 'org.springframework.boot' version '4.0.7'
 	id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -320,6 +320,9 @@ tasks.withType(Test).configureEach {
 		'realtime.redis.integration',
 		'realtime.redis.host',
 		'realtime.redis.port',
+		'realtime.redis.username',
+		'realtime.redis.password-file',
+		'realtime.redis.channel',
 		'realtime.postgres.integration',
 		'realtime.postgres.url',
 		'realtime.postgres.username',

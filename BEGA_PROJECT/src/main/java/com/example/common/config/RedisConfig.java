@@ -5,7 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 /**
@@ -18,17 +18,14 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 public class RedisConfig {
 
     @Bean
-    public GenericJackson2JsonRedisSerializer redisValueSerializer(ObjectMapper objectMapper) {
-        return GenericJackson2JsonRedisSerializer.builder()
-            .objectMapper(objectMapper.copy())
-            .defaultTyping(true)
-            .build();
+    public RedisSerializer<Object> redisValueSerializer(ObjectMapper objectMapper) {
+        return new Jackson2RedisSerializer(objectMapper);
     }
 
     @Bean
     public RedisTemplate<String, Object> redisTemplate(
         RedisConnectionFactory connectionFactory,
-        GenericJackson2JsonRedisSerializer redisValueSerializer
+        RedisSerializer<Object> redisValueSerializer
     ) {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);

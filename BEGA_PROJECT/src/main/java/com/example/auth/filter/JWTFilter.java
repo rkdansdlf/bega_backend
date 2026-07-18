@@ -7,7 +7,7 @@ import java.util.List;
 import java.net.URI;
 import java.util.Objects;
 
-import org.springframework.lang.NonNull;
+import org.jspecify.annotations.NonNull;
 
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;

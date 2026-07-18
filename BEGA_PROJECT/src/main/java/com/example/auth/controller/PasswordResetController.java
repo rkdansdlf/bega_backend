@@ -20,7 +20,7 @@ public class PasswordResetController {
     private final PasswordResetService passwordResetService;
 
     @PostMapping("/request")
-    public ResponseEntity<ApiResponse> requestPasswordReset(
+    public ResponseEntity<ApiResponse<Void>> requestPasswordReset(
             @Valid @RequestBody PasswordResetRequestDto request) {
         passwordResetService.requestPasswordReset(request);
         return ResponseEntity.ok(ApiResponse.success(PASSWORD_RESET_REQUEST_MESSAGE, null));
@@ -32,7 +32,7 @@ public class PasswordResetController {
             key = "auth:password-reset-confirm",
             failClosed = true)
     @PostMapping("/confirm")
-    public ResponseEntity<ApiResponse> confirmPasswordReset(
+    public ResponseEntity<ApiResponse<Void>> confirmPasswordReset(
             @Valid @RequestBody PasswordResetConfirmDto request) {
         passwordResetService.confirmPasswordReset(request);
         return ResponseEntity.ok(

@@ -46,7 +46,7 @@ class UserControllerTest {
 
         when(userService.getPublicUserProfileByHandle("@user", null)).thenReturn(profile);
 
-        ResponseEntity<ApiResponse> result = userController.getPublicUserProfile("@user", null);
+        ResponseEntity<ApiResponse<PublicUserProfileDto>> result = userController.getPublicUserProfile("@user", null);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(result.getBody()).isInstanceOf(ApiResponse.class);
@@ -89,7 +89,7 @@ class UserControllerTest {
     void checkSocialVerified_returnsOwnStatus() {
         when(userService.isSocialVerified(2L)).thenReturn(true);
 
-        ResponseEntity<ApiResponse> result = userController.checkSocialVerified(2L, 2L);
+        ResponseEntity<ApiResponse<Boolean>> result = userController.checkSocialVerified(2L, 2L);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(result.getBody()).isInstanceOf(ApiResponse.class);

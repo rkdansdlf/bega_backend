@@ -24,6 +24,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.support.RedisIntegrationTestSupport;
 
 class RedisRealtimeMessageMultiInstanceIntegrationTest {
 
@@ -32,14 +33,13 @@ class RedisRealtimeMessageMultiInstanceIntegrationTest {
     @Test
     @EnabledIfSystemProperty(named = "realtime.redis.integration", matches = "true")
     void broadcastAndUserPublishFanOutToTwoBackendInstances() throws Exception {
-        String host = System.getProperty("realtime.redis.host", "127.0.0.1");
-        int port = Integer.parseInt(System.getProperty("realtime.redis.port", "16379"));
-        String channel = "bega:realtime:integration:" + UUID.randomUUID();
+        String channel = RedisIntegrationTestSupport.channel();
 
-        LettuceConnectionFactory connectionFactoryOne = connectionFactory(host, port);
-        LettuceConnectionFactory connectionFactoryTwo = connectionFactory(host, port);
+        LettuceConnectionFactory connectionFactoryOne = RedisIntegrationTestSupport.connectionFactory();
+        LettuceConnectionFactory connectionFactoryTwo = RedisIntegrationTestSupport.connectionFactory();
         RedisMessageListenerContainer containerOne = null;
         RedisMessageListenerContainer containerTwo = null;
+        Throwable primaryFailure = null;
 
         try {
             ObjectMapper objectMapper = new ObjectMapper();
@@ -111,18 +111,27 @@ class RedisRealtimeMessageMultiInstanceIntegrationTest {
                     eq("/queue/notifications"),
                     any(JsonNode.class),
                     anyMap());
+        } catch (Exception | Error exception) {
+            primaryFailure = exception;
+            throw exception;
         } finally {
-            stop(containerTwo);
-            stop(containerOne);
-            connectionFactoryTwo.destroy();
-            connectionFactoryOne.destroy();
+            Throwable cleanupFailure = null;
+            RedisMessageListenerContainer containerTwoToStop = containerTwo;
+            RedisMessageListenerContainer containerOneToStop = containerOne;
+            cleanupFailure = attemptCleanup(cleanupFailure, () -> stop(containerTwoToStop));
+            cleanupFailure = attemptCleanup(cleanupFailure, () -> stop(containerOneToStop));
+            cleanupFailure = attemptCleanup(cleanupFailure, connectionFactoryTwo::destroy);
+            cleanupFailure = attemptCleanup(cleanupFailure, connectionFactoryOne::destroy);
+            if (cleanupFailure != null) {
+                if (primaryFailure != null) {
+                    primaryFailure.addSuppressed(cleanupFailure);
+                } else if (cleanupFailure instanceof Exception exception) {
+                    throw exception;
+                } else {
+                    throw (Error) cleanupFailure;
+                }
+            }
         }
-    }
-
-    private LettuceConnectionFactory connectionFactory(String host, int port) {
-        LettuceConnectionFactory connectionFactory = new LettuceConnectionFactory(host, port);
-        connectionFactory.afterPropertiesSet();
-        return connectionFactory;
     }
 
     private RedisMessageListenerContainer listenerContainer(
@@ -170,5 +179,22 @@ class RedisRealtimeMessageMultiInstanceIntegrationTest {
             container.stop();
             container.destroy();
         }
+    }
+
+    private Throwable attemptCleanup(Throwable cleanupFailure, CheckedCleanup cleanup) {
+        try {
+            cleanup.run();
+        } catch (Exception | Error exception) {
+            if (cleanupFailure == null) {
+                return exception;
+            }
+            cleanupFailure.addSuppressed(exception);
+        }
+        return cleanupFailure;
+    }
+
+    @FunctionalInterface
+    private interface CheckedCleanup {
+        void run() throws Exception;
     }
 }

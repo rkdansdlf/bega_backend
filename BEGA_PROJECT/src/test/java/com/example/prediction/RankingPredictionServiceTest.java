@@ -49,6 +49,9 @@ class RankingPredictionServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private com.example.notification.service.NotificationService notificationService;
+
     private RankingPredictionService rankingPredictionService;
 
     @BeforeEach
@@ -61,7 +64,8 @@ class RankingPredictionServiceTest {
                 gameRepository,
                 homePageTeamRepository,
                 userRepository,
-                cacheManager);
+                cacheManager,
+                notificationService);
     }
 
     @Test
@@ -189,7 +193,8 @@ class RankingPredictionServiceTest {
                 gameRepository,
                 homePageTeamRepository,
                 userRepository,
-                cacheManager);
+                cacheManager,
+                notificationService);
 
         RankingPredictionResponseDto response = localService.getPrediction("7", 2026);
 
@@ -231,7 +236,8 @@ class RankingPredictionServiceTest {
                 gameRepository,
                 homePageTeamRepository,
                 userRepository,
-                cacheManager);
+                cacheManager,
+                notificationService);
 
         RankingPredictionResponseDto response = localService.getPrediction("7", 2026);
 
@@ -309,6 +315,50 @@ class RankingPredictionServiceTest {
         // LG(1), KT(4), KH(5), NC(6), SS(7), LT(8), KIA(9), HH(10) 8개 적중, DB/SSG는 순서가 어긋남
         assertThat(prediction.getExactMatchCount()).isEqualTo(8);
         verify(rankingPredictionRepository).saveAll(List.of(prediction));
+        verify(notificationService).createNotification(
+                7L,
+                com.example.notification.entity.Notification.NotificationType.RANKING_PREDICTION_SETTLED,
+                "2026 시즌 순위 예측 결과",
+                "예측한 10개 팀 중 8개 순위를 정확히 맞췄어요!",
+                prediction.getId());
+    }
+
+    @Test
+    void settleSeason_continuesBatchWhenNotificationFailsForOneUser() {
+        RankingPrediction predictionA = new RankingPrediction(
+                "7", 2026,
+                List.of("LG", "DB", "SSG", "KT", "KH", "NC", "SS", "LT", "KIA", "HH"));
+        RankingPrediction predictionB = new RankingPrediction(
+                "8", 2026,
+                List.of("LG", "DB", "SSG", "KT", "KH", "NC", "SS", "LT", "KIA", "HH"));
+
+        when(rankingPredictionRepository.findBySeasonYearAndSettledAtIsNull(2026))
+                .thenReturn(new java.util.ArrayList<>(List.of(predictionA, predictionB)));
+        when(gameRepository.findTeamRankingsBySeason(2026)).thenReturn(List.<Object[]>of(
+                new Object[] { 1, "LG" }, new Object[] { 2, "DB" }, new Object[] { 3, "SSG" },
+                new Object[] { 4, "KT" }, new Object[] { 5, "KH" }, new Object[] { 6, "NC" },
+                new Object[] { 7, "SS" }, new Object[] { 8, "LT" }, new Object[] { 9, "KIA" },
+                new Object[] { 10, "HH" }));
+        org.mockito.Mockito.doThrow(new RuntimeException("notification service down"))
+                .when(notificationService)
+                .createNotification(
+                        org.mockito.ArgumentMatchers.eq(7L),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any());
+
+        int settledCount = rankingPredictionService.settleSeason(2026);
+
+        assertThat(settledCount).isEqualTo(2);
+        assertThat(predictionA.getSettledAt()).isNotNull();
+        assertThat(predictionB.getSettledAt()).isNotNull();
+        verify(notificationService).createNotification(
+                org.mockito.ArgumentMatchers.eq(8L),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test

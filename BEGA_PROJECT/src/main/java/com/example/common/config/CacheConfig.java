@@ -12,8 +12,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.RedisSerializer;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -148,7 +148,7 @@ public class CacheConfig {
         @Bean
         public CacheManager redisCacheManager(
                         RedisConnectionFactory connectionFactory,
-                        GenericJackson2JsonRedisSerializer redisValueSerializer) {
+                        RedisSerializer<Object> redisValueSerializer) {
                 // 기본 Redis 캐시 설정
                 RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
                                 .entryTtl(Objects.requireNonNull(Duration.ofMinutes(5)))

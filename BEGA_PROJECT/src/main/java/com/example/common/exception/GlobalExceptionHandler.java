@@ -292,7 +292,7 @@ public class GlobalExceptionHandler {
         long maxBytes = e.getMaxBytes();
         log.warn("AI proxy request payload exceeded maxBytes={}", maxBytes);
         return ResponseEntity
-                .status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .status(HttpStatus.CONTENT_TOO_LARGE)
                 .body(ApiResponse.error(
                         AiProxyRequestLimits.PAYLOAD_TOO_LARGE_CODE,
                         "AI 요청 본문이 너무 큽니다.",

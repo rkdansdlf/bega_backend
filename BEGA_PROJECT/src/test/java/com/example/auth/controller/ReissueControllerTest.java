@@ -302,7 +302,7 @@ class ReissueControllerTest {
         when(authSessionService.rotateRefreshSession(eq(rt), eq("test@test.com"), eq("ROLE_USER"),
                 eq(42L), eq(0), eq(request), eq("session123"))).thenReturn(issued);
 
-        ResponseEntity<ApiResponse> result = controller.reissue(request, response);
+        ResponseEntity<ApiResponse<Void>> result = controller.reissue(request, response);
 
         assertThat(result.getBody().isSuccess()).isTrue();
         assertThat(response.getHeaders("Set-Cookie"))

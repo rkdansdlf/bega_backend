@@ -66,5 +66,6 @@ class RankingPredictionSettlementSchedulerTest {
 
         assertThat(scheduled.cron())
                 .isEqualTo("${app.prediction.ranking-settlement-scheduler.cron:0 0 1 1 11 *}");
+        assertThat(scheduled.zone()).isEqualTo("Asia/Seoul");
     }
 }

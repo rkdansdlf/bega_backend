@@ -582,8 +582,97 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
       @Param("nextSeasonStart") LocalDate nextSeasonStart);
 
   /**
+   * 특정 시즌 팀별 최근 5경기 결과(W/L/D) 조회.
+   *
+   * season_games/team_games CTE는 findTeamRankingsBySeasonFast와 동일한 union 패턴을 사용하고,
+   * game_date 기준 window function으로 팀별 최근 5경기만 추린다.
+   *
+   * @param seasonYear 시즌 연도
+   * @param seasonStart 시즌 연도 시작일
+   * @param nextSeasonStart 다음 시즌 연도 시작일
+   * @return (team_id, game_date, result) 목록, team_id ASC, game_date DESC 정렬
+   */
+  @Query(value = """
+      WITH season_games AS (
+          SELECT
+              UPPER(TRIM(g.home_team)) AS home_team_id,
+              UPPER(TRIM(g.away_team)) AS away_team_id,
+              g.home_score,
+              g.away_score,
+              g.game_date,
+              g.game_id
+          FROM game g
+          JOIN kbo_seasons s ON g.season_id = s.season_id
+          WHERE s.season_year = :seasonYear
+            AND COALESCE(s.league_type_code, 0) = 0
+            AND g.home_score IS NOT NULL
+            AND g.away_score IS NOT NULL
+            AND g.is_dummy IS NOT TRUE
+            AND g.game_id NOT LIKE 'MOCK%'
+          UNION ALL
+          SELECT
+              UPPER(TRIM(g.home_team)) AS home_team_id,
+              UPPER(TRIM(g.away_team)) AS away_team_id,
+              g.home_score,
+              g.away_score,
+              g.game_date,
+              g.game_id
+          FROM game g
+          WHERE g.season_id IS NULL
+            AND g.game_date >= :seasonStart
+            AND g.game_date < :nextSeasonStart
+            AND g.home_score IS NOT NULL
+            AND g.away_score IS NOT NULL
+            AND g.is_dummy IS NOT TRUE
+            AND g.game_id NOT LIKE 'MOCK%'
+      ),
+      team_games AS (
+          SELECT
+              home_team_id AS team_id,
+              home_score AS team_score,
+              away_score AS opp_score,
+              game_date,
+              game_id
+          FROM season_games
+          UNION ALL
+          SELECT
+              away_team_id AS team_id,
+              away_score AS team_score,
+              home_score AS opp_score,
+              game_date,
+              game_id
+          FROM season_games
+      ),
+      recent_games AS (
+          SELECT
+              team_id,
+              game_date,
+              CASE
+                  WHEN team_score > opp_score THEN 'W'
+                  WHEN team_score < opp_score THEN 'L'
+                  ELSE 'D'
+              END AS result,
+              ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY game_date DESC, game_id DESC) AS recency_rank
+          FROM team_games
+          WHERE team_id IS NOT NULL
+            AND team_id <> ''
+      )
+      SELECT
+          team_id,
+          game_date,
+          result
+      FROM recent_games
+      WHERE recency_rank <= 5
+      ORDER BY team_id, game_date DESC
+      """, nativeQuery = true)
+  List<Object[]> findRecentFormBySeasonAndTeams(
+      @Param("seasonYear") int seasonYear,
+      @Param("seasonStart") LocalDate seasonStart,
+      @Param("nextSeasonStart") LocalDate nextSeasonStart);
+
+  /**
    * 특정 시즌의 팀별 순위 데이터 조회 (game 테이블에서 집계)
-   * 
+   *
    * @param seasonYear 시즌 연도
    * @return 순위 데이터 (Object[] 배열)
    */

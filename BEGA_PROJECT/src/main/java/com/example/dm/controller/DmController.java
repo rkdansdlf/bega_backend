@@ -31,14 +31,14 @@ public class DmController {
     private final DmMessageService dmMessageService;
 
     @GetMapping("/rooms/my")
-    public ResponseEntity<ApiResponse> getMyRooms(
+    public ResponseEntity<ApiResponse<List<DmRoomDto.InboxItem>>> getMyRooms(
             @AuthenticationPrincipal Long currentUserId) {
         List<DmRoomDto.InboxItem> rooms = dmRoomService.getMyRooms(currentUserId);
         return ResponseEntity.ok(ApiResponse.success("DM 목록 조회 성공", rooms));
     }
 
     @PostMapping("/rooms")
-    public ResponseEntity<ApiResponse> bootstrapRoom(
+    public ResponseEntity<ApiResponse<DmRoomDto.BootstrapResponse>> bootstrapRoom(
             @AuthenticationPrincipal Long currentUserId,
             @Valid @RequestBody DmRoomDto.BootstrapRequest request) {
         DmRoomDto.BootstrapResponse response = dmRoomService.bootstrapRoom(currentUserId, request);
@@ -46,7 +46,7 @@ public class DmController {
     }
 
     @GetMapping("/rooms/{roomId}/messages")
-    public ResponseEntity<ApiResponse> getMessages(
+    public ResponseEntity<ApiResponse<List<DmMessageDto.Response>>> getMessages(
             @AuthenticationPrincipal Long currentUserId,
             @PathVariable Long roomId) {
         List<DmMessageDto.Response> response = dmMessageService.getMessages(roomId, currentUserId);
@@ -54,7 +54,7 @@ public class DmController {
     }
 
     @PostMapping("/messages")
-    public ResponseEntity<ApiResponse> sendMessage(
+    public ResponseEntity<ApiResponse<DmMessageDto.Response>> sendMessage(
             @AuthenticationPrincipal Long currentUserId,
             @Valid @RequestBody DmMessageDto.Request request) {
         DmMessageDto.Response response = dmMessageService.sendMessage(currentUserId, request);
@@ -62,7 +62,7 @@ public class DmController {
     }
 
     @DeleteMapping("/messages/{messageId}")
-    public ResponseEntity<ApiResponse> deleteMessage(
+    public ResponseEntity<ApiResponse<Void>> deleteMessage(
             @AuthenticationPrincipal Long currentUserId,
             @PathVariable Long messageId) {
         dmMessageService.deleteMessage(messageId, currentUserId);
