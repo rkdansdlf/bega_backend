@@ -27,12 +27,14 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.GameResponseDto;
 import com.example.BegaDiary.Exception.DiaryNotFoundException;
+import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Service.BegaDiaryService;
 import com.example.BegaDiary.Service.BegaGameService;
 import com.example.BegaDiary.Service.SeatViewService;
 import com.example.auth.entity.UserEntity;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.common.exception.GlobalExceptionHandler;
+import com.example.leaderboard.service.AchievementService;
 
 import reactor.core.publisher.Mono;
 
@@ -50,6 +52,12 @@ class DiaryControllerTest {
 
     @Mock
     private SeatViewService seatViewService;
+
+    @Mock
+    private BegaDiaryRepository begaDiaryRepository;
+
+    @Mock
+    private AchievementService achievementService;
 
     @InjectMocks
     private DiaryController diaryController;
@@ -75,6 +83,63 @@ class DiaryControllerTest {
                 .andExpect(jsonPath("$.message").value("인증이 필요합니다."));
 
         verifyNoInteractions(diaryService);
+    }
+
+    @Test
+    @DisplayName("다이어리 저장 후 신규 달성한 직관 업적을 응답에 포함한다")
+    void saveDiary_includesNewlyUnlockedAttendanceAchievements() throws Exception {
+        BegaDiary savedDiary = BegaDiary.builder()
+                .user(UserEntity.builder().id(1L).build())
+                .diaryDate(java.time.LocalDate.of(2026, 3, 23))
+                .mood(BegaDiary.DiaryEmoji.HAPPY)
+                .type(BegaDiary.DiaryType.ATTENDED)
+                .build();
+        com.example.leaderboard.entity.Achievement achievement = com.example.leaderboard.entity.Achievement.builder()
+                .id(1L)
+                .code("FIRST_ATTENDANCE")
+                .nameKo("첫 직관")
+                .descriptionKo("처음으로 직관 기록을 남겼습니다!")
+                .rarity(com.example.leaderboard.entity.Achievement.Rarity.COMMON)
+                .build();
+
+        when(diaryService.save(eq(1L), org.mockito.ArgumentMatchers.any())).thenReturn(savedDiary);
+        when(begaDiaryRepository.countByUserIdAndType(1L, BegaDiary.DiaryType.ATTENDED)).thenReturn(1);
+        when(achievementService.checkAttendanceAchievements(1L, 1)).thenReturn(List.of(achievement));
+
+        mockMvc.perform(post("/api/diary/save")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .principal(() -> "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unlockedAchievements[0].code").value("FIRST_ATTENDANCE"))
+                .andExpect(jsonPath("$.unlockedAchievements[0].name").value("첫 직관"));
+
+        org.mockito.Mockito.verify(begaDiaryRepository).countByUserIdAndType(1L, BegaDiary.DiaryType.ATTENDED);
+        org.mockito.Mockito.verify(begaDiaryRepository, org.mockito.Mockito.never()).countByUserId(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    @DisplayName("예정(SCHEDULED) 다이어리 저장 시에는 직관 출석 카운트에 예정 기록을 포함하지 않는다")
+    void saveDiary_scheduledTypeDoesNotInflateAttendanceCount() throws Exception {
+        BegaDiary savedDiary = BegaDiary.builder()
+                .user(UserEntity.builder().id(1L).build())
+                .diaryDate(java.time.LocalDate.of(2026, 3, 23))
+                .mood(BegaDiary.DiaryEmoji.HAPPY)
+                .type(BegaDiary.DiaryType.SCHEDULED)
+                .build();
+
+        when(diaryService.save(eq(1L), org.mockito.ArgumentMatchers.any())).thenReturn(savedDiary);
+        when(begaDiaryRepository.countByUserIdAndType(1L, BegaDiary.DiaryType.ATTENDED)).thenReturn(0);
+        when(achievementService.checkAttendanceAchievements(1L, 0)).thenReturn(List.of());
+
+        mockMvc.perform(post("/api/diary/save")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .principal(() -> "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unlockedAchievements").isEmpty());
+
+        org.mockito.Mockito.verify(achievementService).checkAttendanceAchievements(1L, 0);
     }
 
     @Test

@@ -10,6 +10,7 @@ import lombok.Setter;
 
 import com.example.BegaDiary.Utils.BaseballConstants;
 import com.example.kbo.entity.GameEntity;
+import com.example.leaderboard.dto.AchievementDto;
 import com.example.leaderboard.dto.SeatViewRewardDto;
 
 @Getter
@@ -40,6 +41,9 @@ public class DiaryResponseDto {
 
     // 시야 사진 기여 리워드 (저장 직후에만 포함, 조회 시 null)
     private SeatViewRewardDto seatViewReward;
+
+    // 직관 출석 업적으로 신규 달성한 배지 (저장 직후에만 포함, 조회 시 null)
+    private List<AchievementDto> unlockedAchievements;
 
     public static DiaryResponseDto from(BegaDiary diary) {
     	GameEntity game = diary.getGame();

@@ -2910,6 +2910,12 @@
           "type" : {
             "type" : "string"
           },
+          "unlockedAchievements" : {
+            "items" : {
+              "$ref" : "#/components/schemas/AchievementDto"
+            },
+            "type" : "array"
+          },
           "winningName" : {
             "type" : "string"
           }

@@ -72,6 +72,10 @@ public interface BegaDiaryRepository extends JpaRepository<BegaDiary, Long> {
        @Query("SELECT COUNT(d) FROM BegaDiary d WHERE d.user.id = :userId")
        int countByUserId(@Param("userId") Long userId);
 
+       // 타입별 개수 (예: 실제 직관 기록만 카운트, 예정(SCHEDULED) 기록 제외)
+       @Query("SELECT COUNT(d) FROM BegaDiary d WHERE d.user.id = :userId AND d.type = :type")
+       int countByUserIdAndType(@Param("userId") Long userId, @Param("type") DiaryType type);
+
        // 승/패/무 개수
        @Query("SELECT COUNT(d) FROM BegaDiary d WHERE d.user.id = :userId AND d.winning = :winning")
        int countByUserIdAndWinning(@Param("userId") Long userId, @Param("winning") DiaryWinning winning);

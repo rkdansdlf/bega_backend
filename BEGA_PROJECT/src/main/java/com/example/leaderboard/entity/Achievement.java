@@ -103,4 +103,10 @@ public class Achievement {
     public static final String SEAT_VIEW_5 = "SEAT_VIEW_5";
     public static final String SEAT_VIEW_10 = "SEAT_VIEW_10";
     public static final String SEAT_VIEW_EXPLORER = "SEAT_VIEW_EXPLORER";
+
+    // 직관 출석 업적
+    public static final String FIRST_ATTENDANCE = "FIRST_ATTENDANCE";
+    public static final String ATTENDANCE_10 = "ATTENDANCE_10";
+    public static final String ATTENDANCE_30 = "ATTENDANCE_30";
+    public static final String ATTENDANCE_50 = "ATTENDANCE_50";
 }

@@ -2,6 +2,7 @@ package com.example.BegaDiary.Controller;
 
 import java.security.Principal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -32,6 +33,7 @@ import com.example.BegaDiary.Entity.SeatViewCandidateCreateRequest;
 import com.example.BegaDiary.Entity.SeatViewPhoto;
 import com.example.BegaDiary.Entity.SeatViewPhotoDto;
 import com.example.BegaDiary.Entity.SeatViewSelectionRequest;
+import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Service.BegaDiaryService;
 import com.example.BegaDiary.Service.BegaGameService;
 import com.example.BegaDiary.Service.SeatViewService;
@@ -40,6 +42,9 @@ import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.BusinessException;
 import com.example.common.ratelimit.RateLimit;
+import com.example.leaderboard.dto.AchievementDto;
+import com.example.leaderboard.entity.Achievement;
+import com.example.leaderboard.service.AchievementService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -54,6 +59,8 @@ public class DiaryController {
     private final BegaGameService gameService;
     private final ImageService imageService;
     private final SeatViewService seatViewService;
+    private final BegaDiaryRepository begaDiaryRepository;
+    private final AchievementService achievementService;
 
     @GetMapping("/games")
     public ResponseEntity<List<GameResponseDto>> getGamesByDate(
@@ -79,6 +86,12 @@ public class DiaryController {
         Long userId = requireUserId(principal);
         BegaDiary savedDiary = this.diaryService.save(userId, requestDto);
         DiaryResponseDto response = DiaryResponseDto.from(savedDiary);
+
+        int totalAttendances = begaDiaryRepository.countByUserIdAndType(userId, BegaDiary.DiaryType.ATTENDED);
+        List<Achievement> unlockedAchievements = achievementService.checkAttendanceAchievements(userId, totalAttendances);
+        response.setUnlockedAchievements(unlockedAchievements.stream()
+                .map(achievement -> AchievementDto.from(achievement, true, LocalDateTime.now()))
+                .toList());
 
         return ResponseEntity.ok(response);
     }

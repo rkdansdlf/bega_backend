@@ -2165,7 +2165,7 @@ Schema: `{<br>  "properties" : {<br>    "block" : {<br>      "type" : "string"<b
 
 <a id="diaryresponsedto"></a>
 ## DiaryResponseDto
-Schema: `{<br>  "properties" : {<br>    "block" : {<br>      "type" : "string"<br>    },<br>    "date" : {<br>      "type" : "string"<br>    },<br>    "emojiName" : {<br>      "type" : "string"<br>    },<br>    "gameId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "memo" : {<br>      "type" : "string"<br>    },<br>    "photoStoragePaths" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "photos" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "seatNumber" : {<br>      "type" : "string"<br>    },<br>    "seatRow" : {<br>      "type" : "string"<br>    },<br>    "seatViewReward" : {<br>      "$ref" : "#/components/schemas/SeatViewRewardDto"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "team" : {<br>      "type" : "string"<br>    },<br>    "ticketVerified" : {<br>      "type" : "boolean"<br>    },<br>    "type" : {<br>      "type" : "string"<br>    },<br>    "winningName" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "block" : {<br>      "type" : "string"<br>    },<br>    "date" : {<br>      "type" : "string"<br>    },<br>    "emojiName" : {<br>      "type" : "string"<br>    },<br>    "gameId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "memo" : {<br>      "type" : "string"<br>    },<br>    "photoStoragePaths" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "photos" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "seatNumber" : {<br>      "type" : "string"<br>    },<br>    "seatRow" : {<br>      "type" : "string"<br>    },<br>    "seatViewReward" : {<br>      "$ref" : "#/components/schemas/SeatViewRewardDto"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "team" : {<br>      "type" : "string"<br>    },<br>    "ticketVerified" : {<br>      "type" : "boolean"<br>    },<br>    "type" : {<br>      "type" : "string"<br>    },<br>    "unlockedAchievements" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/AchievementDto"<br>      },<br>      "type" : "array"<br>    },<br>    "winningName" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
@@ -2186,6 +2186,7 @@ Schema: `{<br>  "properties" : {<br>    "block" : {<br>      "type" : "string"<b
 | `team` | no | `string` | — | — |
 | `ticketVerified` | no | `boolean` | — | — |
 | `type` | no | `string` | — | — |
+| `unlockedAchievements` | no | `array<[AchievementDto](openapi-schemas.md#achievementdto)>` | — | — |
 | `winningName` | no | `string` | — | — |
 
 <a id="diarystatisticsdto"></a>

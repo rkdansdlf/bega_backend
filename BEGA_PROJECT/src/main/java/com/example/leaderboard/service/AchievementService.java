@@ -172,6 +172,33 @@ public class AchievementService {
     }
 
     /**
+     * 직관 출석 업적 확인 및 부여
+     *
+     * @param userId           사용자 ID
+     * @param totalAttendances 총 직관(다이어리) 기록 수
+     * @return 새로 획득한 업적 목록
+     */
+    @Transactional
+    public List<Achievement> checkAttendanceAchievements(Long userId, long totalAttendances) {
+        List<Achievement> newAchievements = new ArrayList<>();
+
+        if (totalAttendances >= 1) {
+            awardIfNotEarned(userId, Achievement.FIRST_ATTENDANCE).ifPresent(newAchievements::add);
+        }
+        if (totalAttendances >= 10) {
+            awardIfNotEarned(userId, Achievement.ATTENDANCE_10).ifPresent(newAchievements::add);
+        }
+        if (totalAttendances >= 30) {
+            awardIfNotEarned(userId, Achievement.ATTENDANCE_30).ifPresent(newAchievements::add);
+        }
+        if (totalAttendances >= 50) {
+            awardIfNotEarned(userId, Achievement.ATTENDANCE_50).ifPresent(newAchievements::add);
+        }
+
+        return newAchievements;
+    }
+
+    /**
      * 최근 희귀 업적 획득 목록 (글로벌 피드)
      */
     @Transactional(readOnly = true)
