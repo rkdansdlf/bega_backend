@@ -7,6 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 
 /**
  * 게임 결과 점수 처리 스케줄러
@@ -15,6 +16,8 @@ import java.time.LocalDate;
 @Component
 @Slf4j
 public class GameResultScheduler {
+
+    private static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
 
     private final GameResultScoringService gameResultScoringService;
     private final boolean enabled;
@@ -41,7 +44,7 @@ public class GameResultScheduler {
         log.debug("Starting scheduled game result processing...");
 
         try {
-            LocalDate today = LocalDate.now();
+            LocalDate today = LocalDate.now(SEOUL_ZONE);
             int processed = gameResultScoringService.processGamesForDate(today);
 
             if (processed > 0) {
@@ -56,7 +59,7 @@ public class GameResultScheduler {
      * 어제 게임 정산 (늦은 밤 경기 보정)
      * 매일 새벽 2시에 실행하여 전날 미처리 게임 정산
      */
-    @Scheduled(cron = "${app.leaderboard.game-result-scheduler.yesterday-cron:0 0 2 * * *}")
+    @Scheduled(cron = "${app.leaderboard.game-result-scheduler.yesterday-cron:0 0 2 * * *}", zone = "Asia/Seoul")
     public void processYesterdayGames() {
         if (!enabled) {
             log.debug("Skipping yesterday's game result processing because app.leaderboard.game-result-scheduler.enabled=false");
@@ -65,7 +68,7 @@ public class GameResultScheduler {
         log.info("Starting yesterday's game result processing...");
 
         try {
-            LocalDate yesterday = LocalDate.now().minusDays(1);
+            LocalDate yesterday = LocalDate.now(SEOUL_ZONE).minusDays(1);
             int processed = gameResultScoringService.processGamesForDate(yesterday);
 
             log.info("Yesterday processing complete: {} predictions processed for date {}", processed, yesterday);

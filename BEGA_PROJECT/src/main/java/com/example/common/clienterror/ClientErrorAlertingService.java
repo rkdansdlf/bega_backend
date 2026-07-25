@@ -88,7 +88,7 @@ public class ClientErrorAlertingService {
         }
     }
 
-    @Scheduled(cron = "${app.client-error-monitoring.cleanup-cron:0 15 3 * * *}")
+    @Scheduled(cron = "${app.client-error-monitoring.cleanup-cron:0 15 3 * * *}", zone = "UTC")
     @Transactional
     public void cleanupExpiredData() {
         int retentionDays = Math.max(monitoringProperties.getRetentionDays(), 1);

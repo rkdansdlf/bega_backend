@@ -1,13 +1,16 @@
 package com.example.prediction;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 
 // 순위예측 기간 2025.11.01-2026.05.31 순위 로직
 
 public class SeasonUtils {
 
+    private static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
+
     public static int getCurrentPredictionSeason() {
-        LocalDate now = LocalDate.now();
+        LocalDate now = LocalDate.now(SEOUL_ZONE);
         int year = now.getYear();
         int month = now.getMonthValue();
 
@@ -27,7 +30,7 @@ public class SeasonUtils {
     }
 
     public static boolean isPredictionPeriod() {
-        int month = LocalDate.now().getMonthValue();
+        int month = LocalDate.now(SEOUL_ZONE).getMonthValue();
         return (month >= 11 || month <= 5);
     }
 }

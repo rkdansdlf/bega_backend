@@ -61,5 +61,6 @@ class GameResultSchedulerTest {
 
         assertThat(scheduled.cron())
                 .isEqualTo("${app.leaderboard.game-result-scheduler.yesterday-cron:0 0 2 * * *}");
+        assertThat(scheduled.zone()).isEqualTo("Asia/Seoul");
     }
 }
