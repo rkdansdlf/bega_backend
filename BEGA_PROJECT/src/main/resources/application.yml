@@ -575,7 +575,10 @@ spring:
     enabled: true
     baseline-on-migrate: true
     validate-on-migrate: ${SPRING_FLYWAY_VALIDATE_ON_MIGRATE:false}
-    locations: classpath:db/migration/
+    # 기본값은 Oracle 이다. PostgreSQL 로 전환할 때만
+    # SPRING_FLYWAY_LOCATIONS=classpath:db/migration_postgresql/ 로 덮어쓴다.
+    # 데이터소스와 함께 바꿔야 한다 — 한쪽만 바꾸면 다른 DB 의 마이그레이션이 돈다.
+    locations: ${SPRING_FLYWAY_LOCATIONS:classpath:db/migration/}
     ignore-migration-patterns:
       - "*:missing"
       - "*:pending"
