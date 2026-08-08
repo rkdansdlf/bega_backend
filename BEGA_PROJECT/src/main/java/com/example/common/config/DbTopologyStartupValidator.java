@@ -19,8 +19,12 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * prod/dev-adb 환경에서 primary/baseball datasource 토폴로지를 fail-fast로 검증한다.
- * - primary: Oracle
+ * - primary: Oracle 또는 PostgreSQL (Oracle 탈출 이행기 동안 둘 다 허용한다)
  * - baseball: PostgreSQL
+ *
+ * primary 는 두 엔진을 모두 허용하되, driver 와 url 이 <em>같은</em> 엔진을 가리키는지는
+ * 계속 강제한다. 엔진이 엇갈린 설정(예: Oracle driver + PostgreSQL url)은 기동 시점이 아니라
+ * 첫 쿼리에서 터지므로, fail-fast 로 잡는 값어치가 가장 큰 대상이다.
  */
 @Component
 @Profile("prod | dev-adb")
@@ -59,12 +63,19 @@ public class DbTopologyStartupValidator {
             failures.add(primaryUrlEnvKey + " is required in " + activeProfileLabel());
         }
 
-        if (!primaryDriver.contains("oracle")) {
-            failures.add("primary datasource driver must be Oracle, but was: " + safe(primaryDriver));
+        boolean oracleUrl = primaryUrl.startsWith("jdbc:oracle:");
+        boolean postgresUrl = primaryUrl.startsWith("jdbc:postgresql:");
+
+        if (!oracleUrl && !postgresUrl) {
+            failures.add("primary datasource url must be Oracle or PostgreSQL JDBC, but was: " + safe(primaryUrl));
         }
 
-        if (!primaryUrl.startsWith("jdbc:oracle:")) {
-            failures.add("primary datasource url must be Oracle JDBC, but was: " + safe(primaryUrl));
+        if (oracleUrl && !primaryDriver.contains("oracle")) {
+            failures.add("primary datasource url is Oracle, but driver was: " + safe(primaryDriver));
+        }
+
+        if (postgresUrl && !primaryDriver.contains("postgresql")) {
+            failures.add("primary datasource url is PostgreSQL, but driver was: " + safe(primaryDriver));
         }
 
         if (isDevAdbProfile()) {
