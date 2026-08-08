@@ -38,12 +38,14 @@ spring:
             user-info-uri: https://www.googleapis.com/oauth2/v3/userinfo
             user-name-attribute: sub
 
-org:
-  jobrunr:
-    background-job-server:
-      enabled: false
-    dashboard:
-      enabled: false
+# 접두사는 `jobrunr` 다 — `org.jobrunr` 은 8.x 스타터가 무시한다.
+# 무시되면 스타터 기본값(false)이 적용되어 결과적으로 꺼지긴 하지만,
+# 그건 우연이지 의도가 아니다. 기본값이 바뀌면 테스트에서 배경 작업 서버가 켜진다.
+jobrunr:
+  background-job-server:
+    enabled: false
+  dashboard:
+    enabled: false
 
 storage:
   type: oci

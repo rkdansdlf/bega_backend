@@ -135,19 +135,27 @@ server:
     max-keep-alive-requests: ${SERVER_TOMCAT_MAX_KEEP_ALIVE_REQUESTS:100}
 
 # JobRunr 설정
-org:
-  jobrunr:
-    background-job-server:
-      enabled: ${ORG_JOBRUNR_BACKGROUND_JOB_SERVER_ENABLED:true}
-      worker-count: ${ORG_JOBRUNR_BACKGROUND_JOB_SERVER_WORKER_COUNT:4} # DB 부하 방지를 위해 보수적 설정
-    dashboard:
-      enabled: ${ORG_JOBRUNR_DASHBOARD_ENABLED:true} # /dashboard
-      port: ${JOBRUNR_DASHBOARD_PORT:8000}
-    jobs:
-      default-number-of-retries: 2
-    database:
-      skip-create: false
-      table-prefix: jobrunr_ # 테이블 충돌 방지
+# 접두사는 `jobrunr` 다. `org.jobrunr` 이 아니다 —
+# jobrunr-spring-boot-4-starter 8.x 가 7.x 의 `org.jobrunr.*` 에서 이름을 바꿨고,
+# 틀린 접두사는 오류 없이 무시된 뒤 `enabled` 기본값 false 가 적용된다
+# (2026-07-18~08-08 배경 작업이 이 이유로 조용히 정지해 있었다).
+jobrunr:
+  background-job-server:
+    enabled: ${JOBRUNR_BACKGROUND_JOB_SERVER_ENABLED:true}
+    worker-count: ${JOBRUNR_BACKGROUND_JOB_SERVER_WORKER_COUNT:4} # DB 부하 방지를 위해 보수적 설정
+    # Main DB "Noisy Neighbor" 완화 지점은 StorageProvider 가 아니라 이 폴링 주기다.
+    # (JobRunrConfig 의 커스텀 StorageProvider 주석이 오래 이 역할을 주장했지만 실제로는
+    #  아무 튜닝도 하지 않았다.) 스타터 기본값과 같은 15초로 시작하고, 부하가 보이면
+    #  재빌드 없이 JOBRUNR_BACKGROUND_JOB_SERVER_POLL_INTERVAL_IN_SECONDS 로 늘린다.
+    poll-interval-in-seconds: ${JOBRUNR_BACKGROUND_JOB_SERVER_POLL_INTERVAL_IN_SECONDS:15}
+  dashboard:
+    enabled: ${JOBRUNR_DASHBOARD_ENABLED:true} # /dashboard
+    port: ${JOBRUNR_DASHBOARD_PORT:8000}
+  jobs:
+    default-number-of-retries: 2
+  database:
+    skip-create: false
+    table-prefix: jobrunr_ # 테이블 충돌 방지
 
 # 로깅 설정 (기본값)
 logging:
@@ -330,6 +338,7 @@ app:
   oauth2:
     cookie-secret: ${OAUTH2_COOKIE_SECRET:}
   auth:
+    refresh-token-pepper: ${APP_REFRESH_TOKEN_PEPPER:local-dev-refresh-token-pepper}
     # token_type claim이 없는 레거시 토큰을 access 토큰으로 인정하지 않는다(기본 true=거부).
     # 신규 발급 토큰은 항상 token_type을 포함하므로 거부가 안전. 문제 시 false로 즉시 롤백.
     reject-legacy-access-tokens: ${APP_AUTH_REJECT_LEGACY_ACCESS_TOKENS:true}
@@ -513,10 +522,9 @@ app:
   dev-data:
     enabled: ${APP_DEV_DATA_ENABLED:true}
 
-org:
-  jobrunr:
-    dashboard:
-      port: ${JOBRUNR_DASHBOARD_PORT:0} # dev/local 동시 기동 시 빈 포트를 자동 할당
+jobrunr:
+  dashboard:
+    port: ${JOBRUNR_DASHBOARD_PORT:0} # dev/local 동시 기동 시 빈 포트를 자동 할당
 
 ai:
   internal-token: ${AI_INTERNAL_TOKEN:local-dev-ai-internal-token}
@@ -574,14 +582,13 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
-    validate-on-migrate: ${SPRING_FLYWAY_VALIDATE_ON_MIGRATE:false}
+    validate-on-migrate: true
+    clean-disabled: true
+    out-of-order: false
     # 기본값은 Oracle 이다. PostgreSQL 로 전환할 때만
     # SPRING_FLYWAY_LOCATIONS=classpath:db/migration_postgresql/ 로 덮어쓴다.
     # 데이터소스와 함께 바꿔야 한다 — 한쪽만 바꾸면 다른 DB 의 마이그레이션이 돈다.
     locations: ${SPRING_FLYWAY_LOCATIONS:classpath:db/migration/}
-    ignore-migration-patterns:
-      - "*:missing"
-      - "*:pending"
 
 baseball:
   datasource:
@@ -594,7 +601,7 @@ baseball:
 
 app:
   flyway:
-    auto-repair: ${APP_FLYWAY_AUTO_REPAIR:false}
+    auto-repair: false
   cookie:
     secure: true
   oauth2:
@@ -616,6 +623,13 @@ management:
   health:
     jobrunr:
       enabled: false
+
+# 배경 작업 서버는 켜되 대시보드는 끈다. 대시보드는 인증이 없고 작업 조회·삭제·재실행을
+# 허용하는데, 포트 8000 은 호스트에 발행되지 않아도 같은 내부 네트워크의 컨테이너
+# (ai-chatbot, prometheus 등)에서는 닿는다. 운영 점검이 필요하면 일시적으로만 켠다.
+jobrunr:
+  dashboard:
+    enabled: ${JOBRUNR_DASHBOARD_ENABLED:false}
 
 ai:
   service-url: ${AI_SERVICE_URL:}
@@ -677,10 +691,9 @@ app:
   dev-data:
     enabled: true
 
-org:
-  jobrunr:
-    dashboard:
-      port: ${JOBRUNR_DASHBOARD_PORT:0}
+jobrunr:
+  dashboard:
+    port: ${JOBRUNR_DASHBOARD_PORT:0}
 
 management:
   health:
