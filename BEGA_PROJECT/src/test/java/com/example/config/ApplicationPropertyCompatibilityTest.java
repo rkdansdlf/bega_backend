@@ -89,6 +89,17 @@ class ApplicationPropertyCompatibilityTest {
     }
 
     @Test
+    void prodProfileRequiresAnInjectedRefreshTokenPepper() throws IOException {
+        String applicationYml = readApplicationYml();
+
+        // 기본 문서는 dev 편의를 위해 local-dev-refresh-token-pepper 를 기본값으로 둔다.
+        // 그 값이 prod 로 상속되면 refresh token 다이제스트의 HMAC 키가 공개 문자열이 되므로,
+        // prod 프로필은 OAUTH2_COOKIE_SECRET 과 같은 방식으로 주입을 강제해야 한다.
+        assertThat(applicationYml)
+                .contains("refresh-token-pepper: ${APP_REFRESH_TOKEN_PEPPER:?APP_REFRESH_TOKEN_PEPPER is required in prod}");
+    }
+
+    @Test
     void applicationYmlProvidesLoopbackOAuth2CookieSecretFallbackForDevAndLocal() throws IOException {
         String applicationYml = readApplicationYml();
 

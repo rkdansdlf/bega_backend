@@ -610,6 +610,11 @@ app:
     secure: true
   oauth2:
     cookie-secret: ${OAUTH2_COOKIE_SECRET:?OAUTH2_COOKIE_SECRET is required in prod}
+  auth:
+    # 기본 문서의 dev 기본값(local-dev-refresh-token-pepper)이 prod 로 새어 들어가면
+    # refresh token 다이제스트의 HMAC 키가 리포지토리에 공개된 문자열이 된다.
+    # OAUTH2_COOKIE_SECRET 과 같은 규칙으로 주입을 강제한다.
+    refresh-token-pepper: ${APP_REFRESH_TOKEN_PEPPER:?APP_REFRESH_TOKEN_PEPPER is required in prod}
   dev-data:
     enabled: false
 
