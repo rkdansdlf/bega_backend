@@ -682,6 +682,13 @@ kbo:
 # local 프로필에서 baseball datasource도 H2 사용
 # (root 설정의 PostgreSQL 드라이버 + ${DB_URL} H2 fallback 오류 방지)
 # kbo.schema-guard.strict=false로 인해 schema validation 없이 기동됨
+#
+# 주의: 아래 baseball.jpa.hibernate.ddl-auto 는 StadiumPostgresJpaConfig 만 읽는다.
+# kboGame 퍼시스턴스 유닛은 KboGamePostgresJpaConfig 에서 hibernate.hbm2ddl.auto=none 을
+# 하드코딩하므로, 이 값을 create-drop 으로 둬도 GAME/KBO_SEASONS 테이블은 생성되지 않는다.
+# 즉 local(H2) 프로필로는 야구 경기 데이터를 조회할 수 없고, 홈/전력분석실은 fallback 상태로
+# 뜬다. 실제 경기 데이터가 필요하면 dev 프로필 + 야구 스키마가 있는 PostgreSQL 을 써야 한다.
+# (2026-08 확인: local 기동 시 "Table \"GAME\" not found" 경고가 이 이유로 발생)
 baseball:
   datasource:
     driver-class-name: org.h2.Driver
