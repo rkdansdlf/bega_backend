@@ -30,8 +30,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
         "baseball.datasource.username=${BASEBALL_DB_USERNAME:${DB_USERNAME}}",
         "baseball.datasource.password=${BASEBALL_DB_PASSWORD:${DB_PASSWORD}}",
         "baseball.datasource.hikari.read-only=true",
-        "org.jobrunr.background-job-server.enabled=false",
-        "org.jobrunr.dashboard.enabled=false"
+        // 접두사는 `jobrunr` 다. `org.jobrunr` 은 8.x 스타터가 무시하므로 끄는 효과도 없다.
+        "jobrunr.background-job-server.enabled=false",
+        "jobrunr.dashboard.enabled=false"
     }
 )
 @ActiveProfiles("dev")
