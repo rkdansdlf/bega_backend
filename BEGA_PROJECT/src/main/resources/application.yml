@@ -155,7 +155,11 @@ jobrunr:
     default-number-of-retries: 2
   database:
     skip-create: false
-    table-prefix: jobrunr_ # 테이블 충돌 방지
+    # table-prefix 는 두지 않는다. JobRunr 의 기본 테이블 이름이 이미 jobrunr_jobs,
+    # jobrunr_backgroundjobservers … 라서 여기에 `jobrunr_` 를 더하면 jobrunr_jobrunr_*
+    # 를 찾게 된다. 운영 테이블도 기본 이름으로 만들어져 있다. (지금은 JobRunrConfig 의
+    # 커스텀 StorageProvider 가 이 값을 우회해서 무해하지만, 그 빈을 지우는 순간
+    # 자동설정이 엉뚱한 테이블을 보게 되므로 값을 남겨두지 않는다.)
 
 # 로깅 설정 (기본값)
 logging:

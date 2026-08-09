@@ -40,7 +40,9 @@ class JobRunrPropertyBindingTest {
         assertThat(bound.getBackgroundJobServer().getPollIntervalInSeconds())
                 .as("Main DB 폴링 부하의 실제 조절점 — 커스텀 StorageProvider 빈이 아니다")
                 .isEqualTo(15);
-        assertThat(bound.getDatabase().getTablePrefix()).isEqualTo("jobrunr_");
+        assertThat(bound.getDatabase().getTablePrefix())
+                .as("JobRunr 기본 테이블 이름이 이미 jobrunr_ 로 시작한다 — 접두사를 더하면 jobrunr_jobrunr_*")
+                .isNull();
     }
 
     @Test
