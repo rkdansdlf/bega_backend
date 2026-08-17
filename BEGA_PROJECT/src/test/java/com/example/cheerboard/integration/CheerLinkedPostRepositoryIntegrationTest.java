@@ -185,7 +185,6 @@ class CheerLinkedPostRepositoryIntegrationTest {
                 .homeTeam(homeTeam)
                 .awayTeam("KIA")
                 .seasonId(2026)
-                .stadiumId("JAMSIL")
                 .gameStatus("COMPLETED")
                 .isDummy(false)
                 .build();

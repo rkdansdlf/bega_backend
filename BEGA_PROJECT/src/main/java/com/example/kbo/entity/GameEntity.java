@@ -76,8 +76,8 @@ public class GameEntity {
     @Column(name = "season_id")
     private Integer seasonId;
 
-    @Column(name = "stadium_id", length = 50)
-    private String stadiumId;
+    // 크롤러(KBO_playwright) 스키마에 없고 이 저장소 어디서도 읽지 않아 제거했다 [game.stadium_id]
+    // (2026-08-17). 크롤러가 ADB 스키마를 만들면 존재하지 않을 컬럼이다.
 
     @Column(name = "game_status", length = 20)
     private String gameStatus; // SCHEDULED, COMPLETED, CANCELLED 등

@@ -130,6 +130,6 @@ public class PlayerSeasonBattingEntity {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    @Column(name = "season_id")
-    private Integer seasonId;
+    // 크롤러(KBO_playwright) 스키마에 없고 이 저장소 어디서도 읽지 않아 제거했다 [player_season_batting.season_id]
+    // (2026-08-17). 크롤러가 ADB 스키마를 만들면 존재하지 않을 컬럼이다.
 }

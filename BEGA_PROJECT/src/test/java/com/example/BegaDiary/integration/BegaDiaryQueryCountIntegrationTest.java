@@ -186,7 +186,6 @@ class BegaDiaryQueryCountIntegrationTest {
                 .winningTeam(homeTeam)
                 .winningScore(4)
                 .seasonId(2026)
-                .stadiumId("JAMSIL")
                 .gameStatus("COMPLETED")
                 .isDummy(false)
                 .build();

@@ -24,8 +24,8 @@ public class AwardEntity {
     @Column(name = "award_year", nullable = false)
     private int year;
 
-    @Column(name = "position")
-    private String position; // P, C, 1B, etc. (Can be null)
+    // 크롤러(KBO_playwright) 스키마에 없고 이 저장소 어디서도 읽지 않아 제거했다 [awards.position]
+    // (2026-08-17). 크롤러가 ADB 스키마를 만들면 존재하지 않을 컬럼이다.
 
     // Assuming team is stored or reachable via player.
     // For simplicity in this iteration, we add it here or we fetch it.
