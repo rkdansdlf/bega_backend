@@ -1,6 +1,6 @@
-package com.example.stadium.repository;
+package com.example.stadium.favorite.repository;
 
-import com.example.stadium.entity.UserStadiumFavorite;
+import com.example.stadium.favorite.entity.UserStadiumFavorite;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.transaction.annotation.Transactional;
 

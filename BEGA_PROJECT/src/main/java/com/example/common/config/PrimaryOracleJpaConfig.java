@@ -159,6 +159,10 @@ public class PrimaryOracleJpaConfig {
 								"com.example.notification",
 								"com.example.prediction",
 								"com.example.profile",
+								// 즐겨찾기는 사용자 생성 데이터라 야구 데이터소스가 아니라 여기 속한다.
+								// com.example.stadium.entity(경기장 reference data)는 stadium 유닛이
+								// 계속 맡으므로 stadium 패키지 전체가 아니라 이 하위 패키지만 넣는다.
+								"com.example.stadium.favorite",
 								"com.example.teamRecommendationTest"
 						)
 				.persistenceUnit("primary")

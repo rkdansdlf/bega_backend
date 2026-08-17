@@ -1,4 +1,4 @@
-package com.example.stadium.entity;
+package com.example.stadium.favorite.entity;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;

@@ -5,11 +5,11 @@ import com.example.stadium.dto.StadiumDto;
 import com.example.stadium.dto.StadiumDetailDto;
 import com.example.stadium.entity.Place;
 import com.example.stadium.entity.Stadium;
-import com.example.stadium.entity.UserStadiumFavorite;
+import com.example.stadium.favorite.entity.UserStadiumFavorite;
 import com.example.stadium.exception.StadiumNotFoundException;
 import com.example.stadium.repository.PlaceRepository;
 import com.example.stadium.repository.StadiumRepository;
-import com.example.stadium.repository.UserStadiumFavoriteRepository;
+import com.example.stadium.favorite.repository.UserStadiumFavoriteRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -92,14 +92,18 @@ public class StadiumService {
 
     // ─── 즐겨찾기 ─────────────────────────────────────────────────────────────
 
-    @Transactional(transactionManager = "stadiumTransactionManager")
+    // 즐겨찾기는 야구 데이터가 아니라 사용자 생성 데이터라 primary(app-db) 로 옮겼다
+    // (2026-08-15). 따라서 stadiumTransactionManager 가 아니라 기본 트랜잭션 매니저를
+    // 쓴다. 이 메서드들은 favoriteRepository 만 건드리므로 stadium 유닛과 한 트랜잭션에
+    // 묶이는 지점이 없다.
+    @Transactional
     public void addFavorite(Long userId, String stadiumId) {
         if (!favoriteRepository.existsByUserIdAndStadiumId(userId, stadiumId)) {
             favoriteRepository.save(new UserStadiumFavorite(userId, stadiumId));
         }
     }
 
-    @Transactional(transactionManager = "stadiumTransactionManager")
+    @Transactional
     public void removeFavorite(Long userId, String stadiumId) {
         favoriteRepository.deleteByUserIdAndStadiumId(userId, stadiumId);
     }
