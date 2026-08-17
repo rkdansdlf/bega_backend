@@ -70,6 +70,11 @@ def flywayResourceDirMappings = [
 		build : file("$buildDir/resources/main/db/migration_baseball"),
 		label : 'baseball'
 	],
+	[
+		source: file('src/main/resources/db/migration_baseball_oracle'),
+		build : file("$buildDir/resources/main/db/migration_baseball_oracle"),
+		label : 'baseball-oracle'
+	],
 ]
 
 repositories {
@@ -251,6 +256,7 @@ tasks.register('flywaySafetyTest', Test) {
     classpath = sourceSets.test.runtimeClasspath
     filter {
         includeTestsMatching "com.example.common.config.FlywayConfigTest"
+        includeTestsMatching "com.example.common.config.FlywayProductionPolicyTest"
         includeTestsMatching "com.example.common.config.FlywayMigrationVersionUniquenessTest"
     }
 }
