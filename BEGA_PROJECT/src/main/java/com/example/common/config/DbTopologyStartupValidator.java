@@ -84,8 +84,21 @@ public class DbTopologyStartupValidator {
             requireEnvironmentValue(failures, primaryPasswordEnvKey);
         }
 
-        if (!baseballDriver.contains("postgresql")) {
-            failures.add("baseball datasource driver must be PostgreSQL, but was: " + safe(baseballDriver));
+        // 야구 데이터는 PostgreSQL 또는 Oracle(ADB) 중 하나에 있을 수 있다.
+        // primary 와 마찬가지로 엔진 자체는 열어두되, driver 와 url 이 <em>같은</em>
+        // 엔진을 가리키는지는 계속 강제한다 — 엇갈린 설정은 기동이 아니라 첫 쿼리에서
+        // 터지므로 fail-fast 로 잡는 값어치가 크다.
+        boolean baseballOracleUrl = baseballUrl.startsWith("jdbc:oracle:");
+        boolean baseballPostgresUrl = baseballUrl.startsWith("jdbc:postgresql:");
+
+        if (!isBlank(baseballUrl) && !baseballOracleUrl && !baseballPostgresUrl) {
+            failures.add("baseball datasource url must be Oracle or PostgreSQL JDBC, but was: " + safe(baseballUrl));
+        }
+        if (baseballOracleUrl && !baseballDriver.contains("oracle")) {
+            failures.add("baseball datasource url is Oracle, but driver was: " + safe(baseballDriver));
+        }
+        if (baseballPostgresUrl && !baseballDriver.contains("postgresql")) {
+            failures.add("baseball datasource url is PostgreSQL, but driver was: " + safe(baseballDriver));
         }
 
         if (isBlank(baseballUrl)) {
@@ -107,7 +120,10 @@ public class DbTopologyStartupValidator {
         if (isBlank(environment.getProperty("BASEBALL_DB_PASSWORD"))) {
             failures.add("BASEBALL_DB_PASSWORD env var is missing");
         }
+        // 월렛 검사는 url 이 jdbc:oracle:thin: 일 때만 동작하고 아니면 즉시 반환한다.
+        // 야구 DB 가 ADB 로 옮겨가면 월렛이 필요한 쪽은 primary 가 아니라 이쪽이다.
         validateOracleWalletIfNeeded(failures, primaryDataSourceProperties.getUrl());
+        validateOracleWalletIfNeeded(failures, baseballDataSourceProperties.getUrl());
 
         if (!failures.isEmpty()) {
             String message = String.join(" | ", failures);

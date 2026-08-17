@@ -176,7 +176,9 @@ baseball:
   datasource:
     # Canonical secondary datasource keys: BASEBALL_DB_*.
     # DB_* is a local-dev compatibility fallback only.
-    driver-class-name: org.postgresql.Driver
+    # 야구 DB 가 Oracle(ADB)로 옮겨갈 수 있어 드라이버를 파라미터화한다.
+    # baseball.jpa.database-platform 과 반드시 함께 바꾼다.
+    driver-class-name: ${BASEBALL_DB_DRIVER_CLASS_NAME:org.postgresql.Driver}
     url: ${BASEBALL_DB_URL:${DB_URL}}
     username: ${BASEBALL_DB_USERNAME:${DB_USERNAME}}
     password: ${BASEBALL_DB_PASSWORD:${DB_PASSWORD}}
@@ -596,9 +598,12 @@ spring:
 
 baseball:
   datasource:
-    # prod에서는 baseball(PostgreSQL) 연결 정보를 fallback 없이 강제한다.
+    # prod에서는 baseball 연결 정보를 fallback 없이 강제한다.
     # 누락 시 앱을 fail-fast로 중단해 DB 토폴로지 오구성을 방지한다.
-    driver-class-name: org.postgresql.Driver
+    # 드라이버 기본값은 PostgreSQL 이다. ADB 로 전환할 때만
+    # BASEBALL_DB_DRIVER_CLASS_NAME=oracle.jdbc.OracleDriver 로 덮어쓰고,
+    # baseball.jpa.database-platform 도 반드시 함께 Oracle 방언으로 바꾼다.
+    driver-class-name: ${BASEBALL_DB_DRIVER_CLASS_NAME:org.postgresql.Driver}
     url: ${BASEBALL_DB_URL:?BASEBALL_DB_URL is required in prod}
     username: ${BASEBALL_DB_USERNAME:?BASEBALL_DB_USERNAME is required in prod}
     password: ${BASEBALL_DB_PASSWORD:?BASEBALL_DB_PASSWORD is required in prod}

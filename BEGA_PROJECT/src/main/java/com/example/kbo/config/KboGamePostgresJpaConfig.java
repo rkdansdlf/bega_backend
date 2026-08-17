@@ -22,6 +22,7 @@ import org.springframework.boot.jpa.EntityManagerFactoryBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -90,7 +91,17 @@ public class KboGamePostgresJpaConfig {
 	@Value("${kbo.schema-guard.strict:true}")
 	private boolean strictSchemaGuard;
 
+	// 야구 데이터소스가 Oracle(ADB)로 옮겨갈 수 있어 방언을 파라미터화한다.
+	// StadiumPostgresJpaConfig 와 같은 키를 읽는다 — 두 퍼시스턴스 유닛이
+	// 같은 stadiumDataSource 를 공유하므로 방언이 갈라지면 안 된다.
+	@Value("${baseball.jpa.database-platform:org.hibernate.dialect.PostgreSQLDialect}")
+	private String kboGameDialect;
+
+	// ensureKboGameSchema 가 EMF 생성 중에 game 테이블 존재를 검증하므로,
+	// 야구 Flyway 가 그보다 먼저 돌아야 한다. 빈 ADB 에서는 이 순서가 없으면
+	// 스키마 가드가 먼저 실패한다. (baseballFlyway 는 기본 비활성이라 평소엔 no-op)
 	@Bean
+	@DependsOn("baseballFlyway")
 	public LocalContainerEntityManagerFactoryBean kboGameEntityManagerFactory(
 			EntityManagerFactoryBuilder builder,
 			@Qualifier("stadiumDataSource") DataSource stadiumDataSource) {
@@ -98,7 +109,7 @@ public class KboGamePostgresJpaConfig {
 		Map<String, Object> jpaProperties = new HashMap<>();
 		jpaProperties.put("hibernate.default_schema", kboGameSchema);
 		// Metadata access is disabled, so keep an explicit dialect for stable test/CI boot.
-		jpaProperties.put("hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect");
+		jpaProperties.put("hibernate.dialect", kboGameDialect);
 		jpaProperties.put("hibernate.boot.allow_jdbc_metadata_access", false);
 		jpaProperties.put("hibernate.temp.use_jdbc_metadata_defaults", false);
 		jpaProperties.put("hibernate.hbm2ddl.auto", "none");

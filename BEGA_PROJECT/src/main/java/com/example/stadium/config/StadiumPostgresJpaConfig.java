@@ -48,6 +48,13 @@ public class StadiumPostgresJpaConfig {
 	@Value("${baseball.jpa.hibernate.ddl-auto:none}")
 	private String stadiumDdlAuto;
 
+	// 야구 데이터소스가 Oracle(ADB)로 옮겨갈 수 있어 방언을 파라미터화한다.
+	// 기본값은 PostgreSQL 이므로 이 값을 지정하지 않으면 동작이 바뀌지 않는다.
+	// 반드시 baseball.datasource.driver-class-name 과 함께 바꿔야 한다 —
+	// 한쪽만 바꾸면 기동은 되지만 첫 쿼리에서 깨진다.
+	@Value("${baseball.jpa.database-platform:org.hibernate.dialect.PostgreSQLDialect}")
+	private String stadiumDialect;
+
 	@Bean
 	@ConfigurationProperties("baseball.datasource")
 	public DataSourceProperties stadiumDataSourceProperties() {
@@ -97,7 +104,7 @@ public class StadiumPostgresJpaConfig {
 		jpaProperties.put(HIBERNATE_DEFAULT_SCHEMA, stadiumDefaultSchema);
 		jpaProperties.put(HIBERNATE_HBM2DDL_AUTO, stadiumDdlAuto);
 		// Metadata access is disabled, so keep an explicit dialect for stable test/CI boot.
-		jpaProperties.put(HIBERNATE_DIALECT, "org.hibernate.dialect.PostgreSQLDialect");
+		jpaProperties.put(HIBERNATE_DIALECT, stadiumDialect);
 		jpaProperties.put(HIBERNATE_ALLOW_METADATA, false);
 		jpaProperties.put(HIBERNATE_METADATA_DEFAULTS, false);
 

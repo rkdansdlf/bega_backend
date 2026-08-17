@@ -56,6 +56,56 @@ class DbTopologyStartupValidatorTest {
     }
 
     @Test
+    @DisplayName("prod topology accepts PostgreSQL primary with an Oracle baseball datasource")
+    void validate_acceptsPostgresPrimaryAndOracleBaseball() {
+        String oracleBaseballUrl = "jdbc:oracle:thin:@//oracle.example.com:1521/baseball";
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("BASEBALL_DB_URL", oracleBaseballUrl)
+                .withProperty("BASEBALL_DB_USERNAME", "ADMIN")
+                .withProperty("BASEBALL_DB_PASSWORD", "secret");
+        DataSourceProperties primary = new DataSourceProperties();
+        primary.setDriverClassName("org.postgresql.Driver");
+        primary.setUrl("jdbc:postgresql://postgres.example.com:5432/app");
+
+        DataSourceProperties baseball = new DataSourceProperties();
+        baseball.setDriverClassName("oracle.jdbc.OracleDriver");
+        baseball.setUrl(oracleBaseballUrl);
+        baseball.setUsername("ADMIN");
+        baseball.setPassword("secret");
+
+        DbTopologyStartupValidator validator = new DbTopologyStartupValidator(environment, primary, baseball);
+
+        assertThatCode(validator::validate).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("prod topology rejects a baseball datasource whose driver and url disagree")
+    void validate_rejectsMismatchedBaseballDriverAndUrl() {
+        String oracleBaseballUrl = "jdbc:oracle:thin:@//oracle.example.com:1521/baseball";
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("BASEBALL_DB_URL", oracleBaseballUrl)
+                .withProperty("BASEBALL_DB_USERNAME", "ADMIN")
+                .withProperty("BASEBALL_DB_PASSWORD", "secret");
+        DataSourceProperties primary = new DataSourceProperties();
+        primary.setDriverClassName("org.postgresql.Driver");
+        primary.setUrl("jdbc:postgresql://postgres.example.com:5432/app");
+
+        DataSourceProperties baseball = new DataSourceProperties();
+        // Oracle url with the PostgreSQL driver still in place -- the exact
+        // half-finished switch this validator exists to catch.
+        baseball.setDriverClassName("org.postgresql.Driver");
+        baseball.setUrl(oracleBaseballUrl);
+        baseball.setUsername("ADMIN");
+        baseball.setPassword("secret");
+
+        DbTopologyStartupValidator validator = new DbTopologyStartupValidator(environment, primary, baseball);
+
+        assertThatThrownBy(validator::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("baseball datasource url is Oracle");
+    }
+
+    @Test
     @DisplayName("prod topology rejects a primary datasource whose driver and url disagree")
     void validate_rejectsMismatchedPrimaryDriverAndUrl() {
         MockEnvironment environment = new MockEnvironment()
