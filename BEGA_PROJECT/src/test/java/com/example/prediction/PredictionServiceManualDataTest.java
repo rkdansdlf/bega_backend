@@ -271,8 +271,8 @@ class PredictionServiceManualDataTest extends PredictionServiceTestFixture {
                 .thenReturn(List.of(displayable, incomplete));
         when(gameRepository.findCanonicalAdjacentGameDates(eq(targetDate), anyList()))
                 .thenReturn(adjacentDates);
-        when(adjacentDates.getPrevDate()).thenReturn(LocalDate.of(2026, 6, 25));
-        when(adjacentDates.getNextDate()).thenReturn(LocalDate.of(2026, 6, 27));
+        when(adjacentDates.getPrevDate()).thenReturn(LocalDate.of(2026, 6, 25).atStartOfDay());
+        when(adjacentDates.getNextDate()).thenReturn(LocalDate.of(2026, 6, 27).atStartOfDay());
         doThrow(new ManualBaseballDataRequiredException(manualRequest))
                 .when(baseballDataIntegrityGuard)
                 .ensurePredictionDateMatches(eq("prediction.matches_by_date"), eq(targetDate), anyList());

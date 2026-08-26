@@ -282,8 +282,8 @@ public class PredictionService {
         List<MatchDto> matches = displayableMatches.stream()
                 .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList());
-        LocalDate prevDate = adjacentDates == null ? null : adjacentDates.getPrevDate();
-        LocalDate nextDate = adjacentDates == null ? null : adjacentDates.getNextDate();
+        LocalDate prevDate = adjacentDates == null ? null : toLocalDate(adjacentDates.getPrevDate());
+        LocalDate nextDate = adjacentDates == null ? null : toLocalDate(adjacentDates.getNextDate());
 
         logSlowMatchDayNavigationMiss(startedAtNanos, targetDate, matches.size(), prevDate, nextDate);
         return new MatchDayNavigationResponseDto(
@@ -314,6 +314,14 @@ public class PredictionService {
                 matchCount,
                 prevDate != null,
                 nextDate != null);
+    }
+
+    // CanonicalAdjacentGameDatesProjection/CanonicalGameDateBoundsProjection read
+    // game_date as LocalDateTime (Oracle's DATE always carries a time component —
+    // see the projection interfaces' javadoc); truncate to LocalDate here at the
+    // one place both projections' values leave this class.
+    private static LocalDate toLocalDate(LocalDateTime dateTime) {
+        return dateTime == null ? null : dateTime.toLocalDate();
     }
 
     private boolean isCanonicalOffDay(CanonicalAdjacentGameDatesProjection adjacentDates) {
@@ -460,8 +468,8 @@ public class PredictionService {
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public MatchBoundsResponseDto getMatchBounds() {
         CanonicalGameDateBoundsProjection bounds = gameRepository.findCanonicalGameDateBounds(QUERYABLE_TEAM_CODES);
-        LocalDate earliestGameDate = bounds == null ? null : bounds.getEarliestGameDate();
-        LocalDate latestGameDate = bounds == null ? null : bounds.getLatestGameDate();
+        LocalDate earliestGameDate = bounds == null ? null : toLocalDate(bounds.getEarliestGameDate());
+        LocalDate latestGameDate = bounds == null ? null : toLocalDate(bounds.getLatestGameDate());
         boolean hasData = earliestGameDate != null && latestGameDate != null;
 
         return new MatchBoundsResponseDto(
