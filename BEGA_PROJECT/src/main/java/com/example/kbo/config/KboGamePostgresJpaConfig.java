@@ -2,6 +2,7 @@ package com.example.kbo.config;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import javax.sql.DataSource;
@@ -53,7 +54,15 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 )
 public class KboGamePostgresJpaConfig {
 
+	// information_schema.tables/columns and current_schema() are PostgreSQL-only —
+	// Oracle (including 23ai ADB) has no information_schema compatibility layer for
+	// either (confirmed live: ORA-00904 / ORA-00942). Every schema-guard query below
+	// branches on isOracle() and uses the ALL_TABLES/ALL_TAB_COLUMNS + SYS_CONTEXT
+	// equivalents instead. Unquoted identifiers are uppercase in Oracle's catalog, so
+	// the Oracle branch upper-cases schema/table/column params before binding.
 	private static final String CURRENT_SCHEMA_SQL = "SELECT current_schema()";
+	private static final String CURRENT_SCHEMA_SQL_ORACLE =
+			"SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL";
 	private static final String GAME_TABLE = "game";
 	private static final String GAME_METADATA_TABLE = "game_metadata";
 	private static final String GAME_SUMMARY_TABLE = "game_summary";
@@ -70,6 +79,13 @@ public class KboGamePostgresJpaConfig {
 			  AND table_name = ?
 			""";
 
+	private static final String CHECK_TABLE_SQL_ORACLE = """
+			SELECT COUNT(*)
+			FROM all_tables
+			WHERE owner = ?
+			  AND table_name = ?
+			""";
+
 	private static final String CHECK_COLUMN_SQL = """
 			SELECT COUNT(*)
 			FROM information_schema.columns
@@ -78,10 +94,26 @@ public class KboGamePostgresJpaConfig {
 			  AND column_name = ?
 			""";
 
+	private static final String CHECK_COLUMN_SQL_ORACLE = """
+			SELECT COUNT(*)
+			FROM all_tab_columns
+			WHERE owner = ?
+			  AND table_name = ?
+			  AND column_name = ?
+			""";
+
 	private static final String FIND_COLUMN_TYPE_SQL = """
 			SELECT data_type
 			FROM information_schema.columns
 			WHERE table_schema = ?
+			  AND table_name = ?
+			  AND column_name = ?
+			""";
+
+	private static final String FIND_COLUMN_TYPE_SQL_ORACLE = """
+			SELECT data_type
+			FROM all_tab_columns
+			WHERE owner = ?
 			  AND table_name = ?
 			  AND column_name = ?
 			""";
@@ -253,8 +285,16 @@ public class KboGamePostgresJpaConfig {
 		}
 	}
 
+	// baseball.jpa.database-platform 은 StadiumPostgresJpaConfig 와 같은 키를 읽고,
+	// 이미 야구 데이터소스 전환의 신호로 쓰이고 있다(위 kboGameDialect 주석 참고) —
+	// 여기서도 같은 값으로 방언을 판정해 별도 JDBC 라운드트립 없이 분기한다.
+	private boolean isOracle() {
+		return kboGameDialect != null && kboGameDialect.toLowerCase(Locale.ROOT).contains("oracle");
+	}
+
 	private String resolveActiveSchema(JdbcTemplate jdbcTemplate) {
-		String activeSchema = jdbcTemplate.queryForObject(CURRENT_SCHEMA_SQL, String.class);
+		String sql = isOracle() ? CURRENT_SCHEMA_SQL_ORACLE : CURRENT_SCHEMA_SQL;
+		String activeSchema = jdbcTemplate.queryForObject(sql, String.class);
 		if (activeSchema == null || activeSchema.isBlank()) {
 			return PUBLIC_SCHEMA;
 		}
@@ -294,13 +334,33 @@ public class KboGamePostgresJpaConfig {
 	}
 
 	private int countTable(JdbcTemplate jdbcTemplate, String schema, String tableName) {
+		if (isOracle()) {
+			Integer count = jdbcTemplate.queryForObject(
+					CHECK_TABLE_SQL_ORACLE, Integer.class,
+					toOracleIdentifier(schema), toOracleIdentifier(tableName));
+			return count == null ? 0 : count;
+		}
 		Integer count = jdbcTemplate.queryForObject(CHECK_TABLE_SQL, Integer.class, schema, tableName);
 		return count == null ? 0 : count;
 	}
 
 	private int countColumn(JdbcTemplate jdbcTemplate, String schema, String tableName, String columnName) {
+		if (isOracle()) {
+			Integer count = jdbcTemplate.queryForObject(
+					CHECK_COLUMN_SQL_ORACLE, Integer.class,
+					toOracleIdentifier(schema), toOracleIdentifier(tableName), toOracleIdentifier(columnName));
+			return count == null ? 0 : count;
+		}
 		Integer count = jdbcTemplate.queryForObject(CHECK_COLUMN_SQL, Integer.class, schema, tableName, columnName);
 		return count == null ? 0 : count;
+	}
+
+	// Oracle folds unquoted identifiers to uppercase at DDL time, and ALL_TABLES /
+	// ALL_TAB_COLUMNS store them that way — every migration in db/migration_baseball_oracle/
+	// and the crawler's SQLAlchemy DDL use unquoted (lowercase-in-source) identifiers, so
+	// this holds for every table/column this guard checks.
+	private static String toOracleIdentifier(String identifier) {
+		return identifier.toUpperCase(Locale.ROOT);
 	}
 
 	private void validateBooleanColumnType(
@@ -314,15 +374,27 @@ public class KboGamePostgresJpaConfig {
 					"[Schema Guard] missing column: %s.%s.%s".formatted(schema, tableName, columnName));
 		}
 
-		String dataType = jdbcTemplate.queryForObject(FIND_COLUMN_TYPE_SQL, String.class, schema, tableName, columnName);
+		boolean oracle = isOracle();
+		String dataType = oracle
+				? jdbcTemplate.queryForObject(
+						FIND_COLUMN_TYPE_SQL_ORACLE, String.class,
+						toOracleIdentifier(schema), toOracleIdentifier(tableName), toOracleIdentifier(columnName))
+				: jdbcTemplate.queryForObject(FIND_COLUMN_TYPE_SQL, String.class, schema, tableName, columnName);
 		if (dataType == null || dataType.isBlank()) {
 			throw new IllegalStateException(
 					"[Schema Guard] unable to resolve column type: %s.%s.%s".formatted(schema, tableName, columnName));
 		}
-		if (!"boolean".equalsIgnoreCase(dataType)) {
+		// Oracle has no boolean column type here — game/game_inning_scores are the
+		// crawler's tables (game_inning_scores) or ours via
+		// db/migration_baseball_oracle/V2 (game.is_dummy), and both encode this as
+		// NUMBER(1). PostgreSQL keeps the real boolean check.
+		boolean validType = oracle
+				? "NUMBER".equalsIgnoreCase(dataType)
+				: "boolean".equalsIgnoreCase(dataType);
+		if (!validType) {
 			throw new IllegalStateException(
-					"[Schema Guard] invalid column type for %s.%s.%s. expected=boolean, actual=%s"
-							.formatted(schema, tableName, columnName, dataType));
+					"[Schema Guard] invalid column type for %s.%s.%s. expected=%s, actual=%s"
+							.formatted(schema, tableName, columnName, oracle ? "NUMBER" : "boolean", dataType));
 		}
 	}
 }
