@@ -48,11 +48,23 @@ public class BaseballFlywayMigrationConfig {
     /** 앱의 flyway_schema_history 와 반드시 분리한다. 두 이력이 섞이면 복구가 어렵다. */
     static final String HISTORY_TABLE = "flyway_baseball_schema_history";
 
-    @Bean
-    public Flyway baseballFlyway(
+    @Bean(name = "baseballFlyway")
+    @SuppressWarnings("unused")
+    public Object baseballFlywayBean(
             @Qualifier("stadiumDataSource") DataSource baseballDataSource,
             @Value("${baseball.flyway.enabled:false}") boolean enabled,
             @Value("${baseball.flyway.locations:classpath:db/migration_baseball/}") String locations) {
+        return baseballFlyway(baseballDataSource, enabled, locations);
+    }
+
+    /**
+     * Keeps the baseball Flyway wiring available for the KBO JPA dependency while
+     * allowing Spring Boot's primary Flyway auto-configuration to remain active.
+     * The bean method above deliberately declares Object: when baseball Flyway is
+     * disabled, declaring it as Flyway would make @ConditionalOnMissingBean(Flyway)
+     * back off primary migrations as well.
+     */
+    public Flyway baseballFlyway(DataSource baseballDataSource, boolean enabled, String locations) {
 
         Flyway flyway = Flyway.configure()
                 .dataSource(baseballDataSource)
