@@ -35,6 +35,7 @@ import java.security.Principal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -199,10 +200,10 @@ public class PartyService {
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
-        Map<Long, String> imageByUserId = userRepository.findAllById(applicantIds).stream()
-                .collect(Collectors.toMap(UserEntity::getId,
-                        user -> cleanProfileImageUrl(user.getProfileImageUrl()),
-                        (first, second) -> first));
+        Map<Long, String> imageByUserId = new HashMap<>();
+        for (UserEntity user : userRepository.findAllById(applicantIds)) {
+            imageByUserId.put(user.getId(), cleanProfileImageUrl(user.getProfileImageUrl()));
+        }
 
         for (PartyApplication application : approved) {
             members.add(PartyDTO.MemberSummary.builder()

@@ -29,6 +29,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -39,15 +40,17 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -98,6 +101,9 @@ class MateFlowHappyPathIntegrationTest {
 
     @Autowired
     private PartyApplicationRepository partyApplicationRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private CheckInRecordRepository checkInRecordRepository;
@@ -246,6 +252,38 @@ class MateFlowHappyPathIntegrationTest {
         mockMvc.perform(post("/api/applications/{id}/approve", applicationId)
                         .with(MateTestTokenHelper.principalAs(HOST_EMAIL)))
                 .andExpect(status().isOk());
+
+        assertThat(userRepository.findByEmail(APPLICANT_EMAIL).orElseThrow().getProfileImageUrl()).isNull();
+        Party matchedBeforeDetail = partyRepository.findById(partyId).orElseThrow();
+        assertThat(matchedBeforeDetail.getCurrentParticipants()).isEqualTo(2);
+        assertThat(matchedBeforeDetail.getStatus()).isEqualTo(Party.PartyStatus.MATCHED);
+        assertThat(partyApplicationRepository.findById(applicationId).orElseThrow().getIsApproved()).isTrue();
+        PartyDetailDbSnapshot beforeDetailReads = snapshotPartyDetailState(partyId, applicationId);
+
+        String firstDetailJson = mockMvc.perform(get("/api/parties/{id}", partyId)
+                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String secondDetailJson = mockMvc.perform(get("/api/parties/{id}", partyId)
+                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode detailNode = objectMapper.readTree(firstDetailJson);
+        JsonNode membersNode = detailNode.get("members");
+        assertThat(membersNode).isNotNull();
+        assertThat(membersNode.size()).isEqualTo(2);
+        JsonNode approvedMateNode = membersNode.get(1);
+        assertThat(approvedMateNode.get("host").asBoolean()).isFalse();
+        assertThat(approvedMateNode.get("role").asText()).isEqualTo("메이트");
+        assertThat(approvedMateNode.has("profileImageUrl")).isTrue();
+        assertThat(approvedMateNode.get("profileImageUrl").isNull()).isTrue();
+        assertThat(secondDetailJson).isEqualTo(firstDetailJson);
+        assertThat(snapshotPartyDetailState(partyId, applicationId)).isEqualTo(beforeDetailReads);
 
         String qrSessionBody = objectMapper.writeValueAsString(Map.of("partyId", partyId));
         String qrSessionJson = mockMvc.perform(post("/api/checkin/qr-session")
@@ -440,5 +478,16 @@ class MateFlowHappyPathIntegrationTest {
                 .homeTeam(homeTeam)
                 .awayTeam(awayTeam)
                 .build());
+    }
+
+    private PartyDetailDbSnapshot snapshotPartyDetailState(long partyId, long applicationId) {
+        return new PartyDetailDbSnapshot(
+                jdbcTemplate.queryForList("SELECT * FROM parties WHERE id = ?", partyId),
+                jdbcTemplate.queryForList("SELECT * FROM party_applications WHERE id = ?", applicationId));
+    }
+
+    private record PartyDetailDbSnapshot(
+            List<Map<String, Object>> partyRows,
+            List<Map<String, Object>> applicationRows) {
     }
 }
