@@ -18,6 +18,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.TimeZone;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -253,8 +254,8 @@ class PredictionServiceMatchQueryTest extends PredictionServiceTestFixture {
         LocalDate latest = LocalDate.of(2026, 10, 1);
         CanonicalGameDateBoundsProjection bounds = mock(CanonicalGameDateBoundsProjection.class);
 
-        when(bounds.getEarliestGameDate()).thenReturn(earliest.atStartOfDay());
-        when(bounds.getLatestGameDate()).thenReturn(latest.atStartOfDay());
+        when(bounds.getEarliestGameDate()).thenReturn(earliest);
+        when(bounds.getLatestGameDate()).thenReturn(latest);
         when(gameRepository.findCanonicalGameDateBounds(anyList())).thenReturn(bounds);
 
         MatchBoundsResponseDto response = predictionService.getMatchBounds();
@@ -306,8 +307,7 @@ class PredictionServiceMatchQueryTest extends PredictionServiceTestFixture {
                 org.mockito.ArgumentMatchers.eq(targetDate),
                 org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(List.of());
-        when(adjacentDates.getPrevDate()).thenReturn(LocalDate.of(2026, 4, 26).atStartOfDay());
-        when(adjacentDates.getNextDate()).thenReturn(LocalDate.of(2026, 4, 28).atStartOfDay());
+        when(adjacentDates.getPrevDate()).thenReturn(LocalDate.of(2026, 4, 26));
         when(gameRepository.findCanonicalAdjacentGameDates(
                 org.mockito.ArgumentMatchers.eq(targetDate),
                 org.mockito.ArgumentMatchers.anyList()))
@@ -333,8 +333,8 @@ class PredictionServiceMatchQueryTest extends PredictionServiceTestFixture {
                 org.mockito.ArgumentMatchers.eq(targetDate),
                 org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(List.of());
-        when(adjacentDates.getPrevDate()).thenReturn(prevDate.atStartOfDay());
-        when(adjacentDates.getNextDate()).thenReturn(nextDate.atStartOfDay());
+        when(adjacentDates.getPrevDate()).thenReturn(prevDate);
+        when(adjacentDates.getNextDate()).thenReturn(nextDate);
         when(gameRepository.findCanonicalAdjacentGameDates(
                 org.mockito.ArgumentMatchers.eq(targetDate),
                 org.mockito.ArgumentMatchers.anyList()))
@@ -352,6 +352,38 @@ class PredictionServiceMatchQueryTest extends PredictionServiceTestFixture {
                 eq("prediction.matches_by_date"),
                 eq(targetDate),
                 anyList());
+    }
+
+    @Test
+    void getMatchDayNavigationShouldKeepCanonicalLocalDatesAcrossTimezoneChanges() {
+        LocalDate targetDate = LocalDate.of(2026, 1, 1);
+        LocalDate prevDate = LocalDate.of(2025, 12, 31);
+        LocalDate nextDate = LocalDate.of(2026, 1, 2);
+        CanonicalAdjacentGameDatesProjection adjacentDates = mock(CanonicalAdjacentGameDatesProjection.class);
+
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(eq(targetDate), anyList()))
+                .thenReturn(List.of());
+        when(adjacentDates.getPrevDate()).thenReturn(prevDate);
+        when(adjacentDates.getNextDate()).thenReturn(nextDate);
+        when(gameRepository.findCanonicalAdjacentGameDates(eq(targetDate), anyList()))
+                .thenReturn(adjacentDates);
+
+        TimeZone originalTimeZone = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("Pacific/Kiritimati"));
+            MatchDayNavigationResponseDto positiveOffsetResponse =
+                    predictionService.getMatchDayNavigation(targetDate);
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Adak"));
+            MatchDayNavigationResponseDto negativeOffsetResponse =
+                    predictionService.getMatchDayNavigation(targetDate);
+
+            assertThat(positiveOffsetResponse.getPrevDate()).isEqualTo(prevDate);
+            assertThat(positiveOffsetResponse.getNextDate()).isEqualTo(nextDate);
+            assertThat(negativeOffsetResponse.getPrevDate()).isEqualTo(prevDate);
+            assertThat(negativeOffsetResponse.getNextDate()).isEqualTo(nextDate);
+        } finally {
+            TimeZone.setDefault(originalTimeZone);
+        }
     }
 
     @Test
@@ -451,8 +483,8 @@ class PredictionServiceMatchQueryTest extends PredictionServiceTestFixture {
                 org.mockito.ArgumentMatchers.eq(targetDate),
                 org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(List.of(canonical));
-        when(adjacentDates.getPrevDate()).thenReturn(prevDate.atStartOfDay());
-        when(adjacentDates.getNextDate()).thenReturn(nextDate.atStartOfDay());
+        when(adjacentDates.getPrevDate()).thenReturn(prevDate);
+        when(adjacentDates.getNextDate()).thenReturn(nextDate);
         when(gameRepository.findCanonicalAdjacentGameDates(
                 org.mockito.ArgumentMatchers.eq(targetDate),
                 org.mockito.ArgumentMatchers.anyList()))
@@ -535,8 +567,8 @@ class PredictionServiceMatchQueryTest extends PredictionServiceTestFixture {
                 org.mockito.ArgumentMatchers.eq(targetDate),
                 org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(List.of());
-        when(adjacentDates.getPrevDate()).thenReturn(prevDate.atStartOfDay());
-        when(adjacentDates.getNextDate()).thenReturn(nextDate.atStartOfDay());
+        when(adjacentDates.getPrevDate()).thenReturn(prevDate);
+        when(adjacentDates.getNextDate()).thenReturn(nextDate);
         when(gameRepository.findCanonicalAdjacentGameDates(
                 org.mockito.ArgumentMatchers.eq(targetDate),
                 org.mockito.ArgumentMatchers.anyList()))
@@ -560,8 +592,8 @@ class PredictionServiceMatchQueryTest extends PredictionServiceTestFixture {
         LocalDate latest = LocalDate.of(2026, 10, 1);
         CanonicalGameDateBoundsProjection bounds = mock(CanonicalGameDateBoundsProjection.class);
 
-        when(bounds.getEarliestGameDate()).thenReturn(earliest.atStartOfDay());
-        when(bounds.getLatestGameDate()).thenReturn(latest.atStartOfDay());
+        when(bounds.getEarliestGameDate()).thenReturn(earliest);
+        when(bounds.getLatestGameDate()).thenReturn(latest);
         when(gameRepository.findCanonicalGameDateBounds(anyList())).thenReturn(bounds);
 
         predictionService.getMatchBounds();

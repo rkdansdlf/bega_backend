@@ -399,6 +399,126 @@ class PredictionQueryCountIntegrationTest {
     }
 
     @Test
+    @DisplayName("match bounds API returns the official empty contract when canonical games do not exist")
+    void getMatchBoundsApi_returnsEmptyContractWhenCanonicalGamesDoNotExist() throws Exception {
+        Statistics statistics = HibernateQueryCountSupport.reset(entityManagerFactory);
+
+        mockMvc.perform(get("/api/matches/bounds"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hasData").value(false))
+                .andExpect(jsonPath("$.earliestGameDate").isEmpty())
+                .andExpect(jsonPath("$.latestGameDate").isEmpty());
+
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("match bounds keep one canonical date stable under the configured timezone and repeated requests")
+    void getMatchBoundsApi_keepsSingleDateStableUnderConfiguredTimezoneAndRepeatedRequests() throws Exception {
+        LocalDate onlyGameDate = LocalDate.of(2025, 12, 31);
+        saveSeriesGame("202512310001", onlyGameDate, null, null, null, "SCHEDULED");
+        gameRepository.flush();
+
+        Statistics statistics = HibernateQueryCountSupport.reset(entityManagerFactory);
+        String firstPayload = mockMvc.perform(get("/api/matches/bounds"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hasData").value(true))
+                .andExpect(jsonPath("$.earliestGameDate").value(onlyGameDate.toString()))
+                .andExpect(jsonPath("$.latestGameDate").value(onlyGameDate.toString()))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String secondPayload = mockMvc.perform(get("/api/matches/bounds"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.earliestGameDate").value(onlyGameDate.toString()))
+                .andExpect(jsonPath("$.latestGameDate").value(onlyGameDate.toString()))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(secondPayload).isEqualTo(firstPayload);
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("match day navigation returns only the previous date at the end of canonical data")
+    void getMatchDayNavigationApi_returnsOnlyPreviousDateAtCanonicalDataEnd() throws Exception {
+        LocalDate targetDate = LocalDate.of(2026, 1, 1);
+        LocalDate previousDate = targetDate.minusDays(1);
+        saveSeriesGame("202512310001", previousDate, null, null, null, "SCHEDULED");
+        gameRepository.flush();
+
+        Statistics statistics = HibernateQueryCountSupport.reset(entityManagerFactory);
+
+        mockMvc.perform(get("/api/matches/day")
+                        .param("date", targetDate.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.date").value(targetDate.toString()))
+                .andExpect(jsonPath("$.games.length()").value(0))
+                .andExpect(jsonPath("$.prevDate").value(previousDate.toString()))
+                .andExpect(jsonPath("$.nextDate").isEmpty())
+                .andExpect(jsonPath("$.hasPrev").value(true))
+                .andExpect(jsonPath("$.hasNext").value(false));
+
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("match day navigation returns only the next date before canonical data starts")
+    void getMatchDayNavigationApi_returnsOnlyNextDateBeforeCanonicalDataStarts() throws Exception {
+        LocalDate targetDate = LocalDate.of(2025, 12, 31);
+        LocalDate nextDate = targetDate.plusDays(1);
+        saveSeriesGame("202601010001", nextDate, null, null, null, "SCHEDULED");
+        gameRepository.flush();
+
+        Statistics statistics = HibernateQueryCountSupport.reset(entityManagerFactory);
+
+        mockMvc.perform(get("/api/matches/day")
+                        .param("date", targetDate.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.date").value(targetDate.toString()))
+                .andExpect(jsonPath("$.games.length()").value(0))
+                .andExpect(jsonPath("$.prevDate").isEmpty())
+                .andExpect(jsonPath("$.nextDate").value(nextDate.toString()))
+                .andExpect(jsonPath("$.hasPrev").value(false))
+                .andExpect(jsonPath("$.hasNext").value(true));
+
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("match day navigation keeps year-boundary dates stable under the configured timezone and repeated requests")
+    void getMatchDayNavigationApi_keepsYearBoundaryStableUnderConfiguredTimezoneAndRepeatedRequests() throws Exception {
+        LocalDate targetDate = LocalDate.of(2026, 1, 1);
+        LocalDate previousDate = targetDate.minusDays(1);
+        LocalDate nextDate = targetDate.plusDays(1);
+        saveSeriesGame("202512310001", previousDate, null, null, null, "SCHEDULED");
+        saveSeriesGame("202601020001", nextDate, null, null, null, "SCHEDULED");
+        gameRepository.flush();
+
+        Statistics statistics = HibernateQueryCountSupport.reset(entityManagerFactory);
+        String firstPayload = mockMvc.perform(get("/api/matches/day")
+                        .param("date", targetDate.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.prevDate").value(previousDate.toString()))
+                .andExpect(jsonPath("$.nextDate").value(nextDate.toString()))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String secondPayload = mockMvc.perform(get("/api/matches/day")
+                        .param("date", targetDate.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.prevDate").value(previousDate.toString()))
+                .andExpect(jsonPath("$.nextDate").value(nextDate.toString()))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(secondPayload).isEqualTo(firstPayload);
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(6);
+    }
+
+    @Test
     @DisplayName("vote status API uses single aggregated query when final result is missing")
     void getVoteStatusApi_usesSingleAggregatedQueryWhenFinalResultMissing() throws Exception {
         String gameId = "202510180001";

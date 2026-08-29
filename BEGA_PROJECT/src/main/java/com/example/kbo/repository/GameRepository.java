@@ -386,41 +386,26 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
       @Param("date") LocalDate date,
       @Param("canonicalTeams") List<String> canonicalTeams);
 
-		  @Query(value = """
-		      SELECT
-		          (
-		              SELECT MAX(g.game_date)
-		              FROM game g
-		              WHERE g.game_date < :date
-		                AND g.is_dummy IS NOT TRUE
-		                AND g.game_id NOT LIKE 'MOCK%'
-		                AND g.home_team IN :canonicalTeams
-		                AND g.away_team IN :canonicalTeams
-		          ) AS "prevDate",
-		          (
-		              SELECT MIN(g.game_date)
-		              FROM game g
-		              WHERE g.game_date > :date
-		                AND g.is_dummy IS NOT TRUE
-		                AND g.game_id NOT LIKE 'MOCK%'
-		                AND g.home_team IN :canonicalTeams
-		                AND g.away_team IN :canonicalTeams
-		          ) AS "nextDate"
-		      """, nativeQuery = true)
+  @Query("SELECT " +
+      "MAX(CASE WHEN g.gameDate < :date THEN g.gameDate ELSE NULL END) AS prevDate, " +
+      "MIN(CASE WHEN g.gameDate > :date THEN g.gameDate ELSE NULL END) AS nextDate " +
+      "FROM GameEntity g " +
+      "WHERE COALESCE(g.isDummy, false) = false " +
+      "AND g.gameId NOT LIKE 'MOCK%' " +
+      "AND g.homeTeam IN :canonicalTeams " +
+      "AND g.awayTeam IN :canonicalTeams")
   CanonicalAdjacentGameDatesProjection findCanonicalAdjacentGameDates(
       @Param("date") LocalDate date,
       @Param("canonicalTeams") List<String> canonicalTeams);
 
-  @Query(value = """
-      SELECT
-          MIN(g.game_date) AS "earliestGameDate",
-          MAX(g.game_date) AS "latestGameDate"
-      FROM game g
-      WHERE g.is_dummy IS NOT TRUE
-        AND g.game_id NOT LIKE 'MOCK%'
-        AND g.home_team IN :canonicalTeams
-        AND g.away_team IN :canonicalTeams
-      """, nativeQuery = true)
+  @Query("SELECT " +
+      "MIN(g.gameDate) AS earliestGameDate, " +
+      "MAX(g.gameDate) AS latestGameDate " +
+      "FROM GameEntity g " +
+      "WHERE COALESCE(g.isDummy, false) = false " +
+      "AND g.gameId NOT LIKE 'MOCK%' " +
+      "AND g.homeTeam IN :canonicalTeams " +
+      "AND g.awayTeam IN :canonicalTeams")
   CanonicalGameDateBoundsProjection findCanonicalGameDateBounds(
       @Param("canonicalTeams") List<String> canonicalTeams);
 
