@@ -28,7 +28,8 @@ public class RealtimeOutboxStateService {
     private final RealtimeOutboxProperties properties;
 
     @Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW)
-    public List<Long> findClaimableIds(Instant now, int batchSize) {
+    public List<Long> findClaimableIds(Instant requestedNow, int batchSize) {
+        Instant now = RealtimeOutboxTime.persisted(requestedNow);
         Duration clockSkew = clockSkew();
         return repository.findClaimableIds(
                 CLAIMABLE_STATUSES,
@@ -42,15 +43,16 @@ public class RealtimeOutboxStateService {
     public Optional<RealtimeOutboxClaim> claim(
             Long id,
             String workerId,
-            Instant now,
+            Instant requestedNow,
             Duration leaseDuration) {
+        Instant now = RealtimeOutboxTime.persisted(requestedNow);
         Duration clockSkew = clockSkew();
         int claimed = repository.claim(
                 id,
                 workerId,
                 now,
                 now.minus(clockSkew),
-                now.plus(leaseDuration).plus(clockSkew));
+                RealtimeOutboxTime.persisted(now.plus(leaseDuration).plus(clockSkew)));
         if (claimed == 0) {
             return Optional.empty();
         }
@@ -62,7 +64,7 @@ public class RealtimeOutboxStateService {
         return repository.markPublished(
                 id,
                 workerId,
-                publishedAt,
+                RealtimeOutboxTime.persisted(publishedAt),
                 RealtimeOutboxStatus.PROCESSING,
                 RealtimeOutboxStatus.PUBLISHED) == 1;
     }
@@ -78,7 +80,7 @@ public class RealtimeOutboxStateService {
                 id,
                 workerId,
                 nextStatus,
-                availableAt,
+                RealtimeOutboxTime.persisted(availableAt),
                 lastError,
                 RealtimeOutboxStatus.PROCESSING) == 1;
     }
@@ -87,7 +89,7 @@ public class RealtimeOutboxStateService {
     public int cleanupPublishedBefore(Instant cutoff, int batchSize) {
         List<Long> ids = repository.findPublishedIdsBefore(
                 RealtimeOutboxStatus.PUBLISHED,
-                cutoff,
+                RealtimeOutboxTime.persisted(cutoff),
                 PageRequest.of(0, Math.max(1, batchSize)));
         if (ids.isEmpty()) {
             return 0;
