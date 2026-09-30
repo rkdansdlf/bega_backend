@@ -13,6 +13,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
@@ -173,11 +174,12 @@ public class S3StorageStrategy implements StorageStrategy {
                         .build();
                 HeadObjectResponse response = s3Client.headObject(request);
                 return new StoredObjectMetadata(response.contentLength(), response.contentType());
-            } catch (NoSuchKeyException e) {
-                return null;
             } catch (Exception e) {
+                if (isNotFound(e)) {
+                    return null;
+                }
                 log.warn("S3 객체 메타데이터 조회 실패: path={}, error={}", path, e.getMessage());
-                return null;
+                throw new StorageUnavailableException("S3 객체 메타데이터 조회 실패: " + path, e);
             }
         });
     }
@@ -193,12 +195,24 @@ public class S3StorageStrategy implements StorageStrategy {
                         .build();
                 s3Client.headObject(headObjectRequest);
                 return true;
-            } catch (NoSuchKeyException e) {
-                return false;
             } catch (Exception e) {
+                if (isNotFound(e)) {
+                    return false;
+                }
                 log.warn("S3 객체 존재 여부 조회 실패: path={}, error={}", path, e.getMessage());
-                return false;
+                throw new StorageUnavailableException("S3 객체 존재 여부 조회 실패: " + path, e);
             }
         });
+    }
+
+    /**
+     * HEAD 응답의 404만 "객체 없음"으로 본다. S3 호환 스토리지는 NoSuchKeyException 대신
+     * 상태코드 404인 S3Exception을 던지기도 한다.
+     */
+    private static boolean isNotFound(Exception e) {
+        if (e instanceof NoSuchKeyException) {
+            return true;
+        }
+        return e instanceof S3Exception s3 && s3.statusCode() == 404;
     }
 }

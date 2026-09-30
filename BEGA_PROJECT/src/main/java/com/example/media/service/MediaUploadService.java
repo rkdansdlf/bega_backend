@@ -3,6 +3,7 @@ package com.example.media.service;
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.strategy.PresignedUpload;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
+import com.example.cheerboard.storage.strategy.StorageUnavailableException;
 import com.example.cheerboard.storage.strategy.StoredObject;
 import com.example.cheerboard.storage.strategy.StoredObjectMetadata;
 import com.example.common.exception.BadRequestBusinessException;
@@ -25,6 +26,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import software.amazon.awssdk.core.exception.SdkException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -187,6 +189,8 @@ public class MediaUploadService {
             storageStrategy.delete(bucket, asset.getStagingObjectKey()).block();
             metricsService.recordMediaFinalize(asset.getDomain().name(), "success");
             return buildFinalizeResponse(asset);
+        } catch (StorageUnavailableException | SdkException ex) {
+            return handleTransientStorageFailure(asset, finalObjectKey, feedObjectKey, ex);
         } catch (RuntimeException ex) {
             cleanupFailedFinalize(asset, finalObjectKey, feedObjectKey);
             metricsService.recordMediaFinalize(asset.getDomain().name(), "failure");
@@ -269,6 +273,23 @@ public class MediaUploadService {
             throw new InternalServerBusinessException("MEDIA_PUBLIC_URL_FAILED", "이미지 URL 생성에 실패했습니다.");
         }
         return new FinalizeMediaUploadResponse(asset.getId(), asset.getObjectKey(), publicUrl);
+    }
+
+    /**
+     * 스토리지 일시 장애는 "파일이 없다/잘못됐다"는 뜻이 아니므로 asset과 staging 객체를 그대로 둬
+     * 클라이언트가 finalize를 재시도할 수 있게 한다. 이미 READY로 저장된 뒤(프로필 feed 단계)에
+     * 실패한 경우만 부분 완료 상태가 되므로 기존 정리 경로를 유지한다.
+     */
+    private FinalizeMediaUploadResponse handleTransientStorageFailure(
+            MediaAsset asset, String finalObjectKey, String feedObjectKey, RuntimeException ex) {
+        log.warn("Media finalize storage failure (asset retained): assetId={}, status={}, cause={}",
+                asset.getId(), asset.getStatus(), ex.getMessage());
+        metricsService.recordMediaFinalize(asset.getDomain().name(), "storage_unavailable");
+        if (asset.getStatus() == MediaAssetStatus.READY) {
+            cleanupFailedFinalize(asset, finalObjectKey, feedObjectKey);
+        }
+        throw new InternalServerBusinessException("MEDIA_STORAGE_UNAVAILABLE",
+                "스토리지가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요.");
     }
 
     private void cleanupFailedFinalize(MediaAsset asset, String finalObjectKey, String feedObjectKey) {
