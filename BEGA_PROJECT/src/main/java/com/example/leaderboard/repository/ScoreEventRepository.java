@@ -28,8 +28,17 @@ public interface ScoreEventRepository extends JpaRepository<ScoreEvent, Long> {
     // RECENT SCORES (GLOBAL FEED)
     // ============================================
 
-    @Query("SELECT se FROM ScoreEvent se ORDER BY se.createdAt DESC")
-    List<ScoreEvent> findRecentScores(Pageable pageable);
+    @Query("""
+            SELECT se
+            FROM ScoreEvent se
+            JOIN UserEntity u ON u.id = se.userId
+            WHERE
+            """ + LeaderboardVisibilityQueries.VISIBLE_USER_PREDICATE + """
+            ORDER BY se.createdAt DESC, se.id DESC
+            """)
+    List<ScoreEvent> findVisibleRecentScores(
+            @Param("viewerId") Long viewerId,
+            Pageable pageable);
 
     @Query("SELECT se FROM ScoreEvent se WHERE se.eventType = :eventType ORDER BY se.createdAt DESC")
     List<ScoreEvent> findRecentByEventType(@Param("eventType") ScoreEvent.EventType eventType, Pageable pageable);

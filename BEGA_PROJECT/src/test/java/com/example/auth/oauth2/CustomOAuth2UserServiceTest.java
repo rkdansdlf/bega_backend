@@ -5,6 +5,7 @@ import com.example.auth.entity.UserProvider;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.AuthSecurityMonitoringService;
+import com.example.auth.service.OAuthEmailChallengeService;
 import com.example.bega.auth.dto.OAuth2LinkStateData;
 import com.example.bega.auth.service.OAuth2LinkStateService;
 import org.junit.jupiter.api.DisplayName;
@@ -48,6 +49,9 @@ class CustomOAuth2UserServiceTest {
 
     @Mock
     private AuthSecurityMonitoringService securityMonitoringService;
+
+    @Mock
+    private OAuthEmailChallengeService oauthEmailChallengeService;
 
     @InjectMocks
     private CustomOAuth2UserService customOAuth2UserService;
@@ -109,6 +113,28 @@ class CustomOAuth2UserServiceTest {
                 null))
                 .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
                         assertThat(exception.getError().getErrorCode()).isEqualTo("manual_link_required"));
+    }
+
+    @Test
+    @DisplayName("검증되지 않은 이메일의 신규 OAuth 가입은 앱 이메일 challenge를 요구한다")
+    void processNormalLogin_unverifiedNewAccountRequiresChallenge() {
+        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> invokeProcessNormalLogin(
+                Optional.empty(),
+                "new@example.com",
+                "신규유저",
+                "naver",
+                "naver-provider-id",
+                null,
+                false))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                        assertThat(exception.getError().getErrorCode())
+                                .isEqualTo("oauth2_email_verification_required"));
+
+        verify(oauthEmailChallengeService).issue(
+                "naver", "naver-provider-id", "new@example.com", "신규유저", null);
+        verify(userRepository, never()).save(org.mockito.ArgumentMatchers.any(UserEntity.class));
     }
 
     @Test
@@ -225,6 +251,44 @@ class CustomOAuth2UserServiceTest {
                     provider,
                     providerId,
                     profileImageUrl);
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            if (e.getCause() instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new RuntimeException(e);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private UserEntity invokeProcessNormalLogin(
+            Optional<UserProvider> userProviderOpt,
+            String email,
+            String userName,
+            String provider,
+            String providerId,
+            String profileImageUrl,
+            boolean emailVerified) {
+        try {
+            Method method = CustomOAuth2UserService.class.getDeclaredMethod(
+                    "processNormalLogin",
+                    Optional.class,
+                    String.class,
+                    String.class,
+                    String.class,
+                    String.class,
+                    String.class,
+                    boolean.class);
+            method.setAccessible(true);
+            return (UserEntity) method.invoke(
+                    customOAuth2UserService,
+                    userProviderOpt,
+                    email,
+                    userName,
+                    provider,
+                    providerId,
+                    profileImageUrl,
+                    emailVerified);
         } catch (java.lang.reflect.InvocationTargetException e) {
             if (e.getCause() instanceof RuntimeException runtimeException) {
                 throw runtimeException;

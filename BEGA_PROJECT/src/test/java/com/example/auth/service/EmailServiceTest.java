@@ -59,6 +59,19 @@ class EmailServiceTest {
     }
 
     @Test
+    void oauthChallengeTokenIsSentWithoutPersistingItInTheJobQueue() {
+        EmailService emailService = createEnabledEmailService(objectProvider(jobScheduler));
+
+        emailService.sendOAuthEmailChallenge(
+                "user@example.com",
+                "challenge-id",
+                "single-use-raw-token");
+
+        verifyNoInteractions(jobScheduler);
+        verify(mailSender).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
     void enabledMailSendsImmediatelyWhenSchedulerUnavailable() {
         EmailService emailService = createEnabledEmailService(objectProvider(null));
 

@@ -18,6 +18,9 @@ import com.example.auth.service.UserService;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.entity.RefreshToken;
 import com.example.auth.util.AuthCookieUtil;
+import com.example.auth.security.CookieMutationOriginValidator;
+import com.example.auth.security.CookieCsrfTokenService;
+import com.example.auth.service.RefreshTokenDigestService;
 import com.example.common.web.ClientIpResolver;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
@@ -54,6 +57,9 @@ public class APIController {
     private final RefreshRepository refreshRepository;
     private final AuthCookieUtil authCookieUtil;
     private final ClientIpResolver clientIpResolver;
+    private final RefreshTokenDigestService refreshTokenDigestService;
+    private final CookieMutationOriginValidator cookieMutationOriginValidator;
+    private final CookieCsrfTokenService cookieCsrfTokenService;
 
     public APIController(UserService userService,
             AuthRegistrationService authRegistrationService,
@@ -63,7 +69,10 @@ public class APIController {
             com.example.auth.service.TokenBlacklistService tokenBlacklistService,
             RefreshRepository refreshRepository,
             AuthCookieUtil authCookieUtil,
-            ClientIpResolver clientIpResolver) {
+            ClientIpResolver clientIpResolver,
+            RefreshTokenDigestService refreshTokenDigestService,
+            CookieMutationOriginValidator cookieMutationOriginValidator,
+            CookieCsrfTokenService cookieCsrfTokenService) {
         this.userService = userService;
         this.authRegistrationService = authRegistrationService;
         this.policyConsentService = policyConsentService;
@@ -73,6 +82,9 @@ public class APIController {
         this.refreshRepository = refreshRepository;
         this.authCookieUtil = authCookieUtil;
         this.clientIpResolver = clientIpResolver;
+        this.refreshTokenDigestService = refreshTokenDigestService;
+        this.cookieMutationOriginValidator = cookieMutationOriginValidator;
+        this.cookieCsrfTokenService = cookieCsrfTokenService;
     }
 
     /**
@@ -148,6 +160,7 @@ public class APIController {
         int refreshTokenMaxAge = (int) (userService.getJWTUtil().getRefreshTokenExpirationTime() / 1000);
         ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
         authCookieUtil.addCookieHeader(response, refreshCookie);
+        authCookieUtil.addCookieHeader(response, authCookieUtil.issueCsrfCookie(refreshTokenMaxAge));
 
         // body 응답은 프로필/상태 데이터 중심으로 구성
         Map<String, Object> responseData = new HashMap<>(loginResult.profileData());
@@ -194,6 +207,8 @@ public class APIController {
 
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest request, HttpServletResponse response) {
+        cookieMutationOriginValidator.validate(request, "INVALID_LOGOUT_ORIGIN");
+        cookieCsrfTokenService.validate(request);
         Long accessUserId = null;
         String accessToken = null;
         Cookie[] cookies = request.getCookies();
@@ -222,7 +237,8 @@ public class APIController {
         }
 
         if (refreshToken != null) {
-            java.util.List<RefreshToken> matchedTokens = refreshRepository.findAllByToken(refreshToken);
+            String tokenDigest = refreshTokenDigestService.digest(refreshToken);
+            java.util.List<RefreshToken> matchedTokens = refreshRepository.findAllByTokenDigest(tokenDigest);
             if (!matchedTokens.isEmpty()) {
                 refreshRepository.deleteAll(matchedTokens);
             }
@@ -258,10 +274,12 @@ public class APIController {
 
         // 5. Refresh 쿠키 삭제
         ResponseCookie expireRefreshCookie = authCookieUtil.buildExpiredRefreshCookie();
+        ResponseCookie expireCsrfCookie = authCookieUtil.buildExpiredCsrfCookie();
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, expireAuthCookie.toString())
                 .header(HttpHeaders.SET_COOKIE, expireRefreshCookie.toString())
+                .header(HttpHeaders.SET_COOKIE, expireCsrfCookie.toString())
                 .body(ApiResponse.success("로그아웃 성공"));
     }
 

@@ -113,6 +113,9 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
             ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
             response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+            response.addHeader(
+                    HttpHeaders.SET_COOKIE,
+                    authCookieUtil.issueCsrfCookie(refreshTokenMaxAge).toString());
             accountSecurityService.recordProviderLinked(userId, resolveProviderFromRequest(request));
 
             String stateId;
@@ -150,6 +153,9 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
         ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
         response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+        response.addHeader(
+                HttpHeaders.SET_COOKIE,
+                authCookieUtil.issueCsrfCookie(refreshTokenMaxAge).toString());
 
         if (request.getSession(false) != null) {
             request.getSession(false).invalidate();

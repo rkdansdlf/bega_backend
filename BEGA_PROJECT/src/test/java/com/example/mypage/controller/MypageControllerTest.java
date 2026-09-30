@@ -342,7 +342,7 @@ class MypageControllerTest {
         refreshToken.setId(id);
         refreshToken.setSessionId(sessionId);
         refreshToken.setEmail(email);
-        refreshToken.setToken(token);
+        refreshToken.setTokenDigest(token);
         refreshToken.setDeviceType(deviceType);
         refreshToken.setDeviceLabel(deviceLabel);
         refreshToken.setBrowser(browser);

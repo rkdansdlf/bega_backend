@@ -152,6 +152,20 @@ class RateLimitFilterTest {
         verifyNoInteractions(rateLimitService, authSecurityMonitoringService);
     }
 
+    @Test
+    void oauthEmailConfirmation_onlyRateLimitsPostBodyContract() throws Exception {
+        doRequest("GET", "/api/auth/oauth2/email-challenge/confirm", "203.0.113.70");
+
+        verifyNoInteractions(rateLimitService, authSecurityMonitoringService);
+    }
+
+    @Test
+    void oauthEmailConfirmationPost_usesFifteenMinuteRule() throws Exception {
+        doRequest("POST", "/api/auth/oauth2/email-challenge/confirm", "203.0.113.71");
+
+        verify(rateLimitService).isAllowed(anyString(), eq(10), eq(900), eq(true));
+    }
+
     private MockHttpServletResponse doLoginRequest(String ip) throws Exception {
         return doRequest("POST", "/api/auth/login", ip);
     }

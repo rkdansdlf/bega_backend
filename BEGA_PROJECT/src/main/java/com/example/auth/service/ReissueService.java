@@ -30,6 +30,7 @@ public class ReissueService {
     private final AuthSecurityMonitoringService authSecurityMonitoringService;
     private final RefreshTokenReuseDetector refreshTokenReuseDetector;
     private final RefreshTokenRevocationService refreshTokenRevocationService;
+    private final RefreshTokenDigestService refreshTokenDigestService;
 
     @Transactional
     public ReissuedTokens reissue(
@@ -54,7 +55,8 @@ public class ReissueService {
 
         if (jwtUtil.isExpired(refreshToken)) {
             try {
-                List<RefreshToken> expiredTokens = refreshRepository.findAllByToken(refreshToken);
+                List<RefreshToken> expiredTokens = refreshRepository.findAllByTokenDigest(
+                        refreshTokenDigestService.digest(refreshToken));
                 if (!expiredTokens.isEmpty()) {
                     refreshRepository.deleteAll(expiredTokens);
                 }
@@ -65,7 +67,8 @@ public class ReissueService {
                     "REFRESH_TOKEN_EXPIRED", "Refresh Token이 만료되었습니다.", request, null, null);
         }
 
-        List<RefreshToken> matchedTokens = refreshRepository.findAllByTokenForUpdate(refreshToken);
+        String tokenDigest = refreshTokenDigestService.digest(refreshToken);
+        List<RefreshToken> matchedTokens = refreshRepository.findAllByTokenDigestForUpdate(tokenDigest);
         Optional<RefreshToken> matchedToken = matchedTokens.stream().findFirst();
         if (matchedToken.isEmpty()) {
             Optional<Long> reuseUserId = refreshTokenReuseDetector.findReuseUserId(refreshToken);

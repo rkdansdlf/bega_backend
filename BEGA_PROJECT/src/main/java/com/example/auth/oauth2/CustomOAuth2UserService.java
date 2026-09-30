@@ -9,6 +9,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.util.LogMaskingUtil;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
@@ -24,6 +25,8 @@ import java.util.regex.Pattern;
 @Transactional
 @lombok.extern.slf4j.Slf4j
 public class CustomOAuth2UserService extends DefaultOAuth2UserService {
+
+    public static final String OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE = "OAUTH_EMAIL_CHALLENGE_ID";
 
     private static final Pattern KAKAO_PROFILE_SIZE_PATTERN =
             Pattern.compile("_(?:\\d{2,4})x(?:\\d{2,4})(?=\\.[a-zA-Z0-9]+(?:\\?|#|$))");
@@ -48,6 +51,24 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     private final CookieAuthorizationRequestRepository cookieAuthorizationRequestRepository; // [Strict Mode] Check
                                                                                              // cookie
     private final com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService;
+    private final com.example.auth.service.OAuthEmailChallengeService oauthEmailChallengeService;
+
+    @Autowired
+    public CustomOAuth2UserService(UserRepository userRepository,
+            com.example.auth.repository.UserProviderRepository userProviderRepository,
+            jakarta.servlet.http.HttpServletRequest request,
+            com.example.bega.auth.service.OAuth2LinkStateService oAuth2LinkStateService,
+            CookieAuthorizationRequestRepository cookieAuthorizationRequestRepository,
+            com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService,
+            com.example.auth.service.OAuthEmailChallengeService oauthEmailChallengeService) {
+        this.userRepository = userRepository;
+        this.userProviderRepository = userProviderRepository;
+        this.request = request;
+        this.oAuth2LinkStateService = oAuth2LinkStateService;
+        this.cookieAuthorizationRequestRepository = cookieAuthorizationRequestRepository;
+        this.securityMonitoringService = securityMonitoringService;
+        this.oauthEmailChallengeService = oauthEmailChallengeService;
+    }
 
     public CustomOAuth2UserService(UserRepository userRepository,
             com.example.auth.repository.UserProviderRepository userProviderRepository,
@@ -55,12 +76,8 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             com.example.bega.auth.service.OAuth2LinkStateService oAuth2LinkStateService,
             CookieAuthorizationRequestRepository cookieAuthorizationRequestRepository,
             com.example.auth.service.AuthSecurityMonitoringService securityMonitoringService) {
-        this.userRepository = userRepository;
-        this.userProviderRepository = userProviderRepository;
-        this.request = request;
-        this.oAuth2LinkStateService = oAuth2LinkStateService;
-        this.cookieAuthorizationRequestRepository = cookieAuthorizationRequestRepository;
-        this.securityMonitoringService = securityMonitoringService;
+        this(userRepository, userProviderRepository, request, oAuth2LinkStateService,
+                cookieAuthorizationRequestRepository, securityMonitoringService, null);
     }
 
     @Override
@@ -83,37 +100,37 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             throw new OAuth2AuthenticationException("해당 소셜로그인은 지원하지 않습니다.: " + registrationId);
         }
 
-        // 4. 이메일 추출 (필수)
+        String provider = registrationId;
+        String providerId = oAuth2Response.getProviderId();
+        if (providerId == null || providerId.isBlank()) {
+            throw new OAuth2AuthenticationException("oauth2_provider_payload_invalid");
+        }
+        String userName = oAuth2Response.getName();
+        String profileImageUrl = normalizeProfileImageUrl(oAuth2Response.getProfileImageUrl(), provider);
+        Optional<com.example.auth.entity.UserProvider> userProviderOpt = userProviderRepository
+                .findByProviderAndProviderId(provider, providerId);
+
+        // Existing linked identities remain login-capable even when a provider
+        // omits or downgrades its email claim. New identities must prove email in-app.
         String email;
         try {
             email = oAuth2Response.getEmail();
-        } catch (IllegalStateException e) {
-            // Kakao 등 provider별 상세 에러 메시지 전달
-            String errorMsg = e.getMessage();
-            if (errorMsg != null && (errorMsg.startsWith("KAKAO_") || errorMsg.startsWith("NAVER_")
-                    || errorMsg.startsWith("GOOGLE_"))) {
-                throw new OAuth2AuthenticationException(errorMsg);
+        } catch (RuntimeException exception) {
+            if (userProviderOpt.isPresent()) {
+                email = userProviderOpt.get().getUser().getEmail();
+            } else {
+                throw emailRequiredChallenge(provider, providerId, userName, profileImageUrl);
             }
-            throw new OAuth2AuthenticationException("소셜 로그인 중 이메일 정보를 가져올 수 없습니다: " + e.getMessage());
-        } catch (RuntimeException e) {
-            log.warn("Failed to parse OAuth2 provider payload: provider={}", registrationId, e);
-            throw new OAuth2AuthenticationException("oauth2_provider_payload_invalid");
         }
 
-        if (email == null || email.isEmpty()) {
-            throw new OAuth2AuthenticationException("이메일 정보는 필수입니다 (Provider: " + registrationId + ")");
+        if (email == null || email.isBlank()) {
+            if (userProviderOpt.isPresent()) {
+                email = userProviderOpt.get().getUser().getEmail();
+            } else {
+                throw emailRequiredChallenge(provider, providerId, userName, profileImageUrl);
+            }
         }
-        // 이메일 정규화 (소문자 변환 및 공백 제거)
         email = email.trim().toLowerCase();
-
-        String provider = registrationId;
-        String providerId = oAuth2Response.getProviderId();
-        String userName = oAuth2Response.getName();
-        String profileImageUrl = normalizeProfileImageUrl(oAuth2Response.getProfileImageUrl(), provider);
-
-        // 5. UserProvider(연동 계정) 조회
-        Optional<com.example.auth.entity.UserProvider> userProviderOpt = userProviderRepository
-                .findByProviderAndProviderId(provider, providerId);
 
         UserEntity userEntity;
 
@@ -166,7 +183,8 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                     userName,
                     provider,
                     providerId,
-                    profileImageUrl);
+                    profileImageUrl,
+                    oAuth2Response.isEmailVerified());
         }
         applyProfileImageFromOAuth(userEntity, profileImageUrl, provider);
 
@@ -414,7 +432,8 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
      * 일반 로그인 처리
      */
     private UserEntity processNormalLogin(Optional<com.example.auth.entity.UserProvider> userProviderOpt,
-            String email, String userName, String provider, String providerId, String profileImageUrl) {
+            String email, String userName, String provider, String providerId, String profileImageUrl,
+            boolean emailVerified) {
         if (userProviderOpt.isPresent()) {
             // [일반 로그인] 이미 연동된 계정이 있는 경우 -> 해당 사용자 반환
             log.info("Existing Provider Found. Logging in.");
@@ -431,10 +450,39 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 log.warn("Existing account found by email, requiring manual link: provider={} email={}", provider, LogMaskingUtil.maskEmail(email));
                 throw new OAuth2AuthenticationException(MANUAL_LINK_REQUIRED);
             } else {
-                // 신규 사용자 -> 회원가입 + 연동 정보 생성
-                log.info("New User Required. Creating Account.");
+                if (!emailVerified) {
+                    if (oauthEmailChallengeService != null) {
+                        String challengeId = oauthEmailChallengeService.issue(
+                                provider, providerId, email, userName, profileImageUrl);
+                        request.setAttribute(OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE, challengeId);
+                    }
+                    log.warn("New OAuth account requires app email verification: provider={} email={}",
+                            provider, LogMaskingUtil.maskEmail(email));
+                    throw new OAuth2AuthenticationException("oauth2_email_verification_required");
+                }
+                log.info("New verified OAuth user required. Creating account.");
                 return saveNewUser(email, userName, provider, providerId, profileImageUrl);
             }
         }
+    }
+
+    @SuppressWarnings("unused")
+    private UserEntity processNormalLogin(Optional<com.example.auth.entity.UserProvider> userProviderOpt,
+            String email, String userName, String provider, String providerId, String profileImageUrl) {
+        return processNormalLogin(userProviderOpt, email, userName, provider, providerId, profileImageUrl, true);
+    }
+
+    private OAuth2AuthenticationException emailRequiredChallenge(
+            String provider,
+            String providerId,
+            String userName,
+            String profileImageUrl) {
+        if (oauthEmailChallengeService == null) {
+            return new OAuth2AuthenticationException("oauth2_email_required");
+        }
+        String challengeId = oauthEmailChallengeService.issueEmailRequired(
+                provider, providerId, userName, profileImageUrl);
+        request.setAttribute(OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE, challengeId);
+        return new OAuth2AuthenticationException("oauth2_email_required");
     }
 }

@@ -18,14 +18,20 @@ public class SecurityStartupValidator implements ApplicationRunner {
     private final Environment environment;
     private final boolean secureCookie;
     private final String oauth2CookieSecret;
+    private final String refreshTokenPepper;
+    private final boolean mailEnabled;
 
     public SecurityStartupValidator(
             Environment environment,
             @Value("${app.cookie.secure:false}") boolean secureCookie,
-            @Value("${app.oauth2.cookie-secret:}") String oauth2CookieSecret) {
+            @Value("${app.oauth2.cookie-secret:}") String oauth2CookieSecret,
+            @Value("${app.auth.refresh-token-pepper:}") String refreshTokenPepper,
+            @Value("${app.mail.enabled:false}") boolean mailEnabled) {
         this.environment = environment;
         this.secureCookie = secureCookie;
         this.oauth2CookieSecret = oauth2CookieSecret;
+        this.refreshTokenPepper = refreshTokenPepper;
+        this.mailEnabled = mailEnabled;
     }
 
     @Override
@@ -50,6 +56,17 @@ public class SecurityStartupValidator implements ApplicationRunner {
         if (!StringUtils.hasText(oauth2CookieSecret)) {
             throw new IllegalStateException(
                     "dev/local/prod profiles require app.oauth2.cookie-secret (set OAUTH2_COOKIE_SECRET)");
+        }
+
+        if (activeProfiles.contains("prod") && (!StringUtils.hasText(refreshTokenPepper)
+                || refreshTokenPepper.length() < 32)) {
+            throw new IllegalStateException(
+                    "prod profile requires APP_REFRESH_TOKEN_PEPPER with at least 32 characters");
+        }
+
+        if (activeProfiles.contains("prod") && !mailEnabled) {
+            throw new IllegalStateException(
+                    "prod profile requires APP_MAIL_ENABLED=true for OAuth email challenges");
         }
 
         log.info("Security startup validation passed for runtime auth profile(s): {}", activeProfiles);

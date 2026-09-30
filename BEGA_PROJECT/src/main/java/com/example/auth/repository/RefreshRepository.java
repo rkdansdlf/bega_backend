@@ -15,15 +15,17 @@ public interface RefreshRepository extends JpaRepository<RefreshToken, Long> {
 
     RefreshToken findByEmail(String email);
 
-    RefreshToken findByToken(String token);
+    @Query("select r from RefreshToken r where r.tokenDigest = :tokenDigest")
+    RefreshToken findByTokenDigest(@Param("tokenDigest") String tokenDigest);
 
     List<RefreshToken> findAllByEmailOrderByIdDesc(String email);
 
     List<RefreshToken> findAllByEmail(String email);
 
-    List<RefreshToken> findAllByEmailAndTokenNot(String email, String token);
+    List<RefreshToken> findAllByEmailAndTokenDigestNot(String email, String tokenDigest);
 
-    List<RefreshToken> findAllByToken(String token);
+    @Query("select r from RefreshToken r where r.tokenDigest = :tokenDigest")
+    List<RefreshToken> findAllByTokenDigest(@Param("tokenDigest") String tokenDigest);
 
     @Query("""
             select r
@@ -79,8 +81,8 @@ public interface RefreshRepository extends JpaRepository<RefreshToken, Long> {
             @Param("selectedId") Long selectedId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select r from RefreshToken r where r.token = :token")
-    List<RefreshToken> findAllByTokenForUpdate(@Param("token") String token);
+    @Query("select r from RefreshToken r where r.tokenDigest = :tokenDigest")
+    List<RefreshToken> findAllByTokenDigestForUpdate(@Param("tokenDigest") String tokenDigest);
 
     int deleteByEmail(String email);
 }
