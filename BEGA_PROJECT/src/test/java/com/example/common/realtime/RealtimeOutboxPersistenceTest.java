@@ -48,7 +48,7 @@ class RealtimeOutboxPersistenceTest {
 
     @Test
     void onlyOneWorkerCanClaimTheSamePendingEvent() {
-        Instant now = Instant.now();
+        Instant now = nanosecondPrecisionNow();
         Long id = inTransaction(() -> repository.save(RealtimeOutboxEvent.pending(
                 RealtimeMessageEnvelope.broadcast(
                         "event-claim",
@@ -68,7 +68,7 @@ class RealtimeOutboxPersistenceTest {
 
     @Test
     void expiredProcessingLeaseCanBeReclaimed() {
-        Instant now = Instant.now();
+        Instant now = nanosecondPrecisionNow();
         Long id = inTransaction(() -> repository.save(RealtimeOutboxEvent.pending(
                 RealtimeMessageEnvelope.broadcast(
                         "event-expired",
@@ -92,7 +92,7 @@ class RealtimeOutboxPersistenceTest {
 
     @Test
     void concurrentWorkersProduceExactlyOneClaimWinner() throws Exception {
-        Instant now = Instant.now();
+        Instant now = nanosecondPrecisionNow();
         Long id = savePending("event-concurrent-claim", now);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         CountDownLatch ready = new CountDownLatch(2);
@@ -129,7 +129,7 @@ class RealtimeOutboxPersistenceTest {
 
     @Test
     void failedClaimCanBeRetriedAndMarkedPublished() {
-        Instant now = Instant.now();
+        Instant now = nanosecondPrecisionNow();
         Long id = savePending("event-retry", now);
 
         RealtimeOutboxClaim firstClaim = stateService.claim(
@@ -151,12 +151,14 @@ class RealtimeOutboxPersistenceTest {
         RealtimeOutboxEvent published = repository.findById(id).orElseThrow();
         assertThat(published.getStatus()).isEqualTo(RealtimeOutboxStatus.PUBLISHED);
         assertThat(published.getLockedBy()).isNull();
-        assertThat(published.getPublishedAt()).isEqualTo(now.plusSeconds(1));
+        // DB 는 마이크로초로 저장(반올림)하므로 1µs 오차를 허용한다.
+        assertThat(published.getPublishedAt())
+                .isBetween(now.plusSeconds(1).minusNanos(1_000), now.plusSeconds(1).plusNanos(1_000));
     }
 
     @Test
     void cleanupDeletesOnlyPublishedEventsOlderThanRetentionCutoff() {
-        Instant now = Instant.now();
+        Instant now = nanosecondPrecisionNow();
         Long oldId = savePending("event-old", now.minusSeconds(120));
         Long recentId = savePending("event-recent", now.minusSeconds(30));
         stateService.claim(oldId, "worker-a", now.minusSeconds(110), java.time.Duration.ofSeconds(30));
@@ -169,6 +171,14 @@ class RealtimeOutboxPersistenceTest {
         assertThat(deleted).isEqualTo(1);
         assertThat(repository.findById(oldId)).isEmpty();
         assertThat(repository.findById(recentId)).isPresent();
+    }
+
+    /**
+     * Linux JDK 는 Instant.now() 가 나노초 정밀도지만 macOS 는 마이크로초다. DB 는 마이크로초로 저장하므로
+     * 플랫폼과 무관하게 같은 조건(서브마이크로초 잔여분 있음)에서 검증하도록 고정한다.
+     */
+    private static Instant nanosecondPrecisionNow() {
+        return Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS).plusNanos(700);
     }
 
     private Long savePending(String eventId, Instant now) {
