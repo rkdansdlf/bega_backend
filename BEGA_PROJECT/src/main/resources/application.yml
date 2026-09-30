@@ -198,6 +198,11 @@ kbo:
 
 # 애플리케이션 공통 설정
 app:
+  jobrunr:
+    # SQL StorageProvider 초기화 실패 시 In-memory 로 조용히 내려가지 않는다(기본 false = 기동 중단).
+    # 재시작하면 결제·계정 삭제 같은 durable job 이 사라진다. 로컬 개발에서만 명시적으로 true.
+    # prod 프로필에서 true 이면 기동이 거부된다.
+    allow-in-memory-fallback: ${APP_JOBRUNR_ALLOW_IN_MEMORY_FALLBACK:false}
   realtime:
     transport: ${APP_REALTIME_TRANSPORT:redis}
     redis-channel: ${APP_REALTIME_REDIS_CHANNEL:bega:realtime:v1}
