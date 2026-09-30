@@ -66,6 +66,9 @@ class BegaDiaryServiceTest {
     @Mock
     private MediaLinkService mediaLinkService;
 
+    @Mock
+    private com.example.leaderboard.service.AchievementService achievementService;
+
     @InjectMocks
     private BegaDiaryService begaDiaryService;
 
@@ -122,6 +125,55 @@ class BegaDiaryServiceTest {
                 "oci://diary/object-a.png",
                 "oci://diary/object-b.png"), 10L, 100L);
         verify(imageService).getDiaryImageSignedUrls(List.of("oci://diary/object-c.png"), 10L, 101L);
+    }
+
+    private DiaryRequestDto attendedRequest() {
+        DiaryRequestDto requestDto = new DiaryRequestDto();
+        requestDto.setDate("2026-04-02");
+        requestDto.setType("attended");
+        requestDto.setGameId(77L);
+        requestDto.setEmojiName("즐거움");
+        requestDto.setWinningName("WIN");
+        return requestDto;
+    }
+
+    private void stubSuccessfulAttendedSave(Long userId, UserEntity owner) {
+        when(userRepository.findById(userId)).thenReturn(Optional.of(owner));
+        when(diaryRepository.existsByUserAndDiaryDate(owner, LocalDate.of(2026, 4, 2))).thenReturn(false);
+        when(gameService.getGameById(77L)).thenReturn(game(77L));
+        when(diaryRepository.save(any(BegaDiary.class))).thenAnswer(invocation -> invocation.getArgument(0));
+    }
+
+    @Test
+    @DisplayName("saveWithAttendanceAchievements 는 저장 직후 ATTENDED 개수로 업적을 판정한다")
+    void saveWithAttendanceAchievements_awardsUsingAttendedCount() {
+        Long userId = 10L;
+        UserEntity owner = owner(userId);
+        stubSuccessfulAttendedSave(userId, owner);
+        com.example.leaderboard.entity.Achievement achievement = com.example.leaderboard.entity.Achievement.builder()
+                .id(1L).code("FIRST_ATTENDANCE").nameKo("첫 직관").build();
+        when(diaryRepository.countByUserIdAndType(userId, BegaDiary.DiaryType.ATTENDED)).thenReturn(1);
+        when(achievementService.checkAttendanceAchievements(userId, 1)).thenReturn(List.of(achievement));
+
+        BegaDiaryService.SavedDiaryResult result =
+                begaDiaryService.saveWithAttendanceAchievements(userId, attendedRequest());
+
+        assertThat(result.diary().getType()).isEqualTo(BegaDiary.DiaryType.ATTENDED);
+        assertThat(result.unlockedAchievements()).containsExactly(achievement);
+    }
+
+    @Test
+    @DisplayName("업적 부여 실패는 예외로 전파되어 같은 트랜잭션의 다이어리 저장을 롤백시킨다")
+    void saveWithAttendanceAchievements_propagatesAchievementFailure() {
+        Long userId = 10L;
+        UserEntity owner = owner(userId);
+        stubSuccessfulAttendedSave(userId, owner);
+        when(diaryRepository.countByUserIdAndType(userId, BegaDiary.DiaryType.ATTENDED)).thenReturn(1);
+        when(achievementService.checkAttendanceAchievements(userId, 1))
+                .thenThrow(new IllegalStateException("achievement db down"));
+
+        assertThatThrownBy(() -> begaDiaryService.saveWithAttendanceAchievements(userId, attendedRequest()))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
