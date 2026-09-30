@@ -5,7 +5,7 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Schemas: **286**
+Schemas: **290**
 
 <a id="accountdeletionrecoveryinfodto"></a>
 ## AccountDeletionRecoveryInfoDto
@@ -441,6 +441,30 @@ Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
 | `data` | no | [BootstrapResponse](openapi-schemas.md#bootstrapresponse) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponsechallengestatus"></a>
+## ApiResponseChallengeStatus
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/ChallengeStatus"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [ChallengeStatus](openapi-schemas.md#challengestatus) | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -1747,6 +1771,18 @@ Schema: `{<br>  "properties" : {<br>    "membershipState" : {<br>      "type" : 
 | `membershipState` | no | `string` | — | — |
 | `roomId` | no | `integer (int64)` | — | — |
 | `targetUser` | no | [TargetUser](openapi-schemas.md#targetuser) | — | — |
+
+<a id="challengestatus"></a>
+## ChallengeStatus
+Schema: `{<br>  "properties" : {<br>    "challengeId" : {<br>      "type" : "string"<br>    },<br>    "expiresAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "maskedEmail" : {<br>      "type" : "string"<br>    },<br>    "status" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `challengeId` | no | `string` | — | — |
+| `expiresAt` | no | `string (date-time)` | — | — |
+| `maskedEmail` | no | `string` | — | — |
+| `status` | no | `string` | — | — |
 
 <a id="changepasswordrequest"></a>
 ## ChangePasswordRequest
@@ -3764,6 +3800,26 @@ Schema: `{<br>  "properties" : {<br>    "awayScore" : {<br>      "format" : "int
 | `rawStatus` | no | `string` | — | — |
 | `reasons` | no | `array<string>` | — | — |
 | `startTime` | no | `string` | — | — |
+
+<a id="oauthemailchallengeconfirmdto"></a>
+## OAuthEmailChallengeConfirmDto
+Schema: `{<br>  "properties" : {<br>    "token" : {<br>      "maxLength" : 256,<br>      "minLength" : 0,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "token" ],<br>  "type" : "object"<br>}`
+Required properties: `token`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `token` | yes | `string` | — | minLength=0, maxLength=256 |
+
+<a id="oauthemailchallengesubmitdto"></a>
+## OAuthEmailChallengeSubmitDto
+Schema: `{<br>  "properties" : {<br>    "email" : {<br>      "format" : "email",<br>      "maxLength" : 320,<br>      "minLength" : 0,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "email" ],<br>  "type" : "object"<br>}`
+Required properties: `email`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `email` | yes | `string (email)` | — | minLength=0, maxLength=320 |
 
 <a id="offseasonmetadto"></a>
 ## OffseasonMetaDto
