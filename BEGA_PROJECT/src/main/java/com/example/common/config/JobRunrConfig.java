@@ -1,10 +1,13 @@
 package com.example.common.config;
 
 import org.jobrunr.jobs.mappers.JobMapper;
+import org.jobrunr.storage.InMemoryStorageProvider;
 import org.jobrunr.storage.StorageProvider;
 import org.jobrunr.storage.sql.common.SqlStorageProviderFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.sql.DataSource;
@@ -12,6 +15,9 @@ import javax.sql.DataSource;
 @Configuration
 @Slf4j
 public class JobRunrConfig {
+
+    /** DbTopologyStartupValidator 와 같은 기준: 영속 저장소가 필수인 프로파일. */
+    private static final String[] PERSISTENT_STORAGE_REQUIRED_PROFILES = {"prod", "dev-adb"};
 
     /**
      * JobRunr Storage Provider 설정.
@@ -28,24 +34,22 @@ public class JobRunrConfig {
      * {@code jobrunr.background-job-server.poll-interval-in-seconds} 다.
      */
     @Bean
-    public StorageProvider storageProvider(DataSource dataSource, JobMapper jobMapper) {
+    public StorageProvider storageProvider(DataSource dataSource, JobMapper jobMapper, Environment environment) {
         try {
             StorageProvider storageProvider = SqlStorageProviderFactory.using(dataSource);
             storageProvider.setJobMapper(jobMapper);
             return storageProvider;
         } catch (Exception ex) {
-            log.error("JobRunr SQL StorageProvider 초기화 실패. In-memory provider로 fallback합니다.", ex);
-            try {
-                Class<?> clazz = Class.forName("org.jobrunr.storage.InMemoryStorageProvider");
-                Object fallback = clazz.getDeclaredConstructor().newInstance();
-                if (fallback instanceof StorageProvider fallbackProvider) {
-                    fallbackProvider.setJobMapper(jobMapper);
-                    return fallbackProvider;
-                }
-            } catch (Exception reflectionEx) {
-                log.error("JobRunr In-memory fallback 초기화 실패", reflectionEx);
+            if (environment.acceptsProfiles(Profiles.of(PERSISTENT_STORAGE_REQUIRED_PROFILES))) {
+                // 결제 보상 재시도 같은 예약 job 이 프로세스 재시작으로 사라질 수 있으므로,
+                // 운영에서는 조용히 강등하지 않고 기동을 실패시킨다.
+                log.error("JobRunr SQL StorageProvider 초기화 실패. 운영 프로파일에서는 in-memory fallback 을 허용하지 않아 기동을 중단합니다.", ex);
+                throw ex;
             }
-            throw ex;
+            log.error("JobRunr SQL StorageProvider 초기화 실패. in-memory provider 로 fallback 합니다(비운영 프로파일 전용).", ex);
+            StorageProvider fallback = new InMemoryStorageProvider();
+            fallback.setJobMapper(jobMapper);
+            return fallback;
         }
     }
 }

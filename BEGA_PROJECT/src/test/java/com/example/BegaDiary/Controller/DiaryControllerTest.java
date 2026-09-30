@@ -53,12 +53,6 @@ class DiaryControllerTest {
     @Mock
     private SeatViewService seatViewService;
 
-    @Mock
-    private BegaDiaryRepository begaDiaryRepository;
-
-    @Mock
-    private AchievementService achievementService;
-
     @InjectMocks
     private DiaryController diaryController;
 
@@ -102,9 +96,8 @@ class DiaryControllerTest {
                 .rarity(com.example.leaderboard.entity.Achievement.Rarity.COMMON)
                 .build();
 
-        when(diaryService.save(eq(1L), org.mockito.ArgumentMatchers.any())).thenReturn(savedDiary);
-        when(begaDiaryRepository.countByUserIdAndType(1L, BegaDiary.DiaryType.ATTENDED)).thenReturn(1);
-        when(achievementService.checkAttendanceAchievements(1L, 1)).thenReturn(List.of(achievement));
+        when(diaryService.saveWithAttendanceAchievements(eq(1L), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new BegaDiaryService.SavedDiaryResult(savedDiary, List.of(achievement)));
 
         mockMvc.perform(post("/api/diary/save")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -113,14 +106,11 @@ class DiaryControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.unlockedAchievements[0].code").value("FIRST_ATTENDANCE"))
                 .andExpect(jsonPath("$.unlockedAchievements[0].name").value("첫 직관"));
-
-        org.mockito.Mockito.verify(begaDiaryRepository).countByUserIdAndType(1L, BegaDiary.DiaryType.ATTENDED);
-        org.mockito.Mockito.verify(begaDiaryRepository, org.mockito.Mockito.never()).countByUserId(org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test
-    @DisplayName("예정(SCHEDULED) 다이어리 저장 시에는 직관 출석 카운트에 예정 기록을 포함하지 않는다")
-    void saveDiary_scheduledTypeDoesNotInflateAttendanceCount() throws Exception {
+    @DisplayName("신규 업적이 없으면 unlockedAchievements 는 빈 배열이다")
+    void saveDiary_returnsEmptyUnlockedAchievementsWhenNoneEarned() throws Exception {
         BegaDiary savedDiary = BegaDiary.builder()
                 .user(UserEntity.builder().id(1L).build())
                 .diaryDate(java.time.LocalDate.of(2026, 3, 23))
@@ -128,9 +118,8 @@ class DiaryControllerTest {
                 .type(BegaDiary.DiaryType.SCHEDULED)
                 .build();
 
-        when(diaryService.save(eq(1L), org.mockito.ArgumentMatchers.any())).thenReturn(savedDiary);
-        when(begaDiaryRepository.countByUserIdAndType(1L, BegaDiary.DiaryType.ATTENDED)).thenReturn(0);
-        when(achievementService.checkAttendanceAchievements(1L, 0)).thenReturn(List.of());
+        when(diaryService.saveWithAttendanceAchievements(eq(1L), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new BegaDiaryService.SavedDiaryResult(savedDiary, List.of()));
 
         mockMvc.perform(post("/api/diary/save")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -138,8 +127,6 @@ class DiaryControllerTest {
                         .principal(() -> "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.unlockedAchievements").isEmpty());
-
-        org.mockito.Mockito.verify(achievementService).checkAttendanceAchievements(1L, 0);
     }
 
     @Test

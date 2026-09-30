@@ -397,7 +397,8 @@ class BegaDiaryStatisticsCacheTest {
                     partyApplicationRepository,
                     ticketVerificationTokenStore,
                     seatViewService,
-                    mediaLinkService);
+                    mediaLinkService,
+                    mock(com.example.leaderboard.service.AchievementService.class));
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.example.common.realtime;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -80,6 +81,9 @@ public class RealtimeOutboxEvent {
             RealtimeMessageEnvelope envelope,
             String serializedPayload,
             Instant now) {
+        // DB 타임스탬프는 마이크로초 정밀도다. Linux JDK 의 Instant.now() 는 나노초라서 그대로 저장하면
+        // 반올림으로 저장값이 조회 시점(dueAt)보다 커져 같은 시각의 claim 이 0건이 될 수 있다.
+        Instant persisted = now.truncatedTo(ChronoUnit.MICROS);
         return RealtimeOutboxEvent.builder()
                 .envelopeVersion(envelope.version())
                 .eventId(envelope.eventId())
@@ -89,8 +93,8 @@ public class RealtimeOutboxEvent {
                 .payload(serializedPayload)
                 .status(RealtimeOutboxStatus.PENDING)
                 .attemptCount(0)
-                .availableAt(now)
-                .createdAt(now)
+                .availableAt(persisted)
+                .createdAt(persisted)
                 .build();
     }
 }
