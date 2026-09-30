@@ -27,14 +27,13 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.GameResponseDto;
 import com.example.BegaDiary.Exception.DiaryNotFoundException;
-import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Service.BegaDiaryService;
 import com.example.BegaDiary.Service.BegaGameService;
+import com.example.BegaDiary.Service.DiaryCreationService;
 import com.example.BegaDiary.Service.SeatViewService;
 import com.example.auth.entity.UserEntity;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.common.exception.GlobalExceptionHandler;
-import com.example.leaderboard.service.AchievementService;
 
 import reactor.core.publisher.Mono;
 
@@ -54,10 +53,7 @@ class DiaryControllerTest {
     private SeatViewService seatViewService;
 
     @Mock
-    private BegaDiaryRepository begaDiaryRepository;
-
-    @Mock
-    private AchievementService achievementService;
+    private DiaryCreationService diaryCreationService;
 
     @InjectMocks
     private DiaryController diaryController;
@@ -102,9 +98,8 @@ class DiaryControllerTest {
                 .rarity(com.example.leaderboard.entity.Achievement.Rarity.COMMON)
                 .build();
 
-        when(diaryService.save(eq(1L), org.mockito.ArgumentMatchers.any())).thenReturn(savedDiary);
-        when(begaDiaryRepository.countByUserIdAndType(1L, BegaDiary.DiaryType.ATTENDED)).thenReturn(1);
-        when(achievementService.checkAttendanceAchievements(1L, 1)).thenReturn(List.of(achievement));
+        when(diaryCreationService.create(eq(1L), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new DiaryCreationService.DiaryCreateResult(savedDiary, List.of(achievement)));
 
         mockMvc.perform(post("/api/diary/save")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -113,9 +108,6 @@ class DiaryControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.unlockedAchievements[0].code").value("FIRST_ATTENDANCE"))
                 .andExpect(jsonPath("$.unlockedAchievements[0].name").value("첫 직관"));
-
-        org.mockito.Mockito.verify(begaDiaryRepository).countByUserIdAndType(1L, BegaDiary.DiaryType.ATTENDED);
-        org.mockito.Mockito.verify(begaDiaryRepository, org.mockito.Mockito.never()).countByUserId(org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test
@@ -128,9 +120,8 @@ class DiaryControllerTest {
                 .type(BegaDiary.DiaryType.SCHEDULED)
                 .build();
 
-        when(diaryService.save(eq(1L), org.mockito.ArgumentMatchers.any())).thenReturn(savedDiary);
-        when(begaDiaryRepository.countByUserIdAndType(1L, BegaDiary.DiaryType.ATTENDED)).thenReturn(0);
-        when(achievementService.checkAttendanceAchievements(1L, 0)).thenReturn(List.of());
+        when(diaryCreationService.create(eq(1L), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new DiaryCreationService.DiaryCreateResult(savedDiary, List.of()));
 
         mockMvc.perform(post("/api/diary/save")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -138,8 +129,6 @@ class DiaryControllerTest {
                         .principal(() -> "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.unlockedAchievements").isEmpty());
-
-        org.mockito.Mockito.verify(achievementService).checkAttendanceAchievements(1L, 0);
     }
 
     @Test
