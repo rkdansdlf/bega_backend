@@ -49,6 +49,16 @@ public interface StorageStrategy {
     Mono<Void> delete(String bucket, String path);
 
     /**
+     * 실패를 호출자에게 알리는 파일 삭제.
+     *
+     * <p>{@link #delete}는 실패를 로그로만 남기고 성공처럼 끝난다. DB 상태를 "삭제됨"으로 바꾸기 전에
+     * 실제 삭제 여부가 중요한 호출자는 이 메서드를 쓴다. 객체가 이미 없으면 성공으로 본다(멱등).
+     *
+     * @throws StorageOperationException 삭제 실패 시 ({@link StorageOperationException.Kind#TRANSIENT} 또는 PERMANENT)
+     */
+    Mono<Void> deleteChecked(String bucket, String path);
+
+    /**
      * 파일 접근 URL 생성
      * 
      * @param bucket           버킷명
@@ -72,7 +82,8 @@ public interface StorageStrategy {
      *
      * @param bucket 버킷명
      * @param path   객체 경로
-     * @return 객체 크기 및 Content-Type
+     * @return 객체 크기 및 Content-Type. 객체가 없으면 null
+     * @throws StorageOperationException 객체 부재가 아닌 실패(일시 장애 포함) 시
      */
     Mono<StoredObjectMetadata> head(String bucket, String path);
 
@@ -81,7 +92,8 @@ public interface StorageStrategy {
      *
      * @param bucket 버킷명
      * @param path   파일 경로
-     * @return 존재하면 true
+     * @return 존재하면 true, 확실히 없을 때만 false
+     * @throws StorageOperationException 존재 여부를 알 수 없을 때(일시 장애 포함). false로 오판하지 않는다.
      */
     Mono<Boolean> exists(String bucket, String path);
 }

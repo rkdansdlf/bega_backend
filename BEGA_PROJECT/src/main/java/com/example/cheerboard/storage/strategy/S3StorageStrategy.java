@@ -13,6 +13,7 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
@@ -130,6 +131,46 @@ public class S3StorageStrategy implements StorageStrategy {
     }
 
     @Override
+    public Mono<Void> deleteChecked(String bucket, String path) {
+        return Mono.fromRunnable(() -> {
+            try {
+                s3Client.deleteObject(DeleteObjectRequest.builder()
+                        .bucket(bucketName)
+                        .key(buildObjectKey(bucket, path))
+                        .build());
+            } catch (Exception e) {
+                StorageOperationException.Kind kind = classify(e);
+                if (kind == StorageOperationException.Kind.OBJECT_NOT_FOUND) {
+                    return; // 이미 없으면 삭제된 것과 같다
+                }
+                log.warn("S3 삭제 실패: path={}, kind={}, error={}", path, kind, e.getMessage());
+                throw new StorageOperationException(kind, "S3 삭제 실패: " + path, e);
+            }
+        });
+    }
+
+    /**
+     * S3 호출 실패를 부재/일시/영구로 나눈다. 판단이 안 되는 예외는 TRANSIENT로 본다 —
+     * 모르는 실패를 객체 부재로 취급해 정리(cleanup)를 진행하는 쪽이 더 위험하다.
+     */
+    static StorageOperationException.Kind classify(Throwable e) {
+        if (e instanceof NoSuchKeyException) {
+            return StorageOperationException.Kind.OBJECT_NOT_FOUND;
+        }
+        if (e instanceof S3Exception s3) {
+            int status = s3.statusCode();
+            if (status == 404) {
+                return StorageOperationException.Kind.OBJECT_NOT_FOUND;
+            }
+            if (status == 408 || status == 429 || status >= 500) {
+                return StorageOperationException.Kind.TRANSIENT;
+            }
+            return StorageOperationException.Kind.PERMANENT;
+        }
+        return StorageOperationException.Kind.TRANSIENT;
+    }
+
+    @Override
     public Mono<String> getUrl(String bucket, String path, int expiresInSeconds) {
         return Mono.fromCallable(() -> {
             try {
@@ -157,8 +198,12 @@ public class S3StorageStrategy implements StorageStrategy {
                     .bucket(bucketName)
                     .key(objectKey)
                     .build();
-            ResponseBytes<GetObjectResponse> response = s3Client.getObjectAsBytes(request);
-            return new StoredObject(response.asByteArray(), response.response().contentType());
+            try {
+                ResponseBytes<GetObjectResponse> response = s3Client.getObjectAsBytes(request);
+                return new StoredObject(response.asByteArray(), response.response().contentType());
+            } catch (Exception e) {
+                throw new StorageOperationException(classify(e), "S3 다운로드 실패: " + path, e);
+            }
         });
     }
 
@@ -173,11 +218,13 @@ public class S3StorageStrategy implements StorageStrategy {
                         .build();
                 HeadObjectResponse response = s3Client.headObject(request);
                 return new StoredObjectMetadata(response.contentLength(), response.contentType());
-            } catch (NoSuchKeyException e) {
-                return null;
             } catch (Exception e) {
-                log.warn("S3 객체 메타데이터 조회 실패: path={}, error={}", path, e.getMessage());
-                return null;
+                StorageOperationException.Kind kind = classify(e);
+                if (kind == StorageOperationException.Kind.OBJECT_NOT_FOUND) {
+                    return null;
+                }
+                log.warn("S3 객체 메타데이터 조회 실패: path={}, kind={}, error={}", path, kind, e.getMessage());
+                throw new StorageOperationException(kind, "S3 객체 메타데이터 조회 실패: " + path, e);
             }
         });
     }
@@ -193,11 +240,13 @@ public class S3StorageStrategy implements StorageStrategy {
                         .build();
                 s3Client.headObject(headObjectRequest);
                 return true;
-            } catch (NoSuchKeyException e) {
-                return false;
             } catch (Exception e) {
-                log.warn("S3 객체 존재 여부 조회 실패: path={}, error={}", path, e.getMessage());
-                return false;
+                StorageOperationException.Kind kind = classify(e);
+                if (kind == StorageOperationException.Kind.OBJECT_NOT_FOUND) {
+                    return false;
+                }
+                log.warn("S3 객체 존재 여부 조회 실패: path={}, kind={}, error={}", path, kind, e.getMessage());
+                throw new StorageOperationException(kind, "S3 객체 존재 여부 조회 실패: " + path, e);
             }
         });
     }
