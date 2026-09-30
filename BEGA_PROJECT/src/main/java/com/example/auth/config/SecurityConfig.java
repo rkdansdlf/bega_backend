@@ -77,6 +77,7 @@ public class SecurityConfig {
                         "/api/auth/password-reset/request",
                         "/api/auth/password-reset/confirm",
                         "/api/auth/oauth2/state/**",
+                        "/api/auth/oauth2/email-challenge/**",
                         "/oauth2/authorization/**",
                         "/login/oauth2/code/**",
                         "/login",
@@ -515,7 +516,12 @@ public class SecurityConfig {
                                                         }
 
                                                         String errorMessage = sanitizeOAuth2FailureCode(exception);
-                                                        redirectToFrontendLogin(response, errorMessage);
+                                                        Object challengeId = request.getAttribute(
+                                                                        CustomOAuth2UserService.OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE);
+                                                        redirectToFrontendLogin(
+                                                                        response,
+                                                                        errorMessage,
+                                                                        challengeId instanceof String value ? value : null);
                                                 })
                                                 .authorizationEndpoint(authorization -> authorization
                                                                 .authorizationRequestRepository(
@@ -627,10 +633,21 @@ public class SecurityConfig {
         }
 
         private void redirectToFrontendLogin(HttpServletResponse response, String errorCode) throws java.io.IOException {
+                redirectToFrontendLogin(response, errorCode, null);
+        }
+
+        private void redirectToFrontendLogin(
+                        HttpServletResponse response,
+                        String errorCode,
+                        String challengeId) throws java.io.IOException {
                 String encoded = URLEncoder.encode(
                                 errorCode == null ? "oauth2_auth_failed" : errorCode,
                                 StandardCharsets.UTF_8);
-                response.sendRedirect(frontendUrl + "/login?error=" + encoded);
+                String redirect = frontendUrl + "/login?error=" + encoded;
+                if (challengeId != null && !challengeId.isBlank()) {
+                        redirect += "&challengeId=" + URLEncoder.encode(challengeId, StandardCharsets.UTF_8);
+                }
+                response.sendRedirect(redirect);
         }
 
         private String sanitizeOAuth2FailureCode(Exception exception) {
@@ -652,6 +669,12 @@ public class SecurityConfig {
                         return message;
                 }
                 if ("manual_link_required".equals(message)) {
+                        return message;
+                }
+                if ("oauth2_email_verification_required".equals(message)) {
+                        return message;
+                }
+                if ("oauth2_email_required".equals(message)) {
                         return message;
                 }
                 if ("oauth2_link_conflict".equals(message)

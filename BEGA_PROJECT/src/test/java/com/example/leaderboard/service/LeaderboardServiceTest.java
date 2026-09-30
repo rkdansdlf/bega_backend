@@ -11,14 +11,17 @@ import com.example.leaderboard.entity.ScoreEvent;
 import com.example.leaderboard.entity.UserScore;
 import com.example.leaderboard.repository.ScoreEventRepository;
 import com.example.leaderboard.repository.UserScoreRepository;
+import com.example.profile.storage.service.ProfileImageService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.time.LocalDateTime;
@@ -29,6 +32,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -53,24 +58,47 @@ class LeaderboardServiceTest {
     @Mock
     private PublicVisibilityVerifier publicVisibilityVerifier;
 
+    @Mock
+    private ProfileImageService profileImageService;
+
     @Test
-    @DisplayName("Public leaderboard filters inaccessible private users")
-    void getLeaderboard_filtersInaccessibleUsers() {
-        UserScore visibleScore = UserScore.builder().userId(10L).seasonScore(100L).userLevel(1).currentStreak(1).maxStreak(1).build();
-        UserScore hiddenScore = UserScore.builder().userId(20L).seasonScore(90L).userLevel(1).currentStreak(1).maxStreak(1).build();
-        UserEntity visibleUser = UserEntity.builder().id(10L).handle("@visible").name("Visible").build();
-        UserEntity hiddenUser = UserEntity.builder().id(20L).handle("@hidden").name("Hidden").privateAccount(true).build();
+    @DisplayName("Leaderboard preserves DB-filtered totals and assigns visible ordinal ranks")
+    void getLeaderboard_preservesVisibleTotalsAndRanks() {
+        UserScore thirdScore = UserScore.builder().userId(10L).seasonScore(100L).userLevel(1).currentStreak(1).maxStreak(1).build();
+        UserScore fourthScore = UserScore.builder().userId(20L).seasonScore(90L).userLevel(1).currentStreak(1).maxStreak(1).build();
+        UserEntity thirdUser = UserEntity.builder().id(10L).handle("@third").name("Third").build();
+        UserEntity fourthUser = UserEntity.builder().id(20L).handle("@fourth").name("Fourth").build();
 
-        when(userScoreRepository.findAllBySeasonScoreDesc(any()))
-                .thenReturn(new PageImpl<>(List.of(visibleScore, hiddenScore), PageRequest.of(0, 20), 2));
-        when(userRepository.findAllById(List.of(10L, 20L))).thenReturn(List.of(visibleUser, hiddenUser));
-        when(publicVisibilityVerifier.canAccess(visibleUser, null)).thenReturn(true);
-        when(publicVisibilityVerifier.canAccess(hiddenUser, null)).thenReturn(false);
+        when(userScoreRepository.findVisibleLeaderboard(eq(7L), any()))
+                .thenReturn(new PageImpl<>(List.of(thirdScore, fourthScore), PageRequest.of(1, 2), 5));
+        when(userRepository.findAllById(List.of(10L, 20L))).thenReturn(List.of(thirdUser, fourthUser));
 
-        List<LeaderboardEntryDto> entries = leaderboardService.getLeaderboard("season", 0, 20, null).getContent();
+        var result = leaderboardService.getLeaderboard("season", 1, 2, 7L);
 
-        assertThat(entries).hasSize(1);
-        assertThat(entries.get(0).getHandle()).isEqualTo("@visible");
+        assertThat(result.getTotalElements()).isEqualTo(5);
+        assertThat(result.getTotalPages()).isEqualTo(3);
+        assertThat(result.getContent()).extracting(LeaderboardEntryDto::getRank)
+                .containsExactly(3L, 4L);
+        assertThat(result.getContent()).extracting(LeaderboardEntryDto::getHandle)
+                .containsExactly("@third", "@fourth");
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(userScoreRepository).findVisibleLeaderboard(eq(7L), pageableCaptor.capture());
+        assertThat(pageableCaptor.getValue().getSort().getOrderFor("seasonScore")).isNotNull();
+        assertThat(pageableCaptor.getValue().getSort().getOrderFor("seasonScore").isDescending()).isTrue();
+        assertThat(pageableCaptor.getValue().getSort().getOrderFor("userId")).isNotNull();
+        assertThat(pageableCaptor.getValue().getSort().getOrderFor("userId").isAscending()).isTrue();
+        verify(publicVisibilityVerifier, never()).canAccess(any(), any());
+    }
+
+    @Test
+    @DisplayName("Leaderboard rejects page and size outside the public API bounds")
+    void getLeaderboard_rejectsInvalidPageBounds() {
+        assertThrows(IllegalArgumentException.class,
+                () -> leaderboardService.getLeaderboard("season", -1, 20, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> leaderboardService.getLeaderboard("season", 0, 0, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> leaderboardService.getLeaderboard("season", 0, 101, null));
     }
 
     @Test
@@ -141,8 +169,8 @@ class LeaderboardServiceTest {
     }
 
     @Test
-    @DisplayName("Recent score feed filters inaccessible users")
-    void getRecentScores_filtersInaccessibleUsers() {
+    @DisplayName("Recent score feed consumes a DB-filtered bounded result")
+    void getRecentScores_usesVisibleRepositoryQuery() {
         ScoreEvent visibleEvent = ScoreEvent.builder()
                 .id(1L)
                 .userId(10L)
@@ -152,45 +180,45 @@ class LeaderboardServiceTest {
                 .createdAt(LocalDateTime.now())
                 .description("visible")
                 .build();
-        ScoreEvent hiddenEvent = ScoreEvent.builder()
+        ScoreEvent secondVisibleEvent = ScoreEvent.builder()
                 .id(2L)
                 .userId(20L)
                 .eventType(ScoreEvent.EventType.CORRECT_PREDICTION)
                 .baseScore(10)
                 .finalScore(10)
                 .createdAt(LocalDateTime.now())
-                .description("hidden")
+                .description("second-visible")
                 .build();
         UserEntity visibleUser = UserEntity.builder().id(10L).handle("@visible").name("Visible").build();
-        UserEntity hiddenUser = UserEntity.builder().id(20L).handle("@hidden").name("Hidden").privateAccount(true).build();
+        UserEntity secondVisibleUser = UserEntity.builder().id(20L).handle("@second").name("Second").build();
 
-        when(scoreEventRepository.findRecentScores(any())).thenReturn(List.of(visibleEvent, hiddenEvent));
-        when(userRepository.findAllById(List.of(10L, 20L))).thenReturn(List.of(visibleUser, hiddenUser));
-        when(publicVisibilityVerifier.canAccess(visibleUser, null)).thenReturn(true);
-        when(publicVisibilityVerifier.canAccess(hiddenUser, null)).thenReturn(false);
+        when(scoreEventRepository.findVisibleRecentScores(isNull(), any()))
+                .thenReturn(List.of(visibleEvent, secondVisibleEvent));
+        when(userRepository.findAllById(List.of(10L, 20L))).thenReturn(List.of(visibleUser, secondVisibleUser));
 
         List<RecentScoreDto> events = leaderboardService.getRecentScores(20, null);
 
-        assertThat(events).hasSize(1);
-        assertThat(events.get(0).getHandle()).isEqualTo("@visible");
+        assertThat(events).extracting(RecentScoreDto::getHandle)
+                .containsExactly("@visible", "@second");
+        verify(publicVisibilityVerifier, never()).canAccess(any(), any());
     }
 
     @Test
-    @DisplayName("Hot streak feed filters inaccessible users")
-    void getHotStreaks_filtersInaccessibleUsers() {
+    @DisplayName("Hot streak feed consumes a DB-filtered bounded result")
+    void getHotStreaks_usesVisibleRepositoryQuery() {
         UserScore visibleScore = UserScore.builder().userId(10L).totalScore(100L).currentStreak(5).userLevel(2).build();
-        UserScore hiddenScore = UserScore.builder().userId(20L).totalScore(90L).currentStreak(4).userLevel(2).build();
+        UserScore secondVisibleScore = UserScore.builder().userId(20L).totalScore(90L).currentStreak(4).userLevel(2).build();
         UserEntity visibleUser = UserEntity.builder().id(10L).handle("@visible").name("Visible").build();
-        UserEntity hiddenUser = UserEntity.builder().id(20L).handle("@hidden").name("Hidden").privateAccount(true).build();
+        UserEntity secondVisibleUser = UserEntity.builder().id(20L).handle("@second").name("Second").build();
 
-        when(userScoreRepository.findHotStreaks(anyInt(), any())).thenReturn(List.of(visibleScore, hiddenScore));
-        when(userRepository.findAllById(List.of(10L, 20L))).thenReturn(List.of(visibleUser, hiddenUser));
-        when(publicVisibilityVerifier.canAccess(visibleUser, null)).thenReturn(true);
-        when(publicVisibilityVerifier.canAccess(hiddenUser, null)).thenReturn(false);
+        when(userScoreRepository.findVisibleHotStreaks(anyInt(), isNull(), any()))
+                .thenReturn(List.of(visibleScore, secondVisibleScore));
+        when(userRepository.findAllById(List.of(10L, 20L))).thenReturn(List.of(visibleUser, secondVisibleUser));
 
         List<HotStreakDto> streaks = leaderboardService.getHotStreaks(3, 10, null);
 
-        assertThat(streaks).hasSize(1);
-        assertThat(streaks.get(0).getHandle()).isEqualTo("@visible");
+        assertThat(streaks).extracting(HotStreakDto::getHandle)
+                .containsExactly("@visible", "@second");
+        verify(publicVisibilityVerifier, never()).canAccess(any(), any());
     }
 }

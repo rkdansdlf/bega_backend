@@ -19,6 +19,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,14 +54,18 @@ public class LeaderboardService {
      * @param size 페이지 크기
      */
     public Page<LeaderboardEntryDto> getLeaderboard(String type, int page, int size, Long viewerId) {
-        Pageable pageable = PageRequest.of(page, size);
-
-        Page<UserScore> scorePage = switch (type.toLowerCase()) {
-            case "season" -> userScoreRepository.findAllBySeasonScoreDesc(pageable);
-            case "monthly" -> userScoreRepository.findAllByMonthlyScoreDesc(pageable);
-            case "weekly" -> userScoreRepository.findAllByWeeklyScoreDesc(pageable);
-            default -> userScoreRepository.findAllByTotalScoreDesc(pageable);
+        validateLeaderboardPageRequest(page, size);
+        String scoreProperty = switch (type.toLowerCase()) {
+            case "season" -> "seasonScore";
+            case "monthly" -> "monthlyScore";
+            case "weekly" -> "weeklyScore";
+            default -> "totalScore";
         };
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Order.desc(scoreProperty), Sort.Order.asc("userId")));
+        Page<UserScore> scorePage = userScoreRepository.findVisibleLeaderboard(viewerId, pageable);
 
         // 사용자 정보 일괄 조회
         List<Long> userIds = scorePage.getContent().stream()
@@ -68,20 +73,16 @@ public class LeaderboardService {
                 .toList();
         Map<Long, UserEntity> userMap = getUserMap(userIds);
 
-        // 랭크 계산 (페이지 오프셋 기반)
+        // DB 공개 필터가 적용된 페이지 오프셋이 곧 공개 ordinal rank다.
         long startRank = (long) page * size + 1;
 
-        List<LeaderboardEntryDto> visibleEntries = new ArrayList<>();
-        long visibleRank = startRank;
-        for (UserScore userScore : scorePage.getContent()) {
-            LeaderboardEntryDto entry = buildVisibleLeaderboardEntry(userScore, userMap, viewerId, type, visibleRank);
-            if (entry != null) {
-                visibleEntries.add(entry);
-                visibleRank++;
-            }
+        List<LeaderboardEntryDto> visibleEntries = new ArrayList<>(scorePage.getNumberOfElements());
+        for (int index = 0; index < scorePage.getNumberOfElements(); index++) {
+            UserScore userScore = scorePage.getContent().get(index);
+            visibleEntries.add(buildLeaderboardEntry(userScore, userMap, type, startRank + index));
         }
 
-        return new PageImpl<>(visibleEntries, pageable, visibleEntries.size());
+        return new PageImpl<>(visibleEntries, pageable, scorePage.getTotalElements());
     }
 
     /**
@@ -169,13 +170,12 @@ public class LeaderboardService {
      */
     public List<HotStreakDto> getHotStreaks(int minStreak, int limit, Long viewerId) {
         Pageable pageable = PageRequest.of(0, limit);
-        List<UserScore> hotStreakers = userScoreRepository.findHotStreaks(minStreak, pageable);
+        List<UserScore> hotStreakers = userScoreRepository.findVisibleHotStreaks(minStreak, viewerId, pageable);
 
         List<Long> userIds = hotStreakers.stream().map(UserScore::getUserId).toList();
         Map<Long, UserEntity> userMap = getUserMap(userIds);
 
         return hotStreakers.stream()
-                .filter(userScore -> isVisible(userMap.get(userScore.getUserId()), viewerId))
                 .map(userScore -> {
                     UserEntity user = userMap.get(userScore.getUserId());
                     String handle = user != null ? user.getHandle() : null;
@@ -191,13 +191,12 @@ public class LeaderboardService {
      */
     public List<RecentScoreDto> getRecentScores(int limit, Long viewerId) {
         Pageable pageable = PageRequest.of(0, limit);
-        List<ScoreEvent> recentEvents = scoreEventRepository.findRecentScores(pageable);
+        List<ScoreEvent> recentEvents = scoreEventRepository.findVisibleRecentScores(viewerId, pageable);
 
         List<Long> userIds = recentEvents.stream().map(ScoreEvent::getUserId).toList();
         Map<Long, UserEntity> userMap = getUserMap(userIds);
 
         return recentEvents.stream()
-                .filter(event -> isVisible(userMap.get(event.getUserId()), viewerId))
                 .map(event -> {
                     UserEntity user = userMap.get(event.getUserId());
                     String handle = user != null ? user.getHandle() : null;
@@ -286,15 +285,14 @@ public class LeaderboardService {
                 .collect(Collectors.toMap(UserEntity::getId, Function.identity()));
     }
 
-    private LeaderboardEntryDto buildVisibleLeaderboardEntry(
+    private LeaderboardEntryDto buildLeaderboardEntry(
             UserScore userScore,
             Map<Long, UserEntity> userMap,
-            Long viewerId,
             String type,
             long rank) {
         UserEntity user = userMap.get(userScore.getUserId());
-        if (!isVisible(user, viewerId)) {
-            return null;
+        if (user == null) {
+            throw new UserNotFoundException("userId", String.valueOf(userScore.getUserId()));
         }
 
         String handle = user.getHandle();
@@ -311,8 +309,13 @@ public class LeaderboardService {
         return LeaderboardEntryDto.fromWithScore(userScore, rank, score, handle, nickname, profileUrl);
     }
 
-    private boolean isVisible(UserEntity user, Long viewerId) {
-        return user != null && publicVisibilityVerifier.canAccess(user, viewerId);
+    private void validateLeaderboardPageRequest(int page, int size) {
+        if (page < 0) {
+            throw new IllegalArgumentException("page must be greater than or equal to 0");
+        }
+        if (size < 1 || size > 100) {
+            throw new IllegalArgumentException("size must be between 1 and 100");
+        }
     }
 
     private String resolveProfileImageUrl(UserEntity user) {

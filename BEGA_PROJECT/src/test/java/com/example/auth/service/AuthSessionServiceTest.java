@@ -56,7 +56,7 @@ class AuthSessionServiceTest {
                 LocalDateTime.now());
         RefreshToken existingToken = new RefreshToken();
         existingToken.setEmail("user@example.com");
-        existingToken.setToken("existing-refresh-token");
+        existingToken.setTokenDigest("existing-refresh-token");
         existingToken.setSessionId("session\r\nadmin=true");
         existingToken.setDeviceType("desktop");
         existingToken.setDeviceLabel("Desktop");
@@ -65,7 +65,7 @@ class AuthSessionServiceTest {
         existingToken.setIp("127.0.0.1");
         request.setCookies(new Cookie("Refresh", "existing-refresh-token"));
 
-        when(refreshRepository.findAllByToken("existing-refresh-token"))
+        when(refreshRepository.findAllByTokenDigest("existing-refresh-token"))
                 .thenReturn(List.of(existingToken));
         when(authSessionMetadataResolver.resolve(any(HttpServletRequest.class))).thenReturn(metadata);
 
@@ -126,11 +126,11 @@ class AuthSessionServiceTest {
                 LocalDateTime.now());
         RefreshToken existingToken = new RefreshToken();
         existingToken.setEmail("user@example.com");
-        existingToken.setToken("cookie-refresh-token");
+        existingToken.setTokenDigest("cookie-refresh-token");
         existingToken.setSessionId("session-123");
 
         when(authSessionMetadataResolver.resolve(any(HttpServletRequest.class))).thenReturn(metadata);
-        when(refreshRepository.findAllByToken("cookie-refresh-token")).thenReturn(List.of(existingToken));
+        when(refreshRepository.findAllByTokenDigest("cookie-refresh-token")).thenReturn(List.of(existingToken));
 
         AuthSessionService.PreparedRefreshSession prepared = authSessionService.prepareRefreshSession(
                 "user@example.com",
@@ -138,7 +138,7 @@ class AuthSessionServiceTest {
 
         assertThat(prepared.sessionId()).isEqualTo("session-123");
         assertThat(prepared.matchedToken()).isSameAs(existingToken);
-        verify(refreshRepository).findAllByToken("cookie-refresh-token");
+        verify(refreshRepository).findAllByTokenDigest("cookie-refresh-token");
         verify(refreshRepository, never()).findAllByEmailOrderByIdDesc(anyString());
     }
 
@@ -161,11 +161,11 @@ class AuthSessionServiceTest {
                 LocalDateTime.now());
         RefreshToken existingToken = new RefreshToken();
         existingToken.setEmail("user@example.com");
-        existingToken.setToken("db-refresh-token");
+        existingToken.setTokenDigest("db-refresh-token");
         existingToken.setSessionId("session-123");
 
         when(authSessionMetadataResolver.resolve(any(HttpServletRequest.class))).thenReturn(metadata);
-        when(refreshRepository.findAllByToken("stale-refresh-token")).thenReturn(List.of());
+        when(refreshRepository.findAllByTokenDigest("stale-refresh-token")).thenReturn(List.of());
         when(jwtUtil.getSessionId("stale-refresh-token")).thenReturn("session-123");
         when(refreshRepository.findAllByEmailAndSessionId("user@example.com", "session-123"))
                 .thenReturn(List.of(existingToken));
@@ -197,7 +197,7 @@ class AuthSessionServiceTest {
                 now);
         RefreshToken existingToken = new RefreshToken();
         existingToken.setEmail("user@example.com");
-        existingToken.setToken("db-refresh-token");
+        existingToken.setTokenDigest("db-refresh-token");
         existingToken.setSessionId("session-123");
         existingToken.setDeviceType("desktop");
         existingToken.setDeviceLabel("Desktop");
@@ -244,7 +244,7 @@ class AuthSessionServiceTest {
                 now);
 
         when(authSessionMetadataResolver.resolve(any(HttpServletRequest.class))).thenReturn(metadata);
-        when(refreshRepository.findAllByToken("stale-refresh-token")).thenReturn(List.of());
+        when(refreshRepository.findAllByTokenDigest("stale-refresh-token")).thenReturn(List.of());
         when(jwtUtil.getSessionId("stale-refresh-token")).thenReturn("session-123");
         when(refreshRepository.findAllByEmailAndSessionId("user@example.com", "session-123"))
                 .thenReturn(List.of());
@@ -286,7 +286,7 @@ class AuthSessionServiceTest {
         RefreshToken selectedToken = new RefreshToken();
         selectedToken.setId(10L);
         selectedToken.setEmail("user@example.com");
-        selectedToken.setToken("old-refresh-token");
+        selectedToken.setTokenDigest("old-refresh-token");
         selectedToken.setSessionId("session-selected");
         selectedToken.setDeviceType("desktop");
         selectedToken.setDeviceLabel("Desktop");
@@ -297,7 +297,7 @@ class AuthSessionServiceTest {
         RefreshToken duplicateToken = new RefreshToken();
         duplicateToken.setId(9L);
         duplicateToken.setEmail("user@example.com");
-        duplicateToken.setToken("duplicate-refresh-token");
+        duplicateToken.setTokenDigest("duplicate-refresh-token");
         duplicateToken.setSessionId("session-duplicate");
         duplicateToken.setDeviceType("desktop");
         duplicateToken.setDeviceLabel("Desktop");
@@ -336,7 +336,7 @@ class AuthSessionServiceTest {
                 request);
 
         assertThat(issued.sessionId()).isEqualTo("session-selected");
-        assertThat(selectedToken.getToken()).isEqualTo("new-refresh-token");
+        assertThat(selectedToken.getTokenDigest()).isEqualTo("new-refresh-token");
         verify(refreshRepository).deleteAll(org.mockito.ArgumentMatchers.argThat(tokens -> {
             if (!(tokens instanceof List<?> tokenList) || tokenList.size() != 1) {
                 return false;

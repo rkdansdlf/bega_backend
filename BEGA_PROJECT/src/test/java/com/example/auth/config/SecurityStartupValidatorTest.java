@@ -19,7 +19,9 @@ class SecurityStartupValidatorTest {
         SecurityStartupValidator validator = new SecurityStartupValidator(
                 environment,
                 false,
-                "");
+                "",
+                "",
+                false);
 
         assertThatThrownBy(() -> validator.run(new DefaultApplicationArguments(new String[0])))
                 .isInstanceOf(IllegalStateException.class)
@@ -34,7 +36,9 @@ class SecurityStartupValidatorTest {
         SecurityStartupValidator validator = new SecurityStartupValidator(
                 environment,
                 false,
-                "local-cookie-secret");
+                "local-cookie-secret",
+                "",
+                false);
 
         assertThatCode(() -> validator.run(new DefaultApplicationArguments(new String[0])))
                 .doesNotThrowAnyException();
@@ -48,7 +52,9 @@ class SecurityStartupValidatorTest {
         SecurityStartupValidator validator = new SecurityStartupValidator(
                 environment,
                 false,
-                "prod-cookie-secret");
+                "prod-cookie-secret",
+                "strong-prod-refresh-token-pepper-value",
+                true);
 
         assertThatThrownBy(() -> validator.run(new DefaultApplicationArguments(new String[0])))
                 .isInstanceOf(IllegalStateException.class)
@@ -63,9 +69,45 @@ class SecurityStartupValidatorTest {
         SecurityStartupValidator validator = new SecurityStartupValidator(
                 environment,
                 false,
-                "");
+                "",
+                "",
+                false);
 
         assertThatCode(() -> validator.run(new DefaultApplicationArguments(new String[0])))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("prod profile should fail fast when refresh token pepper is missing")
+    void failsWhenProdRefreshTokenPepperIsMissing() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        SecurityStartupValidator validator = new SecurityStartupValidator(
+                environment,
+                true,
+                "prod-cookie-secret",
+                "",
+                true);
+
+        assertThatThrownBy(() -> validator.run(new DefaultApplicationArguments(new String[0])))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("APP_REFRESH_TOKEN_PEPPER");
+    }
+
+    @Test
+    @DisplayName("prod profile should fail fast when mail is disabled")
+    void failsWhenProdMailIsDisabled() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        SecurityStartupValidator validator = new SecurityStartupValidator(
+                environment,
+                true,
+                "prod-cookie-secret",
+                "strong-prod-refresh-token-pepper-value",
+                false);
+
+        assertThatThrownBy(() -> validator.run(new DefaultApplicationArguments(new String[0])))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("APP_MAIL_ENABLED=true");
     }
 }

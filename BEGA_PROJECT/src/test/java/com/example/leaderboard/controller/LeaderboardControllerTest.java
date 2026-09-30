@@ -19,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 
 import com.example.common.exception.GlobalExceptionHandler;
 import com.example.leaderboard.service.AchievementService;
@@ -44,8 +45,11 @@ class LeaderboardControllerTest {
 
     @BeforeEach
     void setUp() {
+        LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
+        validator.afterPropertiesSet();
         mockMvc = MockMvcBuilders.standaloneSetup(leaderboardController)
                 .setControllerAdvice(new GlobalExceptionHandler())
+                .setValidator(validator)
                 .build();
     }
 
@@ -57,6 +61,19 @@ class LeaderboardControllerTest {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"))
                 .andExpect(jsonPath("$.message").value("인증이 필요합니다."));
+
+        verifyNoInteractions(leaderboardService, powerupService, achievementService);
+    }
+
+    @Test
+    @DisplayName("공개 리더보드는 page와 size 범위를 벗어난 요청을 거부한다")
+    void getLeaderboard_rejectsInvalidPagination() throws Exception {
+        mockMvc.perform(get("/api/leaderboard").param("page", "-1"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/leaderboard").param("size", "0"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/leaderboard").param("size", "101"))
+                .andExpect(status().isBadRequest());
 
         verifyNoInteractions(leaderboardService, powerupService, achievementService);
     }

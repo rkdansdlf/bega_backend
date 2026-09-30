@@ -696,6 +696,29 @@
         },
         "type" : "object"
       },
+      "ApiResponseChallengeStatus" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ChallengeStatus"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseChatFavoriteItem" : {
         "properties" : {
           "code" : {
@@ -1996,6 +2019,24 @@
           },
           "targetUser" : {
             "$ref" : "#/components/schemas/TargetUser"
+          }
+        },
+        "type" : "object"
+      },
+      "ChallengeStatus" : {
+        "properties" : {
+          "challengeId" : {
+            "type" : "string"
+          },
+          "expiresAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "maskedEmail" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -5871,6 +5912,29 @@
             "type" : "string"
           }
         },
+        "type" : "object"
+      },
+      "OAuthEmailChallengeConfirmDto" : {
+        "properties" : {
+          "token" : {
+            "maxLength" : 256,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "token" ],
+        "type" : "object"
+      },
+      "OAuthEmailChallengeSubmitDto" : {
+        "properties" : {
+          "email" : {
+            "format" : "email",
+            "maxLength" : 320,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "email" ],
         "type" : "object"
       },
       "OffseasonMetaDto" : {
@@ -10948,6 +11012,122 @@
         "tags" : [ "mypage-controller" ]
       }
     },
+    "/api/auth/oauth2/email-challenge/confirm" : {
+      "post" : {
+        "operationId" : "confirm",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/OAuthEmailChallengeConfirmDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseMapStringObject"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "o-auth-email-challenge-controller" ]
+      }
+    },
+    "/api/auth/oauth2/email-challenge/{challengeId}" : {
+      "get" : {
+        "operationId" : "status",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "challengeId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseChallengeStatus"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "o-auth-email-challenge-controller" ]
+      }
+    },
+    "/api/auth/oauth2/email-challenge/{challengeId}/email" : {
+      "post" : {
+        "operationId" : "submitEmail",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "challengeId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/OAuthEmailChallengeSubmitDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseMapStringObject"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "o-auth-email-challenge-controller" ]
+      }
+    },
+    "/api/auth/oauth2/email-challenge/{challengeId}/resend" : {
+      "post" : {
+        "operationId" : "resend",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "challengeId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseMapStringObject"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "o-auth-email-challenge-controller" ]
+      }
+    },
     "/api/auth/oauth2/state/{stateId}" : {
       "get" : {
         "operationId" : "consumeOAuth2State",
@@ -13804,6 +13984,7 @@
           "schema" : {
             "default" : 0,
             "format" : "int32",
+            "minimum" : 0,
             "type" : "integer"
           }
         }, {
@@ -13813,6 +13994,8 @@
           "schema" : {
             "default" : 20,
             "format" : "int32",
+            "maximum" : 100,
+            "minimum" : 1,
             "type" : "integer"
           }
         } ],

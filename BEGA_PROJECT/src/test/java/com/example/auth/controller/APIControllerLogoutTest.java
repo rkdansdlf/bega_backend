@@ -12,6 +12,9 @@ import com.example.auth.service.AuthRegistrationService;
 import com.example.auth.service.OAuth2StateService;
 import com.example.auth.service.PolicyConsentService;
 import com.example.auth.service.TokenBlacklistService;
+import com.example.auth.service.RefreshTokenDigestService;
+import com.example.auth.security.CookieMutationOriginValidator;
+import com.example.auth.security.CookieCsrfTokenService;
 import com.example.auth.service.UserService;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.util.JWTUtil;
@@ -61,6 +64,15 @@ class APIControllerLogoutTest {
     @Mock
     private JWTUtil jwtUtil;
 
+    @Mock
+    private RefreshTokenDigestService refreshTokenDigestService;
+
+    @Mock
+    private CookieMutationOriginValidator cookieMutationOriginValidator;
+
+    @Mock
+    private CookieCsrfTokenService cookieCsrfTokenService;
+
     private APIController apiController;
 
     @BeforeEach
@@ -74,7 +86,10 @@ class APIControllerLogoutTest {
                 tokenBlacklistService,
                 refreshRepository,
                 new AuthCookieUtil(false),
-                clientIpResolver);
+                clientIpResolver,
+                refreshTokenDigestService,
+                cookieMutationOriginValidator,
+                cookieCsrfTokenService);
         lenient().when(userService.getJWTUtil()).thenReturn(jwtUtil);
     }
 
@@ -88,9 +103,10 @@ class APIControllerLogoutTest {
         RefreshToken currentSession = new RefreshToken();
         currentSession.setId(10L);
         currentSession.setSessionId("session-current");
-        currentSession.setToken("refresh-current");
+        currentSession.setTokenDigest("refresh-digest");
 
-        when(refreshRepository.findAllByToken("refresh-current")).thenReturn(List.of(currentSession));
+        when(refreshTokenDigestService.digest("refresh-current")).thenReturn("refresh-digest");
+        when(refreshRepository.findAllByTokenDigest("refresh-digest")).thenReturn(List.of(currentSession));
 
         ResponseEntity<ApiResponse<Void>> result = apiController.logout(request, response);
 
@@ -99,6 +115,9 @@ class APIControllerLogoutTest {
                 .anyMatch(header -> header.startsWith("Authorization=") && header.contains("Max-Age=0"));
         assertThat(result.getHeaders().get(HttpHeaders.SET_COOKIE))
                 .anyMatch(header -> header.startsWith("Refresh=") && header.contains("Max-Age=0"));
+        assertThat(result.getHeaders().get(HttpHeaders.SET_COOKIE))
+                .anyMatch(header -> header.startsWith("XSRF-TOKEN=") && header.contains("Max-Age=0"));
+        verify(cookieCsrfTokenService).validate(request);
         verify(refreshRepository).deleteAll(List.of(currentSession));
         verify(refreshRepository, never()).delete(currentSession);
     }
@@ -110,7 +129,8 @@ class APIControllerLogoutTest {
         request.setCookies(new Cookie("Refresh", "refresh-current"));
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        when(refreshRepository.findAllByToken("refresh-current"))
+        when(refreshTokenDigestService.digest("refresh-current")).thenReturn("refresh-digest");
+        when(refreshRepository.findAllByTokenDigest("refresh-digest"))
                 .thenReturn(List.of());
 
         ResponseEntity<ApiResponse<Void>> result = apiController.logout(request, response);

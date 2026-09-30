@@ -37,6 +37,42 @@ public class EmailService {
     @Value("${app.frontend.url:http://localhost:5176}")
     private String frontendUrl;
 
+    public void sendOAuthEmailChallenge(String toEmail, String challengeId, String rawToken) {
+        if (!mailEnabled) {
+            log.warn("Mail delivery disabled. OAuth email challenge cannot be delivered to {}",
+                    LogMaskingUtil.maskEmail(toEmail));
+            return;
+        }
+        // Do not enqueue this one-time bearer token: JobRunr persists method
+        // arguments, which would create a second plaintext token store.
+        sendOAuthEmailChallengeJob(toEmail, challengeId, rawToken);
+    }
+
+    @Job(name = "Send OAuth Email Challenge")
+    public void sendOAuthEmailChallengeJob(String toEmail, String challengeId, String rawToken) {
+        if (!mailEnabled) {
+            return;
+        }
+        String confirmationLink = UriComponentsBuilder.fromUriString(frontendUrl)
+                .path("/oauth/email/confirm")
+                .queryParam("challengeId", challengeId)
+                .queryParam("token", rawToken)
+                .build()
+                .encode()
+                .toUriString();
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(toEmail);
+        message.setSubject("[BEGA] 소셜 가입 이메일 확인");
+        message.setText(
+                "안녕하세요,\n\n"
+                        + "소셜 계정의 이메일이 제공자에서 검증되지 않아 BEGA 이메일 확인이 필요합니다.\n\n"
+                        + "아래 링크를 열어 가입을 완료해주세요:\n"
+                        + confirmationLink + "\n\n"
+                        + "이 링크는 30분 동안 한 번만 사용할 수 있습니다.\n"
+                        + "본인이 요청하지 않았다면 이 이메일을 무시해주세요.\n");
+        mailSender.send(message);
+    }
+
     @PostConstruct
     void logMailMode() {
         if (mailEnabled) {

@@ -5,8 +5,8 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Paths: **261**
-Operations: **286**
+Paths: **265**
+Operations: **290**
 
 ## account-security-controller
 
@@ -2474,6 +2474,83 @@ OK
 
 Media type: `*/*`
 Schema: `object`
+
+## o-auth-email-challenge-controller
+
+### POST `/api/auth/oauth2/email-challenge/confirm`
+- Operation ID: `confirm`
+- Tags: `o-auth-email-challenge-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Request body
+Required: **yes**
+
+Media type: `application/json`
+Schema: [OAuthEmailChallengeConfirmDto](openapi-schemas.md#oauthemailchallengeconfirmdto)
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseMapStringObject](openapi-schemas.md#apiresponsemapstringobject)
+
+### GET `/api/auth/oauth2/email-challenge/{challengeId}`
+- Operation ID: `status`
+- Tags: `o-auth-email-challenge-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `challengeId` | path | yes | `string` | — | — |
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseChallengeStatus](openapi-schemas.md#apiresponsechallengestatus)
+
+### POST `/api/auth/oauth2/email-challenge/{challengeId}/email`
+- Operation ID: `submitEmail`
+- Tags: `o-auth-email-challenge-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `challengeId` | path | yes | `string` | — | — |
+
+#### Request body
+Required: **yes**
+
+Media type: `application/json`
+Schema: [OAuthEmailChallengeSubmitDto](openapi-schemas.md#oauthemailchallengesubmitdto)
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseMapStringObject](openapi-schemas.md#apiresponsemapstringobject)
+
+### POST `/api/auth/oauth2/email-challenge/{challengeId}/resend`
+- Operation ID: `resend`
+- Tags: `o-auth-email-challenge-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `challengeId` | path | yes | `string` | — | — |
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseMapStringObject](openapi-schemas.md#apiresponsemapstringobject)
 
 ## offseason-controller
 

@@ -7,6 +7,8 @@ import com.example.leaderboard.service.PowerupService;
 import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.exception.BadRequestBusinessException;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -48,8 +50,8 @@ public class LeaderboardController {
     @PreAuthorize("permitAll()")
     public ResponseEntity<Page<LeaderboardEntryDto>> getLeaderboard(
             @RequestParam(defaultValue = "season") String type,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
             Principal principal
     ) {
         log.debug("Get leaderboard: type={}, page={}, size={}", type, page, size);

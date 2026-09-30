@@ -3,6 +3,7 @@ package com.example.auth.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -29,6 +30,7 @@ class ReissueServiceTest {
     private final AuthSecurityMonitoringService monitoringService = mock(AuthSecurityMonitoringService.class);
     private final RefreshTokenReuseDetector reuseDetector = mock(RefreshTokenReuseDetector.class);
     private final RefreshTokenRevocationService revocationService = mock(RefreshTokenRevocationService.class);
+    private final RefreshTokenDigestService refreshTokenDigestService = mock(RefreshTokenDigestService.class);
     private final ReissueService service = new ReissueService(
             jwtUtil,
             refreshRepository,
@@ -36,10 +38,12 @@ class ReissueServiceTest {
             authSessionService,
             monitoringService,
             reuseDetector,
-            revocationService);
+            revocationService,
+            refreshTokenDigestService);
 
     @BeforeEach
     void setUpMetadata() {
+        when(refreshTokenDigestService.digest(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
         when(authSessionService.resolveRequestMetadata(any())).thenReturn(
                 new AuthSessionMetadataResolver.SessionMetadata(
                         "desktop",
@@ -78,7 +82,7 @@ class ReissueServiceTest {
                 .build();
         when(jwtUtil.getTokenType("refresh-token")).thenReturn("refresh");
         when(jwtUtil.isExpired("refresh-token")).thenReturn(false);
-        when(refreshRepository.findAllByTokenForUpdate("refresh-token")).thenReturn(List.of(stored));
+        when(refreshRepository.findAllByTokenDigestForUpdate("refresh-token")).thenReturn(List.of(stored));
         when(jwtUtil.getUserId("refresh-token")).thenReturn(1L);
         when(jwtUtil.getTokenVersion("refresh-token")).thenReturn(0);
         when(userRepository.findById(1L)).thenReturn(java.util.Optional.of(user));

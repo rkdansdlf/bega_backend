@@ -1,6 +1,8 @@
 package com.example.auth.util;
 
+import com.example.auth.security.CookieCsrfTokenService;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
@@ -13,9 +15,18 @@ import org.springframework.stereotype.Component;
 public class AuthCookieUtil {
 
     private final boolean secureCookie;
+    private final CookieCsrfTokenService csrfTokenService;
 
-    public AuthCookieUtil(@Value("${app.cookie.secure:false}") boolean secureCookie) {
+    @Autowired
+    public AuthCookieUtil(
+            @Value("${app.cookie.secure:false}") boolean secureCookie,
+            CookieCsrfTokenService csrfTokenService) {
         this.secureCookie = secureCookie;
+        this.csrfTokenService = csrfTokenService;
+    }
+
+    public AuthCookieUtil(boolean secureCookie) {
+        this(secureCookie, new CookieCsrfTokenService());
     }
 
     public ResponseCookie buildAuthCookie(String token, long maxAgeSeconds) {
@@ -34,17 +45,33 @@ public class AuthCookieUtil {
         return build("Refresh", "", 0);
     }
 
+    public ResponseCookie issueCsrfCookie(long maxAgeSeconds) {
+        return build(
+                CookieCsrfTokenService.COOKIE_NAME,
+                csrfTokenService.issueToken(),
+                maxAgeSeconds,
+                false);
+    }
+
+    public ResponseCookie buildExpiredCsrfCookie() {
+        return build(CookieCsrfTokenService.COOKIE_NAME, "", 0, false);
+    }
+
     public void addCookieHeader(HttpServletResponse response, ResponseCookie cookie) {
         response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
     }
 
     private ResponseCookie build(String name, String value, long maxAgeSeconds) {
+        return build(name, value, maxAgeSeconds, true);
+    }
+
+    private ResponseCookie build(String name, String value, long maxAgeSeconds, boolean httpOnly) {
         rejectResponseDelimiter("cookie name", name);
         rejectResponseDelimiter("cookie value", value);
         // Access and refresh tokens are intentionally HttpOnly cookies. Frontend code
         // never needs to read token values directly; requests rely on credentialed CORS.
         return ResponseCookie.from(name, value != null ? value : "")
-                .httpOnly(true)
+                .httpOnly(httpOnly)
                 .secure(secureCookie)
                 .path("/")
                 .maxAge(maxAgeSeconds)
