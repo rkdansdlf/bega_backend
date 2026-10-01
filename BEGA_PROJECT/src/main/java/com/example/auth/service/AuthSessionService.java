@@ -36,20 +36,6 @@ public class AuthSessionService {
         this.refreshTokenDigestService = refreshTokenDigestService;
     }
 
-    public AuthSessionService(
-            RefreshRepository refreshRepository,
-            JWTUtil jwtUtil,
-            AuthSessionMetadataResolver authSessionMetadataResolver,
-            RefreshTokenReuseDetector refreshTokenReuseDetector) {
-        this(refreshRepository, jwtUtil, authSessionMetadataResolver, refreshTokenReuseDetector,
-                new RefreshTokenDigestService("test-refresh-token-pepper-value") {
-                    @Override
-                    public String digest(String rawToken) {
-                        return rawToken;
-                    }
-                });
-    }
-
     public record PreparedRefreshSession(
             String sessionId,
             RefreshToken matchedToken,

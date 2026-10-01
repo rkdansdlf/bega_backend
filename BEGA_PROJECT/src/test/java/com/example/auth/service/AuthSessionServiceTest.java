@@ -45,7 +45,8 @@ class AuthSessionServiceTest {
                 refreshRepository,
                 jwtUtil,
                 authSessionMetadataResolver,
-                refreshTokenReuseDetector);
+                refreshTokenReuseDetector,
+                new IdentityRefreshTokenDigestService());
         MockHttpServletRequest request = new MockHttpServletRequest();
         AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
                 "desktop",
@@ -86,7 +87,8 @@ class AuthSessionServiceTest {
                 refreshRepository,
                 jwtUtil,
                 authSessionMetadataResolver,
-                refreshTokenReuseDetector);
+                refreshTokenReuseDetector,
+                new IdentityRefreshTokenDigestService());
         MockHttpServletRequest request = new MockHttpServletRequest();
         AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
                 "desktop",
@@ -114,7 +116,8 @@ class AuthSessionServiceTest {
                 refreshRepository,
                 jwtUtil,
                 authSessionMetadataResolver,
-                refreshTokenReuseDetector);
+                refreshTokenReuseDetector,
+                new IdentityRefreshTokenDigestService());
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie("Refresh", "cookie-refresh-token"));
         AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
@@ -149,7 +152,8 @@ class AuthSessionServiceTest {
                 refreshRepository,
                 jwtUtil,
                 authSessionMetadataResolver,
-                refreshTokenReuseDetector);
+                refreshTokenReuseDetector,
+                new IdentityRefreshTokenDigestService());
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie("Refresh", "stale-refresh-token"));
         AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
@@ -185,7 +189,8 @@ class AuthSessionServiceTest {
                 refreshRepository,
                 jwtUtil,
                 authSessionMetadataResolver,
-                refreshTokenReuseDetector);
+                refreshTokenReuseDetector,
+                new IdentityRefreshTokenDigestService());
         MockHttpServletRequest request = new MockHttpServletRequest();
         LocalDateTime now = LocalDateTime.now();
         AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
@@ -231,7 +236,8 @@ class AuthSessionServiceTest {
                 refreshRepository,
                 jwtUtil,
                 authSessionMetadataResolver,
-                refreshTokenReuseDetector);
+                refreshTokenReuseDetector,
+                new IdentityRefreshTokenDigestService());
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie("Refresh", "stale-refresh-token"));
         LocalDateTime now = LocalDateTime.now();
@@ -273,7 +279,8 @@ class AuthSessionServiceTest {
                 refreshRepository,
                 jwtUtil,
                 authSessionMetadataResolver,
-                refreshTokenReuseDetector);
+                refreshTokenReuseDetector,
+                new IdentityRefreshTokenDigestService());
         MockHttpServletRequest request = new MockHttpServletRequest();
         LocalDateTime now = LocalDateTime.now();
         AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
@@ -352,7 +359,8 @@ class AuthSessionServiceTest {
                 refreshRepository,
                 jwtUtil,
                 authSessionMetadataResolver,
-                refreshTokenReuseDetector);
+                refreshTokenReuseDetector,
+                new IdentityRefreshTokenDigestService());
         MockHttpServletRequest request = new MockHttpServletRequest();
         AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
                 "desktop",
@@ -395,7 +403,8 @@ class AuthSessionServiceTest {
                 refreshRepository,
                 jwtUtil,
                 authSessionMetadataResolver,
-                refreshTokenReuseDetector);
+                refreshTokenReuseDetector,
+                new IdentityRefreshTokenDigestService());
         MockHttpServletRequest request = new MockHttpServletRequest();
         AuthSessionMetadataResolver.SessionMetadata metadata = new AuthSessionMetadataResolver.SessionMetadata(
                 "desktop",

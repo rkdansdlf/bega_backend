@@ -4,6 +4,7 @@ import com.example.auth.entity.RefreshToken;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.service.AuthSessionMetadataResolver;
 import com.example.auth.service.AuthSessionService;
+import com.example.auth.service.IdentityRefreshTokenDigestService;
 import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.auth.service.RefreshTokenReuseDetector;
 import com.example.auth.service.RefreshTokenDigestService;
@@ -79,7 +80,8 @@ class ReissueControllerTokenTypeTest {
                 refreshRepository,
                 jwtUtil,
                 new AuthSessionMetadataResolver(clientIpResolver),
-                refreshTokenReuseDetector);
+                refreshTokenReuseDetector,
+                new IdentityRefreshTokenDigestService());
         ReissueService reissueService = new ReissueService(
                 jwtUtil,
                 refreshRepository,
