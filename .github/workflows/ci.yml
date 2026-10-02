@@ -47,9 +47,12 @@ jobs:
       SPRING_PROFILES_ACTIVE: dev
       # Secrets are available only on trusted branch pushes. Pull request code
       # must never receive repository credentials, even for same-repository PRs.
-      DB_URL: ${{ github.event_name == 'push' && secrets.DB_URL || '' }}
-      DB_USERNAME: ${{ github.event_name == 'push' && secrets.DB_USERNAME || '' }}
-      DB_PASSWORD: ${{ github.event_name == 'push' && secrets.DB_PASSWORD || '' }}
+      # DB_* is intentionally empty: no test may depend on an external database whose migration level
+      # we do not control (it used to make every push to main fail on schema drift while PRs skipped
+      # the test). Schema validation runs in its own step against an ephemeral, fully migrated PostgreSQL.
+      DB_URL: ''
+      DB_USERNAME: ''
+      DB_PASSWORD: ''
       MAIL_USERNAME: ${{ github.event_name == 'push' && secrets.MAIL_USERNAME || 'ci' }}
       MAIL_PASSWORD: ${{ github.event_name == 'push' && secrets.MAIL_PASSWORD || 'ci' }}
       GOOGLE_CLIENT_ID: ${{ github.event_name == 'push' && secrets.GOOGLE_CLIENT_ID || 'ci-google-client' }}
@@ -93,6 +96,34 @@ jobs:
         working-directory: ./BEGA_PROJECT
         run: ./gradlew migrationSafetyCheck -Dwebp.strict=false
       
+      # Validates the JPA entities against *this repository's* migrations (not an external database),
+      # so a missing table/column or a version collision fails here, on pull requests too.
+      - name: Validate JPA schema against migrated PostgreSQL
+        working-directory: ./BEGA_PROJECT
+        env:
+          PGHOST: localhost
+          PGPORT: '5432'
+          PGUSER: postgres
+          PGPASSWORD: ci-outbox-pw
+          PGDATABASE: schema_validation
+          DB_URL: jdbc:postgresql://localhost:5432/schema_validation
+          DB_USERNAME: postgres
+          DB_PASSWORD: ci-outbox-pw
+        run: |
+          command -v psql >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q postgresql-client; }
+          psql -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE schema_validation"
+          python3 scripts/ci/apply_postgres_migrations.py src/main/resources/db/migration_postgresql
+          ./gradlew schemaValidationTest -Dwebp.strict=false
+
+      - name: Upload schema validation results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: schema-validation-results
+          path: BEGA_PROJECT/build/test-results/schemaValidationTest/
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Run tests
         working-directory: ./BEGA_PROJECT
         run: |
