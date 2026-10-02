@@ -2,13 +2,14 @@ package com.example.media.service;
 
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.strategy.PresignedUpload;
+import com.example.cheerboard.storage.strategy.StorageOperationException;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
-import com.example.cheerboard.storage.strategy.StorageUnavailableException;
 import com.example.cheerboard.storage.strategy.StoredObject;
 import com.example.cheerboard.storage.strategy.StoredObjectMetadata;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InternalServerBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
+import com.example.common.exception.ServiceUnavailableBusinessException;
 import com.example.common.image.ImageOptimizationMetricsService;
 import com.example.common.image.ImageUtil;
 import com.example.media.dto.MediaCleanupTargetReport;
@@ -26,7 +27,6 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import software.amazon.awssdk.core.exception.SdkException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -149,6 +149,18 @@ public class MediaUploadService {
                     processedImage.getContentType(),
                     bucket,
                     finalObjectKey).block();
+
+            ImageUtil.ProcessedImage feedImage = null;
+            ImageUtil.ImageDimension feedDimension = null;
+            if (asset.getDomain() == MediaDomain.PROFILE) {
+                feedImage = imageUtil.processFeedProfileImage(uploadedFile, "media_profile_feed");
+                feedDimension = validationService.getActualDimension(feedImage.getBytes());
+                feedObjectKey = asset.getDomain().buildProfileFeedObjectKey(userId, asset.getId(), feedImage.getExtension());
+                storageStrategy.uploadBytes(feedImage.getBytes(), feedImage.getContentType(), bucket, feedObjectKey).block();
+            }
+
+            // 스토리지 쓰기가 전부 끝난 뒤에만 DB를 READY로 바꾼다. 중간에 스토리지가 실패해도
+            // READY인데 객체가 없는 상태는 생기지 않는다.
             asset.markReady(
                     finalObjectKey,
                     processedImage.getContentType(),
@@ -157,12 +169,7 @@ public class MediaUploadService {
                     storedDimension.height());
             mediaAssetRepository.save(asset);
 
-            if (asset.getDomain() == MediaDomain.PROFILE) {
-                ImageUtil.ProcessedImage feedImage = imageUtil.processFeedProfileImage(uploadedFile, "media_profile_feed");
-                ImageUtil.ImageDimension feedDimension = validationService.getActualDimension(feedImage.getBytes());
-                feedObjectKey = asset.getDomain().buildProfileFeedObjectKey(userId, asset.getId(), feedImage.getExtension());
-                storageStrategy.uploadBytes(feedImage.getBytes(), feedImage.getContentType(), bucket, feedObjectKey).block();
-
+            if (feedImage != null) {
                 MediaAsset feedAsset = mediaAssetRepository.findByDerivedFrom_Id(asset.getId())
                         .orElseGet(() -> MediaAsset.builder()
                                 .ownerUserId(userId)
@@ -186,11 +193,30 @@ public class MediaUploadService {
                 mediaAssetRepository.save(feedAsset);
             }
 
-            storageStrategy.delete(bucket, asset.getStagingObjectKey()).block();
+            // 최종 객체는 이미 저장됐다. staging 정리가 실패해도 업로드를 실패로 되돌리지 않는다.
+            tryDelete(bucket, asset.getStagingObjectKey());
             metricsService.recordMediaFinalize(asset.getDomain().name(), "success");
             return buildFinalizeResponse(asset);
-        } catch (StorageUnavailableException | SdkException ex) {
-            return handleTransientStorageFailure(asset, finalObjectKey, feedObjectKey, ex);
+        } catch (StorageOperationException ex) {
+            if (ex.isObjectNotFound()) {
+                // 다운로드 직전에 사라진 경우 등 — 객체가 실제로 없으니 부재와 같게 정리한다.
+                metricsService.recordMediaFinalize(asset.getDomain().name(), "failure");
+                cleanupFailedFinalize(asset, finalObjectKey, feedObjectKey);
+                throw new NotFoundBusinessException("MEDIA_STAGING_OBJECT_NOT_FOUND", "업로드한 파일을 찾을 수 없습니다.");
+            }
+            // 검증 실패("failure")와 구분해 스토리지 장애율을 따로 볼 수 있게 한다.
+            metricsService.recordMediaFinalize(asset.getDomain().name(), "storage_unavailable");
+            // 스토리지 상태를 알 수 없다. staging 객체와 PENDING 상태를 그대로 두어 재시도할 수 있게 하고,
+            // 이번 호출이 새로 쓴 객체만 치운다. (키가 결정적이라 재시도 시 덮어쓴다.)
+            tryDelete(bucket, finalObjectKey);
+            tryDelete(bucket, feedObjectKey);
+            log.warn("Media finalize storage failure, keeping PENDING: assetId={}, kind={}, cause={}",
+                    asset.getId(), ex.getKind(), ex.getMessage());
+            if (ex.getKind() == StorageOperationException.Kind.TRANSIENT) {
+                throw new ServiceUnavailableBusinessException(
+                        "MEDIA_STORAGE_TEMPORARILY_UNAVAILABLE", "이미지 저장소가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요.");
+            }
+            throw new InternalServerBusinessException("MEDIA_STORAGE_FAILURE", "이미지 저장소 처리에 실패했습니다.");
         } catch (RuntimeException ex) {
             cleanupFailedFinalize(asset, finalObjectKey, feedObjectKey);
             metricsService.recordMediaFinalize(asset.getDomain().name(), "failure");
@@ -210,8 +236,15 @@ public class MediaUploadService {
             throw new BadRequestBusinessException("MEDIA_ASSET_LINKED", "이미 사용 중인 이미지는 삭제할 수 없습니다.");
         }
 
-        deleteAssetObject(asset);
-        mediaAssetRepository.findByDerivedFrom_Id(asset.getId()).ifPresent(this::deleteAssetObject);
+        try {
+            deleteAssetObject(asset);
+            mediaAssetRepository.findByDerivedFrom_Id(asset.getId()).ifPresent(this::deleteAssetObject);
+        } catch (StorageOperationException ex) {
+            // 트랜잭션이 롤백되므로 DB는 삭제됐다고 기록하지 않는다. 객체 삭제는 멱등이라 재시도해도 안전하다.
+            log.warn("Media upload delete failed: assetId={}, kind={}, cause={}", assetId, ex.getKind(), ex.getMessage());
+            throw new ServiceUnavailableBusinessException(
+                    "MEDIA_STORAGE_TEMPORARILY_UNAVAILABLE", "이미지 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+        }
     }
 
     @Transactional
@@ -247,6 +280,7 @@ public class MediaUploadService {
         int deletedCount = 0;
         int errorCount = 0;
         for (MediaAsset asset : orphanAssets) {
+            MediaAssetStatus previousStatus = asset.getStatus();
             try {
                 asset.markOrphaned();
                 mediaAssetRepository.save(asset);
@@ -254,6 +288,8 @@ public class MediaUploadService {
                 metricsService.recordMediaCleanup("orphan", "deleted");
                 deletedCount++;
             } catch (RuntimeException ex) {
+                // 객체 삭제에 실패했으면 ORPHANED로 남기지 않는다. READY 조회 대상에서 빠져 다시 시도되지 않는다.
+                asset.setStatus(previousStatus);
                 metricsService.recordMediaCleanup("orphan", "error");
                 log.warn("Orphan media cleanup failed: assetId={}, cause={}", asset.getId(), ex.getMessage());
                 errorCount++;
@@ -276,27 +312,18 @@ public class MediaUploadService {
     }
 
     /**
-     * 스토리지 일시 장애는 "파일이 없다/잘못됐다"는 뜻이 아니므로 asset과 staging 객체를 그대로 둬
-     * 클라이언트가 finalize를 재시도할 수 있게 한다. 이미 READY로 저장된 뒤(프로필 feed 단계)에
-     * 실패한 경우만 부분 완료 상태가 되므로 기존 정리 경로를 유지한다.
+     * 실패한 finalize를 정리한다. 객체를 실제로 지웠을 때만 DELETED로 표시하고,
+     * 삭제가 하나라도 실패하면 상태를 그대로 두어 만료 정리 작업이 다시 시도하게 한다.
      */
-    private FinalizeMediaUploadResponse handleTransientStorageFailure(
-            MediaAsset asset, String finalObjectKey, String feedObjectKey, RuntimeException ex) {
-        log.warn("Media finalize storage failure (asset retained): assetId={}, status={}, cause={}",
-                asset.getId(), asset.getStatus(), ex.getMessage());
-        metricsService.recordMediaFinalize(asset.getDomain().name(), "storage_unavailable");
-        if (asset.getStatus() == MediaAssetStatus.READY) {
-            cleanupFailedFinalize(asset, finalObjectKey, feedObjectKey);
-        }
-        throw new InternalServerBusinessException("MEDIA_STORAGE_UNAVAILABLE",
-                "스토리지가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요.");
-    }
-
     private void cleanupFailedFinalize(MediaAsset asset, String finalObjectKey, String feedObjectKey) {
         String bucket = asset.getDomain().resolveBucket(storageConfig);
-        deleteQuietly(bucket, asset.getStagingObjectKey());
-        deleteQuietly(bucket, finalObjectKey);
-        deleteQuietly(bucket, feedObjectKey);
+        boolean allDeleted = tryDelete(bucket, asset.getStagingObjectKey());
+        allDeleted &= tryDelete(bucket, finalObjectKey);
+        allDeleted &= tryDelete(bucket, feedObjectKey);
+        if (!allDeleted) {
+            log.warn("Media finalize cleanup incomplete, leaving asset for retry: assetId={}", asset.getId());
+            return;
+        }
         asset.markDeleted();
         mediaAssetRepository.save(asset);
         mediaAssetRepository.findByDerivedFrom_Id(asset.getId()).ifPresent(feedAsset -> {
@@ -305,26 +332,37 @@ public class MediaUploadService {
         });
     }
 
+    /** 객체 삭제에 실패하면 {@link StorageOperationException}이 전파되어 markDeleted까지 가지 않는다. */
     private void deleteAssetObject(MediaAsset asset) {
         String bucket = asset.getDomain().resolveBucket(storageConfig);
         if (asset.getStatus() == MediaAssetStatus.PENDING) {
-            deleteQuietly(bucket, asset.getStagingObjectKey());
+            deleteObject(bucket, asset.getStagingObjectKey());
         }
         if (asset.getObjectKey() != null && !asset.getObjectKey().isBlank()) {
-            deleteQuietly(bucket, asset.getObjectKey());
+            deleteObject(bucket, asset.getObjectKey());
         }
         asset.markDeleted();
         mediaAssetRepository.save(asset);
     }
 
-    private void deleteQuietly(String bucket, String objectKey) {
+    private void deleteObject(String bucket, String objectKey) {
         if (objectKey == null || objectKey.isBlank()) {
             return;
         }
+        storageStrategy.deleteChecked(bucket, objectKey).block();
+    }
+
+    /** @return 삭제됐거나 지울 것이 없으면 true, 실패하면 false */
+    private boolean tryDelete(String bucket, String objectKey) {
+        if (objectKey == null || objectKey.isBlank()) {
+            return true;
+        }
         try {
-            storageStrategy.delete(bucket, objectKey).block();
+            storageStrategy.deleteChecked(bucket, objectKey).block();
+            return true;
         } catch (Exception ex) {
-            log.warn("Media object delete skipped: key={}, cause={}", objectKey, ex.getMessage());
+            log.warn("Media object delete failed: key={}, cause={}", objectKey, ex.getMessage());
+            return false;
         }
     }
 }

@@ -151,9 +151,9 @@ class RealtimeOutboxPersistenceTest {
         RealtimeOutboxEvent published = repository.findById(id).orElseThrow();
         assertThat(published.getStatus()).isEqualTo(RealtimeOutboxStatus.PUBLISHED);
         assertThat(published.getLockedBy()).isNull();
-        // DB 는 마이크로초로 저장(반올림)하므로 1µs 오차를 허용한다.
+        // 저장 시각은 영속화 경계에서 마이크로초로 절삭된다(RealtimeOutboxTime). 허용 오차 없이 정확히 일치해야 한다.
         assertThat(published.getPublishedAt())
-                .isBetween(now.plusSeconds(1).minusNanos(1_000), now.plusSeconds(1).plusNanos(1_000));
+                .isEqualTo(now.plusSeconds(1).truncatedTo(java.time.temporal.ChronoUnit.MICROS));
     }
 
     @Test

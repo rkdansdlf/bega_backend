@@ -12,13 +12,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.cheerboard.storage.config.StorageConfig;
+import com.example.cheerboard.storage.strategy.StorageOperationException;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
-import com.example.cheerboard.storage.strategy.StorageUnavailableException;
 import com.example.cheerboard.storage.strategy.StoredObject;
 import com.example.cheerboard.storage.strategy.StoredObjectMetadata;
 import com.example.common.exception.BadRequestBusinessException;
-import com.example.common.exception.InternalServerBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
+import com.example.common.exception.ServiceUnavailableBusinessException;
 import com.example.common.image.ImageOptimizationMetricsService;
 import com.example.common.image.ImageUtil;
 import com.example.media.dto.MediaCleanupTargetReport;
@@ -42,7 +42,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import reactor.core.publisher.Mono;
-import software.amazon.awssdk.core.exception.SdkClientException;
 
 @ExtendWith(MockitoExtension.class)
 class MediaUploadServiceTest {
@@ -115,7 +114,7 @@ class MediaUploadServiceTest {
         when(imageUtil.processFeedProfileImage(any(), eq("media_profile_feed")))
                 .thenReturn(new ImageUtil.ProcessedImage(feedBytes, "image/webp", "webp"));
         when(storageStrategy.uploadBytes(any(), any(), eq("profile-bucket"), any())).thenReturn(Mono.just("ok"));
-        when(storageStrategy.delete("profile-bucket", asset.getStagingObjectKey())).thenReturn(Mono.empty());
+        when(storageStrategy.deleteChecked("profile-bucket", asset.getStagingObjectKey())).thenReturn(Mono.empty());
         when(storageStrategy.getUrl("profile-bucket", "media/profile/7/11.webp", 600))
                 .thenReturn(Mono.just("https://signed.example/media/profile/7/11.webp"));
 
@@ -165,7 +164,7 @@ class MediaUploadServiceTest {
         when(storageStrategy.download("diary-bucket", asset.getStagingObjectKey()))
                 .thenReturn(Mono.just(new StoredObject(originalBytes, "image/png")));
         when(validationService.getActualDimension(originalBytes)).thenReturn(new ImageUtil.ImageDimension(1200, 900));
-        when(storageStrategy.delete("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.empty());
+        when(storageStrategy.deleteChecked("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.empty());
         doThrow(new BadRequestBusinessException("MEDIA_UPLOAD_METADATA_MISMATCH", "metadata mismatch"))
                 .when(validationService)
                 .validateDeclaredMatchesActual(asset, new ImageUtil.ImageDimension(1200, 900), (long) originalBytes.length, "image/png");
@@ -177,79 +176,6 @@ class MediaUploadServiceTest {
         assertEquals("MEDIA_UPLOAD_METADATA_MISMATCH", exception.getCode());
         assertEquals(MediaAssetStatus.DELETED, asset.getStatus());
         verify(metricsService).recordMediaFinalize("DIARY", "failure");
-    }
-
-    private MediaAsset pendingDiaryAsset(Long id, Long ownerId) {
-        return MediaAsset.builder()
-                .id(id)
-                .ownerUserId(ownerId)
-                .domain(MediaDomain.DIARY)
-                .status(MediaAssetStatus.PENDING)
-                .originalFileName("diary.png")
-                .declaredContentType("image/png")
-                .declaredBytes(4L)
-                .declaredWidth(1200)
-                .declaredHeight(900)
-                .stagingObjectKey("media/staging/diary/" + ownerId + "/" + id + "-diary.png")
-                .uploadExpiresAt(LocalDateTime.now().plusHours(1))
-                .build();
-    }
-
-    @Test
-    @DisplayName("media finalize는 스토리지 일시 장애 시 asset을 삭제하지 않고 재시도 가능하게 둔다")
-    void finalizeUpload_transientStorageFailureKeepsAssetPending() {
-        MediaAsset asset = pendingDiaryAsset(41L, 9L);
-        when(mediaAssetRepository.findByIdAndOwnerUserId(41L, 9L)).thenReturn(Optional.of(asset));
-        when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
-        when(storageStrategy.exists("diary-bucket", asset.getStagingObjectKey()))
-                .thenReturn(Mono.error(new StorageUnavailableException("timeout", new RuntimeException("timeout"))));
-
-        InternalServerBusinessException exception = assertThrows(
-                InternalServerBusinessException.class,
-                () -> mediaUploadService.finalizeUpload(9L, 41L));
-
-        assertEquals("MEDIA_STORAGE_UNAVAILABLE", exception.getCode());
-        assertEquals(MediaAssetStatus.PENDING, asset.getStatus());
-        verify(storageStrategy, never()).delete(any(), any());
-        verify(mediaAssetRepository, never()).save(any(MediaAsset.class));
-        verify(metricsService).recordMediaFinalize("DIARY", "storage_unavailable");
-    }
-
-    @Test
-    @DisplayName("media finalize는 다운로드 중 SDK 장애가 나도 asset을 삭제하지 않는다")
-    void finalizeUpload_sdkFailureDuringDownloadKeepsAssetPending() {
-        MediaAsset asset = pendingDiaryAsset(42L, 9L);
-        when(mediaAssetRepository.findByIdAndOwnerUserId(42L, 9L)).thenReturn(Optional.of(asset));
-        when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
-        when(storageStrategy.exists("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(true));
-        when(storageStrategy.head("diary-bucket", asset.getStagingObjectKey()))
-                .thenReturn(Mono.just(new StoredObjectMetadata(4L, "image/png")));
-        when(storageStrategy.download("diary-bucket", asset.getStagingObjectKey()))
-                .thenReturn(Mono.error(SdkClientException.create("connection reset")));
-
-        assertThrows(InternalServerBusinessException.class, () -> mediaUploadService.finalizeUpload(9L, 42L));
-
-        assertEquals(MediaAssetStatus.PENDING, asset.getStatus());
-        verify(storageStrategy, never()).delete(any(), any());
-    }
-
-    @Test
-    @DisplayName("media finalize는 스토리지가 명확히 객체 없음을 응답하면 기존대로 삭제 상태로 정리한다")
-    void finalizeUpload_confirmedMissingObjectMarksAssetDeleted() {
-        MediaAsset asset = pendingDiaryAsset(43L, 9L);
-        when(mediaAssetRepository.findByIdAndOwnerUserId(43L, 9L)).thenReturn(Optional.of(asset));
-        when(mediaAssetRepository.findByDerivedFrom_Id(43L)).thenReturn(Optional.empty());
-        when(mediaAssetRepository.save(any(MediaAsset.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
-        when(storageStrategy.exists("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(false));
-        when(storageStrategy.delete(any(), any())).thenReturn(Mono.empty());
-
-        NotFoundBusinessException exception = assertThrows(
-                NotFoundBusinessException.class,
-                () -> mediaUploadService.finalizeUpload(9L, 43L));
-
-        assertEquals("MEDIA_STAGING_OBJECT_NOT_FOUND", exception.getCode());
-        assertEquals(MediaAssetStatus.DELETED, asset.getStatus());
     }
 
     @Test
@@ -276,7 +202,7 @@ class MediaUploadServiceTest {
         when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
         when(storageStrategy.exists("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(true));
         when(storageStrategy.head("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(metadata));
-        when(storageStrategy.delete("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.empty());
+        when(storageStrategy.deleteChecked("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.empty());
         doThrow(new BadRequestBusinessException("INVALID_MEDIA_FILE_SIZE", "too large"))
                 .when(validationService)
                 .validateStoredObjectMetadata(asset, metadata);
@@ -315,7 +241,7 @@ class MediaUploadServiceTest {
 
         assertEquals("MEDIA_ASSET_NOT_FOUND", exception.getCode());
         verify(mediaAssetLinkRepository, never()).existsByAssetId(any());
-        verify(storageStrategy, never()).delete(any(), any());
+        verify(storageStrategy, never()).deleteChecked(any(), any());
     }
 
     @Test
@@ -339,7 +265,7 @@ class MediaUploadServiceTest {
                 eq(PageRequest.of(0, 100))))
                 .thenReturn(List.of(asset));
         when(mediaAssetRepository.save(any(MediaAsset.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(storageStrategy.delete("cheer-bucket", asset.getStagingObjectKey())).thenReturn(Mono.empty());
+        when(storageStrategy.deleteChecked("cheer-bucket", asset.getStagingObjectKey())).thenReturn(Mono.empty());
 
         MediaCleanupTargetReport report = mediaUploadService.cleanupExpiredPendingAssets();
 
@@ -348,7 +274,7 @@ class MediaUploadServiceTest {
         assertEquals(1, report.scannedCount());
         assertEquals(1, report.deletedCount());
         assertEquals(0, report.errorCount());
-        verify(storageStrategy).delete("cheer-bucket", asset.getStagingObjectKey());
+        verify(storageStrategy).deleteChecked("cheer-bucket", asset.getStagingObjectKey());
         verify(metricsService).recordMediaCleanup("pending", "deleted");
         verify(mediaAssetRepository).findByStatusAndUploadExpiresAtBeforeOrderByUploadExpiresAtAscIdAsc(
                 eq(MediaAssetStatus.PENDING),
@@ -383,7 +309,7 @@ class MediaUploadServiceTest {
             savedStatuses.add(savedAsset.getStatus());
             return savedAsset;
         });
-        when(storageStrategy.delete("chat-bucket", asset.getObjectKey())).thenReturn(Mono.empty());
+        when(storageStrategy.deleteChecked("chat-bucket", asset.getObjectKey())).thenReturn(Mono.empty());
 
         MediaCleanupTargetReport report = mediaUploadService.cleanupUnlinkedReadyAssets();
 
@@ -394,7 +320,7 @@ class MediaUploadServiceTest {
         assertEquals(0, report.errorCount());
         verify(mediaAssetRepository, times(2)).save(any(MediaAsset.class));
         assertEquals(List.of(MediaAssetStatus.ORPHANED, MediaAssetStatus.DELETED), savedStatuses);
-        verify(storageStrategy).delete("chat-bucket", asset.getObjectKey());
+        verify(storageStrategy).deleteChecked("chat-bucket", asset.getObjectKey());
         verify(metricsService).recordMediaCleanup("orphan", "deleted");
         verify(mediaAssetRepository).findUnlinkedAssetsOlderThan(
                 eq(MediaAssetStatus.READY),
@@ -421,5 +347,231 @@ class MediaUploadServiceTest {
                 any(LocalDateTime.class),
                 pageableCaptor.capture());
         assertEquals(PageRequest.of(0, 1), pageableCaptor.getValue());
+    }
+
+    private MediaAsset pendingDiaryAsset(long id) {
+        return MediaAsset.builder()
+                .id(id)
+                .ownerUserId(9L)
+                .domain(MediaDomain.DIARY)
+                .status(MediaAssetStatus.PENDING)
+                .originalFileName("diary.png")
+                .declaredContentType("image/png")
+                .declaredBytes(4L)
+                .declaredWidth(1200)
+                .declaredHeight(900)
+                .stagingObjectKey("media/staging/diary/9/" + id + "-diary.png")
+                .uploadExpiresAt(LocalDateTime.now().plusHours(1))
+                .build();
+    }
+
+    private static StorageOperationException storageFailure(StorageOperationException.Kind kind) {
+        return new StorageOperationException(kind, "storage " + kind, new RuntimeException("boom"));
+    }
+
+    @Test
+    @DisplayName("staging object가 실제로 없으면(404) finalize는 NotFound로 실패하고 asset을 정리한다")
+    void finalizeUpload_realObjectNotFoundCleansUp() {
+        MediaAsset asset = pendingDiaryAsset(71L);
+        when(mediaAssetRepository.findByIdAndOwnerUserId(71L, 9L)).thenReturn(Optional.of(asset));
+        when(mediaAssetRepository.findByDerivedFrom_Id(71L)).thenReturn(Optional.empty());
+        when(mediaAssetRepository.save(any(MediaAsset.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
+        when(storageStrategy.exists("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(false));
+        when(storageStrategy.deleteChecked("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.empty());
+
+        NotFoundBusinessException exception = assertThrows(
+                NotFoundBusinessException.class, () -> mediaUploadService.finalizeUpload(9L, 71L));
+
+        assertEquals("MEDIA_STAGING_OBJECT_NOT_FOUND", exception.getCode());
+        assertEquals(MediaAssetStatus.DELETED, asset.getStatus());
+    }
+
+    @Test
+    @DisplayName("OCI 5xx/timeout으로 존재 여부를 알 수 없으면 PENDING과 staging object를 유지한다")
+    void finalizeUpload_transientExistsFailureKeepsPending() {
+        MediaAsset asset = pendingDiaryAsset(72L);
+        when(mediaAssetRepository.findByIdAndOwnerUserId(72L, 9L)).thenReturn(Optional.of(asset));
+        when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
+        when(storageStrategy.exists("diary-bucket", asset.getStagingObjectKey()))
+                .thenReturn(Mono.error(storageFailure(StorageOperationException.Kind.TRANSIENT)));
+
+        ServiceUnavailableBusinessException exception = assertThrows(
+                ServiceUnavailableBusinessException.class, () -> mediaUploadService.finalizeUpload(9L, 72L));
+
+        assertEquals("MEDIA_STORAGE_TEMPORARILY_UNAVAILABLE", exception.getCode());
+        assertEquals(MediaAssetStatus.PENDING, asset.getStatus());
+        verify(storageStrategy, never()).deleteChecked(any(), any());
+        verify(mediaAssetRepository, never()).save(any(MediaAsset.class));
+        verify(metricsService).recordMediaFinalize("DIARY", "storage_unavailable");
+        verify(metricsService, never()).recordMediaFinalize("DIARY", "failure");
+    }
+
+    @Test
+    @DisplayName("head 실패(일시 장애) 뒤 객체가 실제로 존재해도 asset은 삭제 상태로 바뀌지 않는다")
+    void finalizeUpload_transientHeadFailureKeepsPending() {
+        MediaAsset asset = pendingDiaryAsset(73L);
+        when(mediaAssetRepository.findByIdAndOwnerUserId(73L, 9L)).thenReturn(Optional.of(asset));
+        when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
+        when(storageStrategy.exists("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(true));
+        when(storageStrategy.head("diary-bucket", asset.getStagingObjectKey()))
+                .thenReturn(Mono.error(storageFailure(StorageOperationException.Kind.TRANSIENT)));
+
+        assertThrows(ServiceUnavailableBusinessException.class, () -> mediaUploadService.finalizeUpload(9L, 73L));
+
+        assertEquals(MediaAssetStatus.PENDING, asset.getStatus());
+        verify(storageStrategy, never()).deleteChecked(any(), any());
+        verify(mediaAssetRepository, never()).save(any(MediaAsset.class));
+    }
+
+    @Test
+    @DisplayName("download 중 connection timeout이어도 PENDING을 유지한다")
+    void finalizeUpload_transientDownloadFailureKeepsPending() {
+        MediaAsset asset = pendingDiaryAsset(74L);
+        StoredObjectMetadata metadata = new StoredObjectMetadata(4L, "image/png");
+        when(mediaAssetRepository.findByIdAndOwnerUserId(74L, 9L)).thenReturn(Optional.of(asset));
+        when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
+        when(storageStrategy.exists("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(true));
+        when(storageStrategy.head("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(metadata));
+        when(storageStrategy.download("diary-bucket", asset.getStagingObjectKey()))
+                .thenReturn(Mono.error(storageFailure(StorageOperationException.Kind.TRANSIENT)));
+
+        assertThrows(ServiceUnavailableBusinessException.class, () -> mediaUploadService.finalizeUpload(9L, 74L));
+
+        assertEquals(MediaAssetStatus.PENDING, asset.getStatus());
+        verify(storageStrategy, never()).deleteChecked(any(), any());
+    }
+
+    @Test
+    @DisplayName("영구적 스토리지 실패는 500으로 알리되 asset을 삭제 상태로 바꾸지 않는다")
+    void finalizeUpload_permanentStorageFailureDoesNotDeleteAsset() {
+        MediaAsset asset = pendingDiaryAsset(75L);
+        when(mediaAssetRepository.findByIdAndOwnerUserId(75L, 9L)).thenReturn(Optional.of(asset));
+        when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
+        when(storageStrategy.exists("diary-bucket", asset.getStagingObjectKey()))
+                .thenReturn(Mono.error(storageFailure(StorageOperationException.Kind.PERMANENT)));
+
+        com.example.common.exception.InternalServerBusinessException exception = assertThrows(
+                com.example.common.exception.InternalServerBusinessException.class,
+                () -> mediaUploadService.finalizeUpload(9L, 75L));
+
+        assertEquals("MEDIA_STORAGE_FAILURE", exception.getCode());
+        assertEquals(MediaAssetStatus.PENDING, asset.getStatus());
+        verify(storageStrategy, never()).deleteChecked(any(), any());
+    }
+
+    @Test
+    @DisplayName("검증 실패 뒤 staging 삭제 API가 실패하면 asset을 DELETED로 기록하지 않는다")
+    void finalizeUpload_cleanupDeleteFailureDoesNotMarkDeleted() {
+        MediaAsset asset = pendingDiaryAsset(76L);
+        StoredObjectMetadata metadata = new StoredObjectMetadata(4L, "image/png");
+        when(mediaAssetRepository.findByIdAndOwnerUserId(76L, 9L)).thenReturn(Optional.of(asset));
+        when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
+        when(storageStrategy.exists("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(true));
+        when(storageStrategy.head("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(metadata));
+        doThrow(new BadRequestBusinessException("INVALID_MEDIA_FILE_SIZE", "too large"))
+                .when(validationService).validateStoredObjectMetadata(asset, metadata);
+        when(storageStrategy.deleteChecked("diary-bucket", asset.getStagingObjectKey()))
+                .thenReturn(Mono.error(storageFailure(StorageOperationException.Kind.TRANSIENT)));
+
+        assertThrows(BadRequestBusinessException.class, () -> mediaUploadService.finalizeUpload(9L, 76L));
+
+        assertEquals(MediaAssetStatus.PENDING, asset.getStatus());
+        verify(mediaAssetRepository, never()).save(any(MediaAsset.class));
+    }
+
+    @Test
+    @DisplayName("사용자 delete에서 스토리지 삭제가 실패하면 503이고 asset은 삭제 처리되지 않는다")
+    void deleteUpload_storageFailureDoesNotMarkDeleted() {
+        MediaAsset asset = pendingDiaryAsset(77L);
+        when(mediaAssetRepository.findByIdAndOwnerUserId(77L, 9L)).thenReturn(Optional.of(asset));
+        when(mediaAssetLinkRepository.existsByAssetId(77L)).thenReturn(false);
+        when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
+        when(storageStrategy.deleteChecked("diary-bucket", asset.getStagingObjectKey()))
+                .thenReturn(Mono.error(storageFailure(StorageOperationException.Kind.TRANSIENT)));
+
+        assertThrows(ServiceUnavailableBusinessException.class, () -> mediaUploadService.deleteUpload(9L, 77L));
+
+        assertEquals(MediaAssetStatus.PENDING, asset.getStatus());
+        verify(mediaAssetRepository, never()).save(any(MediaAsset.class));
+    }
+
+    @Test
+    @DisplayName("만료 pending cleanup에서 삭제가 실패하면 error로 집계하고 DELETED로 바꾸지 않는다")
+    void cleanupExpiredPendingAssets_deleteFailureCountsErrorAndKeepsPending() {
+        MediaAsset asset = pendingDiaryAsset(78L);
+        when(storageConfig.getMediaPendingRetentionHours()).thenReturn(24);
+        when(storageConfig.getMediaCleanupBatchSize()).thenReturn(100);
+        when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
+        when(mediaAssetRepository.findByStatusAndUploadExpiresAtBeforeOrderByUploadExpiresAtAscIdAsc(
+                eq(MediaAssetStatus.PENDING), any(LocalDateTime.class), eq(PageRequest.of(0, 100))))
+                .thenReturn(List.of(asset));
+        when(storageStrategy.deleteChecked("diary-bucket", asset.getStagingObjectKey()))
+                .thenReturn(Mono.error(storageFailure(StorageOperationException.Kind.TRANSIENT)));
+
+        MediaCleanupTargetReport report = mediaUploadService.cleanupExpiredPendingAssets();
+
+        assertEquals(MediaAssetStatus.PENDING, asset.getStatus());
+        assertEquals(0, report.deletedCount());
+        assertEquals(1, report.errorCount());
+        verify(metricsService).recordMediaCleanup("pending", "error");
+    }
+
+    @Test
+    @DisplayName("orphan cleanup에서 삭제가 실패하면 ORPHANED가 아니라 READY로 되돌려 다음 주기에 재시도한다")
+    void cleanupUnlinkedReadyAssets_deleteFailureRestoresReady() {
+        MediaAsset asset = MediaAsset.builder()
+                .id(79L)
+                .ownerUserId(4L)
+                .domain(MediaDomain.CHAT)
+                .status(MediaAssetStatus.READY)
+                .objectKey("media/chat/4/79.webp")
+                .createdAt(LocalDateTime.now().minusDays(2))
+                .uploadExpiresAt(LocalDateTime.now().minusDays(2))
+                .build();
+        when(storageConfig.getMediaOrphanRetentionHours()).thenReturn(24);
+        when(storageConfig.getMediaCleanupBatchSize()).thenReturn(100);
+        when(storageConfig.getCheerBucket()).thenReturn("chat-bucket");
+        when(mediaAssetRepository.findUnlinkedAssetsOlderThan(
+                eq(MediaAssetStatus.READY), any(LocalDateTime.class), eq(PageRequest.of(0, 100))))
+                .thenReturn(List.of(asset));
+        when(mediaAssetRepository.save(any(MediaAsset.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(storageStrategy.deleteChecked("chat-bucket", asset.getObjectKey()))
+                .thenReturn(Mono.error(storageFailure(StorageOperationException.Kind.TRANSIENT)));
+
+        MediaCleanupTargetReport report = mediaUploadService.cleanupUnlinkedReadyAssets();
+
+        assertEquals(MediaAssetStatus.READY, asset.getStatus());
+        assertEquals(1, report.errorCount());
+        assertEquals(0, report.deletedCount());
+    }
+
+    @Test
+    @DisplayName("최종 객체 업로드 중 일시 장애가 나도 staging과 PENDING을 유지하고 방금 쓴 객체만 치운다")
+    void finalizeUpload_transientUploadFailureKeepsStagingAndPending() throws Exception {
+        byte[] originalBytes = new byte[] {1, 2, 3, 4};
+        byte[] optimizedBytes = new byte[] {5, 6};
+        MediaAsset asset = pendingDiaryAsset(80L);
+        StoredObjectMetadata metadata = new StoredObjectMetadata(4L, "image/png");
+        when(mediaAssetRepository.findByIdAndOwnerUserId(80L, 9L)).thenReturn(Optional.of(asset));
+        when(storageConfig.getDiaryBucket()).thenReturn("diary-bucket");
+        when(storageStrategy.exists("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(true));
+        when(storageStrategy.head("diary-bucket", asset.getStagingObjectKey())).thenReturn(Mono.just(metadata));
+        when(storageStrategy.download("diary-bucket", asset.getStagingObjectKey()))
+                .thenReturn(Mono.just(new StoredObject(originalBytes, "image/png")));
+        when(validationService.getActualDimension(originalBytes)).thenReturn(new ImageUtil.ImageDimension(1200, 900));
+        when(validationService.getActualDimension(optimizedBytes)).thenReturn(new ImageUtil.ImageDimension(800, 600));
+        when(imageUtil.process(any(), eq("media_diary")))
+                .thenReturn(new ImageUtil.ProcessedImage(optimizedBytes, "image/webp", "webp"));
+        when(storageStrategy.uploadBytes(any(), any(), eq("diary-bucket"), any()))
+                .thenReturn(Mono.error(storageFailure(StorageOperationException.Kind.TRANSIENT)));
+        when(storageStrategy.deleteChecked("diary-bucket", "media/diary/9/80.webp")).thenReturn(Mono.empty());
+
+        assertThrows(ServiceUnavailableBusinessException.class, () -> mediaUploadService.finalizeUpload(9L, 80L));
+
+        assertEquals(MediaAssetStatus.PENDING, asset.getStatus());
+        verify(storageStrategy, never()).deleteChecked("diary-bucket", asset.getStagingObjectKey());
+        verify(mediaAssetRepository, never()).save(any(MediaAsset.class));
+        verify(metricsService).recordMediaFinalize("DIARY", "storage_unavailable");
     }
 }
