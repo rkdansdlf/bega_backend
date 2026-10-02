@@ -107,6 +107,8 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
         @EntityGraph(attributePaths = { "author", "team" })
         Optional<CheerPost> findFirstByPartyIdAndDeletedFalse(Long partyId);
 
+        boolean existsByPartyId(Long partyId);
+
         @Query(value = """
                         SELECT *
                         FROM cheer_post

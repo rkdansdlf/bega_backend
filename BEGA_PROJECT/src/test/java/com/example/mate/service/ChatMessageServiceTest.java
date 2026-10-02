@@ -129,7 +129,7 @@ class ChatMessageServiceTest {
                 .build();
 
         when(userService.getUserIdByEmail("host@example.com")).thenReturn(77L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(55L, 77L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(55L, 77L)).thenReturn(Optional.of(party));
         when(chatMessageRepository.findByPartyIdAndSenderIdAndClientMessageId(55L, 77L, "client-msg-1"))
                 .thenReturn(Optional.of(existingMessage));
 
@@ -154,7 +154,7 @@ class ChatMessageServiceTest {
                 .status(Party.PartyStatus.MATCHED)
                 .build();
 
-        when(partyRepository.findAccessibleByIdAndParticipantId(56L, 88L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(56L, 88L)).thenReturn(Optional.of(party));
         when(userRepository.findById(88L)).thenReturn(Optional.of(com.example.auth.entity.UserEntity.builder()
                 .id(88L)
                 .name("Guest")
@@ -186,7 +186,7 @@ class ChatMessageServiceTest {
                 .build();
         String imageUrl = "chat/77/secret.webp";
 
-        when(partyRepository.findAccessibleByIdAndParticipantId(56L, 88L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(56L, 88L)).thenReturn(Optional.of(party));
         when(userRepository.findById(88L)).thenReturn(Optional.of(com.example.auth.entity.UserEntity.builder()
                 .id(88L)
                 .name("Guest")
@@ -216,7 +216,7 @@ class ChatMessageServiceTest {
                 .build();
         String imageUrl = "media/chat/88/asset.webp";
 
-        when(partyRepository.findAccessibleByIdAndParticipantId(56L, 88L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(56L, 88L)).thenReturn(Optional.of(party));
         when(userRepository.findById(88L)).thenReturn(Optional.of(com.example.auth.entity.UserEntity.builder()
                 .id(88L)
                 .name("Guest")
@@ -244,7 +244,7 @@ class ChatMessageServiceTest {
     @Test
     @DisplayName("sendMessage treats a non-participant party as not found before saving")
     void sendMessage_nonParticipantIsTreatedAsNotFoundBeforeSaving() {
-        when(partyRepository.findAccessibleByIdAndParticipantId(56L, 99L)).thenReturn(Optional.empty());
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(56L, 99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> chatMessageService.sendMessage(ChatMessageDTO.Request.builder()
                 .partyId(56L)

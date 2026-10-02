@@ -9,8 +9,11 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Collection;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
+
+    boolean existsByRelatedIdAndTypeIn(Long relatedId, Collection<Notification.NotificationType> types);
 
     // 사용자별 알림 목록 (최신순) — 페이징 지원
     Page<Notification> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);

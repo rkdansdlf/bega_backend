@@ -50,7 +50,7 @@ public class ChatMessageService {
     public ChatMessageDTO.Response sendMessage(ChatMessageDTO.Request request, Long userId) {
         requireUserId(userId);
 
-        requireAccessibleParty(request.getPartyId(), userId);
+        requireAccessiblePartyForUpdate(request.getPartyId(), userId);
 
         MateContentPolicyValidator.validateChatMessage(request.getMessage(), request.getImageUrl());
 
@@ -261,6 +261,15 @@ public class ChatMessageService {
             throw new PartyNotFoundException(0L);
         }
         return partyRepository.findAccessibleByIdAndParticipantId(partyId, userId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+    }
+
+    private Party requireAccessiblePartyForUpdate(Long partyId, Long userId) {
+        requireUserId(userId);
+        if (partyId == null) {
+            throw new PartyNotFoundException(0L);
+        }
+        return partyRepository.findAccessibleByIdAndParticipantIdForUpdate(partyId, userId)
                 .orElseThrow(() -> new PartyNotFoundException(partyId));
     }
 

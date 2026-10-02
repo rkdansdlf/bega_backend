@@ -16,6 +16,8 @@ import java.util.Optional;
 
 public interface PaymentTransactionRepository extends JpaRepository<PaymentTransaction, Long> {
 
+    boolean existsByPartyId(Long partyId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select pt from PaymentTransaction pt where pt.id = :id")
     Optional<PaymentTransaction> findByIdForUpdate(@Param("id") Long id);

@@ -64,7 +64,7 @@ class PartyReviewServiceTest {
                 .build();
 
         when(userService.getUserIdByEmail("reviewer@example.com")).thenReturn(100L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(7L, 100L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(7L, 100L)).thenReturn(Optional.of(party));
         when(userService.getUserIdByHandle("@guest")).thenReturn(200L);
         when(userService.findUserById(100L)).thenReturn(UserEntity.builder().id(100L).handle("@host").build());
         when(userService.findUserById(200L)).thenReturn(UserEntity.builder().id(200L).handle("@guest").build());
@@ -118,7 +118,7 @@ class PartyReviewServiceTest {
         Principal principal = () -> "reviewer@example.com";
 
         when(userService.getUserIdByEmail("reviewer@example.com")).thenReturn(300L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(7L, 300L)).thenReturn(Optional.empty());
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(7L, 300L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> partyReviewService.createReview(PartyReviewDTO.Request.builder()
                 .partyId(7L)
@@ -142,7 +142,7 @@ class PartyReviewServiceTest {
                 .build();
 
         when(userService.getUserIdByEmail("reviewer@example.com")).thenReturn(100L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(7L, 100L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(7L, 100L)).thenReturn(Optional.of(party));
         when(userService.getUserIdByHandle("@guest")).thenReturn(200L);
 
         assertThatThrownBy(() -> partyReviewService.createReview(PartyReviewDTO.Request.builder()
@@ -167,7 +167,7 @@ class PartyReviewServiceTest {
                 .build();
 
         when(userService.getUserIdByEmail("reviewer@example.com")).thenReturn(100L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(7L, 100L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(7L, 100L)).thenReturn(Optional.of(party));
         when(userService.getUserIdByHandle("@outsider")).thenReturn(300L);
         when(partyApplicationRepository.findByPartyIdAndApplicantId(7L, 300L)).thenReturn(Optional.empty());
 

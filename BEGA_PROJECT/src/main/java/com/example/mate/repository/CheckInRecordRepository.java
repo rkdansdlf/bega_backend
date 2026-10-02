@@ -8,6 +8,8 @@ import java.util.Optional;
 
 public interface CheckInRecordRepository extends JpaRepository<CheckInRecord, Long> {
 
+    boolean existsByPartyId(Long partyId);
+
     // 파티별 체크인 기록 조회
     List<CheckInRecord> findByPartyId(Long partyId);
 

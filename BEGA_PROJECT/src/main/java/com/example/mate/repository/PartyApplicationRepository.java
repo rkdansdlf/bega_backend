@@ -27,6 +27,8 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
     // 파티별 신청 목록
     List<PartyApplication> findByPartyId(Long partyId);
 
+    boolean existsByPartyId(Long partyId);
+
     // 신청자별 신청 목록
     List<PartyApplication> findByApplicantId(Long applicantId);
 

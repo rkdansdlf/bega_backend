@@ -42,7 +42,7 @@ public class PartyReviewService {
     @Transactional
     public PartyReviewDTO.Response createReview(PartyReviewDTO.Request request, Long reviewerId) {
         requireUserId(reviewerId);
-        Party party = requireAccessibleParty(request.getPartyId(), reviewerId);
+        Party party = requireAccessiblePartyForUpdate(request.getPartyId(), reviewerId);
         Long revieweeId = resolveRevieweeId(request);
 
         // 1. 파티가 COMPLETED 상태인지 확인
@@ -148,6 +148,15 @@ public class PartyReviewService {
             throw new PartyNotFoundException(0L);
         }
         return partyRepository.findAccessibleByIdAndParticipantId(partyId, userId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+    }
+
+    private Party requireAccessiblePartyForUpdate(Long partyId, Long userId) {
+        requireUserId(userId);
+        if (partyId == null) {
+            throw new PartyNotFoundException(0L);
+        }
+        return partyRepository.findAccessibleByIdAndParticipantIdForUpdate(partyId, userId)
                 .orElseThrow(() -> new PartyNotFoundException(partyId));
     }
 

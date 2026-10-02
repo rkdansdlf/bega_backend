@@ -86,6 +86,16 @@ public class Notification {
             this.description = description;
         }
 
+        public boolean referencesParty() {
+            return switch (this) {
+                case APPLICATION_RECEIVED, APPLICATION_APPROVED, APPLICATION_REJECTED,
+                        PARTY_EXPIRED, PARTY_AUTO_COMPLETED, GAME_TOMORROW_REMINDER,
+                        GAME_DAY_REMINDER, HOST_RESPONSE_NUDGE, REVIEW_REQUEST,
+                        PARTY_CANCELLED_HOST_DELETED, PARTY_PARTICIPANT_LEFT -> true;
+                default -> false;
+            };
+        }
+
         public String getDescription() {
             return description;
         }
