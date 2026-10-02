@@ -1,5 +1,8 @@
 package com.example.cheerboard.service;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
+import org.springframework.context.annotation.Profile;
+
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.repo.CheerPostHotScoreProjection;
 import com.example.cheerboard.repo.CheerPostRepo;
@@ -18,6 +21,7 @@ import java.util.Set;
 
 @Slf4j
 @Component
+@Profile("!" + ReadOnlyVerificationPolicy.PROFILE)
 public class PostSyncScheduler implements ApplicationRunner {
 
     private final RedisPostService redisPostService;

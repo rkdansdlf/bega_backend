@@ -9,7 +9,7 @@ import com.example.mate.service.payout.PayoutGateway.PayoutGatewayException;
 import com.example.mate.repository.PayoutTransactionRepository;
 import com.example.mate.repository.PaymentTransactionRepository;
 import org.jobrunr.jobs.annotations.Job;
-import org.jobrunr.scheduling.JobScheduler;
+import com.example.common.jobs.JobSubmissionGateway;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,7 +35,7 @@ public class PayoutService {
     private final SellerPayoutProfileService sellerPayoutProfileService;
     private final PayoutClaimService payoutClaimService;
     private final PayoutStateService payoutStateService;
-    private final JobScheduler jobScheduler;
+    private final JobSubmissionGateway jobScheduler;
 
     private final Map<String, PayoutGateway> payoutGateways;
 
@@ -46,7 +46,7 @@ public class PayoutService {
             SellerPayoutProfileService sellerPayoutProfileService,
             PayoutClaimService payoutClaimService,
             PayoutStateService payoutStateService,
-            JobScheduler jobScheduler,
+            JobSubmissionGateway jobScheduler,
             java.util.List<PayoutGateway> payoutGateways) {
         this.payoutTransactionRepository = payoutTransactionRepository;
         this.paymentTransactionRepository = paymentTransactionRepository;
@@ -68,6 +68,7 @@ public class PayoutService {
     private String payoutProvider;
 
     public PayoutTransaction requestPayout(PaymentTransaction paymentTransaction) {
+        jobScheduler.requireWritable();
         if (paymentTransaction == null || paymentTransaction.getId() == null) {
             throw new IllegalArgumentException("결제 트랜잭션이 올바르지 않습니다.");
         }
@@ -82,6 +83,7 @@ public class PayoutService {
 
     @Job(name = "Retry Payout")
     public void retryPayout(Long payoutId) {
+        jobScheduler.requireWritable();
         PayoutClaimService.ClaimedPayout claim = payoutClaimService.claimRetry(payoutId, payoutEnabled);
         if (claim.payout() == null || claim.action() == PayoutClaimService.ClaimAction.NONE) {
             return;
@@ -99,6 +101,7 @@ public class PayoutService {
 
     @Scheduled(fixedDelayString = "${payment.payout.reconciliation-sweep-ms:60000}")
     public void reconcileDuePayouts() {
+        jobScheduler.requireWritable();
         payoutTransactionRepository
                 .findTop100ByStatusInAndNextRetryAtLessThanEqualOrderByNextRetryAtAsc(
                         java.util.List.of(SettlementStatus.REQUESTED),
@@ -114,6 +117,7 @@ public class PayoutService {
 
     @Scheduled(fixedDelayString = "${payment.payout.missing-claim-sweep-ms:60000}")
     public void recoverMissingPayoutClaims() {
+        jobScheduler.requireWritable();
         paymentTransactionRepository.findApprovedWithoutPayout(
                         PaymentStatus.PAID,
                         SettlementStatus.PENDING,
@@ -302,7 +306,7 @@ public class PayoutService {
     }
 
     private void scheduleRetry(Long payoutId, Instant retryAt) {
-        if (jobScheduler == null) {
+        if (!jobScheduler.isAvailable()) {
             return;
         }
 

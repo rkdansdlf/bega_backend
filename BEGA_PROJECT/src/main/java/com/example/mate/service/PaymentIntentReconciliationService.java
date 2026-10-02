@@ -8,7 +8,7 @@ import com.example.mate.repository.PaymentIntentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jobrunr.jobs.annotations.Job;
-import org.jobrunr.scheduling.JobScheduler;
+import com.example.common.jobs.JobSubmissionGateway;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -25,10 +25,11 @@ public class PaymentIntentReconciliationService {
     private final PartyApplicationRepository applicationRepository;
     private final TossPaymentService tossPaymentService;
     private final PaymentMetricsService paymentMetricsService;
-    private final JobScheduler jobScheduler;
+    private final JobSubmissionGateway jobScheduler;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void reconcileSingleIntent(Long intentId) {
+        jobScheduler.requireWritable();
         PaymentIntent intent = paymentIntentRepository.findByIdForUpdate(intentId).orElse(null);
         if (intent == null) {
             return;
@@ -72,6 +73,7 @@ public class PaymentIntentReconciliationService {
     @Job(name = "Reconcile Toss Payment Intents - Retry Compensation")
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void retryCompensation(Long intentId, int attempt) {
+        jobScheduler.requireWritable();
         paymentIntentRepository.findByIdForUpdate(intentId).ifPresent(intent -> {
             if (intent.getStatus() == IntentStatus.APPLICATION_CREATED
                     || intent.getStatus() == IntentStatus.CANCELED

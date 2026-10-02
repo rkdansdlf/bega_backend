@@ -7,7 +7,7 @@ import com.example.mate.entity.SettlementStatus;
 import com.example.mate.repository.PayoutTransactionRepository;
 import com.example.mate.repository.PaymentTransactionRepository;
 import com.example.mate.service.payout.PayoutGateway;
-import org.jobrunr.scheduling.JobScheduler;
+import com.example.common.jobs.JobSubmissionGateway;
 import org.jobrunr.jobs.lambdas.JobLambda;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,7 +52,7 @@ class PayoutServiceTest {
     private SellerRecoveryService sellerRecoveryService;
 
     @Mock
-    private JobScheduler jobScheduler;
+    private JobSubmissionGateway jobScheduler;
 
     @Mock
     private PayoutGateway simGateway;
@@ -66,6 +66,7 @@ class PayoutServiceTest {
 
     private PayoutService newServiceWithConfig(boolean payoutEnabled, String provider, List<PayoutGateway> gateways)
             throws Exception {
+        lenient().when(jobScheduler.isAvailable()).thenReturn(true);
         Map<Long, PayoutTransaction> claimedPayouts = new HashMap<>();
         lenient().when(payoutTransactionRepository.saveAndFlush(any(PayoutTransaction.class)))
                 .thenAnswer(invocation -> {

@@ -1,6 +1,7 @@
 package com.example.mate.service;
 
 import com.example.mate.dto.PartyApplicationDTO;
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
 import com.example.mate.entity.CancelReasonType;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
@@ -50,12 +51,14 @@ public class PaymentTransactionService {
     private final MatePaymentModeService matePaymentModeService;
     private final SellerRecoveryService sellerRecoveryService;
     private final PaymentCancellationIntentService cancellationIntentService;
+    private final ReadOnlyVerificationPolicy readOnlyVerificationPolicy;
 
     @PersistenceContext
     private EntityManager entityManager;
 
     @Transactional
     public PaymentTransaction createOrGetOnConfirm(PartyApplication application, PaymentIntent intent, String paymentKey) {
+        readOnlyVerificationPolicy.requireWritable();
         if (application == null || application.getOrderId() == null || application.getOrderId().isBlank()) {
             throw new IllegalArgumentException("orderId는 필수입니다.");
         }
@@ -100,6 +103,7 @@ public class PaymentTransactionService {
     }
 
     public PayoutTransaction requestManualPayout(Long paymentId) {
+        readOnlyVerificationPolicy.requireWritable();
         if (matePaymentModeService.isDirectTrade()) {
             throw new TossPaymentException(
                     "직거래 모드에서는 수동 정산 지급을 요청할 수 없습니다.",
@@ -157,6 +161,7 @@ public class PaymentTransactionService {
 
     @Transactional
     public void requestSettlementOnApproval(PartyApplication application) {
+        readOnlyVerificationPolicy.requireWritable();
         if (application == null || application.getOrderId() == null || application.getOrderId().isBlank()) {
             return;
         }
@@ -188,6 +193,7 @@ public class PaymentTransactionService {
     }
 
     private void requestPayoutAfterCommit(Long applicationId, PaymentTransaction tx) {
+        readOnlyVerificationPolicy.requireWritable();
         try {
             payoutService.requestPayout(tx);
         } catch (RuntimeException e) {
@@ -203,6 +209,7 @@ public class PaymentTransactionService {
     public PartyApplicationDTO.CancelResponse processCancellation(
             PartyApplication application,
             PartyApplicationDTO.CancelRequest request) {
+        readOnlyVerificationPolicy.requireWritable();
         if (application == null || !Boolean.TRUE.equals(application.getIsPaid())) {
             return PartyApplicationDTO.CancelResponse.builder()
                     .applicationId(application != null ? application.getId() : null)

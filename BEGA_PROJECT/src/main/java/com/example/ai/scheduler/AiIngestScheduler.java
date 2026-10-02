@@ -1,5 +1,8 @@
 package com.example.ai.scheduler;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
+import org.springframework.context.annotation.Profile;
+
 import com.example.ai.config.AiIngestProperties;
 import com.example.ai.service.AiIngestOrchestrationService;
 import lombok.RequiredArgsConstructor;
@@ -10,6 +13,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 @Component
+@Profile("!" + ReadOnlyVerificationPolicy.PROFILE)
 @RequiredArgsConstructor
 @Slf4j
 public class AiIngestScheduler implements ApplicationRunner {

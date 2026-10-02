@@ -13,7 +13,7 @@ import com.example.mate.repository.PaymentIntentRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.jobrunr.jobs.lambdas.JobLambda;
-import org.jobrunr.scheduling.JobScheduler;
+import com.example.common.jobs.JobSubmissionGateway;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -59,7 +59,7 @@ class PaymentIntentServiceTest {
         private TossPaymentService tossPaymentService;
 
         @Mock
-        private JobScheduler jobScheduler;
+        private JobSubmissionGateway jobScheduler;
 
         @Mock
         private PaymentMetricsService paymentMetricsService;
