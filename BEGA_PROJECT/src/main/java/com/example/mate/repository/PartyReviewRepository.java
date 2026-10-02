@@ -25,6 +25,8 @@ public interface PartyReviewRepository extends JpaRepository<PartyReview, Long> 
      */
     List<PartyReview> findByPartyId(Long partyId);
 
+    boolean existsByPartyId(Long partyId);
+
     /**
      * 특정 사용자가 받은 모든 리뷰 조회
      */

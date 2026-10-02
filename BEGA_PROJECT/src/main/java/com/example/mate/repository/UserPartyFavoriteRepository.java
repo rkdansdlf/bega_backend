@@ -10,6 +10,8 @@ public interface UserPartyFavoriteRepository extends JpaRepository<UserPartyFavo
 
     List<UserPartyFavorite> findByUserId(Long userId);
 
+    boolean existsByPartyId(Long partyId);
+
     List<UserPartyFavorite> findByUserIdAndPartyIdIn(Long userId, List<Long> partyIds);
 
     Optional<UserPartyFavorite> findByUserIdAndPartyId(Long userId, Long partyId);

@@ -9,6 +9,8 @@ import java.util.Optional;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
 
+    boolean existsByPartyId(Long partyId);
+
     // 파티별 채팅 메시지 조회 (생성일 기준 오름차순)
     List<ChatMessage> findByPartyIdOrderByCreatedAtAsc(Long partyId);
 

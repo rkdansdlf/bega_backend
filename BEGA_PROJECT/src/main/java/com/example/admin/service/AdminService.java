@@ -74,6 +74,7 @@ public class AdminService {
     private final RefreshRepository refreshRepository;
     private final PredictionService predictionService;
     private final AdminUserDeletionPreparationService deletionPreparationService;
+    private final AdminMateDeletionGuard mateDeletionGuard;
     private static final Set<String> NON_CANONICAL_TRACKER_STATUSES =
             Set.of("draft", "requested", "in_progress", "done");
 
@@ -292,13 +293,15 @@ public class AdminService {
     public void deleteMate(Long mateId, Long adminId) {
         Long id = Objects.requireNonNull(mateId, "mateId must not be null");
 
-        Party party = partyRepository.findById(id)
+        Party party = partyRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new IllegalArgumentException("메이트 모임을 찾을 수 없습니다."));
+
+        mateDeletionGuard.ensureNoLinkedRecords(id);
 
         String partyDesc = party.getDescription();
         Long hostId = party.getHostId();
 
-        partyRepository.deleteById(id);
+        partyRepository.delete(party);
 
         // 감사 로그 기록
         if (adminId != null) {

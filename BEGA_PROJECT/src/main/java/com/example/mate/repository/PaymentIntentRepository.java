@@ -14,6 +14,8 @@ import java.util.Optional;
 
 public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, Long> {
 
+    boolean existsByPartyId(Long partyId);
+
     Optional<PaymentIntent> findByOrderId(String orderId);
 
     Optional<PaymentIntent> findByOrderIdAndApplicantId(String orderId, Long applicantId);

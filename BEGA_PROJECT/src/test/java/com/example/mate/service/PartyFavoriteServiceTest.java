@@ -1,6 +1,7 @@
 package com.example.mate.service;
 
 import com.example.mate.entity.UserPartyFavorite;
+import com.example.mate.entity.Party;
 import com.example.mate.exception.PartyNotFoundException;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.UserPartyFavoriteRepository;
@@ -11,6 +12,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -33,7 +35,7 @@ class PartyFavoriteServiceTest {
 
     @Test
     void addFavorite_savesWhenAbsent() {
-        when(partyRepository.existsById(1L)).thenReturn(true);
+        when(partyRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(Party.builder().id(1L).build()));
         when(favoriteRepository.existsByUserIdAndPartyId(10L, 1L)).thenReturn(false);
 
         partyFavoriteService.addFavorite(10L, 1L);
@@ -43,7 +45,7 @@ class PartyFavoriteServiceTest {
 
     @Test
     void addFavorite_isIdempotentWhenAlreadyFavorited() {
-        when(partyRepository.existsById(1L)).thenReturn(true);
+        when(partyRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(Party.builder().id(1L).build()));
         when(favoriteRepository.existsByUserIdAndPartyId(10L, 1L)).thenReturn(true);
 
         partyFavoriteService.addFavorite(10L, 1L);
@@ -53,7 +55,7 @@ class PartyFavoriteServiceTest {
 
     @Test
     void addFavorite_throwsWhenPartyMissing() {
-        when(partyRepository.existsById(99L)).thenReturn(false);
+        when(partyRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> partyFavoriteService.addFavorite(10L, 99L))
                 .isInstanceOf(PartyNotFoundException.class);
