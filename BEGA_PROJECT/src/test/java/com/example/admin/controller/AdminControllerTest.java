@@ -20,12 +20,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -206,6 +208,14 @@ class AdminControllerTest {
         controller.deleteUser(42L, 1L);
 
         verify(adminService).deleteUser(1L, 42L);
+    }
+
+    @Test
+    void deleteUser_rejectsMissingAuthenticatedActorId() {
+        assertThatThrownBy(() -> controller.deleteUser(null, 42L))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verify(adminService, never()).deleteUser(42L, null);
     }
 
     // ── deletePost ──

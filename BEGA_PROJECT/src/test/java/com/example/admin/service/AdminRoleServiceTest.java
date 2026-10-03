@@ -2,6 +2,7 @@ package com.example.admin.service;
 
 import com.example.admin.dto.AuditLogDto;
 import com.example.admin.entity.AuditLog;
+import com.example.admin.exception.InvalidRoleChangeException;
 import com.example.admin.repository.AuditLogRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
@@ -19,9 +20,11 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -47,13 +50,31 @@ class AdminRoleServiceTest {
         UserEntity admin = user(1L, "admin@example.com", "Admin", "ROLE_SUPER_ADMIN");
         UserEntity target = user(2L, "target@example.com", "Target", "ROLE_USER");
         when(userRepository.findById(1L)).thenReturn(Optional.of(admin));
-        when(userRepository.findById(2L)).thenReturn(Optional.of(target));
+        when(userRepository.findByIdForWrite(2L)).thenReturn(Optional.of(target));
 
         adminRoleService.promoteToAdmin(1L, 2L, "promotion");
 
         assertThat(target.getRole()).isEqualTo("ROLE_ADMIN");
         verify(userRepository).save(target);
         verify(refreshTokenRevocationService).revokeAllSessionsForUser(2L);
+    }
+
+    @Test
+    @DisplayName("promoteToAdmin locks and rejects a disabled target without side effects")
+    void promoteToAdmin_rejectsDisabledTarget() {
+        UserEntity admin = user(1L, "admin@example.com", "Admin", "ROLE_SUPER_ADMIN");
+        UserEntity target = user(2L, "target@example.com", "Target", "ROLE_USER");
+        target.setEnabled(false);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(admin));
+        when(userRepository.findByIdForWrite(2L)).thenReturn(Optional.of(target));
+
+        assertThatThrownBy(() -> adminRoleService.promoteToAdmin(1L, 2L, "promotion"))
+                .isInstanceOf(InvalidRoleChangeException.class);
+
+        verify(userRepository).findByIdForWrite(2L);
+        verify(userRepository, never()).save(target);
+        verify(refreshTokenRevocationService, never()).revokeAllSessionsForUser(2L);
+        verify(auditLogRepository, never()).save(any());
     }
 
     @Test

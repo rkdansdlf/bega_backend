@@ -58,10 +58,11 @@ class AdminServiceTest {
         UserEntity disabledUser = UserEntity.builder()
                 .id(51L)
                 .email("deleted@example.com")
+                .role("ROLE_USER")
                 .enabled(false)
                 .tokenVersion(4)
                 .build();
-        given(deletionPreparationService.disableForDeletion(51L)).willReturn(disabledUser);
+        given(deletionPreparationService.disableForDeletion(51L, null)).willReturn(disabledUser);
         given(userRepository.findById(51L)).willReturn(Optional.of(disabledUser));
         given(likeRepository.findByUser(disabledUser)).willReturn(List.of());
         given(commentRepository.findByAuthor(disabledUser)).willReturn(List.of());
@@ -69,8 +70,9 @@ class AdminServiceTest {
 
         adminService.deleteUser(51L, null);
 
-        InOrder order = inOrder(deletionPreparationService, userRepository, partyService);
-        order.verify(deletionPreparationService).disableForDeletion(51L);
+        InOrder order = inOrder(userRepository, deletionPreparationService, partyService);
+        order.verify(userRepository).findById(51L);
+        order.verify(deletionPreparationService).disableForDeletion(51L, null);
         order.verify(userRepository).findById(51L);
         order.verify(partyService).handleUserDeletion(51L);
     }
