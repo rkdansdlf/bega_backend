@@ -9,13 +9,11 @@ import com.example.auth.repository.UserRepository;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InvalidCredentialsException;
 import com.example.common.exception.UserNotFoundException;
-import com.example.mate.service.PartyService;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,7 +31,7 @@ public class AccountDeletionService {
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
     private final AccountSecurityService accountSecurityService;
-    private final PartyService partyService;
+    private final AccountDeletionFinalizationService accountDeletionFinalizationService;
 
     public AccountDeletionService(
             UserRepository userRepository,
@@ -42,14 +40,14 @@ public class AccountDeletionService {
             PasswordEncoder passwordEncoder,
             EmailService emailService,
             AccountSecurityService accountSecurityService,
-            @Lazy PartyService partyService) {
+            AccountDeletionFinalizationService accountDeletionFinalizationService) {
         this.userRepository = userRepository;
         this.refreshRepository = refreshRepository;
         this.accountDeletionTokenRepository = accountDeletionTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailService = emailService;
         this.accountSecurityService = accountSecurityService;
-        this.partyService = partyService;
+        this.accountDeletionFinalizationService = accountDeletionFinalizationService;
     }
 
     @Transactional
@@ -119,11 +117,14 @@ public class AccountDeletionService {
 
     @Transactional
     public void recoverAccount(String token) {
-        AccountDeletionToken deletionToken = validateRecoveryToken(token);
-        Long userId = deletionToken.getUser().getId();
+        Long userId = accountDeletionTokenRepository.findUserIdByToken(token)
+                .orElseThrow(() -> new BadRequestBusinessException("INVALID_RECOVERY_LINK", "유효하지 않은 복구 링크입니다."));
         UserEntity user = userRepository.findByIdForWrite(userId)
                 .orElseThrow(() -> new UserNotFoundException(userId));
-        validateRecoverableDeletion(user);
+        AccountDeletionToken deletionToken = accountDeletionTokenRepository
+                .findByTokenAndUser_Id(token, userId)
+                .orElseThrow(() -> new BadRequestBusinessException("INVALID_RECOVERY_LINK", "유효하지 않은 복구 링크입니다."));
+        validateRecoverableDeletion(deletionToken, user, LocalDateTime.now());
 
         user.setPendingDeletion(false);
         user.setDeletionRequestedAt(null);
@@ -136,18 +137,14 @@ public class AccountDeletionService {
         accountSecurityService.recordAccountDeletionCancelled(user.getId());
     }
 
-    @Transactional
     public void finalizeDueDeletions() {
-        List<UserEntity> dueUsers = userRepository.findByPendingDeletionTrueAndDeletionScheduledForLessThanEqual(LocalDateTime.now());
-        for (UserEntity user : dueUsers) {
+        LocalDateTime cutoff = LocalDateTime.now();
+        List<Long> dueUserIds = userRepository.findDuePendingDeletionUserIds(cutoff);
+        for (Long userId : dueUserIds) {
             try {
-                partyService.handleUserDeletion(user.getId());
-                user.setDeletionScheduledFor(null);
-                userRepository.save(user);
-                accountDeletionTokenRepository.deleteByUser_Id(user.getId());
-                log.info("Finalized pending account deletion for userId={}", user.getId());
+                accountDeletionFinalizationService.finalizeIfDue(userId, cutoff);
             } catch (RuntimeException e) {
-                log.error("Failed to finalize pending account deletion for userId={}", user.getId(), e);
+                log.error("Failed to finalize pending account deletion for userId={}", userId, e);
             }
         }
     }
@@ -155,24 +152,22 @@ public class AccountDeletionService {
     private AccountDeletionToken validateRecoveryToken(String token) {
         AccountDeletionToken deletionToken = accountDeletionTokenRepository.findByToken(token)
                 .orElseThrow(() -> new BadRequestBusinessException("INVALID_RECOVERY_LINK", "유효하지 않은 복구 링크입니다."));
-
-        if (deletionToken.isUsed()) {
-            throw new BadRequestBusinessException("RECOVERY_LINK_ALREADY_USED", "이미 사용된 복구 링크입니다.");
-        }
-        if (deletionToken.isExpired()) {
-            throw new BadRequestBusinessException("RECOVERY_LINK_EXPIRED", "복구 링크가 만료되었습니다.");
-        }
-        UserEntity user = deletionToken.getUser();
-        if (user == null || user.getId() == null || !user.isPendingDeletion() || user.getDeletionScheduledFor() == null) {
-            throw new BadRequestBusinessException(
-                    "RECOVERABLE_DELETION_NOT_FOUND",
-                    "복구 가능한 계정 삭제 예약을 찾을 수 없습니다.");
-        }
+        validateRecoverableDeletion(deletionToken, deletionToken.getUser(), LocalDateTime.now());
         return deletionToken;
     }
 
-    private void validateRecoverableDeletion(UserEntity user) {
-        if (user == null || user.getId() == null || !user.isPendingDeletion() || user.getDeletionScheduledFor() == null) {
+    private void validateRecoverableDeletion(
+            AccountDeletionToken deletionToken,
+            UserEntity user,
+            LocalDateTime now) {
+        if (deletionToken.isUsed()) {
+            throw new BadRequestBusinessException("RECOVERY_LINK_ALREADY_USED", "이미 사용된 복구 링크입니다.");
+        }
+        if (deletionToken.getExpiryDate() == null || !deletionToken.getExpiryDate().isAfter(now)) {
+            throw new BadRequestBusinessException("RECOVERY_LINK_EXPIRED", "복구 링크가 만료되었습니다.");
+        }
+        if (user == null || user.getId() == null || !user.isPendingDeletion()
+                || user.getDeletionScheduledFor() == null || !user.getDeletionScheduledFor().isAfter(now)) {
             throw new BadRequestBusinessException(
                     "RECOVERABLE_DELETION_NOT_FOUND",
                     "복구 가능한 계정 삭제 예약을 찾을 수 없습니다.");

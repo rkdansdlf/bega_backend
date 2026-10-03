@@ -149,7 +149,7 @@ class PasswordResetServiceTest {
                 "NewPassword1!",
                 "NewPassword1!");
 
-        when(tokenRepository.findByToken(tokenHash)).thenReturn(Optional.of(resetToken));
+        when(tokenRepository.findByTokenForUpdate(tokenHash)).thenReturn(Optional.of(resetToken));
         when(passwordEncoder.encode("NewPassword1!")).thenReturn("encoded-password");
 
         passwordResetService.confirmPasswordReset(request);

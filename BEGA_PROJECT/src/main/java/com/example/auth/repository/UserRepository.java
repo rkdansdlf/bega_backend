@@ -175,5 +175,10 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
   void modifyCheerPoints(@org.springframework.data.repository.query.Param("userId") Long userId,
       @org.springframework.data.repository.query.Param("points") int points);
 
-  List<UserEntity> findByPendingDeletionTrueAndDeletionScheduledForLessThanEqual(java.time.LocalDateTime scheduledFor);
+  @Query("""
+      SELECT u.id FROM UserEntity u
+      WHERE u.pendingDeletion = true AND u.deletionScheduledFor <= :cutoff
+      ORDER BY u.id
+      """)
+  List<Long> findDuePendingDeletionUserIds(@Param("cutoff") java.time.LocalDateTime cutoff);
 }

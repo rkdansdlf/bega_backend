@@ -101,7 +101,7 @@ public class PasswordResetService {
 
         // 토큰 조회
         String tokenHash = hashToken(request.getToken());
-        PasswordResetToken resetToken = tokenRepository.findByToken(tokenHash)
+        PasswordResetToken resetToken = tokenRepository.findByTokenForUpdate(tokenHash)
                 .orElseThrow(() -> {
                     return new IllegalArgumentException("유효하지 않은 토큰입니다.");
                 });
