@@ -2,7 +2,6 @@ package com.example.auth.service;
 
 import com.example.common.jobs.JobSubmissionGateway;
 import com.example.common.readonly.ReadOnlyVerificationPolicy;
-import org.springframework.mock.env.MockEnvironment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -12,8 +11,16 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.time.LocalDateTime;
+import java.util.Base64;
+import java.util.List;
 
+import org.jobrunr.jobs.Job;
+import org.jobrunr.jobs.mappers.JobMapper;
 import org.jobrunr.scheduling.JobScheduler;
+import org.jobrunr.jobs.states.StateName;
+import org.jobrunr.storage.InMemoryStorageProvider;
+import org.jobrunr.storage.navigation.AmountRequest;
+import org.jobrunr.utils.mapper.jackson.JacksonJsonMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -24,9 +31,12 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.mock.env.MockEnvironment;
 
 @ExtendWith(MockitoExtension.class)
 class EmailServiceTest {
+
+    private static final String TEST_TOKEN_ENCRYPTION_KEY = Base64.getEncoder().encodeToString(new byte[32]);
 
     @Mock
     private JavaMailSender mailSender;
@@ -39,6 +49,7 @@ class EmailServiceTest {
         EmailService emailService = new EmailService(
                 mailSender,
                 gateway(objectProvider(jobScheduler)),
+                tokenCipher(),
                 false);
 
         emailService.sendPasswordResetEmail("user@example.com", "token");
@@ -57,6 +68,7 @@ class EmailServiceTest {
         EmailService emailService = new EmailService(
                 mailSender,
                 gateway(objectProvider(jobScheduler)),
+                tokenCipher(),
                 true);
 
         emailService.sendPasswordResetEmail("user@example.com", "token");
@@ -65,6 +77,77 @@ class EmailServiceTest {
 
         verify(jobScheduler, times(3)).enqueue(org.mockito.Mockito.<IocJobLambda<Object>>any());
         verify(mailSender, never()).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    void queuedRecoveryTokensAreEncryptedInJobRunrSerializedPayload() {
+        InMemoryStorageProvider storage = new InMemoryStorageProvider();
+        JobMapper jobMapper = new JobMapper(new JacksonJsonMapper());
+        storage.setJobMapper(jobMapper);
+        JobScheduler inMemoryScheduler = new JobScheduler(storage);
+        EmailService emailService = createEnabledEmailService(objectProvider(inMemoryScheduler));
+        String resetToken = "synthetic-reset-token-for-serialization-test";
+        String recoveryToken = "synthetic-recovery-token-for-serialization-test";
+
+        try {
+            emailService.sendPasswordResetEmail("reset@example.test", resetToken);
+            emailService.sendAccountDeletionRecoveryEmail(
+                    "recovery@example.test",
+                    recoveryToken,
+                    LocalDateTime.of(2026, 3, 12, 9, 0));
+
+            List<Job> jobs = storage.getJobList(
+                    StateName.ENQUEUED,
+                    new AmountRequest("createdAt:ASC", 10));
+            assertThat(jobs).hasSize(2);
+            String serializedJobs = jobs.stream()
+                    .map(jobMapper::serializeJob)
+                    .reduce("", (allJobs, job) -> allJobs + job);
+            assertThat(serializedJobs)
+                    .contains(EmailJobTokenCipher.ENVELOPE_PREFIX)
+                    .doesNotContain(resetToken)
+                    .doesNotContain(recoveryToken);
+
+            Job resetJob = jobs.stream()
+                    .filter(job -> job.getJobDetails().getMethodName().equals("sendPasswordResetEmailJob"))
+                    .findFirst()
+                    .orElseThrow();
+            Object[] resetArguments = resetJob.getJobDetails().getJobParameterValues();
+            emailService.sendPasswordResetEmailJob(
+                    (String) resetArguments[0],
+                    (String) resetArguments[1],
+                    (String) resetArguments[2]);
+
+            Job recoveryJob = jobs.stream()
+                    .filter(job -> job.getJobDetails().getMethodName().equals("sendAccountDeletionRecoveryEmailJob"))
+                    .findFirst()
+                    .orElseThrow();
+            Object[] recoveryArguments = recoveryJob.getJobDetails().getJobParameterValues();
+            emailService.sendAccountDeletionRecoveryEmailJob(
+                    (String) recoveryArguments[0],
+                    (String) recoveryArguments[1],
+                    (LocalDateTime) recoveryArguments[2],
+                    (String) recoveryArguments[3]);
+
+            verify(mailSender, times(2)).send(any(SimpleMailMessage.class));
+        } finally {
+            storage.close();
+        }
+    }
+
+    @Test
+    void missingEncryptionKeyFallsBackToImmediateDeliveryWithoutEnqueueing() {
+        EmailService emailService = new EmailService(
+                mailSender,
+                gateway(objectProvider(jobScheduler)),
+                new EmailJobTokenCipher(""),
+                true);
+        ReflectionTestUtils.setField(emailService, "frontendUrl", "https://frontend.test");
+
+        emailService.sendPasswordResetEmail("user@example.com", "synthetic-reset-token");
+
+        verify(jobScheduler, never()).enqueue(org.mockito.Mockito.<IocJobLambda<Object>>any());
+        verify(mailSender).send(any(SimpleMailMessage.class));
     }
 
     @Test
@@ -149,9 +232,13 @@ class EmailServiceTest {
     }
 
     private EmailService createEnabledEmailService(ObjectProvider<JobScheduler> provider) {
-        EmailService emailService = new EmailService(mailSender, gateway(provider), true);
+        EmailService emailService = new EmailService(mailSender, gateway(provider), tokenCipher(), true);
         ReflectionTestUtils.setField(emailService, "frontendUrl", "https://frontend.test");
         return emailService;
+    }
+
+    private EmailJobTokenCipher tokenCipher() {
+        return new EmailJobTokenCipher(TEST_TOKEN_ENCRYPTION_KEY);
     }
 
     private JobSubmissionGateway gateway(ObjectProvider<JobScheduler> provider) {

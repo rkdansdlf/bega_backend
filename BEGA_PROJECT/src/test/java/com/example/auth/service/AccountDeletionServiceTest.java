@@ -4,8 +4,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -16,11 +17,11 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.AccountDeletionTokenRepository;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserRepository;
-import com.example.mate.service.PartyService;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -51,7 +52,7 @@ class AccountDeletionServiceTest {
     private AccountSecurityService accountSecurityService;
 
     @Mock
-    private PartyService partyService;
+    private AccountDeletionFinalizationService accountDeletionFinalizationService;
 
     @Test
     void scheduleAccountDeletion_sendsRecoveryEmailWithAccountSettingsRedirect() {
@@ -120,8 +121,11 @@ class AccountDeletionServiceTest {
                 .user(tokenUser)
                 .expiryDate(java.time.LocalDateTime.now().plusDays(3))
                 .build();
-        when(accountDeletionTokenRepository.findByToken("recovery-token")).thenReturn(Optional.of(token));
+        when(accountDeletionTokenRepository.findUserIdByToken("recovery-token"))
+                .thenReturn(Optional.of(43L));
         when(userRepository.findByIdForWrite(43L)).thenReturn(Optional.of(lockedUser));
+        when(accountDeletionTokenRepository.findByTokenAndUser_Id("recovery-token", 43L))
+                .thenReturn(Optional.of(token));
 
         assertThatThrownBy(() -> accountDeletionService.recoverAccount("recovery-token"))
                 .hasMessageContaining("복구 가능한");
@@ -129,5 +133,73 @@ class AccountDeletionServiceTest {
         verify(userRepository).findByIdForWrite(43L);
         verify(userRepository, never()).save(any());
         assertThat(lockedUser.isEnabled()).isFalse();
+    }
+
+    @Test
+    void recoverAccountReloadsTokenAfterLockingUser() {
+        UserEntity lockedUser = UserEntity.builder()
+                .id(44L)
+                .enabled(false)
+                .pendingDeletion(true)
+                .deletionScheduledFor(java.time.LocalDateTime.now().plusDays(2))
+                .build();
+        when(accountDeletionTokenRepository.findUserIdByToken("recovery-token"))
+                .thenReturn(Optional.of(44L));
+        when(userRepository.findByIdForWrite(44L)).thenReturn(Optional.of(lockedUser));
+        when(accountDeletionTokenRepository.findByTokenAndUser_Id("recovery-token", 44L))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> accountDeletionService.recoverAccount("recovery-token"))
+                .hasMessageContaining("유효하지 않은 복구 링크");
+
+        InOrder lockBeforeTokenRecheck = inOrder(userRepository, accountDeletionTokenRepository);
+        lockBeforeTokenRecheck.verify(accountDeletionTokenRepository).findUserIdByToken("recovery-token");
+        lockBeforeTokenRecheck.verify(userRepository).findByIdForWrite(44L);
+        lockBeforeTokenRecheck.verify(accountDeletionTokenRepository)
+                .findByTokenAndUser_Id("recovery-token", 44L);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void recoverAccountRechecksDeletionDeadlineAfterLockingUser() {
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        UserEntity lockedUser = UserEntity.builder()
+                .id(47L)
+                .enabled(false)
+                .pendingDeletion(true)
+                .deletionScheduledFor(now.minusSeconds(1))
+                .build();
+        AccountDeletionToken currentToken = AccountDeletionToken.builder()
+                .token("recovery-token")
+                .user(lockedUser)
+                .expiryDate(now.plusDays(1))
+                .build();
+        when(accountDeletionTokenRepository.findUserIdByToken("recovery-token"))
+                .thenReturn(Optional.of(47L));
+        when(userRepository.findByIdForWrite(47L)).thenReturn(Optional.of(lockedUser));
+        when(accountDeletionTokenRepository.findByTokenAndUser_Id("recovery-token", 47L))
+                .thenReturn(Optional.of(currentToken));
+
+        assertThatThrownBy(() -> accountDeletionService.recoverAccount("recovery-token"))
+                .hasMessageContaining("복구 가능한 계정 삭제 예약");
+
+        verify(userRepository, never()).save(any());
+        verify(accountSecurityService, never()).recordAccountDeletionCancelled(anyLong());
+    }
+
+    @Test
+    void finalizeDueDeletionsContinuesAfterOneUserFails() {
+        when(userRepository.findDuePendingDeletionUserIds(any()))
+                .thenReturn(java.util.List.of(44L, 45L, 46L));
+        when(accountDeletionFinalizationService.finalizeIfDue(eq(44L), any())).thenReturn(true);
+        when(accountDeletionFinalizationService.finalizeIfDue(eq(45L), any()))
+                .thenThrow(new IllegalStateException("synthetic per-user failure"));
+        when(accountDeletionFinalizationService.finalizeIfDue(eq(46L), any())).thenReturn(true);
+
+        accountDeletionService.finalizeDueDeletions();
+
+        verify(accountDeletionFinalizationService).finalizeIfDue(eq(44L), any());
+        verify(accountDeletionFinalizationService).finalizeIfDue(eq(45L), any());
+        verify(accountDeletionFinalizationService).finalizeIfDue(eq(46L), any());
     }
 }

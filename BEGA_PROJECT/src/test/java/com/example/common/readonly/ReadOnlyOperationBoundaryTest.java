@@ -1,5 +1,6 @@
 package com.example.common.readonly;
 
+import com.example.auth.service.EmailJobTokenCipher;
 import com.example.auth.service.EmailService;
 import com.example.common.exception.BusinessException;
 import com.example.common.jobs.JobSubmissionGateway;
@@ -34,6 +35,7 @@ class ReadOnlyOperationBoundaryTest {
     void mailRequestsAreRejectedBeforeDisabledOrImmediateSendFallback() {
         JavaMailSender sender = mock(JavaMailSender.class);
         runner.withUserConfiguration(EmailService.class)
+                .withBean(EmailJobTokenCipher.class, () -> new EmailJobTokenCipher(""))
                 .withBean(JavaMailSender.class, () -> sender)
                 .withPropertyValues("app.mail.enabled=false")
                 .run(context -> {

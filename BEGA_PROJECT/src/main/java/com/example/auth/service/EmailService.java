@@ -22,14 +22,17 @@ public class EmailService {
 
     private final JavaMailSender mailSender;
     private final JobSubmissionGateway jobScheduler;
+    private final EmailJobTokenCipher emailJobTokenCipher;
     private final boolean mailEnabled;
 
     public EmailService(
             JavaMailSender mailSender,
             JobSubmissionGateway jobScheduler,
+            EmailJobTokenCipher emailJobTokenCipher,
             @Value("${app.mail.enabled:false}") boolean mailEnabled) {
         this.mailSender = mailSender;
         this.jobScheduler = jobScheduler;
+        this.emailJobTokenCipher = emailJobTokenCipher;
         this.mailEnabled = mailEnabled;
     }
 
@@ -95,8 +98,11 @@ public class EmailService {
         }
         if (jobScheduler.isAvailable()) {
             try {
+                String protectedResetToken = emailJobTokenCipher.encrypt(
+                        EmailJobTokenCipher.Purpose.PASSWORD_RESET,
+                        resetToken);
                 jobScheduler.enqueue((EmailService emailService) ->
-                        emailService.sendPasswordResetEmailJob(toEmail, resetToken, redirectPath));
+                        emailService.sendPasswordResetEmailJob(toEmail, protectedResetToken, redirectPath));
                 log.info("Password reset email job enqueued for {}", LogMaskingUtil.maskEmail(toEmail));
                 return;
             } catch (RuntimeException e) {
@@ -123,10 +129,13 @@ public class EmailService {
             log.debug("Mail delivery disabled. Skipping password reset email job for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
+        String rawResetToken = emailJobTokenCipher.decrypt(
+                EmailJobTokenCipher.Purpose.PASSWORD_RESET,
+                resetToken);
         log.info("Starting email sending to {}", LogMaskingUtil.maskEmail(toEmail));
         String resetLink = UriComponentsBuilder.fromUriString(frontendUrl)
                 .path("/password/reset/confirm")
-                .queryParam("token", resetToken)
+                .queryParam("token", rawResetToken)
                 .queryParamIfPresent("redirect",
                         java.util.Optional.ofNullable(FrontendRedirectUtil.sanitizeRedirect(redirectPath)))
                 .build()
@@ -225,8 +234,15 @@ public class EmailService {
         }
         if (jobScheduler.isAvailable()) {
             try {
+                String protectedRecoveryToken = emailJobTokenCipher.encrypt(
+                        EmailJobTokenCipher.Purpose.ACCOUNT_DELETION_RECOVERY,
+                        recoveryToken);
                 jobScheduler.enqueue((EmailService emailService) ->
-                        emailService.sendAccountDeletionRecoveryEmailJob(toEmail, recoveryToken, scheduledFor, redirectPath));
+                        emailService.sendAccountDeletionRecoveryEmailJob(
+                                toEmail,
+                                protectedRecoveryToken,
+                                scheduledFor,
+                                redirectPath));
                 log.info("Account deletion recovery email job enqueued for {}", LogMaskingUtil.maskEmail(toEmail));
                 return;
             } catch (RuntimeException e) {
@@ -252,9 +268,12 @@ public class EmailService {
             log.debug("Mail delivery disabled. Skipping account deletion recovery email job for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
+        String rawRecoveryToken = emailJobTokenCipher.decrypt(
+                EmailJobTokenCipher.Purpose.ACCOUNT_DELETION_RECOVERY,
+                recoveryToken);
         String recoveryLink = UriComponentsBuilder.fromUriString(frontendUrl)
                 .path("/account/deletion/recovery")
-                .queryParam("token", recoveryToken)
+                .queryParam("token", rawRecoveryToken)
                 .queryParamIfPresent("redirect",
                         java.util.Optional.ofNullable(FrontendRedirectUtil.sanitizeRedirect(redirectPath)))
                 .build()
