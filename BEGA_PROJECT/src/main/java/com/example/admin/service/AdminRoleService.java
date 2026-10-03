@@ -53,10 +53,15 @@ public class AdminRoleService {
                 }
 
                 // 3. 대상 사용자 조회
-                UserEntity targetUser = userRepository.findById(Objects.requireNonNull(targetUserId))
+                UserEntity targetUser = userRepository.findByIdForWrite(Objects.requireNonNull(targetUserId))
                                 .orElseThrow(() -> new UserNotFoundException(targetUserId));
 
-                // 4. 이미 ADMIN 이상인지 확인
+                // 4. 삭제 처리로 비활성화된 계정은 관리자 권한으로 승격할 수 없음
+                if (!targetUser.isEnabled()) {
+                        throw new InvalidRoleChangeException("비활성화된 계정은 관리자로 승격할 수 없습니다.");
+                }
+
+                // 5. 이미 ADMIN 이상인지 확인
                 if (targetUser.isAdmin()) {
                         throw new InvalidRoleChangeException(
                                         "해당 사용자는 이미 관리자 권한을 보유하고 있습니다. 현재 역할: " + targetUser.getRole());

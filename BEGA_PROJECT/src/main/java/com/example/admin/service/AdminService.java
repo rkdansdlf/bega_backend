@@ -189,7 +189,10 @@ public class AdminService {
     @Transactional
     public void deleteUser(Long userId, Long adminId) {
         Objects.requireNonNull(userId, "userId must not be null");
-        deletionPreparationService.disableForDeletion(userId);
+        UserEntity deletionCandidate = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("유저를 찾을 수 없습니다."));
+        AdminUserDeletionPolicy.assertCanDelete(adminId, deletionCandidate);
+        deletionPreparationService.disableForDeletion(userId, adminId);
 
         UserEntity user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("유저를 찾을 수 없습니다."));
