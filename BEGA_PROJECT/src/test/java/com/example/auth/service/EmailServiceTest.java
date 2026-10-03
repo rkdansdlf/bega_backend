@@ -1,5 +1,8 @@
 package com.example.auth.service;
 
+import com.example.common.jobs.JobSubmissionGateway;
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
+import org.springframework.mock.env.MockEnvironment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -33,7 +36,10 @@ class EmailServiceTest {
 
     @Test
     void disabledMailSkipsEnqueueAndDelivery() {
-        EmailService emailService = new EmailService(mailSender, objectProvider(jobScheduler), false);
+        EmailService emailService = new EmailService(
+                mailSender,
+                gateway(objectProvider(jobScheduler)),
+                false);
 
         emailService.sendPasswordResetEmail("user@example.com", "token");
         emailService.sendNewDeviceLoginEmail("user@example.com", "MacBook", "Chrome", "macOS", "127.0.0.1");
@@ -48,7 +54,10 @@ class EmailServiceTest {
 
     @Test
     void enabledMailEnqueuesJobsWhenSchedulerAvailable() {
-        EmailService emailService = new EmailService(mailSender, objectProvider(jobScheduler), true);
+        EmailService emailService = new EmailService(
+                mailSender,
+                gateway(objectProvider(jobScheduler)),
+                true);
 
         emailService.sendPasswordResetEmail("user@example.com", "token");
         emailService.sendNewDeviceLoginEmail("user@example.com", "MacBook", "Chrome", "macOS", "127.0.0.1");
@@ -140,9 +149,13 @@ class EmailServiceTest {
     }
 
     private EmailService createEnabledEmailService(ObjectProvider<JobScheduler> provider) {
-        EmailService emailService = new EmailService(mailSender, provider, true);
+        EmailService emailService = new EmailService(mailSender, gateway(provider), true);
         ReflectionTestUtils.setField(emailService, "frontendUrl", "https://frontend.test");
         return emailService;
+    }
+
+    private JobSubmissionGateway gateway(ObjectProvider<JobScheduler> provider) {
+        return new JobSubmissionGateway(provider, new ReadOnlyVerificationPolicy(new MockEnvironment()));
     }
 
     private ObjectProvider<JobScheduler> objectProvider(JobScheduler scheduler) {

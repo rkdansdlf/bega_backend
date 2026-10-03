@@ -5,8 +5,7 @@ import com.example.auth.util.LogMaskingUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.jobrunr.jobs.annotations.Job;
-import org.jobrunr.scheduling.JobScheduler;
-import org.springframework.beans.factory.ObjectProvider;
+import com.example.common.jobs.JobSubmissionGateway;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -22,15 +21,15 @@ import java.time.format.DateTimeFormatter;
 public class EmailService {
 
     private final JavaMailSender mailSender;
-    private final JobScheduler jobScheduler;
+    private final JobSubmissionGateway jobScheduler;
     private final boolean mailEnabled;
 
     public EmailService(
             JavaMailSender mailSender,
-            ObjectProvider<JobScheduler> jobSchedulerProvider,
+            JobSubmissionGateway jobScheduler,
             @Value("${app.mail.enabled:false}") boolean mailEnabled) {
         this.mailSender = mailSender;
-        this.jobScheduler = jobSchedulerProvider.getIfAvailable();
+        this.jobScheduler = jobScheduler;
         this.mailEnabled = mailEnabled;
     }
 
@@ -38,6 +37,7 @@ public class EmailService {
     private String frontendUrl;
 
     public void sendOAuthEmailChallenge(String toEmail, String challengeId, String rawToken) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             log.warn("Mail delivery disabled. OAuth email challenge cannot be delivered to {}",
                     LogMaskingUtil.maskEmail(toEmail));
@@ -50,6 +50,7 @@ public class EmailService {
 
     @Job(name = "Send OAuth Email Challenge")
     public void sendOAuthEmailChallengeJob(String toEmail, String challengeId, String rawToken) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             return;
         }
@@ -87,11 +88,12 @@ public class EmailService {
     }
 
     public void sendPasswordResetEmail(String toEmail, String resetToken, String redirectPath) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             log.debug("Mail delivery disabled. Skipping password reset email enqueue for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
-        if (jobScheduler != null) {
+        if (jobScheduler.isAvailable()) {
             try {
                 jobScheduler.enqueue((EmailService emailService) ->
                         emailService.sendPasswordResetEmailJob(toEmail, resetToken, redirectPath));
@@ -116,6 +118,7 @@ public class EmailService {
 
     @Job(name = "Send Password Reset Email")
     public void sendPasswordResetEmailJob(String toEmail, String resetToken, String redirectPath) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             log.debug("Mail delivery disabled. Skipping password reset email job for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
@@ -153,11 +156,12 @@ public class EmailService {
     }
 
     public void sendNewDeviceLoginEmail(String toEmail, String deviceLabel, String browser, String os, String ipAddress) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             log.debug("Mail delivery disabled. Skipping new device login email enqueue for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
-        if (jobScheduler != null) {
+        if (jobScheduler.isAvailable()) {
             try {
                 jobScheduler.enqueue((EmailService emailService) ->
                         emailService.sendNewDeviceLoginEmailJob(toEmail, deviceLabel, browser, os, ipAddress));
@@ -173,6 +177,7 @@ public class EmailService {
 
     @Job(name = "Send New Device Login Email")
     public void sendNewDeviceLoginEmailJob(String toEmail, String deviceLabel, String browser, String os, String ipAddress) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             log.debug("Mail delivery disabled. Skipping new device login email job for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
@@ -213,11 +218,12 @@ public class EmailService {
     }
 
     public void sendAccountDeletionRecoveryEmail(String toEmail, String recoveryToken, LocalDateTime scheduledFor, String redirectPath) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             log.debug("Mail delivery disabled. Skipping account deletion recovery email enqueue for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
-        if (jobScheduler != null) {
+        if (jobScheduler.isAvailable()) {
             try {
                 jobScheduler.enqueue((EmailService emailService) ->
                         emailService.sendAccountDeletionRecoveryEmailJob(toEmail, recoveryToken, scheduledFor, redirectPath));
@@ -241,6 +247,7 @@ public class EmailService {
             String recoveryToken,
             LocalDateTime scheduledFor,
             String redirectPath) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             log.debug("Mail delivery disabled. Skipping account deletion recovery email job for {}", LogMaskingUtil.maskEmail(toEmail));
             return;

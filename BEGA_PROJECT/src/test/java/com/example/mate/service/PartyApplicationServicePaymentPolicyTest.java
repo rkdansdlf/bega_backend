@@ -1,5 +1,6 @@
 package com.example.mate.service;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
 import com.example.auth.service.UserService;
 import com.example.auth.entity.UserEntity;
 import com.example.kbo.service.TicketVerificationTokenStore;
@@ -57,6 +58,11 @@ class PartyApplicationServicePaymentPolicyTest {
     private PaymentTransactionService paymentTransactionService;
     @Mock
     private MatePaymentModeService matePaymentModeService;
+
+    @Mock
+
+    private ReadOnlyVerificationPolicy readOnlyVerificationPolicy;
+
 
     @InjectMocks
     private PartyApplicationService partyApplicationService;

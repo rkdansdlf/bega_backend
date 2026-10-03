@@ -1,5 +1,8 @@
 package com.example.mate.scheduler;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
+import org.springframework.context.annotation.Profile;
+
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.dto.PartyApplicationDTO;
@@ -32,6 +35,7 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Component
+@Profile("!" + ReadOnlyVerificationPolicy.PROFILE)
 @RequiredArgsConstructor
 public class PartyLifecycleScheduler implements ApplicationRunner {
 

@@ -1,5 +1,8 @@
 package com.example.auth.scheduler;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
+import org.springframework.context.annotation.Profile;
+
 import com.example.auth.service.AccountDeletionService;
 import com.example.auth.service.AccountSecurityService;
 import jakarta.annotation.PostConstruct;
@@ -11,6 +14,7 @@ import org.jobrunr.scheduling.cron.Cron;
 import org.springframework.stereotype.Component;
 
 @Component
+@Profile("!" + ReadOnlyVerificationPolicy.PROFILE)
 @RequiredArgsConstructor
 @Slf4j
 public class AccountSecurityScheduler {

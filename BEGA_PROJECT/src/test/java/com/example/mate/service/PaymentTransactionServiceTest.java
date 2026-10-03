@@ -1,5 +1,6 @@
 package com.example.mate.service;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
 import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.CancelReasonType;
@@ -72,6 +73,11 @@ class PaymentTransactionServiceTest {
     private SellerRecoveryService sellerRecoveryService;
     @Mock
     private PaymentCancellationIntentService cancellationIntentService;
+
+    @Mock
+
+    private ReadOnlyVerificationPolicy readOnlyVerificationPolicy;
+
 
     @InjectMocks
     private PaymentTransactionService paymentTransactionService;

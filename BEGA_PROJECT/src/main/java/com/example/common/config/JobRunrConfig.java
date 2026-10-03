@@ -1,5 +1,8 @@
 package com.example.common.config;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
+import org.springframework.context.annotation.Profile;
+
 import org.jobrunr.jobs.mappers.JobMapper;
 import org.jobrunr.storage.InMemoryStorageProvider;
 import org.jobrunr.storage.StorageProvider;
@@ -15,6 +18,7 @@ import java.util.Arrays;
 import java.util.function.Supplier;
 
 @Configuration
+@Profile("!" + ReadOnlyVerificationPolicy.PROFILE)
 @Slf4j
 public class JobRunrConfig {
 

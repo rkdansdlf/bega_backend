@@ -18,7 +18,7 @@ import com.example.mate.repository.PaymentIntentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jobrunr.jobs.annotations.Job;
-import org.jobrunr.scheduling.JobScheduler;
+import com.example.common.jobs.JobSubmissionGateway;
 import org.springframework.http.HttpStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -43,7 +43,7 @@ public class PaymentIntentService {
     private final PartyRepository partyRepository;
     private final PaymentAmountCalculator paymentAmountCalculator;
     private final TossPaymentService tossPaymentService;
-    private final JobScheduler jobScheduler;
+    private final JobSubmissionGateway jobScheduler;
     private final PaymentMetricsService paymentMetricsService;
     private final PaymentIntentReconciliationService paymentIntentReconciliationService;
     private final UserService userService;
@@ -56,11 +56,13 @@ public class PaymentIntentService {
 
     @Transactional
     public TossPaymentDTO.PrepareResponse prepareIntent(TossPaymentDTO.PrepareClientRequest request, Principal principal) {
+        jobScheduler.requireWritable();
         return prepareIntent(request, resolveUserId(principal));
     }
 
     @Transactional
     public TossPaymentDTO.PrepareResponse prepareIntent(TossPaymentDTO.PrepareClientRequest request, Long applicantId) {
+        jobScheduler.requireWritable();
         if (request == null || request.getPartyId() == null) {
             throw new InvalidApplicationStatusException("partyId는 필수입니다.");
         }
@@ -104,11 +106,13 @@ public class PaymentIntentService {
 
     @Transactional
     public PaymentIntent resolveIntentForConfirm(TossPaymentDTO.ClientConfirmRequest request, Principal principal) {
+        jobScheduler.requireWritable();
         return resolveIntentForConfirm(request, resolveUserId(principal));
     }
 
     @Transactional
     public PaymentIntent resolveIntentForConfirm(TossPaymentDTO.ClientConfirmRequest request, Long applicantId) {
+        jobScheduler.requireWritable();
         if (request == null || request.getOrderId() == null || request.getOrderId().isBlank()) {
             throw new InvalidApplicationStatusException("orderId는 필수입니다.");
         }
@@ -172,6 +176,7 @@ public class PaymentIntentService {
 
     @Transactional
     public void markConfirmed(PaymentIntent intent, String paymentKey) {
+        jobScheduler.requireWritable();
         if (intent.getStatus() == PaymentIntent.IntentStatus.APPLICATION_CREATED) {
             return;
         }
@@ -183,12 +188,14 @@ public class PaymentIntentService {
 
     @Transactional
     public void markApplicationCreated(PaymentIntent intent) {
+        jobScheduler.requireWritable();
         intent.setStatus(PaymentIntent.IntentStatus.APPLICATION_CREATED);
         paymentIntentRepository.save(intent);
     }
 
     @Transactional
     public void compensateAfterApplicationFailure(Long intentId, RuntimeException cause) {
+        jobScheduler.requireWritable();
         if (intentId == null) {
             return;
         }
@@ -258,6 +265,7 @@ public class PaymentIntentService {
     @Job(name = "Retry Toss Payment Compensation")
     @Transactional
     public void retryCompensation(Long intentId, int attempt) {
+        jobScheduler.requireWritable();
         paymentIntentRepository.findByIdForUpdate(intentId).ifPresent(intent -> {
             if (intent.getStatus() == PaymentIntent.IntentStatus.APPLICATION_CREATED
                     || intent.getStatus() == PaymentIntent.IntentStatus.CANCELED
@@ -324,6 +332,7 @@ public class PaymentIntentService {
     @Job(name = "Reconcile Toss Payment Intents")
     @Transactional
     public void reconcileCompensationTargets() {
+        jobScheduler.requireWritable();
         List<PaymentIntent> targets = paymentIntentRepository.findByStatusInAndUpdatedAtBefore(
                 EnumSet.of(
                         PaymentIntent.IntentStatus.CONFIRMED,
@@ -349,6 +358,7 @@ public class PaymentIntentService {
      */
     @Transactional
     public PaymentIntent.IntentStatus cancelPaymentIntent(Long intentId, Long userId, String cancelReason) {
+        jobScheduler.requireWritable();
         PaymentIntent intent = paymentIntentRepository.findByIdAndApplicantIdForUpdate(intentId, userId)
                 .orElseThrow(() -> new TossPaymentException(
                         "PAYMENT_INTENT_NOT_FOUND",

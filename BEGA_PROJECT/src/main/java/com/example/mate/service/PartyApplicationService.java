@@ -1,5 +1,7 @@
 package com.example.mate.service;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
+
 import com.example.auth.entity.UserEntity;
 import com.example.auth.service.UserService;
 import com.example.common.exception.AuthenticationRequiredException;
@@ -53,6 +55,7 @@ public class PartyApplicationService {
     private final TicketVerificationTokenStore ticketVerificationTokenStore;
     private final PaymentTransactionService paymentTransactionService;
     private final MatePaymentModeService matePaymentModeService;
+    private final ReadOnlyVerificationPolicy readOnlyVerificationPolicy;
 
     @Value("${payment.selling.enforced:true}")
     private boolean sellingPaymentEnforced;
@@ -65,11 +68,13 @@ public class PartyApplicationService {
      */
     @Transactional
     public PartyApplicationDTO.Response createApplication(PartyApplicationDTO.Request request, Principal principal) {
+        readOnlyVerificationPolicy.requireWritable();
         return createApplication(request, resolveUserId(principal), principal.getName());
     }
 
     @Transactional
     public PartyApplicationDTO.Response createApplication(PartyApplicationDTO.Request request, Long userId) {
+        readOnlyVerificationPolicy.requireWritable();
         return createApplication(request, userId, null);
     }
 
@@ -132,6 +137,7 @@ public class PartyApplicationService {
             String orderId,
             Integer confirmedAmount,
             PartyApplication.PaymentType forcedPaymentType) {
+        readOnlyVerificationPolicy.requireWritable();
         return createOrGetApplicationWithPayment(
                 request,
                 resolveUserId(principal),
@@ -150,6 +156,7 @@ public class PartyApplicationService {
             String orderId,
             Integer confirmedAmount,
             PartyApplication.PaymentType forcedPaymentType) {
+        readOnlyVerificationPolicy.requireWritable();
         return createOrGetApplicationWithPayment(
                 request,
                 userId,
@@ -167,6 +174,7 @@ public class PartyApplicationService {
             String orderId,
             Integer confirmedAmount,
             PartyApplication.PaymentType forcedPaymentType) {
+        readOnlyVerificationPolicy.requireWritable();
         return createOrGetApplicationWithPayment(
                 request,
                 resolveUserId(principal),
@@ -185,6 +193,7 @@ public class PartyApplicationService {
             String orderId,
             Integer confirmedAmount,
             PartyApplication.PaymentType forcedPaymentType) {
+        readOnlyVerificationPolicy.requireWritable();
         return createOrGetApplicationWithPayment(
                 request,
                 applicantId,
@@ -371,11 +380,13 @@ public class PartyApplicationService {
     // 신청 승인
     @Transactional
     public PartyApplicationDTO.Response approveApplication(Long applicationId, Principal principal) {
+        readOnlyVerificationPolicy.requireWritable();
         return approveApplication(applicationId, resolveUserId(principal));
     }
 
     @Transactional
     public PartyApplicationDTO.Response approveApplication(Long applicationId, Long userId) {
+        readOnlyVerificationPolicy.requireWritable();
         Long hostId = requireUserId(userId);
         PartyApplication application = requireHostedApplicationForUpdate(applicationId, hostId);
         Party lockedParty = partyRepository.findById(application.getPartyId())
@@ -424,11 +435,13 @@ public class PartyApplicationService {
     // 신청 거절
     @Transactional
     public PartyApplicationDTO.Response rejectApplication(Long applicationId, Principal principal) {
+        readOnlyVerificationPolicy.requireWritable();
         return rejectApplication(applicationId, resolveUserId(principal));
     }
 
     @Transactional
     public PartyApplicationDTO.Response rejectApplication(Long applicationId, Long userId) {
+        readOnlyVerificationPolicy.requireWritable();
         Long hostId = requireUserId(userId);
         PartyApplication application = requireHostedApplicationForUpdate(applicationId, hostId);
 
@@ -473,11 +486,13 @@ public class PartyApplicationService {
     // 신청 취소 (신청자가 취소) — Principal 기반
     @Transactional
     public void cancelApplication(Long applicationId, Principal principal) {
+        readOnlyVerificationPolicy.requireWritable();
         cancelApplication(applicationId, resolveUserId(principal));
     }
 
     @Transactional
     public void cancelApplication(Long applicationId, Long userId) {
+        readOnlyVerificationPolicy.requireWritable();
         cancelApplication(applicationId, userId, PartyApplicationDTO.CancelRequest.builder()
                 .cancelReasonType(CancelReasonType.BUYER_CHANGED_MIND)
                 .build());
@@ -488,6 +503,7 @@ public class PartyApplicationService {
             Long applicationId,
             Principal principal,
             PartyApplicationDTO.CancelRequest cancelRequest) {
+        readOnlyVerificationPolicy.requireWritable();
         return cancelApplication(applicationId, resolveUserId(principal), cancelRequest);
     }
 
@@ -496,6 +512,7 @@ public class PartyApplicationService {
             Long applicationId,
             Long userId,
             PartyApplicationDTO.CancelRequest cancelRequest) {
+        readOnlyVerificationPolicy.requireWritable();
         Long applicantId = requireUserId(userId);
         PartyApplication application = requireApplicantApplicationForUpdate(applicationId, applicantId);
         PartyApplicationDTO.CancelRequest applicantCancelRequest = sanitizeApplicantCancelRequest(cancelRequest);
