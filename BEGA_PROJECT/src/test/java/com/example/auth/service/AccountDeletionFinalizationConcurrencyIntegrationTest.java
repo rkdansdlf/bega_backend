@@ -11,6 +11,7 @@ import com.example.auth.repository.UserRepository;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.mate.service.PartyService;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -57,7 +58,8 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
 
     @Test
     void finalizerFailureRollsBackOnlyThatUserAndContinuesBatch() {
-        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1);
+        // DB timestamps are microsecond precision; Linux clocks are nanosecond. Compare at the stored precision.
+        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
         UserEntity failedUser = savePendingUser(dueAt);
         UserEntity successfulUser = savePendingUser(dueAt);
         String failedToken = saveRecoveryToken(failedUser, dueAt);
@@ -77,7 +79,8 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
 
     @Test
     void recoveryCannotReviveAnAccountAfterFinalizerWinsTheUserLock() throws Exception {
-        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1);
+        // DB timestamps are microsecond precision; Linux clocks are nanosecond. Compare at the stored precision.
+        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
         UserEntity user = savePendingUser(dueAt);
         String recoveryToken = saveRecoveryToken(user, dueAt);
         CountDownLatch finalizerHoldingUserLock = new CountDownLatch(1);
