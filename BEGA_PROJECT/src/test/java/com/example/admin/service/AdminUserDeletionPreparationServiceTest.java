@@ -133,4 +133,23 @@ class AdminUserDeletionPreparationServiceTest {
         verifyNoInteractions(accountDeletionTokenRepository);
         verify(userRepository, never()).save(user);
     }
+
+    @Test
+    void disableForDeletionRejectsSelfDeletionUnderTheLockWithoutSideEffects() {
+        UserEntity user = UserEntity.builder()
+                .id(44L)
+                .role("ROLE_USER")
+                .enabled(true)
+                .tokenVersion(9)
+                .build();
+        given(userRepository.findByIdForWrite(44L)).willReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> preparationService.disableForDeletion(44L, 44L))
+                .isInstanceOf(AccessDeniedException.class);
+
+        assertThat(user.isEnabled()).isTrue();
+        assertThat(user.getTokenVersion()).isEqualTo(9);
+        verifyNoInteractions(accountDeletionTokenRepository);
+        verify(userRepository, never()).save(user);
+    }
 }

@@ -71,7 +71,6 @@ class AdminServiceTest {
         adminService.deleteUser(51L, null);
 
         InOrder order = inOrder(userRepository, deletionPreparationService, partyService);
-        order.verify(userRepository).findById(51L);
         order.verify(deletionPreparationService).disableForDeletion(51L, null);
         order.verify(userRepository).findById(51L);
         order.verify(partyService).handleUserDeletion(51L);
