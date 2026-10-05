@@ -189,7 +189,10 @@ public class AdminService {
     @Transactional
     public void deleteUser(Long userId, Long adminId) {
         Objects.requireNonNull(userId, "userId must not be null");
-        deletionPreparationService.disableForDeletion(userId);
+        // 삭제 정책은 대상 행을 잠근 뒤 REQUIRES_NEW 준비 단계 안에서 강제된다. 여기서 사용자를 먼저 읽으면
+        // 그 엔티티가 바깥 영속성 컨텍스트에 비활성화 이전 상태로 남아, 이후 이 트랜잭션의 UPDATE 가
+        // enabled=true 를 되쓸 수 있으므로 반드시 준비 단계 이후에 읽는다.
+        deletionPreparationService.disableForDeletion(userId, adminId);
 
         UserEntity user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("유저를 찾을 수 없습니다."));

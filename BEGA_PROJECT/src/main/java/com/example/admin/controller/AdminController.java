@@ -25,6 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
@@ -164,6 +165,9 @@ public class AdminController {
     public ResponseEntity<ApiResponse<Void>> deleteUser(
             @AuthenticationPrincipal Long adminId,
             @PathVariable Long userId) {
+        if (adminId == null) {
+            throw new AccessDeniedException("인증된 관리자 식별자가 필요합니다.");
+        }
         adminService.deleteUser(userId, adminId);
         return ResponseEntity.ok(ApiResponse.success("유저가 삭제되었습니다."));
     }

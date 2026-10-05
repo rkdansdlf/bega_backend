@@ -18,10 +18,11 @@ public class AdminUserDeletionPreparationService {
     private final AccountDeletionTokenRepository accountDeletionTokenRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public UserEntity disableForDeletion(Long userId) {
+    public UserEntity disableForDeletion(Long userId, Long actingUserId) {
         Long requiredUserId = Objects.requireNonNull(userId, "userId must not be null");
         UserEntity user = userRepository.findByIdForWrite(requiredUserId)
                 .orElseThrow(() -> new IllegalArgumentException("유저를 찾을 수 없습니다."));
+        AdminUserDeletionPolicy.assertCanDelete(actingUserId, user);
         boolean changed = false;
         if (user.isEnabled()) {
             user.setEnabled(false);
