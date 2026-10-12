@@ -1,5 +1,6 @@
 package com.example.common.config;
 
+import com.example.admin.dto.AuditLogDto;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.PathItem;
@@ -11,6 +12,7 @@ import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import io.swagger.v3.core.converter.ModelConverters;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -80,10 +82,62 @@ public class SwaggerConfig {
             replaceProperty(schemas, "PredictionStatsResponseDto", "data", nullableRef("UserPredictionStatsDto"));
             replaceProperty(schemas, "PredictionStatsResponseDto", "code", nullablePrimitive("string", null));
             replaceProperty(schemas, "PredictionStatsResponseDto", "errors", nullableStringMap());
+            replaceProperty(schemas, "AdminSeatViewDto", "diaryId", nullablePrimitive("integer", "int64"));
+            replaceProperty(schemas, "AdminSeatViewDto", "rating", nullablePrimitive("integer", "int32"));
+            replaceProperty(schemas, "AdminSeatViewDto", "comment", nullablePrimitive("string", null));
             removeProperty(schemas, "HomeRankingSnapshotDto", "offSeason");
+            ModelConverters.getInstance().read(AuditLogDto.class).forEach(schemas::putIfAbsent);
+            specializeSpringPageSchemas(schemas);
             ensureMatchesRangePageSchema(schemas);
             replaceMatchesRangeResponse(openApi);
         };
+    }
+
+    private static void specializeSpringPageSchemas(Map<String, Schema> schemas) {
+        Schema<?> sharedPageSchema = schemas.get("PageObject");
+        if (sharedPageSchema == null || sharedPageSchema.getProperties() == null) {
+            return;
+        }
+
+        for (String responseName : new java.util.ArrayList<>(schemas.keySet())) {
+            String pagePrefix = "ApiResponsePage";
+            if (!responseName.startsWith(pagePrefix)) {
+                continue;
+            }
+
+            String itemSchemaName = responseName.substring(pagePrefix.length());
+            if (!schemas.containsKey(itemSchemaName)) {
+                continue;
+            }
+
+            Schema<?> responseSchema = schemas.get(responseName);
+            if (responseSchema == null || responseSchema.getProperties() == null) {
+                continue;
+            }
+            Object dataProperty = responseSchema.getProperties().get("data");
+            if (!(dataProperty instanceof Schema<?> dataSchema)
+                    || !"#/components/schemas/PageObject".equals(dataSchema.get$ref())) {
+                continue;
+            }
+
+            String typedPageName = "Page" + itemSchemaName;
+            if (!schemas.containsKey(typedPageName)) {
+                Schema<?> typedPageSchema = new Schema<>().type(sharedPageSchema.getType());
+                sharedPageSchema.getProperties().forEach((propertyName, propertySchema) -> {
+                    if ("content".equals(propertyName)) {
+                        typedPageSchema.addProperty("content", new ArraySchema()
+                                .items(new Schema<>().$ref("#/components/schemas/" + itemSchemaName)));
+                    } else if (propertySchema instanceof Schema<?> schema) {
+                        typedPageSchema.addProperty(propertyName, schema);
+                    }
+                });
+                if (sharedPageSchema.getRequired() != null) {
+                    typedPageSchema.setRequired(new java.util.ArrayList<>(sharedPageSchema.getRequired()));
+                }
+                schemas.put(typedPageName, typedPageSchema);
+            }
+            dataSchema.set$ref("#/components/schemas/" + typedPageName);
+        }
     }
 
     private static void replaceProperty(

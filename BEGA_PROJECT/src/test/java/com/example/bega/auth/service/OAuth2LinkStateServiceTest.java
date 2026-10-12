@@ -1,5 +1,8 @@
 package com.example.bega.auth.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.bega.auth.dto.OAuth2LinkStateData;
 import com.example.bega.auth.dto.OAuth2LinkTicketData;
@@ -13,17 +16,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -63,7 +66,7 @@ class OAuth2LinkStateServiceTest {
             String value = inv.getArgument(1);
             redisStorage.put(key, value);
             return null;
-        }).when(valueOperations).set(anyString(), anyString(), anyLong(), any(TimeUnit.class));
+        }).when(valueOperations).set(anyString(), anyString(), any(Duration.class));
 
         lenient().when(valueOperations.getAndDelete(anyString())).thenAnswer(inv -> {
             String key = inv.getArgument(0);
@@ -78,7 +81,7 @@ class OAuth2LinkStateServiceTest {
 
         ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> jsonCaptor = ArgumentCaptor.forClass(String.class);
-        verify(valueOperations).set(keyCaptor.capture(), jsonCaptor.capture(), eq(300_000L), eq(TimeUnit.MILLISECONDS));
+        verify(valueOperations).set(keyCaptor.capture(), jsonCaptor.capture(), eq(Duration.ofMinutes(5)));
 
         assertThat(ticket).isNotBlank();
         assertThat(keyCaptor.getValue()).startsWith("oauth2:link:ticket:");
@@ -136,12 +139,42 @@ class OAuth2LinkStateServiceTest {
 
         ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> jsonCaptor = ArgumentCaptor.forClass(String.class);
-        verify(valueOperations).set(keyCaptor.capture(), jsonCaptor.capture(), eq(300_000L), eq(TimeUnit.MILLISECONDS));
+        verify(valueOperations).set(keyCaptor.capture(), jsonCaptor.capture(), eq(Duration.ofMinutes(5)));
 
         assertThat(keyCaptor.getAllValues()).anyMatch(value -> value.equals("oauth2:link:state:raw-state-1"));
         OAuth2LinkStateData saved = objectMapper.readValue(jsonCaptor.getAllValues().get(jsonCaptor.getAllValues().size() - 1),
                 OAuth2LinkStateData.class);
         assertThat(saved).isEqualTo(data);
+    }
+
+    @Test
+    @DisplayName("saveLinkByState: Redis 오류 로그에서 원본 state 키를 제외")
+    void saveLinkByState_doesNotLogOriginalStateFromRedisException() {
+        String originalState = "raw-state-key-error-sentinel";
+        doThrow(new IllegalStateException("Redis failed for oauth2:link:state:" + originalState))
+                .when(valueOperations)
+                .set(anyString(), anyString(), any(Duration.class));
+        Logger logger = (Logger) LoggerFactory.getLogger(OAuth2LinkStateService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            assertThatThrownBy(() -> service.saveLinkByState(
+                    originalState, new OAuth2LinkStateData(101L, System.currentTimeMillis(), null)))
+                    .isInstanceOf(OAuth2LinkStateService.OAuth2LinkStateStoreException.class);
+
+            assertThat(appender.list).allSatisfy(event -> {
+                assertThat(event.getFormattedMessage()).doesNotContain(originalState);
+                for (var throwable = event.getThrowableProxy(); throwable != null;
+                        throwable = throwable.getCause()) {
+                    assertThat(throwable.getMessage()).doesNotContain(originalState);
+                }
+            });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
@@ -168,7 +201,7 @@ class OAuth2LinkStateServiceTest {
     void issueLinkToken_throwsWhenRedisWriteFails() {
         doThrow(new RuntimeException("redis down"))
                 .when(valueOperations)
-                .set(anyString(), anyString(), anyLong(), any(TimeUnit.class));
+                .set(anyString(), anyString(), any(Duration.class));
 
         assertThatThrownBy(() -> service.issueLinkToken(1L))
                 .isInstanceOf(OAuth2LinkStateService.OAuth2LinkStateStoreException.class)

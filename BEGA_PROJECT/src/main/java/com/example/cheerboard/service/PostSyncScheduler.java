@@ -5,7 +5,6 @@ import org.springframework.context.annotation.Profile;
 
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.repo.CheerPostHotScoreProjection;
-import com.example.cheerboard.repo.CheerPostRepo;
 import lombok.extern.slf4j.Slf4j;
 import org.jobrunr.jobs.annotations.Job;
 import org.jobrunr.scheduling.JobScheduler;
@@ -14,8 +13,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.util.Objects;
 import java.util.Set;
 
@@ -25,19 +22,19 @@ import java.util.Set;
 public class PostSyncScheduler implements ApplicationRunner {
 
     private final RedisPostService redisPostService;
-    private final CheerPostRepo postRepo;
+    private final CheerPostViewSyncService viewSyncService;
     private final CheerService cheerService;
     private final JobScheduler jobScheduler;
     private final boolean schedulerEnabled;
 
     public PostSyncScheduler(
             RedisPostService redisPostService,
-            CheerPostRepo postRepo,
+            CheerPostViewSyncService viewSyncService,
             CheerService cheerService,
             JobScheduler jobScheduler,
             @Value("${app.cheer.post-sync.scheduler.enabled:true}") boolean schedulerEnabled) {
         this.redisPostService = redisPostService;
-        this.postRepo = postRepo;
+        this.viewSyncService = viewSyncService;
         this.cheerService = cheerService;
         this.jobScheduler = jobScheduler;
         this.schedulerEnabled = schedulerEnabled;
@@ -63,7 +60,6 @@ public class PostSyncScheduler implements ApplicationRunner {
      * Job 어노테이션을 통해 대시보드에서 식별 가능
      */
     @Job(name = "Sync Redis View Counts to DB")
-    @Transactional
     public void syncViewCounts() {
         Set<Long> dirtyPostIds = redisPostService.getDirtyPostIds();
         if (dirtyPostIds.isEmpty()) {
@@ -82,19 +78,20 @@ public class PostSyncScheduler implements ApplicationRunner {
         log.info("Post sync job completed");
     }
 
-    @Transactional
     public void processPostSync(Long postId) {
         Long requiredPostId = Objects.requireNonNull(postId);
-        Integer viewsInRedis = redisPostService.getViewCount(requiredPostId);
-        if (viewsInRedis == null || viewsInRedis <= 0) {
+        long watermark = viewSyncService.getViewSyncWatermark(requiredPostId);
+        var batch = redisPostService.claimViewCountSyncBatch(requiredPostId, watermark);
+        if (batch.isEmpty()) {
+            redisPostService.clearDirtyPostIfNoSyncWork(requiredPostId);
             return;
         }
 
-        postRepo.findHotScoreProjectionById(requiredPostId).ifPresent(post -> {
-            postRepo.incrementViewCountByDelta(requiredPostId, viewsInRedis);
-            redisPostService.clearDirtyPost(requiredPostId, viewsInRedis);
-            cheerService.updateHotScore(toHotScorePost(post, viewsInRedis));
-        });
+        RedisPostService.ViewCountSyncBatch claimedBatch = batch.get();
+        var post = viewSyncService.applyBatch(
+                requiredPostId, claimedBatch.sequence(), claimedBatch.delta());
+        post.ifPresent(projection -> cheerService.updateHotScoreForSync(toHotScorePost(projection, 0)));
+        redisPostService.acknowledgeViewCountSyncBatch(requiredPostId, claimedBatch.sequence());
     }
 
     private CheerPost toHotScorePost(CheerPostHotScoreProjection post, int viewDelta) {

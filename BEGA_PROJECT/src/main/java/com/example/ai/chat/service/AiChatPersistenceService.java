@@ -128,9 +128,9 @@ public class AiChatPersistenceService {
                 .plannerCacheHit(request.plannerCacheHit())
                 .toolExecutionMode(trimToNull(request.toolExecutionMode()))
                 .fallbackReason(trimToNull(request.fallbackReason()))
-                .metadataJson(serializeJsonNode(request.metadata()))
-                .citationsJson(serializeJsonNode(request.citations()))
-                .toolCallsJson(serializeJsonNode(request.toolCalls()))
+                .metadataJson(serializeJsonValue(request.metadata()))
+                .citationsJson(serializeJsonValue(request.citations()))
+                .toolCallsJson(serializeJsonValue(request.toolCalls()))
                 .build());
 
         return toStoredChatMessage(message, false);
@@ -290,12 +290,12 @@ public class AiChatPersistenceService {
         return normalized.substring(0, SESSION_PREVIEW_LIMIT - 3).trim() + "...";
     }
 
-    private String serializeJsonNode(JsonNode node) {
-        if (node == null || node.isNull()) {
+    private String serializeJsonValue(Object value) {
+        if (value == null) {
             return null;
         }
         try {
-            return objectMapper.writeValueAsString(node);
+            return objectMapper.writeValueAsString(value);
         } catch (Exception e) {
             throw new IllegalArgumentException("메타데이터를 저장할 수 없습니다.");
         }

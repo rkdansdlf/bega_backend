@@ -128,6 +128,25 @@ class JWTFilterTokenTypeTest {
     }
 
     @Test
+    @DisplayName("모니터링 서비스가 없어도 허용되지 않은 Origin 요청은 NPE 없이 403으로 차단된다")
+    void invalidOriginWithoutMonitoringService_isRejectedWith403WithoutNpe() throws Exception {
+        JWTFilter filterWithoutMonitoring = new JWTFilter(jwtUtil, List.of("http://localhost:5176"),
+                tokenBlacklistService, userRepository, null);
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/protected/resource");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+        request.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filterWithoutMonitoring.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+        assertThat(response.getContentAsString()).contains("CSRF Protection");
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
     @DisplayName("X-Debug-Role 헤더가 포함된 요청은 차단된다")
     void debugRoleHeader_isRejected() throws Exception {
         String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
@@ -162,6 +181,54 @@ class JWTFilterTokenTypeTest {
 
         executeFilter(refreshToken);
 
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("POST 요청의 link token은 401 INVALID_AUTHOR로 차단되고 체인이 호출되지 않는다")
+    void postWithLinkToken_isRejectedWith401BeforeChain() throws Exception {
+        String linkToken = jwtUtil.createLinkToken(1L, 60_000L);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        executeMutableRequest(linkToken, false, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED.value());
+        assertThat(response.getContentAsString()).contains("INVALID_AUTHOR");
+        assertThat(response.getContentAsString()).contains("접근 권한이 없는 토큰입니다");
+        assertThat(chain.getRequest()).isNull();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("POST 요청의 link token이 Authorization 쿠키로 와도 401 INVALID_AUTHOR로 차단된다")
+    void postWithLinkTokenInCookie_isRejectedWith401BeforeChain() throws Exception {
+        String linkToken = jwtUtil.createLinkToken(1L, 60_000L);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        executeMutableRequest(linkToken, true, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED.value());
+        assertThat(response.getContentAsString()).contains("INVALID_AUTHOR");
+        assertThat(response.getContentAsString()).contains("접근 권한이 없는 토큰입니다");
+        assertThat(chain.getRequest()).isNull();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("POST 요청의 refresh token은 401 INVALID_AUTHOR로 차단되고 체인이 호출되지 않는다")
+    void postWithRefreshToken_isRejectedWith401BeforeChain() throws Exception {
+        String refreshToken = jwtUtil.createRefreshToken("user@test.com", "ROLE_USER", 1L);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        executeMutableRequest(refreshToken, false, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED.value());
+        assertThat(response.getContentAsString()).contains("INVALID_AUTHOR");
+        assertThat(response.getContentAsString()).contains("접근 권한이 없는 토큰입니다");
+        assertThat(chain.getRequest()).isNull();
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
@@ -397,6 +464,18 @@ class JWTFilterTokenTypeTest {
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         assertThat(response.getStatus()).isNotEqualTo(HttpStatus.UNAUTHORIZED.value());
         assertThat(request.getAttribute("INVALID_AUTHOR")).isEqualTo(true);
+    }
+
+    private void executeMutableRequest(String token, boolean asCookie,
+                                       MockHttpServletResponse response, MockFilterChain chain) throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/protected/resource");
+        request.addHeader("Origin", "http://localhost:5176");
+        if (asCookie) {
+            request.setCookies(new jakarta.servlet.http.Cookie("Authorization", token));
+        } else {
+            request.addHeader("Authorization", "Bearer " + token);
+        }
+        jwtFilter.doFilter(request, response, chain);
     }
 
     private void executeFilter(String token) throws Exception {

@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -183,7 +184,11 @@ public class TeamHistoryService {
      */
     public List<TeamHistoryEntity> getRecentSeasons(int limit) {
         log.debug("Fetching recent {} seasons data", limit);
-        return Objects.requireNonNull(historyRepository.findRecentSeasons(limit));
+        List<Integer> recentSeasonYears = historyRepository.findRecentSeasonYears(PageRequest.of(0, limit));
+        if (recentSeasonYears.isEmpty()) {
+            return List.of();
+        }
+        return Objects.requireNonNull(historyRepository.findBySeasonInOrderBySeasonDesc(recentSeasonYears));
     }
 
     /**

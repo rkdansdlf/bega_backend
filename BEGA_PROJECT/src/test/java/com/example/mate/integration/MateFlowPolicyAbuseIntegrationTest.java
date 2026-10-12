@@ -9,6 +9,8 @@ import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.PaymentFlowType;
+import com.example.mate.entity.PaymentStatus;
+import com.example.mate.entity.PaymentTransaction;
 import com.example.mate.repository.CheckInRecordRepository;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
@@ -25,13 +27,17 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.util.Map;
+import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -152,6 +158,8 @@ class MateFlowPolicyAbuseIntegrationTest {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
     @DisplayName("결제 승인 응답의 amount 위변조(totalAmount 불일치)는 거부한다")
     void confirmRejectsAmountTampering() throws Exception {
         UserEntity host = userRepository.findByEmail(HOST_EMAIL).orElseThrow();
@@ -192,14 +200,19 @@ class MateFlowPolicyAbuseIntegrationTest {
                 "flowType", PaymentFlowType.DEPOSIT.name(),
                 "message", "위변조 시나리오를 검증합니다."));
 
-        mockMvc.perform(post("/api/payments/toss/confirm")
-                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
+        var confirmResult = mockMvc.perform(post("/api/payments/toss/confirm")
+                .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
                         .contentType("application/json")
                         .content(confirmBody))
-                .andExpect(status().isConflict());
+                .andReturn();
+        assertThat(confirmResult.getResponse().getStatus())
+                .as(confirmResult.getResponse().getContentAsString())
+                .isEqualTo(409);
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
     @DisplayName("동일 orderId 재호출은 기존 신청을 재사용하고 Toss 재승인을 호출하지 않는다")
     void confirmRetryReturnsExistingApplicationWithoutSecondTossConfirm() throws Exception {
         UserEntity host = userRepository.findByEmail(HOST_EMAIL).orElseThrow();
@@ -240,17 +253,30 @@ class MateFlowPolicyAbuseIntegrationTest {
                 "flowType", PaymentFlowType.DEPOSIT.name(),
                 "message", "중복 confirm 동작을 검증합니다."));
 
-        mockMvc.perform(post("/api/payments/toss/confirm")
-                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
+        var firstConfirmResult = mockMvc.perform(post("/api/payments/toss/confirm")
+                .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
                         .contentType("application/json")
                         .content(confirmBody))
-                .andExpect(status().isCreated());
+                .andReturn();
+        assertThat(firstConfirmResult.getResponse().getStatus())
+                .as(firstConfirmResult.getResponse().getContentAsString())
+                .isEqualTo(201);
 
-        mockMvc.perform(post("/api/payments/toss/confirm")
+        given(paymentTransactionService.findByOrderId(orderId)).willReturn(Optional.of(PaymentTransaction.builder()
+                .orderId(orderId)
+                .paymentKey("dup-pay-key")
+                .flowType(PaymentFlowType.DEPOSIT)
+                .paymentStatus(PaymentStatus.PAID)
+                .build()));
+
+        var retryResult = mockMvc.perform(post("/api/payments/toss/confirm")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
                         .contentType("application/json")
                         .content(confirmBody))
-                .andExpect(status().isOk());
+                .andReturn();
+        assertThat(retryResult.getResponse().getStatus())
+                .as(retryResult.getResponse().getContentAsString())
+                .isEqualTo(200);
 
         verify(tossPaymentService, times(1)).confirmPayment(eq("dup-pay-key"), eq(orderId), eq(expectedAmount));
         org.assertj.core.api.Assertions.assertThat(partyApplicationRepository.countByOrderId(orderId)).isEqualTo(1L);

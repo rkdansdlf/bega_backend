@@ -51,6 +51,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -95,6 +96,7 @@ public class PredictionService {
             .distinct()
             .collect(Collectors.toList());
     private static final int MAX_VOTE_RETRY_ATTEMPTS = 2;
+    private static final int MAX_INNING_SCORE_ROWS = 40;
     private static final long MAX_SNAPSHOT_SYNC_RANGE_DAYS = 31;
     private static final long MATCH_DAY_SLOW_LOG_THRESHOLD_MS = 1000L;
     private static final Duration MANUAL_DATA_NEGATIVE_CACHE_TTL = Duration.ofSeconds(60);
@@ -1388,13 +1390,26 @@ public class PredictionService {
 
     private void validateInningScoreRequests(List<GameInningScoreRequestDto> scores) {
         if (scores == null || scores.isEmpty()) {
-            return;
+            throw new IllegalArgumentException("이닝 스코어는 최소 1개 이상이어야 합니다.");
         }
 
-        boolean hasPlaceholderRow = scores.stream()
-                .anyMatch(score -> score != null && score.getRuns() == null);
-        if (hasPlaceholderRow) {
-            throw new IllegalArgumentException("득점 정보가 없는 이닝은 저장할 수 없습니다.");
+        if (scores.size() > MAX_INNING_SCORE_ROWS) {
+            throw new IllegalArgumentException("이닝 스코어는 최대 " + MAX_INNING_SCORE_ROWS + "개까지 저장할 수 있습니다.");
+        }
+
+        Set<String> inningScoreKeys = new HashSet<>();
+        for (GameInningScoreRequestDto score : scores) {
+            if (score == null) {
+                throw new IllegalArgumentException("이닝 스코어 항목은 비어 있을 수 없습니다.");
+            }
+            if (score.getRuns() == null) {
+                throw new IllegalArgumentException("득점 정보가 없는 이닝은 저장할 수 없습니다.");
+            }
+
+            String key = score.getInning() + ":" + score.getTeamSide();
+            if (!inningScoreKeys.add(key)) {
+                throw new IllegalArgumentException("같은 이닝·공수 스코어를 중복 저장할 수 없습니다.");
+            }
         }
     }
 

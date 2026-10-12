@@ -1,10 +1,15 @@
 package com.example.BegaDiary.Service;
 
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -19,15 +24,19 @@ import com.example.BegaDiary.Entity.SeatViewPhoto.ClassificationLabel;
 import com.example.BegaDiary.Entity.SeatViewPhoto.ModerationStatus;
 import com.example.BegaDiary.Entity.SeatViewPhoto.SourceType;
 import com.example.BegaDiary.Entity.SeatViewPhotoDto;
+import com.example.BegaDiary.Entity.SeatViewSubmissionDto;
+import com.example.BegaDiary.Entity.SeatViewSubmissionRequest;
 import com.example.BegaDiary.Exception.DiaryNotFoundException;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Repository.SeatViewPhotoRepository;
+import com.example.common.exception.NotFoundBusinessException;
 import com.example.admin.dto.AdminSeatViewActionReq;
 import com.example.admin.dto.AdminSeatViewDto;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.leaderboard.dto.SeatViewRewardDto;
 import com.example.leaderboard.service.ScoringService;
 import com.example.media.support.ByteArrayMultipartFile;
+import com.example.media.service.MediaLinkService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,11 +47,53 @@ import lombok.extern.slf4j.Slf4j;
 @Transactional(readOnly = true)
 public class SeatViewService {
 
+    private static final int ADMIN_MEMO_MAX_LENGTH = 1000;
+    private static final int AUTHENTICATED_PREVIEW_URL_TTL_SECONDS = 300;
+    private static final int ADMIN_SEAT_VIEW_PAGE_SIZE_MAX = 100;
+    private static final Set<String> ALLOWED_TAGS = Set.of(
+            "탁 트임", "응원석 가까움", "그늘", "비/햇빛 가림", "통로 가까움", "화장실 가까움",
+            "매점 가까움", "전광판 잘 보임", "포수 뒤", "외야 뷰", "가성비", "아이와 보기 좋음");
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private final SeatViewPhotoRepository seatViewPhotoRepository;
     private final BegaDiaryRepository diaryRepository;
     private final ImageService imageService;
     private final SeatViewClassificationService seatViewClassificationService;
     private final ScoringService scoringService;
+    private final MediaLinkService mediaLinkService;
+
+    @Transactional
+    public SeatViewSubmissionDto createDirectSubmission(Long userId, SeatViewSubmissionRequest request) {
+        if (userId == null || request == null) {
+            throw new IllegalArgumentException("로그인 후 시야뷰를 등록해주세요.");
+        }
+        if (request.rating() == null || request.rating() < 1 || request.rating() > 5) {
+            throw new IllegalArgumentException("별점은 1에서 5 사이여야 합니다.");
+        }
+        String stadium = normalizeRequired(request.stadium(), "구장을 입력해주세요.");
+        String storagePath = normalizeRequired(request.storagePath(), "업로드한 사진을 확인할 수 없습니다.");
+        List<String> tags = normalizeTags(request.tags());
+
+        SeatViewPhoto photo = SeatViewPhoto.builder()
+                .userId(userId)
+                .storagePath(storagePath)
+                .sourceType(SourceType.SEATMAP_UPLOAD)
+                .stadium(stadium)
+                .section(normalizeOptional(request.section()))
+                .block(normalizeOptional(request.block()))
+                .seatRow(normalizeOptional(request.seatRow()))
+                .seatNumber(normalizeOptional(request.seatNumber()))
+                .rating(request.rating())
+                .commentText(normalizeOptional(request.comment()))
+                .tagsJson(serializeTags(tags))
+                .userSelected(false)
+                .rewardGranted(false)
+                .build();
+        photo.updateUserSelection(true);
+        SeatViewPhoto saved = seatViewPhotoRepository.saveAndFlush(photo);
+        mediaLinkService.linkSeatViewAsset(userId, storagePath, saved.getId());
+        return toSubmissionDto(saved, tags);
+    }
 
     @Transactional
     public List<SeatViewCandidateDto> createCandidates(
@@ -112,7 +163,6 @@ public class SeatViewService {
         int safeLimit = Math.max(1, limit);
         Pageable pageable = PageRequest.of(0, safeLimit);
 
-        List<SeatViewPhotoDto> result = new ArrayList<>();
         List<SeatViewPhoto> approved = seatViewPhotoRepository.findApprovedPublicSeatViews(
                 stadium,
                 section,
@@ -120,41 +170,30 @@ public class SeatViewService {
                 ClassificationLabel.SEAT_VIEW,
                 pageable);
 
-        result.addAll(toPublicDtos(approved, safeLimit));
-        if (result.size() >= safeLimit) {
-            return result.subList(0, safeLimit);
-        }
-
-        List<BegaDiary> legacyDiaries = diaryRepository.findLegacySeatViewPhotos(
-                stadium,
-                section,
-                BegaDiary.DiaryType.ATTENDED,
-                pageable);
-
-        result.addAll(toLegacyPublicDtos(legacyDiaries, safeLimit - result.size()));
-        return result.stream().limit(safeLimit).toList();
+        return toPublicDtos(approved, safeLimit);
     }
 
-    public List<AdminSeatViewDto> getAdminSeatViews(
+    public Page<AdminSeatViewDto> getAdminSeatViews(
             String moderationStatus,
             String stadium,
             String aiSuggestedLabel,
             String adminLabel,
-            Boolean ticketVerified) {
-        List<AdminSeatViewDto> dtos = seatViewPhotoRepository.findForAdmin(
+            Boolean ticketVerified,
+            int page,
+            int size) {
+        if (page < 0 || size < 1 || size > ADMIN_SEAT_VIEW_PAGE_SIZE_MAX) {
+            throw new IllegalArgumentException("시야뷰 페이지는 0 이상, 크기는 1에서 100 사이여야 합니다.");
+        }
+        Pageable pageable = PageRequest.of(page, size);
+        return seatViewPhotoRepository.findForAdmin(
                 parseModerationStatus(moderationStatus),
                 stadium,
                 parseClassificationLabel(aiSuggestedLabel),
                 parseClassificationLabel(adminLabel),
-                ticketVerified)
-                .stream()
-                .map(this::toAdminDto)
-                .sorted(Comparator
-                        .comparing((AdminSeatViewDto dto) -> adminQueuePriority(dto.getModerationStatus()))
-                        .thenComparing(AdminSeatViewDto::getDiaryDate, Comparator.nullsLast(Comparator.reverseOrder()))
-                        .thenComparing(AdminSeatViewDto::getId, Comparator.reverseOrder()))
-                .toList();
-        return dtos;
+                ticketVerified,
+                ModerationStatus.PENDING,
+                pageable)
+                .map(this::toAdminDto);
     }
 
     public AdminSeatViewDto getAdminSeatView(Long seatViewId) {
@@ -163,8 +202,28 @@ public class SeatViewService {
         return toAdminDto(photo);
     }
 
+    public String getOwnerPreviewUrl(Long userId, Long seatViewId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("로그인 후 시야뷰를 확인해주세요.");
+        }
+        SeatViewPhoto photo = seatViewPhotoRepository.findDetailById(seatViewId)
+                .orElseThrow(() -> new NotFoundBusinessException("SEAT_VIEW_NOT_FOUND", "시야뷰를 찾을 수 없습니다."));
+        if (!userId.equals(photo.getUserId())) {
+            throw new org.springframework.security.access.AccessDeniedException("시야뷰 사진을 확인할 권한이 없습니다.");
+        }
+        String previewUrl = signPreviewPath(photo);
+        if (!StringUtils.hasText(previewUrl)) {
+            throw new NotFoundBusinessException("SEAT_VIEW_IMAGE_NOT_FOUND", "시야뷰 사진을 확인할 수 없습니다.");
+        }
+        return previewUrl;
+    }
+
     @Transactional
     public AdminSeatViewDto reviewSeatView(Long seatViewId, Long adminId, AdminSeatViewActionReq req) {
+        if (req != null && req.adminMemo() != null && req.adminMemo().length() > ADMIN_MEMO_MAX_LENGTH) {
+            throw new IllegalArgumentException("시야뷰 검수 메모는 1000자 이하여야 합니다.");
+        }
+
         SeatViewPhoto photo = seatViewPhotoRepository.findDetailById(seatViewId)
                 .orElseThrow(() -> new IllegalArgumentException("시야뷰 후보를 찾을 수 없습니다."));
 
@@ -226,7 +285,7 @@ public class SeatViewService {
                 .map(candidate -> SeatViewCandidateDto.builder()
                         .id(candidate.getId())
                         .storagePath(candidate.getStoragePath())
-                        .previewUrl(signPath(candidate))
+                        .previewUrl(signPreviewPath(candidate))
                         .sourceType(candidate.getSourceType().name())
                         .aiSuggestedLabel(candidate.getAiSuggestedLabel() != null ? candidate.getAiSuggestedLabel().name() : null)
                         .aiConfidence(candidate.getAiConfidence())
@@ -248,51 +307,34 @@ public class SeatViewService {
 
     private List<SeatViewPhotoDto> toPublicDtos(List<SeatViewPhoto> approved, int limit) {
         return approved.stream()
+                .filter(photo -> photo.isUserSelected()
+                        && (photo.getSourceType() == SourceType.DIARY_UPLOAD
+                                || photo.getSourceType() == SourceType.SEATMAP_UPLOAD)
+                        && photo.getModerationStatus() == ModerationStatus.APPROVED
+                        && photo.getAdminLabel() == ClassificationLabel.SEAT_VIEW)
                 .limit(limit)
                 .map(photo -> SeatViewPhotoDto.builder()
                         .photoUrl(signPath(photo))
-                        .stadium(photo.getDiary().getStadium())
-                        .section(photo.getDiary().getSection())
-                        .block(photo.getDiary().getBlock())
-                        .diaryDate(photo.getDiary().getDiaryDate() != null ? photo.getDiary().getDiaryDate().toString() : null)
+                        .stadium(resolveValue(photo.getStadium(), photo.getDiary() != null ? photo.getDiary().getStadium() : null))
+                        .section(resolveValue(photo.getSection(), photo.getDiary() != null ? photo.getDiary().getSection() : null))
+                        .block(resolveValue(photo.getBlock(), photo.getDiary() != null ? photo.getDiary().getBlock() : null))
+                        .diaryDate(photo.getDiary() != null && photo.getDiary().getDiaryDate() != null
+                                ? photo.getDiary().getDiaryDate().toString()
+                                : null)
+                        .rating(photo.getRating())
+                        .comment(photo.getCommentText())
+                        .tags(parseTags(photo.getTagsJson()))
                         .build())
                 .toList();
     }
 
-    private List<SeatViewPhotoDto> toLegacyPublicDtos(List<BegaDiary> diaries, int limit) {
-        List<SeatViewPhotoDto> result = new ArrayList<>();
-        for (BegaDiary diary : diaries) {
-            if (diary.getPhotoUrls() == null) {
-                continue;
-            }
-            Long ownerUserId = diary.getUser() != null ? diary.getUser().getId() : null;
-            for (String path : diary.getPhotoUrls()) {
-                String signedUrl = signPath(path, ownerUserId, diary.getId());
-                if (signedUrl == null) {
-                    continue;
-                }
-                result.add(SeatViewPhotoDto.builder()
-                        .photoUrl(signedUrl)
-                        .stadium(diary.getStadium())
-                        .section(diary.getSection())
-                        .block(diary.getBlock())
-                        .diaryDate(diary.getDiaryDate() != null ? diary.getDiaryDate().toString() : null)
-                        .build());
-                if (result.size() >= limit) {
-                    return result;
-                }
-            }
-        }
-        return result;
-    }
-
     private AdminSeatViewDto toAdminDto(SeatViewPhoto photo) {
-        String signedUrl = signPath(photo);
+        String signedUrl = signPreviewPath(photo);
         BegaDiary diary = photo.getDiary();
 
         return AdminSeatViewDto.builder()
                 .id(photo.getId())
-                .diaryId(diary.getId())
+                .diaryId(diary != null ? diary.getId() : null)
                 .userId(photo.getUserId())
                 .photoUrl(signedUrl)
                 .storagePath(photo.getStoragePath())
@@ -307,14 +349,19 @@ public class SeatViewService {
                 .reviewedBy(photo.getReviewedBy())
                 .reviewedAt(photo.getReviewedAt() != null ? photo.getReviewedAt().toString() : null)
                 .rewardGranted(photo.isRewardGranted())
-                .stadium(diary.getStadium())
-                .section(diary.getSection())
-                .block(diary.getBlock())
-                .seatRow(diary.getSeatRow())
-                .seatNumber(diary.getSeatNumber())
-                .diaryDate(diary.getDiaryDate() != null ? diary.getDiaryDate().toString() : null)
-                .ticketVerified(diary.isTicketVerified())
-                .ticketVerifiedAt(diary.getTicketVerifiedAt() != null ? diary.getTicketVerifiedAt().toString() : null)
+                .stadium(resolveValue(photo.getStadium(), diary != null ? diary.getStadium() : null))
+                .section(resolveValue(photo.getSection(), diary != null ? diary.getSection() : null))
+                .block(resolveValue(photo.getBlock(), diary != null ? diary.getBlock() : null))
+                .seatRow(resolveValue(photo.getSeatRow(), diary != null ? diary.getSeatRow() : null))
+                .seatNumber(resolveValue(photo.getSeatNumber(), diary != null ? diary.getSeatNumber() : null))
+                .diaryDate(diary != null && diary.getDiaryDate() != null ? diary.getDiaryDate().toString() : null)
+                .ticketVerified(diary != null && diary.isTicketVerified())
+                .ticketVerifiedAt(diary != null && diary.getTicketVerifiedAt() != null
+                        ? diary.getTicketVerifiedAt().toString()
+                        : null)
+                .rating(photo.getRating())
+                .comment(photo.getCommentText())
+                .tags(parseTags(photo.getTagsJson()))
                 .build();
     }
 
@@ -324,7 +371,110 @@ public class SeatViewService {
         }
         BegaDiary diary = photo.getDiary();
         Long diaryId = diary != null ? diary.getId() : null;
+        if (diary == null) {
+            try {
+                List<String> signedUrls = imageService
+                        .getSeatViewImageSignedUrls(List.of(photo.getStoragePath()), photo.getUserId(), photo.getId())
+                        .block();
+                return signedUrls == null || signedUrls.isEmpty() ? null : signedUrls.get(0);
+            } catch (Exception ex) {
+                log.warn("Seat-view signed URL generation skipped. path={} cause={}", photo.getStoragePath(), ex.getMessage());
+                return null;
+            }
+        }
         return signPath(photo.getStoragePath(), photo.getUserId(), diaryId);
+    }
+
+    private String signPreviewPath(SeatViewPhoto photo) {
+        if (photo == null || !StringUtils.hasText(photo.getStoragePath())) {
+            return null;
+        }
+        BegaDiary diary = photo.getDiary();
+        try {
+            List<String> signedUrls = diary == null
+                    ? imageService.getSeatViewImageSignedUrls(
+                            List.of(photo.getStoragePath()), photo.getUserId(), photo.getId(),
+                            AUTHENTICATED_PREVIEW_URL_TTL_SECONDS).block()
+                    : imageService.getDiaryImageSignedUrls(
+                            List.of(photo.getStoragePath()), photo.getUserId(), diary.getId(),
+                            AUTHENTICATED_PREVIEW_URL_TTL_SECONDS).block();
+            return signedUrls == null || signedUrls.isEmpty() ? null : signedUrls.get(0);
+        } catch (Exception ex) {
+            log.warn("Seat-view preview URL generation skipped. seatViewId={} cause={}",
+                    photo.getId(), ex.getMessage());
+            return null;
+        }
+    }
+
+    private SeatViewSubmissionDto toSubmissionDto(SeatViewPhoto photo, List<String> tags) {
+        return new SeatViewSubmissionDto(
+                photo.getId(),
+                photo.getStoragePath(),
+                null,
+                photo.getSourceType().name(),
+                photo.getModerationStatus() != null ? photo.getModerationStatus().name() : null,
+                photo.getAiSuggestedLabel() != null ? photo.getAiSuggestedLabel().name() : null,
+                photo.getAiConfidence(),
+                photo.getStadium(),
+                photo.getSection(),
+                photo.getBlock(),
+                photo.getSeatRow(),
+                photo.getSeatNumber(),
+                photo.getRating(),
+                photo.getCommentText(),
+                tags);
+    }
+
+    private List<String> normalizeTags(List<String> requestedTags) {
+        if (requestedTags == null || requestedTags.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String tag : requestedTags) {
+            if (tag == null || !ALLOWED_TAGS.contains(tag.strip())) {
+                throw new IllegalArgumentException("지원하지 않는 시야뷰 태그입니다.");
+            }
+            normalized.add(tag.strip());
+        }
+        if (normalized.size() > 12) {
+            throw new IllegalArgumentException("시야뷰 태그는 12개까지 등록할 수 있습니다.");
+        }
+        return List.copyOf(normalized);
+    }
+
+    private String serializeTags(List<String> tags) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(tags);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("시야뷰 태그를 저장할 수 없습니다.", ex);
+        }
+    }
+
+    private List<String> parseTags(String tagsJson) {
+        if (!StringUtils.hasText(tagsJson)) {
+            return List.of();
+        }
+        try {
+            return OBJECT_MAPPER.readValue(tagsJson, new TypeReference<>() { });
+        } catch (JsonProcessingException ex) {
+            log.warn("Invalid seat-view tags JSON ignored: {}", ex.getMessage());
+            return List.of();
+        }
+    }
+
+    private String normalizeRequired(String value, String message) {
+        if (!StringUtils.hasText(value)) {
+            throw new IllegalArgumentException(message);
+        }
+        return value.strip();
+    }
+
+    private String normalizeOptional(String value) {
+        return StringUtils.hasText(value) ? value.strip() : null;
+    }
+
+    private String resolveValue(String directValue, String diaryValue) {
+        return directValue != null ? directValue : diaryValue;
     }
 
     private String signPath(String storagePath, Long userId, Long diaryId) {
@@ -363,6 +513,9 @@ public class SeatViewService {
             MultipartFile image = images.get(index);
             String storagePath = storagePaths.get(index);
             SourceType sourceType = resolveSourceType(sourceTypes, index);
+            if (sourceType == SourceType.SEATMAP_UPLOAD) {
+                throw new IllegalArgumentException("SEATMAP_UPLOAD은 독립 시야뷰 등록 경로에서만 사용할 수 있습니다.");
+            }
 
             SeatViewPhoto candidate = SeatViewPhoto.builder()
                     .diary(diary)
@@ -425,13 +578,4 @@ public class SeatViewService {
                 || StringUtils.hasText(diary.getSeatNumber());
     }
 
-    private int adminQueuePriority(String moderationStatus) {
-        if ("PENDING".equals(moderationStatus)) {
-            return 0;
-        }
-        if (moderationStatus == null) {
-            return 1;
-        }
-        return 2;
-    }
 }

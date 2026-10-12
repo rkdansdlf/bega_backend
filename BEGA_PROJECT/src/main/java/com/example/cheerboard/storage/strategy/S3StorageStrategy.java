@@ -103,13 +103,21 @@ public class S3StorageStrategy implements StorageStrategy {
     }
 
     @Override
-    public Mono<PresignedUpload> presignPut(String bucket, String path, String contentType, int expiresInSeconds) {
+    public Mono<PresignedUpload> presignPut(
+            String bucket,
+            String path,
+            String contentType,
+            long contentLength,
+            int expiresInSeconds) {
         return Mono.fromCallable(() -> {
             String objectKey = buildObjectKey(bucket, path);
 
             PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
                     .signatureDuration(Duration.ofSeconds(expiresInSeconds))
-                    .putObjectRequest(b -> b.bucket(bucketName).key(objectKey).contentType(contentType))
+                    .putObjectRequest(b -> b.bucket(bucketName)
+                            .key(objectKey)
+                            .contentType(contentType)
+                            .contentLength(contentLength))
                     .build();
 
             String url = s3Presigner.presignPutObject(presignRequest).url().toString();
@@ -163,7 +171,8 @@ public class S3StorageStrategy implements StorageStrategy {
         }
         if (e instanceof S3Exception s3) {
             int status = s3.statusCode();
-            if (status == 404) {
+            String errorCode = s3.awsErrorDetails() == null ? null : s3.awsErrorDetails().errorCode();
+            if (status == 404 && "NoSuchKey".equals(errorCode)) {
                 return StorageOperationException.Kind.OBJECT_NOT_FOUND;
             }
             if (status == 408 || status == 429 || status >= 500) {

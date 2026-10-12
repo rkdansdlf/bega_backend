@@ -171,7 +171,7 @@ class ReissueControllerTokenTypeTest {
         when(jwtUtil.getUserId("refresh-token")).thenReturn(1L);
         when(jwtUtil.getTokenVersion("refresh-token")).thenReturn(0);
         when(jwtUtil.getAccessTokenExpirationTime()).thenReturn(1000L * 60 * 60 * 2);
-        when(userRepository.findById(1L)).thenReturn(java.util.Optional.of(user));
+        when(userRepository.findByIdForWrite(1L)).thenReturn(java.util.Optional.of(user));
         when(jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 1000L * 60 * 60 * 2, 0))
                 .thenReturn("new-access-token");
         when(jwtUtil.createRefreshToken("user@test.com", "ROLE_USER", 1L, 0, "session-1"))

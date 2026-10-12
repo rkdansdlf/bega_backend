@@ -3,17 +3,21 @@ package com.example.auth.config;
 import com.example.ai.config.AiServiceSettings;
 import com.example.ai.filter.AiProxyRequestLimitFilter;
 import com.example.common.config.AllowedOriginResolver;
+import com.example.admin.controller.AdminController;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.AuthorityUtils;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 
 import java.lang.reflect.Field;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -98,26 +102,63 @@ class SecurityConfigTest {
     }
 
     @Test
-    @DisplayName("dev profile should keep debug and diagnostics endpoints public")
-    void publicSystemEndpoints_includeDiagnosticsInDev() {
+    @DisplayName("shared dev profile should require authentication for test diagnostics")
+    void publicSystemEndpoints_requireAuthenticationForTestDiagnosticsInDev() {
         SecurityConfig securityConfig = newSecurityConfig("dev");
 
         assertThat(securityConfig.publicSystemEndpoints())
-                .contains("/actuator/health/readiness", "/actuator/health/liveness", "/api/test/**", "/actuator/prometheus", "/swagger-ui.html", "/v3/api-docs/**")
+                .contains("/actuator/health/readiness", "/actuator/health/liveness", "/actuator/prometheus", "/swagger-ui.html", "/v3/api-docs/**")
+                .doesNotContain("/api/test/**")
                 .doesNotContain("/actuator/health", "/actuator/health/**")
                 .doesNotContain("/ws", "/ws/**");
     }
 
     @Test
-    @DisplayName("dev-adb profile should keep development diagnostics available")
-    void publicSystemEndpoints_includeDiagnosticsInDevAdb() {
+    @DisplayName("dev-adb profile should require authentication for test diagnostics")
+    void publicSystemEndpoints_requireAuthenticationForTestDiagnosticsInDevAdb() {
         SecurityConfig securityConfig = newSecurityConfig("dev-adb");
 
         assertThat(securityConfig.publicSystemEndpoints())
-                .contains("/actuator/health/readiness", "/actuator/health/liveness", "/api/test/**",
+                .contains("/actuator/health/readiness", "/actuator/health/liveness",
                         "/actuator/prometheus", "/swagger-ui.html", "/v3/api-docs/**")
+                .doesNotContain("/api/test/**")
                 .doesNotContain("/actuator/health", "/actuator/health/**")
                 .doesNotContain("/ws", "/ws/**");
+    }
+
+    @Test
+    @DisplayName("exact local profile should keep test diagnostics anonymous")
+    void publicSystemEndpoints_includeTestDiagnosticsInExactLocalProfile() {
+        SecurityConfig securityConfig = newSecurityConfig("local");
+
+        assertThat(securityConfig.publicSystemEndpoints()).contains("/api/test/**");
+    }
+
+    @Test
+    @DisplayName("non-canonical local profile should not expose test diagnostics anonymously")
+    void publicSystemEndpoints_excludeTestDiagnosticsForNonCanonicalLocalProfile() {
+        SecurityConfig securityConfig = newSecurityConfig("LOCAL");
+
+        assertThat(securityConfig.publicSystemEndpoints()).doesNotContain("/api/test/**");
+    }
+
+    @Test
+    @DisplayName("mixed local and shared dev profiles should not expose test diagnostics anonymously")
+    void publicSystemEndpoints_requireAuthenticationForTestDiagnosticsInMixedProfiles() {
+        SecurityConfig securityConfig = newSecurityConfig("local", "dev");
+
+        assertThat(securityConfig.publicSystemEndpoints())
+                .contains("/swagger-ui.html", "/v3/api-docs/**")
+                .doesNotContain("/api/test/**");
+    }
+
+    @Test
+    @DisplayName("prod combined with a shared dev profile should require authentication for test diagnostics")
+    void publicSystemEndpoints_requireAuthenticationForTestDiagnosticsInProdAndDevAdbProfiles() {
+        SecurityConfig securityConfig = newSecurityConfig("prod", "dev-adb");
+
+        assertThat(securityConfig.publicSystemEndpoints())
+                .doesNotContain("/api/test/**");
     }
 
     @Test
@@ -158,6 +199,28 @@ class SecurityConfigTest {
         String[] adminEndpoints = getPrivateStaticStringArray("ADMIN_ENDPOINTS");
 
         assertThat(adminEndpoints).contains("/dashboard", "/dashboard/**");
+    }
+
+    @Test
+    @DisplayName("user deletion remains restricted to admins and SUPER_ADMIN inherits ADMIN")
+    void adminUserDeletion_callerRoleMatrixRemainsIntact() {
+        PreAuthorize authorization = AdminController.class.getAnnotation(PreAuthorize.class);
+        var roleHierarchy = newSecurityConfig("dev").roleHierarchy();
+
+        assertThat(authorization).isNotNull();
+        assertThat(authorization.value()).isEqualTo("hasRole('ADMIN')");
+        assertThat(roleHierarchy.getReachableGrantedAuthorities(
+                List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .extracting(authority -> authority.getAuthority())
+                .contains("ROLE_ADMIN");
+        assertThat(roleHierarchy.getReachableGrantedAuthorities(
+                List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"))))
+                .extracting(authority -> authority.getAuthority())
+                .contains("ROLE_ADMIN");
+        assertThat(roleHierarchy.getReachableGrantedAuthorities(
+                List.of(new SimpleGrantedAuthority("ROLE_USER"))))
+                .extracting(authority -> authority.getAuthority())
+                .doesNotContain("ROLE_ADMIN");
     }
 
     @Test

@@ -6,6 +6,8 @@ import com.example.leaderboard.dto.SeatViewRewardDto;
 import com.example.leaderboard.entity.*;
 import com.example.leaderboard.repository.*;
 import com.example.common.config.CacheConfig;
+import com.example.prediction.Prediction;
+import com.example.prediction.PredictionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -13,6 +15,7 @@ import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +33,8 @@ public class ScoringService {
     private final ScoreEventRepository scoreEventRepository;
     private final ActivePowerupRepository activePowerupRepository;
     private final AchievementService achievementService;
+    private final PerfectDaySettlementReceiptRepository perfectDaySettlementReceiptRepository;
+    private final PredictionRepository predictionRepository;
 
     private static final int BASE_CORRECT_SCORE = 100;
     private static final int UPSET_BONUS = 50;
@@ -54,6 +59,15 @@ public class ScoringService {
     })
     public ScoreResultDto processPredictionResult(Long userId, Long predictionId, String gameId,
             boolean isCorrect, boolean isUpset) {
+        if (predictionRepository.claimSettlement(
+                predictionId,
+                LocalDateTime.now(),
+                Prediction.ScoreSettlementStatus.PENDING,
+                Prediction.ScoreSettlementStatus.SETTLED) == 0) {
+            UserScore existingScore = userScoreRepository.findByUserId(userId).orElse(null);
+            return duplicatePredictionResult(userId, isCorrect, existingScore);
+        }
+
         // 사용자 점수 조회 또는 생성
         UserScore userScore = userScoreRepository.findByUserId(userId)
                 .orElseGet(() -> userScoreRepository.save(UserScore.createForUser(userId)));
@@ -61,12 +75,7 @@ public class ScoringService {
         // 중복 처리 방지 (Idempotency)
         if (scoreEventRepository.existsByPredictionIdAndUserId(predictionId, userId)) {
             log.info("Prediction {} for user {} already processed. Skipping.", predictionId, userId);
-            return ScoreResultDto.builder()
-                    .userId(userId)
-                    .correct(isCorrect)
-                    .newTotalScore(userScore.getTotalScore())
-                    .currentStreak(userScore.getCurrentStreak())
-                    .build();
+            return duplicatePredictionResult(userId, isCorrect, userScore);
         }
 
         int previousLevel = userScore.getUserLevel();
@@ -203,9 +212,17 @@ public class ScoringService {
         @CacheEvict(value = CacheConfig.USER_RANK,  key = "#userId"),
         @CacheEvict(value = CacheConfig.USER_STATS, key = "#userId")
     })
-    public void processPerfectDay(Long userId, int gamesWon) {
-        UserScore userScore = userScoreRepository.findByUserId(userId)
+    public void processPerfectDay(Long userId, LocalDate gameDate, int gamesWon) {
+        UserScore userScore = userScoreRepository.findByUserIdForUpdate(userId)
                 .orElseGet(() -> userScoreRepository.save(UserScore.createForUser(userId)));
+
+        if (perfectDaySettlementReceiptRepository.existsByUserIdAndGameDate(userId, gameDate)) {
+            log.info("Perfect day for user {} on {} already settled. Skipping.", userId, gameDate);
+            return;
+        }
+
+        perfectDaySettlementReceiptRepository.save(
+                new PerfectDaySettlementReceipt(userId, gameDate, gamesWon));
 
         // 퍼펙트 데이 보너스 추가
         userScore.setTotalScore(userScore.getTotalScore() + PERFECT_DAY_BONUS);
@@ -223,7 +240,16 @@ public class ScoringService {
         // 퍼펙트 데이 업적 확인
         achievementService.awardAchievement(userId, Achievement.PERFECT_DAY);
 
-        log.info("User {} achieved PERFECT DAY! {} games won.", userId, gamesWon);
+        log.info("User {} achieved PERFECT DAY on {}! {} games won.", userId, gameDate, gamesWon);
+    }
+
+    private ScoreResultDto duplicatePredictionResult(Long userId, boolean isCorrect, UserScore userScore) {
+        return ScoreResultDto.builder()
+                .userId(userId)
+                .correct(isCorrect)
+                .newTotalScore(userScore == null ? 0L : userScore.getTotalScore())
+                .currentStreak(userScore == null ? 0 : userScore.getCurrentStreak())
+                .build();
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.example.mate.service;
 
+import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.PaymentIntent;
 import com.example.mate.exception.TossPaymentException;
@@ -87,7 +88,125 @@ class PaymentIntentReconciliationServiceTest {
         }
 
         @Test
-        void reconcileSingleIntent_treatsAlreadyCanceledCodeAsSuccess() {
+        void reconciliationHoldIsExcludedFromDirectAndScheduledCompensation() {
+                PaymentIntent intent = PaymentIntent.builder()
+                                .id(209L)
+                                .orderId("MATE-1-10-identity-mismatch-hold")
+                                .paymentKey("synthetic-request-key")
+                                .expectedAmount(22000)
+                                .failureCode("PROVIDER_IDENTITY_MISMATCH")
+                                .status(PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED)
+                                .build();
+                given(paymentIntentRepository.findByIdForUpdate(209L)).willReturn(java.util.Optional.of(intent));
+
+                reconciliationService.reconcileSingleIntent(209L);
+                reconciliationService.retryCompensation(209L, 1);
+
+                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED);
+                verify(tossPaymentService, never()).cancelPayment(any(), any(), anyInt());
+                verify(paymentIntentRepository, never()).save(intent);
+        }
+
+        @Test
+        void verifiedPaymentRemainsHeldFromAutomaticCancellationUntilApplicationCreation() {
+                PaymentIntent intent = PaymentIntent.builder()
+                                .id(210L)
+                                .orderId("MATE-1-10-verified-payment-pending-app")
+                                .paymentKey("synthetic-admin-verified-key")
+                                .expectedAmount(22000)
+                                .failureCode("VERIFIED_PAYMENT_PENDING_APPLICATION")
+                                .status(PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED)
+                                .build();
+                given(paymentIntentRepository.findByIdForUpdate(210L)).willReturn(java.util.Optional.of(intent));
+
+                reconciliationService.reconcileSingleIntent(210L);
+                reconciliationService.retryCompensation(210L, 1);
+
+                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED);
+                assertThat(intent.getFailureCode()).isEqualTo("VERIFIED_PAYMENT_PENDING_APPLICATION");
+                verify(tossPaymentService, never()).cancelPayment(any(), any(), anyInt());
+                verify(paymentIntentRepository, never()).save(intent);
+        }
+
+        @Test
+        void reconcileSingleIntent_doesNotCompleteWhenCancelResponseIsEmpty() {
+                PaymentIntent intent = PaymentIntent.builder()
+                                .id(206L)
+                                .orderId("MATE-1-10-empty-reconcile")
+                                .status(PaymentIntent.IntentStatus.CANCEL_FAILED)
+                                .paymentKey("pay_empty_reconcile")
+                                .expectedAmount(24000)
+                                .build();
+
+                given(paymentIntentRepository.findByIdForUpdate(206L)).willReturn(java.util.Optional.of(intent));
+                given(applicationRepository.findByOrderId("MATE-1-10-empty-reconcile"))
+                                .willReturn(java.util.Optional.empty());
+                given(tossPaymentService.cancelPayment(eq("pay_empty_reconcile"), any(), anyInt()))
+                                .willReturn(null);
+
+                reconciliationService.reconcileSingleIntent(206L);
+
+                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCEL_FAILED);
+                assertThat(intent.getCanceledAt()).isNull();
+                verify(paymentMetricsService).recordCompensation("fail");
+                verify(jobScheduler).schedule(any(Instant.class), any(JobLambda.class));
+        }
+
+        @Test
+        void retryCompensation_doesNotCompleteWhenProviderResponseHasNoCancellationProof() {
+                PaymentIntent intent = PaymentIntent.builder()
+                                .id(207L)
+                                .orderId("MATE-1-10-unproven-retry")
+                                .status(PaymentIntent.IntentStatus.CANCEL_FAILED)
+                                .paymentKey("pay_unproven_retry")
+                                .expectedAmount(18000)
+                                .build();
+                TossPaymentDTO.CancelResponse response = new TossPaymentDTO.CancelResponse(
+                                "pay_unproven_retry", "CANCELED", 18000);
+
+                given(paymentIntentRepository.findByIdForUpdate(207L)).willReturn(java.util.Optional.of(intent));
+                given(applicationRepository.findByOrderId("MATE-1-10-unproven-retry"))
+                                .willReturn(java.util.Optional.empty());
+                given(tossPaymentService.cancelPayment(eq("pay_unproven_retry"), any(), anyInt()))
+                                .willReturn(response);
+
+                reconciliationService.retryCompensation(207L, 1);
+
+                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCEL_FAILED);
+                assertThat(intent.getCanceledAt()).isNull();
+                verify(paymentMetricsService).recordCompensation("fail");
+                verify(jobScheduler).schedule(any(Instant.class), any(JobLambda.class));
+        }
+
+        @Test
+        void retryCompensation_doesNotCompleteFromAlreadyCanceledErrorWithoutCancellationProof() {
+                PaymentIntent intent = PaymentIntent.builder()
+                                .id(208L)
+                                .orderId("MATE-1-10-already-canceled-reconcile-retry")
+                                .status(PaymentIntent.IntentStatus.CANCEL_FAILED)
+                                .paymentKey("pay_already_canceled_reconcile_retry")
+                                .expectedAmount(18000)
+                                .build();
+
+                given(paymentIntentRepository.findByIdForUpdate(208L)).willReturn(java.util.Optional.of(intent));
+                given(applicationRepository.findByOrderId("MATE-1-10-already-canceled-reconcile-retry"))
+                                .willReturn(java.util.Optional.empty());
+                given(tossPaymentService.cancelPayment(eq("pay_already_canceled_reconcile_retry"), any(), anyInt()))
+                                .willThrow(new TossPaymentException(
+                                                "결제 취소에 실패했습니다: 409 CONFLICT",
+                                                HttpStatus.CONFLICT,
+                                                "ALREADY_CANCELED_PAYMENT"));
+
+                reconciliationService.retryCompensation(208L, 1);
+
+                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCEL_FAILED);
+                assertThat(intent.getCanceledAt()).isNull();
+                verify(paymentMetricsService).recordCompensation("fail");
+                verify(jobScheduler).schedule(any(Instant.class), any(JobLambda.class));
+        }
+
+        @Test
+        void reconcileSingleIntent_doesNotCompleteFromAlreadyCanceledErrorWithoutCancellationProof() {
                 PaymentIntent intent = PaymentIntent.builder()
                                 .id(203L)
                                 .orderId("MATE-1-10-8002")
@@ -107,14 +226,14 @@ class PaymentIntentReconciliationServiceTest {
 
                 reconciliationService.reconcileSingleIntent(203L);
 
-                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCELED);
-                assertThat(intent.getCanceledAt()).isNotNull();
-                verify(paymentMetricsService).recordCompensation("success");
-                verify(paymentMetricsService, never()).recordCompensation("fail");
+                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCEL_FAILED);
+                assertThat(intent.getCanceledAt()).isNull();
+                verify(paymentMetricsService).recordCompensation("fail");
+                verify(jobScheduler).schedule(any(Instant.class), any(JobLambda.class));
         }
 
         @Test
-        void reconcileSingleIntent_treatsAlreadyFullyCanceledCodeAsSuccess() {
+        void reconcileSingleIntent_doesNotCompleteFromAlreadyFullyCanceledErrorWithoutCancellationProof() {
                 PaymentIntent intent = PaymentIntent.builder()
                                 .id(204L)
                                 .orderId("MATE-1-10-8003")
@@ -134,10 +253,10 @@ class PaymentIntentReconciliationServiceTest {
 
                 reconciliationService.reconcileSingleIntent(204L);
 
-                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCELED);
-                assertThat(intent.getCanceledAt()).isNotNull();
-                verify(paymentMetricsService).recordCompensation("success");
-                verify(paymentMetricsService, never()).recordCompensation("fail");
+                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCEL_FAILED);
+                assertThat(intent.getCanceledAt()).isNull();
+                verify(paymentMetricsService).recordCompensation("fail");
+                verify(jobScheduler).schedule(any(Instant.class), any(JobLambda.class));
         }
 
         @Test

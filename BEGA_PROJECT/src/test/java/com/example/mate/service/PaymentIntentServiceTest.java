@@ -1,6 +1,7 @@
 package com.example.mate.service;
 
 import com.example.auth.service.UserService;
+import com.example.auth.repository.UserRepository;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
@@ -10,6 +11,7 @@ import com.example.mate.exception.TossPaymentException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PaymentIntentRepository;
+import com.example.mate.repository.PaymentIntentReconciliationEventRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.jobrunr.jobs.lambdas.JobLambda;
@@ -20,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.PessimisticLockingFailureException;
 
 import java.security.Principal;
 import java.time.Instant;
@@ -68,10 +71,67 @@ class PaymentIntentServiceTest {
         private UserService userService;
 
         @Mock
+        private UserRepository userRepository;
+
+        @Mock
+        private PaymentIntentReconciliationEventRepository reconciliationEventRepository;
+
+        @Mock
         private PaymentIntentReconciliationService paymentIntentReconciliationService;
 
         @InjectMocks
         private PaymentIntentService paymentIntentService;
+
+        @Test
+        void reserveConfirmationAttempt_returnsFalseWhenItCreatesTheFirstMarker() {
+                PaymentIntent intent = PaymentIntent.builder()
+                                .id(100L)
+                                .orderId("MATE-1-10-reserve-first")
+                                .applicantId(10L)
+                                .status(PaymentIntent.IntentStatus.PREPARED)
+                                .build();
+                when(paymentIntentRepository.findByIdAndApplicantIdForUpdate(100L, 10L))
+                                .thenReturn(java.util.Optional.of(intent));
+
+                boolean retry = paymentIntentService.reserveConfirmationAttempt(100L, 10L, "synthetic-first-key");
+
+                assertThat(retry).isFalse();
+                assertThat(intent.getPaymentKey()).isEqualTo("synthetic-first-key");
+                assertThat(intent.getFailureCode()).isEqualTo("CONFIRM_REQUESTED");
+                verify(paymentIntentRepository).saveAndFlush(intent);
+        }
+
+        @Test
+        void reserveConfirmationAttempt_returnsTrueForAnExistingSameKeyMarker() {
+                PaymentIntent intent = PaymentIntent.builder()
+                                .id(101L)
+                                .orderId("MATE-1-10-reserve-retry")
+                                .applicantId(10L)
+                                .status(PaymentIntent.IntentStatus.PREPARED)
+                                .paymentKey("synthetic-existing-key")
+                                .failureCode("CONFIRM_REQUESTED")
+                                .build();
+                when(paymentIntentRepository.findByIdAndApplicantIdForUpdate(101L, 10L))
+                                .thenReturn(java.util.Optional.of(intent));
+
+                boolean retry = paymentIntentService.reserveConfirmationAttempt(101L, 10L, "synthetic-existing-key");
+
+                assertThat(retry).isTrue();
+                verify(paymentIntentRepository, never()).saveAndFlush(any(PaymentIntent.class));
+        }
+
+        @Test
+        void withApplicantConfirmationSerialized_returnsConflictWhenOwnerLockIsContended() {
+                when(userRepository.lockPaymentConfirmationOwnerForWrite(10L))
+                                .thenThrow(new PessimisticLockingFailureException("synthetic lock contention"));
+
+                TossPaymentException exception = assertThrows(
+                                TossPaymentException.class,
+                                () -> paymentIntentService.withApplicantConfirmationSerialized(10L, () -> "unused"));
+
+                assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+                assertThat(exception.getCode()).isEqualTo("PAYMENT_CONFIRMATION_IN_PROGRESS");
+        }
 
         @Test
         void resolveIntentForConfirm_throwsWhenAmountChanged() {
@@ -117,7 +177,7 @@ class PaymentIntentServiceTest {
                 given(applicationRepository.existsByPartyIdAndApplicantIdAndIsRejectedTrue(1L, applicantId))
                                 .willReturn(false);
                 given(applicationRepository.countByPartyIdAndIsApprovedFalseAndIsRejectedFalse(1L)).willReturn(0L);
-                given(partyRepository.findById(1L)).willReturn(java.util.Optional.of(party));
+                given(partyRepository.findByIdForUpdate(1L)).willReturn(java.util.Optional.of(party));
                 given(paymentAmountCalculator.calculateAmount(1L, com.example.mate.entity.PaymentFlowType.DEPOSIT))
                                 .willReturn(new PaymentAmountCalculator.AmountInfo(party, 25000, "KRW", "테스트 주문"));
 
@@ -126,7 +186,7 @@ class PaymentIntentServiceTest {
         }
 
         @Test
-        void compensateAfterApplicationFailure_skipsIfAlreadyCancelledByProvider() {
+        void compensateAfterApplicationFailure_keepsUnprovenAlreadyCancelledExceptionOnRetryPath() {
                 PaymentIntent intent = PaymentIntent.builder()
                                 .id(101L)
                                 .orderId("MATE-1-10-2000")
@@ -145,13 +205,13 @@ class PaymentIntentServiceTest {
                 paymentIntentService.compensateAfterApplicationFailure(101L,
                                 new IllegalStateException("payment failed"));
 
-                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCELED);
-                assertThat(intent.getCanceledAt()).isNotNull();
+                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCEL_FAILED);
+                assertThat(intent.getCanceledAt()).isNull();
                 verify(paymentMetricsService).recordCompensationRequested();
-                verify(paymentMetricsService).recordCompensation("success");
+                verify(paymentMetricsService).recordCompensation("fail");
                 verify(paymentIntentRepository, times(2)).save(intent);
                 verify(tossPaymentService).cancelPayment(eq("pay_cancel_1"), any(), anyInt());
-                verify(jobScheduler, never()).schedule(any(Instant.class), any(JobLambda.class));
+                verify(jobScheduler).schedule(any(Instant.class), any(JobLambda.class));
         }
 
         @Test
@@ -271,7 +331,7 @@ class PaymentIntentServiceTest {
 
         // BUG-02 검증: Toss 정확한 에러 코드(ALREADY_CANCELED_PAYMENT)로 이미 취소된 결제를 판별
         @Test
-        void compensateAfterApplicationFailure_skipsIfTossErrorCodeIndicatesAlreadyCancelled() {
+        void compensateAfterApplicationFailure_keepsAlreadyCancelledErrorCodeOnRetryPath() {
                 PaymentIntent intent = PaymentIntent.builder()
                                 .id(105L)
                                 .orderId("MATE-1-10-4000")
@@ -293,12 +353,12 @@ class PaymentIntentServiceTest {
                 paymentIntentService.compensateAfterApplicationFailure(105L,
                                 new IllegalStateException("payment failed"));
 
-                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCELED);
-                assertThat(intent.getCanceledAt()).isNotNull();
+                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCEL_FAILED);
+                assertThat(intent.getCanceledAt()).isNull();
                 verify(paymentMetricsService).recordCompensationRequested();
-                verify(paymentMetricsService).recordCompensation("success");
+                verify(paymentMetricsService).recordCompensation("fail");
                 verify(paymentIntentRepository, times(2)).save(intent);
-                verify(jobScheduler, never()).schedule(any(Instant.class), any(JobLambda.class));
+                verify(jobScheduler).schedule(any(Instant.class), any(JobLambda.class));
         }
 
         // BUG-02 검증: 409이지만 에러 코드가 없고 메시지에 "취소"만 포함된 경우 CANCEL_FAILED로 기록(false
@@ -334,7 +394,7 @@ class PaymentIntentServiceTest {
 
         // BUG-02 검증: ALREADY_FULLY_CANCELED 에러 코드도 이미 취소된 결제로 판별
         @Test
-        void compensateAfterApplicationFailure_skipsIfTossErrorCodeIsAlreadyFullyCanceled() {
+        void compensateAfterApplicationFailure_keepsAlreadyFullyCanceledErrorCodeOnRetryPath() {
                 PaymentIntent intent = PaymentIntent.builder()
                                 .id(107L)
                                 .orderId("MATE-1-10-6000")
@@ -356,9 +416,10 @@ class PaymentIntentServiceTest {
                 paymentIntentService.compensateAfterApplicationFailure(107L,
                                 new IllegalStateException("payment failed"));
 
-                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCELED);
-                assertThat(intent.getCanceledAt()).isNotNull();
-                verify(paymentMetricsService).recordCompensation("success");
+                assertThat(intent.getStatus()).isEqualTo(PaymentIntent.IntentStatus.CANCEL_FAILED);
+                assertThat(intent.getCanceledAt()).isNull();
+                verify(paymentMetricsService).recordCompensation("fail");
+                verify(jobScheduler).schedule(any(Instant.class), any(JobLambda.class));
         }
 
         @Test
@@ -409,5 +470,26 @@ class PaymentIntentServiceTest {
 
                 verify(paymentIntentReconciliationService).reconcileSingleIntent(110L);
                 verify(paymentIntentReconciliationService).reconcileSingleIntent(111L);
+        }
+
+        @Test
+        void prepareIntent_rejectsCompletedPartyBeforePersistingIntent() {
+                Party completedParty = Party.builder()
+                                .id(1L)
+                                .status(Party.PartyStatus.COMPLETED)
+                                .build();
+                given(partyRepository.findByIdForUpdate(1L))
+                                .willReturn(java.util.Optional.of(completedParty));
+                TossPaymentDTO.PrepareClientRequest request = TossPaymentDTO.PrepareClientRequest.builder()
+                                .partyId(1L)
+                                .flowType(com.example.mate.entity.PaymentFlowType.DEPOSIT)
+                                .build();
+
+                assertThrows(InvalidApplicationStatusException.class,
+                                () -> paymentIntentService.prepareIntent(request, 10L));
+
+                verify(paymentIntentRepository, never()).save(any(PaymentIntent.class));
+                verify(paymentAmountCalculator, never()).calculateAmount(
+                                1L, com.example.mate.entity.PaymentFlowType.DEPOSIT);
         }
 }

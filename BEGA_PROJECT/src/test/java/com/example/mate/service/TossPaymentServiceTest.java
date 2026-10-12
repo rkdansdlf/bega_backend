@@ -1,5 +1,8 @@
 package com.example.mate.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.example.mate.config.TossPaymentConfig;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.exception.TossPaymentException;
@@ -10,12 +13,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
+
+import java.io.IOException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -29,6 +35,7 @@ class TossPaymentServiceTest {
 
     private static final String TEST_SECRET_KEY = "test_sk_abc123";
     private static final String CONFIRM_URL = "https://api.tosspayments.com/v1/payments/confirm";
+    private static final String CANCEL_URL = "https://api.tosspayments.com/v1/payments/{paymentKey}/cancel";
 
     @Mock
     private TossPaymentConfig tossPaymentConfig;
@@ -191,6 +198,169 @@ class TossPaymentServiceTest {
                 .hasMessageContaining("직거래 모드")
                 .extracting("code")
                 .isEqualTo("TOSS_PAYMENT_DISABLED");
+    }
+
+    @Test
+    @DisplayName("결제 키 원문은 승인 및 취소 로그에 남기지 않는다")
+    void paymentKeyIsNotWrittenToLogs() {
+        stubTossEnabled();
+        when(tossPaymentConfig.getCancelUrl()).thenReturn(CANCEL_URL);
+        String paymentKey = "payment-key-sensitive-sentinel";
+        Logger logger = (Logger) LoggerFactory.getLogger(TossPaymentService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        mockServer.expect(requestTo(CONFIRM_URL))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess(
+                        "{\"paymentKey\":\"%s\",\"orderId\":\"order\",\"status\":\"DONE\"}"
+                                .formatted(paymentKey),
+                        MediaType.APPLICATION_JSON));
+        String cancelUrl = CANCEL_URL.replace("{paymentKey}", paymentKey);
+        mockServer.expect(requestTo(cancelUrl))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        mockServer.expect(requestTo(cancelUrl))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.CONFLICT)
+                        .body("{\"code\":\"CANNOT_CANCEL\",\"message\":\"cancel failed\"}")
+                        .contentType(MediaType.APPLICATION_JSON));
+
+        try {
+            tossPaymentService.confirmPayment(paymentKey, "order", 10000);
+            tossPaymentService.cancelPayment(paymentKey, "test", 10000);
+            assertThatThrownBy(() -> tossPaymentService.cancelPayment(paymentKey, "test", 10000))
+                    .isInstanceOf(TossPaymentException.class);
+
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .noneMatch(message -> message.contains(paymentKey));
+            mockServer.verify();
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("Toss 오류 응답 본문은 WARN 또는 파싱 실패 로그에 남기지 않는다")
+    void providerErrorBodiesAreNotWrittenToLogs() {
+        stubTossEnabled();
+        when(tossPaymentConfig.getCancelUrl()).thenReturn(CANCEL_URL);
+        String responseMarker = "provider-private-error-body-sentinel";
+        String errorCodeMarker = "provider-private-error-code-sentinel";
+        String paymentKey = "pk-log-body-test";
+        String cancelUrl = CANCEL_URL.replace("{paymentKey}", paymentKey);
+        Logger logger = (Logger) LoggerFactory.getLogger(TossPaymentService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        mockServer.expect(requestTo(CONFIRM_URL))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                        .body(responseMarker)
+                        .contentType(MediaType.APPLICATION_JSON));
+        mockServer.expect(requestTo(cancelUrl))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.CONFLICT)
+                        .body("{\"code\":\"%s\",\"message\":\"%s\"}"
+                                .formatted(errorCodeMarker, responseMarker))
+                        .contentType(MediaType.APPLICATION_JSON));
+
+        try {
+            assertThatThrownBy(() -> tossPaymentService.confirmPayment(paymentKey, "order", 10000))
+                    .isInstanceOf(TossPaymentException.class);
+            assertThatThrownBy(() -> tossPaymentService.cancelPayment(paymentKey, "test", 10000))
+                    .isInstanceOf(TossPaymentException.class);
+
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .noneMatch(message -> message.contains(responseMarker)
+                            || message.contains(errorCodeMarker));
+            mockServer.verify();
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("승인 네트워크 오류 로그는 예외 메시지의 결제 키를 노출하지 않는다")
+    void confirmNetworkFailureDoesNotLogPaymentKeyFromException() {
+        when(matePaymentModeService.isDirectTrade()).thenReturn(false);
+        when(tossPaymentConfig.getSecretKey()).thenReturn(TEST_SECRET_KEY);
+        when(tossPaymentConfig.getConfirmUrl()).thenReturn(CONFIRM_URL);
+        String paymentKey = "payment-key-confirm-network-failure-sentinel";
+        Logger logger = (Logger) LoggerFactory.getLogger(TossPaymentService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        mockServer.expect(requestTo(CONFIRM_URL))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(request -> {
+                    throw new IOException("Connection failed for paymentKey=" + paymentKey);
+                });
+
+        try {
+            assertThatThrownBy(() -> tossPaymentService.confirmPayment(paymentKey, "order", 10000))
+                    .isInstanceOf(TossPaymentException.class);
+
+            assertThat(appender.list).isNotEmpty().allSatisfy(event -> {
+                assertThat(event.getFormattedMessage()).doesNotContain(paymentKey);
+                for (var throwable = event.getThrowableProxy(); throwable != null;
+                        throwable = throwable.getCause()) {
+                    assertThat(throwable.getMessage()).doesNotContain(paymentKey);
+                }
+            });
+            mockServer.verify();
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("취소 네트워크 오류 로그는 요청 URL의 결제 키를 노출하지 않는다")
+    void cancelNetworkFailureDoesNotLogPaymentKeyFromRequestUrl() {
+        when(matePaymentModeService.isDirectTrade()).thenReturn(false);
+        when(tossPaymentConfig.getSecretKey()).thenReturn(TEST_SECRET_KEY);
+        when(tossPaymentConfig.getCancelUrl()).thenReturn(CANCEL_URL);
+        String paymentKey = "payment-key-network-failure-sentinel";
+        String cancelUrl = CANCEL_URL.replace("{paymentKey}", paymentKey);
+        Logger logger = (Logger) LoggerFactory.getLogger(TossPaymentService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        mockServer.expect(requestTo(cancelUrl))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(request -> {
+                    throw new IOException("Connection failed for " + request.getURI());
+                });
+
+        try {
+            assertThatThrownBy(() -> tossPaymentService.cancelPayment(paymentKey, "test", 10000))
+                    .isInstanceOf(TossPaymentException.class);
+
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .anyMatch(message -> message.contains("ResourceAccessException"));
+            assertThat(appender.list)
+                    .allSatisfy(event -> {
+                        assertThat(event.getFormattedMessage()).doesNotContain(paymentKey);
+                        if (event.getThrowableProxy() != null) {
+                            assertThat(event.getThrowableProxy().getMessage())
+                                    .doesNotContain(paymentKey);
+                        }
+                    });
+            mockServer.verify();
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     private void stubTossEnabled() {

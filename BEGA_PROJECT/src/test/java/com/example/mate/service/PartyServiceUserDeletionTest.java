@@ -270,8 +270,8 @@ class PartyServiceUserDeletionTest {
         verify(notificationService, times(1)).createNotification(
                 eq(999L),
                 eq(Notification.NotificationType.PARTY_PARTICIPANT_LEFT),
-                anyString(),
-                anyString(),
+                eq("참여자가 탈퇴했습니다"),
+                eq("참여자가 파티에서 탈퇴했습니다. (현재 인원: 2/4)"),
                 eq(300L)
         );
 

@@ -25,7 +25,8 @@ public class SeatViewPhoto {
 
     public enum SourceType {
         DIARY_UPLOAD,
-        TICKET_SCAN
+        TICKET_SCAN,
+        SEATMAP_UPLOAD
     }
 
     public enum ClassificationLabel {
@@ -46,7 +47,7 @@ public class SeatViewPhoto {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "diary_id", nullable = false)
+    @JoinColumn(name = "diary_id")
     private BegaDiary diary;
 
     @Column(name = "user_id", nullable = false)
@@ -54,6 +55,30 @@ public class SeatViewPhoto {
 
     @Column(name = "storage_path", nullable = false, length = 2048)
     private String storagePath;
+
+    @Column(name = "stadium", length = 100)
+    private String stadium;
+
+    @Column(name = "section", length = 100)
+    private String section;
+
+    @Column(name = "block", length = 100)
+    private String block;
+
+    @Column(name = "seat_row", length = 100)
+    private String seatRow;
+
+    @Column(name = "seat_number", length = 100)
+    private String seatNumber;
+
+    @Column(name = "rating")
+    private Integer rating;
+
+    @Column(name = "comment_text", length = 140)
+    private String commentText;
+
+    @Column(name = "tags_json", length = 1000)
+    private String tagsJson;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "source_type", nullable = false, length = 32)
@@ -103,6 +128,14 @@ public class SeatViewPhoto {
             BegaDiary diary,
             Long userId,
             String storagePath,
+            String stadium,
+            String section,
+            String block,
+            String seatRow,
+            String seatNumber,
+            Integer rating,
+            String commentText,
+            String tagsJson,
             SourceType sourceType,
             ClassificationLabel aiSuggestedLabel,
             Double aiConfidence,
@@ -117,6 +150,14 @@ public class SeatViewPhoto {
         this.diary = diary;
         this.userId = userId;
         this.storagePath = storagePath;
+        this.stadium = stadium;
+        this.section = section;
+        this.block = block;
+        this.seatRow = seatRow;
+        this.seatNumber = seatNumber;
+        this.rating = rating;
+        this.commentText = commentText;
+        this.tagsJson = tagsJson;
         this.sourceType = sourceType;
         this.aiSuggestedLabel = aiSuggestedLabel;
         this.aiConfidence = aiConfidence;

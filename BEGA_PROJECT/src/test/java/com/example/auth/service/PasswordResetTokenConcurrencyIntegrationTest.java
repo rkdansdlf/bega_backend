@@ -2,6 +2,8 @@ package com.example.auth.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,9 +31,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,6 +62,12 @@ class PasswordResetTokenConcurrencyIntegrationTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @MockitoSpyBean
+    private PasswordResetTokenRepository tokenRepositorySpy;
 
     @MockitoBean
     private PasswordEncoder passwordEncoder;
@@ -144,6 +154,54 @@ class PasswordResetTokenConcurrencyIntegrationTest {
             verify(refreshRepository).deleteByEmail(user.getEmail());
         } finally {
             releaseFirstRequest.countDown();
+            workers.shutdownNow();
+        }
+    }
+
+    @Test
+    void concurrentRequestsWithNoExistingTokenCanPersistMultipleResetTokens() throws Exception {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        UserEntity user = userRepository.saveAndFlush(UserEntity.builder()
+                .uniqueId(UUID.randomUUID())
+                .handle("pwri" + suffix)
+                .name("Password Reset Issuance Race Test")
+                .email("password-reset-issue-" + suffix + "@example.test")
+                .password("old-encoded-password")
+                .role("ROLE_USER")
+                .enabled(true)
+                .locked(false)
+                .tokenVersion(0)
+                .build());
+
+        CountDownLatch bothDeleteChecksFinished = new CountDownLatch(2);
+        CountDownLatch releaseTokenInsertion = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            bothDeleteChecksFinished.countDown();
+            if (!releaseTokenInsertion.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Timed out waiting for concurrent token issuance checks");
+            }
+            return null;
+        }).when(tokenRepositorySpy).deleteByUserId(anyLong());
+
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> first = workers.submit(() -> passwordResetService.requestPasswordReset(
+                    new com.example.auth.dto.PasswordResetRequestDto(user.getEmail(), null)));
+            Future<?> second = workers.submit(() -> passwordResetService.requestPasswordReset(
+                    new com.example.auth.dto.PasswordResetRequestDto(user.getEmail(), null)));
+
+            assertThat(bothDeleteChecksFinished.await(5, TimeUnit.SECONDS)).isTrue();
+            releaseTokenInsertion.countDown();
+            first.get(10, TimeUnit.SECONDS);
+            second.get(10, TimeUnit.SECONDS);
+
+            Integer tokenCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM password_reset_tokens WHERE user_id = ?", Integer.class, user.getId());
+            assertThat(tokenCount).isEqualTo(2);
+            verify(emailService, org.mockito.Mockito.times(2))
+                    .sendPasswordResetEmail(anyString(), anyString(), org.mockito.ArgumentMatchers.isNull());
+        } finally {
+            releaseTokenInsertion.countDown();
             workers.shutdownNow();
         }
     }

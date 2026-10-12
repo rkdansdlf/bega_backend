@@ -1,9 +1,12 @@
 package com.example.media.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -13,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.strategy.StorageOperationException;
+import com.example.cheerboard.storage.strategy.PresignedUpload;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
 import com.example.cheerboard.storage.strategy.StoredObject;
 import com.example.cheerboard.storage.strategy.StoredObjectMetadata;
@@ -23,6 +27,7 @@ import com.example.common.image.ImageOptimizationMetricsService;
 import com.example.common.image.ImageUtil;
 import com.example.media.dto.MediaCleanupTargetReport;
 import com.example.media.dto.FinalizeMediaUploadResponse;
+import com.example.media.dto.InitMediaUploadRequest;
 import com.example.media.entity.MediaAsset;
 import com.example.media.entity.MediaAssetStatus;
 import com.example.media.entity.MediaCleanupTarget;
@@ -32,9 +37,12 @@ import com.example.media.repository.MediaAssetRepository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -75,6 +83,79 @@ class MediaUploadServiceTest {
 
     @Mock
     private ImageOptimizationMetricsService metricsService;
+
+    @ParameterizedTest
+    @EnumSource(MediaDomain.class)
+    @DisplayName("모든 업로드 도메인은 quota에 사용한 선언 크기를 presigned PUT 서명에도 고정한다")
+    void initUploadBindsDeclaredSizeForEveryDomain(MediaDomain domain) {
+        long declaredBytes = 2_048L;
+        InitMediaUploadRequest request = new InitMediaUploadRequest(
+                domain, "seat.png", "image/png", declaredBytes, 100, 100);
+        MediaAsset persisted = MediaAsset.builder()
+                .id(81L)
+                .ownerUserId(7L)
+                .domain(domain)
+                .status(MediaAssetStatus.PENDING)
+                .originalFileName("seat.png")
+                .declaredContentType("image/png")
+                .declaredBytes(declaredBytes)
+                .declaredWidth(100)
+                .declaredHeight(100)
+                .stagingObjectKey("pending")
+                .uploadExpiresAt(LocalDateTime.now().plusMinutes(15))
+                .build();
+
+        switch (domain) {
+            case PROFILE -> when(storageConfig.getProfileBucket()).thenReturn("bucket");
+            case DIARY, SEAT_VIEW -> when(storageConfig.getDiaryBucket()).thenReturn("bucket");
+            case CHEER, CHAT -> when(storageConfig.getCheerBucket()).thenReturn("bucket");
+        }
+        when(storageConfig.getMediaUploadUrlTtlSeconds()).thenReturn(900);
+        when(mediaAssetRepository.saveAndFlush(any(MediaAsset.class))).thenReturn(persisted);
+        when(storageStrategy.presignPut(
+                eq("bucket"), any(String.class), eq("image/png"), eq(declaredBytes), eq(900)))
+                .thenReturn(Mono.just(new PresignedUpload("https://storage.example/put", java.util.Map.of(
+                        "Content-Type", "image/png"))));
+
+        var response = mediaUploadService.initUpload(7L, request);
+
+        assertEquals(81L, response.assetId());
+        assertEquals("https://storage.example/put", response.uploadUrl());
+        verify(mediaQuotaService).assertWithinQuota(7L, domain, declaredBytes);
+        verify(storageStrategy).presignPut(
+                eq("bucket"), any(String.class), eq("image/png"), eq(declaredBytes), eq(900));
+    }
+
+    @Test
+    @DisplayName("승인된 시야뷰 기록을 위해 계정 삭제 때 SEAT_VIEW 원본과 링크를 보존한다")
+    void deleteOwnedAssetsForAccount_retainsSeatViewAsset() {
+        MediaAsset seatViewAsset = MediaAsset.builder()
+                .id(91L)
+                .ownerUserId(7L)
+                .domain(MediaDomain.SEAT_VIEW)
+                .status(MediaAssetStatus.READY)
+                .originalFileName("seat-view.jpg")
+                .declaredContentType("image/jpeg")
+                .declaredBytes(64L)
+                .declaredWidth(320)
+                .declaredHeight(240)
+                .stagingObjectKey("media/staging/seat-view/7/91-seat-view.jpg")
+                .objectKey("media/seat-view/7/91-seat-view.jpg")
+                .uploadExpiresAt(LocalDateTime.now().plusHours(1))
+                .build();
+        when(mediaAssetRepository.findByOwnerUserIdAndIdGreaterThanOrderByIdAsc(
+                eq(7L), eq(0L), any(Pageable.class)))
+                .thenReturn(List.of(seatViewAsset));
+
+        mediaUploadService.deleteOwnedAssetsForAccount(7L, Set.of());
+
+        assertEquals(7L, seatViewAsset.getOwnerUserId());
+        assertEquals(MediaAssetStatus.READY, seatViewAsset.getStatus());
+        assertEquals("media/seat-view/7/91-seat-view.jpg", seatViewAsset.getObjectKey());
+        verify(mediaAssetRepository, never()).save(any(MediaAsset.class));
+        verify(mediaAssetLinkRepository, never()).deleteByAssetId(91L);
+        verify(storageStrategy, never()).deleteChecked(anyString(), anyString());
+    }
 
     @Test
     @DisplayName("media finalize는 프로필 원본과 feed derivative를 함께 READY로 만든다")
@@ -176,6 +257,26 @@ class MediaUploadServiceTest {
         assertEquals("MEDIA_UPLOAD_METADATA_MISMATCH", exception.getCode());
         assertEquals(MediaAssetStatus.DELETED, asset.getStatus());
         verify(metricsService).recordMediaFinalize("DIARY", "failure");
+    }
+
+    @Test
+    @DisplayName("시야뷰 finalize 재호출은 인증된 미리보기 경로를 위해 bearer URL을 발급하지 않는다")
+    void finalizeUpload_seatViewDoesNotIssuePublicUrl() {
+        MediaAsset asset = MediaAsset.builder()
+                .id(93L)
+                .ownerUserId(7L)
+                .domain(MediaDomain.SEAT_VIEW)
+                .status(MediaAssetStatus.READY)
+                .objectKey("media/seat-view/7/93.webp")
+                .stagingObjectKey("media/staging/seat-view/7/93-seat.webp")
+                .build();
+        when(mediaAssetRepository.findByIdAndOwnerUserId(93L, 7L)).thenReturn(Optional.of(asset));
+
+        FinalizeMediaUploadResponse response = mediaUploadService.finalizeUpload(7L, 93L);
+
+        assertEquals("media/seat-view/7/93.webp", response.storagePath());
+        assertNull(response.publicUrl());
+        verify(storageStrategy, never()).getUrl(any(), any(), anyInt());
     }
 
     @Test

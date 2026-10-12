@@ -5,6 +5,7 @@ import com.example.admin.dto.RoleChangeRequestDto;
 import com.example.admin.dto.RoleChangeResponseDto;
 import com.example.admin.service.AdminRoleService;
 import com.example.common.dto.ApiResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -36,7 +37,7 @@ public class AdminRoleController {
     public ResponseEntity<ApiResponse<RoleChangeResponseDto>> promoteToAdmin(
             @AuthenticationPrincipal Long adminId,
             @PathVariable Long userId,
-            @RequestBody(required = false) RoleChangeRequestDto request) {
+            @Valid @RequestBody(required = false) RoleChangeRequestDto request) {
 
         String reason = (request != null) ? request.getReason() : null;
         RoleChangeResponseDto response = adminRoleService.promoteToAdmin(adminId, userId, reason);
@@ -55,7 +56,7 @@ public class AdminRoleController {
     public ResponseEntity<ApiResponse<RoleChangeResponseDto>> demoteToUser(
             @AuthenticationPrincipal Long adminId,
             @PathVariable Long userId,
-            @RequestBody(required = false) RoleChangeRequestDto request) {
+            @Valid @RequestBody(required = false) RoleChangeRequestDto request) {
 
         String reason = (request != null) ? request.getReason() : null;
         RoleChangeResponseDto response = adminRoleService.demoteToUser(adminId, userId, reason);

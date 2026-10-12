@@ -80,7 +80,8 @@ public class AuditLog {
         TAKE_DOWN_REPORT("신고 기반 게시글 비공개"),
         DISMISS_REPORT("신고 기각"),
         RESTORE_REPORT("신고 조치 복구"),
-        WARN_REPEATED_INFRACTION("반복 침해 경고");
+        WARN_REPEATED_INFRACTION("반복 침해 경고"),
+        DECIDE_REPORT_APPEAL("신고 이의제기 결정");
 
         private final String description;
 

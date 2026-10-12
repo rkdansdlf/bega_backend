@@ -1,6 +1,5 @@
 package com.example.ai.chat.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -27,7 +26,7 @@ public record CreateAssistantChatMessageRequest(
         String toolExecutionMode,
         @Size(max = 100, message = "fallbackReason은 최대 100자까지 허용됩니다.")
         String fallbackReason,
-        JsonNode metadata,
-        JsonNode citations,
-        JsonNode toolCalls) {
+        Object metadata,
+        Object citations,
+        Object toolCalls) {
 }

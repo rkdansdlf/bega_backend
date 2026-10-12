@@ -65,7 +65,7 @@ public class CookieAuthorizationRequestRepository
             return deserialize(cookie.get());
         } catch (IllegalArgumentException e) {
             securityMonitoringService.recordUnsignedOauth2Cookie();
-            log.warn("Invalid OAuth2 request cookie received: {}", e.getMessage());
+            log.warn("Invalid OAuth2 request cookie received: errorType={}", e.getClass().getSimpleName());
             request.setAttribute(OAUTH2_COOKIE_ERROR_ATTRIBUTE, "invalid_oauth2_request_cookie");
             return null;
         }
@@ -86,7 +86,7 @@ public class CookieAuthorizationRequestRepository
         String originalState = authorizationRequest.getState();
 
         log.debug("saveAuthorizationRequest - mode: {}, linkToken: {}, state: {}",
-                mode, linkToken != null ? "present" : "null", originalState);
+                mode, linkToken != null ? "present" : "null", originalState != null ? "present" : "null");
 
         // 연동 모드일 경우 원본 state를 key로 사용하여 Redis에 저장
         if ("link".equals(mode)) {
@@ -99,7 +99,7 @@ public class CookieAuthorizationRequestRepository
                 failureReason = consumeResult.failureReason();
             } catch (OAuth2LinkStateService.OAuth2LinkStateStoreException e) {
                 securityMonitoringService.recordOAuth2LinkReject();
-                log.error("Failed to consume OAuth2 link ticket", e);
+                log.error("Failed to consume OAuth2 link ticket: errorType={}", e.getClass().getSimpleName());
             }
 
             // Redis에 연동 정보(또는 실패 정보) 저장
@@ -116,7 +116,8 @@ public class CookieAuthorizationRequestRepository
                         authUserId, failureReason);
             } catch (OAuth2LinkStateService.OAuth2LinkStateStoreException e) {
                 securityMonitoringService.recordOAuth2LinkReject();
-                log.error("Failed to save OAuth2 link state; link flow will be rejected later", e);
+                log.error("Failed to save OAuth2 link state; link flow will be rejected later: errorType={}",
+                        e.getClass().getSimpleName());
             }
         }
 
@@ -264,7 +265,7 @@ public class CookieAuthorizationRequestRepository
             byte[] digest = mac.doFinal(encodedPayload.getBytes(StandardCharsets.UTF_8));
             return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
         } catch (Exception e) {
-            log.error("Failed to sign OAuth2 request cookie", e);
+            log.error("Failed to sign OAuth2 request cookie: errorType={}", e.getClass().getSimpleName());
             return "";
         }
     }

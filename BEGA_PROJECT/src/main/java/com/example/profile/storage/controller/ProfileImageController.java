@@ -35,7 +35,7 @@ public class ProfileImageController {
     public ResponseEntity<ApiResponse<ProfileImageDto>> uploadProfileImage(
             @RequestPart("file") MultipartFile file) {
         Long userId = resolveAuthenticatedUserId();
-        log.info("프로필 이미지 업로드 요청: userId={}, filename={}", userId, file.getOriginalFilename());
+        log.info("프로필 이미지 업로드 요청: userId={}", userId);
         ProfileImageDto result = profileImageService.uploadProfileImage(userId, file);
 
         return ResponseEntity.ok(

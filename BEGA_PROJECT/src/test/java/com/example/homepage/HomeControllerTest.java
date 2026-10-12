@@ -20,6 +20,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -97,25 +98,17 @@ class HomeControllerTest {
     }
 
     @Test
-    @DisplayName("홈 bootstrap 서비스 실패 fallback은 loadState에 모든 핵심 섹션 실패를 표시한다")
-    void getBootstrapFallbackMarksAllCoreSectionsFailed() throws Exception {
+    @DisplayName("홈 bootstrap 서비스 실패는 기존 서버 오류 계약을 반환한다")
+    void getBootstrapReturnsServerErrorWhenServiceFails() throws Exception {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
         given(homePageFacadeService.getBootstrap(eq(selectedDate)))
                 .willThrow(new IllegalStateException("db unavailable"));
 
         mockMvc.perform(get("/api/home/bootstrap").param("date", "2026-03-15"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.selectedDate").value("2026-03-15"))
-                .andExpect(jsonPath("$.games").isArray())
-                .andExpect(jsonPath("$.scheduledGamesWindow").isArray())
-                .andExpect(jsonPath("$.loadState.isFallback").value(true))
-                .andExpect(jsonPath("$.loadState.timedOut").value(false))
-                .andExpect(jsonPath("$.loadState.timedOutSections").isEmpty())
-                .andExpect(jsonPath("$.loadState.failedSections[0]").value("leagueStartDates"))
-                .andExpect(jsonPath("$.loadState.failedSections[1]").value("navigation"))
-                .andExpect(jsonPath("$.loadState.failedSections[2]").value("games"))
-                .andExpect(jsonPath("$.loadState.failedSections[3]").value("scheduledGamesWindow"))
-                .andExpect(jsonPath("$.rankingSnapshot").doesNotExist());
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.leagueStartDates").doesNotExist());
     }
 
     @Test
@@ -142,6 +135,33 @@ class HomeControllerTest {
                 .andExpect(jsonPath("$.data.scope").value("home.schedule"))
                 .andExpect(jsonPath("$.data.blocking").value(true))
                 .andExpect(jsonPath("$.data.missingItems[0].key").value("season_league_context"));
+    }
+
+    @Test
+    @DisplayName("지원 날짜·시즌 범위를 벗어난 홈 요청은 데이터 조회 전에 거부한다")
+    void rejectsOutOfRangeHomeInputsBeforeLoading() throws Exception {
+        mockMvc.perform(get("/api/home/bootstrap").param("date", "1981-12-31"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("HOME_DATE_OUT_OF_RANGE"));
+
+        mockMvc.perform(get("/api/home/widgets")
+                        .param("date", "2026-03-15")
+                        .param("seasonYear", "2031"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("HOME_SEASON_OUT_OF_RANGE"));
+
+        mockMvc.perform(get("/api/home/widgets")
+                        .param("date", "2031-01-01")
+                        .param("seasonYear", "2031"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/home/navigation")
+                        .param("date", "2026-03-15")
+                        .param("seasonYear", "1981"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("HOME_SEASON_OUT_OF_RANGE"));
+
+        verifyNoInteractions(homePageFacadeService, homePageGameService);
     }
 
     @Test
@@ -293,20 +313,17 @@ class HomeControllerTest {
     }
 
     @Test
-    @DisplayName("홈 widgets 실패 fallback 응답도 빈 랭킹 스냅샷을 포함한다")
-    void getWidgetsReturnsFallbackRankingSnapshotWhenServiceFails() throws Exception {
+    @DisplayName("홈 widgets 서비스 실패는 기존 서버 오류 계약을 반환한다")
+    void getWidgetsReturnsServerErrorWhenServiceFails() throws Exception {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
         given(homePageFacadeService.getWidgets(eq(selectedDate), eq(2024)))
                 .willThrow(new IllegalStateException("boom"));
 
         mockMvc.perform(get("/api/home/widgets").param("date", "2026-03-15").param("seasonYear", "2024"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.hotCheerPosts").isArray())
-                .andExpect(jsonPath("$.featuredMates").isArray())
-                .andExpect(jsonPath("$.rankingSnapshot.rankingSeasonYear").value(2024))
-                .andExpect(jsonPath("$.rankingSnapshot.rankingSourceMessage").value("순위 데이터를 불러오지 못했습니다."))
-                .andExpect(jsonPath("$.rankingSnapshot.isOffSeason").value(false))
-                .andExpect(jsonPath("$.rankingSnapshot.rankings").isArray());
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.rankingSnapshot").doesNotExist());
     }
 
     @Test
@@ -331,19 +348,16 @@ class HomeControllerTest {
     }
 
     @Test
-    @DisplayName("홈 widgets 자동 시즌 fallback은 비시즌이면 이전 시즌 라벨을 유지한다")
-    void getWidgetsReturnsPreviousSeasonLabelDuringOffSeasonFallback() throws Exception {
+    @DisplayName("홈 widgets 자동 시즌 조회 실패도 기존 서버 오류 계약을 반환한다")
+    void getWidgetsReturnsServerErrorForAutomaticSeasonWhenServiceFails() throws Exception {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
         given(homePageFacadeService.getWidgets(eq(selectedDate), isNull()))
                 .willThrow(new IllegalStateException("boom"));
 
         mockMvc.perform(get("/api/home/widgets").param("date", "2026-03-15"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.hotCheerPosts").isArray())
-                .andExpect(jsonPath("$.featuredMates").isArray())
-                .andExpect(jsonPath("$.rankingSnapshot.rankingSeasonYear").value(2025))
-                .andExpect(jsonPath("$.rankingSnapshot.rankingSourceMessage").value("순위 데이터를 불러오지 못했습니다."))
-                .andExpect(jsonPath("$.rankingSnapshot.isOffSeason").value(true))
-                .andExpect(jsonPath("$.rankingSnapshot.rankings").isArray());
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"))
+                .andExpect(jsonPath("$.rankingSnapshot").doesNotExist());
     }
 }

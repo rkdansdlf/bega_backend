@@ -419,22 +419,6 @@ public class PostDtoMapper {
                 linkedContent(linkedContentByPostId, original.getId()));
     }
 
-    /**
-     * 원본 게시글을 EmbeddedPostDto로 변환 (프리페치된 이미지 URL 사용)
-     */
-    private EmbeddedPostDto toEmbeddedPostDto(CheerPost original, Map<Long, List<String>> preloadedImageUrls) {
-        return toEmbeddedPostDto(
-                original, preloadedImageUrls, Collections.emptyMap(), Collections.emptyMap());
-    }
-
-    private EmbeddedPostDto toEmbeddedPostDto(
-            CheerPost original,
-            Map<Long, List<String>> preloadedImageUrls,
-            Map<Long, String> feedProfileImageUrls) {
-        return toEmbeddedPostDto(
-                original, preloadedImageUrls, feedProfileImageUrls, Collections.emptyMap());
-    }
-
     private EmbeddedPostDto toEmbeddedPostDto(
             CheerPost original,
             Map<Long, List<String>> preloadedImageUrls,

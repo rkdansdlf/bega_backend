@@ -7,6 +7,10 @@ import com.example.leaderboard.entity.UserPowerup.PowerupType;
 import com.example.leaderboard.repository.ActivePowerupRepository;
 import com.example.leaderboard.repository.ScoreEventRepository;
 import com.example.leaderboard.repository.UserScoreRepository;
+import com.example.leaderboard.repository.PerfectDaySettlementReceiptRepository;
+import com.example.prediction.Prediction;
+import com.example.prediction.PredictionRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -41,6 +46,28 @@ class ScoringServiceTest {
 
     @Mock
     private AchievementService achievementService;
+
+    @Mock
+    private PerfectDaySettlementReceiptRepository perfectDaySettlementReceiptRepository;
+
+    @Mock
+    private PredictionRepository predictionRepository;
+
+    private static final LocalDate PERFECT_DAY_DATE = LocalDate.of(2024, 9, 15);
+
+    @BeforeEach
+    void setUpSettlementDefaults() {
+        lenient().when(predictionRepository.claimSettlement(
+                anyLong(),
+                any(LocalDateTime.class),
+                eq(Prediction.ScoreSettlementStatus.PENDING),
+                eq(Prediction.ScoreSettlementStatus.SETTLED)))
+                .thenReturn(1);
+        lenient().when(perfectDaySettlementReceiptRepository.existsByUserIdAndGameDate(anyLong(), any()))
+                .thenReturn(false);
+        lenient().when(perfectDaySettlementReceiptRepository.save(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+    }
 
     // ============================================
     // processPredictionResult — correct prediction
@@ -232,6 +259,27 @@ class ScoringServiceTest {
         assertThat(us.getTotalPredictions()).isEqualTo(6);
     }
 
+    @Test
+    @DisplayName("오답 정산 재호출은 예측 통계를 중복 증가시키지 않음")
+    void processPredictionResult_incorrectIsIdempotent() {
+        Long userId = 12L;
+        UserScore us = freshUserScore(userId);
+        when(userScoreRepository.findByUserId(userId)).thenReturn(Optional.of(us));
+        when(predictionRepository.claimSettlement(
+                eq(202L), any(LocalDateTime.class),
+                eq(Prediction.ScoreSettlementStatus.PENDING),
+                eq(Prediction.ScoreSettlementStatus.SETTLED))).thenReturn(1, 0);
+        when(userScoreRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        scoringService.processPredictionResult(userId, 202L, "game12", false, false);
+        int predictionsAfterFirstSettlement = us.getTotalPredictions();
+        scoringService.processPredictionResult(userId, 202L, "game12", false, false);
+
+        assertThat(predictionsAfterFirstSettlement).isEqualTo(1);
+        assertThat(us.getTotalPredictions()).isEqualTo(predictionsAfterFirstSettlement);
+        verify(userScoreRepository, times(1)).save(us);
+    }
+
     // ============================================
     // processPredictionResult — idempotency & edge cases
     // ============================================
@@ -280,16 +328,19 @@ class ScoringServiceTest {
     void processPerfectDay_addsBonus() {
         Long userId = 20L;
         UserScore us = userScoreWithStats(userId, 1000, 3, 3, 4, 1000, 10, 10);
-        when(userScoreRepository.findByUserId(userId)).thenReturn(Optional.of(us));
+        when(userScoreRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(us));
         when(userScoreRepository.save(any())).thenAnswer(i -> i.getArgument(0));
         when(scoreEventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        scoringService.processPerfectDay(userId, 5);
+        scoringService.processPerfectDay(userId, PERFECT_DAY_DATE, 5);
 
         assertThat(us.getTotalScore()).isEqualTo(1200L);
         assertThat(us.getSeasonScore()).isEqualTo(1200L);
         assertThat(us.getExperiencePoints()).isEqualTo(1200L);
         verify(achievementService).awardAchievement(userId, Achievement.PERFECT_DAY);
+        verify(perfectDaySettlementReceiptRepository)
+                .save(argThat(receipt -> receipt.getUserId().equals(userId)
+                        && receipt.getGameDate().equals(PERFECT_DAY_DATE)));
     }
 
     @Test
@@ -297,14 +348,33 @@ class ScoringServiceTest {
     void processPerfectDay_newUser() {
         Long userId = 21L;
         UserScore freshUs = freshUserScore(userId);
-        when(userScoreRepository.findByUserId(userId)).thenReturn(Optional.empty());
+        when(userScoreRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.empty());
         when(userScoreRepository.save(any(UserScore.class))).thenReturn(freshUs);
         when(scoreEventRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        scoringService.processPerfectDay(userId, 3);
+        scoringService.processPerfectDay(userId, PERFECT_DAY_DATE, 3);
 
         assertThat(freshUs.getTotalScore()).isEqualTo(200L);
         verify(achievementService).awardAchievement(userId, Achievement.PERFECT_DAY);
+    }
+
+    @Test
+    @DisplayName("같은 사용자의 같은 경기일 퍼펙트데이는 한 번만 지급")
+    void processPerfectDay_isIdempotentPerUserAndDate() {
+        Long userId = 22L;
+        UserScore us = freshUserScore(userId);
+        when(userScoreRepository.findByUserIdForUpdate(userId)).thenReturn(Optional.of(us));
+        when(perfectDaySettlementReceiptRepository.existsByUserIdAndGameDate(userId, PERFECT_DAY_DATE))
+                .thenReturn(false, true);
+        when(userScoreRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(scoreEventRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        scoringService.processPerfectDay(userId, PERFECT_DAY_DATE, 3);
+        scoringService.processPerfectDay(userId, PERFECT_DAY_DATE, 3);
+
+        assertThat(us.getTotalScore()).isEqualTo(200L);
+        verify(perfectDaySettlementReceiptRepository, times(1)).save(any());
+        verify(achievementService, times(1)).awardAchievement(userId, Achievement.PERFECT_DAY);
     }
 
     // ============================================

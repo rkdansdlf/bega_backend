@@ -8,15 +8,14 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Locale;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,7 +60,6 @@ public class UserService {
     private static final int DAILY_LOGIN_BONUS_POINTS = 5;
     private static final Pattern HANDLE_PATTERN = Pattern.compile("^@[a-z0-9_]{1,14}$");
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
-    private static final long MISSING_LOGIN_EMAIL_CACHE_TTL_NANOS = TimeUnit.SECONDS.toNanos(30);
 
     private final UserRepository userRepository;
     private final TeamRepository teamRepository;
@@ -84,7 +82,7 @@ public class UserService {
     private final AccountSecurityService accountSecurityService;
     private final AuthSessionService authSessionService;
     private final LoginAttemptService loginAttemptService;
-    private final ConcurrentMap<String, Long> missingLoginEmailCache = new ConcurrentHashMap<>();
+    private final MissingLoginEmailCache missingLoginEmailCache = new MissingLoginEmailCache();
 
     public UserService(UserRepository userRepository,
             TeamRepository teamRepository,
@@ -326,10 +324,11 @@ public class UserService {
             throw new InvalidCredentialsException();
         }
 
+        long missingLoginCacheGeneration = missingLoginEmailCache.generation();
         Optional<UserRepository.LoginPasswordProjection> loginPassword =
                 userRepository.findLoginPasswordByEmail(normalizedEmail);
         if (loginPassword.isEmpty()) {
-            cacheMissingLoginEmail(normalizedEmail);
+            cacheMissingLoginEmail(normalizedEmail, missingLoginCacheGeneration);
             passwordEncoder.matches(rawPassword, dummyPasswordHash);
             loginAttemptService.recordFailedAttempt(normalizedEmail, null, request);
             throw new InvalidCredentialsException();
@@ -388,29 +387,31 @@ public class UserService {
         if (normalizedEmail == null || normalizedEmail.isBlank()) {
             return false;
         }
-        Long expiresAtNanos = missingLoginEmailCache.get(normalizedEmail);
-        if (expiresAtNanos == null) {
-            return false;
-        }
-        if (System.nanoTime() - expiresAtNanos < 0) {
-            return true;
-        }
-        missingLoginEmailCache.remove(normalizedEmail, expiresAtNanos);
-        return false;
+        return missingLoginEmailCache.contains(normalizedEmail);
     }
 
-    private void cacheMissingLoginEmail(String normalizedEmail) {
+    private void cacheMissingLoginEmail(String normalizedEmail, long expectedGeneration) {
         if (normalizedEmail == null || normalizedEmail.isBlank()) {
             return;
         }
-        missingLoginEmailCache.put(normalizedEmail, System.nanoTime() + MISSING_LOGIN_EMAIL_CACHE_TTL_NANOS);
+        missingLoginEmailCache.recordIfGenerationUnchanged(normalizedEmail, expectedGeneration);
     }
 
     private void evictMissingLoginEmail(String normalizedEmail) {
         if (normalizedEmail == null || normalizedEmail.isBlank()) {
             return;
         }
-        missingLoginEmailCache.remove(normalizedEmail);
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    missingLoginEmailCache.evict(normalizedEmail);
+                }
+            });
+            return;
+        }
+        missingLoginEmailCache.evict(normalizedEmail);
     }
 
     /**
@@ -576,7 +577,7 @@ public class UserService {
     @Transactional
     public void unlinkProvider(Long userId, String provider) {
         // 최소 1개의 로그인 방식은 남겨둬야 함 (비밀번호가 있거나, 다른 연동 계정이 있어야 함)
-        UserEntity user = findUserById(Objects.requireNonNull(userId));
+        UserEntity user = findUserByIdForUpdate(Objects.requireNonNull(userId));
         boolean hasPassword = user.getPassword() != null && !user.getPassword().startsWith("oauth2_user"); // "oauth2_user"
                                                                                                            // is
                                                                                                            // deprecated

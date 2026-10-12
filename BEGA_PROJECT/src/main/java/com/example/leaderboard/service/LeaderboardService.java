@@ -169,6 +169,7 @@ public class LeaderboardService {
      * 핫 스트릭 목록 조회 (연승 중인 유저들)
      */
     public List<HotStreakDto> getHotStreaks(int minStreak, int limit, Long viewerId) {
+        validateLeaderboardLimit(limit);
         Pageable pageable = PageRequest.of(0, limit);
         List<UserScore> hotStreakers = userScoreRepository.findVisibleHotStreaks(minStreak, viewerId, pageable);
 
@@ -190,6 +191,7 @@ public class LeaderboardService {
      * 최근 점수 획득 이벤트 조회 (글로벌 피드)
      */
     public List<RecentScoreDto> getRecentScores(int limit, Long viewerId) {
+        validateLeaderboardLimit(limit);
         Pageable pageable = PageRequest.of(0, limit);
         List<ScoreEvent> recentEvents = scoreEventRepository.findVisibleRecentScores(viewerId, pageable);
 
@@ -211,6 +213,7 @@ public class LeaderboardService {
      * 사용자의 점수 히스토리 조회
      */
     public Page<RecentScoreDto> getUserScoreHistory(Long userId, int page, int size) {
+        validateLeaderboardPageRequest(page, size);
         Pageable pageable = PageRequest.of(page, size);
         Page<ScoreEvent> events = scoreEventRepository.findByUserId(userId, pageable);
 
@@ -315,6 +318,12 @@ public class LeaderboardService {
         }
         if (size < 1 || size > 100) {
             throw new IllegalArgumentException("size must be between 1 and 100");
+        }
+    }
+
+    private void validateLeaderboardLimit(int limit) {
+        if (limit < 1 || limit > 100) {
+            throw new IllegalArgumentException("limit must be between 1 and 100");
         }
     }
 

@@ -33,7 +33,7 @@ public class MediaAsset {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "owner_user_id", nullable = false)
+    @Column(name = "owner_user_id")
     private Long ownerUserId;
 
     @Enumerated(EnumType.STRING)

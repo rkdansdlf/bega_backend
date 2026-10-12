@@ -15,7 +15,6 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.HexFormat;
-import java.util.concurrent.TimeUnit;
 
 /**
  * OAuth2 계정 연동 상태 관리 서비스
@@ -48,17 +47,18 @@ public class OAuth2LinkStateService {
             redisTemplate.opsForValue().set(
                     ticketKey(ticket),
                     objectMapper.writeValueAsString(data),
-                    TTL.toMillis(),
-                    TimeUnit.MILLISECONDS);
+                    TTL);
             log.info("Issued OAuth2 link ticket for userId={}", userId);
             return ticket;
         } catch (JsonProcessingException e) {
             securityMonitoringService.recordOAuth2LinkReject();
-            log.error("Failed to serialize OAuth2 link ticket data for userId={}", userId, e);
+            log.error("Failed to serialize OAuth2 link ticket data for userId={}, errorType={}",
+                    userId, e.getClass().getSimpleName());
             throw new OAuth2LinkStateStoreException(ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE, e);
         } catch (Exception e) {
             securityMonitoringService.recordOAuth2LinkReject();
-            log.error("Failed to persist OAuth2 link ticket for userId={}", userId, e);
+            log.error("Failed to persist OAuth2 link ticket for userId={}, errorType={}",
+                    userId, e.getClass().getSimpleName());
             throw new OAuth2LinkStateStoreException(ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE, e);
         }
     }
@@ -74,7 +74,7 @@ public class OAuth2LinkStateService {
             json = redisTemplate.opsForValue().getAndDelete(key);
         } catch (Exception e) {
             securityMonitoringService.recordOAuth2LinkReject();
-            log.error("Failed to consume OAuth2 link ticket", e);
+            log.error("Failed to consume OAuth2 link ticket: errorType={}", e.getClass().getSimpleName());
             throw new OAuth2LinkStateStoreException(ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE, e);
         }
 
@@ -102,11 +102,11 @@ public class OAuth2LinkStateService {
             return LinkTicketConsumeResult.success(data.userId());
         } catch (JsonProcessingException e) {
             securityMonitoringService.recordOAuth2LinkReject();
-            log.error("Failed to deserialize OAuth2 link ticket data", e);
+            log.error("Failed to deserialize OAuth2 link ticket data: errorType={}", e.getClass().getSimpleName());
             return LinkTicketConsumeResult.failure(FAILURE_INVALID_LINK_TOKEN);
         } catch (Exception e) {
             securityMonitoringService.recordOAuth2LinkReject();
-            log.error("Failed to process OAuth2 link ticket data", e);
+            log.error("Failed to process OAuth2 link ticket data: errorType={}", e.getClass().getSimpleName());
             throw new OAuth2LinkStateStoreException(ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE, e);
         }
     }
@@ -122,17 +122,17 @@ public class OAuth2LinkStateService {
             String key = stateKey(state);
             String json = objectMapper.writeValueAsString(data);
 
-            redisTemplate.opsForValue().set(key, json, TTL.toMillis(), TimeUnit.MILLISECONDS);
+            redisTemplate.opsForValue().set(key, json, TTL);
 
             log.info("Saved OAuth2 link state for userId={}, failureReason={}",
                     data.userId(), data.failureReason());
         } catch (JsonProcessingException e) {
             securityMonitoringService.recordOAuth2LinkReject();
-            log.error("Failed to serialize OAuth2LinkStateData", e);
+            log.error("Failed to serialize OAuth2LinkStateData: errorType={}", e.getClass().getSimpleName());
             throw new OAuth2LinkStateStoreException(ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE, e);
         } catch (Exception e) {
             securityMonitoringService.recordOAuth2LinkReject();
-            log.error("Failed to persist OAuth2 link state", e);
+            log.error("Failed to persist OAuth2 link state: errorType={}", e.getClass().getSimpleName());
             throw new OAuth2LinkStateStoreException(ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE, e);
         }
     }
@@ -173,11 +173,11 @@ public class OAuth2LinkStateService {
             return data;
         } catch (JsonProcessingException e) {
             securityMonitoringService.recordOAuth2LinkReject();
-            log.error("Failed to deserialize OAuth2LinkStateData", e);
+            log.error("Failed to deserialize OAuth2LinkStateData: errorType={}", e.getClass().getSimpleName());
             return null;
         } catch (Exception e) {
             securityMonitoringService.recordOAuth2LinkReject();
-            log.error("Failed to consume OAuth2LinkStateData", e);
+            log.error("Failed to consume OAuth2LinkStateData: errorType={}", e.getClass().getSimpleName());
             return null;
         }
     }
@@ -188,8 +188,7 @@ public class OAuth2LinkStateService {
             redisTemplate.opsForValue().set(
                     key,
                     objectMapper.writeValueAsString(data),
-                    ttlMillis,
-                    TimeUnit.MILLISECONDS);
+                    Duration.ofMillis(ttlMillis));
         } catch (JsonProcessingException e) {
             throw new OAuth2LinkStateStoreException(ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE, e);
         }

@@ -1,9 +1,11 @@
 package com.example.leaderboard.repository;
 
 import com.example.leaderboard.entity.UserScore;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -23,6 +25,10 @@ public interface UserScoreRepository extends JpaRepository<UserScore, Long> {
     }
 
     Optional<UserScore> findByUserId(Long userId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT us FROM UserScore us WHERE us.userId = :userId")
+    Optional<UserScore> findByUserIdForUpdate(@Param("userId") Long userId);
 
     // ============================================
     // LEADERBOARD QUERIES (TOTAL SCORE)

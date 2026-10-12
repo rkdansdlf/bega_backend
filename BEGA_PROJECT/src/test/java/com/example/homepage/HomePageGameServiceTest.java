@@ -7,12 +7,14 @@ import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
 import com.example.kbo.validation.ManualBaseballDataMissingItem;
 import com.example.kbo.validation.ManualBaseballDataRequest;
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 import javax.sql.DataSource;
 import java.time.LocalDate;
@@ -21,6 +23,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -93,6 +97,70 @@ class HomePageGameServiceTest {
         verify(gameRepository, never()).findFirstRegularSeasonDate(seasonYear);
         verify(gameRepository, never()).findFirstPostseasonDate(seasonYear);
         verify(gameRepository, never()).findFirstKoreanSeriesDate(seasonYear);
+    }
+
+    @Test
+    void getLeagueStartDatesRequiresManualDataWhenRegularSeasonEvidenceIsMissing() {
+        assertThatThrownBy(homePageGameService::getLeagueStartDates)
+                .isInstanceOfSatisfying(ManualBaseballDataRequiredException.class, exception -> {
+                    assertThat(exception.getCode()).isEqualTo("MANUAL_BASEBALL_DATA_REQUIRED");
+                    assertThat(exception.getData()).isInstanceOfSatisfying(ManualBaseballDataRequest.class, request -> {
+                        assertThat(request.blocking()).isTrue();
+                        assertThat(request.missingItems()).isNotEmpty();
+                        assertThat(request.operatorMessage()).contains(String.valueOf(LocalDate.now().getYear()));
+                    });
+                });
+        verifyNoInteractions(stadiumDataSource);
+    }
+
+    @Test
+    void getLeagueStartDatesPreservesHistoricalSourceYear() {
+        int historicalYear = LocalDate.now().getYear() - 1;
+        LocalDate regularStart = LocalDate.of(historicalYear, 3, 28);
+        LocalDate postseasonStart = LocalDate.of(historicalYear, 10, 6);
+        LocalDate koreanSeriesStart = LocalDate.of(historicalYear, 10, 26);
+        when(gameRepository.findLatestStartDateByTypeAsOf(eq(0), any(LocalDate.class)))
+                .thenReturn(Optional.of(regularStart));
+        when(gameRepository.findLatestStartDateByTypeAsOf(eq(2), any(LocalDate.class)))
+                .thenReturn(Optional.of(postseasonStart));
+        when(gameRepository.findLatestStartDateByTypeAsOf(eq(5), any(LocalDate.class)))
+                .thenReturn(Optional.of(koreanSeriesStart));
+
+        LeagueStartDatesDto startDates = homePageGameService.getLeagueStartDates();
+
+        assertThat(startDates.getRegularSeasonStart()).isEqualTo(regularStart.toString());
+        assertThat(startDates.getPostseasonStart()).isEqualTo(postseasonStart.toString());
+        assertThat(startDates.getKoreanSeriesStart()).isEqualTo(koreanSeriesStart.toString());
+    }
+
+    @Test
+    void getLeagueStartDatesKeepsOptionalLeagueStartsNullable() {
+        int seasonYear = LocalDate.now().getYear();
+        when(gameRepository.findConfiguredStartDateByTypeFromSeasonYear(0, seasonYear))
+                .thenReturn(Optional.of(LocalDate.of(seasonYear, 3, 28)));
+
+        LeagueStartDatesDto startDates = homePageGameService.getLeagueStartDates();
+
+        assertThat(startDates.getRegularSeasonStart()).isEqualTo(seasonYear + "-03-28");
+        assertThat(startDates.getPostseasonStart()).isNull();
+        assertThat(startDates.getKoreanSeriesStart()).isNull();
+    }
+
+    @Test
+    void initDoesNotHideTeamMetadataDatabaseFailure() {
+        DataAccessResourceFailureException failure = new DataAccessResourceFailureException("database unavailable");
+        when(homePageTeamRepository.findAll()).thenThrow(failure);
+
+        assertThatThrownBy(homePageGameService::init).isSameAs(failure);
+    }
+
+    @Test
+    void getTeamRankingsDoesNotHideRecentFormDatabaseFailure() {
+        DataAccessResourceFailureException failure = new DataAccessResourceFailureException("database unavailable");
+        when(gameRepository.findRecentFormBySeasonAndTeams(
+                2026, LocalDate.of(2026, 1, 1), LocalDate.of(2027, 1, 1))).thenThrow(failure);
+
+        assertThatThrownBy(() -> homePageGameService.getTeamRankings(2026)).isSameAs(failure);
     }
 
     @Test

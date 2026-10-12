@@ -22,7 +22,7 @@ final class Jackson2RedisSerializer implements RedisSerializer<Object> {
         this.objectMapper = objectMapper.copy();
         this.objectMapper.activateDefaultTyping(
                 this.objectMapper.getPolymorphicTypeValidator(),
-                ObjectMapper.DefaultTyping.EVERYTHING,
+                ObjectMapper.DefaultTyping.NON_FINAL_AND_ENUMS,
                 JsonTypeInfo.As.PROPERTY);
     }
 

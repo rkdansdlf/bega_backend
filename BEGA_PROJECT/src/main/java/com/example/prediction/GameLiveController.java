@@ -18,7 +18,7 @@ import com.example.common.exception.BadRequestBusinessException;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
 
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/api/matches")
 public class GameLiveController {
 
     private static final Pattern GAME_ID_PATTERN = Pattern.compile("^[A-Za-z0-9_-]+$");
@@ -45,7 +45,7 @@ public class GameLiveController {
         this.predictionLiveMetricsService = predictionLiveMetricsService;
     }
 
-    @GetMapping("/matches/{gameId}/live")
+    @GetMapping("/{gameId}/live")
     public ResponseEntity<GameLiveSnapshotDto> getLiveSnapshot(
             @PathVariable String gameId,
             @RequestParam(required = false) Integer afterSeq,
@@ -74,7 +74,7 @@ public class GameLiveController {
         }
     }
 
-    @GetMapping("/matches/{gameId}/live-relay")
+    @GetMapping("/{gameId}/live-relay")
     public ResponseEntity<GameRelaySnapshotDto> getLiveRelaySnapshot(
             @PathVariable String gameId,
             @RequestParam(required = false) Integer afterId,
@@ -103,7 +103,7 @@ public class GameLiveController {
         }
     }
 
-    @GetMapping("/matches/live")
+    @GetMapping("/live")
     public ResponseEntity<List<GameLiveSummaryDto>> getLiveSummaries(@RequestParam String gameIds) {
         long startedAtNanos = System.nanoTime();
         String result = "success";

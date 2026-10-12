@@ -2,6 +2,8 @@ package com.example.kbo.repository;
 
 import com.example.kbo.entity.TeamHistoryEntity;
 import com.example.kbo.entity.TeamFranchiseEntity;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -22,6 +24,7 @@ public interface TeamHistoryRepository extends JpaRepository<TeamHistoryEntity, 
      * @param season 시즌 연도
      * @return 팀 히스토리 목록
      */
+    @EntityGraph(attributePaths = "franchise")
     List<TeamHistoryEntity> findBySeason(Integer season);
 
     /**
@@ -31,6 +34,7 @@ public interface TeamHistoryRepository extends JpaRepository<TeamHistoryEntity, 
      * @param teamCode 팀 코드
      * @return 팀 히스토리 엔티티
      */
+    @EntityGraph(attributePaths = "franchise")
     Optional<TeamHistoryEntity> findBySeasonAndTeamCode(Integer season, String teamCode);
 
     /**
@@ -39,6 +43,7 @@ public interface TeamHistoryRepository extends JpaRepository<TeamHistoryEntity, 
      * @param franchise 프랜차이즈 엔티티
      * @return 팀 히스토리 목록
      */
+    @EntityGraph(attributePaths = "franchise")
     List<TeamHistoryEntity> findByFranchise(TeamFranchiseEntity franchise);
 
     /**
@@ -48,6 +53,7 @@ public interface TeamHistoryRepository extends JpaRepository<TeamHistoryEntity, 
      * @return 팀 히스토리 목록
      */
     @Query("SELECT th FROM TeamHistoryEntity th WHERE th.franchise.id = :franchiseId ORDER BY th.season DESC")
+    @EntityGraph(attributePaths = "franchise")
     List<TeamHistoryEntity> findByFranchiseIdOrderBySeasonDesc(@Param("franchiseId") Integer franchiseId);
 
     /**
@@ -58,6 +64,7 @@ public interface TeamHistoryRepository extends JpaRepository<TeamHistoryEntity, 
      * @return 팀 히스토리 엔티티
      */
     @Query("SELECT th FROM TeamHistoryEntity th WHERE th.franchise.id = :franchiseId AND th.season = :season")
+    @EntityGraph(attributePaths = "franchise")
     Optional<TeamHistoryEntity> findByFranchiseIdAndSeason(
         @Param("franchiseId") Integer franchiseId,
         @Param("season") Integer season
@@ -70,6 +77,7 @@ public interface TeamHistoryRepository extends JpaRepository<TeamHistoryEntity, 
      * @return 순위순으로 정렬된 팀 히스토리 목록
      */
     @Query("SELECT th FROM TeamHistoryEntity th WHERE th.season = :season ORDER BY th.ranking ASC")
+    @EntityGraph(attributePaths = "franchise")
     List<TeamHistoryEntity> findBySeasonOrderByRanking(@Param("season") Integer season);
 
     /**
@@ -80,6 +88,7 @@ public interface TeamHistoryRepository extends JpaRepository<TeamHistoryEntity, 
      * @return 팀 히스토리 목록
      */
     @Query("SELECT th FROM TeamHistoryEntity th WHERE th.season BETWEEN :startYear AND :endYear ORDER BY th.season DESC, th.ranking ASC")
+    @EntityGraph(attributePaths = "franchise")
     List<TeamHistoryEntity> findBySeasonBetween(
         @Param("startYear") Integer startYear,
         @Param("endYear") Integer endYear
@@ -91,6 +100,7 @@ public interface TeamHistoryRepository extends JpaRepository<TeamHistoryEntity, 
      * @param stadium 구장 이름
      * @return 팀 히스토리 목록
      */
+    @EntityGraph(attributePaths = "franchise")
     List<TeamHistoryEntity> findByStadium(String stadium);
 
     /**
@@ -100,6 +110,7 @@ public interface TeamHistoryRepository extends JpaRepository<TeamHistoryEntity, 
      * @return 팀 히스토리 목록
      */
     @Query("SELECT th FROM TeamHistoryEntity th WHERE th.teamCode = :teamCode ORDER BY th.season DESC")
+    @EntityGraph(attributePaths = "franchise")
     List<TeamHistoryEntity> findByTeamCodeOrderBySeasonDesc(@Param("teamCode") String teamCode);
 
     /**
@@ -108,8 +119,11 @@ public interface TeamHistoryRepository extends JpaRepository<TeamHistoryEntity, 
      * @param limit 조회할 개수
      * @return 팀 히스토리 목록
      */
-    @Query(value = "SELECT th FROM TeamHistoryEntity th ORDER BY th.season DESC")
-    List<TeamHistoryEntity> findRecentSeasons(@Param("limit") int limit);
+    @Query("SELECT DISTINCT th.season FROM TeamHistoryEntity th ORDER BY th.season DESC")
+    List<Integer> findRecentSeasonYears(Pageable pageable);
+
+    @EntityGraph(attributePaths = "franchise")
+    List<TeamHistoryEntity> findBySeasonInOrderBySeasonDesc(List<Integer> seasons);
 
     /**
      * 프랜차이즈의 특정 시즌 이후 히스토리 조회
@@ -119,6 +133,7 @@ public interface TeamHistoryRepository extends JpaRepository<TeamHistoryEntity, 
      * @return 팀 히스토리 목록 (시즌 내림차순)
      */
     @Query("SELECT th FROM TeamHistoryEntity th WHERE th.franchise.id = :franchiseId AND th.season >= :startSeason ORDER BY th.season DESC")
+    @EntityGraph(attributePaths = "franchise")
     List<TeamHistoryEntity> findByFranchiseIdAndSeasonGreaterThanEqualOrderBySeasonDesc(
         @Param("franchiseId") Integer franchiseId,
         @Param("startSeason") Integer startSeason

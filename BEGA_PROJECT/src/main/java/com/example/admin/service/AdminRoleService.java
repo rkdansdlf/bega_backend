@@ -34,9 +34,17 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AdminRoleService {
 
+        private static final int MAX_ROLE_CHANGE_REASON_LENGTH = 500;
+
         private final UserRepository userRepository;
         private final AuditLogRepository auditLogRepository;
         private final RefreshTokenRevocationService refreshTokenRevocationService;
+
+        private void validateReason(String reason) {
+                if (reason != null && reason.length() > MAX_ROLE_CHANGE_REASON_LENGTH) {
+                        throw new InvalidRoleChangeException("변경 사유는 500자 이하여야 합니다.");
+                }
+        }
 
         /**
          * 사용자를 ADMIN으로 승격 (SUPER_ADMIN만 가능)
@@ -51,6 +59,8 @@ public class AdminRoleService {
                 if (!admin.isSuperAdmin()) {
                         throw new InsufficientPrivilegeException();
                 }
+
+                validateReason(reason);
 
                 // 3. 대상 사용자 조회
                 UserEntity targetUser = userRepository.findByIdForWrite(Objects.requireNonNull(targetUserId))
@@ -112,6 +122,8 @@ public class AdminRoleService {
                 if (!admin.isSuperAdmin()) {
                         throw new InsufficientPrivilegeException();
                 }
+
+                validateReason(reason);
 
                 // 3. 대상 사용자 조회
                 UserEntity targetUser = userRepository.findById(Objects.requireNonNull(targetUserId))

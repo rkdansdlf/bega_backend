@@ -140,7 +140,9 @@ public class JWTFilter extends OncePerRequestFilter {
             boolean isAllowed = isAllowedOrigin(refererOrigin) || isAllowedOrigin(originValue);
 
             if (!isAllowed) {
-                securityMonitoringService.recordInvalidOrigin();
+                if (securityMonitoringService != null) {
+                    securityMonitoringService.recordInvalidOrigin();
+                }
                 // Referer나 Origin이 없거나 허용되지 않은 도메인이면 차단
                 response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                 response.getWriter().write("CSRF Protection: Invalid Referer/Origin");

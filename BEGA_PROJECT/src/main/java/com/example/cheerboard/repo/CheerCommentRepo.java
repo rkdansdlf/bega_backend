@@ -79,6 +79,8 @@ public interface CheerCommentRepo extends JpaRepository<CheerComment, Long> {
     
     List<CheerComment> findByAuthor(UserEntity author);
 
+    List<CheerComment> findAllByAuthor_Id(Long authorId);
+
     @Query("""
             SELECT c.content
             FROM CheerComment c

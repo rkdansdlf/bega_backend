@@ -1,5 +1,7 @@
 package com.example.admin.dto;
 
+import java.util.List;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -13,8 +15,10 @@ import lombok.Setter;
 @AllArgsConstructor
 public class AdminSeatViewDto {
     private Long id;
+    @Schema(nullable = true)
     private Long diaryId;
     private Long userId;
+    @Schema(nullable = true)
     private String photoUrl;
     private String storagePath;
     private String sourceType;
@@ -36,4 +40,9 @@ public class AdminSeatViewDto {
     private String diaryDate;
     private boolean ticketVerified;
     private String ticketVerifiedAt;
+    @Schema(nullable = true)
+    private Integer rating;
+    @Schema(nullable = true)
+    private String comment;
+    private List<String> tags;
 }

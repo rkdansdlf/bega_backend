@@ -17,6 +17,9 @@ import com.example.kbo.entity.GameSummaryEntity;
 import com.example.kbo.repository.GameDetailHeaderProjection;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -224,6 +227,91 @@ class PredictionServiceGameSyncTest extends PredictionServiceTestFixture {
 
         assertThrows(IllegalArgumentException.class,
                 () -> predictionService.upsertInningScores(gameId, List.of(placeholder)));
+
+        verify(gameInningScoreRepository, never()).deleteAllByGameId(gameId);
+        verify(gameInningScoreRepository, never()).saveAll(anyList());
+        verify(gameRepository, never()).saveAndFlush(game);
+    }
+
+    @Test
+    @DisplayName("upsertInningScores - null 또는 빈 목록은 기존 이닝 기록을 삭제하지 않는다")
+    void upsertInningScoresShouldRejectNullOrEmptyListsBeforeDeleting() {
+        String gameId = "GAME002_EMPTY_SCORES";
+        GameEntity game = buildGame(gameId, LocalDate.of(2025, 5, 1), "LG", "KT", false);
+        when(gameRepository.findByGameId(gameId)).thenReturn(Optional.of(game));
+
+        assertThrows(IllegalArgumentException.class, () -> predictionService.upsertInningScores(gameId, null));
+        assertThrows(IllegalArgumentException.class, () -> predictionService.upsertInningScores(gameId, List.of()));
+
+        verify(gameInningScoreRepository, never()).deleteAllByGameId(gameId);
+        verify(gameInningScoreRepository, never()).saveAll(anyList());
+        verify(gameRepository, never()).saveAndFlush(game);
+    }
+
+    @Test
+    @DisplayName("upsertInningScores - null 항목은 기존 이닝 기록을 삭제하지 않는다")
+    void upsertInningScoresShouldRejectNullRowsBeforeDeleting() {
+        String gameId = "GAME002_NULL_SCORE_ROW";
+        GameEntity game = buildGame(gameId, LocalDate.of(2025, 5, 1), "LG", "KT", false);
+        when(gameRepository.findByGameId(gameId)).thenReturn(Optional.of(game));
+        GameInningScoreRequestDto validRow = scoreRequest(1, "away", "KT", 1, false);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> predictionService.upsertInningScores(gameId, Arrays.asList(validRow, null)));
+
+        verify(gameInningScoreRepository, never()).deleteAllByGameId(gameId);
+        verify(gameInningScoreRepository, never()).saveAll(anyList());
+        verify(gameRepository, never()).saveAndFlush(game);
+    }
+
+    @Test
+    @DisplayName("upsertInningScores - 40개를 초과하는 목록은 기존 이닝 기록을 삭제하지 않는다")
+    void upsertInningScoresShouldRejectMoreThanFortyRowsBeforeDeleting() {
+        String gameId = "GAME002_TOO_MANY_SCORE_ROWS";
+        GameEntity game = buildGame(gameId, LocalDate.of(2025, 5, 1), "LG", "KT", false);
+        when(gameRepository.findByGameId(gameId)).thenReturn(Optional.of(game));
+        GameInningScoreRequestDto score = scoreRequest(1, "away", "KT", 1, false);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> predictionService.upsertInningScores(gameId, Collections.nCopies(41, score)));
+
+        verify(gameInningScoreRepository, never()).deleteAllByGameId(gameId);
+        verify(gameInningScoreRepository, never()).saveAll(anyList());
+        verify(gameRepository, never()).saveAndFlush(game);
+    }
+
+    @Test
+    @DisplayName("upsertInningScores - 40개 목록은 허용한다")
+    void upsertInningScoresShouldAcceptFortyRows() {
+        String gameId = "GAME002_MAX_SCORE_ROWS";
+        GameEntity game = buildGame(gameId, LocalDate.of(2025, 5, 1), "LG", "KT", false);
+        when(gameRepository.findByGameId(gameId)).thenReturn(Optional.of(game));
+        when(gameInningScoreRepository.deleteAllByGameId(gameId)).thenReturn(0);
+        when(gameInningScoreRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+
+        List<GameInningScoreRequestDto> scores = new ArrayList<>();
+        for (int inning = 1; inning <= 20; inning++) {
+            scores.add(scoreRequest(inning, "away", "KT", 1, false));
+            scores.add(scoreRequest(inning, "home", "LG", 1, false));
+        }
+
+        int saved = predictionService.upsertInningScores(gameId, scores);
+
+        assertThat(saved).isEqualTo(40);
+        verify(gameInningScoreRepository).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("upsertInningScores - 같은 이닝·공수 중복은 기존 이닝 기록을 삭제하지 않는다")
+    void upsertInningScoresShouldRejectDuplicateInningSideBeforeDeleting() {
+        String gameId = "GAME002_DUPLICATE_SCORE_KEY";
+        GameEntity game = buildGame(gameId, LocalDate.of(2025, 5, 1), "LG", "KT", false);
+        when(gameRepository.findByGameId(gameId)).thenReturn(Optional.of(game));
+        GameInningScoreRequestDto first = scoreRequest(1, "away", "KT", 1, false);
+        GameInningScoreRequestDto duplicate = scoreRequest(1, "away", "KT", 2, false);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> predictionService.upsertInningScores(gameId, List.of(first, duplicate)));
 
         verify(gameInningScoreRepository, never()).deleteAllByGameId(gameId);
         verify(gameInningScoreRepository, never()).saveAll(anyList());

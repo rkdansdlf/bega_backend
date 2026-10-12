@@ -6,6 +6,7 @@ import com.example.admin.dto.AdminNonCanonicalCleanupTrackerUpsertRequest;
 import com.example.admin.dto.AdminPostDto;
 import com.example.admin.dto.AdminReportActionReq;
 import com.example.admin.dto.AdminReportAppealReq;
+import com.example.admin.dto.AdminReportAppealDecisionReq;
 import com.example.admin.dto.AdminReportDto;
 import com.example.admin.dto.AdminSeatViewActionReq;
 import com.example.admin.dto.AdminSeatViewDto;
@@ -20,6 +21,8 @@ import com.example.prediction.GameScoreSyncResultDto;
 import com.example.prediction.GameStatusMismatchBatchResultDto;
 import com.example.prediction.GameStatusRepairBatchResultDto;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -99,18 +102,22 @@ public class AdminController {
     }
 
     @GetMapping("/seat-views")
-    public ResponseEntity<ApiResponse<List<AdminSeatViewDto>>> getSeatViews(
+    public ResponseEntity<ApiResponse<Page<AdminSeatViewDto>>> getSeatViews(
             @RequestParam(required = false) String moderationStatus,
             @RequestParam(required = false) String stadium,
             @RequestParam(required = false) String aiSuggestedLabel,
             @RequestParam(required = false) String adminLabel,
-            @RequestParam(required = false) Boolean ticketVerified) {
-        List<AdminSeatViewDto> seatViews = seatViewService.getAdminSeatViews(
+            @RequestParam(required = false) Boolean ticketVerified,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        Page<AdminSeatViewDto> seatViews = seatViewService.getAdminSeatViews(
                 moderationStatus,
                 stadium,
                 aiSuggestedLabel,
                 adminLabel,
-                ticketVerified);
+                ticketVerified,
+                page,
+                size);
         return ResponseEntity.ok(ApiResponse.success("시야뷰 후보 조회 성공", seatViews));
     }
 
@@ -124,7 +131,7 @@ public class AdminController {
     public ResponseEntity<ApiResponse<AdminSeatViewDto>> handleSeatView(
             @AuthenticationPrincipal Long adminId,
             @PathVariable Long seatViewId,
-            @RequestBody AdminSeatViewActionReq req) {
+            @Valid @RequestBody AdminSeatViewActionReq req) {
         AdminSeatViewDto result = seatViewService.reviewSeatView(seatViewId, adminId, req);
         return ResponseEntity.ok(ApiResponse.success("시야뷰 후보 처리 완료", result));
     }
@@ -133,7 +140,7 @@ public class AdminController {
     public ResponseEntity<ApiResponse<AdminReportDto>> handleReport(
             @AuthenticationPrincipal Long adminId,
             @PathVariable Long reportId,
-            @RequestBody AdminReportActionReq req) {
+            @Valid @RequestBody AdminReportActionReq req) {
         AdminReportDto result = adminService.handleReport(reportId, req, adminId);
         return ResponseEntity.ok(ApiResponse.success("신고 케이스 조치 완료", result));
     }
@@ -142,9 +149,18 @@ public class AdminController {
     public ResponseEntity<ApiResponse<AdminReportDto>> requestAppeal(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long reportId,
-            @RequestBody(required = false) AdminReportAppealReq req) {
+            @Valid @RequestBody(required = false) AdminReportAppealReq req) {
         AdminReportDto result = adminService.requestAppeal(reportId, req, userId);
         return ResponseEntity.ok(ApiResponse.success("이의제기 등록 완료", result));
+    }
+
+    @PatchMapping("/reports/{reportId}/appeal")
+    public ResponseEntity<ApiResponse<AdminReportDto>> decideReportAppeal(
+            @AuthenticationPrincipal Long adminId,
+            @PathVariable Long reportId,
+            @Valid @RequestBody AdminReportAppealDecisionReq req) {
+        AdminReportDto result = adminService.decideReportAppeal(reportId, req, adminId);
+        return ResponseEntity.ok(ApiResponse.success("이의제기 결정 완료", result));
     }
 
     /**

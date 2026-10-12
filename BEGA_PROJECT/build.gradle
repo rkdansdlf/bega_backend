@@ -1,6 +1,6 @@
 plugins {
 	id 'java'
-	id 'org.springframework.boot' version '4.0.7'
+	id 'org.springframework.boot' version '4.1.1'
 	id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -42,8 +42,11 @@ def loadOptionalEnvFile = { File envFile ->
 }
 
 def dotEnvValues = [:]
-dotEnvValues.putAll(loadOptionalEnvFile(file('../../.env')))
-dotEnvValues.putAll(loadOptionalEnvFile(file('.env')))
+def disableDotEnv = (System.getenv('BEGA_DISABLE_DOTENV') ?: '').trim().toLowerCase() in ['1', 'true', 'yes', 'on']
+if (!disableDotEnv) {
+	dotEnvValues.putAll(loadOptionalEnvFile(file('../../.env')))
+	dotEnvValues.putAll(loadOptionalEnvFile(file('.env')))
+}
 
 def schemaValidationEnvKeys = [
 	'DB_URL',
@@ -74,6 +77,11 @@ def flywayResourceDirMappings = [
 		source: file('src/main/resources/db/migration_baseball_oracle'),
 		build : file("$buildDir/resources/main/db/migration_baseball_oracle"),
 		label : 'baseball-oracle'
+	],
+	[
+		source: file('src/main/resources/db/migration_rag_oracle'),
+		build : file("$buildDir/resources/main/db/migration_rag_oracle"),
+		label : 'rag-oracle'
 	],
 ]
 
@@ -191,8 +199,12 @@ springBoot {
 
 tasks.named('bootRun') {
 	classpath = sourceSets.main.runtimeClasspath.filter { !it.name.contains('spring-boot-devtools') }
-	// Ensure local bootRun starts with dev profile by default.
-	systemProperty 'spring.profiles.active', 'dev'
+	// Keep dev as the default, but allow an explicit local-postgres (or other)
+	// profile to be selected without editing the build.
+	def requestedProfile = System.getProperty('spring.profiles.active')
+		?: System.getenv('SPRING_PROFILES_ACTIVE')
+		?: 'dev'
+	systemProperty 'spring.profiles.active', requestedProfile
 	def bootRunXmx = System.getenv('BEGA_BOOTRUN_XMX')
 	if (bootRunXmx == null || bootRunXmx.isBlank()) {
 		bootRunXmx = '4096m'
@@ -249,6 +261,25 @@ tasks.register('schemaValidationTest', Test) {
     }
 }
 
+tasks.register('schemaValidationCiTest', Test) {
+	group = 'verification'
+	description = 'Migrates the disposable CI PostgreSQL database and validates the resulting schema'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	systemProperty 'schema.validation.ci.migrations', 'true'
+	doFirst {
+		def ciDatabaseUrl = System.getenv('DB_URL')
+		if (System.getenv('SCHEMA_VALIDATION_CI') != 'true'
+				|| ciDatabaseUrl != 'jdbc:postgresql://localhost:5432/bega') {
+			throw new IllegalStateException(
+				'schemaValidationCiTest is restricted to the explicitly enabled disposable CI PostgreSQL service')
+		}
+	}
+	filter {
+		includeTestsMatching "com.example.schema.SchemaValidationCiContextTest"
+	}
+}
+
 tasks.register('flywaySafetyTest', Test) {
 	group = 'verification'
 	description = 'Runs Flyway safety regression tests for migration version uniqueness and repair policy'
@@ -258,6 +289,10 @@ tasks.register('flywaySafetyTest', Test) {
         includeTestsMatching "com.example.common.config.FlywayConfigTest"
         includeTestsMatching "com.example.common.config.FlywayProductionPolicyTest"
         includeTestsMatching "com.example.common.config.FlywayMigrationVersionUniquenessTest"
+        includeTestsMatching "com.example.common.config.RagFlywayMigrationConfigTest"
+        includeTestsMatching "com.example.common.config.PostgresFlywayLocalCliTest"
+        includeTestsMatching "com.example.common.config.PostgresFlywayReferenceCliTest"
+        includeTestsMatching "com.example.common.config.Gate8L1EvidencePolicyTest"
     }
 }
 
@@ -274,6 +309,48 @@ tasks.register('migrationLiveValidation', Test) {
 	systemProperty 'liveMigrationValidation', System.getenv().getOrDefault('MIGRATION_LIVE_VALIDATION', 'false')
 	filter {
 		includeTestsMatching 'com.example.common.config.FlywayLiveDatabaseValidationTest'
+	}
+}
+
+tasks.register('ragFlywayLocalMigrate', JavaExec) {
+	group = 'database'
+	description = 'Applies only the dedicated RAG migration to an explicit loopback Oracle'
+	dependsOn tasks.named('classes')
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.example.common.config.RagFlywayLocalCli'
+	doFirst {
+		if (!disableDotEnv) {
+			throw new IllegalStateException(
+				'BEGA_DISABLE_DOTENV=true is required for ragFlywayLocalMigrate')
+		}
+	}
+}
+
+tasks.register('postgresFlywayLocalMigrate', JavaExec) {
+	group = 'database'
+	description = 'Applies application PostgreSQL migrations only to an explicit generated local recovery database'
+	dependsOn tasks.named('classes')
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.example.common.config.PostgresFlywayLocalCli'
+	doFirst {
+		if (!disableDotEnv) {
+			throw new IllegalStateException(
+				'BEGA_DISABLE_DOTENV=true is required for postgresFlywayLocalMigrate')
+		}
+	}
+}
+
+tasks.register('postgresFlywayReference', JavaExec) {
+	group = 'database'
+	description = 'Runs an explicit V60/V61 action against an approved generated local reference database'
+	dependsOn tasks.named('classes')
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.example.common.config.PostgresFlywayReferenceCli'
+	doFirst {
+		if (!disableDotEnv) {
+			throw new IllegalStateException(
+				'BEGA_DISABLE_DOTENV=true is required for postgresFlywayReference')
+		}
 	}
 }
 

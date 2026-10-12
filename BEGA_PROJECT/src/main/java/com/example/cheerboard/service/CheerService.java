@@ -263,7 +263,10 @@ public class CheerService {
         postService.updateHotScore(post);
     }
 
-    @Transactional(readOnly = true)
+    public void updateHotScoreForSync(CheerPost post) {
+        postService.updateHotScoreForSync(post);
+    }
+
     public List<PostImageDto> getPostImages(Long postId) {
         UserEntity me = current.getOrNull();
         CheerPost post = postService.findPostById(postId);

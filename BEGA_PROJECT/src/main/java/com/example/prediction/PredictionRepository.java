@@ -5,7 +5,9 @@ import java.util.List;
 import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -15,7 +17,72 @@ public interface PredictionRepository extends JpaRepository<Prediction, Long>{
 	// 특정 경기의 모든 투표 조회
 	List<Prediction> findByGameId(String gameId);
 
+	List<Prediction> findTop500ByIdGreaterThanAndIdLessThanEqualOrderByIdAsc(
+			Long lastProcessedId,
+			Long cutoffId);
+
 	List<Prediction> findByGameIdIn(Collection<String> gameIds);
+
+	@Query("""
+			SELECT DISTINCT p.gameId
+			FROM Prediction p
+			WHERE p.scoreSettlementStatus = :status
+			  AND (:afterGameId IS NULL OR p.gameId > :afterGameId)
+			ORDER BY p.gameId
+			""")
+	List<String> findDistinctPendingGameIdsAfter(
+			@Param("afterGameId") String afterGameId,
+			@Param("status") Prediction.ScoreSettlementStatus status,
+			Pageable pageable);
+
+	@Modifying(flushAutomatically = true)
+	@Query("""
+			UPDATE Prediction p
+			SET p.scoreSettlementStatus = :pendingStatus
+			WHERE p.id IN :predictionIds
+			""")
+	int markPendingForSettlement(
+			@Param("predictionIds") Collection<Long> predictionIds,
+			@Param("pendingStatus") Prediction.ScoreSettlementStatus pendingStatus);
+
+	@Modifying(flushAutomatically = true)
+	@Query("""
+			UPDATE Prediction p
+			SET p.scoreSettlementStatus = :legacyStatus,
+			    p.scoreSettledAt = NULL
+			WHERE p.id IN :predictionIds
+			""")
+	int markLegacyForSettlement(
+			@Param("predictionIds") Collection<Long> predictionIds,
+			@Param("legacyStatus") Prediction.ScoreSettlementStatus legacyStatus);
+
+	@Modifying(flushAutomatically = true)
+	@Query("""
+			UPDATE Prediction p
+			SET p.scoreSettlementStatus = :settledStatus,
+			    p.scoreSettledAt = :settledAt
+			WHERE p.id = :predictionId
+				AND p.scoreSettlementStatus = :pendingStatus
+			""")
+	int claimSettlement(
+			@Param("predictionId") Long predictionId,
+			@Param("settledAt") java.time.LocalDateTime settledAt,
+			@Param("pendingStatus") Prediction.ScoreSettlementStatus pendingStatus,
+			@Param("settledStatus") Prediction.ScoreSettlementStatus settledStatus);
+
+	@Modifying(flushAutomatically = true)
+	@Query("""
+			UPDATE Prediction p
+			SET p.scoreSettlementStatus = :settledStatus,
+			    p.scoreSettledAt = :settledAt
+			WHERE p.id = :predictionId
+			  AND p.scoreSettlementStatus = :pendingStatus
+			""")
+	int markExistingSettlement(
+			@Param("predictionId") Long predictionId,
+			@Param("settledAt") java.time.LocalDateTime settledAt,
+			@Param("pendingStatus") Prediction.ScoreSettlementStatus pendingStatus,
+			@Param("settledStatus") Prediction.ScoreSettlementStatus settledStatus);
 	
 	// 특정 경기에 특정 유저가 투표했는지 확인
 	Optional<Prediction> findByGameIdAndUserId(String gameId, Long userId);

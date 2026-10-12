@@ -86,6 +86,10 @@ public class CheerPost {
     @Builder.Default
     private int views = 0;
 
+    @Column(name = "view_sync_watermark", nullable = false)
+    @Builder.Default
+    private long viewSyncWatermark = 0L;
+
     @Column(name = "repostcount", nullable = false)
     @Builder.Default
     private int repostCount = 0;

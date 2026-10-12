@@ -135,4 +135,48 @@ class MediaLinkServiceTest {
 
         assertEquals("MEDIA_ASSET_NOT_FOUND", exception.getCode());
     }
+
+    @Test
+    @DisplayName("standalone 시야뷰는 본인 소유의 READY SEAT_VIEW 자산만 해당 후보에 연결한다")
+    void linkSeatViewAsset_validatesOwnershipDomainAndReadinessBeforeLinking() {
+        String storagePath = "media/seat-view/7/61.webp";
+        MediaAsset asset = MediaAsset.builder()
+                .id(61L)
+                .ownerUserId(7L)
+                .domain(MediaDomain.SEAT_VIEW)
+                .status(MediaAssetStatus.READY)
+                .objectKey(storagePath)
+                .build();
+        when(mediaAssetRepository.findByObjectKeyIn(List.of(storagePath))).thenReturn(List.of(asset));
+        when(mediaAssetLinkRepository.findById(61L)).thenReturn(Optional.empty());
+        when(mediaAssetLinkRepository.save(any(MediaAssetLink.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        mediaLinkService.linkSeatViewAsset(7L, storagePath, 501L);
+
+        ArgumentCaptor<MediaAssetLink> linkCaptor = ArgumentCaptor.forClass(MediaAssetLink.class);
+        verify(mediaAssetLinkRepository).save(linkCaptor.capture());
+        assertEquals(MediaDomain.SEAT_VIEW, linkCaptor.getValue().getDomain());
+        assertEquals(501L, linkCaptor.getValue().getEntityId());
+        assertEquals(MediaLinkRole.SEAT_VIEW_PHOTO, linkCaptor.getValue().getRole());
+    }
+
+    @Test
+    @DisplayName("standalone 시야뷰는 다른 계정 소유 자산을 연결할 수 없다")
+    void linkSeatViewAsset_rejectsAnotherUsersAsset() {
+        String storagePath = "media/seat-view/9/62.webp";
+        MediaAsset otherUsersAsset = MediaAsset.builder()
+                .id(62L)
+                .ownerUserId(9L)
+                .domain(MediaDomain.SEAT_VIEW)
+                .status(MediaAssetStatus.READY)
+                .objectKey(storagePath)
+                .build();
+        when(mediaAssetRepository.findByObjectKeyIn(List.of(storagePath))).thenReturn(List.of(otherUsersAsset));
+
+        BadRequestBusinessException exception = assertThrows(
+                BadRequestBusinessException.class,
+                () -> mediaLinkService.linkSeatViewAsset(7L, storagePath, 502L));
+
+        assertEquals("MEDIA_ASSET_NOT_FOUND", exception.getCode());
+    }
 }

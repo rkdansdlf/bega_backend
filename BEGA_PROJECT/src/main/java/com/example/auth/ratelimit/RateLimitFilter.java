@@ -51,7 +51,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             new RateLimitRule("POST", "/api/client-errors", "telemetry:client-error", 120, 60),
             new RateLimitRule("POST", "/api/client-errors/feedback", "telemetry:client-feedback", 30, 60),
             new RateLimitRule("POST", "/api/dm/messages", "dm:send", 60, 60),
-            new RateLimitRule("DELETE", "/api/dm/messages/", "dm:delete", 30, 60, true)
+            new RateLimitRule("DELETE", "/api/dm/messages/", "dm:delete", 30, 60, true),
+            new RateLimitRule("GET", "/api/home/", "public:home-read", 60, 60, true)
     );
 
     private final RateLimitService rateLimitService;
@@ -90,13 +91,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if (rule.recordsAuthMonitoring()) {
             authSecurityMonitoringService.recordAuthRateLimitReject();
         }
-        log.warn("Rate limit exceeded path={} ip={} key={} retryAfter={}s",
-                rule.path, clientIp, key, retryAfterSeconds);
+        log.warn("Rate limit exceeded path={} retryAfter={}s", rule.path, retryAfterSeconds);
         writeTooManyRequests(response, retryAfterSeconds);
     }
 
     private RateLimitRule matchRule(HttpServletRequest request) {
-        String method = request.getMethod();
+        String method = "HEAD".equalsIgnoreCase(request.getMethod())
+                ? HttpMethod.GET.name()
+                : request.getMethod();
         String path = request.getRequestURI();
         for (RateLimitRule rule : RULES) {
             if (rule.matches(method, path)) {

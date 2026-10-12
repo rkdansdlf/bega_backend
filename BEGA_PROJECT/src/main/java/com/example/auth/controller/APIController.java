@@ -13,14 +13,12 @@ import com.example.auth.dto.AvailabilityCheckResponseDto;
 import com.example.auth.dto.LoginDto;
 import com.example.auth.dto.SignupDto;
 import com.example.auth.service.AuthRegistrationService;
+import com.example.auth.service.AuthSessionLogoutService;
 import com.example.auth.service.PolicyConsentService;
 import com.example.auth.service.UserService;
-import com.example.auth.repository.RefreshRepository;
-import com.example.auth.entity.RefreshToken;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.security.CookieMutationOriginValidator;
 import com.example.auth.security.CookieCsrfTokenService;
-import com.example.auth.service.RefreshTokenDigestService;
 import com.example.common.web.ClientIpResolver;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +30,7 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -54,10 +53,9 @@ public class APIController {
     private final OAuth2StateService oAuth2StateService;
     private final com.example.bega.auth.service.OAuth2LinkStateService oAuth2LinkStateService;
     private final com.example.auth.service.TokenBlacklistService tokenBlacklistService;
-    private final RefreshRepository refreshRepository;
+    private final AuthSessionLogoutService authSessionLogoutService;
     private final AuthCookieUtil authCookieUtil;
     private final ClientIpResolver clientIpResolver;
-    private final RefreshTokenDigestService refreshTokenDigestService;
     private final CookieMutationOriginValidator cookieMutationOriginValidator;
     private final CookieCsrfTokenService cookieCsrfTokenService;
 
@@ -67,10 +65,9 @@ public class APIController {
             OAuth2StateService oAuth2StateService,
             com.example.bega.auth.service.OAuth2LinkStateService oAuth2LinkStateService,
             com.example.auth.service.TokenBlacklistService tokenBlacklistService,
-            RefreshRepository refreshRepository,
+            AuthSessionLogoutService authSessionLogoutService,
             AuthCookieUtil authCookieUtil,
             ClientIpResolver clientIpResolver,
-            RefreshTokenDigestService refreshTokenDigestService,
             CookieMutationOriginValidator cookieMutationOriginValidator,
             CookieCsrfTokenService cookieCsrfTokenService) {
         this.userService = userService;
@@ -79,10 +76,9 @@ public class APIController {
         this.oAuth2StateService = oAuth2StateService;
         this.oAuth2LinkStateService = oAuth2LinkStateService;
         this.tokenBlacklistService = tokenBlacklistService;
-        this.refreshRepository = refreshRepository;
+        this.authSessionLogoutService = authSessionLogoutService;
         this.authCookieUtil = authCookieUtil;
         this.clientIpResolver = clientIpResolver;
-        this.refreshTokenDigestService = refreshTokenDigestService;
         this.cookieMutationOriginValidator = cookieMutationOriginValidator;
         this.cookieCsrfTokenService = cookieCsrfTokenService;
     }
@@ -225,7 +221,7 @@ public class APIController {
             }
         }
 
-        // 2. DB에서 현재 세션의 리프레시 토큰 삭제
+        // 2. 현재 세션 리프레시 토큰을 사용자 잠금 경계에서 폐기
         String refreshToken = null;
         if (cookies != null) {
             for (Cookie cookie : cookies) {
@@ -237,16 +233,11 @@ public class APIController {
         }
 
         if (refreshToken != null) {
-            String tokenDigest = refreshTokenDigestService.digest(refreshToken);
-            java.util.List<RefreshToken> matchedTokens = refreshRepository.findAllByTokenDigest(tokenDigest);
-            if (!matchedTokens.isEmpty()) {
-                refreshRepository.deleteAll(matchedTokens);
-            }
+            authSessionLogoutService.revoke(refreshToken, accessUserId);
         } else if (accessUserId != null) {
-            // Refresh 쿠키가 없을 경우 현재 계정의 전체 세션 정리로 안전하게 폴백
+            // 기존 계약대로 Refresh 쿠키가 없으면 계정 단위 정리를 best-effort로 수행
             try {
-                String email = userService.findUserById(accessUserId).getEmail();
-                userService.deleteRefreshTokenByEmail(email);
+                authSessionLogoutService.revoke(null, accessUserId);
             } catch (Exception e) {
                 log.debug("Logout session fallback skipped: {}", e.getMessage());
             }
@@ -283,16 +274,35 @@ public class APIController {
                 .body(ApiResponse.success("로그아웃 성공"));
     }
 
+    @GetMapping("/logout/csrf")
+    public ResponseEntity<Void> issueLogoutCsrfCookie(
+            @AuthenticationPrincipal Long userId,
+            HttpServletRequest request) {
+        AuthenticatedUserIds.require(userId, "로그인이 필요합니다.");
+        cookieMutationOriginValidator.validate(request, "INVALID_LOGOUT_CSRF_ORIGIN");
+
+        long refreshTokenMaxAge = userService.getJWTUtil().getRefreshTokenExpirationTime() / 1000L;
+        ResponseCookie csrfCookie = authCookieUtil.issueCsrfCookie(refreshTokenMaxAge);
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, csrfCookie.toString())
+                .cacheControl(CacheControl.noStore())
+                .build();
+    }
+
     /**
      * OAuth2 state 조회 및 소비 (one-time use)
      */
     @GetMapping("/oauth2/state/{stateId}")
-    public ResponseEntity<?> consumeOAuth2State(@PathVariable String stateId) {
-        OAuth2StateData data = oAuth2StateService.consumeState(stateId);
+    public ResponseEntity<?> consumeOAuth2State(
+            @PathVariable String stateId,
+            @AuthenticationPrincipal Long authenticatedUserId) {
+        OAuth2StateData data = oAuth2StateService.consumeState(stateId, authenticatedUserId);
         if (data == null) {
             throw new NotFoundBusinessException("OAUTH2_STATE_NOT_FOUND", "State not found or already consumed");
         }
-        return ResponseEntity.ok(data);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(data);
     }
 
     /**

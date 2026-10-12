@@ -214,7 +214,7 @@ final class OpenApiMarkdownRenderer {
             appendLine(out, "| `" + markdownCell(parameter.path("name").asText()) + "` | "
                     + markdownCell(parameter.path("in").asText()) + " | "
                     + (parameter.path("required").asBoolean(false) ? "yes" : "no") + " | "
-                    + schemaCell(parameter.path("schema"), schemaAnchors) + " | "
+                    + parameterSchemaCell(parameter.path("schema"), schemaAnchors) + " | "
                     + markdownCellOrDash(parameter.get("description")) + " | "
                     + "— |");
         }
@@ -502,6 +502,18 @@ final class OpenApiMarkdownRenderer {
     private static String schemaCell(JsonNode schema, Map<String, String> schemaAnchors) {
         String label = schemaLabel(schema, schemaAnchors);
         return label.contains("](openapi-schemas.md#") ? label : "`" + markdownCell(label) + "`";
+    }
+
+    private static String parameterSchemaCell(JsonNode schema, Map<String, String> schemaAnchors) {
+        String label = schemaLabel(schema, schemaAnchors);
+        String constraints = constraintsLabel(schema);
+        if (constraints.equals("—")) {
+            return schemaCell(schema, schemaAnchors);
+        }
+        if (label.contains("](openapi-schemas.md#")) {
+            return label + " [" + constraints + "]";
+        }
+        return "`" + markdownCell(label + " [" + constraints + "]") + "`";
     }
 
     private static String markdownCellOrDash(JsonNode value) {

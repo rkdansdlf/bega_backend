@@ -4,12 +4,16 @@ import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Timer;
+import io.swagger.v3.oas.annotations.Parameter;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -21,11 +25,6 @@ import lombok.extern.slf4j.Slf4j;
 @RequestMapping("/api/home")
 public class HomeController {
 
-    private static final List<String> HOME_BOOTSTRAP_CORE_SECTIONS = List.of(
-            "leagueStartDates",
-            "navigation",
-            "games",
-            "scheduledGamesWindow");
     private static final String WIDGETS_FALLBACK_RANKING_MESSAGE = "순위 데이터를 불러오지 못했습니다.";
 
     private final HomePageFacadeService homePageFacadeService;
@@ -48,8 +47,9 @@ public class HomeController {
 
     @GetMapping("/bootstrap")
     public ResponseEntity<HomeBootstrapResponseDto> getBootstrap(
+            @Parameter(description = "1982-01-01부터 2030-12-31까지의 날짜")
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        LocalDate selectedDate = date == null ? LocalDate.now() : date;
+        LocalDate selectedDate = HomeRequestBounds.requireSupportedDate(date);
         long startedAtNanos = System.nanoTime();
         String result = "success";
         int statusCode = 200;
@@ -59,10 +59,10 @@ public class HomeController {
             result = "manual_data_required";
             statusCode = 409;
             throw e;
-        } catch (Exception e) {
-            result = "fallback";
-            log.warn("Bootstrap failed for date={}, returning empty fallback: {}", selectedDate, e.getMessage());
-            return ResponseEntity.ok(buildEmptyBootstrap(selectedDate));
+        } catch (RuntimeException e) {
+            result = "failed";
+            statusCode = failureStatus(e);
+            throw e;
         } finally {
             recordBootstrapRequestDuration(result, statusCode, System.nanoTime() - startedAtNanos);
         }
@@ -70,9 +70,12 @@ public class HomeController {
 
     @GetMapping("/widgets")
     public ResponseEntity<HomeWidgetsResponseDto> getWidgets(
+            @Parameter(description = "1982-01-01부터 2030-12-31까지의 날짜")
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @Parameter(description = "1982년부터 2030년까지의 시즌 연도")
             @RequestParam(required = false) Integer seasonYear) {
-        LocalDate selectedDate = date == null ? LocalDate.now() : date;
+        LocalDate selectedDate = HomeRequestBounds.requireSupportedDate(date);
+        HomeRequestBounds.requireSupportedSeasonYear(seasonYear);
         long startedAtNanos = System.nanoTime();
         String result = "success";
         int statusCode = 200;
@@ -85,10 +88,14 @@ public class HomeController {
                 result = "fallback";
             }
             return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            result = "fallback";
-            log.warn("Widgets failed for date={}, returning empty fallback: {}", selectedDate, e.getMessage());
-            return ResponseEntity.ok(normalizeWidgetsResponse(selectedDate, seasonYear, null));
+        } catch (ManualBaseballDataRequiredException e) {
+            result = "manual_data_required";
+            statusCode = 409;
+            throw e;
+        } catch (RuntimeException e) {
+            result = "failed";
+            statusCode = failureStatus(e);
+            throw e;
         } finally {
             recordWidgetsRequestDuration(result, statusCode, System.nanoTime() - startedAtNanos);
         }
@@ -96,28 +103,14 @@ public class HomeController {
 
     @GetMapping("/navigation")
     public ResponseEntity<HomeScopedNavigationDto> getNavigation(
+            @Parameter(description = "1982-01-01부터 2030-12-31까지의 날짜")
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(defaultValue = "regular") String scope,
+            @Parameter(description = "1982년부터 2030년까지의 시즌 연도")
             @RequestParam(required = false) Integer seasonYear) {
-        LocalDate selectedDate = date == null ? LocalDate.now() : date;
-        try {
-            return ResponseEntity.ok(homePageGameService.getScopedNavigation(selectedDate, scope, seasonYear));
-        } catch (ManualBaseballDataRequiredException e) {
-            throw e;
-        } catch (Exception e) {
-            log.warn("Scoped home navigation failed for date={}, scope={}, seasonYear={}: {}",
-                    selectedDate,
-                    scope,
-                    seasonYear,
-                    e.getMessage());
-            return ResponseEntity.ok(HomeScopedNavigationDto.builder()
-                    .resolvedDate(null)
-                    .prevGameDate(null)
-                    .nextGameDate(null)
-                    .hasPrev(false)
-                    .hasNext(false)
-                    .build());
-        }
+        LocalDate selectedDate = HomeRequestBounds.requireSupportedDate(date);
+        HomeRequestBounds.requireSupportedSeasonYear(seasonYear);
+        return ResponseEntity.ok(homePageGameService.getScopedNavigation(selectedDate, scope, seasonYear));
     }
 
     private HomeWidgetsResponseDto normalizeWidgetsResponse(
@@ -142,28 +135,10 @@ public class HomeController {
                 .build();
     }
 
-    private HomeBootstrapResponseDto buildEmptyBootstrap(LocalDate selectedDate) {
-        return HomeBootstrapResponseDto.builder()
-                .selectedDate(selectedDate.toString())
-                .leagueStartDates(LeagueStartDatesDto.builder()
-                        .regularSeasonStart(selectedDate.toString())
-                        .postseasonStart(null)
-                        .koreanSeriesStart(null)
-                        .build())
-                .navigation(HomeScheduleNavigationDto.builder()
-                        .hasPrev(false)
-                        .hasNext(false)
-                        .build())
-                .games(List.of())
-                .scheduledGamesWindow(List.of())
-                .loadState(HomeBootstrapLoadStateDto.builder()
-                        .isFallback(true)
-                        .timedOut(false)
-                        .timedOutSections(List.of())
-                        .failedSections(HOME_BOOTSTRAP_CORE_SECTIONS)
-                        .failureReason("request-failed")
-                        .build())
-                .build();
+    private int failureStatus(RuntimeException exception) {
+        return exception instanceof TransientDataAccessException
+                || exception instanceof CannotGetJdbcConnectionException
+                || exception instanceof CannotCreateTransactionException ? 503 : 500;
     }
 
     private HomeRankingSnapshotDto buildFallbackRankingSnapshot(LocalDate selectedDate, Integer seasonYear) {

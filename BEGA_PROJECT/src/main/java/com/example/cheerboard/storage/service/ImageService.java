@@ -23,13 +23,19 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.Cache;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.data.redis.serializer.SerializationException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -91,6 +97,7 @@ public class ImageService {
     private final com.example.common.image.ImageOptimizationMetricsService metricsService;
     private final PublicVisibilityVerifier publicVisibilityVerifier;
     private final MediaObjectKeyGuard mediaObjectKeyGuard;
+    private final PlatformTransactionManager transactionManager;
     private volatile ExecutorService imageUploadExecutor;
     private volatile MeterRegistry imageUploadMeterRegistry = Metrics.globalRegistry;
     private volatile boolean imageUploadExecutorMetricsRegistered;
@@ -233,14 +240,17 @@ public class ImageService {
 
     /**
      * 게시글 이미지 목록 조회
+     * Keep the parent lock through URL creation and response construction.
      */
-    @Transactional(readOnly = true)
     public List<PostImageDto> listPostImages(Long postId) {
-        return listPostImages(postId, null);
+        return inImageUrlTransaction(() -> listPostImagesInCurrentTransaction(postId, null));
     }
 
-    @Transactional(readOnly = true)
     public List<PostImageDto> listPostImages(Long postId, Long viewerId) {
+        return inImageUrlTransaction(() -> listPostImagesInCurrentTransaction(postId, viewerId));
+    }
+
+    private List<PostImageDto> listPostImagesInCurrentTransaction(Long postId, Long viewerId) {
         CheerPost post = requireAccessiblePost(postId);
         publicVisibilityVerifier.validate(post.getAuthor(), viewerId, "게시글");
         List<PostImage> images = postImageRepo.findByPostIdOrderByCreatedAtAsc(postId);
@@ -277,9 +287,18 @@ public class ImageService {
     /**
      * 게시글의 이미지 서명 URL 목록 조회 (DTO 변환용)
      * 캐싱: postId 기준으로 Redis 문자열 JSON 캐시에 저장
+     * Keep the parent lock through cached or newly generated URL return.
      */
-    @Transactional(readOnly = true)
     public List<String> getPostImageUrls(Long postId) {
+        return inImageUrlTransaction(() -> getPostImageUrlsInCurrentTransaction(postId));
+    }
+
+    private List<String> getPostImageUrlsInCurrentTransaction(Long postId) {
+        try {
+            requireAccessiblePost(postId);
+        } catch (NotFoundBusinessException exception) {
+            return Collections.emptyList();
+        }
         List<String> cached = getCachedPostImageUrls(postId);
         if (cached != null) {
             return cached;
@@ -308,20 +327,33 @@ public class ImageService {
      * - 캐시에 존재하는 경우 재사용
      * - 없는 경우에만 일괄 조회 후 캐싱
      */
-    @Transactional(readOnly = true)
     public Map<Long, List<String>> getPostImageUrlsByPostIds(List<Long> postIds) {
+        return inImageUrlTransaction(() -> getPostImageUrlsByPostIdsInCurrentTransaction(postIds));
+    }
+
+    private Map<Long, List<String>> getPostImageUrlsByPostIdsInCurrentTransaction(List<Long> postIds) {
         Map<Long, List<String>> result = new HashMap<>();
         if (postIds == null || postIds.isEmpty()) {
             return result;
         }
 
+        List<Long> requestedPostIds = postIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+        List<Long> activePostIds = new ArrayList<>();
+        for (Long postId : requestedPostIds) {
+            if (postRepo.findByIdForWrite(postId).isPresent()) {
+                activePostIds.add(postId);
+            } else {
+                result.put(postId, Collections.emptyList());
+            }
+        }
+
         List<Long> missingPostIds = new ArrayList<>();
 
-        for (Long postId : postIds) {
-            if (postId == null) {
-                continue;
-            }
-
+        for (Long postId : activePostIds) {
             List<String> cached = getCachedPostImageUrls(postId);
             if (cached != null) {
                 result.put(postId, cached);
@@ -336,16 +368,21 @@ public class ImageService {
 
         List<PostImage> images = postImageRepo.findByPostIdInOrderByPostIdAscCreatedAtAsc(missingPostIds);
         Map<Long, List<String>> groupedUrls = new HashMap<>();
+        record ImageUrlSource(Long postId, String storagePath) {
+        }
         record SignedUrlResult(Long postId, String url) {
         }
 
-        List<CompletableFuture<SignedUrlResult>> signedUrlFutures = images.stream()
+        List<ImageUrlSource> imageUrlSources = images.stream()
                 .filter(image -> image != null && image.getPost() != null && image.getPost().getId() != null)
-                .map(image -> CompletableFuture.supplyAsync(() -> {
-                    Long postId = image.getPost().getId();
-                    String url = generateSignedUrl(image.getStoragePath());
+                .map(image -> new ImageUrlSource(image.getPost().getId(), image.getStoragePath()))
+                .toList();
+
+        List<CompletableFuture<SignedUrlResult>> signedUrlFutures = imageUrlSources.stream()
+                .map(source -> CompletableFuture.supplyAsync(() -> {
+                    String url = generateSignedUrl(source.storagePath());
                     if (url != null && !url.isEmpty()) {
-                        return new SignedUrlResult(postId, url);
+                        return new SignedUrlResult(source.postId(), url);
                     }
                     return null;
                 }, imageUploadExecutor()))
@@ -534,29 +571,29 @@ public class ImageService {
      */
     @Transactional
     public void deleteImage(Long imageId) {
-        UserEntity me = currentUser.get();
-        PostImage image = findPostImageById(imageId);
+        inImageUrlTransaction(() -> {
+            UserEntity me = currentUser.get();
+            PostImage initialImage = findPostImageById(imageId);
+            Long postId = Objects.requireNonNull(initialImage.getPost().getId());
 
-        // 권한 체크
-        permissionValidator.validateOwnerOrAdmin(me, image.getPost().getAuthor(), "이미지 삭제");
+            // Reject unauthorized requests before taking the post lock, then recheck against the locked row.
+            permissionValidator.validateOwnerOrAdmin(me, initialImage.getPost().getAuthor(), "이미지 삭제");
+            CheerPost post = requireAccessiblePost(postId);
+            permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "이미지 삭제");
 
-        // 캐시 무효화를 위해 postId 저장
-        Long postId = image.getPost().getId();
+            // Re-query after acquiring the parent lock so a concurrent delete cannot reuse a stale entity.
+            PostImage image = postImageRepo.findByIdAndPostId(imageId, postId)
+                    .orElseThrow(() -> new NotFoundBusinessException("POST_IMAGE_NOT_FOUND", "이미지를 찾을 수 없습니다."));
+            String storagePath = image.getStoragePath();
 
-        // 1. DB 삭제
-        postImageRepo.delete(image);
+            // Keep the row and path available for retry unless storage confirms deletion (or object absence).
+            storageStrategy.deleteChecked(config.getCheerBucket(), storagePath).block();
+            postImageRepo.delete(image);
 
-        // 2. 스토리지 삭제
-        try {
-            storageStrategy.delete(config.getCheerBucket(), image.getStoragePath()).block();
-        } catch (Exception e) {
-            log.error("스토리지 삭제 실패 (DB는 이미 삭제됨): path={}", image.getStoragePath(), e);
-            // DB는 이미 삭제되었으므로 스토리지 삭제 실패는 로그만 남김
-        }
-
-        // 3. 이미지 URL 캐시 무효화
-        evictPostImageCache(postId);
-        evictSignedUrlCache(image.getStoragePath());
+            evictPostImageCache(postId);
+            evictSignedUrlCache(storagePath);
+            return null;
+        });
     }
 
     /**
@@ -577,7 +614,7 @@ public class ImageService {
      * 게시글의 모든 이미지 삭제 (스토리지 삭제 및 캐시 초기화)
      * DB 데이터는 CheerPost 삭제 시 Cascade로 삭제됨을 가정하거나, 필요 시 여기서 삭제
      */
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public boolean deleteImagesByPostId(Long postId) {
         log.info("게시글 이미지 일괄 삭제 시작: postId={}", postId);
         List<PostImage> images = postImageRepo.findByPostIdOrderByCreatedAtAsc(postId);
@@ -592,7 +629,7 @@ public class ImageService {
         // 스토리지 삭제
         for (PostImage image : images) {
             try {
-                storageStrategy.delete(config.getCheerBucket(), image.getStoragePath()).block();
+                storageStrategy.deleteChecked(config.getCheerBucket(), image.getStoragePath()).block();
                 // 개별 Signed URL 캐시 무효화
                 evictSignedUrlCache(image.getStoragePath());
             } catch (Exception e) {
@@ -623,48 +660,51 @@ public class ImageService {
      */
 
     public SignedUrlDto renewSignedUrl(Long imageId) {
-        UserEntity me = currentUser.get();
-        PostImage image = findPostImageById(imageId);
-        requireAccessiblePost(image.getPost().getId());
-        permissionValidator.validateOwnerOrAdmin(me, image.getPost().getAuthor(), "이미지 서명 URL 갱신");
+        return inImageUrlTransaction(() -> {
+            UserEntity me = currentUser.get();
+            PostImage image = findPostImageById(imageId);
+            CheerPost post = requireAccessiblePost(image.getPost().getId());
+            permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "이미지 서명 URL 갱신");
 
-        String signedUrl = generateSignedUrl(image.getStoragePath());
-        Instant expiresAt = Instant.now().plusSeconds(config.getSignedUrlTtlSeconds());
+            String signedUrl = generateSignedUrl(image.getStoragePath());
+            Instant expiresAt = Instant.now().plusSeconds(config.getSignedUrlTtlSeconds());
 
-        return new SignedUrlDto(signedUrl, expiresAt);
+            return new SignedUrlDto(signedUrl, expiresAt);
+        });
     }
 
     /**
      * 썸네일로 지정
      * - 기존 썸네일이 있으면 해제하고 새로 지정
      */
-    @Transactional
-
     public PostImageDto markAsThumbnail(Long imageId) {
-        UserEntity me = currentUser.get();
-        PostImage image = findPostImageById(imageId);
+        return inImageUrlTransaction(() -> {
+            UserEntity me = currentUser.get();
+            PostImage image = findPostImageById(imageId);
+            CheerPost post = requireAccessiblePost(image.getPost().getId());
 
-        // 권한 체크
-        permissionValidator.validateOwnerOrAdmin(me, image.getPost().getAuthor(), "썸네일 지정");
+            // 권한 체크
+            permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "썸네일 지정");
 
-        // 기존 썸네일 해제
-        postImageRepo.findByPostIdAndIsThumbnailTrue(image.getPost().getId())
-                .ifPresent(oldThumbnail -> {
-                    oldThumbnail.setIsThumbnail(false);
-                    postImageRepo.save(oldThumbnail);
-                });
+            // 기존 썸네일 해제
+            postImageRepo.findByPostIdAndIsThumbnailTrue(post.getId())
+                    .ifPresent(oldThumbnail -> {
+                        oldThumbnail.setIsThumbnail(false);
+                        postImageRepo.save(oldThumbnail);
+                    });
 
-        // 새 썸네일 지정
-        image.setIsThumbnail(true);
-        postImageRepo.save(image);
+            // 새 썸네일 지정
+            image.setIsThumbnail(true);
+            postImageRepo.save(image);
 
-        return new PostImageDto(
-                image.getId(),
-                image.getStoragePath(),
-                image.getMimeType(),
-                image.getBytes(),
-                image.getIsThumbnail(),
-                generateSignedUrl(image.getStoragePath()));
+            return new PostImageDto(
+                    image.getId(),
+                    image.getStoragePath(),
+                    image.getMimeType(),
+                    image.getBytes(),
+                    image.getIsThumbnail(),
+                    generateSignedUrl(image.getStoragePath()));
+        });
     }
 
     /**
@@ -757,22 +797,27 @@ public class ImageService {
         }
     }
 
-    /**
-     * 게시글 조회
-     */
-
-    private CheerPost findPostById(Long postId) {
-        return postRepo.findById(Objects.requireNonNull(postId))
-                .orElseThrow(() -> new NotFoundBusinessException("CHEER_POST_NOT_FOUND", "게시글을 찾을 수 없습니다."));
-    }
-
     private CheerPost findPostByIdForImageWrite(Long postId) {
         return postRepo.findByIdForWrite(Objects.requireNonNull(postId))
                 .orElseThrow(() -> new NotFoundBusinessException("CHEER_POST_NOT_FOUND", "게시글을 찾을 수 없습니다."));
     }
 
     private CheerPost requireAccessiblePost(Long postId) {
-        return findPostById(postId);
+        return findPostByIdForImageWrite(postId);
+    }
+
+    private <T> T inImageUrlTransaction(Supplier<T> operation) {
+        // Join a writable caller transaction to avoid re-locking a row it already holds.
+        // Otherwise suspend any read-only caller and acquire the lock in a writable transaction.
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && !TransactionSynchronizationManager.isCurrentTransactionReadOnly()) {
+            return operation.get();
+        }
+
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        transactionTemplate.setReadOnly(false);
+        return transactionTemplate.execute(status -> operation.get());
     }
 
     private PostImage findPostImageById(Long imageId) {
@@ -974,6 +1019,14 @@ public class ImageService {
     }
 
     public Mono<List<String>> getDiaryImageSignedUrls(List<String> storagePaths, Long ownerUserId, Long diaryId) {
+        return getDiaryImageSignedUrls(storagePaths, ownerUserId, diaryId, config.getSignedUrlTtlSeconds());
+    }
+
+    public Mono<List<String>> getDiaryImageSignedUrls(
+            List<String> storagePaths,
+            Long ownerUserId,
+            Long diaryId,
+            int expiresInSeconds) {
         log.debug("다이어리 이미지 URL 생성 시작: 총 {}개", storagePaths != null ? storagePaths.size() : 0);
 
         // 빈 리스트 체크
@@ -983,7 +1036,7 @@ public class ImageService {
         }
 
         List<Mono<String>> urlMonos = storagePaths.stream()
-                .map(path -> resolveDiarySignedUrl(path, ownerUserId, diaryId))
+                .map(path -> resolveDiarySignedUrl(path, ownerUserId, diaryId, expiresInSeconds))
                 .toList();
 
         return Mono.zip(urlMonos, results -> {
@@ -994,6 +1047,46 @@ public class ImageService {
                 }
             }
             log.info("다이어리 이미지 URL 생성 완료: 총 {}개", urls.size());
+            return urls;
+        });
+    }
+
+    public Mono<List<String>> getSeatViewImageSignedUrls(
+            List<String> storagePaths,
+            Long ownerUserId,
+            Long seatViewId) {
+        return getSeatViewImageSignedUrls(
+                storagePaths, ownerUserId, seatViewId, config.getSignedUrlTtlSeconds());
+    }
+
+    public Mono<List<String>> getSeatViewImageSignedUrls(
+            List<String> storagePaths,
+            Long ownerUserId,
+            Long seatViewId,
+            int expiresInSeconds) {
+        if (storagePaths == null || storagePaths.isEmpty()) {
+            return Mono.just(List.of());
+        }
+        List<Mono<String>> urlMonos = storagePaths.stream()
+                .map(path -> {
+                    if (!mediaObjectKeyGuard.canReadSeatViewKey(path, ownerUserId, seatViewId)) {
+                        return Mono.<String>empty();
+                    }
+                    return storageStrategy.getUrl(
+                                    Objects.requireNonNull(config.getDiaryBucket()),
+                                    path,
+                                    expiresInSeconds)
+                            .doOnError(err -> log.error("시야뷰 이미지 URL 생성 실패: path={}, error={}", path, err.getMessage()))
+                            .onErrorResume(err -> Mono.empty());
+                })
+                .toList();
+        return Mono.zip(urlMonos, results -> {
+            List<String> urls = new ArrayList<>();
+            for (Object result : results) {
+                if (result != null && !result.toString().isEmpty()) {
+                    urls.add((String) result);
+                }
+            }
             return urls;
         });
     }
@@ -1044,6 +1137,14 @@ public class ImageService {
     }
 
     private Mono<String> resolveDiarySignedUrl(String pathOrUrl, Long ownerUserId, Long diaryId) {
+        return resolveDiarySignedUrl(pathOrUrl, ownerUserId, diaryId, config.getSignedUrlTtlSeconds());
+    }
+
+    private Mono<String> resolveDiarySignedUrl(
+            String pathOrUrl,
+            Long ownerUserId,
+            Long diaryId,
+            int expiresInSeconds) {
         if (!StringUtils.hasText(pathOrUrl)) {
             return Mono.empty();
         }
@@ -1053,7 +1154,9 @@ public class ImageService {
             return Mono.empty();
         }
         if (isHttpUrl(normalizedPath)) {
-            return Mono.just(normalizedPath);
+            return expiresInSeconds == config.getSignedUrlTtlSeconds()
+                    ? Mono.just(normalizedPath)
+                    : Mono.empty();
         }
         if (!canReadDiaryKey(normalizedPath, ownerUserId, diaryId)) {
             log.warn("다이어리 이미지 URL 생성 건너뜀: owner mismatch path={}", normalizedPath);
@@ -1061,7 +1164,7 @@ public class ImageService {
         }
 
         return storageStrategy
-                .getUrl(Objects.requireNonNull(config.getDiaryBucket()), normalizedPath, config.getSignedUrlTtlSeconds())
+                .getUrl(Objects.requireNonNull(config.getDiaryBucket()), normalizedPath, expiresInSeconds)
                 .doOnError(err -> log.error("다이어리 이미지 URL 생성 실패: path={}, error={}",
                         normalizedPath, err.getMessage()))
                 .onErrorResume(err -> Mono.empty());

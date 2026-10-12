@@ -10,12 +10,10 @@ import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -59,8 +57,6 @@ public class CoachAutoBriefMonitoringService {
     private final ObjectMapper objectMapper;
     private final boolean monitoringEnabled;
     private final Map<String, AtomicLong> gaugeValues = new ConcurrentHashMap<>();
-    private final Map<String, Set<String>> knownCacheStatesByWindow = new ConcurrentHashMap<>();
-    private final Map<String, Set<String>> knownDataQualitiesByWindow = new ConcurrentHashMap<>();
 
     public CoachAutoBriefMonitoringService(
             AiProxyService aiProxyService,
@@ -166,15 +162,13 @@ public class CoachAutoBriefMonitoringService {
                     "cache_state",
                     window,
                     summary.path("cache_state_breakdown"),
-                    DEFAULT_CACHE_STATES,
-                    knownCacheStatesByWindow);
+                    DEFAULT_CACHE_STATES);
             updateBreakdown(
                     "coach_auto_brief_health_data_quality",
                     "data_quality",
                     window,
                     summary.path("data_quality_breakdown"),
-                    DEFAULT_DATA_QUALITIES,
-                    knownDataQualitiesByWindow);
+                    DEFAULT_DATA_QUALITIES);
             setGauge(
                     "coach_auto_brief_health_last_refresh_timestamp_seconds",
                     Tags.of("window", window),
@@ -211,25 +205,30 @@ public class CoachAutoBriefMonitoringService {
             String tagName,
             String window,
             JsonNode breakdown,
-            List<String> defaultCategories,
-            Map<String, Set<String>> knownCategoriesByWindow) {
-        Set<String> categories = knownCategoriesByWindow.computeIfAbsent(window, ignored -> new LinkedHashSet<>(defaultCategories));
-        List<String> nextCategories = new ArrayList<>(categories);
+            List<String> defaultCategories) {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        defaultCategories.forEach(category -> counts.put(category, 0L));
+        String unknownCategory = defaultCategories.stream()
+                .filter(category -> "unknown".equalsIgnoreCase(category))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Breakdown categories must include unknown"));
 
         if (breakdown.isObject()) {
-            breakdown.fieldNames().forEachRemaining(category -> {
-                if (categories.add(category)) {
-                    nextCategories.add(category);
-                }
+            breakdown.properties().forEach(entry -> {
+                String category = counts.containsKey(entry.getKey())
+                        ? entry.getKey()
+                        : unknownCategory;
+                counts.merge(category, entry.getValue().asLong(0L), Long::sum);
             });
         }
 
-        for (String category : nextCategories) {
+        counts.forEach((category, count) -> {
             setGauge(
                     metricName,
                     Tags.of("window", window, tagName, category),
-                    breakdown.path(category).asLong(0L));
-        }
+                    count);
+        });
     }
 
     private void setGauge(String metricName, Tags tags, long value) {

@@ -6,7 +6,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Optional;
 
 /**
@@ -26,6 +28,10 @@ public class RefreshTokenReuseDetector {
     private final StringRedisTemplate redisTemplate;
 
     private static final String PREFIX = "refresh:rotated:";
+    private static final String SESSION_MARKER_VERSION = "v1:";
+
+    public record ReuseMarker(Long userId, String sessionId) {
+    }
 
     /**
      * 회전된 토큰을 기록한다. 이후 동일 토큰이 다시 제시되면 재사용으로 탐지된다.
@@ -34,16 +40,24 @@ public class RefreshTokenReuseDetector {
      * @param userId 해당 토큰 소유자 userId
      * @param ttlMillis refresh token 수명(ms). 이 기간 후에는 흔적 삭제.
      */
-    public void markRotated(String rotatedToken, Long userId, long ttlMillis) {
-        if (rotatedToken == null || rotatedToken.isBlank() || userId == null || ttlMillis <= 0) {
+    public void markRotated(String rotatedToken, Long userId, String sessionId, long ttlMillis) {
+        if (rotatedToken == null || rotatedToken.isBlank()) {
             return;
+        }
+        if (userId == null || sessionId == null || sessionId.isBlank() || ttlMillis <= 0) {
+            throw new IllegalStateException("Refresh token session mapping is unavailable");
         }
         try {
             String key = PREFIX + JWTUtil.hashKey(rotatedToken);
-            redisTemplate.opsForValue().set(key, String.valueOf(userId), Duration.ofMillis(ttlMillis));
+            String encodedSessionId = Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(sessionId.getBytes(StandardCharsets.UTF_8));
+            redisTemplate.opsForValue().set(
+                    key,
+                    SESSION_MARKER_VERSION + userId + ":" + encodedSessionId,
+                    Duration.ofMillis(ttlMillis));
         } catch (Exception e) {
-            // 탐지 저장 실패는 로그인 흐름을 차단하지 않는다. (availability > detection)
-            log.warn("Failed to mark refresh token as rotated: {}", e.getMessage());
+            log.warn("Failed to persist refresh token session mapping: {}", e.getClass().getSimpleName());
+            throw new IllegalStateException("Refresh token session mapping is unavailable", e);
         }
     }
 
@@ -52,7 +66,7 @@ public class RefreshTokenReuseDetector {
      *
      * @return 해당 토큰이 회전된 기록이 있으면 userId, 없으면 Optional.empty()
      */
-    public Optional<Long> findReuseUserId(String presentedToken) {
+    public Optional<ReuseMarker> findReuseMarker(String presentedToken) {
         if (presentedToken == null || presentedToken.isBlank()) {
             return Optional.empty();
         }
@@ -62,13 +76,32 @@ public class RefreshTokenReuseDetector {
             if (value == null || value.isBlank()) {
                 return Optional.empty();
             }
-            return Optional.of(Long.parseLong(value));
+            if (!value.startsWith(SESSION_MARKER_VERSION)) {
+                return Optional.of(new ReuseMarker(Long.parseLong(value), null));
+            }
+            String[] parts = value.split(":", 3);
+            if (parts.length != 3 || parts[2].isBlank()) {
+                return Optional.empty();
+            }
+            Long userId = Long.parseLong(parts[1]);
+            String sessionId = new String(Base64.getUrlDecoder().decode(parts[2]), StandardCharsets.UTF_8);
+            if (sessionId.isBlank()) {
+                return Optional.empty();
+            }
+            return Optional.of(new ReuseMarker(userId, sessionId));
         } catch (NumberFormatException e) {
             log.warn("Malformed reuse marker value: {}", e.getMessage());
             return Optional.empty();
+        } catch (IllegalArgumentException e) {
+            log.warn("Malformed refresh token session mapping: {}", e.getClass().getSimpleName());
+            return Optional.empty();
         } catch (Exception e) {
-            log.warn("Failed to read refresh token reuse marker: {}", e.getMessage());
+            log.warn("Failed to read refresh token reuse marker: {}", e.getClass().getSimpleName());
             return Optional.empty();
         }
+    }
+
+    public Optional<Long> findReuseUserId(String presentedToken) {
+        return findReuseMarker(presentedToken).map(ReuseMarker::userId);
     }
 }

@@ -16,7 +16,7 @@ public class MediaRateLimitService {
         String key = "media:init:" + domain.name().toLowerCase() + ":" + userId;
         int limit = switch (domain) {
             case PROFILE -> 3;
-            case DIARY -> 10;
+            case DIARY, SEAT_VIEW -> 10;
             case CHEER -> 10;
             case CHAT -> 20;
         };

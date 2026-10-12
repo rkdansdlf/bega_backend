@@ -12,11 +12,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.http.HttpHeaders;
 
 import static org.mockito.Mockito.when;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -40,6 +46,7 @@ class APIControllerOAuth2StateFlowTest {
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders.standaloneSetup(apiController)
+                .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -47,7 +54,7 @@ class APIControllerOAuth2StateFlowTest {
     @Test
     @DisplayName("state가 없거나 만료된 경우 404를 반환한다")
     void consumeOAuth2State_returns404WhenStateMissingOrExpired() throws Exception {
-        when(oAuth2StateService.consumeState("expired-state")).thenReturn(null);
+        when(oAuth2StateService.consumeState("expired-state", null)).thenReturn(null);
 
         mockMvc.perform(get("/api/auth/oauth2/state/expired-state"))
                 .andExpect(status().isNotFound())
@@ -67,7 +74,7 @@ class APIControllerOAuth2StateFlowTest {
                 "없음",
                 "tester"
         );
-        when(oAuth2StateService.consumeState("same-state"))
+        when(oAuth2StateService.consumeState("same-state", null))
                 .thenReturn(data)
                 .thenReturn(null);
 
@@ -95,8 +102,8 @@ class APIControllerOAuth2StateFlowTest {
                 "retry_user"
         );
 
-        when(oAuth2StateService.consumeState("stale-state")).thenReturn(null);
-        when(oAuth2StateService.consumeState("fresh-state")).thenReturn(freshData);
+        when(oAuth2StateService.consumeState("stale-state", null)).thenReturn(null);
+        when(oAuth2StateService.consumeState("fresh-state", null)).thenReturn(freshData);
 
         mockMvc.perform(get("/api/auth/oauth2/state/stale-state"))
                 .andExpect(status().isNotFound())
@@ -107,5 +114,29 @@ class APIControllerOAuth2StateFlowTest {
                 .andExpect(jsonPath("$.email").value("retry@test.com"))
                 .andExpect(jsonPath("$.favoriteTeam").value("LG"))
                 .andExpect(jsonPath("$.handle").value("retry_user"));
+    }
+
+    @Test
+    @DisplayName("인증된 OAuth 콜백 재시도는 state 소유자 ID와 함께 전달한다")
+    void consumeOAuth2State_passesAuthenticatedOwnerForReplay() throws Exception {
+        OAuth2StateData data = new OAuth2StateData(
+                "user@test.com",
+                "Tester",
+                "ROLE_USER",
+                null,
+                "없음",
+                "tester");
+        when(oAuth2StateService.consumeState("same-state", 77L)).thenReturn(data);
+        SecurityContextHolder.getContext()
+                .setAuthentication(new UsernamePasswordAuthenticationToken(77L, "credentials"));
+
+        try {
+            mockMvc.perform(get("/api/auth/oauth2/state/same-state"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store")))
+                    .andExpect(jsonPath("$.email").value("user@test.com"));
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
     }
 }

@@ -3,6 +3,7 @@ package com.example.auth.repository;
 import com.example.auth.entity.UserEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
@@ -15,6 +16,10 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
   Optional<UserEntity> findByHandle(String handle);
 
+  @org.springframework.data.jpa.repository.EntityGraph(attributePaths = { "favoriteTeam" })
+  @Query("SELECT u FROM UserEntity u WHERE u.handle = :handle")
+  Optional<UserEntity> findByHandleWithFavoriteTeam(@Param("handle") String handle);
+
   Boolean existsByHandle(String handle);
 
   Optional<UserEntity> findByUniqueId(java.util.UUID uniqueId);
@@ -24,6 +29,27 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
   Boolean existsByEmail(String email);
 
   Optional<UserEntity> findByEmail(String email);
+
+  default boolean existsFinalizedTombstoneById(Long userId) {
+    if (userId == null) {
+      return false;
+    }
+    return findById(userId).filter(user -> {
+      String email = user.getEmail();
+      String base = "deleted-" + userId;
+      return !user.isEnabled()
+          && user.isPendingDeletion()
+          && user.getDeletionScheduledFor() == null
+          && user.isLocked()
+          && "탈퇴한 사용자".equals(user.getName())
+          && user.getPassword() == null
+          && user.getProvider() == null
+          && user.getProviderId() == null
+          && email != null
+          && email.endsWith("@deleted.invalid")
+          && (email.equals(base + "@deleted.invalid") || email.startsWith(base + "-"));
+    }).isPresent();
+  }
 
   interface LoginPasswordProjection {
     Long getId();
@@ -60,6 +86,17 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("SELECT u FROM UserEntity u WHERE u.id = :userId")
   Optional<UserEntity> findByIdForWrite(@org.springframework.data.repository.query.Param("userId") Long userId);
+
+  @Modifying
+  @Query("UPDATE UserEntity u SET u.cheerPoints = u.cheerPoints - 1 WHERE u.id = :userId AND u.cheerPoints >= 1")
+  int deductOneCheerPointIfAvailable(@Param("userId") Long userId);
+
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @org.springframework.data.jpa.repository.QueryHints(
+      @jakarta.persistence.QueryHint(name = "jakarta.persistence.lock.timeout", value = "1000"))
+  @Query("SELECT u FROM UserEntity u WHERE u.id = :userId")
+  Optional<UserEntity> lockPaymentConfirmationOwnerForWrite(
+      @org.springframework.data.repository.query.Param("userId") Long userId);
 
   @Query("""
       SELECT CASE WHEN COUNT(u) > 0 THEN true ELSE false END
@@ -144,7 +181,7 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
   java.util.Optional<Long> lockUsableAuthorForWriteWithTokenVersion(@Param("userId") Long userId,
       @Param("tokenVersion") int tokenVersion);
 
-  @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+  @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
   @Transactional
   @org.springframework.data.jpa.repository.Query("UPDATE UserEntity u SET u.profileImageUrl = :profilePath WHERE u.id = :userId")
   int updateProfileImageUrlById(@org.springframework.data.repository.query.Param("userId") Long userId,
@@ -156,6 +193,12 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
   int updateProfileImageUrlsById(@org.springframework.data.repository.query.Param("userId") Long userId,
       @org.springframework.data.repository.query.Param("profilePath") String profilePath,
       @org.springframework.data.repository.query.Param("profileFeedImagePath") String profileFeedImagePath);
+
+  @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+  @Transactional
+  @org.springframework.data.jpa.repository.Query("UPDATE UserEntity u SET u.createdAt = :createdAt WHERE u.id = :userId")
+  int anonymizeCreatedAtById(@org.springframework.data.repository.query.Param("userId") Long userId,
+      @org.springframework.data.repository.query.Param("createdAt") java.time.LocalDateTime createdAt);
 
   @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
   @Transactional

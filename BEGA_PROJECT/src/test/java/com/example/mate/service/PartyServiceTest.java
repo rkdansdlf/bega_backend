@@ -71,6 +71,9 @@ class PartyServiceTest {
         private PartyReviewRepository partyReviewRepository;
 
         @Mock
+        private PartyReviewRatingService partyReviewRatingService;
+
+        @Mock
         private UserProviderRepository userProviderRepository;
 
         @Mock
@@ -102,6 +105,7 @@ class PartyServiceTest {
                                 partyRepository,
                                 applicationRepository,
                                 partyReviewRepository,
+                                partyReviewRatingService,
                                 profileImageService);
                 partyService = new PartyService(
                                 partyRepository,
@@ -116,7 +120,7 @@ class PartyServiceTest {
                                 mateHistoryMetricsService);
                 lenient().when(publicVisibilityVerifier.canAccess(any(), any())).thenReturn(true);
                 lenient().when(userRepository.findAllById(any())).thenReturn(List.of());
-                lenient().when(partyReviewRepository.findRatingSummariesByRevieweeIds(any())).thenReturn(List.of());
+                lenient().when(partyReviewRatingService.findRatingSummariesByRevieweeIds(any())).thenReturn(List.of());
         }
 
         @Test
@@ -137,7 +141,7 @@ class PartyServiceTest {
                 when(userProviderRepository.findByUserId(hostId))
                                 .thenReturn(List.of(UserProvider.builder().provider("kakao").build()));
                 when(applicationRepository.countCheckedInPartiesByUserId(hostId)).thenReturn(0);
-                when(partyReviewRepository.findRatingSummariesByRevieweeIds(any()))
+                when(partyReviewRatingService.findRatingSummariesByRevieweeIds(any()))
                                 .thenReturn(List.of(ratingSummary(hostId, 4.7, 3L)));
                 when(partyRepository.save(any(Party.class))).thenAnswer(inv -> {
                         Party party = inv.getArgument(0);
@@ -362,7 +366,7 @@ class PartyServiceTest {
                                 any(Pageable.class)))
                                 .thenReturn(new PageImpl<>(List.of(party)));
                 when(profileImageService.getProfileImageUrlForUser(91L, null)).thenReturn(null);
-                when(partyReviewRepository.findRatingSummariesByRevieweeIds(any()))
+                when(partyReviewRatingService.findRatingSummariesByRevieweeIds(any()))
                                 .thenReturn(List.of(ratingSummary(91L, 4.4, 2L)));
 
                 Page<PartyDTO.PublicResponse> result = partyService.getAllParties(
@@ -576,6 +580,22 @@ class PartyServiceTest {
         }
 
         @Test
+        @DisplayName("decrementParticipants - 정원이 찬 파티는 인원 감소 후 모집 중으로 돌아간다")
+        void decrementParticipants_reopensMatchedPartyWhenParticipantLeaves() {
+                Party party = createParty(1L, 10L, null);
+                party.setCurrentParticipants(4);
+                party.setStatus(Party.PartyStatus.MATCHED);
+
+                when(partyRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(party));
+                when(partyRepository.save(any(Party.class))).thenAnswer(inv -> inv.getArgument(0));
+
+                PartyDTO.Response response = partyService.decrementParticipants(1L);
+
+                assertThat(response.getCurrentParticipants()).isEqualTo(3);
+                assertThat(response.getStatus()).isEqualTo(Party.PartyStatus.PENDING);
+        }
+
+        @Test
         @DisplayName("getPartiesByHostHandle validates host visibility before returning public parties")
         void getPartiesByHostHandle_validatesVisibility() {
                 UserEntity host = UserEntity.builder().id(77L).handle("@host").build();
@@ -780,22 +800,7 @@ class PartyServiceTest {
                 return party;
         }
 
-        private PartyReviewRepository.RevieweeRatingSummary ratingSummary(Long revieweeId, Double averageRating, Long reviewCount) {
-                return new PartyReviewRepository.RevieweeRatingSummary() {
-                        @Override
-                        public Long getRevieweeId() {
-                                return revieweeId;
-                        }
-
-                        @Override
-                        public Double getAverageRating() {
-                                return averageRating;
-                        }
-
-                        @Override
-                        public Long getReviewCount() {
-                                return reviewCount;
-                        }
-                };
+        private PartyReviewRatingService.RatingSummary ratingSummary(Long revieweeId, Double averageRating, Long reviewCount) {
+                return new PartyReviewRatingService.RatingSummary(revieweeId, averageRating, reviewCount);
         }
 }

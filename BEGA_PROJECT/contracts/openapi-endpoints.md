@@ -5,8 +5,8 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Paths: **265**
-Operations: **290**
+Paths: **272**
+Operations: **298**
 
 ## account-security-controller
 
@@ -389,6 +389,29 @@ OK
 Media type: `*/*`
 Schema: [ApiResponseAdminReportDto](openapi-schemas.md#apiresponseadminreportdto)
 
+### PATCH `/api/admin/reports/{reportId}/appeal`
+- Operation ID: `decideReportAppeal`
+- Tags: `admin-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `reportId` | path | yes | `integer (int64)` | — | — |
+
+#### Request body
+Required: **yes**
+
+Media type: `application/json`
+Schema: [AdminReportAppealDecisionReq](openapi-schemas.md#adminreportappealdecisionreq)
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseAdminReportDto](openapi-schemas.md#apiresponseadminreportdto)
+
 ### GET `/api/admin/seat-views`
 - Operation ID: `getSeatViews`
 - Tags: `admin-controller`
@@ -401,6 +424,8 @@ Schema: [ApiResponseAdminReportDto](openapi-schemas.md#apiresponseadminreportdto
 | `adminLabel` | query | no | `string` | — | — |
 | `aiSuggestedLabel` | query | no | `string` | — | — |
 | `moderationStatus` | query | no | `string` | — | — |
+| `page` | query | no | `integer (int32) [minimum=0]` | — | — |
+| `size` | query | no | `integer (int32) [minimum=1, maximum=100]` | — | — |
 | `stadium` | query | no | `string` | — | — |
 | `ticketVerified` | query | no | `boolean` | — | — |
 
@@ -408,7 +433,7 @@ Schema: [ApiResponseAdminReportDto](openapi-schemas.md#apiresponseadminreportdto
 OK
 
 Media type: `*/*`
-Schema: [ApiResponseListAdminSeatViewDto](openapi-schemas.md#apiresponselistadminseatviewdto)
+Schema: [ApiResponsePageAdminSeatViewDto](openapi-schemas.md#apiresponsepageadminseatviewdto)
 
 ### GET `/api/admin/seat-views/{seatViewId}`
 - Operation ID: `getSeatView`
@@ -510,6 +535,26 @@ OK
 Media type: `*/*`
 Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 
+## admin-mate-link-reconciliation-case-controller
+
+### GET `/api/admin/mate-link-reconciliation-cases`
+- Operation ID: `list_1`
+- Tags: `admin-mate-link-reconciliation-case-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `page` | query | no | `integer (int32)` | — | — |
+| `size` | query | no | `integer (int32)` | — | — |
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseMateLinkReconciliationCasePageDto](openapi-schemas.md#apiresponsematelinkreconciliationcasepagedto)
+
 ## admin-media-maintenance-controller
 
 ### POST `/api/admin/maintenance/media/backfill`
@@ -566,6 +611,67 @@ OK
 
 Media type: `*/*`
 Schema: [ApiResponseMediaSmokeReport](openapi-schemas.md#apiresponsemediasmokereport)
+
+## admin-payment-intent-reconciliation-controller
+
+### GET `/api/admin/payment-intents/reconciliation`
+- Operation ID: `listPending`
+- Tags: `admin-payment-intent-reconciliation-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `page` | query | no | `integer (int32)` | — | — |
+| `size` | query | no | `integer (int32)` | — | — |
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponsePaymentIntentReconciliationPageDto](openapi-schemas.md#apiresponsepaymentintentreconciliationpagedto)
+
+### GET `/api/admin/payment-intents/reconciliation/{intentId}`
+- Operation ID: `getReview`
+- Tags: `admin-payment-intent-reconciliation-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `intentId` | path | yes | `integer (int64)` | — | — |
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponsePaymentIntentReconciliationReviewDto](openapi-schemas.md#apiresponsepaymentintentreconciliationreviewdto)
+
+### POST `/api/admin/payment-intents/reconciliation/{intentId}/resolution`
+Records an administrator-proposed reconciliation outcome only. The evidence reference and submitted provider tuple are not independently verified or fetched from a provider. Even after a second administrator reviews the proposal, this endpoint does not bind a payment key, change payment status, cancel or refund a payment, or call a provider; trusted provider proof is still required.
+- Operation ID: `resolve`
+- Tags: `admin-payment-intent-reconciliation-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `intentId` | path | yes | `integer (int64)` | — | — |
+
+#### Request body
+Required: **yes**
+
+Media type: `application/json`
+Schema: [PaymentIntentReconciliationResolutionRequest](openapi-schemas.md#paymentintentreconciliationresolutionrequest)
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponsePaymentIntentReconciliationResolutionResultDto](openapi-schemas.md#apiresponsepaymentintentreconciliationresolutionresultdto)
 
 ## admin-ranking-prediction-controller
 
@@ -1095,8 +1201,8 @@ Mate chat messages by party
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
 | `partyId` | path | yes | `integer (int64)` | — | — |
-| `beforeId` | query | no | `integer (int64)` | — | — |
-| `limit` | query | no | `integer (int32)` | — | — |
+| `beforeId` | query | no | `integer (int64) [minimum=1, exclusiveMinimum=0]` | — | — |
+| `limit` | query | no | `integer (int32) [minimum=1, maximum=100]` | — | — |
 
 ### Response `200`
 OK
@@ -1895,7 +2001,7 @@ Schema: [GameRelaySnapshotDto](openapi-schemas.md#gamerelaysnapshotdto)
 #### Parameters
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
-| `date` | query | no | `string (date)` | — | — |
+| `date` | query | no | `string (date)` | 1982-01-01부터 2030-12-31까지의 날짜 | — |
 
 ### Response `200`
 OK
@@ -1912,9 +2018,9 @@ Schema: [HomeBootstrapResponseDto](openapi-schemas.md#homebootstrapresponsedto)
 #### Parameters
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
-| `date` | query | no | `string (date)` | — | — |
+| `date` | query | no | `string (date)` | 1982-01-01부터 2030-12-31까지의 날짜 | — |
 | `scope` | query | no | `string` | — | — |
-| `seasonYear` | query | no | `integer (int32)` | — | — |
+| `seasonYear` | query | no | `integer (int32)` | 1982년부터 2030년까지의 시즌 연도 | — |
 
 ### Response `200`
 OK
@@ -1931,8 +2037,8 @@ Schema: [HomeScopedNavigationDto](openapi-schemas.md#homescopednavigationdto)
 #### Parameters
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
-| `date` | query | no | `string (date)` | — | — |
-| `seasonYear` | query | no | `integer (int32)` | — | — |
+| `date` | query | no | `string (date)` | 1982-01-01부터 2030-12-31까지의 날짜 | — |
+| `seasonYear` | query | no | `integer (int32)` | 1982년부터 2030년까지의 시즌 연도 | — |
 
 ### Response `200`
 OK
@@ -2409,8 +2515,17 @@ Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 - Security: Not specified in OpenAPI
 - Deprecated: no
 
+#### Request body
+Required: **yes**
+
+Media type: `application/json`
+Schema: [MarkAllAsReadRequest](openapi-schemas.md#markallasreadrequest)
+
 ### Response `200`
 OK
+
+Media type: `*/*`
+Schema: [MarkAllAsReadResponse](openapi-schemas.md#markallasreadresponse)
 
 ### GET `/api/notifications/my`
 - Operation ID: `getMyNotifications`
@@ -3152,6 +3267,43 @@ OK
 
 Media type: `*/*`
 Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
+
+## seat-view-controller
+
+### POST `/api/seat-views`
+- Operation ID: `submit`
+- Tags: `seat-view-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Request body
+Required: **yes**
+
+Media type: `application/json`
+Schema: [SeatViewSubmissionRequest](openapi-schemas.md#seatviewsubmissionrequest)
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseSeatViewSubmissionDto](openapi-schemas.md#apiresponseseatviewsubmissiondto)
+
+### GET `/api/seat-views/{seatViewId}/preview`
+- Operation ID: `getOwnerPreview`
+- Tags: `seat-view-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `seatViewId` | path | yes | `integer (int64)` | — | — |
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseSeatViewPreviewDto](openapi-schemas.md#apiresponseseatviewpreviewdto)
 
 ## stadium-admin-controller
 
@@ -4017,8 +4169,8 @@ Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
 #### Parameters
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
-| `page` | query | no | `integer (int32)` | — | — |
-| `size` | query | no | `integer (int32)` | — | — |
+| `page` | query | no | `integer (int32) [minimum=0]` | — | — |
+| `size` | query | no | `integer (int32) [minimum=1, maximum=100]` | — | — |
 | `type` | query | no | `string` | — | — |
 
 ### Response `200`
@@ -4048,7 +4200,7 @@ Schema: array<[AchievementDto](openapi-schemas.md#achievementdto)>
 #### Parameters
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
-| `limit` | query | no | `integer (int32)` | — | — |
+| `limit` | query | no | `integer (int32) [minimum=1, maximum=100]` | — | — |
 
 ### Response `200`
 OK
@@ -4065,7 +4217,7 @@ Schema: array<[AchievementDto](openapi-schemas.md#achievementdto)>
 #### Parameters
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
-| `limit` | query | no | `integer (int32)` | — | — |
+| `limit` | query | no | `integer (int32) [minimum=1, maximum=100]` | — | — |
 
 ### Response `200`
 OK
@@ -4082,7 +4234,7 @@ Schema: array<[AchievementDto](openapi-schemas.md#achievementdto)>
 #### Parameters
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
-| `limit` | query | no | `integer (int32)` | — | — |
+| `limit` | query | no | `integer (int32) [minimum=1, maximum=100]` | — | — |
 | `minStreak` | query | no | `integer (int32)` | — | — |
 
 ### Response `200`
@@ -4112,8 +4264,8 @@ Schema: [UserStatsDto](openapi-schemas.md#userstatsdto)
 #### Parameters
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
-| `page` | query | no | `integer (int32)` | — | — |
-| `size` | query | no | `integer (int32)` | — | — |
+| `page` | query | no | `integer (int32) [minimum=0]` | — | — |
+| `size` | query | no | `integer (int32) [minimum=1, maximum=100]` | — | — |
 
 ### Response `200`
 OK
@@ -4155,13 +4307,12 @@ Schema: array<[ActivePowerupDto](openapi-schemas.md#activepowerupdto)>
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
 | `type` | path | yes | `string` | — | — |
-| `gameId` | query | no | `string` | — | — |
 
 #### Request body
-Required: **no**
+Required: **yes**
 
 Media type: `application/json`
-Schema: `{<br>  "additionalProperties" : { },<br>  "type" : "object"<br>}`
+Schema: [UsePowerupRequest](openapi-schemas.md#usepoweruprequest)
 
 ### Response `200`
 OK
@@ -4212,7 +4363,7 @@ Schema: [UserRankDto](openapi-schemas.md#userrankdto)
 #### Parameters
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
-| `limit` | query | no | `integer (int32)` | — | — |
+| `limit` | query | no | `integer (int32) [minimum=1, maximum=100]` | — | — |
 
 ### Response `200`
 OK
@@ -4832,6 +4983,15 @@ OK
 
 Media type: `*/*`
 Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
+
+### GET `/api/auth/logout/csrf`
+- Operation ID: `issueLogoutCsrfCookie`
+- Tags: `인증`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+### Response `200`
+OK
 
 ### GET `/api/auth/oauth2/state/{stateId}`
 - Operation ID: `consumeOAuth2State`

@@ -165,6 +165,37 @@ class NotificationServiceTest {
                 .isInstanceOf(UnauthorizedAccessException.class);
     }
 
+    @Test
+    void markAllAsReadReturnsOnlySelectedNotificationIds() {
+        Notification first = buildNotification(11L, 10L, Notification.NotificationType.NEW_FOLLOWER, "첫 알림", "메시지");
+        Notification second = buildNotification(12L, 10L, Notification.NotificationType.POST_COMMENT, "둘째 알림", "메시지");
+        List<Long> snapshotIds = List.of(11L, 12L);
+        when(notificationRepository.findUnreadForUserByIdsForUpdate(10L, snapshotIds))
+                .thenReturn(List.of(first, second));
+
+        List<Long> result = notificationService.markAllAsRead(10L, snapshotIds);
+
+        assertThat(result).containsExactly(11L, 12L);
+        assertThat(first.getIsRead()).isTrue();
+        assertThat(second.getIsRead()).isTrue();
+        verify(notificationRepository).findUnreadForUserByIdsForUpdate(10L, snapshotIds);
+    }
+
+    @Test
+    void markAllAsReadDeduplicatesSnapshotIdsBeforeQuerying() {
+        List<Long> snapshotIds = List.of(4L);
+        notificationService.markAllAsRead(10L, List.of(4L, 4L));
+
+        verify(notificationRepository).findUnreadForUserByIdsForUpdate(10L, snapshotIds);
+    }
+
+    @Test
+    void markAllAsReadDoesNotQueryWhenSnapshotIsEmpty() {
+        assertThat(notificationService.markAllAsRead(10L, List.of())).isEmpty();
+
+        org.mockito.Mockito.verifyNoInteractions(notificationRepository);
+    }
+
     // --- deleteNotification ---
 
     @Test

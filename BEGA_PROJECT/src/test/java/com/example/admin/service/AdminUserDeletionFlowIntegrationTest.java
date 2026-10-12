@@ -2,20 +2,21 @@ package com.example.admin.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.doAnswer;
-
 import com.example.admin.repository.AdminNonCanonicalCleanupTrackerRepository;
 import com.example.admin.repository.AuditLogRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.service.AccountDeletionFinalizationService;
 import com.example.cheerboard.repo.CheerCommentRepo;
 import com.example.cheerboard.repo.CheerPostLikeRepo;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerReportRepo;
+import com.example.cheerboard.service.CheerPostService;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.service.PartyService;
 import com.example.prediction.PredictionService;
+import java.time.LocalDateTime;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,8 +29,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * {@link AdminService#deleteUser} 를 실제 트랜잭션 경계(바깥 트랜잭션 + REQUIRES_NEW 준비 단계)로 돌린다.
- * 단위 테스트는 서비스를 mock 해서 영속성 컨텍스트 상호작용을 검증하지 못한다.
+ * {@link AdminService#deleteUser} 의 REQUIRES_NEW 준비 단계가 finalizer 실패와 분리되어 due marker를
+ * 보존하는지 확인한다.
  */
 @DataJpaTest
 @Import({AdminService.class, AdminUserDeletionPreparationService.class})
@@ -44,6 +45,7 @@ class AdminUserDeletionFlowIntegrationTest {
     @MockitoBean private PartyRepository partyRepository;
     @MockitoBean private CheerCommentRepo commentRepository;
     @MockitoBean private CheerPostLikeRepo likeRepository;
+    @MockitoBean private CheerPostService cheerPostService;
     @MockitoBean private CacheManager cacheManager;
     @MockitoBean private AuditLogRepository auditLogRepository;
     @MockitoBean private AdminNonCanonicalCleanupTrackerRepository nonCanonicalCleanupTrackerRepository;
@@ -51,25 +53,23 @@ class AdminUserDeletionFlowIntegrationTest {
     @MockitoBean private RefreshRepository refreshRepository;
     @MockitoBean private PredictionService predictionService;
     @MockitoBean private AdminMateDeletionGuard mateDeletionGuard;
+    @MockitoBean private AccountDeletionFinalizationService deletionFinalizationService;
 
     @Test
-    void laterWritesToTheUserInTheSameTransactionDoNotReEnableTheDisabledAccount() {
+    void adminDeletionCommitsDueRetryMarkerBeforeFinalization() {
         UserEntity admin = saveUser("ROLE_SUPER_ADMIN", "admin");
         UserEntity target = saveUser("ROLE_USER", "target");
-        // 삭제 정리 단계에서 같은 트랜잭션이 사용자 행을 수정하는 상황. 바깥 영속성 컨텍스트가
-        // REQUIRES_NEW 커밋 이전 상태(enabled=true)를 들고 있으면, 이 수정의 UPDATE 가 그 값을 되쓴다.
-        doAnswer(invocation -> {
-            UserEntity managed = userRepository.findById(target.getId()).orElseThrow();
-            managed.setName("mutated-during-cleanup");
-            return null;
-        }).when(partyService).handleUserDeletion(target.getId());
-
         adminService.deleteUser(target.getId(), admin.getId());
 
         UserEntity reloaded = userRepository.findById(target.getId()).orElseThrow();
-        assertThat(reloaded.getName()).isEqualTo("mutated-during-cleanup");
+        assertThat(reloaded.getName()).isEqualTo(target.getName());
         assertThat(reloaded.isEnabled()).isFalse();
         assertThat(reloaded.getTokenVersion()).isEqualTo(target.getTokenVersion() + 1);
+        assertThat(reloaded.isPendingDeletion()).isTrue();
+        assertThat(reloaded.getDeletionRequestedAt()).isNull();
+        assertThat(reloaded.getDeletionScheduledFor()).isNotNull().isBeforeOrEqualTo(LocalDateTime.now());
+        org.mockito.Mockito.verify(deletionFinalizationService)
+                .finalizeImmediatelyAfterAdminDeletion(target.getId(), admin.getId());
     }
 
     @Test

@@ -35,6 +35,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.util.HtmlUtils;
@@ -47,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import static com.example.cheerboard.service.CheerServiceConstants.GLOBAL_TEAM_ID;
 import static com.example.cheerboard.service.CheerServiceConstants.REPOST_CANCEL_NOT_ALLOWED_ERROR;
@@ -89,6 +91,7 @@ public class CheerPostService {
     private final MediaLinkService mediaLinkService;
     private final StorageConfig storageConfig;
     private final CheerLinkedPostService linkedPostService;
+    private final CheerPostTransactionBoundary transactionBoundary;
 
     @Transactional
     public CheerPostCreationOutcome createPost(CreatePostReq req, UserEntity me) {
@@ -217,7 +220,7 @@ public class CheerPostService {
     @Transactional
     public CheerPost updatePostEntity(Long id, UpdatePostReq req, UserEntity me) {
         UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
-        CheerPost post = findPostById(id);
+        CheerPost post = findPostByIdForWrite(id);
         permissionValidator.validateOwnerOrAdmin(author, post.getAuthor(), "게시글 수정");
         String normalizedContent = sanitizeRequiredPostContent(req.content());
 
@@ -252,68 +255,132 @@ public class CheerPostService {
         return Objects.requireNonNull(post);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void deletePost(Long id, UserEntity me) {
-        CheerPost post = findPostById(id);
-        permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "게시글 삭제");
+        Long postId = Objects.requireNonNull(id);
+        transactionBoundary.inWriteTransaction(() -> {
+            CheerPost post = findPostByIdForWrite(postId);
+            permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "게시글 삭제");
+            markPostDeleted(post);
+            return null;
+        });
+        invalidateDeletedPostCaches(postId);
+        cleanupSoftDeletedPost(postId);
+    }
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void deletePostByAdmin(Long id, Consumer<CheerPost> auditAction) {
+        Long postId = Objects.requireNonNull(id);
+        transactionBoundary.inWriteTransaction(() -> {
+            CheerPost post = postRepo.findByIdForWrite(postId)
+                    .orElseThrow(() -> new IllegalArgumentException("게시글을 찾을 수 없습니다."));
+            markPostDeleted(post);
+            if (auditAction != null) {
+                auditAction.accept(post);
+            }
+            return null;
+        });
+        invalidateDeletedPostCaches(postId);
+        cleanupSoftDeletedPost(postId);
+    }
+
+    private void markPostDeleted(CheerPost post) {
+        Objects.requireNonNull(post.getId());
         post.setDeleted(true);
-        postRepo.save(post);
-        redisPostService.cacheHotStatus(id, false);
-        redisPostService.removeFromHotList(id);
+        postRepo.saveAndFlush(post);
+    }
 
-        boolean storageClean = imageService.deleteImagesByPostId(post.getId());
-        mediaLinkService.unlinkEntity(MediaDomain.CHEER, post.getId());
-
-        if (storageClean) {
-            postRepo.delete(post);
-        } else {
-            log.warn("게시글 삭제 중 일부 이미지 삭제 실패. Soft Delete 상태 유지 및 스케줄러 위임: postId={}", id);
+    private void invalidateDeletedPostCaches(Long id) {
+        try {
+            redisPostService.cacheHotStatus(id, false);
+            redisPostService.removeFromHotList(id);
+        } catch (RuntimeException ex) {
+            log.warn("게시글 삭제 후 hot cache 무효화 실패. 스토리지 정리는 계속 진행합니다: postId={}", id, ex);
         }
     }
 
-    @Transactional
-    public RepostToggleResponse toggleRepost(Long postId, UserEntity me) {
-        UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public boolean cleanupSoftDeletedPost(Long postId) {
+        Long id = Objects.requireNonNull(postId);
+        boolean storageClean;
         try {
-            CheerPost original = resolveRepostActionTarget(author, postId, false);
+            storageClean = imageService.deleteImagesByPostId(id);
+        } catch (RuntimeException ex) {
+            log.error("게시글 이미지 정리 조회/삭제 실패. Soft Delete 및 이미지 경로를 보존하고 재시도합니다: postId={}", id, ex);
+            return false;
+        }
+        if (!storageClean) {
+            log.warn("게시글 삭제 중 일부 이미지 삭제 실패. Soft Delete 상태 유지 및 스케줄러 위임: postId={}", id);
+            return false;
+        }
 
-            Optional<CheerPost> existing = postRepo.findByAuthorAndRepostOfAndRepostType(
-                    author, original, CheerPost.RepostType.SIMPLE);
+        try {
+            transactionBoundary.inWriteTransaction(() -> {
+                mediaLinkService.unlinkEntity(MediaDomain.CHEER, id);
+                postImageRepository.deleteByPostId(id);
+                postRepo.hardDeleteById(id);
+                return null;
+            });
+            return true;
+        } catch (RuntimeException ex) {
+            log.error("스토리지 정리 후 DB 삭제 트랜잭션 실패. 경로를 보존하고 스케줄러 재시도에 위임합니다: postId={}", id, ex);
+            return false;
+        }
+    }
 
-            if (existing.isPresent()) {
-                postRepo.delete(existing.get());
-                repostRepo.deleteByPostIdAndUserId(original.getId(), author.getId());
-                postRepo.decrementRepostCount(original.getId());
-                updateHotScore(original);
-                return new RepostToggleResponse(false, readRepostCount(original.getId()));
-            }
-
-            CheerPost repost = CheerPost.builder()
-                    .author(author)
-                    .team(original.getTeam())
-                    .repostOf(original)
-                    .repostType(CheerPost.RepostType.SIMPLE)
-                    .shareMode(CheerPost.ShareMode.INTERNAL_REPOST)
-                    .content("")
-                    .postType(PostType.NORMAL)
-                    .build();
-            postRepo.save(Objects.requireNonNull(repost));
-            createRepostTracking(original, author);
-            postRepo.incrementRepostCount(original.getId());
-            sendRepostNotification(author, original, "리포스트 알림");
-            updateHotScore(original);
-            return new RepostToggleResponse(true, readRepostCount(original.getId()));
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public RepostToggleResponse toggleRepost(Long postId, UserEntity me) {
+        try {
+            return transactionBoundary.inWriteTransaction(() -> toggleRepostInTransaction(postId, me));
         } catch (DataIntegrityViolationException ex) {
             if (CheerRepostConstraintDetector.isDuplicateViolation(ex)) {
-                CheerPost original = resolveRepostActionTarget(author, postId, false);
-                return getSimpleRepostState(author, original);
+                return transactionBoundary.inReadOnlyTransaction(() -> {
+                    UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
+                    CheerPost original = resolveRepostActionTarget(author, postId, false);
+                    return getSimpleRepostState(author, original);
+                });
             }
             if (isDeletedAuthorReference(ex)) {
-                CheerAuthorWriteGuard.ensureAuthorRecordStillExists(author, userRepo);
+                transactionBoundary.inReadOnlyTransaction(() -> {
+                    UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
+                    CheerAuthorWriteGuard.ensureAuthorRecordStillExists(author, userRepo);
+                    return null;
+                });
             }
             throw ex;
         }
+    }
+
+    private RepostToggleResponse toggleRepostInTransaction(Long postId, UserEntity me) {
+        UserEntity author = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
+        CheerPost original = resolveRepostActionTarget(author, postId, false);
+
+        Optional<CheerPost> existing = postRepo.findByAuthorAndRepostOfAndRepostType(
+                author, original, CheerPost.RepostType.SIMPLE);
+
+        if (existing.isPresent()) {
+            postRepo.delete(existing.get());
+            repostRepo.deleteByPostIdAndUserId(original.getId(), author.getId());
+            postRepo.decrementRepostCount(original.getId());
+            updateHotScore(original);
+            return new RepostToggleResponse(false, readRepostCount(original.getId()));
+        }
+
+        CheerPost repost = CheerPost.builder()
+                .author(author)
+                .team(original.getTeam())
+                .repostOf(original)
+                .repostType(CheerPost.RepostType.SIMPLE)
+                .shareMode(CheerPost.ShareMode.INTERNAL_REPOST)
+                .content("")
+                .postType(PostType.NORMAL)
+                .build();
+        postRepo.save(Objects.requireNonNull(repost));
+        createRepostTracking(original, author);
+        postRepo.incrementRepostCount(original.getId());
+        sendRepostNotification(author, original, "리포스트 알림");
+        updateHotScore(original);
+        return new RepostToggleResponse(true, readRepostCount(original.getId()));
     }
 
     @Transactional
@@ -390,13 +457,17 @@ public class CheerPostService {
         return imageService.uploadPostImages(postId, files);
     }
 
-    @Transactional(readOnly = true)
     public List<PostImageDto> getPostImages(Long postId) {
         return imageService.listPostImages(postId);
     }
 
     public CheerPost findPostById(Long postId) {
         return postRepo.findById(Objects.requireNonNull(postId))
+                .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
+    }
+
+    private CheerPost findPostByIdForWrite(Long postId) {
+        return postRepo.findByIdForWrite(Objects.requireNonNull(postId))
                 .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
     }
 
@@ -700,10 +771,8 @@ public class CheerPostService {
                 sourceUrl,
                 java.time.Instant.now().minusSeconds(24 * 60 * 60));
         if (count >= 3) {
-            log.warn("Potential duplicate external repost spam. authorId={}, sourceUrl={}, count24h={}",
-                    authorId,
-                    sourceUrl,
-                    count);
+            log.warn("Potential duplicate external repost spam. authorId={}, count24h={}",
+                    authorId, count);
         }
     }
 
@@ -836,6 +905,27 @@ public class CheerPostService {
         redisPostService.updateHotScore(post.getId(), timeDecayScore,
                 com.example.cheerboard.service.PopularFeedAlgorithm.TIME_DECAY);
         redisPostService.updateHotScore(post.getId(), engagementRateScore,
+                com.example.cheerboard.service.PopularFeedAlgorithm.ENGAGEMENT_RATE);
+    }
+
+    public void updateHotScoreForSync(CheerPost post) {
+        int combinedViews = post.getViews() + redisPostService.getViewCountForSync(post.getId()).orElse(0);
+        java.time.Instant now = java.time.Instant.now();
+        double baseScore = popularFeedScoringService.calculateGlobalHotBaseScore(post, combinedViews, now);
+        boolean hotEligible = popularFeedScoringService.isHotEligible(baseScore);
+
+        redisPostService.cacheHotStatusForSync(post.getId(), hotEligible);
+        if (!hotEligible) {
+            redisPostService.removeFromHotListForSync(post.getId());
+            return;
+        }
+
+        double timeDecayScore = popularFeedScoringService.calculateTimeDecayScore(post, combinedViews, now);
+        double engagementRateScore = popularFeedScoringService.calculateEngagementRateScore(post, combinedViews);
+
+        redisPostService.updateHotScoreForSync(post.getId(), timeDecayScore,
+                com.example.cheerboard.service.PopularFeedAlgorithm.TIME_DECAY);
+        redisPostService.updateHotScoreForSync(post.getId(), engagementRateScore,
                 com.example.cheerboard.service.PopularFeedAlgorithm.ENGAGEMENT_RATE);
     }
 }

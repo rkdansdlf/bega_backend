@@ -20,6 +20,11 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, Long> {
 
     Optional<MediaAsset> findByIdAndOwnerUserId(Long id, Long ownerUserId);
 
+    List<MediaAsset> findByOwnerUserIdAndIdGreaterThanOrderByIdAsc(
+            Long ownerUserId,
+            Long afterId,
+            Pageable pageable);
+
     Optional<MediaAsset> findByDerivedFrom_Id(Long assetId);
 
     List<MediaAsset> findByDomainAndStatusOrderByIdDesc(MediaDomain domain, MediaAssetStatus status, Pageable pageable);

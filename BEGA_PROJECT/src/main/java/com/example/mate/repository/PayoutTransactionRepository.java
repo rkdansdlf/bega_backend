@@ -29,4 +29,26 @@ public interface PayoutTransactionRepository extends JpaRepository<PayoutTransac
     List<PayoutTransaction> findTop100ByStatusInAndNextRetryAtLessThanEqualOrderByNextRetryAtAsc(
             Collection<SettlementStatus> statuses,
             Instant nextRetryAt);
+
+    List<PayoutTransaction> findTop100ByStatusAndFailureCodeOrderByIdAsc(
+            SettlementStatus status,
+            String failureCode);
+
+    boolean existsBySellerIdAndProviderSellerIdIsNullAndStatusIn(
+            Long sellerId,
+            Collection<SettlementStatus> statuses);
+
+    @Query("""
+            SELECT CASE WHEN COUNT(pt) > 0 THEN true ELSE false END
+              FROM PayoutTransaction pt
+             WHERE pt.sellerId = :sellerId
+               AND (TRIM(pt.providerSellerId) IS NULL OR TRIM(pt.providerSellerId) = '')
+               AND pt.status IN :statuses
+               AND (TRIM(pt.providerCode) IS NULL
+                    OR TRIM(pt.providerCode) = ''
+                    OR UPPER(TRIM(pt.providerCode)) = 'TOSS')
+            """)
+    boolean existsUnboundTossPayoutForSeller(
+            @Param("sellerId") Long sellerId,
+            @Param("statuses") Collection<SettlementStatus> statuses);
 }

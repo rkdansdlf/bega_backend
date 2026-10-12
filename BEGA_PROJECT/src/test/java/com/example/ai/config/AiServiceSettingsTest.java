@@ -30,18 +30,29 @@ class AiServiceSettingsTest {
     }
 
     @Test
-    void devProfileBlankTokenUsesEnvProdFallbackWhenAvailable() throws IOException {
+    void devProfileBlankTokenUsesLocalEnvFallbackWhenAvailable() throws IOException {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("dev");
+        Files.writeString(tempDir.resolve(".env.local"), "AI_INTERNAL_TOKEN=env-local-token\n");
+
+        AiServiceSettings settings = new AiServiceSettings(environment, "", "", tempDir);
+
+        assertThat(settings.getResolvedInternalToken()).isEqualTo("env-local-token");
+    }
+
+    @Test
+    void devProfileIgnoresEnvProdWhenResolvingBlankToken() throws IOException {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("dev");
         Files.writeString(tempDir.resolve(".env.prod"), "AI_INTERNAL_TOKEN=env-prod-token\n");
 
         AiServiceSettings settings = new AiServiceSettings(environment, "", "", tempDir);
 
-        assertThat(settings.getResolvedInternalToken()).isEqualTo("env-prod-token");
+        assertThat(settings.getResolvedInternalToken()).isEqualTo(AiServiceSettings.LOCAL_DEV_AI_INTERNAL_TOKEN);
     }
 
     @Test
-    void devProfileDefaultLocalTokenYieldsEnvProdFallbackWhenAvailable() throws IOException {
+    void devProfileIgnoresEnvProdWhenDefaultLocalTokenIsConfigured() throws IOException {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("dev");
         Files.writeString(tempDir.resolve(".env.prod"), "AI_INTERNAL_TOKEN=env-prod-token\n");
@@ -52,16 +63,17 @@ class AiServiceSettingsTest {
                 AiServiceSettings.LOCAL_DEV_AI_INTERNAL_TOKEN,
                 tempDir);
 
-        assertThat(settings.getResolvedInternalToken()).isEqualTo("env-prod-token");
+        assertThat(settings.getResolvedInternalToken()).isEqualTo(AiServiceSettings.LOCAL_DEV_AI_INTERNAL_TOKEN);
     }
 
     @Test
-    void devProfilePrefersAiServiceEnvOverWorkspaceFallbackFiles() throws IOException {
+    void devProfilePrefersAiServiceLocalEnvOverWorkspaceLocalEnv() throws IOException {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("dev");
         Files.createDirectories(tempDir.resolve("bega_AI"));
-        Files.writeString(tempDir.resolve("bega_AI/.env"), "AI_INTERNAL_TOKEN=service-env-token\n");
-        Files.writeString(tempDir.resolve(".env"), "AI_INTERNAL_TOKEN=local-dev-ai-internal-token\n");
+        Files.writeString(tempDir.resolve("bega_AI/.env.local"), "AI_INTERNAL_TOKEN=service-local-token\n");
+        Files.writeString(tempDir.resolve(".env.local"), "AI_INTERNAL_TOKEN=workspace-local-token\n");
+        Files.writeString(tempDir.resolve("bega_AI/.env"), "AI_INTERNAL_TOKEN=service-legacy-token\n");
         Files.writeString(tempDir.resolve(".env.prod"), "AI_INTERNAL_TOKEN=workspace-prod-token\n");
 
         AiServiceSettings settings = new AiServiceSettings(
@@ -70,7 +82,7 @@ class AiServiceSettingsTest {
                 AiServiceSettings.LOCAL_DEV_AI_INTERNAL_TOKEN,
                 tempDir);
 
-        assertThat(settings.getResolvedInternalToken()).isEqualTo("service-env-token");
+        assertThat(settings.getResolvedInternalToken()).isEqualTo("service-local-token");
     }
 
     @Test

@@ -23,7 +23,11 @@ class CheerFeedServicePostTypeTest {
 
         try {
             PostLightweightSummaryRes result = ReflectionTestUtils.invokeMethod(
-                    service, "buildFallbackPostLightweightSummary", post);
+                    service,
+                    "buildFallbackPostLightweightSummary",
+                    post,
+                    java.util.Collections.emptyMap(),
+                    java.util.Collections.emptyMap());
 
             assertThat(result).isNotNull();
             assertThat(result.postType()).isEqualTo("NOTICE");

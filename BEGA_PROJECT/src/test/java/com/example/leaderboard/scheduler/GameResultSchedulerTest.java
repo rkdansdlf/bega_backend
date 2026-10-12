@@ -39,6 +39,7 @@ class GameResultSchedulerTest {
         scheduler.processFinishedGames();
 
         verify(gameResultScoringService).processGamesForDate(any(LocalDate.class));
+        verify(gameResultScoringService).processPendingGames();
     }
 
     @Test

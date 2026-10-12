@@ -60,8 +60,15 @@ public class TossPayoutGateway implements PayoutGateway {
             if (response == null) {
                 throw new PayoutGatewayException("TOSS payout 응답이 비어 있습니다.", "TOSS_PAYOUT_EMPTY_RESPONSE", null);
             }
-            String providerRef = extractProviderRef(response);
-            return new PayoutResult(providerRef, String.valueOf(response.getOrDefault("status", "REQUESTED")));
+            String rawStatus = String.valueOf(response.getOrDefault("status", "REQUESTED"));
+            try {
+                return new PayoutResult(extractInitialRequestProviderRef(response), rawStatus);
+            } catch (PayoutGatewayException missingReference) {
+                if ("COMPLETED".equals(rawStatus.trim().toUpperCase(Locale.ROOT))) {
+                    return new PayoutResult(null, rawStatus);
+                }
+                throw missingReference;
+            }
         } catch (RestClientResponseException e) {
             throw new PayoutGatewayException(
                     "TOSS payout 요청에 실패했습니다: " + e.getStatusCode(),
@@ -89,11 +96,19 @@ public class TossPayoutGateway implements PayoutGateway {
                     .body(Map.class);
 
             if (response == null) {
-                return new PayoutStatusResult(providerRef, "UNKNOWN", "TOSS_PAYOUT_EMPTY_RESPONSE", "응답이 비어 있습니다.");
+                return new PayoutStatusResult(null, "UNKNOWN", "TOSS_PAYOUT_EMPTY_RESPONSE", "응답이 비어 있습니다.");
             }
 
             String status = String.valueOf(response.getOrDefault("status", "UNKNOWN"));
-            return new PayoutStatusResult(providerRef, status, null, null);
+            try {
+                return new PayoutStatusResult(extractProviderRef(response), status, null, null);
+            } catch (PayoutGateway.PayoutGatewayException missingReference) {
+                return new PayoutStatusResult(
+                        null,
+                        status,
+                        missingReference.getFailureCode(),
+                        missingReference.getMessage());
+            }
         } catch (RestClientResponseException e) {
             return new PayoutStatusResult(
                     providerRef,
@@ -199,6 +214,19 @@ public class TossPayoutGateway implements PayoutGateway {
         Object providerRef = response.get("providerRef");
         if (providerRef != null) {
             return String.valueOf(providerRef);
+        }
+        throw new PayoutGatewayException("TOSS payout 응답에 providerRef가 없습니다.", "TOSS_PAYOUT_NO_PROVIDER_REF", HttpStatusCode.valueOf(502));
+    }
+
+    private String extractInitialRequestProviderRef(Map<String, Object> response) {
+        for (String key : new String[] {"payoutId", "id", "payoutKey", "providerRef"}) {
+            Object value = response.get(key);
+            if (value != null) {
+                String providerRef = String.valueOf(value);
+                if (!providerRef.isBlank()) {
+                    return providerRef;
+                }
+            }
         }
         throw new PayoutGatewayException("TOSS payout 응답에 providerRef가 없습니다.", "TOSS_PAYOUT_NO_PROVIDER_REF", HttpStatusCode.valueOf(502));
     }

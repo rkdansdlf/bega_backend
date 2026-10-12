@@ -27,7 +27,7 @@ public class TicketAnalysisService {
     private final ImageOptimizationMetricsService metricsService;
 
     public TicketInfo analyzeTicket(MultipartFile file) {
-        log.info("Analyzing ticket image: {}", file != null ? file.getOriginalFilename() : null);
+        log.info("Analyzing ticket image");
         metricsService.recordRequest("ticket_analyze");
         validateTicketImage(file);
         try {

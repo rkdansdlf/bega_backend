@@ -10,6 +10,7 @@ import com.example.mate.entity.PaymentIntent;
 import com.example.mate.entity.PaymentStatus;
 import com.example.mate.entity.PaymentTransaction;
 import com.example.mate.entity.SettlementStatus;
+import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.exception.TossPaymentException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
@@ -712,6 +713,123 @@ class PaymentTransactionServiceTest {
     }
 
     @Test
+    void processCancellation_failsClosedWhenProviderLookupTotalDiffersFromGross() {
+        PartyApplication application = PartyApplication.builder()
+                .id(208L)
+                .orderId("ORDER-PROVIDER-TOTAL-MISMATCH-LOOKUP")
+                .isPaid(true)
+                .build();
+        PaymentTransaction tx = PaymentTransaction.builder()
+                .id(608L)
+                .orderId(application.getOrderId())
+                .paymentKey("pay_key_total_mismatch_lookup")
+                .grossAmount(20000)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.PENDING)
+                .build();
+
+        given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
+                .willReturn(Optional.of(tx));
+        given(cancelPolicyService.decide(20000, CancelReasonType.BUYER_CHANGED_MIND))
+                .willReturn(new CancelPolicyService.RefundDecision(18000, 2000, "PARTIAL_REFUND_WITH_FEE"));
+        given(tossPaymentService.getPayment("pay_key_total_mismatch_lookup"))
+                .willReturn(providerLookupResponse("pay_key_total_mismatch_lookup", "CANCELED", 100000, 0));
+
+        assertThrows(IllegalStateException.class, () -> paymentTransactionService.processCancellation(
+                application,
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.BUYER_CHANGED_MIND)
+                        .build()));
+
+        assertThat(tx.getPaymentStatus()).isEqualTo(PaymentStatus.REFUND_FAILED);
+        assertThat(getField(tx, "providerReconciledAt")).isNull();
+        verify(tossPaymentService, never()).cancelPayment(any(), any(), any());
+    }
+
+    @Test
+    void processCancellation_failsClosedWhenCancelResponseTotalDiffersFromGross() {
+        PartyApplication application = PartyApplication.builder()
+                .id(209L)
+                .orderId("ORDER-PROVIDER-TOTAL-MISMATCH-CANCEL")
+                .isPaid(true)
+                .build();
+        PaymentTransaction tx = PaymentTransaction.builder()
+                .id(609L)
+                .orderId(application.getOrderId())
+                .paymentKey("pay_key_total_mismatch_cancel")
+                .grossAmount(20000)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.PENDING)
+                .build();
+        TossPaymentDTO.CancelResponse mismatchedCancel = providerCancelResponse(
+                "pay_key_total_mismatch_cancel", "CANCELED", 100000, 0);
+
+        given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
+                .willReturn(Optional.of(tx));
+        given(cancelPolicyService.decide(20000, CancelReasonType.BUYER_CHANGED_MIND))
+                .willReturn(new CancelPolicyService.RefundDecision(18000, 2000, "PARTIAL_REFUND_WITH_FEE"));
+        given(tossPaymentService.getPayment("pay_key_total_mismatch_cancel"))
+                .willReturn(
+                        providerLookupResponse("pay_key_total_mismatch_cancel", "DONE", 20000, 20000),
+                        providerLookupResponse("pay_key_total_mismatch_cancel", "CANCELED", 100000, 0));
+        given(tossPaymentService.cancelPayment(any(), any(), any())).willReturn(mismatchedCancel);
+
+        assertThrows(IllegalStateException.class, () -> paymentTransactionService.processCancellation(
+                application,
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.BUYER_CHANGED_MIND)
+                        .build()));
+
+        assertThat(tx.getPaymentStatus()).isEqualTo(PaymentStatus.REFUND_FAILED);
+        assertThat(getField(tx, "providerReconciledAt")).isNull();
+        verify(tossPaymentService).cancelPayment(any(), any(), any());
+    }
+
+    @Test
+    void processCancellation_failsClosedWhenCompletedCancelSumExceedsGross() {
+        PartyApplication application = PartyApplication.builder()
+                .id(210L)
+                .orderId("ORDER-PROVIDER-CANCEL-SUM-OVER-GROSS")
+                .isPaid(true)
+                .build();
+        PaymentTransaction tx = PaymentTransaction.builder()
+                .id(610L)
+                .orderId(application.getOrderId())
+                .paymentKey("pay_key_cancel_sum_over_gross")
+                .grossAmount(20000)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.PENDING)
+                .build();
+        TossPaymentDTO.CancelResponse excessiveCancel = providerCancelResponse(
+                "pay_key_cancel_sum_over_gross", "CANCELED", 20000, 0);
+        setField(excessiveCancel, "cancels", List.of(
+                new TossPaymentDTO.CancelDetail(25000, "DONE", null, "cancel-over-gross")));
+        TossPaymentDTO.ConfirmResponse excessiveLookup = providerLookupResponse(
+                "pay_key_cancel_sum_over_gross", "CANCELED", 20000, 0);
+        setField(excessiveLookup, "cancels", List.of(
+                new TossPaymentDTO.CancelDetail(25000, "DONE", null, "cancel-over-gross")));
+
+        given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
+                .willReturn(Optional.of(tx));
+        given(cancelPolicyService.decide(20000, CancelReasonType.BUYER_CHANGED_MIND))
+                .willReturn(new CancelPolicyService.RefundDecision(18000, 2000, "PARTIAL_REFUND_WITH_FEE"));
+        given(tossPaymentService.getPayment("pay_key_cancel_sum_over_gross"))
+                .willReturn(
+                        providerLookupResponse("pay_key_cancel_sum_over_gross", "DONE", 20000, 20000),
+                        excessiveLookup);
+        given(tossPaymentService.cancelPayment(any(), any(), any())).willReturn(excessiveCancel);
+
+        assertThrows(IllegalStateException.class, () -> paymentTransactionService.processCancellation(
+                application,
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.BUYER_CHANGED_MIND)
+                        .build()));
+
+        assertThat(tx.getPaymentStatus()).isEqualTo(PaymentStatus.REFUND_FAILED);
+        assertThat(getField(tx, "providerReconciledAt")).isNull();
+    }
+
+    @Test
     void processCancellation_alreadyCanceledReadsProviderHistory() {
         PartyApplication application = PartyApplication.builder()
                 .id(206L)
@@ -779,18 +897,30 @@ class PaymentTransactionServiceTest {
     void processCancellation_backfillsRecoveryForPreviouslyCanceledSettledRefund() {
         PartyApplication application = PartyApplication.builder()
                 .id(304L)
+                .partyId(504L)
+                .applicantId(604L)
                 .orderId("ORDER-REFUNDED-AFTER-SETTLEMENT")
+                .paymentKey("PAYMENT-REFUNDED-AFTER-SETTLEMENT")
+                .depositAmount(20000)
                 .isPaid(true)
                 .build();
         PaymentTransaction transaction = PaymentTransaction.builder()
                 .id(404L)
+                .partyId(application.getPartyId())
+                .applicationId(application.getId())
+                .buyerUserId(application.getApplicantId())
                 .orderId(application.getOrderId())
+                .paymentKey(application.getPaymentKey())
                 .grossAmount(20000)
                 .netAmount(18000)
                 .paymentStatus(PaymentStatus.CANCELED)
                 .settlementStatus(SettlementStatus.REFUNDED_AFTER_SETTLEMENT)
                 .refundAmount(20000)
                 .feeAmount(0)
+                .requestedRefundAmount(20000)
+                .requestedFeeAmount(0)
+                .cancellationRequestedAt(Instant.parse("2026-10-13T00:00:00Z"))
+                .providerReconciledAt(Instant.parse("2026-10-13T00:01:00Z"))
                 .refundPolicyApplied("FULL_REFUND")
                 .build();
         given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
@@ -865,6 +995,25 @@ class PaymentTransactionServiceTest {
 
         verify(payoutService, never()).requestPayout(any());
         assertThat(transaction.getSettlementStatus()).isEqualTo(SettlementStatus.SKIPPED);
+    }
+
+    @Test
+    void requestManualPayoutPropagatesApplicationEligibilityFailureWithoutFallbackLookup() {
+        PaymentTransaction transaction = PaymentTransaction.builder()
+                .id(701L)
+                .paymentStatus(PaymentStatus.PAID)
+                .build();
+        InvalidApplicationStatusException eligibilityFailure = new InvalidApplicationStatusException(
+                "승인되지 않은 신청의 정산 지급은 요청할 수 없습니다.");
+        given(paymentTransactionRepository.findById(701L)).willReturn(Optional.of(transaction));
+        given(payoutService.requestPayout(transaction)).willThrow(eligibilityFailure);
+
+        InvalidApplicationStatusException thrown = assertThrows(
+                InvalidApplicationStatusException.class,
+                () -> paymentTransactionService.requestManualPayout(701L));
+
+        assertThat(thrown).isSameAs(eligibilityFailure);
+        verify(payoutService, never()).findLatestByPaymentTransactionId(701L);
     }
 
     private static TossPaymentDTO.CancelResponse providerCancelResponse(

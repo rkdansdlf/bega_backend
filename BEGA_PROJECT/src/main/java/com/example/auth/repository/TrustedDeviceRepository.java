@@ -7,6 +7,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TrustedDeviceRepository extends JpaRepository<TrustedDevice, Long> {
 
+    void deleteByUserId(Long userId);
+
     List<TrustedDevice> findByUserIdAndRevokedAtIsNullOrderByLastSeenAtDesc(Long userId);
 
     Optional<TrustedDevice> findByUserIdAndFingerprintAndRevokedAtIsNull(Long userId, String fingerprint);

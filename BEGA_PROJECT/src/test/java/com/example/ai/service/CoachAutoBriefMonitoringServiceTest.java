@@ -147,6 +147,76 @@ class CoachAutoBriefMonitoringServiceTest {
     }
 
     @Test
+    void refreshHealthSnapshots_aggregatesUnexpectedBreakdownLabelsIntoUnknown() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        AiProxyService aiProxyService = mock(AiProxyService.class);
+        CoachAutoBriefMonitoringService monitoringService = new CoachAutoBriefMonitoringService(
+                aiProxyService,
+                meterRegistry,
+                new ObjectMapper(),
+                true);
+
+        given(aiProxyService.forwardGet(eq("/ai/coach/auto-brief/ops/health?window=today")))
+                .willReturn(
+                        jsonResponse("""
+                                {"summary": {
+                                  "cache_state_breakdown": {
+                                    "COMPLETED": 2,
+                                    "UNKNOWN": 1,
+                                    "UNEXPECTED_CACHE_A": 3
+                                  },
+                                  "data_quality_breakdown": {
+                                    "grounded": 1,
+                                    "unknown": 2,
+                                    "UNEXPECTED_QUALITY_A": 4
+                                  }
+                                }}
+                                """),
+                        jsonResponse("""
+                                {"summary": {
+                                  "cache_state_breakdown": {
+                                    "COMPLETED": 1,
+                                    "UNKNOWN": 2,
+                                    "UNEXPECTED_CACHE_B": 5
+                                  },
+                                  "data_quality_breakdown": {
+                                    "grounded": 2,
+                                    "unknown": 3,
+                                    "UNEXPECTED_QUALITY_B": 6
+                                  }
+                                }}
+                                """));
+
+        monitoringService.refreshHealthSnapshots(List.of("today"));
+        monitoringService.refreshHealthSnapshots(List.of("today"));
+
+        assertThat(gaugeValue(
+                meterRegistry,
+                "coach_auto_brief_health_cache_state",
+                "window", "today",
+                "cache_state", "UNKNOWN"))
+                .isEqualTo(7.0d);
+        assertThat(gaugeValue(
+                meterRegistry,
+                "coach_auto_brief_health_data_quality",
+                "window", "today",
+                "data_quality", "unknown"))
+                .isEqualTo(9.0d);
+        assertThat(meterRegistry.find("coach_auto_brief_health_cache_state")
+                .tag("cache_state", "UNEXPECTED_CACHE_A")
+                .gauge()).isNull();
+        assertThat(meterRegistry.find("coach_auto_brief_health_cache_state")
+                .tag("cache_state", "UNEXPECTED_CACHE_B")
+                .gauge()).isNull();
+        assertThat(meterRegistry.find("coach_auto_brief_health_data_quality")
+                .tag("data_quality", "UNEXPECTED_QUALITY_A")
+                .gauge()).isNull();
+        assertThat(meterRegistry.find("coach_auto_brief_health_data_quality")
+                .tag("data_quality", "UNEXPECTED_QUALITY_B")
+                .gauge()).isNull();
+    }
+
+    @Test
     void refreshHealthSnapshots_recordsPollFailures() {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         AiProxyService aiProxyService = mock(AiProxyService.class);

@@ -995,7 +995,10 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    * @param date 기준 날짜
    * @return 이전 경기 날짜
    */
-  @Query("SELECT MAX(g.gameDate) FROM GameEntity g WHERE g.gameDate < :date")
+  @Query("SELECT MAX(g.gameDate) FROM GameEntity g "
+      + "WHERE g.gameDate < :date "
+      + "AND (g.isDummy IS NULL OR g.isDummy = false) "
+      + "AND g.gameId NOT LIKE 'MOCK%'")
   Optional<LocalDate> findPrevGameDate(@Param("date") LocalDate date);
 
   /**
@@ -1004,7 +1007,10 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    * @param date 기준 날짜
    * @return 다음 경기 날짜
    */
-  @Query("SELECT MIN(g.gameDate) FROM GameEntity g WHERE g.gameDate > :date")
+  @Query("SELECT MIN(g.gameDate) FROM GameEntity g "
+      + "WHERE g.gameDate > :date "
+      + "AND (g.isDummy IS NULL OR g.isDummy = false) "
+      + "AND g.gameId NOT LIKE 'MOCK%'")
   Optional<LocalDate> findNextGameDate(@Param("date") LocalDate date);
 
   @Query(value = """

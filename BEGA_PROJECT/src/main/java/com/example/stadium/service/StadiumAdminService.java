@@ -9,8 +9,12 @@ import com.example.stadium.repository.StadiumRepository;
 import jakarta.persistence.EntityNotFoundException;
 import java.math.BigDecimal;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import static com.example.common.config.CacheConfig.STADIUMS;
+import static com.example.common.config.CacheConfig.STADIUM_PLACES;
 
 @Service
 @RequiredArgsConstructor
@@ -20,6 +24,7 @@ public class StadiumAdminService {
     private final StadiumRepository stadiumRepository;
 
     @Transactional
+    @CacheEvict(cacheNames = { STADIUMS, STADIUM_PLACES }, allEntries = true)
     public PlaceDto createPlace(String stadiumId, StadiumPlaceCommand command) {
         Stadium stadium = stadiumRepository.findById(stadiumId)
                 .orElseThrow(() -> new StadiumNotFoundException(stadiumId));
@@ -41,6 +46,7 @@ public class StadiumAdminService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = { STADIUMS, STADIUM_PLACES }, allEntries = true)
     public PlaceDto updatePlace(Long placeId, StadiumPlaceCommand command) {
         Place place = placeRepository.findById(placeId)
                 .orElseThrow(() -> new EntityNotFoundException("장소를 찾을 수 없습니다. id=" + placeId));
@@ -59,6 +65,7 @@ public class StadiumAdminService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = { STADIUMS, STADIUM_PLACES }, allEntries = true)
     public void deletePlace(Long placeId) {
         if (!placeRepository.existsById(placeId)) {
             throw new EntityNotFoundException("장소를 찾을 수 없습니다. id=" + placeId);

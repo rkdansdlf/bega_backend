@@ -5,6 +5,7 @@ import com.example.admin.dto.AdminNonCanonicalCleanupTrackerDto;
 import com.example.admin.dto.AdminNonCanonicalCleanupTrackerUpsertRequest;
 import com.example.admin.dto.AdminPostDto;
 import com.example.admin.dto.AdminReportActionReq;
+import com.example.admin.dto.AdminReportAppealDecisionReq;
 import com.example.admin.dto.AdminReportAppealReq;
 import com.example.admin.dto.AdminReportDto;
 import com.example.admin.dto.AdminStatsDto;
@@ -15,19 +16,19 @@ import com.example.admin.repository.AdminNonCanonicalCleanupTrackerRepository;
 import com.example.admin.repository.AuditLogRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
-import com.example.cheerboard.domain.CheerComment;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.CheerPostReport;
-import com.example.cheerboard.domain.CheerPostLike;
 import com.example.cheerboard.domain.ReportReason;
-import com.example.cheerboard.repo.CheerCommentRepo;
-import com.example.cheerboard.repo.CheerPostLikeRepo;
+import com.example.cheerboard.repo.CheerPostAuthorCountProjection;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerReportRepo;
-import com.example.auth.repository.RefreshRepository;
+import com.example.cheerboard.service.CheerPostService;
+import com.example.auth.service.AccountDeletionFinalizationService;
+import com.example.auth.service.AccountDeletionContentService;
+import com.example.auth.service.AccountDeletionIdentityService;
+import com.example.common.exception.ConflictBusinessException;
 import com.example.mate.entity.Party;
 import com.example.mate.repository.PartyRepository;
-import com.example.mate.service.PartyService;
 import com.example.prediction.GameScoreSyncBatchResultDto;
 import com.example.prediction.GameInningScoreRequestDto;
 import com.example.prediction.GameScoreSyncResultDto;
@@ -42,15 +43,19 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -65,18 +70,18 @@ public class AdminService {
     private final CheerPostRepo cheerPostRepository;
     private final CheerReportRepo cheerReportRepo;
     private final PartyRepository partyRepository;
-    private final CheerCommentRepo commentRepository;
-    private final CheerPostLikeRepo likeRepository;
     private final CacheManager cacheManager;
     private final AuditLogRepository auditLogRepository;
     private final AdminNonCanonicalCleanupTrackerRepository nonCanonicalCleanupTrackerRepository;
-    private final PartyService partyService;
-    private final RefreshRepository refreshRepository;
     private final PredictionService predictionService;
+    private final CheerPostService cheerPostService;
     private final AdminUserDeletionPreparationService deletionPreparationService;
+    private final AccountDeletionFinalizationService deletionFinalizationService;
+    private final AccountDeletionContentService accountDeletionContentService;
     private final AdminMateDeletionGuard mateDeletionGuard;
     private static final Set<String> NON_CANONICAL_TRACKER_STATUSES =
             Set.of("draft", "requested", "in_progress", "done");
+    private static final int POST_COUNT_AUTHOR_BATCH_SIZE = 900;
 
     /**
      * 대시보드 통계 조회
@@ -109,8 +114,23 @@ public class AdminService {
             users = userRepository.findAllByOrderByIdAsc();
         }
 
+        if (users.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<Long> userIds = users.stream()
+                .map(user -> Objects.requireNonNull(user.getId(), "User ID must not be null"))
+                .collect(Collectors.toList());
+        Map<Long, Long> postCounts = new HashMap<>();
+        for (int start = 0; start < userIds.size(); start += POST_COUNT_AUTHOR_BATCH_SIZE) {
+            int end = Math.min(start + POST_COUNT_AUTHOR_BATCH_SIZE, userIds.size());
+            List<CheerPostAuthorCountProjection> counts = cheerPostRepository.findPostCountsByAuthorIds(
+                    userIds.subList(start, end));
+            counts.forEach(count -> postCounts.put(count.getAuthorId(), count.getPostCount()));
+        }
+
         return Objects.requireNonNull(users.stream()
-                .map(this::convertToAdminUserDto)
+                .map(user -> convertToAdminUserDto(user, postCounts.getOrDefault(user.getId(), 0L)))
                 .collect(Collectors.toList()));
     }
 
@@ -181,76 +201,13 @@ public class AdminService {
     }
 
     /**
-     * 유저 삭제 (연관된 데이터 정리 후 계정 비활성화 처리)
-     * 
-     * @param userId  삭제할 유저 ID
-     * @param adminId 삭제를 수행하는 관리자 ID (감사 로그용, nullable)
+     * 사용자 삭제를 비활성화 + due marker 기록 후 공통 finalizer에 위임한다.
+     * finalizer는 별도 트랜잭션이므로 실패해도 scheduler가 due marker를 재시도할 수 있다.
      */
-    @Transactional
     public void deleteUser(Long userId, Long adminId) {
-        Objects.requireNonNull(userId, "userId must not be null");
-        // 삭제 정책은 대상 행을 잠근 뒤 REQUIRES_NEW 준비 단계 안에서 강제된다. 여기서 사용자를 먼저 읽으면
-        // 그 엔티티가 바깥 영속성 컨텍스트에 비활성화 이전 상태로 남아, 이후 이 트랜잭션의 UPDATE 가
-        // enabled=true 를 되쓸 수 있으므로 반드시 준비 단계 이후에 읽는다.
-        deletionPreparationService.disableForDeletion(userId, adminId);
-
-        UserEntity user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("유저를 찾을 수 없습니다."));
-
-        String userEmail = user.getEmail();
-
-        // 좋아요 삭제
-        List<CheerPostLike> userLikes = likeRepository.findByUser(user);
-        if (!userLikes.isEmpty()) {
-            Set<Long> affectedPostIds = userLikes.stream()
-                    .map(CheerPostLike::getPost)
-                    .filter(Objects::nonNull)
-                    .map(CheerPost::getId)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toSet());
-            likeRepository.deleteAll(userLikes);
-            likeRepository.flush();
-            reconcileCheerPostLikeCounts(affectedPostIds);
-        }
-
-        // 댓글 삭제
-        List<CheerComment> userComments = commentRepository.findByAuthor(user);
-        if (!userComments.isEmpty()) {
-            commentRepository.deleteAll(userComments);
-        }
-
-        // 게시글 삭제
-        List<CheerPost> userPosts = cheerPostRepository.findByAuthor(user);
-        if (!userPosts.isEmpty()) {
-            cheerPostRepository.deleteAll(userPosts);
-        }
-
-        // 메이트 관련 데이터 정리 (파티 취소, 참여 신청 처리, 알림 발송)
-        partyService.handleUserDeletion(userId);
-
-        // 리프레시 토큰 정리
-        refreshRepository.deleteByEmail(userEmail);
-
-        // 감사 로그 기록
-        if (adminId != null) {
-            AuditLog auditLog = AuditLog.builder()
-                    .adminId(adminId)
-                    .targetUserId(userId)
-                    .action(AuditLog.AuditAction.DELETE_USER)
-                    .oldValue(userEmail)
-                    .newValue(null)
-                    .description("사용자 삭제")
-                    .build();
-            auditLogRepository.save(Objects.requireNonNull(auditLog));
-            log.info("User {} deleted by admin {}. Email: {}", userId, adminId, userEmail);
-        }
-    }
-
-    private void reconcileCheerPostLikeCounts(Set<Long> postIds) {
-        for (Long postId : postIds) {
-            int exactLikeCount = Math.toIntExact(likeRepository.countByPostId(postId));
-            cheerPostRepository.setExactLikeCount(postId, exactLikeCount);
-        }
+        Long requiredUserId = Objects.requireNonNull(userId, "userId must not be null");
+        deletionPreparationService.disableForDeletion(requiredUserId, adminId);
+        deletionFinalizationService.finalizeImmediatelyAfterAdminDeletion(requiredUserId, adminId);
     }
 
     /**
@@ -259,30 +216,26 @@ public class AdminService {
      * @param postId  삭제할 게시글 ID
      * @param adminId 삭제를 수행하는 관리자 ID (감사 로그용, nullable)
      */
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void deletePost(Long postId, Long adminId) {
         Long id = Objects.requireNonNull(postId, "postId must not be null");
-
-        CheerPost post = cheerPostRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("게시글을 찾을 수 없습니다."));
-
-        String postContent = post.getContent();
-        Long authorId = post.getAuthor().getId();
-
-        cheerPostRepository.deleteById(id);
-
-        // 감사 로그 기록
-        if (adminId != null) {
+        Consumer<CheerPost> auditAction = post -> {
+            if (adminId == null) {
+                return;
+            }
             AuditLog auditLog = AuditLog.builder()
                     .adminId(adminId)
-                    .targetUserId(authorId)
+                    .targetUserId(post.getAuthor().getId())
                     .action(AuditLog.AuditAction.DELETE_POST)
-                    .oldValue(postContent)
+                    .oldValue(post.getContent())
                     .newValue(null)
-                    .description("게시글 삭제 (ID: " + postId + ")")
+                    .description("게시글 삭제 (ID: " + id + ")")
                     .build();
             auditLogRepository.save(Objects.requireNonNull(auditLog));
-            log.info("Post {} deleted by admin {}. Content: {}", postId, adminId, postContent);
+        };
+        cheerPostService.deletePostByAdmin(id, auditAction);
+        if (adminId != null) {
+            log.info("Post {} soft-deleted by admin {}.", id, adminId);
         }
     }
 
@@ -352,8 +305,8 @@ public class AdminService {
             throw new IllegalArgumentException("조치(action)는 필수입니다.");
         }
 
-        CheerPostReport report = cheerReportRepo.findById(reportId)
-                .orElseThrow(() -> new IllegalArgumentException("신고 케이스를 찾을 수 없습니다."));
+        LockedReport locked = lockReportOwnerThenReport(reportId);
+        CheerPostReport report = locked.report();
 
         report.setStatus(CheerPostReport.ReportStatus.RESOLVED);
         report.setAdminAction(req.action());
@@ -376,7 +329,7 @@ public class AdminService {
             if (auditAction != null) {
                 AuditLog auditLog = AuditLog.builder()
                         .adminId(adminId)
-                        .targetUserId(saved.getPost().getAuthor().getId())
+                        .targetUserId(locked.owner().getId())
                         .action(auditAction)
                         .oldValue(saved.getReason().name())
                         .newValue(saved.getStatus().name())
@@ -386,13 +339,15 @@ public class AdminService {
             }
         }
 
+        anonymizeDeletedOwnerIfCasesAreClosed(locked.owner());
+
         return Objects.requireNonNull(convertToAdminReportDto(saved));
     }
 
     @Transactional
     public AdminReportDto requestAppeal(Long reportId, AdminReportAppealReq req, Long userId) {
-        CheerPostReport report = cheerReportRepo.findById(reportId)
-                .orElseThrow(() -> new IllegalArgumentException("신고 케이스를 찾을 수 없습니다."));
+        LockedReport locked = lockReportOwnerThenReport(reportId);
+        CheerPostReport report = locked.report();
 
         report.setAppealStatus(CheerPostReport.AppealStatus.REQUESTED);
         report.setAppealReason(req != null ? req.appealReason() : null);
@@ -403,7 +358,7 @@ public class AdminService {
         if (userId != null) {
             AuditLog auditLog = AuditLog.builder()
                     .adminId(userId)
-                    .targetUserId(saved.getPost().getAuthor().getId())
+                    .targetUserId(locked.owner().getId())
                     .action(AuditLog.AuditAction.WARN_REPEATED_INFRACTION)
                     .oldValue(saved.getStatus().name())
                     .newValue(saved.getAppealStatus().name())
@@ -415,16 +370,101 @@ public class AdminService {
         return Objects.requireNonNull(convertToAdminReportDto(saved));
     }
 
+    @Transactional
+    public AdminReportDto decideReportAppeal(
+            Long reportId,
+            AdminReportAppealDecisionReq req,
+            Long adminId) {
+        if (req == null || req.decision() == null) {
+            throw new IllegalArgumentException("이의제기 결정은 필수입니다.");
+        }
+
+        LockedReport locked = lockReportOwnerThenReport(reportId);
+        CheerPostReport report = locked.report();
+        CheerPostReport.AppealStatus current = report.getAppealStatus() == null
+                ? CheerPostReport.AppealStatus.NONE
+                : report.getAppealStatus();
+        CheerPostReport.AppealStatus target = CheerPostReport.AppealStatus.valueOf(req.decision().name());
+
+        if (current == CheerPostReport.AppealStatus.NONE) {
+            throw new ConflictBusinessException("APPEAL_NOT_REQUESTED", "접수된 이의제기가 없습니다.");
+        }
+        if (current != target
+                && (current == CheerPostReport.AppealStatus.ACCEPTED
+                    || current == CheerPostReport.AppealStatus.REJECTED)) {
+            throw new ConflictBusinessException("APPEAL_ALREADY_DECIDED", "이미 종결된 이의제기 결정은 변경할 수 없습니다.");
+        }
+
+        CheerPostReport saved = report;
+        if (current != target) {
+            report.setAppealStatus(target);
+            saved = cheerReportRepo.save(Objects.requireNonNull(report));
+            if (adminId != null) {
+                AuditLog auditLog = AuditLog.builder()
+                        .adminId(adminId)
+                        .targetUserId(locked.owner().getId())
+                        .action(AuditLog.AuditAction.DECIDE_REPORT_APPEAL)
+                        .oldValue(current.name())
+                        .newValue(target.name())
+                        .description("신고 이의제기 결정 (ID: " + saved.getId() + ")")
+                        .build();
+                auditLogRepository.save(Objects.requireNonNull(auditLog));
+            }
+        }
+
+        if (target == CheerPostReport.AppealStatus.ACCEPTED
+                || target == CheerPostReport.AppealStatus.REJECTED) {
+            anonymizeDeletedOwnerIfCasesAreClosed(locked.owner());
+        }
+
+        return Objects.requireNonNull(convertToAdminReportDto(saved));
+    }
+
+    private LockedReport lockReportOwnerThenReport(Long reportId) {
+        Long ownerId = cheerReportRepo.findPostAuthorIdByReportId(reportId)
+                .orElseThrow(() -> new IllegalArgumentException("신고 케이스를 찾을 수 없습니다."));
+        if (ownerId == null) {
+            throw new ConflictBusinessException("REPORT_OWNER_MISSING", "신고 게시물 작성자를 확인할 수 없습니다.");
+        }
+        UserEntity owner = userRepository.findByIdForWrite(ownerId)
+                .orElseThrow(() -> new ConflictBusinessException(
+                        "REPORT_OWNER_MISSING", "신고 게시물 작성자 계정을 확인할 수 없습니다."));
+        CheerPostReport report = cheerReportRepo.findByIdForWrite(reportId)
+                .orElseThrow(() -> new IllegalArgumentException("신고 케이스를 찾을 수 없습니다."));
+        if (!Objects.equals(ownerId, reportOwnerId(report))) {
+            throw new ConflictBusinessException(
+                    "REPORT_OWNER_CHANGED", "신고 게시물 작성자가 변경되어 다시 확인해야 합니다.");
+        }
+        return new LockedReport(report, owner);
+    }
+
+    private Long reportOwnerId(CheerPostReport report) {
+        return report.getPost() == null || report.getPost().getAuthor() == null
+                ? null
+                : report.getPost().getAuthor().getId();
+    }
+
+    private void anonymizeDeletedOwnerIfCasesAreClosed(UserEntity owner) {
+        if (!AccountDeletionIdentityService.isAnonymizedTombstone(owner)) {
+            return;
+        }
+        cheerReportRepo.flush();
+        Set<Long> openPostIds = cheerReportRepo.findOpenModerationPostIdsByAuthorId(owner.getId());
+        if (openPostIds != null && openPostIds.isEmpty()) {
+            accountDeletionContentService.anonymize(owner.getId());
+        }
+    }
+
+    private record LockedReport(CheerPostReport report, UserEntity owner) {
+    }
+
     /**
      * UserEntity → AdminUserDto 변환
      */
-    private AdminUserDto convertToAdminUserDto(UserEntity user) {
+    private AdminUserDto convertToAdminUserDto(UserEntity user, long postCount) {
         Long userId = Objects.requireNonNull(user.getId(), "User ID must not be null");
         String email = Objects.requireNonNull(user.getEmail(), "User email must not be null");
         String name = Objects.requireNonNull(user.getName(), "User name must not be null");
-
-        // 해당 유저의 게시글 수 조회
-        long postCount = cheerPostRepository.countByUserId(userId);
 
         return Objects.requireNonNull(AdminUserDto.builder()
                 .id(userId)

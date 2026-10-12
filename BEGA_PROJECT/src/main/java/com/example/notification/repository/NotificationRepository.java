@@ -4,12 +4,13 @@ import com.example.notification.entity.Notification;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Collection;
+import jakarta.persistence.LockModeType;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
@@ -24,8 +25,13 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     // 읽지 않은 알림 개수
     Long countByUserIdAndIsReadFalse(Long userId);
 
-    // 사용자 전체 알림 일괄 읽음 처리
-    @Modifying
-    @Query("UPDATE Notification n SET n.isRead = true WHERE n.userId = :userId AND n.isRead = false")
-    void markAllAsReadByUserId(@Param("userId") Long userId);
+    // 조회 스냅샷의 ID만 잠가, 응답 ID와 실제 변경 대상을 일치시킨다.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT n FROM Notification n "
+            + "WHERE n.userId = :userId AND n.id IN :notificationIds "
+            + "AND n.isRead = false "
+            + "ORDER BY n.createdAt ASC, n.id ASC")
+    List<Notification> findUnreadForUserByIdsForUpdate(
+            @Param("userId") Long userId,
+            @Param("notificationIds") Collection<Long> notificationIds);
 }

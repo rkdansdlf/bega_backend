@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -15,6 +17,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -61,7 +64,7 @@ class DmMessageServiceTest {
                 .clientMessageId("client-1")
                 .build();
 
-        when(dmRoomService.getAccessibleRoom(55L, 10L)).thenReturn(room);
+        when(dmRoomService.getAccessibleRoomForUpdate(55L, 10L)).thenReturn(room);
         when(dmMessageRepository.findByRoomIdAndSenderIdAndClientMessageId(55L, 10L, "client-1"))
                 .thenReturn(java.util.Optional.of(existingMessage));
 
@@ -72,6 +75,7 @@ class DmMessageServiceTest {
                 .build());
 
         assertThat(response.getId()).isEqualTo(101L);
+        verify(dmRoomService).getAccessibleRoomForUpdate(55L, 10L);
         verify(dmMessageRepository, never()).save(any(DmMessage.class));
         verify(realtimeOutboxWriter, never()).broadcast(any(), any());
     }
@@ -84,7 +88,7 @@ class DmMessageServiceTest {
                 .participantOneId(10L)
                 .participantTwoId(20L)
                 .build();
-        when(dmRoomService.getAccessibleRoom(55L, 10L)).thenReturn(room);
+        when(dmRoomService.getAccessibleRoomForUpdate(55L, 10L)).thenReturn(room);
         when(dmMessageRepository.save(any(DmMessage.class))).thenAnswer(invocation -> {
             DmMessage message = invocation.getArgument(0);
             message.setId(102L);
@@ -128,7 +132,7 @@ class DmMessageServiceTest {
     @Test
     @DisplayName("history rejects users who are not room participants")
     void getMessages_rejectsNonParticipants() {
-        when(dmRoomService.getAccessibleRoom(55L, 30L))
+        when(dmRoomService.getAccessibleRoomForUpdate(55L, 30L))
                 .thenThrow(new NotFoundBusinessException("DM_ROOM_NOT_FOUND", "대화방을 찾을 수 없습니다."));
 
         assertThatThrownBy(() -> dmMessageService.getMessages(55L, 30L))
@@ -149,21 +153,45 @@ class DmMessageServiceTest {
                 .roomId(55L)
                 .senderId(10L)
                 .content("첫 메시지")
+                .createdAt(Instant.parse("2026-10-01T10:00:00Z"))
                 .build();
         DmMessage secondMessage = DmMessage.builder()
                 .id(2L)
                 .roomId(55L)
                 .senderId(20L)
                 .content("응답")
+                .createdAt(Instant.parse("2026-10-01T10:01:00Z"))
                 .build();
 
-        when(dmRoomService.getAccessibleRoom(55L, 10L)).thenReturn(room);
-        when(dmMessageRepository.findByRoomIdOrderByCreatedAtAsc(55L)).thenReturn(List.of(firstMessage, secondMessage));
+        when(dmRoomService.getAccessibleRoomForUpdate(55L, 10L)).thenReturn(room);
+        when(dmMessageRepository.findByRoomIdOrderByCreatedAtAscIdAsc(55L))
+                .thenReturn(List.of(firstMessage, secondMessage));
 
         List<DmMessageDto.Response> messages = dmMessageService.getMessages(55L, 10L);
 
         assertThat(messages).hasSize(2);
         assertThat(messages.get(0).getContent()).isEqualTo("첫 메시지");
         assertThat(messages.get(1).getContent()).isEqualTo("응답");
+        InOrder ordered = inOrder(dmRoomService, dmMessageRepository);
+        ordered.verify(dmRoomService).getAccessibleRoomForUpdate(55L, 10L);
+        ordered.verify(dmMessageRepository).findByRoomIdOrderByCreatedAtAscIdAsc(55L);
+        ordered.verify(dmRoomService).markAsReadThrough(
+                room, 10L, 2L, Instant.parse("2026-10-01T10:01:00Z"));
+    }
+
+    @Test
+    @DisplayName("empty history does not advance the read watermark")
+    void getMessages_emptyHistoryDoesNotAdvanceReadWatermark() {
+        DmRoom room = DmRoom.builder()
+                .id(55L)
+                .participantOneId(10L)
+                .participantTwoId(20L)
+                .build();
+        when(dmRoomService.getAccessibleRoomForUpdate(55L, 10L)).thenReturn(room);
+        when(dmMessageRepository.findByRoomIdOrderByCreatedAtAscIdAsc(55L)).thenReturn(List.of());
+
+        assertThat(dmMessageService.getMessages(55L, 10L)).isEmpty();
+
+        verify(dmRoomService, never()).markAsReadThrough(any(), any(), any(), any());
     }
 }

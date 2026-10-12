@@ -62,6 +62,9 @@ public class PayoutTransaction {
     @Column(name = "requested_at")
     private Instant requestedAt;
 
+    @Column(name = "provider_dispatch_intent_at")
+    private Instant providerDispatchIntentAt;
+
     @Column(name = "last_retry_at")
     private Instant lastRetryAt;
 

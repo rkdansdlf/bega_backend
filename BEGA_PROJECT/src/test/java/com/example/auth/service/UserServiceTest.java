@@ -1,6 +1,7 @@
 package com.example.auth.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +10,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -44,6 +46,12 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,6 +60,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -292,6 +302,22 @@ class UserServiceTest {
     }
 
     @Test
+    void changePassword_setsPasswordForPasswordlessSocialAccount() {
+        UserEntity user = baseUser(null);
+        user.setProvider("GOOGLE");
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.encode("new-password")).thenReturn("encoded-new-password");
+
+        userService.changePassword(1L, null, "new-password");
+
+        assertEquals("encoded-new-password", user.getPassword());
+        assertEquals(1, user.getTokenVersion());
+        verify(bCryptPasswordEncoder, never()).matches(any(), any());
+        verify(userRepository).save(user);
+        verify(refreshRepository).deleteByEmail("user@example.com");
+    }
+
+    @Test
     void checkAndApplyDailyLoginBonus_awardsPointsOnlyOncePerDay() {
         UserEntity user = baseUser(null);
         user.setCheerPoints(10);
@@ -338,7 +364,7 @@ class UserServiceTest {
     void unlinkProvider_removesProviderWhenPasswordExists() {
         UserEntity user = baseUser(null);
         user.setPassword("encoded-password");
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForWrite(1L)).thenReturn(Optional.of(user));
 
         userService.unlinkProvider(1L, "google");
 
@@ -350,7 +376,7 @@ class UserServiceTest {
     void unlinkProvider_throwsWhenLastProviderAndNoPassword() {
         UserEntity user = baseUser(null);
         user.setPassword(null);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForWrite(1L)).thenReturn(Optional.of(user));
         when(userProviderRepository.findByUserId(1L))
                 .thenReturn(List.of(buildProvider(user, "kakao")));
 
@@ -519,6 +545,138 @@ class UserServiceTest {
 
         verify(bCryptPasswordEncoder).encode("raw-password");
         verify(userRepository).save(any(UserEntity.class));
+    }
+
+    @Test
+    void signUp_evictsPreviouslyCachedMissingLoginEmail() {
+        when(userRepository.findLoginPasswordByEmail("new@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+        when(userRepository.existsByHandle("@newbie")).thenReturn(false);
+        when(bCryptPasswordEncoder.encode("raw-password")).thenReturn("ENCODED");
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("NEW@example.com", "raw-password"));
+
+        UserDto dto = UserDto.builder()
+                .name("tester")
+                .handle("@newbie")
+                .email("NEW@Example.com")
+                .password("raw-password")
+                .favoriteTeam(null)
+                .provider("LOCAL")
+                .build();
+        userService.signUp(dto);
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("new@example.com", "raw-password"));
+
+        verify(userRepository, times(2)).findLoginPasswordByEmail("new@example.com");
+        verify(bCryptPasswordEncoder, times(2)).matches("raw-password", null);
+        verify(userRepository).save(any(UserEntity.class));
+    }
+
+    @Test
+    void signUpInvalidatesMissingLoginCacheAfterTransactionCommit() {
+        when(userRepository.findLoginPasswordByEmail("new@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+        when(userRepository.existsByHandle("@newbie")).thenReturn(false);
+        when(bCryptPasswordEncoder.encode("raw-password")).thenReturn("ENCODED");
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("new@example.com", "raw-password"));
+
+        TransactionSynchronizationManager.initSynchronization();
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        try {
+            UserDto dto = UserDto.builder()
+                    .name("tester")
+                    .handle("@newbie")
+                    .email("NEW@Example.com")
+                    .password("raw-password")
+                    .favoriteTeam(null)
+                    .provider("LOCAL")
+                    .build();
+            userService.signUp(dto);
+
+            assertThrows(InvalidCredentialsException.class,
+                    () -> userService.authenticateAndGetToken("new@example.com", "raw-password"));
+            verify(userRepository, times(1)).findLoginPasswordByEmail("new@example.com");
+
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+        }
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("new@example.com", "raw-password"));
+        verify(userRepository, times(2)).findLoginPasswordByEmail("new@example.com");
+    }
+
+    @Test
+    void inFlightMissingLoginCannotRepopulateCacheAfterSignup() throws Exception {
+        CountDownLatch missingLookupStarted = new CountDownLatch(1);
+        CountDownLatch allowMissingLookupToReturn = new CountDownLatch(1);
+        AtomicBoolean pauseFirstLookup = new AtomicBoolean(true);
+        UserEntity createdUser = baseUser(null);
+        createdUser.setEmail("new@example.com");
+        createdUser.setPassword("ENCODED");
+        createdUser.setEnabled(true);
+        createdUser.setLocked(false);
+
+        when(userRepository.findLoginPasswordByEmail("new@example.com")).thenAnswer(invocation -> {
+            if (pauseFirstLookup.getAndSet(false)) {
+                missingLookupStarted.countDown();
+                if (!allowMissingLookupToReturn.await(5, TimeUnit.SECONDS)) {
+                    throw new AssertionError("Timed out waiting to release the missing-account lookup");
+                }
+                return Optional.empty();
+            }
+            return Optional.of(loginPassword("ENCODED"));
+        });
+        when(userRepository.findByEmail("new@example.com"))
+                .thenReturn(Optional.empty(), Optional.of(createdUser));
+        when(userRepository.existsByHandle("@newbie")).thenReturn(false);
+        when(bCryptPasswordEncoder.encode("raw-password")).thenReturn("ENCODED");
+        lenient().when(bCryptPasswordEncoder.matches("raw-password", null)).thenReturn(false);
+        when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(jwtUtil.getAccessTokenExpirationTime()).thenReturn(600_000L);
+        when(jwtUtil.createJwt(eq("new@example.com"), eq("ROLE_USER"), eq(1L), anyLong(), any()))
+                .thenReturn("access-token");
+        when(authSessionService.issueRefreshToken(eq("new@example.com"), eq("ROLE_USER"), eq(1L), any(), any()))
+                .thenReturn("refresh-token");
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> missingLogin = executor.submit(() -> assertThrows(
+                    InvalidCredentialsException.class,
+                    () -> userService.authenticateAndGetToken("NEW@example.com", "raw-password")));
+            assertTrue(missingLookupStarted.await(5, TimeUnit.SECONDS));
+
+            UserDto dto = UserDto.builder()
+                    .name("tester")
+                    .handle("@newbie")
+                    .email("NEW@Example.com")
+                    .password("raw-password")
+                    .favoriteTeam(null)
+                    .provider("LOCAL")
+                    .build();
+            userService.signUp(dto);
+
+            allowMissingLookupToReturn.countDown();
+            missingLogin.get(5, TimeUnit.SECONDS);
+
+            assertDoesNotThrow(() -> userService.authenticateAndGetToken("new@example.com", "raw-password"));
+            verify(userRepository, times(2)).findLoginPasswordByEmail("new@example.com");
+        } finally {
+            allowMissingLookupToReturn.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test

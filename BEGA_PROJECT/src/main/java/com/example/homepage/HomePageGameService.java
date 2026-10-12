@@ -2,7 +2,6 @@ package com.example.homepage;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.Year;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -23,7 +22,9 @@ import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.MatchRangeProjection;
 import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
+import com.example.kbo.validation.ManualBaseballDataMissingItem;
 import com.example.kbo.validation.ManualBaseballDataRequest;
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import com.example.kbo.util.GameStatusResolver;
 import com.example.kbo.util.TeamCodeNormalizer;
 
@@ -77,11 +78,7 @@ public class HomePageGameService {
 
     @Transactional(readOnly = true, transactionManager = "transactionManager")
     public void init() {
-        try {
-            homePageTeamRepository.findAll().forEach(team -> teamMap.put(team.getTeamId(), team));
-        } catch (Exception e) {
-            // 에러 발생해도 애플리케이션은 계속 실행
-        }
+        homePageTeamRepository.findAll().forEach(team -> teamMap.put(team.getTeamId(), team));
     }
 
     private HomePageTeam getTeam(String teamId) {
@@ -354,19 +351,14 @@ public class HomePageGameService {
     }
 
     private Map<String, List<String>> fetchRecentFormByTeam(int seasonYear, LocalDate seasonStart, LocalDate nextSeasonStart) {
-        try {
-            List<Object[]> rows = gameRepository.findRecentFormBySeasonAndTeams(seasonYear, seasonStart, nextSeasonStart);
-            Map<String, List<String>> recentFormByTeam = new LinkedHashMap<>();
-            for (Object[] row : rows) {
-                String teamId = (String) row[0];
-                String result = (String) row[2];
-                recentFormByTeam.computeIfAbsent(teamId, key -> new ArrayList<>()).add(result);
-            }
-            return recentFormByTeam;
-        } catch (Exception e) {
-            log.warn("event=home_team_recent_form_query_failed seasonYear={} message={}", seasonYear, e.getMessage());
-            return Map.of();
+        List<Object[]> rows = gameRepository.findRecentFormBySeasonAndTeams(seasonYear, seasonStart, nextSeasonStart);
+        Map<String, List<String>> recentFormByTeam = new LinkedHashMap<>();
+        for (Object[] row : rows) {
+            String teamId = (String) row[0];
+            String result = (String) row[2];
+            recentFormByTeam.computeIfAbsent(teamId, key -> new ArrayList<>()).add(result);
         }
+        return recentFormByTeam;
     }
 
     private void logTeamRankingQueryCompleted(int seasonYear, String source, int rankingCount, long startedAtNanos) {
@@ -400,7 +392,17 @@ public class HomePageGameService {
                 .findConfiguredStartDateByTypeFromSeasonYear(0, seasonYear)
                 .or(() -> gameRepository.findFirstRegularSeasonDate(seasonYear))
                 .or(() -> gameRepository.findLatestStartDateByTypeAsOf(0, now))
-                .orElse(now);
+                .orElseThrow(() -> new ManualBaseballDataRequiredException(new ManualBaseballDataRequest(
+                        "home.league_start_dates",
+                        List.of(new ManualBaseballDataMissingItem(
+                                "regularSeasonStart",
+                                "Regular season start date",
+                                "No regular-season start date was found in trusted internal season or game data.",
+                                "YYYY-MM-DD with season context and league_type_code=0")),
+                        "Operator data required for season " + seasonYear
+                                + ": provide a valid regular-season start date and season context through the approved"
+                                + " internal kbo_seasons/game import or sync path.",
+                        true)));
 
         LocalDate postseasonStart = gameRepository
                 .findConfiguredStartDateByTypeFromSeasonYear(2, seasonYear)
@@ -414,28 +416,11 @@ public class HomePageGameService {
                 .or(() -> gameRepository.findLatestStartDateByTypeAsOf(5, now))
                 .orElse(null);
 
-        regularStart = normalizeDateToSeasonYear(regularStart, seasonYear);
-        postseasonStart = normalizeDateToSeasonYear(postseasonStart, seasonYear);
-        koreanSeriesStart = normalizeDateToSeasonYear(koreanSeriesStart, seasonYear);
-
         return LeagueStartDatesDto.builder()
                 .regularSeasonStart(regularStart.toString())
                 .postseasonStart(postseasonStart == null ? null : postseasonStart.toString())
                 .koreanSeriesStart(koreanSeriesStart == null ? null : koreanSeriesStart.toString())
                 .build();
-    }
-
-    private LocalDate normalizeDateToSeasonYear(LocalDate date, int seasonYear) {
-        if (date == null) {
-            return null;
-        }
-        if (date.getYear() == seasonYear) {
-            return date;
-        }
-
-        int maxDay = date.getMonth().length(Year.isLeap(seasonYear));
-        int normalizedDay = Math.min(date.getDayOfMonth(), maxDay);
-        return LocalDate.of(seasonYear, date.getMonth(), normalizedDay);
     }
 
     // 날짜 네비게이션 정보 조회

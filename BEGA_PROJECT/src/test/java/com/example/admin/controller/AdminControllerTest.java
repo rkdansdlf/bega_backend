@@ -4,6 +4,7 @@ import com.example.admin.dto.*;
 import com.example.admin.service.AdminService;
 import com.example.BegaDiary.Service.SeatViewService;
 import com.example.common.dto.ApiResponse;
+import com.example.common.exception.GlobalExceptionHandler;
 import com.example.prediction.GameInningScoreRequestDto;
 import com.example.prediction.GameStatusMismatchDto;
 import com.example.prediction.GameScoreSyncBatchResultDto;
@@ -19,8 +20,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -29,6 +35,10 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
 class AdminControllerTest {
@@ -41,6 +51,73 @@ class AdminControllerTest {
 
     @InjectMocks
     private AdminController controller;
+
+    @Test
+    @DisplayName("이의제기 사유 1200자는 허용한다")
+    void requestAppeal_acceptsMaximumLengthReason() throws Exception {
+        AdminReportDto dto = AdminReportDto.builder().id(1L).build();
+        when(adminService.requestAppeal(eq(1L), any(AdminReportAppealReq.class), isNull())).thenReturn(dto);
+
+        validatorMockMvc().perform(post("/api/admin/reports/1/appeal")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"appealReason\":\"" + "r".repeat(1200) + "\"}"))
+                .andExpect(status().isOk());
+
+        verify(adminService).requestAppeal(eq(1L), argThat(req -> req.appealReason().length() == 1200), isNull());
+    }
+
+    @Test
+    @DisplayName("이의제기 사유 1201자는 저장 전에 validation error로 거부한다")
+    void requestAppeal_rejectsOverlongReasonBeforeServiceCall() throws Exception {
+        validatorMockMvc().perform(post("/api/admin/reports/1/appeal")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"appealReason\":\"" + "r".repeat(1201) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errors.appealReason").value("이의제기 사유는 1200자 이하여야 합니다."));
+
+        verifyNoInteractions(adminService);
+    }
+
+    @Test
+    @DisplayName("이의제기 결정 PATCH는 관리자 전용 계약을 유지한다")
+    void decideAppeal_isAdminOnlyAndAcceptsSupportedDecision() throws Exception {
+        AdminReportDto dto = AdminReportDto.builder().id(1L).appealStatus("REVIEWING").build();
+        when(adminService.decideReportAppeal(eq(1L), any(AdminReportAppealDecisionReq.class), isNull()))
+                .thenReturn(dto);
+
+        validatorMockMvc().perform(patch("/api/admin/reports/1/appeal")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"decision\":\"REVIEWING\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.appealStatus").value("REVIEWING"));
+
+        verify(adminService).decideReportAppeal(eq(1L),
+                argThat(req -> req.decision() == AdminReportAppealDecision.REVIEWING), isNull());
+        assertThat(AdminController.class.getAnnotation(PreAuthorize.class).value())
+                .isEqualTo("hasRole('ADMIN')");
+    }
+
+    @Test
+    @DisplayName("이의제기 결정이 null이면 service 호출 전에 거부한다")
+    void decideAppeal_rejectsNullDecision() throws Exception {
+        validatorMockMvc().perform(patch("/api/admin/reports/1/appeal")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"decision\":null}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminService);
+    }
+
+    private MockMvc validatorMockMvc() {
+        LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
+        validator.afterPropertiesSet();
+        return MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .setValidator(validator)
+                .build();
+    }
 
     // ── getStats ──
 
@@ -125,12 +202,12 @@ class AdminControllerTest {
     @Test
     @DisplayName("시야뷰 후보 목록을 필터로 조회한다")
     void getSeatViews_withFilters_callsServiceCorrectly() {
-        when(seatViewService.getAdminSeatViews("PENDING", "JAMSIL", "good", null, true))
-                .thenReturn(List.of());
+        when(seatViewService.getAdminSeatViews("PENDING", "JAMSIL", "good", null, true, 2, 40))
+                .thenReturn(Page.empty());
 
-        controller.getSeatViews("PENDING", "JAMSIL", "good", null, true);
+        controller.getSeatViews("PENDING", "JAMSIL", "good", null, true, 2, 40);
 
-        verify(seatViewService).getAdminSeatViews("PENDING", "JAMSIL", "good", null, true);
+        verify(seatViewService).getAdminSeatViews("PENDING", "JAMSIL", "good", null, true, 2, 40);
     }
 
     // ── getSeatView ──
@@ -172,6 +249,33 @@ class AdminControllerTest {
         ResponseEntity<ApiResponse<AdminReportDto>> result = controller.handleReport(42L, 1L, req);
 
         assertThat(result.getBody().getData()).isEqualTo(dto);
+    }
+
+    @Test
+    @DisplayName("신고 조치 메모 1000자는 허용한다")
+    void handleReport_acceptsMaximumLengthAdminMemo() throws Exception {
+        AdminReportDto dto = AdminReportDto.builder().id(1L).build();
+        when(adminService.handleReport(eq(1L), any(AdminReportActionReq.class), isNull())).thenReturn(dto);
+
+        validatorMockMvc().perform(patch("/api/admin/reports/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"action\":\"TAKE_DOWN\",\"adminMemo\":\"" + "m".repeat(1000) + "\"}"))
+                .andExpect(status().isOk());
+
+        verify(adminService).handleReport(eq(1L), argThat(req -> req.adminMemo().length() == 1000), isNull());
+    }
+
+    @Test
+    @DisplayName("신고 조치 메모 1001자는 service 호출 전에 거부한다")
+    void handleReport_rejectsOverlongAdminMemoBeforeServiceCall() throws Exception {
+        validatorMockMvc().perform(patch("/api/admin/reports/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"action\":\"TAKE_DOWN\",\"adminMemo\":\"" + "m".repeat(1001) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errors.adminMemo").value("관리자 메모는 1000자 이하여야 합니다."));
+
+        verifyNoInteractions(adminService);
     }
 
     // ── requestAppeal ──
@@ -223,8 +327,9 @@ class AdminControllerTest {
     @Test
     @DisplayName("게시글을 삭제한다")
     void deletePost_returnsSuccess() {
-        controller.deletePost(42L, 1L);
+        ResponseEntity<ApiResponse<Void>> response = controller.deletePost(42L, 1L);
 
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
         verify(adminService).deletePost(1L, 42L);
     }
 

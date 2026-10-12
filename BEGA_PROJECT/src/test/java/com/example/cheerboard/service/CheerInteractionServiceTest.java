@@ -6,7 +6,9 @@ import com.example.auth.service.BlockService;
 import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.CheerPostLike;
+import com.example.cheerboard.domain.ReportReason;
 import com.example.cheerboard.dto.LikeToggleResponse;
+import com.example.cheerboard.dto.ReportRequest;
 import com.example.cheerboard.repo.CheerBookmarkRepo;
 import com.example.cheerboard.repo.CheerCommentLikeRepo;
 import com.example.cheerboard.repo.CheerCommentRepo;
@@ -146,6 +148,28 @@ class CheerInteractionServiceTest {
                 () -> interactionService.toggleLike(postId, me));
 
         verify(likeRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Rejects a new report after the author's account has been finalized")
+    void reportPost_rejectsFinalizedTombstoneAfterLockingPost() {
+        Long postId = 5L;
+        UserEntity reporter = UserEntity.builder().id(100L).name("Reporter").build();
+        UserEntity deletedAuthor = UserEntity.builder().id(200L).name("탈퇴한 사용자").build();
+        CheerPost post = CheerPost.builder().id(postId).author(deletedAuthor).content("redacted").build();
+        mockWriteEnabledAuthor(reporter);
+        when(postRepo.findByIdForWrite(postId)).thenReturn(Optional.of(post));
+        when(userRepo.existsFinalizedTombstoneById(200L)).thenReturn(true);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> interactionService.reportPost(
+                postId, new ReportRequest(ReportReason.OTHER, "synthetic reason"), reporter))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("탈퇴 처리된 게시글은 신고할 수 없습니다.");
+
+        InOrder reportOrder = inOrder(postRepo, userRepo, reportRepo);
+        reportOrder.verify(postRepo).findByIdForWrite(postId);
+        reportOrder.verify(userRepo).existsFinalizedTombstoneById(200L);
+        verify(reportRepo, never()).save(any());
     }
 
     private void mockWriteEnabledAuthor(UserEntity me) {
