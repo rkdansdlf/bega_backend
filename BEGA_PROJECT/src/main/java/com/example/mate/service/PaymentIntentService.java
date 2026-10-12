@@ -6,6 +6,8 @@ import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.PaymentFlowType;
 import com.example.mate.entity.PaymentIntent;
+import com.example.mate.entity.PaymentIntentReconciliationEvent;
+import com.example.mate.entity.PaymentIntentReconciliationEvent.EventType;
 import com.example.mate.exception.DuplicateApplicationException;
 import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.exception.PartyFullException;
@@ -15,6 +17,7 @@ import com.example.mate.exception.UnauthorizedAccessException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PaymentIntentRepository;
+import com.example.mate.repository.PaymentIntentReconciliationEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jobrunr.jobs.annotations.Job;
@@ -22,6 +25,7 @@ import com.example.common.jobs.JobSubmissionGateway;
 import org.springframework.http.HttpStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.Principal;
@@ -37,8 +41,10 @@ public class PaymentIntentService {
 
     private static final int MAX_PENDING_APPLICATIONS = 10;
     private static final int MAX_COMPENSATION_ATTEMPTS = 5;
+    private static final String CONFIRMATION_IN_PROGRESS_CODE = "CONFIRM_REQUESTED";
 
     private final PaymentIntentRepository paymentIntentRepository;
+    private final PaymentIntentReconciliationEventRepository reconciliationEventRepository;
     private final PartyApplicationRepository applicationRepository;
     private final PartyRepository partyRepository;
     private final PaymentAmountCalculator paymentAmountCalculator;
@@ -71,7 +77,7 @@ public class PaymentIntentService {
         PaymentFlowType flowType = request.getFlowType() != null
                 ? request.getFlowType()
                 : PaymentFlowType.DEPOSIT;
-        validateApplicationPreconditions(request.getPartyId(), applicantId);
+        validateApplicationPreconditions(request.getPartyId(), applicantId, flowType);
 
         PaymentAmountCalculator.AmountInfo amountInfo = paymentAmountCalculator.calculateAmount(request.getPartyId(), flowType);
         String orderId = generateOrderId(request.getPartyId(), applicantId);
@@ -131,13 +137,10 @@ public class PaymentIntentService {
             throw new InvalidApplicationStatusException("결제 flowType이 준비 정보와 일치하지 않습니다.");
         }
 
-        if (intent.getStatus() == PaymentIntent.IntentStatus.APPLICATION_CREATED
-                || applicationRepository.findByOrderIdForUpdate(intent.getOrderId()).isPresent()) {
-            intent.setStatus(PaymentIntent.IntentStatus.APPLICATION_CREATED);
-            paymentIntentRepository.save(intent);
-            return intent;
+        if (intent.getStatus() == PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED
+                && !hasVerifiedIdentityPaymentBinding(intent.getId())) {
+            throw reconciliationRequiredException();
         }
-
         if (intent.getStatus() == PaymentIntent.IntentStatus.CANCELED
                 || intent.getStatus() == PaymentIntent.IntentStatus.CANCEL_REQUESTED
                 || intent.getStatus() == PaymentIntent.IntentStatus.CANCEL_FAILED
@@ -145,18 +148,35 @@ public class PaymentIntentService {
             throw new InvalidApplicationStatusException("이미 종료된 결제 요청입니다. 새로 결제를 시도해주세요.");
         }
 
-        if (intent.getExpiresAt() != null && intent.getExpiresAt().isBefore(Instant.now())) {
+        java.util.Optional<PartyApplication> existingApplication =
+                applicationRepository.findByOrderIdForUpdate(intent.getOrderId());
+        if (existingApplication.isPresent()) {
+            requireApplicationMatchesIntent(existingApplication.get(), intent);
+            intent.setStatus(PaymentIntent.IntentStatus.APPLICATION_CREATED);
+            paymentIntentRepository.save(intent);
+            return intent;
+        }
+
+        if (intent.getStatus() == PaymentIntent.IntentStatus.APPLICATION_CREATED) {
+            throw new InvalidApplicationStatusException("신청이 이미 종료되었거나 연결 상태를 확인할 수 없습니다.");
+        }
+
+        boolean alreadyConfirmed = intent.getStatus() == PaymentIntent.IntentStatus.CONFIRMED
+                || hasVerifiedIdentityPaymentBinding(intent.getId());
+        if (!alreadyConfirmed && intent.getExpiresAt() != null && intent.getExpiresAt().isBefore(Instant.now())) {
             intent.setStatus(PaymentIntent.IntentStatus.EXPIRED);
             paymentIntentRepository.save(intent);
             throw new InvalidApplicationStatusException("결제 요청 유효시간이 만료되었습니다. 다시 시도해주세요.");
         }
 
-        validateApplicationPreconditions(intent.getPartyId(), applicantId);
-        PaymentAmountCalculator.AmountInfo amountInfo = paymentAmountCalculator.calculateAmount(
-                intent.getPartyId(),
-                intent.getFlowType());
-        if (!amountInfo.amount().equals(intent.getExpectedAmount())) {
-            throw new InvalidApplicationStatusException("결제 금액이 변경되었습니다. 다시 결제를 시도해주세요.");
+        if (!alreadyConfirmed) {
+            validateApplicationPreconditions(intent.getPartyId(), applicantId, intent.getFlowType());
+            PaymentAmountCalculator.AmountInfo amountInfo = paymentAmountCalculator.calculateAmount(
+                    intent.getPartyId(),
+                    intent.getFlowType());
+            if (!amountInfo.amount().equals(intent.getExpectedAmount())) {
+                throw new InvalidApplicationStatusException("결제 금액이 변경되었습니다. 다시 결제를 시도해주세요.");
+            }
         }
 
         return intent;
@@ -174,6 +194,124 @@ public class PaymentIntentService {
                 .map(com.example.mate.dto.PartyApplicationDTO.Response::from);
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void reserveConfirmationAttempt(Long intentId, Long applicantId, String paymentKey) {
+        jobScheduler.requireWritable();
+        PaymentIntent intent = paymentIntentRepository.findByIdAndApplicantIdForUpdate(intentId, applicantId)
+                .orElseThrow(() -> new TossPaymentException(
+                        "PAYMENT_INTENT_NOT_FOUND",
+                        "결제 요청을 찾을 수 없습니다: " + intentId,
+                        HttpStatus.NOT_FOUND));
+
+        if (intent.getStatus() == PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED) {
+            if (hasVerifiedIdentityPaymentBinding(intentId)) {
+                return;
+            }
+            throw reconciliationRequiredException();
+        }
+        if (intent.getStatus() != PaymentIntent.IntentStatus.PREPARED) {
+            return;
+        }
+        if (paymentKey == null || paymentKey.isBlank()) {
+            throw new TossPaymentException(
+                    "PAYMENT_KEY_MISSING",
+                    "결제 키 정보가 올바르지 않습니다.",
+                    HttpStatus.BAD_REQUEST);
+        }
+        if (intent.getPaymentKey() != null && !intent.getPaymentKey().isBlank()
+                && !intent.getPaymentKey().equals(paymentKey)) {
+            throw new TossPaymentException(
+                    "CONFIRMED_PAYMENT_KEY_MISMATCH",
+                    "이미 시도된 결제 키와 요청 정보가 일치하지 않습니다.",
+                    HttpStatus.CONFLICT);
+        }
+        if (intent.getFailureCode() != null && !intent.getFailureCode().isBlank()) {
+            if (CONFIRMATION_IN_PROGRESS_CODE.equals(intent.getFailureCode())) {
+                if (!paymentKey.equals(intent.getPaymentKey())) {
+                    throw new TossPaymentException(
+                            "CONFIRMED_PAYMENT_KEY_MISMATCH",
+                            "이미 시도된 결제 키와 요청 정보가 일치하지 않습니다.",
+                            HttpStatus.CONFLICT);
+                }
+                return;
+            }
+            throw new TossPaymentException(
+                    "PAYMENT_CONFIRMATION_RECONCILIATION_REQUIRED",
+                    "결제 승인 상태를 확인할 수 없어 기존 결제 키로 다시 확인해야 합니다.",
+                    HttpStatus.CONFLICT);
+        }
+
+        intent.setPaymentKey(paymentKey);
+        intent.setFailureCode(CONFIRMATION_IN_PROGRESS_CODE);
+        intent.setFailureMessage("결제 승인 결과 확인 중");
+        paymentIntentRepository.saveAndFlush(intent);
+    }
+
+    @Transactional
+    public <T> T withApplicantIntentLocked(
+            Long intentId,
+            Long applicantId,
+            java.util.function.Function<PaymentIntent, T> action) {
+        jobScheduler.requireWritable();
+        PaymentIntent intent = paymentIntentRepository.findByIdAndApplicantIdForUpdate(intentId, applicantId)
+                .orElseThrow(() -> new TossPaymentException(
+                        "PAYMENT_INTENT_NOT_FOUND",
+                        "결제 요청을 찾을 수 없습니다: " + intentId,
+                        org.springframework.http.HttpStatus.NOT_FOUND));
+        return action.apply(intent);
+    }
+
+    @Transactional
+    public <T> T withConfirmedIntentForApplicationCreation(
+            Long intentId,
+            Long applicantId,
+            String paymentKey,
+            java.util.function.Function<PaymentIntent, T> createApplication) {
+        jobScheduler.requireWritable();
+        PaymentIntent intent = paymentIntentRepository.findByIdAndApplicantIdForUpdate(intentId, applicantId)
+                .orElseThrow(() -> new TossPaymentException(
+                        "PAYMENT_INTENT_NOT_FOUND",
+                        "결제 요청을 찾을 수 없습니다: " + intentId,
+                        org.springframework.http.HttpStatus.NOT_FOUND));
+        if (!java.util.Objects.equals(intent.getPaymentKey(), paymentKey)
+                || paymentKey == null
+                || paymentKey.isBlank()) {
+            throw new InvalidApplicationStatusException("승인된 결제 정보가 요청과 일치하지 않습니다.");
+        }
+
+        boolean verifiedIdentityBindingPendingApplication = intent.getStatus()
+                == PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED
+                && hasVerifiedIdentityPaymentBinding(intentId);
+        if (intent.getStatus() != PaymentIntent.IntentStatus.CONFIRMED
+                && intent.getStatus() != PaymentIntent.IntentStatus.APPLICATION_CREATED
+                && !verifiedIdentityBindingPendingApplication) {
+            throw new InvalidApplicationStatusException("결제 승인 상태가 신청 생성과 일치하지 않습니다.");
+        }
+
+        Long partyId = java.util.Objects.requireNonNull(intent.getPartyId());
+        partyRepository.findByIdForUpdate(partyId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+
+        java.util.Optional<PartyApplication> existingApplication =
+                applicationRepository.findByOrderIdForUpdate(intent.getOrderId());
+        if (existingApplication.isPresent()) {
+            requireApplicationMatchesIntent(existingApplication.get(), intent);
+        }
+        if (intent.getStatus() == PaymentIntent.IntentStatus.APPLICATION_CREATED
+                && existingApplication.isEmpty()) {
+            throw new InvalidApplicationStatusException("이미 생성된 신청을 확인할 수 없습니다.");
+        }
+
+        T result = createApplication.apply(intent);
+        if (intent.getStatus() != PaymentIntent.IntentStatus.APPLICATION_CREATED) {
+            intent.setStatus(PaymentIntent.IntentStatus.APPLICATION_CREATED);
+            intent.setFailureCode(null);
+            intent.setFailureMessage(null);
+            paymentIntentRepository.save(intent);
+        }
+        return result;
+    }
+
     @Transactional
     public void markConfirmed(PaymentIntent intent, String paymentKey) {
         jobScheduler.requireWritable();
@@ -182,14 +320,78 @@ public class PaymentIntentService {
         }
         intent.setStatus(PaymentIntent.IntentStatus.CONFIRMED);
         intent.setPaymentKey(paymentKey);
+        intent.setFailureCode(null);
+        intent.setFailureMessage(null);
         intent.setConfirmedAt(Instant.now());
         paymentIntentRepository.save(intent);
+    }
+
+    @Transactional
+    public void quarantineProviderIdentityMismatch(
+            PaymentIntent intent,
+            String requestedPaymentKey,
+            TossPaymentDTO.ConfirmResponse providerResponse) {
+        jobScheduler.requireWritable();
+        if (intent == null
+                || intent.getStatus() != PaymentIntent.IntentStatus.PREPARED
+                || !CONFIRMATION_IN_PROGRESS_CODE.equals(intent.getFailureCode())) {
+            throw new TossPaymentException(
+                    "PAYMENT_INTENT_RECONCILIATION_STATE_CHANGED",
+                    "결제 상태가 변경되어 관리자 대사가 필요합니다.",
+                    HttpStatus.CONFLICT);
+        }
+
+        intent.setStatus(PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED);
+        intent.setFailureCode("PROVIDER_IDENTITY_MISMATCH");
+        intent.setFailureMessage("Provider confirmation identity requires administrator reconciliation.");
+        paymentIntentRepository.saveAndFlush(intent);
+        reconciliationEventRepository.save(PaymentIntentReconciliationEvent.builder()
+                .paymentIntentId(intent.getId())
+                .eventType(EventType.IDENTITY_MISMATCH_HOLD)
+                .requestedPaymentKey(requestedPaymentKey)
+                .candidatePaymentKey(providerResponse != null
+                        ? boundedEvidence(providerResponse.getPaymentKey(), 200)
+                        : null)
+                .candidateOrderId(providerResponse != null
+                        ? boundedEvidence(providerResponse.getOrderId(), 100)
+                        : null)
+                .candidateAmount(providerResponse != null ? providerResponse.getTotalAmount() : null)
+                .candidateStatus(providerResponse != null
+                        ? boundedEvidence(providerResponse.getStatus(), 30)
+                        : null)
+                .build());
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isVerifiedIdentityResolutionRetry(Long intentId, String requestedPaymentKey) {
+        if (intentId == null || requestedPaymentKey == null || requestedPaymentKey.isBlank()) {
+            return false;
+        }
+        return reconciliationEventRepository
+                .findFirstByPaymentIntentIdAndEventTypeOrderByCreatedAtAsc(intentId, EventType.IDENTITY_MISMATCH_HOLD)
+                .filter(hold -> requestedPaymentKey.equals(hold.getRequestedPaymentKey()))
+                .isPresent()
+                && reconciliationEventRepository.existsByPaymentIntentIdAndEventType(
+                        intentId, EventType.VERIFIED_PAYMENT_BOUND);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hasVerifiedIdentityPaymentBinding(Long intentId) {
+        if (intentId == null) {
+            return false;
+        }
+        return reconciliationEventRepository.existsByPaymentIntentIdAndEventType(
+                        intentId, EventType.IDENTITY_MISMATCH_HOLD)
+                && reconciliationEventRepository.existsByPaymentIntentIdAndEventType(
+                        intentId, EventType.VERIFIED_PAYMENT_BOUND);
     }
 
     @Transactional
     public void markApplicationCreated(PaymentIntent intent) {
         jobScheduler.requireWritable();
         intent.setStatus(PaymentIntent.IntentStatus.APPLICATION_CREATED);
+        intent.setFailureCode(null);
+        intent.setFailureMessage(null);
         paymentIntentRepository.save(intent);
     }
 
@@ -201,6 +403,9 @@ public class PaymentIntentService {
         }
         PaymentIntent intent = paymentIntentRepository.findByIdForUpdate(intentId).orElse(null);
         if (intent == null) {
+            return;
+        }
+        if (intent.getStatus() == PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED) {
             return;
         }
         if (intent.getPaymentKey() == null || intent.getPaymentKey().isBlank()) {
@@ -227,10 +432,13 @@ public class PaymentIntentService {
         paymentMetricsService.recordCompensationRequested();
 
         try {
-            tossPaymentService.cancelPayment(
+            PaymentIntentCancellationProof.requireFullCancellation(
                     intent.getPaymentKey(),
-                    "파티 신청 생성 실패로 결제를 취소합니다.",
-                    intent.getExpectedAmount());
+                    intent.getExpectedAmount(),
+                    tossPaymentService.cancelPayment(
+                            intent.getPaymentKey(),
+                            "파티 신청 생성 실패로 결제를 취소합니다.",
+                            intent.getExpectedAmount()));
 
             intent.setStatus(PaymentIntent.IntentStatus.CANCELED);
             intent.setCanceledAt(Instant.now());
@@ -238,16 +446,6 @@ public class PaymentIntentService {
             paymentMetricsService.recordCompensation("success");
             log.info("[PaymentIntent] 결제 보상 취소 완료: intentId={}, orderId={}", intent.getId(), intent.getOrderId());
         } catch (RuntimeException e) {
-            if (isAlreadyCancelledByProvider(e)) {
-                intent.setStatus(PaymentIntent.IntentStatus.CANCELED);
-                intent.setCanceledAt(Instant.now());
-                paymentIntentRepository.save(intent);
-                paymentMetricsService.recordCompensation("success");
-                log.info("[PaymentIntent] 보상 취소가 이미 반영되어 완료 처리: intentId={}, orderId={}",
-                        intent.getId(), intent.getOrderId());
-                return;
-            }
-
             intent.setStatus(PaymentIntent.IntentStatus.CANCEL_FAILED);
             if (e instanceof TossPaymentException tpEx) {
                 intent.setFailureCode(String.valueOf(tpEx.getStatusCode()));
@@ -267,6 +465,9 @@ public class PaymentIntentService {
     public void retryCompensation(Long intentId, int attempt) {
         jobScheduler.requireWritable();
         paymentIntentRepository.findByIdForUpdate(intentId).ifPresent(intent -> {
+            if (intent.getStatus() == PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED) {
+                return;
+            }
             if (intent.getStatus() == PaymentIntent.IntentStatus.APPLICATION_CREATED
                     || intent.getStatus() == PaymentIntent.IntentStatus.CANCELED
                     || intent.getStatus() == PaymentIntent.IntentStatus.EXPIRED) {
@@ -292,10 +493,13 @@ public class PaymentIntentService {
             }
 
             try {
-                tossPaymentService.cancelPayment(
+                PaymentIntentCancellationProof.requireFullCancellation(
                         intent.getPaymentKey(),
-                        "보상 재시도: 파티 신청 생성 실패 결제 취소",
-                        intent.getExpectedAmount());
+                        intent.getExpectedAmount(),
+                        tossPaymentService.cancelPayment(
+                                intent.getPaymentKey(),
+                                "보상 재시도: 파티 신청 생성 실패 결제 취소",
+                                intent.getExpectedAmount()));
 
                 intent.setStatus(PaymentIntent.IntentStatus.CANCELED);
                 intent.setCanceledAt(Instant.now());
@@ -303,15 +507,6 @@ public class PaymentIntentService {
                 paymentMetricsService.recordCompensation("success");
                 log.info("[PaymentIntent] 재시도 취소 성공: intentId={}, attempt={}", intentId, attempt);
             } catch (RuntimeException e) {
-                if (isAlreadyCancelledByProvider(e)) {
-                    intent.setStatus(PaymentIntent.IntentStatus.CANCELED);
-                    intent.setCanceledAt(Instant.now());
-                    paymentIntentRepository.save(intent);
-                    paymentMetricsService.recordCompensation("success");
-                    log.info("[PaymentIntent] 보상 재시도에서 이미 취소됨으로 처리: intentId={}, attempt={}", intentId, attempt);
-                    return;
-                }
-
                 intent.setStatus(PaymentIntent.IntentStatus.CANCEL_FAILED);
                 if (e instanceof TossPaymentException tpEx) {
                     intent.setFailureCode(String.valueOf(tpEx.getStatusCode()));
@@ -352,11 +547,12 @@ public class PaymentIntentService {
     /**
      * 사용자가 직접 요청한 결제 Intent 취소.
      * - PREPARED 상태: Toss API 호출 없이 CANCELED로 변경 (아직 결제 승인 안 됨)
-     * - CONFIRMED / APPLICATION_CREATED 상태: Toss API 취소 호출 후 CANCELED로 변경
+     * - 연결된 신청이 있는 경우: 신청 취소 경로를 사용하도록 충돌 반환 (provider 호출 없음)
+     * - CONFIRMED 상태: Toss API 취소 호출 후 CANCELED로 변경
      * - CANCELED 상태: 이미 취소됨 (멱등 처리, 예외 없이 반환)
      * - CANCEL_REQUESTED / CANCEL_FAILED 상태: 409 반환 (진행 중이거나 재시도 필요)
      */
-    @Transactional
+    @Transactional(noRollbackFor = RuntimeException.class)
     public PaymentIntent.IntentStatus cancelPaymentIntent(Long intentId, Long userId, String cancelReason) {
         jobScheduler.requireWritable();
         PaymentIntent intent = paymentIntentRepository.findByIdAndApplicantIdForUpdate(intentId, userId)
@@ -364,6 +560,18 @@ public class PaymentIntentService {
                         "PAYMENT_INTENT_NOT_FOUND",
                         "결제 요청을 찾을 수 없습니다: " + intentId,
                         HttpStatus.NOT_FOUND));
+
+        if (intent.getStatus() == PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED) {
+            throw reconciliationRequiredException();
+        }
+
+        if (intent.getStatus() == PaymentIntent.IntentStatus.APPLICATION_CREATED
+                || applicationRepository.findByOrderIdForUpdate(intent.getOrderId()).isPresent()) {
+            throw new TossPaymentException(
+                    "APPLICATION_CANCELLATION_REQUIRED",
+                    "신청 생성된 결제는 신청 취소 경로를 이용해주세요.",
+                    HttpStatus.CONFLICT);
+        }
 
         // 멱등: 이미 취소된 경우 재시도 허용
         if (intent.getStatus() == PaymentIntent.IntentStatus.CANCELED) {
@@ -389,6 +597,14 @@ public class PaymentIntentService {
                 ? cancelReason
                 : "사용자 요청에 의한 결제 취소";
 
+        if (intent.getStatus() == PaymentIntent.IntentStatus.PREPARED
+                && CONFIRMATION_IN_PROGRESS_CODE.equals(intent.getFailureCode())) {
+            throw new TossPaymentException(
+                    "PAYMENT_CONFIRMATION_IN_PROGRESS",
+                    "결제 승인 결과를 확인 중입니다. 같은 결제 키로 다시 확인해주세요.",
+                    HttpStatus.CONFLICT);
+        }
+
         // PREPARED 상태: Toss 결제 승인 전이므로 DB 상태만 변경
         if (intent.getStatus() == PaymentIntent.IntentStatus.PREPARED) {
             intent.setStatus(PaymentIntent.IntentStatus.CANCELED);
@@ -400,7 +616,7 @@ public class PaymentIntentService {
             return PaymentIntent.IntentStatus.CANCELED;
         }
 
-        // CONFIRMED / APPLICATION_CREATED 상태: Toss API 취소 필요
+        // CONFIRMED 상태: Toss API 취소 필요
         if (intent.getPaymentKey() == null || intent.getPaymentKey().isBlank()) {
             throw new TossPaymentException(
                     "PAYMENT_KEY_MISSING",
@@ -413,25 +629,19 @@ public class PaymentIntentService {
         paymentIntentRepository.save(intent);
 
         try {
-            tossPaymentService.cancelPayment(intent.getPaymentKey(), reason, intent.getExpectedAmount());
+            PaymentIntentCancellationProof.requireFullCancellation(
+                    intent.getPaymentKey(),
+                    intent.getExpectedAmount(),
+                    tossPaymentService.cancelPayment(intent.getPaymentKey(), reason, intent.getExpectedAmount()));
 
             intent.setStatus(PaymentIntent.IntentStatus.CANCELED);
             intent.setCanceledAt(Instant.now());
             paymentIntentRepository.save(intent);
             paymentMetricsService.recordCompensation("user_cancel_confirmed");
-            log.info("[PaymentIntent] CONFIRMED 상태 취소 완료: intentId={}, paymentKey={}", intentId, intent.getPaymentKey());
+            log.info("[PaymentIntent] CONFIRMED 상태 취소 완료: intentId={}", intentId);
             return PaymentIntent.IntentStatus.CANCELED;
 
         } catch (RuntimeException e) {
-            if (isAlreadyCancelledByProvider(e)) {
-                intent.setStatus(PaymentIntent.IntentStatus.CANCELED);
-                intent.setCanceledAt(Instant.now());
-                paymentIntentRepository.save(intent);
-                paymentMetricsService.recordCompensation("user_cancel_already_done");
-                log.info("[PaymentIntent] Toss에서 이미 취소된 결제를 완료 처리: intentId={}", intentId);
-                return PaymentIntent.IntentStatus.CANCELED;
-            }
-
             intent.setStatus(PaymentIntent.IntentStatus.CANCEL_FAILED);
             if (e instanceof TossPaymentException tpEx) {
                 intent.setFailureCode(String.valueOf(tpEx.getStatusCode()));
@@ -444,6 +654,33 @@ public class PaymentIntentService {
             log.error("[PaymentIntent] 사용자 요청 취소 실패: intentId={}", intentId, e);
             throw e;
         }
+    }
+
+    private void requireApplicationMatchesIntent(PartyApplication application, PaymentIntent intent) {
+        if (!java.util.Objects.equals(application.getOrderId(), intent.getOrderId())
+                || !java.util.Objects.equals(application.getApplicantId(), intent.getApplicantId())
+                || !java.util.Objects.equals(application.getPartyId(), intent.getPartyId())
+                || (application.getPaymentKey() != null
+                        && !application.getPaymentKey().isBlank()
+                        && !java.util.Objects.equals(application.getPaymentKey(), intent.getPaymentKey()))
+                || (application.getDepositAmount() != null
+                        && !java.util.Objects.equals(application.getDepositAmount(), intent.getExpectedAmount()))) {
+            throw new InvalidApplicationStatusException("결제 요청과 신청 정보가 일치하지 않습니다.");
+        }
+    }
+
+    private TossPaymentException reconciliationRequiredException() {
+        return new TossPaymentException(
+                "PAYMENT_INTENT_RECONCILIATION_REQUIRED",
+                "결제 승인 응답 대사가 필요합니다. 고객센터에 문의해주세요.",
+                HttpStatus.CONFLICT);
+    }
+
+    private String boundedEvidence(String value, int maximumLength) {
+        if (value == null || value.length() <= maximumLength) {
+            return value;
+        }
+        return value.substring(0, maximumLength - 3) + "...";
     }
 
     public Long resolveUserId(Principal principal) {
@@ -486,9 +723,8 @@ public class PaymentIntentService {
         if (existing.isPresent()) {
             return existing.get();
         }
-        validateApplicationPreconditions(request.getPartyId(), applicantId);
-
         PaymentFlowType flowType = request.getFlowType() != null ? request.getFlowType() : PaymentFlowType.DEPOSIT;
+        validateApplicationPreconditions(request.getPartyId(), applicantId, flowType);
         PaymentAmountCalculator.AmountInfo amountInfo = paymentAmountCalculator.calculateAmount(request.getPartyId(), flowType);
 
         PaymentIntent legacyIntent = PaymentIntent.builder()
@@ -508,10 +744,23 @@ public class PaymentIntentService {
         return paymentIntentRepository.save(legacyIntent);
     }
 
-    private void validateApplicationPreconditions(Long partyId, Long applicantId) {
+    private void validateApplicationPreconditions(Long partyId, Long applicantId, PaymentFlowType flowType) {
         if (requireSocialVerification && !userService.isSocialVerified(applicantId)) {
             throw new com.example.common.exception.IdentityVerificationRequiredException(
                     "메이트에 신청하려면 카카오 또는 네이버 계정 연동이 필요합니다.");
+        }
+
+        Party party = partyRepository.findByIdForUpdate(partyId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+        PaymentFlowType resolvedFlowType = flowType != null ? flowType : PaymentFlowType.DEPOSIT;
+        boolean eligible = switch (resolvedFlowType) {
+            case DEPOSIT -> party.getStatus() == Party.PartyStatus.PENDING;
+            case SELLING_FULL -> party.getStatus() == Party.PartyStatus.SELLING;
+        };
+        if (!eligible) {
+            throw new InvalidApplicationStatusException(resolvedFlowType == PaymentFlowType.SELLING_FULL
+                    ? "SELLING 상태 파티만 전액 결제를 진행할 수 있습니다."
+                    : "모집 중인 파티만 예약금 결제를 진행할 수 있습니다.");
         }
 
         applicationRepository.findByPartyIdAndApplicantId(partyId, applicantId)
@@ -528,8 +777,6 @@ public class PaymentIntentService {
             throw new InvalidApplicationStatusException("이 파티의 대기 중인 신청이 최대(10건)에 도달했습니다.");
         }
 
-        Party party = partyRepository.findById(partyId)
-                .orElseThrow(() -> new PartyNotFoundException(partyId));
         if (party.getCurrentParticipants() >= party.getMaxParticipants()) {
             throw new PartyFullException(partyId);
         }
@@ -542,33 +789,6 @@ public class PaymentIntentService {
 
     private String generateOrderId(Long partyId, Long applicantId) {
         return "MATE-" + partyId + "-" + applicantId + "-" + System.currentTimeMillis();
-    }
-
-    private boolean isAlreadyCancelledByProvider(RuntimeException ex) {
-        if (ex instanceof TossPaymentException tossEx) {
-            // 1순위: Toss API가 응답한 정확한 에러 코드로 판별
-            String tossErrorCode = tossEx.getTossErrorCode();
-            if (tossErrorCode != null) {
-                return "ALREADY_CANCELED_PAYMENT".equals(tossErrorCode)
-                        || "ALREADY_FULLY_CANCELED".equals(tossErrorCode)
-                        || "PAYMENT_ALREADY_CANCELED".equals(tossErrorCode);
-            }
-
-            // 2순위: 에러 코드가 없는 경우(구버전 호환), HTTP 상태 + 명확한 키워드 조합으로만 판별
-            // 주의: "취소" 단어는 TossPaymentService 내부 메시지에도 포함되므로 사용하지 않음
-            HttpStatus status = tossEx.getStatusCode() instanceof HttpStatus ? (HttpStatus) tossEx.getStatusCode() : null;
-            boolean conflictStatus = status == HttpStatus.CONFLICT || status == HttpStatus.NOT_FOUND;
-            String message = tossEx.getMessage() == null ? "" : tossEx.getMessage().toLowerCase();
-            boolean alreadyCancelledByMessage = message.contains("already")
-                    || message.contains("이미 취소된")
-                    || message.contains("already canceled")
-                    || message.contains("already cancelled");
-            if (conflictStatus && alreadyCancelledByMessage) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private PartyApplication.PaymentType resolvePaymentType(PaymentFlowType flowType) {
