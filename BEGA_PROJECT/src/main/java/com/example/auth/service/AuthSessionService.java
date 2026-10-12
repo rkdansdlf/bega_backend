@@ -6,10 +6,10 @@ import com.example.auth.util.JWTUtil;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDateTime;
+import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +22,6 @@ public class AuthSessionService {
     private final RefreshTokenReuseDetector refreshTokenReuseDetector;
     private final RefreshTokenDigestService refreshTokenDigestService;
 
-    @Autowired
     public AuthSessionService(
             RefreshRepository refreshRepository,
             JWTUtil jwtUtil,
@@ -109,7 +108,18 @@ public class AuthSessionService {
         // [Security Fix - Medium #4] 회전 전 원본 token을 재사용 탐지 마커로 등록.
         String previousTokenValue = extractRefreshToken(request);
         if (previousTokenValue != null && !previousTokenValue.isBlank() && userId != null) {
-            refreshTokenReuseDetector.markRotated(previousTokenValue, userId, jwtUtil.getRefreshTokenExpirationTime());
+            long mappingTtlMillis = jwtUtil.getRefreshTokenExpirationTime();
+            Date previousTokenExpiration = jwtUtil.getExpiration(previousTokenValue);
+            if (previousTokenExpiration != null) {
+                mappingTtlMillis = Math.min(
+                        mappingTtlMillis,
+                        previousTokenExpiration.getTime() - System.currentTimeMillis());
+            }
+            refreshTokenReuseDetector.markRotated(
+                    previousTokenValue,
+                    userId,
+                    sessionId,
+                    mappingTtlMillis);
         }
 
         String refreshToken = jwtUtil.createRefreshToken(email, role, userId, tokenVersion, sessionId);

@@ -1,5 +1,9 @@
 package com.example.auth.oauth2;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.bega.auth.dto.OAuth2LinkStateData;
 import com.example.bega.auth.service.OAuth2LinkStateService;
@@ -11,6 +15,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -20,7 +25,9 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -44,6 +51,71 @@ class CookieAuthorizationRequestRepositoryTest {
                 "test-cookie-secret",
                 false,
                 securityMonitoringService);
+    }
+
+    @Test
+    @DisplayName("OAuth2 authorization state 원문은 로그에 남기지 않음")
+    void saveAuthorizationRequest_doesNotLogOriginalState() {
+        Logger logger = (Logger) LoggerFactory.getLogger(CookieAuthorizationRequestRepository.class);
+        Level previousLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+
+        try {
+            MockHttpServletRequest request = new MockHttpServletRequest();
+            String originalState = "raw-oauth-state-secret";
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            repository.saveAuthorizationRequest(createAuthorizationRequest(originalState), request, response);
+
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .noneMatch(message -> message.contains(originalState));
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .anyMatch(message -> message.contains("state: present"));
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(previousLevel);
+            appender.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("연동 state 저장 오류의 중첩 예외도 원문 state를 로그에 남기지 않음")
+    void saveAuthorizationRequest_doesNotLogStateFromLinkStateFailure() {
+        Logger logger = (Logger) LoggerFactory.getLogger(CookieAuthorizationRequestRepository.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        String originalState = "raw-state-store-failure-sentinel";
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setParameter("mode", "link");
+        request.setParameter("linkToken", "synthetic-link-ticket");
+        when(oAuth2LinkStateService.consumeLinkToken("synthetic-link-ticket"))
+                .thenReturn(OAuth2LinkStateService.LinkTicketConsumeResult.success(42L));
+        doThrow(new OAuth2LinkStateService.OAuth2LinkStateStoreException(
+                OAuth2LinkStateService.ERROR_CODE_LINK_STATE_STORE_UNAVAILABLE,
+                new IllegalStateException("Redis failed for oauth2:link:state:" + originalState)))
+                .when(oAuth2LinkStateService).saveLinkByState(eq(originalState), any());
+
+        try {
+            repository.saveAuthorizationRequest(
+                    createAuthorizationRequest(originalState), request, new MockHttpServletResponse());
+
+            assertThat(appender.list).allSatisfy(event -> {
+                assertThat(event.getFormattedMessage()).doesNotContain(originalState);
+                for (var throwable = event.getThrowableProxy(); throwable != null;
+                        throwable = throwable.getCause()) {
+                    assertThat(throwable.getMessage()).doesNotContain(originalState);
+                }
+            });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test

@@ -164,7 +164,10 @@ public class CheerInteractionService {
     @Transactional
     public ReportCaseRes reportPost(Long postId, ReportRequest req, UserEntity me) {
         UserEntity reporter = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
-        CheerPost post = postService.findPostById(postId);
+        CheerPost post = findPostByIdForInteractionWrite(postId);
+        if (userRepo.existsFinalizedTombstoneById(post.getAuthor().getId())) {
+            throw new IllegalStateException("탈퇴 처리된 게시글은 신고할 수 없습니다.");
+        }
         publicVisibilityVerifier.validate(post.getAuthor(), reporter.getId(), "게시글");
         validateNoBlockBetween(reporter.getId(), post.getAuthor().getId(), "신고할 수 없습니다.");
 

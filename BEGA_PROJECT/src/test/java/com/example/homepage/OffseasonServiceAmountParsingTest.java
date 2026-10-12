@@ -1,6 +1,8 @@
 package com.example.homepage;
 
 import com.example.kbo.entity.PlayerMovement;
+import com.example.kbo.validation.ManualBaseballDataRequest;
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -9,10 +11,27 @@ import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OffseasonServiceAmountParsingTest {
 
     private final OffseasonService offseasonService = new OffseasonService(null);
+
+    @Test
+    void getOffseasonMetadataRequiresOperatorDataForRequestedYear() {
+        ManualBaseballDataRequiredException exception = assertThrows(
+                ManualBaseballDataRequiredException.class,
+                () -> offseasonService.getOffseasonMetadata(2024));
+
+        ManualBaseballDataRequest request = (ManualBaseballDataRequest) exception.getData();
+        assertEquals("MANUAL_BASEBALL_DATA_REQUIRED", exception.getCode());
+        assertEquals("kbo.offseason.metadata", request.scope());
+        assertTrue(request.blocking());
+        assertEquals("season_metadata", request.missingItems().get(0).key());
+        assertTrue(request.missingItems().get(0).expectedFormat().contains("year=2024"));
+        assertTrue(request.operatorMessage().contains("2024"));
+    }
 
     @Test
     void parseAmountShouldSupportCommaSeparatedEok() {

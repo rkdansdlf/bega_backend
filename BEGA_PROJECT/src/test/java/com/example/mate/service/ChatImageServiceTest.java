@@ -23,6 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import reactor.core.publisher.Mono;
+import java.util.List;
 
 @ExtendWith(MockitoExtension.class)
 class ChatImageServiceTest {
@@ -128,6 +129,30 @@ class ChatImageServiceTest {
                 .isEqualTo("media/chat/3/77.webp");
         assertThat(chatImageService.normalizeChatStoragePathForUser(3L, "chat/3/legacy.webp"))
                 .isEqualTo("chat/3/legacy.webp");
+    }
+
+    @Test
+    @DisplayName("계정 정리는 본인 legacy 내부 채팅 키만 지우고 외부 URL은 요청하지 않는다")
+    void deleteLegacyChatImagesForUser_deletesOnlyOwnedInternalKeys() {
+        when(storageConfig.getCheerBucket()).thenReturn("cheer-bucket");
+        when(mediaObjectKeyGuard.canReadChatKey("chat/3/legacy.webp", 3L)).thenReturn(true);
+        when(storageStrategy.delete("cheer-bucket", "chat/3/legacy.webp")).thenReturn(Mono.empty());
+
+        chatImageService.deleteLegacyChatImagesForUser(3L, List.of(
+                "chat/3/legacy.webp",
+                "chat/99/other-user.webp",
+                "chat/3/../99/other-user.webp",
+                "https://outside.example/private-image.webp",
+                "https://outside.example/chat/3/remote.webp",
+                "HTTPS://outside.example/chat/3/uppercase.webp",
+                "media/chat/3/77.webp"));
+
+        verify(storageStrategy).delete("cheer-bucket", "chat/3/legacy.webp");
+        verify(storageStrategy, never()).delete("cheer-bucket", "chat/99/other-user.webp");
+        verify(storageStrategy, never()).delete("cheer-bucket", "chat/3/remote.webp");
+        verify(storageStrategy, never()).delete("cheer-bucket", "chat/3/uppercase.webp");
+        verify(storageStrategy, never()).delete("cheer-bucket", "https://outside.example/private-image.webp");
+        verify(storageStrategy, never()).delete("cheer-bucket", "media/chat/3/77.webp");
     }
 
     @Test

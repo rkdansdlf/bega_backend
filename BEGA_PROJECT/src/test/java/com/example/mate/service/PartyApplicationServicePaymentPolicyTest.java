@@ -13,8 +13,10 @@ import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.exception.PartyApplicationNotFoundException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
+import com.example.mate.repository.PaymentIntentRepository;
 import com.example.mate.repository.PartyReviewRepository;
 import com.example.notification.service.NotificationService;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,6 +47,10 @@ class PartyApplicationServicePaymentPolicyTest {
     @Mock
     private PartyRepository partyRepository;
     @Mock
+    private PaymentIntentRepository paymentIntentRepository;
+    @Mock
+    private EntityManager entityManager;
+    @Mock
     private PartyReviewRepository partyReviewRepository;
     @Mock
     private PartyService partyService;
@@ -70,6 +76,7 @@ class PartyApplicationServicePaymentPolicyTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(partyApplicationService, "sellingPaymentEnforced", true);
+        ReflectionTestUtils.setField(partyApplicationService, "entityManager", entityManager);
     }
 
     @Test
@@ -99,6 +106,7 @@ class PartyApplicationServicePaymentPolicyTest {
         given(applicationRepository.existsByPartyIdAndApplicantIdAndIsRejectedTrue(1L, applicantId)).willReturn(false);
         given(applicationRepository.countByPartyIdAndIsApprovedFalseAndIsRejectedFalse(1L)).willReturn(0L);
         given(applicationRepository.countByApplicantIdAndIsApprovedTrue(applicantId)).willReturn(0L);
+        given(partyRepository.findById(1L)).willReturn(Optional.of(party));
         given(partyRepository.findByIdForUpdate(1L)).willReturn(Optional.of(party));
 
         PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
@@ -135,6 +143,7 @@ class PartyApplicationServicePaymentPolicyTest {
                 .paymentType(PartyApplication.PaymentType.DEPOSIT)
                 .build();
 
+        given(partyRepository.findById(2L)).willReturn(Optional.of(party));
         given(partyRepository.findByIdForUpdate(2L)).willReturn(Optional.of(party));
         given(userService.findUserByIdForUpdate(applicantId)).willReturn(applicant);
 
@@ -142,9 +151,68 @@ class PartyApplicationServicePaymentPolicyTest {
                 .isInstanceOf(InvalidApplicationStatusException.class)
                 .hasMessageContaining("탈퇴");
 
-        org.mockito.InOrder order = org.mockito.Mockito.inOrder(partyRepository, userService);
-        order.verify(partyRepository).findByIdForUpdate(2L);
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(userService, partyRepository);
         order.verify(userService).findUserByIdForUpdate(applicantId);
+        order.verify(partyRepository).findByIdForUpdate(2L);
+        verify(applicationRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void createApplication_depositToFailedPartyIsRejectedBeforeApplicantLookupOrPersistence() {
+        Long applicantId = 18L;
+        Party failedParty = Party.builder()
+                .id(3L)
+                .hostId(99L)
+                .status(Party.PartyStatus.FAILED)
+                .currentParticipants(0)
+                .maxParticipants(3)
+                .build();
+        PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
+                .partyId(3L)
+                .message("종료된 파티 신청 차단 확인")
+                .paymentType(PartyApplication.PaymentType.DEPOSIT)
+                .build();
+        given(partyRepository.findById(3L)).willReturn(Optional.of(failedParty));
+        given(partyRepository.findByIdForUpdate(3L)).willReturn(Optional.of(failedParty));
+
+        assertThatThrownBy(() -> partyApplicationService.createApplication(request, applicantId))
+                .isInstanceOf(InvalidApplicationStatusException.class)
+                .hasMessageContaining("모집 중");
+
+        verify(userService, never()).findUserByIdForUpdate(applicantId);
+        verify(applicationRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void createOrGetApplicationWithPayment_depositToFailedPartyIsRejectedBeforePaidApplicationPersistence() {
+        Long applicantId = 19L;
+        Party failedParty = Party.builder()
+                .id(4L)
+                .hostId(99L)
+                .status(Party.PartyStatus.FAILED)
+                .currentParticipants(0)
+                .maxParticipants(3)
+                .build();
+        PartyApplicationDTO.Request request = PartyApplicationDTO.Request.builder()
+                .partyId(4L)
+                .message("결제 후 종료된 파티 신청 차단 확인")
+                .paymentType(PartyApplication.PaymentType.DEPOSIT)
+                .build();
+        given(partyRepository.findById(4L)).willReturn(Optional.of(failedParty));
+        given(partyRepository.findByIdForUpdate(4L)).willReturn(Optional.of(failedParty));
+
+        assertThatThrownBy(() -> partyApplicationService.createOrGetApplicationWithPayment(
+                request,
+                applicantId,
+                "synthetic-payment-key",
+                "synthetic-order-id",
+                25000,
+                PartyApplication.PaymentType.DEPOSIT))
+                .isInstanceOf(InvalidApplicationStatusException.class)
+                .hasMessageContaining("모집 중");
+
+        verify(userService, never()).findUserByIdForUpdate(applicantId);
+        verify(applicationRepository, never()).save(any());
         verify(applicationRepository, never()).saveAndFlush(any());
     }
 
@@ -291,6 +359,9 @@ class PartyApplicationServicePaymentPolicyTest {
                 .isInstanceOf(InvalidApplicationStatusException.class)
                 .hasMessageContaining("탈퇴");
 
+        org.mockito.InOrder applicantBeforeParty = org.mockito.Mockito.inOrder(userService, partyRepository);
+        applicantBeforeParty.verify(userService).findUserByIdForUpdate(7L);
+        applicantBeforeParty.verify(partyRepository).findByIdForUpdate(5L);
         verify(applicationRepository, never()).save(any());
         verify(partyService, never()).incrementParticipants(any());
         verify(userService).findUserByIdForUpdate(7L);

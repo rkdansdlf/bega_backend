@@ -38,6 +38,22 @@ class MediaObjectKeyGuardTest {
     }
 
     @Test
+    @DisplayName("standalone 시야뷰 URL은 제출과 연결된 동일 사용자 자산만 허용한다")
+    void canReadSeatViewKey_requiresExactOwnerAndSeatViewLink() {
+        String path = "media/seat-view/7/77.webp";
+        when(mediaLinkService.requireLinkedSeatViewAsset(7L, path, 501L))
+                .thenReturn(com.example.media.entity.MediaAsset.builder().build());
+
+        assertThat(guard.canReadSeatViewKey(path, 7L, 501L)).isTrue();
+        verify(mediaLinkService).requireLinkedSeatViewAsset(7L, path, 501L);
+
+        doThrow(new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "not found"))
+                .when(mediaLinkService)
+                .requireLinkedSeatViewAsset(8L, path, 501L);
+        assertThat(guard.canReadSeatViewKey(path, 8L, 501L)).isFalse();
+    }
+
+    @Test
     @DisplayName("managed key owner 불일치는 존재 여부를 숨기고 거부한다")
     void requireChatWriteKey_rejectsManagedOwnerMismatchAsNotFound() {
         doThrow(new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "not found"))

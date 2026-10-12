@@ -2,6 +2,9 @@ package com.example.homepage;
 
 import com.example.kbo.entity.PlayerMovement;
 import com.example.kbo.repository.PlayerMovementRepository;
+import com.example.kbo.validation.ManualBaseballDataMissingItem;
+import com.example.kbo.validation.ManualBaseballDataRequest;
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -156,48 +159,14 @@ public class OffseasonService {
      * Returns offseason metadata (awards, postseason results) for a given year.
      */
     public OffseasonMetaDto getOffseasonMetadata(int year) {
-        AwardDescriptionGenerator generator = new AwardDescriptionGenerator();
-
-        // Simulating DB fetch: List<AwardEntity> awardEntities =
-        // awardRepository.findByYear(year);
-        // We create them manually here to demonstrate the generator logic
-        List<com.example.kbo.entity.AwardEntity> awardEntities = java.util.List.of(
-                com.example.kbo.entity.AwardEntity.builder().awardType("MVP").playerName("코디 폰세").team("한화").year(2025)
-                        .build(),
-                com.example.kbo.entity.AwardEntity.builder().awardType("신인상").playerName("안현민").team("KT").year(2025)
-                        .build(),
-                com.example.kbo.entity.AwardEntity.builder().awardType("홈런상").playerName("르윈 디아즈").team("삼성")
-                        .year(2025).build(),
-                com.example.kbo.entity.AwardEntity.builder().awardType("홀드상").playerName("노경은").team("SSG").year(2025)
-                        .build(),
-                com.example.kbo.entity.AwardEntity.builder().awardType("도루상").playerName("박해민").team("LG").year(2025)
-                        .build(),
-                com.example.kbo.entity.AwardEntity.builder().awardType("타율상").playerName("양의지").team("두산").year(2025)
-                        .build());
-
-        List<OffseasonMetaDto.AwardDto> awards = awardEntities.stream()
-                .map(entity -> OffseasonMetaDto.AwardDto.builder()
-                        .award(entity.getAwardType())
-                        .playerName(entity.getPlayerName())
-                        .team(entity.getTeam())
-                        .stats(generator.generateDescription(entity)) // Dynamic Generation!
-                        .build())
-                .collect(java.util.stream.Collectors.toList());
-
-        // 2025 PostSeason Results (Still Static for now)
-        List<OffseasonMetaDto.PostSeasonResultDto> postSeasonResults = List.of(
-                OffseasonMetaDto.PostSeasonResultDto.builder()
-                        .title("한국시리즈 우승").result("LG 트윈스").detail("한화 이글스 KS 4-1 승").build(),
-                OffseasonMetaDto.PostSeasonResultDto.builder()
-                        .title("플레이오프").result("한화 이글스").detail("삼성 라이온즈 PO 3-2 승").build(),
-                OffseasonMetaDto.PostSeasonResultDto.builder()
-                        .title("준플레이오프").result("삼성 라이온즈").detail("SSG 랜더스 준PO 2-3 승").build(),
-                OffseasonMetaDto.PostSeasonResultDto.builder()
-                        .title("와일드카드").result("삼성 라이온즈").detail("NC 다이노스 WC 1-1 승").build());
-
-        return OffseasonMetaDto.builder()
-                .awards(awards)
-                .postSeasonResults(postSeasonResults)
-                .build();
+        throw new ManualBaseballDataRequiredException(new ManualBaseballDataRequest(
+                "kbo.offseason.metadata",
+                List.of(new ManualBaseballDataMissingItem(
+                        "season_metadata",
+                        "시즌 수상·포스트시즌 결과",
+                        "검증된 내부 시즌 자료가 연결되지 않았습니다.",
+                        "year=" + year + " with operator-provided season result rows")),
+                "요청 시즌=" + year + "의 수상·포스트시즌 자료가 필요합니다.",
+                true));
     }
 }

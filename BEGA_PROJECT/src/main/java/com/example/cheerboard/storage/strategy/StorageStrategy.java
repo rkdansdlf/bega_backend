@@ -35,10 +35,16 @@ public interface StorageStrategy {
      * @param bucket      버킷명
      * @param path        업로드 대상 경로
      * @param contentType 요청 시 강제할 MIME 타입
+     * @param contentLength 요청 시 서명에 고정할 정확한 본문 크기
      * @param expiresInSeconds 유효 시간 (초)
      * @return presigned 업로드 URL 및 필수 헤더
      */
-    Mono<PresignedUpload> presignPut(String bucket, String path, String contentType, int expiresInSeconds);
+    Mono<PresignedUpload> presignPut(
+            String bucket,
+            String path,
+            String contentType,
+            long contentLength,
+            int expiresInSeconds);
 
     /**
      * 파일 삭제

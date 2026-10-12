@@ -149,9 +149,8 @@ class PasswordSessionInvalidationIntegrationTest {
 
         mockMvc.perform(post("/api/auth/reissue")
                         .cookie(new Cookie("Refresh", refreshToken)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("REFRESH_TOKEN_NOT_FOUND"))
-                .andExpect(jsonPath("$.message").value("잘못된 Refresh Token입니다."));
+                .andExpect(jsonPath("$.code").value("INVALID_AUTHOR"));
     }
 }

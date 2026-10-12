@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.S3Exception;
@@ -14,12 +15,24 @@ class S3StorageStrategyClassifyTest {
         return (S3Exception) S3Exception.builder().statusCode(status).message("s3 " + status).build();
     }
 
+    private static S3Exception s3(int status, String errorCode) {
+        return (S3Exception) S3Exception.builder()
+                .statusCode(status)
+                .awsErrorDetails(AwsErrorDetails.builder().errorCode(errorCode).build())
+                .message("s3 " + status + " " + errorCode)
+                .build();
+    }
+
     @Test
-    @DisplayName("404/NoSuchKey만 객체 부재로 분류한다")
+    @DisplayName("NoSuchKey만 객체 부재로 분류하고 일반/NoSuchBucket 404는 부재로 오판하지 않는다")
     void notFound() {
         assertEquals(StorageOperationException.Kind.OBJECT_NOT_FOUND,
                 S3StorageStrategy.classify(NoSuchKeyException.builder().message("x").build()));
-        assertEquals(StorageOperationException.Kind.OBJECT_NOT_FOUND, S3StorageStrategy.classify(s3(404)));
+        assertEquals(StorageOperationException.Kind.OBJECT_NOT_FOUND,
+                S3StorageStrategy.classify(s3(404, "NoSuchKey")));
+        assertEquals(StorageOperationException.Kind.PERMANENT, S3StorageStrategy.classify(s3(404)));
+        assertEquals(StorageOperationException.Kind.PERMANENT,
+                S3StorageStrategy.classify(s3(404, "NoSuchBucket")));
     }
 
     @Test

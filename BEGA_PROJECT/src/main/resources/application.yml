@@ -1,3 +1,14 @@
+rag:
+  flyway:
+    # Dedicated RAG schema migration is an operator action. Normal app startup
+    # neither constructs its datasource nor runs DDL.
+    enabled: ${RAG_FLYWAY_ENABLED:false}
+    url: ${RAG_FLYWAY_URL:}
+    username: ${RAG_FLYWAY_USERNAME:}
+    password: ${RAG_FLYWAY_PASSWORD:}
+    locations: ${RAG_FLYWAY_LOCATIONS:classpath:db/migration_rag_oracle/}
+    history-table: ${RAG_FLYWAY_HISTORY_TABLE:flyway_rag_schema_history}
+
 spring:
   profiles:
     active: dev

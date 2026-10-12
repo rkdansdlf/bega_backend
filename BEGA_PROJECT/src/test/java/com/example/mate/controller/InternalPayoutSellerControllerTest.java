@@ -1,6 +1,7 @@
 package com.example.mate.controller;
 
 import com.example.common.exception.GlobalExceptionHandler;
+import com.example.mate.dto.SellerPayoutProfileDTO;
 import com.example.mate.entity.SellerPayoutProfile;
 import com.example.mate.service.SellerPayoutProfileService;
 import java.time.Instant;
@@ -16,7 +17,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -75,5 +81,60 @@ class InternalPayoutSellerControllerTest {
                 .andExpect(jsonPath("$.data.userId").value(99))
                 .andExpect(jsonPath("$.data.provider").value("TOSS"))
                 .andExpect(jsonPath("$.data.providerSellerId").value("seller-123"));
+    }
+
+    @Test
+    void upsertSellerProfileRejectsProviderSellerIdLongerThan120AfterTrim() throws Exception {
+        mockMvc.perform(post("/api/internal/payout/sellers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":10,\"provider\":\"TOSS\",\"providerSellerId\":\""
+                                + "s".repeat(121) + "\",\"kycStatus\":\"APPROVED\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errors.providerSellerId")
+                        .value("providerSellerId는 공백 제거 후 120자 이하여야 합니다."));
+
+        verifyNoInteractions(sellerPayoutProfileService);
+    }
+
+    @Test
+    void upsertSellerProfileRejectsKycStatusLongerThan50() throws Exception {
+        mockMvc.perform(post("/api/internal/payout/sellers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":10,\"provider\":\"TOSS\",\"providerSellerId\":\"seller_10\",\"kycStatus\":\""
+                                + "k".repeat(51) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errors.kycStatus").value("kycStatus는 50자 이하여야 합니다."));
+
+        verifyNoInteractions(sellerPayoutProfileService);
+    }
+
+    @Test
+    void upsertSellerProfileAccepts120TrimmedIdAnd50CharacterKycStatus() throws Exception {
+        String normalizedSellerId = "s".repeat(120);
+        String rawSellerId = "  " + normalizedSellerId + "  ";
+        String kycStatus = "k".repeat(50);
+        SellerPayoutProfile profile = SellerPayoutProfile.builder()
+                .id(10L)
+                .userId(10L)
+                .provider("TOSS")
+                .providerSellerId(normalizedSellerId)
+                .kycStatus(kycStatus)
+                .build();
+        when(sellerPayoutProfileService.upsert(any(SellerPayoutProfileDTO.UpsertRequest.class)))
+                .thenReturn(profile);
+
+        mockMvc.perform(post("/api/internal/payout/sellers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":10,\"provider\":\"TOSS\",\"providerSellerId\":\""
+                                + rawSellerId + "\",\"kycStatus\":\"" + kycStatus + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.providerSellerId").value(normalizedSellerId))
+                .andExpect(jsonPath("$.data.kycStatus").value(kycStatus));
+
+        verify(sellerPayoutProfileService).upsert(argThat(request ->
+                request.getProviderSellerId().equals(rawSellerId)
+                        && request.getKycStatus().equals(kycStatus)));
     }
 }

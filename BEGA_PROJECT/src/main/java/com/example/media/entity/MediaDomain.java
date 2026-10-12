@@ -6,6 +6,7 @@ import java.util.Locale;
 public enum MediaDomain {
     PROFILE("profile"),
     DIARY("diary"),
+    SEAT_VIEW("seat-view"),
     CHEER("cheer"),
     CHAT("chat");
 
@@ -43,7 +44,7 @@ public enum MediaDomain {
     public String resolveBucket(StorageConfig storageConfig) {
         return switch (this) {
             case PROFILE -> storageConfig.getProfileBucket();
-            case DIARY -> storageConfig.getDiaryBucket();
+            case DIARY, SEAT_VIEW -> storageConfig.getDiaryBucket();
             case CHEER, CHAT -> storageConfig.getCheerBucket();
         };
     }

@@ -15,9 +15,13 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,13 +29,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -74,8 +81,8 @@ class HomePageFacadeServiceTest {
     }
 
     @Test
-    @DisplayName("bootstrap은 운영자가 수동 데이터 필요 날짜로 지정하면 DB 섹션 작업 없이 fallback을 반환한다")
-    void getBootstrapShouldFailFastForConfiguredManualDataDate() {
+    @DisplayName("bootstrap 수동 데이터 지정 날짜도 내부 리그 시작일을 보존하고 경기 섹션은 생략한다")
+    void getBootstrapPreservesLeagueEvidenceForConfiguredManualDataDate() {
         LocalDate selectedDate = LocalDate.of(2026, 6, 18);
         HomePageFacadeService service = new HomePageFacadeService(
                 homePageGameService,
@@ -89,11 +96,14 @@ class HomePageFacadeServiceTest {
                 null,
                 null,
                 new ManualBaseballDataOverrideService(Set.of(selectedDate)));
+        when(homePageGameService.getLeagueStartDates()).thenReturn(LeagueStartDatesDto.builder()
+                .regularSeasonStart("2026-03-28")
+                .build());
 
         HomeBootstrapResponseDto response = service.getBootstrap(selectedDate);
 
         assertThat(response.getSelectedDate()).isEqualTo("2026-06-18");
-        assertThat(response.getLeagueStartDates().getRegularSeasonStart()).isEqualTo("2026-06-18");
+        assertThat(response.getLeagueStartDates().getRegularSeasonStart()).isEqualTo("2026-03-28");
         assertThat(response.getGames()).isEmpty();
         assertThat(response.getScheduledGamesWindow()).isEmpty();
         assertThat(response.getLoadState().getIsFallback()).isTrue();
@@ -104,10 +114,63 @@ class HomePageFacadeServiceTest {
         assertThat(response.getLoadState().getFailureReason()).isEqualTo("manual-data-required");
         assertThat(response.getLoadState().getManualDataRequest()).isNotNull();
         assertThat(response.getLoadState().getManualDataRequest().scope()).isEqualTo("home.schedule");
-        verify(homePageGameService, never()).getLeagueStartDates();
+        verify(homePageGameService).getLeagueStartDates();
         verify(homePageGameService, never()).getScheduleNavigation(any(LocalDate.class));
         verify(homePageGameService, never()).getGamesByDateAllowingPartialManualData(any(LocalDate.class));
         verify(homePageGameService, never()).getScheduledGamesWindow(any(LocalDate.class), any(LocalDate.class));
+    }
+
+    @Test
+    void getBootstrapPropagatesMissingLeagueForConfiguredManualDataDate() {
+        LocalDate selectedDate = LocalDate.of(2026, 6, 18);
+        HomePageFacadeService service = new HomePageFacadeService(
+                homePageGameService, cheerService, featuredMateQuery,
+                null, null, Duration.ofSeconds(6), Duration.ofSeconds(6), FIXED_CLOCK, null, null,
+                new ManualBaseballDataOverrideService(Set.of(selectedDate)));
+        ManualBaseballDataRequiredException failure = new ManualBaseballDataRequiredException(
+                new ManualBaseballDataRequest("home.league_start_dates",
+                        List.of(new ManualBaseballDataMissingItem(
+                                "regularSeasonStart", "Regular season start date", "Missing internal season evidence", "YYYY-MM-DD")),
+                        "Operator data required for season 2026", true));
+        when(homePageGameService.getLeagueStartDates()).thenThrow(failure);
+
+        try {
+            assertThatThrownBy(() -> service.getBootstrap(selectedDate)).isSameAs(failure);
+            verify(homePageGameService, never()).getGamesByDateAllowingPartialManualData(any(LocalDate.class));
+        } finally {
+            service.shutdownSectionExecutor();
+        }
+    }
+
+    @Test
+    void getBootstrapCancelsOutstandingSectionsWhenDatabaseFailurePropagates() throws Exception {
+        LocalDate selectedDate = LocalDate.of(2026, 6, 18);
+        CountDownLatch gamesStarted = new CountDownLatch(1);
+        CountDownLatch gamesInterrupted = new CountDownLatch(1);
+        CountDownLatch releaseGames = new CountDownLatch(1);
+        TransientDataAccessResourceException failure = new TransientDataAccessResourceException("database unavailable");
+        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate)).thenAnswer(invocation -> {
+            gamesStarted.countDown();
+            try {
+                releaseGames.await();
+            } catch (InterruptedException exception) {
+                gamesInterrupted.countDown();
+                Thread.currentThread().interrupt();
+            }
+            return HomePageGamesResult.empty();
+        });
+        when(homePageGameService.getScheduleNavigation(selectedDate)).thenAnswer(invocation -> {
+            assertThat(gamesStarted.await(1, TimeUnit.SECONDS)).isTrue();
+            throw failure;
+        });
+
+        try {
+            assertThatThrownBy(() -> homePageFacadeService.getBootstrap(selectedDate)).isSameAs(failure);
+            assertThat(gamesInterrupted.await(1, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            releaseGames.countDown();
+            homePageFacadeService.shutdownSectionExecutor();
+        }
     }
 
     @Test
@@ -713,60 +776,63 @@ class HomePageFacadeServiceTest {
     }
 
     @Test
-    @DisplayName("bootstrap은 특정 섹션이 timeout되어도 기본값으로 응답한다")
-    void getBootstrapFallsBackWhenSectionTimesOut() throws Exception {
+    @DisplayName("bootstrap은 timeout 뒤 완료된 필수 리그 시작일 결과를 거부한다")
+    void bootstrapRejectsRequiredLeagueStartDatesCompletedAfterDeadline() throws Exception {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        Duration sectionTimeout = Duration.ofMillis(20);
+        ExecutorService sectionExecutor = Executors.newSingleThreadExecutor();
         HomePageFacadeService timeoutAwareService = new HomePageFacadeService(
                 homePageGameService,
                 cheerService,
                 featuredMateQuery,
                 null,
                 null,
-                Duration.ofMillis(20),
-                Duration.ofMillis(20),
+                sectionTimeout,
+                sectionTimeout,
                 FIXED_CLOCK,
-                null,
+                sectionExecutor,
                 meterRegistry);
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
-
-        when(homePageGameService.getLeagueStartDates()).thenAnswer(invocation -> {
-            Thread.sleep(80);
-            return LeagueStartDatesDto.builder()
-                    .regularSeasonStart("2026-03-22")
-                    .postseasonStart("2026-10-06")
-                    .koreanSeriesStart("2026-10-26")
-                    .build();
+        CountDownLatch workerStarted = new CountDownLatch(1);
+        CountDownLatch releaseWorker = new CountDownLatch(1);
+        AtomicLong completedAtNanos = new AtomicLong();
+        long startedAtNanos = System.nanoTime();
+        Future<LeagueStartDatesDto> lateResult = sectionExecutor.submit(() -> {
+            workerStarted.countDown();
+            try {
+                releaseWorker.await();
+                return LeagueStartDatesDto.builder()
+                        .regularSeasonStart("2026-03-22")
+                        .postseasonStart("2026-10-06")
+                        .koreanSeriesStart("2026-10-26")
+                        .build();
+            } finally {
+                completedAtNanos.set(System.nanoTime());
+            }
         });
-        when(homePageGameService.getScheduleNavigation(selectedDate)).thenReturn(ScheduleNavigationDto.builder()
-                .prevGameDate(LocalDate.of(2026, 3, 14))
-                .nextGameDate(LocalDate.of(2026, 3, 16))
-                .hasPrev(true)
-                .hasNext(true)
-                .build());
-        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate))
-                .thenReturn(HomePageGamesResult.empty());
-        when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
-                .thenReturn(List.of());
 
-        long startedAt = System.nanoTime();
-        HomeBootstrapResponseDto response = timeoutAwareService.getBootstrap(selectedDate);
-        long elapsedMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
+        try {
+            assertThat(workerStarted.await(1, TimeUnit.SECONDS)).isTrue();
+            assertThat(releaseWorker.await(80, TimeUnit.MILLISECONDS)).isFalse();
+            releaseWorker.countDown();
+            assertThat(lateResult.get(1, TimeUnit.SECONDS)).isNotNull();
 
-        assertThat(response.getLeagueStartDates().getRegularSeasonStart()).isEqualTo("2026-03-15");
-        assertThat(response.getNavigation().isHasPrev()).isTrue();
-        assertThat(response.getNavigation().isHasNext()).isTrue();
-        assertThat(response.getGames()).isEmpty();
-        assertThat(response.getScheduledGamesWindow()).isEmpty();
-        assertThat(response.getLoadState().getIsFallback()).isTrue();
-        assertThat(response.getLoadState().getTimedOut()).isTrue();
-        assertThat(response.getLoadState().getTimedOutSections()).containsExactly("leagueStartDates");
-        assertThat(response.getLoadState().getFailedSections()).containsExactly("leagueStartDates");
-        assertThat(meterRegistry.get("home_bootstrap_section_events_total")
-                .tag("section", "leaguestartdates")
-                .tag("result", "timeout")
-                .counter()
-                .count()).isEqualTo(1.0);
-        assertThat(elapsedMs).isLessThan(250L);
+            HomePageFacadeService.SectionTask<LeagueStartDatesDto> sectionTask =
+                    new HomePageFacadeService.SectionTask<>(
+                            "leagueStartDates", lateResult, startedAtNanos, completedAtNanos);
+            assertThatThrownBy(() -> timeoutAwareService.awaitLeagueStartDates(
+                    selectedDate, sectionTask, sectionTimeout))
+                    .isInstanceOf(TransientDataAccessResourceException.class);
+
+            assertThat(meterRegistry.get("home_bootstrap_section_events_total")
+                    .tag("section", "leaguestartdates")
+                    .tag("result", "timeout")
+                    .counter()
+                    .count()).isEqualTo(1.0);
+        } finally {
+            releaseWorker.countDown();
+            sectionExecutor.shutdownNow();
+        }
     }
 
     @Test
@@ -795,18 +861,17 @@ class HomePageFacadeServiceTest {
                     .koreanSeriesStart("2026-10-26")
                     .build();
         });
-        when(homePageGameService.getScheduleNavigation(selectedDate)).thenReturn(ScheduleNavigationDto.builder()
+        lenient().when(homePageGameService.getScheduleNavigation(selectedDate)).thenReturn(ScheduleNavigationDto.builder()
                 .hasPrev(false)
                 .hasNext(false)
                 .build());
-        when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate))
+        lenient().when(homePageGameService.getGamesByDateAllowingPartialManualData(selectedDate))
                 .thenReturn(HomePageGamesResult.empty());
-        when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
+        lenient().when(homePageGameService.getScheduledGamesWindow(eq(selectedDate), eq(selectedDate.plusDays(7))))
                 .thenReturn(List.of());
 
-        HomeBootstrapResponseDto response = timeoutAwareService.getBootstrap(selectedDate);
-
-        assertThat(response.getLoadState().getTimedOutSections()).containsExactly("leagueStartDates");
+        assertThatThrownBy(() -> timeoutAwareService.getBootstrap(selectedDate))
+                .isInstanceOf(TransientDataAccessResourceException.class);
         assertThat(sectionStarted.await(100, TimeUnit.MILLISECONDS)).isTrue();
         assertThat(sectionFinished.await(500, TimeUnit.MILLISECONDS)).isTrue();
         assertThat(interrupted).isTrue();

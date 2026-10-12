@@ -1,5 +1,8 @@
 package com.example.kbo.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -16,6 +19,7 @@ import com.example.kbo.exception.TicketAnalysisException;
 import com.example.kbo.service.port.TicketVisionPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
@@ -64,13 +68,25 @@ class TicketAnalysisServiceTest {
     void analyzeTicketRejectsInvalidTypeBeforeCallingVisionPort() {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "ticket.gif", "image/gif", new byte[] {1});
+        Logger logger = (Logger) LoggerFactory.getLogger(TicketAnalysisService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
 
-        assertThatThrownBy(() -> service.analyzeTicket(file))
-                .isInstanceOf(BadRequestBusinessException.class)
-                .hasMessage("지원되지 않는 이미지 형식입니다. JPG, PNG, WEBP 파일만 가능합니다.");
+        try {
+            assertThatThrownBy(() -> service.analyzeTicket(file))
+                    .isInstanceOf(BadRequestBusinessException.class)
+                    .hasMessage("지원되지 않는 이미지 형식입니다. JPG, PNG, WEBP 파일만 가능합니다.");
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .noneMatch(message -> message.contains("ticket.gif"));
 
-        verify(metricsService).recordReject("ticket_analyze", "invalid_type");
-        verify(ticketVisionPort, never()).analyze(file);
+            verify(metricsService).recordReject("ticket_analyze", "invalid_type");
+            verify(ticketVisionPort, never()).analyze(file);
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test

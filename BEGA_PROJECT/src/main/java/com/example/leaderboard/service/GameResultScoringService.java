@@ -4,15 +4,17 @@ import com.example.kbo.entity.GameEntity;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.util.KboTeamCodePolicy;
 import com.example.leaderboard.dto.ScoreResultDto;
+import com.example.leaderboard.repository.LegacyPerfectDayDateRepository;
 import com.example.leaderboard.repository.ScoreEventRepository;
-import com.example.prediction.Prediction;
 import com.example.prediction.PredictionRepository;
+import com.example.prediction.Prediction;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 
 /**
@@ -32,6 +34,8 @@ public class GameResultScoringService {
     private final PredictionRepository predictionRepository;
     private final ScoreEventRepository scoreEventRepository;
     private final ScoringService scoringService;
+    private final GameResultSettlementBaselineService settlementBaselineService;
+    private final LegacyPerfectDayDateRepository legacyPerfectDayDateRepository;
 
     /**
      * 특정 게임의 모든 예측 결과 처리
@@ -42,6 +46,11 @@ public class GameResultScoringService {
      */
     @Transactional(transactionManager = "transactionManager")
     public int processGameResult(String gameId) {
+        if (!settlementBaselineService.prepareForScoring()) {
+            log.info("Skipping game result scoring while settlement baseline is being prepared.");
+            return 0;
+        }
+
         // 게임 조회
         GameEntity game = gameRepository.findByGameId(gameId)
                 .orElseThrow(() -> new IllegalArgumentException("게임을 찾을 수 없습니다: " + gameId));
@@ -58,9 +67,14 @@ public class GameResultScoringService {
      */
     @Transactional(transactionManager = "transactionManager")
     public int processGamesForDate(LocalDate date) {
+        if (!settlementBaselineService.prepareForScoring()) {
+            log.info("Skipping game result scoring while settlement baseline is being prepared.");
+            return 0;
+        }
+
         List<GameEntity> finishedGames = gameRepository.findByGameDate(date).stream()
                 .filter(GameEntity::isFinished)
-                .filter(this::isCanonicalGame)
+                .filter(this::isScorableGame)
                 .toList();
 
         if (finishedGames.isEmpty()) {
@@ -83,9 +97,44 @@ public class GameResultScoringService {
         return totalProcessed;
     }
 
+    @Transactional(transactionManager = "transactionManager")
+    public int processPendingGames() {
+        if (!settlementBaselineService.prepareForScoring()) {
+            log.info("Skipping pending game scan while settlement baseline is being prepared.");
+            return 0;
+        }
+
+        List<String> pendingGameIds = settlementBaselineService.reserveNextPendingGameBatch();
+        if (pendingGameIds.isEmpty()) {
+            return 0;
+        }
+
+        Map<String, GameEntity> gamesById = new HashMap<>();
+        for (GameEntity game : gameRepository.findByGameIdIn(pendingGameIds)) {
+            gamesById.put(game.getGameId(), game);
+        }
+
+        int processed = 0;
+        for (String gameId : pendingGameIds) {
+            GameEntity game = gamesById.get(gameId);
+            if (game == null) {
+                log.warn("MANUAL_BASEBALL_DATA_REQUIRED: pending prediction references missing internal game {}", gameId);
+                continue;
+            }
+            if (game.isFinished() && isScorableGame(game)) {
+                processed += processGameResult(game, true);
+            } else if (!isCanonicalGame(game)) {
+                log.warn(
+                        "MANUAL_BASEBALL_DATA_REQUIRED: pending prediction references non-canonical internal game {}",
+                        game.getGameId());
+            }
+        }
+        return processed;
+    }
+
     private int processGameResult(GameEntity game, boolean runPerfectDayCheck) {
-        if (!isCanonicalGame(game)) {
-            log.info("Skipping non-canonical game {} for scoring.", game.getGameId());
+        if (!isScorableGame(game)) {
+            log.info("Skipping non-scorable game {} for scoring.", game.getGameId());
             return 0;
         }
 
@@ -108,6 +157,9 @@ public class GameResultScoringService {
 
         if (predictions.isEmpty()) {
             log.info("No predictions found for game {}.", game.getGameId());
+            if (runPerfectDayCheck) {
+                checkPerfectDayForGame(game);
+            }
             return 0;
         }
 
@@ -116,8 +168,17 @@ public class GameResultScoringService {
 
         int processedCount = 0;
         for (Prediction prediction : predictions) {
+            if (prediction.getScoreSettlementStatus() != Prediction.ScoreSettlementStatus.PENDING) {
+                continue;
+            }
+
             // 이미 점수가 처리되었는지 확인
             if (isAlreadyProcessed(prediction.getId(), processedPredictionIds)) {
+                predictionRepository.markExistingSettlement(
+                        prediction.getId(),
+                        LocalDateTime.now(),
+                        Prediction.ScoreSettlementStatus.PENDING,
+                        Prediction.ScoreSettlementStatus.SETTLED);
                 log.debug("Prediction {} already processed for user {}.", prediction.getId(), prediction.getUserId());
                 continue;
             }
@@ -147,11 +208,7 @@ public class GameResultScoringService {
         log.info("Processed {} predictions for game {}.", processedCount, game.getGameId());
 
         if (runPerfectDayCheck) {
-            checkPerfectDay(gameRepository.findByGameDate(game.getGameDate()).stream()
-                    .filter(g -> !g.isDummyGame())
-                    .filter(GameEntity::isFinished)
-                    .filter(this::isCanonicalGame)
-                    .toList());
+            checkPerfectDayForGame(game);
         }
 
         return processedCount;
@@ -168,6 +225,11 @@ public class GameResultScoringService {
 
         int totalGames = gamesForDate.size();
         if (totalGames < 3) {
+            return;
+        }
+
+        LocalDate gameDate = gamesForDate.get(0).getGameDate();
+        if (gameDate == null || legacyPerfectDayDateRepository.existsById(gameDate)) {
             return;
         }
 
@@ -210,12 +272,23 @@ public class GameResultScoringService {
             int correctCount = userCorrectCount.getOrDefault(userId, 0);
             if (correctCount == totalGames) {
                 try {
-                    scoringService.processPerfectDay(userId, totalGames);
+                    scoringService.processPerfectDay(userId, gameDate, totalGames);
                 } catch (Exception e) {
                     log.error("Failed to process perfect day for user {}: {}", userId, e.getMessage());
                 }
             }
         }
+    }
+
+    private void checkPerfectDayForGame(GameEntity game) {
+        if (game.getGameDate() == null) {
+            return;
+        }
+        checkPerfectDay(gameRepository.findByGameDate(game.getGameDate()).stream()
+                .filter(g -> !g.isDummyGame())
+                .filter(GameEntity::isFinished)
+                .filter(this::isCanonicalGame)
+                .toList());
     }
 
     /**
@@ -249,5 +322,9 @@ public class GameResultScoringService {
         }
         return KboTeamCodePolicy.isCanonicalTeamCode(game.getHomeTeam())
                 && KboTeamCodePolicy.isCanonicalTeamCode(game.getAwayTeam());
+    }
+
+    private boolean isScorableGame(GameEntity game) {
+        return !game.isDummyGame() && isCanonicalGame(game);
     }
 }

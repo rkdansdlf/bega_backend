@@ -1,5 +1,8 @@
 package com.example.cheerboard.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.BlockService;
@@ -24,6 +27,7 @@ import com.example.common.exception.RepostTargetNotFoundException;
 import com.example.common.exception.BadRequestBusinessException;
 import jakarta.persistence.EntityManager;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -110,6 +115,9 @@ class CheerPostServiceTest {
         @Mock
         private CheerLinkedPostService linkedPostService;
 
+        @Mock
+        private CheerPostTransactionBoundary transactionBoundary;
+
         @BeforeEach
         void setUp() {
                 lenient().when(storageConfig.getMaxImagesPerPost()).thenReturn(4);
@@ -118,6 +126,10 @@ class CheerPostServiceTest {
                 lenient().doNothing().when(mediaLinkService).syncCheerLinks(anyLong(), anyLong(), anyList());
                 lenient().when(postImageRepository.findByPostIdOrderByCreatedAtAsc(anyLong())).thenReturn(List.of());
                 lenient().when(followService.getFollowersWithNotifyEnabled(anyLong())).thenReturn(List.of());
+                lenient().doAnswer(invocation -> ((Supplier<?>) invocation.getArgument(0)).get())
+                                .when(transactionBoundary).inWriteTransaction(any());
+                lenient().doAnswer(invocation -> ((Supplier<?>) invocation.getArgument(0)).get())
+                                .when(transactionBoundary).inReadOnlyTransaction(any());
         }
 
         @Test
@@ -150,6 +162,53 @@ class CheerPostServiceTest {
                 verify(redisPostService).cacheHotStatus(postId, true);
                 verify(redisPostService).updateHotScore(postId, 7.5, PopularFeedAlgorithm.TIME_DECAY);
                 verify(redisPostService).updateHotScore(postId, 0.42, PopularFeedAlgorithm.ENGAGEMENT_RATE);
+        }
+
+        @Test
+        @DisplayName("view sync hot score refresh uses strict Redis operations and pending view counts")
+        void updateHotScoreForSyncUsesStrictRedisOperations() {
+                Long postId = 10L;
+                CheerPost post = CheerPost.builder()
+                                .id(postId)
+                                .likeCount(4)
+                                .commentCount(2)
+                                .views(7)
+                                .build();
+                when(redisPostService.getViewCountForSync(postId)).thenReturn(Optional.of(3));
+                when(popularFeedScoringService.calculateGlobalHotBaseScore(eq(post), eq(10), any()))
+                                .thenReturn(0.2);
+                when(popularFeedScoringService.isHotEligible(0.2)).thenReturn(true);
+                when(popularFeedScoringService.calculateTimeDecayScore(eq(post), eq(10), any()))
+                                .thenReturn(7.5);
+                when(popularFeedScoringService.calculateEngagementRateScore(eq(post), eq(10)))
+                                .thenReturn(0.42);
+
+                postService.updateHotScoreForSync(post);
+
+                verify(redisPostService).cacheHotStatusForSync(postId, true);
+                verify(redisPostService).updateHotScoreForSync(postId, 7.5, PopularFeedAlgorithm.TIME_DECAY);
+                verify(redisPostService).updateHotScoreForSync(postId, 0.42, PopularFeedAlgorithm.ENGAGEMENT_RATE);
+                verify(redisPostService, never()).getViewCount(postId);
+        }
+
+        @Test
+        @DisplayName("view sync hot-score refresh propagates strict removal for an ineligible post")
+        void updateHotScoreForSyncRemovesIneligiblePostFromBothLists() {
+                Long postId = 10L;
+                CheerPost post = CheerPost.builder()
+                                .id(postId)
+                                .views(1)
+                                .build();
+                when(redisPostService.getViewCountForSync(postId)).thenReturn(Optional.empty());
+                when(popularFeedScoringService.calculateGlobalHotBaseScore(eq(post), eq(1), any()))
+                                .thenReturn(0.01);
+                when(popularFeedScoringService.isHotEligible(0.01)).thenReturn(false);
+
+                postService.updateHotScoreForSync(post);
+
+                verify(redisPostService).cacheHotStatusForSync(postId, false);
+                verify(redisPostService).removeFromHotListForSync(postId);
+                verify(redisPostService, never()).updateHotScoreForSync(eq(postId), anyDouble(), any());
         }
 
         @Test
@@ -859,6 +918,60 @@ class CheerPostServiceTest {
         }
 
         @Test
+        @DisplayName("Duplicate-source warning never logs URL query or fragment")
+        void createPost_duplicateExternalSource_doesNotLogSensitiveUrlParts() {
+                Long userId = 101L;
+                String sourceUrl = "https://example.com/news?access_token=query-secret-marker#fragment-secret-marker";
+                TeamEntity team = TeamEntity.builder().teamId("LG").teamName("LG").build();
+                UserEntity me = UserEntity.builder().id(userId).name("Me").favoriteTeam(team).build();
+                CreatePostReq req = new CreatePostReq(
+                                "LG",
+                                "My Content",
+                                null,
+                                "NORMAL",
+                                CheerPost.ShareMode.EXTERNAL_LINK,
+                                sourceUrl,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null);
+
+                mockWriteEnabledAuthor(me);
+                when(teamRepo.findById("LG")).thenReturn(Optional.of(team));
+                doNothing().when(permissionValidator).validateTeamAccess(any(), any(), any());
+                when(moderationService.checkContent(any()))
+                                .thenReturn(com.example.common.service.AIModerationService.ModerationResult.allow());
+                when(linkedPostService.validateCreate(eq(PostType.NORMAL), eq(req), eq(me)))
+                                .thenReturn(new CheerLinkedPostService.ValidatedTarget(PostType.NORMAL, null, null));
+                when(postRepo.countByAuthor_IdAndSourceUrlAndCreatedAtAfter(eq(userId), eq(sourceUrl), any()))
+                                .thenReturn(3L);
+                when(postRepo.saveAndFlush(any(CheerPost.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+                Logger logger = (Logger) LoggerFactory.getLogger(CheerPostService.class);
+                ListAppender<ILoggingEvent> appender = new ListAppender<>();
+                appender.start();
+                logger.addAppender(appender);
+                try {
+                        postService.createPost(req, me);
+
+                        assertThat(appender.list)
+                                        .extracting(ILoggingEvent::getFormattedMessage)
+                                        .anyMatch(message -> message.contains("Potential duplicate external repost spam"))
+                                        .noneMatch(message -> message.contains("query-secret-marker")
+                                                        || message.contains("fragment-secret-marker"));
+                        org.mockito.ArgumentCaptor<CheerPost> postCaptor =
+                                        org.mockito.ArgumentCaptor.forClass(CheerPost.class);
+                        verify(postRepo).saveAndFlush(postCaptor.capture());
+                        assertThat(postCaptor.getValue().getSourceUrl()).isEqualTo(sourceUrl);
+                } finally {
+                        logger.detachAppender(appender);
+                        appender.stop();
+                }
+        }
+
+        @Test
         @DisplayName("CHECKIN creation returns a new outcome and assigns only the validated diary source")
         void createPost_checkin_assignsOnlyValidatedDiarySource() {
                 Long diaryId = 41L;
@@ -986,7 +1099,7 @@ class CheerPostServiceTest {
                                 .build();
                 UpdatePostReq req = new UpdatePostReq("   ");
 
-                when(postRepo.findById(postId)).thenReturn(Optional.of(existing));
+                when(postRepo.findByIdForWrite(postId)).thenReturn(Optional.of(existing));
                 doNothing().when(permissionValidator).validateOwnerOrAdmin(any(), any(), any());
                 mockWriteEnabledAuthor(me);
 
@@ -1012,7 +1125,7 @@ class CheerPostServiceTest {
                                 .build();
                 UpdatePostReq req = new UpdatePostReq("New Content");
 
-                when(postRepo.findById(postId)).thenReturn(Optional.of(existing));
+                when(postRepo.findByIdForWrite(postId)).thenReturn(Optional.of(existing));
                 doNothing().when(permissionValidator).validateOwnerOrAdmin(any(), any(), any());
                 when(moderationService.checkContent(any()))
                                 .thenReturn(com.example.common.service.AIModerationService.ModerationResult.allow());
@@ -1026,11 +1139,102 @@ class CheerPostServiceTest {
                 assertThat(updated.getContent()).isEqualTo("New Content");
         }
 
+        @Test
+        @DisplayName("관리형 이미지 수정은 자식 이미지 조회 전에 게시글 write-lock을 획득한다")
+        void updatePostEntity_withManagedImagesAcquiresPostWriteLockBeforeReadingImages() {
+                Long postId = 2L;
+                UserEntity me = UserEntity.builder().id(101L).name("Me").build();
+                CheerPost existing = CheerPost.builder()
+                                .id(postId)
+                                .author(me)
+                                .content("Old Content")
+                                .build();
+                UpdatePostReq req = new UpdatePostReq(
+                                "New Content", List.of(), null, null, null, null, null, null, null, null);
+
+                when(postRepo.findByIdForWrite(postId)).thenReturn(Optional.of(existing));
+                when(moderationService.checkContent(any()))
+                                .thenReturn(com.example.common.service.AIModerationService.ModerationResult.allow());
+                mockWriteEnabledAuthor(me);
+
+                postService.updatePostEntity(postId, req, me);
+
+                org.mockito.InOrder writeOrder = inOrder(postRepo, postImageRepository);
+                writeOrder.verify(postRepo).findByIdForWrite(postId);
+                writeOrder.verify(postImageRepository).findByPostIdOrderByCreatedAtAsc(postId);
+        }
+
         private void mockWriteEnabledAuthor(UserEntity me) {
                 when(userRepo.findByIdForWrite(me.getId())).thenReturn(Optional.of(me));
                 when(userRepo.lockUsableAuthorForWrite(me.getId())).thenReturn(Optional.of(me.getId()));
                 lenient().when(userRepo.lockUsableAuthorForWriteWithTokenVersion(eq(me.getId()), anyInt()))
                                 .thenReturn(Optional.of(me.getId()));
                 doNothing().when(entityManager).refresh(me);
+        }
+
+        @Test
+        @DisplayName("이미지 삭제가 실패하면 게시글·이미지 경로를 재시도용으로 남기고 managed link를 유지한다")
+        void deletePost_storageFailure_retainsRetryStateAndMediaLink() {
+                Long postId = 57L;
+                UserEntity owner = UserEntity.builder().id(9L).build();
+                CheerPost post = CheerPost.builder().id(postId).author(owner).content("content").build();
+                when(postRepo.findByIdForWrite(postId)).thenReturn(Optional.of(post));
+                when(imageService.deleteImagesByPostId(postId)).thenReturn(false);
+
+                postService.deletePost(postId, owner);
+
+                assertThat(post.getDeleted()).isTrue();
+                verify(postRepo).saveAndFlush(post);
+                verify(postRepo, never()).hardDeleteById(postId);
+                verify(mediaLinkService, never()).unlinkEntity(MediaDomain.CHEER, postId);
+        }
+
+        @Test
+        @DisplayName("이미지 삭제가 확인되면 managed link를 해제한 뒤 게시글을 영구 삭제한다")
+        void deletePost_storageSuccess_unlinksAndHardDeletes() {
+                Long postId = 59L;
+                UserEntity owner = UserEntity.builder().id(11L).build();
+                CheerPost post = CheerPost.builder().id(postId).author(owner).content("content").build();
+                when(postRepo.findByIdForWrite(postId)).thenReturn(Optional.of(post));
+                when(imageService.deleteImagesByPostId(postId)).thenReturn(true);
+
+                postService.deletePost(postId, owner);
+
+                org.mockito.InOrder order = inOrder(postRepo, imageService, mediaLinkService, postImageRepository);
+                order.verify(postRepo).saveAndFlush(post);
+                order.verify(imageService).deleteImagesByPostId(postId);
+                order.verify(mediaLinkService).unlinkEntity(MediaDomain.CHEER, postId);
+                order.verify(postImageRepository).deleteByPostId(postId);
+                order.verify(postRepo).hardDeleteById(postId);
+        }
+
+        @Test
+        @DisplayName("관리자 삭제도 공통 media-aware lifecycle을 사용한다")
+        void deletePostByAdmin_usesCommonLifecycle() {
+                Long postId = 58L;
+                UserEntity owner = UserEntity.builder().id(10L).build();
+                CheerPost post = CheerPost.builder().id(postId).author(owner).content("content").build();
+                when(postRepo.findByIdForWrite(postId)).thenReturn(Optional.of(post));
+                when(imageService.deleteImagesByPostId(postId)).thenReturn(false);
+
+                postService.deletePostByAdmin(postId, ignored -> {});
+
+                assertThat(post.getDeleted()).isTrue();
+                verify(imageService).deleteImagesByPostId(postId);
+                verify(postRepo, never()).hardDeleteById(postId);
+                verify(mediaLinkService, never()).unlinkEntity(MediaDomain.CHEER, postId);
+        }
+
+        @Test
+        @DisplayName("없는 관리자 삭제 대상은 기존 요청 오류로 유지한다")
+        void deletePostByAdmin_missingPost_preservesClientError() {
+                Long postId = 60L;
+                when(postRepo.findByIdForWrite(postId)).thenReturn(Optional.empty());
+
+                assertThatThrownBy(() -> postService.deletePostByAdmin(postId, ignored -> {}))
+                                .isInstanceOf(IllegalArgumentException.class)
+                                .hasMessage("게시글을 찾을 수 없습니다.");
+
+                verify(imageService, never()).deleteImagesByPostId(postId);
         }
 }

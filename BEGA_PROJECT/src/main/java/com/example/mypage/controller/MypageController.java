@@ -92,8 +92,7 @@ public class MypageController {
                                 .policyConsentHardGateDate(policyConsentStatus.hardGateDate())
                                 .build();
 
-                log.info("getMyProfile - userId: {}, email: {}, points: {}", userId, userEntity.getEmail(),
-                                userEntity.getCheerPoints());
+                log.info("getMyProfile - userId: {}, points: {}", userId, userEntity.getCheerPoints());
                 return ResponseEntity.ok(ApiResponse.success("프로필 조회 성공", profileDto));
         }
 

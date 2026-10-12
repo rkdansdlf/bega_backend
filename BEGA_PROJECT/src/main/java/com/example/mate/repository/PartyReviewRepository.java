@@ -20,6 +20,14 @@ public interface PartyReviewRepository extends JpaRepository<PartyReview, Long> 
         Long getReviewCount();
     }
 
+    interface RevieweeRatingTotals {
+        Long getRevieweeId();
+
+        Long getRatingSum();
+
+        Long getReviewCount();
+    }
+
     /**
      * 특정 파티에 대한 모든 리뷰 조회
      */
@@ -31,6 +39,8 @@ public interface PartyReviewRepository extends JpaRepository<PartyReview, Long> 
      * 특정 사용자가 받은 모든 리뷰 조회
      */
     List<PartyReview> findByRevieweeId(Long revieweeId);
+
+    List<PartyReview> findByReviewerIdOrRevieweeId(Long reviewerId, Long revieweeId);
 
     List<PartyReview> findTop2ByRevieweeIdOrderByCreatedAtDesc(Long revieweeId);
 
@@ -44,6 +54,40 @@ public interface PartyReviewRepository extends JpaRepository<PartyReview, Long> 
      */
     @Query("SELECT AVG(r.rating) FROM PartyReview r WHERE r.revieweeId = :userId")
     Double calculateAverageRating(@Param("userId") Long userId);
+
+    @Query("""
+            SELECT r.revieweeId AS revieweeId,
+                   SUM(r.rating) AS ratingSum,
+                   COUNT(r.id) AS reviewCount
+              FROM PartyReview r
+             WHERE r.revieweeId IN :revieweeIds
+             GROUP BY r.revieweeId
+            """)
+    List<RevieweeRatingTotals> findRatingTotalsByRevieweeIds(@Param("revieweeIds") Collection<Long> revieweeIds);
+
+    @Query(value = """
+            SELECT combined.reviewee_id AS revieweeId,
+                   SUM(combined.rating_sum) AS ratingSum,
+                   SUM(combined.review_count) AS reviewCount
+              FROM (
+                    SELECT reviewee_id,
+                           SUM(rating) AS rating_sum,
+                           COUNT(id) AS review_count
+                      FROM party_reviews
+                     WHERE reviewee_id IN (:revieweeIds)
+                     GROUP BY reviewee_id
+                    UNION ALL
+                    SELECT reviewee_id,
+                           SUM(rating_sum) AS rating_sum,
+                           SUM(review_count) AS review_count
+                      FROM mate_anonymous_review_aggregates
+                     WHERE reviewee_id IN (:revieweeIds)
+                     GROUP BY reviewee_id
+                   ) combined
+             GROUP BY combined.reviewee_id
+            """, nativeQuery = true)
+    List<RevieweeRatingTotals> findCombinedRatingTotalsByRevieweeIds(
+            @Param("revieweeIds") Collection<Long> revieweeIds);
 
     @Query("""
             SELECT r.revieweeId AS revieweeId,

@@ -1,5 +1,8 @@
 package com.example.auth.ratelimit;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -17,6 +20,7 @@ import com.example.common.ratelimit.RateLimitService;
 import com.example.common.web.ClientIpResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
+import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -131,6 +135,30 @@ class RateLimitFilterTest {
     }
 
     @Test
+    void rejectedRequestDoesNotLogClientIpOrRateLimitKey() throws Exception {
+        when(rateLimitService.isAllowed(anyString(), anyInt(), anyInt(), anyBoolean())).thenReturn(false);
+
+        Logger logger = (Logger) LoggerFactory.getLogger(RateLimitFilter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            MockHttpServletResponse response = doLoginRequest("203.0.113.31");
+
+            assertThat(response.getStatus()).isEqualTo(429);
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .singleElement()
+                    .asString()
+                    .contains("path=/api/auth/login", "retryAfter=60s")
+                    .doesNotContain("203.0.113.31", "rate:limit:");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
     void xForwardedForHeader_isNotTrustedDirectly() throws Exception {
         MockHttpServletRequest request = buildRequest("POST", "/api/auth/login", "203.0.113.40");
         request.addHeader("X-Forwarded-For", "198.51.100.77");
@@ -164,6 +192,33 @@ class RateLimitFilterTest {
         doRequest("POST", "/api/auth/oauth2/email-challenge/confirm", "203.0.113.71");
 
         verify(rateLimitService).isAllowed(anyString(), eq(10), eq(900), eq(true));
+    }
+
+    @Test
+    void publicHomeReadsShareOneFailClosedIpBudget() throws Exception {
+        doRequest("GET", "/api/home/bootstrap", "203.0.113.80");
+        doRequest("HEAD", "/api/home/widgets", "203.0.113.80");
+        doRequest("GET", "/api/home/widgets", "203.0.113.80");
+        doRequest("GET", "/api/home/navigation", "203.0.113.80");
+
+        verify(rateLimitService, org.mockito.Mockito.times(4)).isAllowed(
+                eq("rate:limit:public:home-read:GET:/api/home/:203.0.113.80"),
+                eq(60), eq(60), eq(true));
+    }
+
+    @Test
+    void rejectedHomeReadStopsBeforeTheEndpoint() throws Exception {
+        when(rateLimitService.isAllowed(anyString(), anyInt(), anyInt(), anyBoolean())).thenReturn(false);
+
+        MockHttpServletResponse response = doRequest("HEAD", "/api/home/bootstrap", "203.0.113.81");
+
+        assertThat(response.getStatus()).isEqualTo(429);
+        assertThat(response.getHeader("Retry-After")).isEqualTo("60");
+        assertThat(response.getContentAsString()).contains("RATE_LIMITED");
+        verify(rateLimitService).isAllowed(
+                eq("rate:limit:public:home-read:GET:/api/home/:203.0.113.81"),
+                eq(60), eq(60), eq(true));
+        verify(authSecurityMonitoringService, never()).recordAuthRateLimitReject();
     }
 
     private MockHttpServletResponse doLoginRequest(String ip) throws Exception {

@@ -32,7 +32,7 @@ public class ReissueService {
     private final RefreshTokenRevocationService refreshTokenRevocationService;
     private final RefreshTokenDigestService refreshTokenDigestService;
 
-    @Transactional
+    @Transactional(noRollbackFor = RefreshTokenReuseDetectedException.class)
     public ReissuedTokens reissue(
             String refreshToken,
             HttpServletRequest request,
@@ -42,8 +42,10 @@ public class ReissueService {
         }
 
         String tokenType;
+        Long userId;
         try {
             tokenType = jwtUtil.getTokenType(refreshToken);
+            userId = jwtUtil.getUserId(refreshToken);
         } catch (Exception exception) {
             throw rejectBadRequest(
                     "INVALID_REFRESH_TOKEN", "유효하지 않은 Refresh Token입니다.", request, null, null);
@@ -51,6 +53,18 @@ public class ReissueService {
         if (!"refresh".equals(tokenType)) {
             throw rejectBadRequest(
                     "INVALID_REFRESH_TOKEN_TYPE", "유효하지 않은 Refresh Token 타입입니다.", request, null, null);
+        }
+
+        if (userId == null) {
+            throw rejectBadRequest(
+                    "INVALID_REFRESH_TOKEN", "유효하지 않은 Refresh Token입니다.", request, null, null);
+        }
+
+        UserEntity user = userRepository.findByIdForWrite(userId).orElse(null);
+        Integer tokenVersion = jwtUtil.getTokenVersion(refreshToken);
+        if (!isAuthoritativeRefreshUser(user, userId, tokenVersion)) {
+            logReissueReject("INVALID_AUTHOR", request, null, userId);
+            throw new InvalidAuthorException("계정 정보가 유효하지 않습니다. 다시 로그인해주세요.");
         }
 
         if (jwtUtil.isExpired(refreshToken)) {
@@ -71,51 +85,73 @@ public class ReissueService {
         List<RefreshToken> matchedTokens = refreshRepository.findAllByTokenDigestForUpdate(tokenDigest);
         Optional<RefreshToken> matchedToken = matchedTokens.stream().findFirst();
         if (matchedToken.isEmpty()) {
-            Optional<Long> reuseUserId = refreshTokenReuseDetector.findReuseUserId(refreshToken);
-            if (reuseUserId.isPresent()) {
-                Long reusedUserId = reuseUserId.get();
+            Optional<RefreshTokenReuseDetector.ReuseMarker> reuseMarker =
+                    refreshTokenReuseDetector.findReuseMarker(refreshToken);
+            RefreshTokenReuseDetector.ReuseMarker marker = reuseMarker.orElse(null);
+            if (marker != null) {
+                if (marker.userId() == null || !userId.equals(marker.userId())) {
+                    authSecurityMonitoringService.recordRefreshReissueReject(
+                            RefreshTokenRevokeFailedException.CODE);
+                    logReissueReject(RefreshTokenRevokeFailedException.CODE, request, null, userId);
+                    throw new RefreshTokenRevokeFailedException();
+                }
+
+            }
+
+            String signedSessionId = jwtUtil.getSessionId(refreshToken);
+            String mappedSessionId = marker != null ? marker.sessionId() : null;
+            String sessionId = mappedSessionId != null && !mappedSessionId.isBlank()
+                    ? mappedSessionId
+                    : signedSessionId;
+            if (sessionId != null && !sessionId.isBlank()) {
+                if (mappedSessionId != null && !mappedSessionId.isBlank()
+                        && signedSessionId != null && !signedSessionId.isBlank()
+                        && !signedSessionId.equals(mappedSessionId)) {
+                    authSecurityMonitoringService.recordRefreshReissueReject(
+                            RefreshTokenRevokeFailedException.CODE);
+                    logReissueReject(RefreshTokenRevokeFailedException.CODE, request, null, userId);
+                    throw new RefreshTokenRevokeFailedException();
+                }
                 RefreshTokenRevocationService.RevokedRefreshSessions revokedSessions;
                 try {
-                    revokedSessions = refreshTokenRevocationService.revokeAllSessionsAfterReuse(reusedUserId);
+                    revokedSessions = refreshTokenRevocationService.revokeSessionAfterReuse(userId, sessionId);
                 } catch (RefreshTokenRevokeFailedException exception) {
                     authSecurityMonitoringService.recordRefreshReissueReject(RefreshTokenRevokeFailedException.CODE);
-                    logReissueReject(RefreshTokenRevokeFailedException.CODE, request, null, reusedUserId);
+                    logReissueReject(RefreshTokenRevokeFailedException.CODE, request, null, userId);
                     throw exception;
                 }
                 authSecurityMonitoringService.recordRefreshReissueReject("REFRESH_TOKEN_REUSE_DETECTED");
-                logReissueReject("REFRESH_TOKEN_REUSE_DETECTED", request, revokedSessions.email(), reusedUserId);
-                throw new BadRequestBusinessException(
-                        "REFRESH_TOKEN_REUSE_DETECTED",
-                        "보안 경고: 재사용이 감지되어 모든 세션이 종료되었습니다. 다시 로그인해주세요.");
+                logReissueReject("REFRESH_TOKEN_REUSE_DETECTED", request, revokedSessions.email(), userId);
+                throw new RefreshTokenReuseDetectedException();
+            }
+            if (marker != null) {
+                authSecurityMonitoringService.recordRefreshReissueReject(
+                        RefreshTokenRevokeFailedException.CODE);
+                logReissueReject(RefreshTokenRevokeFailedException.CODE, request, null, userId);
+                throw new RefreshTokenRevokeFailedException();
             }
             throw rejectBadRequest(
-                    "REFRESH_TOKEN_NOT_FOUND", "잘못된 Refresh Token입니다.", request, null, null);
+                    "REFRESH_TOKEN_NOT_FOUND", "잘못된 Refresh Token입니다.", request, null, userId);
         }
 
-        RefreshToken existingToken = matchedToken.get();
-        String email = existingToken.getEmail();
-        Long userId = jwtUtil.getUserId(refreshToken);
-        if (userId == null) {
-            throw rejectBadRequest(
-                    "INVALID_REFRESH_TOKEN", "유효하지 않은 Refresh Token입니다.", request, email, null);
-        }
-
-        UserEntity user = userRepository.findById(userId).orElse(null);
-        if (!isAuthoritativeRefreshUser(user, userId, jwtUtil.getTokenVersion(refreshToken))) {
-            logReissueReject("INVALID_AUTHOR", request, email, userId);
+        boolean belongsToLockedUser = matchedTokens.stream()
+                .allMatch(token -> user.getEmail().equalsIgnoreCase(token.getEmail()));
+        if (!belongsToLockedUser) {
+            logReissueReject("INVALID_AUTHOR", request, null, userId);
             throw new InvalidAuthorException("계정 정보가 유효하지 않습니다. 다시 로그인해주세요.");
         }
 
+        RefreshToken existingToken = matchedToken.get();
         long accessTokenExpiredMs = jwtUtil.getAccessTokenExpirationTime();
-        int tokenVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
+        int currentTokenVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
         String newAccessToken = jwtUtil.createJwt(
-                user.getEmail(), user.getRole(), userId, accessTokenExpiredMs, tokenVersion);
+                user.getEmail(), user.getRole(), userId, accessTokenExpiredMs, currentTokenVersion);
         AuthSessionService.IssuedRefreshSession issuedRefreshSession = authSessionService.rotateRefreshSession(
                 existingToken,
                 user.getEmail(),
                 user.getRole(),
                 userId,
-                tokenVersion,
+                currentTokenVersion,
                 request,
                 jwtUtil.getSessionId(refreshToken));
         int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
@@ -129,6 +165,14 @@ public class ReissueService {
         return tokens;
     }
 
+    private static final class RefreshTokenReuseDetectedException extends BadRequestBusinessException {
+        private RefreshTokenReuseDetectedException() {
+            super(
+                    "REFRESH_TOKEN_REUSE_DETECTED",
+                    "보안 경고: 재사용이 감지되어 해당 세션만 종료했습니다. 다시 로그인해주세요.");
+        }
+    }
+
     private BadRequestBusinessException rejectBadRequest(
             String code,
             String message,
@@ -140,17 +184,16 @@ public class ReissueService {
         return new BadRequestBusinessException(code, message);
     }
 
-    private void logReissueReject(String code, HttpServletRequest request, String email, Long userId) {
+    private void logReissueReject(String code, HttpServletRequest request, String ignoredEmail, Long userId) {
         AuthSessionMetadataResolver.SessionMetadata metadata = authSessionService.resolveRequestMetadata(request);
         boolean hasRefreshCookie = authSessionService.extractRefreshToken(request) != null;
         String requestUri = request != null ? request.getRequestURI() : "unknown";
         String origin = request != null ? request.getHeader("Origin") : null;
         log.warn(
-                "security_event=REFRESH_REISSUE_REJECT code={} requestUri={} hasRefreshCookie={} email={} userId={} origin={} deviceType={} browser={} os={} ip={}",
+                "security_event=REFRESH_REISSUE_REJECT code={} requestUri={} hasRefreshCookie={} email=[REDACTED] userId={} origin={} deviceType={} browser={} os={} ip={}",
                 code,
                 requestUri,
                 hasRefreshCookie,
-                email,
                 userId,
                 origin,
                 metadata.deviceType(),

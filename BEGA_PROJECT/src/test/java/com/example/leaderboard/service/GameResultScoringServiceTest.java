@@ -4,6 +4,7 @@ import com.example.kbo.entity.GameEntity;
 import com.example.kbo.repository.GameRepository;
 import com.example.leaderboard.dto.ScoreResultDto;
 import com.example.leaderboard.repository.ScoreEventRepository;
+import com.example.leaderboard.repository.LegacyPerfectDayDateRepository;
 import com.example.prediction.Prediction;
 import com.example.prediction.PredictionRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -43,10 +44,17 @@ class GameResultScoringServiceTest {
     @Mock
     private ScoringService scoringService;
 
+    @Mock
+    private GameResultSettlementBaselineService settlementBaselineService;
+
+    @Mock
+    private LegacyPerfectDayDateRepository legacyPerfectDayDateRepository;
+
     private static final LocalDate DATE = LocalDate.of(2024, 9, 15);
 
     @BeforeEach
     void setUpDefaults() {
+        lenient().when(settlementBaselineService.prepareForScoring()).thenReturn(true);
         lenient().when(gameRepository.findByGameDate(any())).thenReturn(Collections.emptyList());
         lenient().when(scoreEventRepository.findProcessedPredictionIdsByPredictionIdIn(anyList()))
                 .thenReturn(Collections.emptyList());
@@ -119,6 +127,28 @@ class GameResultScoringServiceTest {
 
         assertThat(count).isZero();
         verify(predictionRepository, never()).findByGameId(anyString());
+    }
+
+    @Test
+    @DisplayName("더미 경기는 사용자 예측 점수 정산에서 제외")
+    void processGameResult_dummyGameIsNotScored() {
+        GameEntity dummyGame = GameEntity.builder()
+                .gameId("dummy-finished")
+                .homeTeam("LG")
+                .awayTeam("KIA")
+                .homeScore(5)
+                .awayScore(3)
+                .gameDate(DATE)
+                .isDummy(true)
+                .build();
+        when(gameRepository.findByGameId("dummy-finished")).thenReturn(Optional.of(dummyGame));
+
+        int processed = gameResultScoringService.processGameResult("dummy-finished");
+
+        assertThat(processed).isZero();
+        verify(predictionRepository, never()).findByGameId(anyString());
+        verify(scoringService, never()).processPredictionResult(
+                anyLong(), anyLong(), anyString(), anyBoolean(), anyBoolean());
     }
 
     @Test
@@ -231,6 +261,28 @@ class GameResultScoringServiceTest {
     }
 
     @Test
+    @DisplayName("일자별 결과 정산에서도 더미 경기는 제외")
+    void processGamesForDate_skipsDummyGames() {
+        GameEntity realGame = finishedGame("real-for-date", "LG", "KIA", 5, 3, DATE);
+        GameEntity dummyGame = GameEntity.builder()
+                .gameId("dummy-for-date")
+                .homeTeam("HH")
+                .awayTeam("SSG")
+                .homeScore(4)
+                .awayScore(2)
+                .gameDate(DATE)
+                .isDummy(true)
+                .build();
+        when(gameRepository.findByGameDate(DATE)).thenReturn(List.of(realGame, dummyGame));
+        when(predictionRepository.findByGameId("real-for-date")).thenReturn(List.of());
+
+        gameResultScoringService.processGamesForDate(DATE);
+
+        verify(predictionRepository).findByGameId("real-for-date");
+        verify(predictionRepository, never()).findByGameId("dummy-for-date");
+    }
+
+    @Test
     @DisplayName("종료 게임이 없으면 0 반환")
     void processGamesForDate_noFinishedGames() {
         GameEntity unfinished = GameEntity.builder()
@@ -291,7 +343,7 @@ class GameResultScoringServiceTest {
 
         gameResultScoringService.processGameResult("pd1");
 
-        verify(scoringService).processPerfectDay(userId, 3);
+        verify(scoringService).processPerfectDay(userId, DATE, 3);
     }
 
     @Test
@@ -312,6 +364,67 @@ class GameResultScoringServiceTest {
 
         gameResultScoringService.processGameResult("np1");
 
-        verify(scoringService, never()).processPerfectDay(anyLong(), anyInt());
+        verify(scoringService, never()).processPerfectDay(anyLong(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("새벽 정산 이후 날짜의 지연 완료 경기도 pending 순환 탐색으로 정산")
+    void processPendingGames_reconcilesLateFinishedGame() {
+        GameEntity lateGame = finishedGame("late-game", "LG", "KIA", 4, 2, DATE.minusDays(3));
+        Prediction prediction = prediction(110L, "late-game", "home");
+        when(settlementBaselineService.reserveNextPendingGameBatch()).thenReturn(List.of("late-game"));
+        when(gameRepository.findByGameIdIn(List.of("late-game"))).thenReturn(List.of(lateGame));
+        when(predictionRepository.findByGameId("late-game")).thenReturn(List.of(prediction));
+        when(scoringService.processPredictionResult(eq(110L), eq(prediction.getId()), eq("late-game"),
+                eq(true), eq(false)))
+                .thenReturn(ScoreResultDto.builder().userId(110L).correct(true).totalEarned(100).build());
+
+        int processed = gameResultScoringService.processPendingGames();
+
+        assertThat(processed).isEqualTo(1);
+        verify(scoringService).processPredictionResult(110L, prediction.getId(), "late-game", true, false);
+    }
+
+    @Test
+    @DisplayName("pending 목록에 남은 더미 경기도 점수에 반영하지 않음")
+    void processPendingGames_skipsDummyGame() {
+        GameEntity dummyGame = GameEntity.builder()
+                .gameId("late-dummy")
+                .homeTeam("LG")
+                .awayTeam("KIA")
+                .homeScore(4)
+                .awayScore(2)
+                .gameDate(DATE.minusDays(3))
+                .isDummy(true)
+                .build();
+        when(settlementBaselineService.reserveNextPendingGameBatch()).thenReturn(List.of("late-dummy"));
+        when(gameRepository.findByGameIdIn(List.of("late-dummy"))).thenReturn(List.of(dummyGame));
+
+        int processed = gameResultScoringService.processPendingGames();
+
+        assertThat(processed).isZero();
+        verify(predictionRepository, never()).findByGameId("late-dummy");
+        verify(scoringService, never()).processPredictionResult(
+                anyLong(), anyLong(), anyString(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("cutover 시점에 이미 종료된 경기 날짜는 퍼펙트데이 재지급 대상에서 제외")
+    void processGameResult_doesNotReawardPerfectDayForLegacyDate() {
+        GameEntity game = finishedGame("legacy-pd", "LG", "KIA", 5, 3, DATE);
+        Prediction prediction = prediction(111L, "legacy-pd", "home");
+        when(gameRepository.findByGameId("legacy-pd")).thenReturn(Optional.of(game));
+        when(predictionRepository.findByGameId("legacy-pd")).thenReturn(List.of(prediction));
+        when(scoringService.processPredictionResult(eq(111L), eq(prediction.getId()), eq("legacy-pd"),
+                eq(true), eq(false)))
+                .thenReturn(ScoreResultDto.builder().userId(111L).correct(true).totalEarned(100).build());
+        when(gameRepository.findByGameDate(DATE)).thenReturn(List.of(game,
+                finishedGame("legacy-pd-2", "HH", "SSG", 4, 2, DATE),
+                finishedGame("legacy-pd-3", "NC", "KT", 3, 1, DATE)));
+        when(legacyPerfectDayDateRepository.existsById(DATE)).thenReturn(true);
+
+        gameResultScoringService.processGameResult("legacy-pd");
+
+        verify(scoringService, never()).processPerfectDay(anyLong(), any(), anyInt());
     }
 }

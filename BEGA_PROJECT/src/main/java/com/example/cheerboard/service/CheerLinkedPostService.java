@@ -160,7 +160,7 @@ public class CheerLinkedPostService {
 
     private ValidatedTarget validateRecruitment(CreatePostReq req, UserEntity actor) {
         validateLinkedRequest(req, PostType.RECRUITMENT);
-        requireRecruitingParty(req.partyId(), actor);
+        requireRecruitingPartyForUpdate(req.partyId(), actor);
         return new ValidatedTarget(PostType.RECRUITMENT, null, req.partyId());
     }
 
@@ -206,6 +206,22 @@ public class CheerLinkedPostService {
 
     private Party requireRecruitingParty(Long partyId, UserEntity actor) {
         Party party = partyRepository.findById(partyId)
+                .orElseThrow(() -> new NotFoundBusinessException(
+                        "PARTY_NOT_FOUND", "파티를 찾을 수 없습니다."));
+        if (!actor.getId().equals(party.getHostId())) {
+            throw new ForbiddenBusinessException(
+                    "PARTY_HOST_REQUIRED", "파티 호스트만 모집 글을 공유할 수 있습니다.");
+        }
+        if (party.getStatus() != PartyStatus.PENDING) {
+            throw new ConflictBusinessException(
+                    "PARTY_NOT_RECRUITING", "현재 모집 중인 파티만 공유할 수 있습니다.");
+        }
+        throwIfMissingPartyData(partyId, party);
+        return party;
+    }
+
+    private Party requireRecruitingPartyForUpdate(Long partyId, UserEntity actor) {
+        Party party = partyRepository.findByIdForUpdate(partyId)
                 .orElseThrow(() -> new NotFoundBusinessException(
                         "PARTY_NOT_FOUND", "파티를 찾을 수 없습니다."));
         if (!actor.getId().equals(party.getHostId())) {

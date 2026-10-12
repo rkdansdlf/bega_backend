@@ -79,18 +79,90 @@ class LeaderboardControllerTest {
     }
 
     @Test
-    @DisplayName("파워업 사용 실패는 표준 400 응답을 반환한다")
-    void usePowerup_returnsStandardErrorWhenServiceRejects() throws Exception {
-        when(powerupService.usePowerup(1L, "MAGIC_BAT", null)).thenReturn(null);
+    @DisplayName("공개 피드 limit과 내 점수 히스토리 페이지 범위를 거부한다")
+    void boundedFeeds_rejectInvalidLimitsAndPagination() throws Exception {
+        mockMvc.perform(get("/api/leaderboard/hot-streaks").param("limit", "0"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/leaderboard/hot-streaks").param("limit", "101"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/leaderboard/recent-scores").param("limit", "0"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/leaderboard/recent-scores").param("limit", "101"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/leaderboard/me/history").principal(authenticatedUser("1"))
+                        .param("page", "-1"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/leaderboard/me/history").principal(authenticatedUser("1"))
+                        .param("size", "0"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/leaderboard/me/history").principal(authenticatedUser("1"))
+                        .param("size", "101"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/leaderboard/achievements/recent").principal(authenticatedUser("1"))
+                        .param("limit", "0"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/leaderboard/achievements/recent").principal(authenticatedUser("1"))
+                        .param("limit", "101"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/leaderboard/achievements/rare").param("limit", "0"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/leaderboard/achievements/rare").param("limit", "101"))
+                .andExpect(status().isBadRequest());
 
+        verifyNoInteractions(leaderboardService, powerupService, achievementService);
+    }
+
+    @Test
+    @DisplayName("리더보드 네 조회 경로는 limit/size 1과 100을 허용한다")
+    void boundedFeeds_acceptBoundaryLimits() throws Exception {
+        for (String limit : new String[] { "1", "100" }) {
+            mockMvc.perform(get("/api/leaderboard/hot-streaks").param("limit", limit))
+                    .andExpect(status().isOk());
+            mockMvc.perform(get("/api/leaderboard/recent-scores").param("limit", limit))
+                    .andExpect(status().isOk());
+            mockMvc.perform(get("/api/leaderboard/me/history").principal(authenticatedUser("1"))
+                            .param("size", limit))
+                    .andExpect(status().isOk());
+            mockMvc.perform(get("/api/leaderboard/achievements/recent").principal(authenticatedUser("1"))
+                            .param("limit", limit))
+                    .andExpect(status().isOk());
+        }
+    }
+
+    @Test
+    @DisplayName("경기 ID가 없거나 공백인 파워업 사용 요청은 서비스에 전달하지 않는다")
+    void usePowerup_requiresGameId() throws Exception {
         mockMvc.perform(post("/api/leaderboard/powerups/{type}/use", "MAGIC_BAT")
                         .principal(authenticatedUser("1"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("POWERUP_USE_FAILED"))
-                .andExpect(jsonPath("$.message").value("파워업 사용에 실패했습니다. 인벤토리를 확인해주세요."));
+                .andExpect(jsonPath("$.success").value(false));
+
+        mockMvc.perform(post("/api/leaderboard/powerups/{type}/use", "MAGIC_BAT")
+                        .principal(authenticatedUser("1"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"gameId\":\"   \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false));
+
+        verifyNoInteractions(powerupService);
+    }
+
+    @Test
+    @DisplayName("경기 ID가 있는 파워업 사용 요청은 선택 경기와 함께 서비스에 전달한다")
+    void usePowerup_passesSelectedGameId() throws Exception {
+        when(powerupService.usePowerup(1L, "MAGIC_BAT", "20260607HHLT0")).thenReturn(2);
+
+        mockMvc.perform(post("/api/leaderboard/powerups/{type}/use", "MAGIC_BAT")
+                        .principal(authenticatedUser("1"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"gameId\":\"20260607HHLT0\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.remainingCount").value(2));
+
+        org.mockito.Mockito.verify(powerupService).usePowerup(1L, "MAGIC_BAT", "20260607HHLT0");
     }
 
     private Principal authenticatedUser(String userId) {

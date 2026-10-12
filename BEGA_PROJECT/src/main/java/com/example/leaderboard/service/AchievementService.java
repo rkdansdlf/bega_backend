@@ -58,6 +58,9 @@ public class AchievementService {
      */
     @Transactional(readOnly = true)
     public List<AchievementDto> getRecentAchievements(Long userId, int limit) {
+        if (limit < 1 || limit > 100) {
+            throw new IllegalArgumentException("limit must be between 1 and 100");
+        }
         return userAchievementRepository.findRecentByUserId(userId, PageRequest.of(0, limit)).stream()
                 .map(AchievementDto::from)
                 .toList();
@@ -203,6 +206,9 @@ public class AchievementService {
      */
     @Transactional(readOnly = true)
     public List<AchievementDto> getRecentRareAchievements(int limit) {
+        if (limit < 1 || limit > 100) {
+            throw new IllegalArgumentException("limit must be between 1 and 100");
+        }
         List<Achievement.Rarity> rareRarities = List.of(
                 Achievement.Rarity.EPIC,
                 Achievement.Rarity.LEGENDARY

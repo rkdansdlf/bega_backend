@@ -1,22 +1,33 @@
 package com.example.mate.service;
 
+import com.example.auth.service.AccountDeletionFinancialService;
 import com.example.mate.entity.PayoutTransaction;
 import com.example.mate.entity.PaymentTransaction;
 import com.example.mate.entity.PaymentStatus;
+import com.example.mate.entity.PartyApplication;
+import com.example.mate.entity.Party;
+import com.example.auth.entity.UserEntity;
 import com.example.mate.entity.SettlementStatus;
 import com.example.mate.repository.PayoutTransactionRepository;
 import com.example.mate.repository.PaymentTransactionRepository;
+import com.example.mate.repository.PartyApplicationRepository;
+import com.example.mate.repository.PartyRepository;
+import com.example.auth.repository.UserRepository;
 import com.example.mate.service.payout.PayoutGateway;
 import com.example.common.jobs.JobSubmissionGateway;
 import org.jobrunr.jobs.lambdas.JobLambda;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatusCode;
 
 import java.lang.reflect.Field;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +43,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.spy;
+import static org.mockito.ArgumentMatchers.eq;
 
 @ExtendWith(MockitoExtension.class)
 class PayoutServiceTest {
@@ -43,6 +56,21 @@ class PayoutServiceTest {
     private PaymentTransactionRepository paymentTransactionRepository;
 
     @Mock
+    private AccountDeletionFinancialService accountDeletionFinancialService;
+
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private PartyRepository partyRepository;
+
+    @Mock
+    private PartyApplicationRepository partyApplicationRepository;
+
+    @Mock
+    private MateLinkReconciliationCaseRecorder reconciliationCaseRecorder;
+
+    @Mock
     private PaymentMetricsService paymentMetricsService;
 
     @Mock
@@ -50,6 +78,9 @@ class PayoutServiceTest {
 
     @Mock
     private SellerRecoveryService sellerRecoveryService;
+
+    @Mock
+    private PayoutStateService payoutStateService;
 
     @Mock
     private JobSubmissionGateway jobScheduler;
@@ -66,6 +97,14 @@ class PayoutServiceTest {
 
     private PayoutService newServiceWithConfig(boolean payoutEnabled, String provider, List<PayoutGateway> gateways)
             throws Exception {
+        return newServiceWithConfig(payoutEnabled, provider, gateways, true);
+    }
+
+    private PayoutService newServiceWithConfig(
+            boolean payoutEnabled,
+            String provider,
+            List<PayoutGateway> gateways,
+            boolean dispatchIntentAllowed) throws Exception {
         lenient().when(jobScheduler.isAvailable()).thenReturn(true);
         Map<Long, PayoutTransaction> claimedPayouts = new HashMap<>();
         lenient().when(payoutTransactionRepository.saveAndFlush(any(PayoutTransaction.class)))
@@ -89,15 +128,28 @@ class PayoutServiceTest {
             when(tossGateway.getProviderCode()).thenReturn("TOSS");
         }
 
+        PayoutClaimService claimService = spy(new PayoutClaimService(
+                payoutTransactionRepository,
+                paymentTransactionRepository,
+                userRepository,
+                partyRepository,
+                partyApplicationRepository,
+                reconciliationCaseRecorder,
+                sellerRecoveryService,
+                paymentMetricsService));
+        lenient().doReturn(true).when(claimService)
+                .claimProviderDispatchIntent(any(Long.class), any(Long.class));
+        if (!dispatchIntentAllowed) {
+            lenient().doReturn(false).when(claimService)
+                    .claimProviderDispatchIntent(any(Long.class), any(Long.class));
+        }
+
         PayoutService payoutService = new PayoutService(
                 payoutTransactionRepository,
                 paymentTransactionRepository,
+                accountDeletionFinancialService,
                 sellerPayoutProfileService,
-                new PayoutClaimService(
-                        payoutTransactionRepository,
-                        paymentTransactionRepository,
-                        sellerRecoveryService,
-                        paymentMetricsService),
+                claimService,
                 new PayoutStateService(
                         payoutTransactionRepository,
                         paymentTransactionRepository,
@@ -115,6 +167,238 @@ class PayoutServiceTest {
         enabledField.setBoolean(payoutService, payoutEnabled);
 
         return payoutService;
+    }
+
+    @Test
+    void requestPayout_fallbackCleanupFailureKeepsDurableClaimRequestedWithoutDispatch() {
+        PaymentTransaction payment = PaymentTransaction.builder()
+                .id(201L)
+                .sellerUserId(202L)
+                .netAmount(5000)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.REQUESTED)
+                .build();
+        PayoutTransaction payout = PayoutTransaction.builder()
+                .id(203L)
+                .paymentTransactionId(201L)
+                .sellerId(202L)
+                .requestedAmount(5000)
+                .status(SettlementStatus.REQUESTED)
+                .retryCount(0)
+                .nextRetryAt(Instant.now().plusSeconds(30))
+                .build();
+        PayoutClaimService claimService = org.mockito.Mockito.mock(PayoutClaimService.class);
+        when(claimService.claimInitial(201L, true)).thenReturn(new PayoutClaimService.ClaimedPayout(
+                payment, payout, PayoutClaimService.ClaimAction.CALL_PROVIDER));
+        when(claimService.bindProviderPayload(201L, 203L, "SIM", null)).thenAnswer(invocation -> {
+            payout.setProviderCode("SIM");
+            return payout;
+        });
+        when(payoutStateService.keepRequested(
+                eq(payment), eq(payout), eq(null), eq("PAYOUT_FALLBACK_CLEANUP_FAILED"), any(), eq(false)))
+                .thenReturn(payout);
+        org.mockito.Mockito.doThrow(new IllegalStateException("synthetic cleanup failure"))
+                .when(accountDeletionFinancialService).clearFallbackIfNoUnboundPayouts(202L);
+        when(simGateway.getProviderCode()).thenReturn("SIM");
+
+        PayoutService payoutService = new PayoutService(
+                payoutTransactionRepository,
+                paymentTransactionRepository,
+                accountDeletionFinancialService,
+                sellerPayoutProfileService,
+                claimService,
+                payoutStateService,
+                jobScheduler,
+                List.of(simGateway));
+        when(jobScheduler.isAvailable()).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(payoutService, "payoutEnabled", true);
+        org.springframework.test.util.ReflectionTestUtils.setField(payoutService, "payoutProvider", "SIM");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> payoutService.requestPayout(payment))
+                .isInstanceOf(RuntimeException.class)
+                .hasCauseInstanceOf(IllegalStateException.class);
+
+        assertThat(payout.getStatus()).isEqualTo(SettlementStatus.REQUESTED);
+        assertThat(payout.getProviderCode()).isEqualTo("SIM");
+        verify(payoutStateService).keepRequested(
+                eq(payment),
+                eq(payout),
+                eq(null),
+                eq("PAYOUT_FALLBACK_CLEANUP_FAILED"),
+                org.mockito.ArgumentMatchers.contains("Seller payout fallback cleanup failed"),
+                eq(false));
+        org.mockito.InOrder snapshotThenCleanup = inOrder(claimService, accountDeletionFinancialService);
+        snapshotThenCleanup.verify(claimService).bindProviderPayload(201L, 203L, "SIM", null);
+        snapshotThenCleanup.verify(accountDeletionFinancialService).clearFallbackIfNoUnboundPayouts(202L);
+        verify(payoutStateService, never()).fail(
+                any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.anyBoolean());
+        verify(claimService, never()).claimProviderDispatchIntent(any(), any());
+        verify(simGateway, never()).requestPayout(any());
+        verify(jobScheduler).schedule(any(Instant.class), any(JobLambda.class));
+    }
+
+    @Test
+    void retryPayout_fallbackCleanupFailureSkipsProviderStatusLookup() {
+        PaymentTransaction payment = PaymentTransaction.builder()
+                .id(204L)
+                .sellerUserId(205L)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.REQUESTED)
+                .build();
+        PayoutTransaction payout = PayoutTransaction.builder()
+                .id(206L)
+                .paymentTransactionId(204L)
+                .sellerId(205L)
+                .requestedAmount(5000)
+                .status(SettlementStatus.REQUESTED)
+                .providerRef("synthetic-provider-ref")
+                .providerCode("TOSS")
+                .providerSellerId("synthetic-seller-id")
+                .retryCount(0)
+                .nextRetryAt(Instant.now().plusSeconds(30))
+                .build();
+        PayoutClaimService claimService = org.mockito.Mockito.mock(PayoutClaimService.class);
+        when(claimService.claimRetry(206L, true)).thenReturn(new PayoutClaimService.ClaimedPayout(
+                payment, payout, PayoutClaimService.ClaimAction.POLL_PROVIDER));
+        when(claimService.bindProviderPayload(204L, 206L, "TOSS", "synthetic-seller-id"))
+                .thenReturn(payout);
+        when(payoutStateService.keepRequested(
+                eq(payment),
+                eq(payout),
+                eq("synthetic-provider-ref"),
+                eq("PAYOUT_FALLBACK_CLEANUP_FAILED"),
+                any(),
+                eq(false))).thenReturn(payout);
+        org.mockito.Mockito.doThrow(new IllegalStateException("synthetic cleanup failure"))
+                .when(accountDeletionFinancialService).clearFallbackIfNoUnboundPayouts(205L);
+        when(tossGateway.getProviderCode()).thenReturn("TOSS");
+
+        PayoutService payoutService = new PayoutService(
+                payoutTransactionRepository,
+                paymentTransactionRepository,
+                accountDeletionFinancialService,
+                sellerPayoutProfileService,
+                claimService,
+                payoutStateService,
+                jobScheduler,
+                List.of(tossGateway));
+        when(jobScheduler.isAvailable()).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(payoutService, "payoutEnabled", true);
+        org.springframework.test.util.ReflectionTestUtils.setField(payoutService, "payoutProvider", "TOSS");
+
+        payoutService.retryPayout(206L);
+
+        verify(claimService).bindProviderPayload(204L, 206L, "TOSS", "synthetic-seller-id");
+        verify(accountDeletionFinancialService).clearFallbackIfNoUnboundPayouts(205L);
+        verify(tossGateway, never()).getPayoutStatus(any());
+        verify(tossGateway, never()).requestPayout(any());
+        verify(payoutStateService).keepRequested(
+                eq(payment),
+                eq(payout),
+                eq("synthetic-provider-ref"),
+                eq("PAYOUT_FALLBACK_CLEANUP_FAILED"),
+                org.mockito.ArgumentMatchers.contains("Seller payout fallback cleanup failed"),
+                eq(false));
+    }
+
+    @Test
+    void disabledFeatureDoesNotScanOrResumeSkippedPayouts() throws Exception {
+        PayoutService payoutService = newServiceWithEnabled(false);
+
+        payoutService.resumePayoutClaimsSkippedWhileDisabled();
+
+        verify(payoutTransactionRepository, never())
+                .findTop100ByStatusAndFailureCodeOrderByIdAsc(any(), any());
+        verify(jobScheduler, never()).requireWritable();
+        verify(simGateway, never()).requestPayout(any(PayoutGateway.PayoutRequest.class));
+    }
+
+    @Test
+    void enabledFeatureScansOnlyPayoutsSkippedByDisabledFeature() throws Exception {
+        given(payoutTransactionRepository.findTop100ByStatusAndFailureCodeOrderByIdAsc(
+                SettlementStatus.SKIPPED,
+                PayoutClaimService.PAYOUT_DISABLED_FAILURE_CODE)).willReturn(List.of());
+        PayoutService payoutService = newServiceWithEnabled(true);
+
+        payoutService.resumePayoutClaimsSkippedWhileDisabled();
+
+        verify(payoutTransactionRepository).findTop100ByStatusAndFailureCodeOrderByIdAsc(
+                SettlementStatus.SKIPPED,
+                PayoutClaimService.PAYOUT_DISABLED_FAILURE_CODE);
+        verify(jobScheduler).requireWritable();
+        verify(simGateway, never()).requestPayout(any(PayoutGateway.PayoutRequest.class));
+    }
+
+    @Test
+    void enabledFeatureResumesEligibleDisabledPayoutAndDoesNotRedispatchCompletedCandidate() throws Exception {
+        PaymentTransaction payment = PaymentTransaction.builder()
+                .id(120L)
+                .sellerUserId(130L)
+                .partyId(140L)
+                .applicationId(150L)
+                .buyerUserId(160L)
+                .orderId("synthetic-disabled-payout-order")
+                .paymentKey("synthetic-disabled-payout-key")
+                .grossAmount(12000)
+                .netAmount(12000)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.SKIPPED)
+                .build();
+        Party party = Party.builder()
+                .id(140L)
+                .hostId(130L)
+                .status(Party.PartyStatus.SELLING)
+                .gameDate(LocalDate.now().plusDays(1))
+                .build();
+        PartyApplication application = PartyApplication.builder()
+                .id(150L)
+                .partyId(140L)
+                .applicantId(160L)
+                .orderId("synthetic-disabled-payout-order")
+                .paymentKey("synthetic-disabled-payout-key")
+                .depositAmount(12000)
+                .isApproved(true)
+                .isPaid(true)
+                .isRejected(false)
+                .build();
+        PayoutTransaction payout = PayoutTransaction.builder()
+                .id(170L)
+                .paymentTransactionId(120L)
+                .sellerId(130L)
+                .requestedAmount(12000)
+                .status(SettlementStatus.SKIPPED)
+                .failureCode(PayoutClaimService.PAYOUT_DISABLED_FAILURE_CODE)
+                .retryCount(0)
+                .recoveryOffsetAmount(0)
+                .build();
+
+        given(payoutTransactionRepository.findTop100ByStatusAndFailureCodeOrderByIdAsc(
+                SettlementStatus.SKIPPED,
+                PayoutClaimService.PAYOUT_DISABLED_FAILURE_CODE)).willReturn(List.of(payout));
+        given(payoutTransactionRepository.findById(170L)).willReturn(Optional.of(payout));
+        given(paymentTransactionRepository.findById(120L)).willReturn(Optional.of(payment));
+        given(paymentTransactionRepository.findByIdForUpdate(120L)).willReturn(Optional.of(payment));
+        given(userRepository.findByIdForWrite(130L)).willReturn(Optional.of(UserEntity.builder()
+                .id(130L)
+                .enabled(true)
+                .pendingDeletion(false)
+                .build()));
+        given(partyRepository.findByIdForUpdate(140L)).willReturn(Optional.of(party));
+        given(partyApplicationRepository.findByOrderIdForUpdate("synthetic-disabled-payout-order"))
+                .willReturn(Optional.of(application));
+        given(simGateway.requestPayout(any(PayoutGateway.PayoutRequest.class)))
+                .willReturn(new PayoutGateway.PayoutResult("synthetic-disabled-resume-ref", "COMPLETED"));
+
+        PayoutService payoutService = newServiceWithEnabled(true);
+        payoutService.resumePayoutClaimsSkippedWhileDisabled();
+        payoutService.resumePayoutClaimsSkippedWhileDisabled();
+
+        assertThat(payout.getStatus()).isEqualTo(SettlementStatus.COMPLETED);
+        assertThat(payment.getSettlementStatus()).isEqualTo(SettlementStatus.COMPLETED);
+        verify(simGateway).requestPayout(argThat(request ->
+                Integer.valueOf(12000).equals(request.amount())
+                        && "mate-payout-120".equals(request.requestId())));
     }
 
     @Test
@@ -219,6 +503,34 @@ class PayoutServiceTest {
     }
 
     @Test
+    void requestPayout_deniedDispatchIntentDoesNotCallProvider() throws Exception {
+        PaymentTransaction paymentTransaction = PaymentTransaction.builder()
+                .id(109L)
+                .sellerUserId(220L)
+                .netAmount(12000)
+                .paymentStatus(PaymentStatus.PAID)
+                .build();
+        PayoutTransaction pending = PayoutTransaction.builder()
+                .id(309L)
+                .paymentTransactionId(109L)
+                .sellerId(220L)
+                .requestedAmount(12000)
+                .status(SettlementStatus.PENDING)
+                .retryCount(0)
+                .build();
+        givenLockedPayment(paymentTransaction);
+        given(payoutTransactionRepository.findTopByPaymentTransactionIdForUpdateOrderByIdDesc(109L))
+                .willReturn(Optional.of(pending));
+        given(payoutTransactionRepository.findById(309L)).willReturn(Optional.of(pending));
+
+        PayoutService payoutService = newServiceWithConfig(true, "SIM", List.of(simGateway), false);
+        PayoutTransaction result = payoutService.requestPayout(paymentTransaction);
+
+        assertThat(result).isSameAs(pending);
+        verify(simGateway, never()).requestPayout(any(PayoutGateway.PayoutRequest.class));
+    }
+
+    @Test
     void requestPayout_recordsSellerProfileMissingWithoutRetryWhenProviderIsToss() throws Exception {
         PaymentTransaction paymentTransaction = PaymentTransaction.builder()
                 .id(44L)
@@ -298,6 +610,50 @@ class PayoutServiceTest {
                         && "MATE-66-2-1700000000000".equals(request.orderId())
                         && Integer.valueOf(33000).equals(request.amount())));
         verify(jobScheduler).schedule(any(Instant.class), any(JobLambda.class));
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"", " ", "\t"})
+    void requestPayout_completedWithoutProviderRefRequiresManualReconciliation(String providerRef) throws Exception {
+        PaymentTransaction paymentTransaction = PaymentTransaction.builder()
+                .id(118L)
+                .orderId("MATE-118-2-1700000000000")
+                .sellerUserId(128L)
+                .netAmount(33000)
+                .build();
+        PayoutTransaction pending = PayoutTransaction.builder()
+                .id(119L)
+                .paymentTransactionId(118L)
+                .sellerId(128L)
+                .requestedAmount(33000)
+                .status(SettlementStatus.PENDING)
+                .retryCount(0)
+                .build();
+
+        givenLockedPayment(paymentTransaction);
+        given(payoutTransactionRepository.findTopByPaymentTransactionIdForUpdateOrderByIdDesc(118L))
+                .willReturn(Optional.of(pending));
+        given(payoutTransactionRepository.save(any(PayoutTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(paymentTransactionRepository.save(any(PaymentTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(sellerPayoutProfileService.getRequiredProviderSellerId(128L, "TOSS"))
+                .willReturn("seller-toss-128");
+        given(tossGateway.requestPayout(any(PayoutGateway.PayoutRequest.class)))
+                .willReturn(new PayoutGateway.PayoutResult(providerRef, "COMPLETED"));
+
+        PayoutTransaction result = newServiceWithConfig(true, "TOSS", List.of(simGateway, tossGateway))
+                .requestPayout(paymentTransaction);
+
+        assertThat(result.getStatus()).isEqualTo(SettlementStatus.REQUESTED);
+        assertThat(result.getProviderRef()).isNull();
+        assertThat(result.getFailureCode()).isEqualTo("PAYOUT_MANUAL_RECONCILIATION_REQUIRED");
+        assertThat(result.getNextRetryAt()).isNull();
+        assertThat(result.getRetryCount()).isZero();
+        assertThat(paymentTransaction.getSettlementStatus()).isEqualTo(SettlementStatus.REQUESTED);
+        verify(jobScheduler, never()).schedule(any(Instant.class), any(JobLambda.class));
+        verify(sellerRecoveryService, never()).applyReservedOffset(any(PayoutTransaction.class));
     }
 
     @Test
@@ -567,11 +923,50 @@ class PayoutServiceTest {
     }
 
     @Test
-    void retryPayout_ambiguousRequestedStateReusesStableProviderRequest() throws Exception {
+    void retryPayout_missingPartyHoldsBeforeCallingProvider() throws Exception {
+        PaymentTransaction paymentTransaction = PaymentTransaction.builder()
+                .id(98L)
+                .sellerUserId(124L)
+                .partyId(null)
+                .netAmount(12000)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.REQUESTED)
+                .build();
+        PayoutTransaction requested = PayoutTransaction.builder()
+                .id(99L)
+                .paymentTransactionId(98L)
+                .sellerId(124L)
+                .status(SettlementStatus.REQUESTED)
+                .claimProtocol("SNAPSHOT_V1")
+                .retryCount(0)
+                .nextRetryAt(Instant.now().minusSeconds(1))
+                .build();
+
+        given(payoutTransactionRepository.findById(99L)).willReturn(Optional.of(requested));
+        given(paymentTransactionRepository.findByIdForUpdate(98L)).willReturn(Optional.of(paymentTransaction));
+
+        newServiceWithEnabled(true).retryPayout(99L);
+
+        assertThat(requested.getStatus()).isEqualTo(SettlementStatus.REQUESTED);
+        assertThat(requested.getFailureCode())
+                .isEqualTo(PayoutStateService.MANUAL_RECONCILIATION_FAILURE_CODE);
+        assertThat(requested.getNextRetryAt()).isNull();
+        assertThat(paymentTransaction.getPaymentStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(paymentTransaction.getSettlementStatus()).isEqualTo(SettlementStatus.REQUESTED);
+        verify(sellerRecoveryService, never()).reserveOffset(any(), any(), any(Integer.class));
+        verify(simGateway, never()).requestPayout(any());
+        verify(tossGateway, never()).requestPayout(any());
+        verify(simGateway, never()).getPayoutStatus(any());
+        verify(tossGateway, never()).getPayoutStatus(any());
+    }
+
+    @Test
+    void retryPayout_whenDispatchIntentClaimAllowsItUsesStableProviderRequestId() throws Exception {
         PaymentTransaction paymentTransaction = PaymentTransaction.builder()
                 .id(99L)
                 .orderId("MATE-99-2-1700000000000")
                 .sellerUserId(125L)
+                .partyId(149L)
                 .netAmount(12000)
                 .paymentStatus(PaymentStatus.PAID)
                 .settlementStatus(SettlementStatus.REQUESTED)
@@ -596,6 +991,10 @@ class PayoutServiceTest {
                 .willAnswer(invocation -> invocation.getArgument(0));
         given(paymentTransactionRepository.save(any(PaymentTransaction.class)))
                 .willAnswer(invocation -> invocation.getArgument(0));
+        given(partyRepository.findById(149L)).willReturn(Optional.of(Party.builder()
+                .id(149L)
+                .status(Party.PartyStatus.SELLING)
+                .build()));
         given(sellerPayoutProfileService.getRequiredProviderSellerId(125L, "TOSS"))
                 .willReturn("seller-toss-125");
         given(tossGateway.requestPayout(any(PayoutGateway.PayoutRequest.class)))
@@ -649,6 +1048,83 @@ class PayoutServiceTest {
         verify(tossGateway, never()).requestPayout(any());
         assertThat(requested.getStatus()).isEqualTo(SettlementStatus.COMPLETED);
         assertThat(paymentTransaction.getSettlementStatus()).isEqualTo(SettlementStatus.COMPLETED);
+    }
+
+    @Test
+    void retryPayout_mismatchedStatusProviderRefRequiresManualReconciliation() throws Exception {
+        PaymentTransaction paymentTransaction = PaymentTransaction.builder()
+                .id(113L)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.REQUESTED)
+                .build();
+        PayoutTransaction requested = PayoutTransaction.builder()
+                .id(114L)
+                .paymentTransactionId(113L)
+                .status(SettlementStatus.REQUESTED)
+                .providerRef("provider-original")
+                .providerCode("TOSS")
+                .providerSellerId("seller-toss-113")
+                .claimProtocol("SNAPSHOT_V1")
+                .retryCount(0)
+                .nextRetryAt(Instant.now().minusSeconds(1))
+                .build();
+
+        given(payoutTransactionRepository.findById(114L)).willReturn(Optional.of(requested));
+        given(paymentTransactionRepository.findByIdForUpdate(113L)).willReturn(Optional.of(paymentTransaction));
+        given(payoutTransactionRepository.save(any(PayoutTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(paymentTransactionRepository.save(any(PaymentTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(tossGateway.getPayoutStatus("provider-original"))
+                .willReturn(new PayoutGateway.PayoutStatusResult("provider-other", "COMPLETED", null, null));
+
+        newServiceWithConfig(true, "TOSS", List.of(simGateway, tossGateway)).retryPayout(114L);
+
+        assertThat(requested.getStatus()).isEqualTo(SettlementStatus.REQUESTED);
+        assertThat(requested.getProviderRef()).isEqualTo("provider-original");
+        assertThat(requested.getFailureCode()).isEqualTo("PAYOUT_MANUAL_RECONCILIATION_REQUIRED");
+        assertThat(requested.getNextRetryAt()).isNull();
+        assertThat(paymentTransaction.getSettlementStatus()).isEqualTo(SettlementStatus.REQUESTED);
+        verify(tossGateway).getPayoutStatus("provider-original");
+        verify(jobScheduler, never()).schedule(any(Instant.class), any(JobLambda.class));
+    }
+
+    @Test
+    void retryPayout_missingStatusProviderRefRequiresManualReconciliation() throws Exception {
+        PaymentTransaction paymentTransaction = PaymentTransaction.builder()
+                .id(115L)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.REQUESTED)
+                .build();
+        PayoutTransaction requested = PayoutTransaction.builder()
+                .id(116L)
+                .paymentTransactionId(115L)
+                .status(SettlementStatus.REQUESTED)
+                .providerRef("provider-116")
+                .providerCode("TOSS")
+                .providerSellerId("seller-toss-115")
+                .claimProtocol("SNAPSHOT_V1")
+                .retryCount(0)
+                .nextRetryAt(Instant.now().minusSeconds(1))
+                .build();
+
+        given(payoutTransactionRepository.findById(116L)).willReturn(Optional.of(requested));
+        given(paymentTransactionRepository.findByIdForUpdate(115L)).willReturn(Optional.of(paymentTransaction));
+        given(payoutTransactionRepository.save(any(PayoutTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(paymentTransactionRepository.save(any(PaymentTransaction.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(tossGateway.getPayoutStatus("provider-116"))
+                .willReturn(new PayoutGateway.PayoutStatusResult(null, "COMPLETED", null, null));
+
+        newServiceWithConfig(true, "TOSS", List.of(simGateway, tossGateway)).retryPayout(116L);
+
+        assertThat(requested.getStatus()).isEqualTo(SettlementStatus.REQUESTED);
+        assertThat(requested.getProviderRef()).isEqualTo("provider-116");
+        assertThat(requested.getFailureCode()).isEqualTo("PAYOUT_MANUAL_RECONCILIATION_REQUIRED");
+        assertThat(requested.getNextRetryAt()).isNull();
+        assertThat(paymentTransaction.getSettlementStatus()).isEqualTo(SettlementStatus.REQUESTED);
+        verify(jobScheduler, never()).schedule(any(Instant.class), any(JobLambda.class));
     }
 
     @Test
@@ -856,8 +1332,7 @@ class PayoutServiceTest {
 
         given(payoutTransactionRepository.findTopByPaymentTransactionIdForUpdateOrderByIdDesc(98L))
                 .willReturn(Optional.of(pending));
-        given(paymentTransactionRepository.findByIdForUpdate(98L))
-                .willReturn(Optional.of(paymentTransaction));
+        givenLockedPayment(paymentTransaction);
         given(payoutTransactionRepository.save(any(PayoutTransaction.class)))
                 .willAnswer(invocation -> invocation.getArgument(0));
         given(paymentTransactionRepository.save(any(PaymentTransaction.class)))
@@ -875,7 +1350,60 @@ class PayoutServiceTest {
 
     private void givenLockedPayment(PaymentTransaction paymentTransaction) {
         paymentTransaction.setPaymentStatus(PaymentStatus.PAID);
+        Long paymentId = paymentTransaction.getId();
+        Long sellerId = paymentTransaction.getSellerUserId();
+        Long partyId = paymentTransaction.getPartyId() != null
+                ? paymentTransaction.getPartyId()
+                : 500_000L + paymentId;
+        Long applicationId = paymentTransaction.getApplicationId() != null
+                ? paymentTransaction.getApplicationId()
+                : 600_000L + paymentId;
+        Long buyerId = paymentTransaction.getBuyerUserId() != null
+                ? paymentTransaction.getBuyerUserId()
+                : 700_000L + paymentId;
+        String orderId = paymentTransaction.getOrderId() != null && !paymentTransaction.getOrderId().isBlank()
+                ? paymentTransaction.getOrderId()
+                : "synthetic-payout-order-" + paymentId;
+        String paymentKey = paymentTransaction.getPaymentKey() != null && !paymentTransaction.getPaymentKey().isBlank()
+                ? paymentTransaction.getPaymentKey()
+                : "synthetic-payout-payment-" + paymentId;
+        Integer grossAmount = paymentTransaction.getGrossAmount() != null
+                ? paymentTransaction.getGrossAmount()
+                : paymentTransaction.getNetAmount() != null ? paymentTransaction.getNetAmount() : 1;
+
+        paymentTransaction.setPartyId(partyId);
+        paymentTransaction.setApplicationId(applicationId);
+        paymentTransaction.setBuyerUserId(buyerId);
+        paymentTransaction.setOrderId(orderId);
+        paymentTransaction.setPaymentKey(paymentKey);
+        paymentTransaction.setGrossAmount(grossAmount);
+
+        Party party = Party.builder()
+                .id(partyId)
+                .hostId(sellerId)
+                .status(Party.PartyStatus.SELLING)
+                .gameDate(LocalDate.now().plusDays(1))
+                .build();
+        PartyApplication application = PartyApplication.builder()
+                .id(applicationId)
+                .partyId(partyId)
+                .applicantId(buyerId)
+                .orderId(orderId)
+                .paymentKey(paymentKey)
+                .depositAmount(grossAmount)
+                .isApproved(true)
+                .isPaid(true)
+                .isRejected(false)
+                .build();
+
+        given(paymentTransactionRepository.findById(paymentId))
+                .willReturn(Optional.of(paymentTransaction));
         given(paymentTransactionRepository.findByIdForUpdate(paymentTransaction.getId()))
                 .willReturn(Optional.of(paymentTransaction));
+        given(userRepository.findByIdForWrite(sellerId))
+                .willReturn(Optional.of(UserEntity.builder().id(sellerId).build()));
+        given(partyRepository.findByIdForUpdate(partyId)).willReturn(Optional.of(party));
+        given(partyApplicationRepository.findByOrderIdForUpdate(orderId))
+                .willReturn(Optional.of(application));
     }
 }

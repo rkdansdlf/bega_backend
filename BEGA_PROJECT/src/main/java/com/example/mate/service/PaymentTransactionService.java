@@ -13,6 +13,7 @@ import com.example.mate.entity.PayoutTransaction;
 import com.example.mate.entity.SettlementStatus;
 import com.example.mate.exception.TossPaymentException;
 import com.example.mate.exception.PartyNotFoundException;
+import com.example.mate.exception.InvalidApplicationStatusException;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PaymentTransactionRepository;
@@ -119,6 +120,8 @@ public class PaymentTransactionService {
         }
         try {
             return payoutService.requestPayout(tx);
+        } catch (InvalidApplicationStatusException eligibilityFailure) {
+            throw eligibilityFailure;
         } catch (RuntimeException e) {
             return payoutService.findLatestByPaymentTransactionId(tx.getId())
                     .orElseThrow(() -> e);
@@ -192,6 +195,26 @@ public class PaymentTransactionService {
         }
     }
 
+    @Transactional(readOnly = true)
+    public boolean isVerifiedCancellationFor(PartyApplication application) {
+        if (application == null
+                || !Boolean.TRUE.equals(application.getIsPaid())
+                || application.getOrderId() == null
+                || application.getOrderId().isBlank()) {
+            return false;
+        }
+        PaymentTransaction tx = paymentTransactionRepository.findByOrderId(application.getOrderId()).orElse(null);
+        if (tx == null) {
+            return false;
+        }
+        requireCompleteTransactionMatchesApplication(tx, application);
+        if (tx.getPaymentStatus() != PaymentStatus.CANCELED) {
+            return false;
+        }
+        requirePersistedProviderCancellationProof(tx);
+        return true;
+    }
+
     private void requestPayoutAfterCommit(Long applicationId, PaymentTransaction tx) {
         readOnlyVerificationPolicy.requireWritable();
         try {
@@ -236,7 +259,11 @@ public class PaymentTransactionService {
             throw new IllegalStateException("결제된 신청의 결제 트랜잭션을 찾을 수 없어 환불할 수 없습니다.");
         }
 
+        requireTransactionMatchesApplication(tx, application);
+
         if (tx.getPaymentStatus() == PaymentStatus.CANCELED) {
+            requireCompleteTransactionMatchesApplication(tx, application);
+            requirePersistedProviderCancellationProof(tx);
             return buildExistingCanceledResponse(application.getId(), tx);
         }
 
@@ -246,10 +273,13 @@ public class PaymentTransactionService {
                 proposed);
         tx = prepared.transaction();
         PaymentCancellationIntentService.CancellationIntent intent = prepared.intent();
+        requireTransactionMatchesApplication(tx, application);
         if (entityManager != null) {
             entityManager.clear();
         }
         if (tx.getPaymentStatus() == PaymentStatus.CANCELED) {
+            requireCompleteTransactionMatchesApplication(tx, application);
+            requirePersistedProviderCancellationProof(tx);
             return buildExistingCanceledResponse(application.getId(), tx);
         }
 
@@ -353,6 +383,7 @@ public class PaymentTransactionService {
             return ProviderCancellation.unverified();
         }
         return providerCancellation(
+                tx.getGrossAmount(),
                 response.getTotalAmount(),
                 response.getBalanceAmount(),
                 response.getCancels());
@@ -365,26 +396,39 @@ public class PaymentTransactionService {
             return ProviderCancellation.unverified();
         }
         return providerCancellation(
+                tx.getGrossAmount(),
                 response.getTotalAmount(),
                 response.getBalanceAmount(),
                 response.getCancels());
     }
 
     private ProviderCancellation providerCancellation(
+            Integer expectedGrossAmount,
             Integer totalAmount,
             Integer balanceAmount,
             List<com.example.mate.dto.TossPaymentDTO.CancelDetail> cancels) {
+        if (expectedGrossAmount == null
+                || expectedGrossAmount < 0
+                || totalAmount == null
+                || !expectedGrossAmount.equals(totalAmount)) {
+            return ProviderCancellation.unverified();
+        }
         if (cancels != null && !cancels.isEmpty()) {
-            int canceledAmount = cancels.stream()
-                    .filter(Objects::nonNull)
-                    .filter(cancel -> isCompletedProviderCancellation(cancel.getCancelStatus()))
-                    .map(com.example.mate.dto.TossPaymentDTO.CancelDetail::getCancelAmount)
-                    .filter(Objects::nonNull)
-                    .filter(amount -> amount > 0)
-                    .mapToInt(Integer::intValue)
-                    .sum();
+            long canceledAmount = 0;
+            for (com.example.mate.dto.TossPaymentDTO.CancelDetail cancel : cancels) {
+                if (cancel == null
+                        || !isCompletedProviderCancellation(cancel.getCancelStatus())
+                        || cancel.getCancelAmount() == null
+                        || cancel.getCancelAmount() <= 0) {
+                    continue;
+                }
+                canceledAmount += cancel.getCancelAmount();
+                if (canceledAmount > totalAmount) {
+                    return ProviderCancellation.unverified();
+                }
+            }
             if (canceledAmount > 0) {
-                return new ProviderCancellation(canceledAmount, true);
+                return new ProviderCancellation((int) canceledAmount, true);
             }
         }
         if (totalAmount != null && balanceAmount != null
@@ -500,6 +544,74 @@ public class PaymentTransactionService {
             sellerRecoveryService.recordSettledRefund(tx, originalPaidAmount);
         }
         return buildCancelResponse(applicationId, tx);
+    }
+
+    private void requireTransactionMatchesApplication(PaymentTransaction tx, PartyApplication application) {
+        if (tx == null
+                || application == null
+                || (tx.getApplicationId() != null && application.getId() != null
+                        && !Objects.equals(tx.getApplicationId(), application.getId()))
+                || (tx.getPartyId() != null && application.getPartyId() != null
+                        && !Objects.equals(tx.getPartyId(), application.getPartyId()))
+                || (tx.getBuyerUserId() != null && application.getApplicantId() != null
+                        && !Objects.equals(tx.getBuyerUserId(), application.getApplicantId()))
+                || (tx.getOrderId() != null && application.getOrderId() != null
+                        && !Objects.equals(tx.getOrderId(), application.getOrderId()))
+                || (tx.getPaymentKey() != null && application.getPaymentKey() != null
+                        && !Objects.equals(tx.getPaymentKey(), application.getPaymentKey()))
+                || (tx.getGrossAmount() != null && application.getDepositAmount() != null
+                        && !Objects.equals(tx.getGrossAmount(), application.getDepositAmount()))) {
+            throw new IllegalStateException("결제 트랜잭션이 신청의 결제 정보와 일치하지 않습니다.");
+        }
+    }
+
+    private void requireCompleteTransactionMatchesApplication(
+            PaymentTransaction tx,
+            PartyApplication application) {
+        requireTransactionMatchesApplication(tx, application);
+        if (application.getId() == null
+                || application.getPartyId() == null
+                || application.getApplicantId() == null
+                || application.getOrderId() == null
+                || application.getOrderId().isBlank()
+                || application.getPaymentKey() == null
+                || application.getPaymentKey().isBlank()
+                || application.getDepositAmount() == null
+                || tx.getApplicationId() == null
+                || tx.getPartyId() == null
+                || tx.getBuyerUserId() == null
+                || tx.getOrderId() == null
+                || tx.getOrderId().isBlank()
+                || tx.getPaymentKey() == null
+                || tx.getPaymentKey().isBlank()
+                || tx.getGrossAmount() == null) {
+            throw new IllegalStateException("취소 정리 대상의 결제 연결 정보를 완전히 확인할 수 없습니다.");
+        }
+    }
+
+    private void requirePersistedProviderCancellationProof(PaymentTransaction tx) {
+        Integer grossAmount = tx.getGrossAmount();
+        Integer refundAmount = tx.getRefundAmount();
+        Integer feeAmount = tx.getFeeAmount();
+        Integer requestedRefundAmount = tx.getRequestedRefundAmount();
+        Integer requestedFeeAmount = tx.getRequestedFeeAmount();
+        if (tx.getProviderReconciledAt() == null
+                || tx.getCancellationRequestedAt() == null
+                || requestedRefundAmount == null
+                || requestedFeeAmount == null
+                || tx.getRefundPolicyApplied() == null
+                || tx.getRefundPolicyApplied().isBlank()
+                || grossAmount == null
+                || refundAmount == null
+                || feeAmount == null
+                || requestedRefundAmount < 0
+                || requestedFeeAmount < 0
+                || (long) requestedRefundAmount + requestedFeeAmount != grossAmount.longValue()
+                || refundAmount < requestedRefundAmount
+                || refundAmount > grossAmount
+                || (long) refundAmount + feeAmount != grossAmount.longValue()) {
+            throw new IllegalStateException("결제 취소 완료 증명을 확인할 수 없어 신청 정리를 보류합니다.");
+        }
     }
 
     private PaymentTransaction findExistingTransaction(String orderId, String paymentKey) {

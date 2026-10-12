@@ -86,6 +86,15 @@ class ReissueControllerTest {
                 refreshTokenReuseDetector,
                 refreshTokenRevocationService,
                 identityDigestService());
+        UserEntity validUser = mock(UserEntity.class);
+        lenient().when(validUser.getId()).thenReturn(42L);
+        lenient().when(validUser.getEmail()).thenReturn("test@test.com");
+        lenient().when(validUser.isEnabled()).thenReturn(true);
+        lenient().when(validUser.isLocked()).thenReturn(false);
+        lenient().when(validUser.getTokenVersion()).thenReturn(0);
+        lenient().when(jwtUtil.getUserId(anyString())).thenReturn(42L);
+        lenient().when(jwtUtil.getTokenVersion(anyString())).thenReturn(0);
+        lenient().when(userRepository.findByIdForWrite(42L)).thenReturn(Optional.of(validUser));
         return new ReissueController(
                 authCookieUtil,
                 authSessionService,
@@ -193,7 +202,7 @@ class ReissueControllerTest {
         when(jwtUtil.getTokenType("valid-token")).thenReturn("refresh");
         when(jwtUtil.isExpired("valid-token")).thenReturn(false);
         when(refreshRepository.findAllByTokenDigestForUpdate("valid-token")).thenReturn(List.of());
-        when(refreshTokenReuseDetector.findReuseUserId("valid-token")).thenReturn(Optional.empty());
+        when(refreshTokenReuseDetector.findReuseMarker("valid-token")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> controller.reissue(request, response))
                 .isInstanceOf(BadRequestBusinessException.class);
@@ -212,17 +221,18 @@ class ReissueControllerTest {
         when(jwtUtil.getTokenType("reused-token")).thenReturn("refresh");
         when(jwtUtil.isExpired("reused-token")).thenReturn(false);
         when(refreshRepository.findAllByTokenDigestForUpdate("reused-token")).thenReturn(List.of());
-        when(refreshTokenReuseDetector.findReuseUserId("reused-token")).thenReturn(Optional.of(42L));
-        when(refreshTokenRevocationService.revokeAllSessionsAfterReuse(42L))
+        when(refreshTokenReuseDetector.findReuseMarker("reused-token")).thenReturn(Optional.of(
+                new RefreshTokenReuseDetector.ReuseMarker(42L, "session-42")));
+        when(refreshTokenRevocationService.revokeSessionAfterReuse(42L, "session-42"))
                 .thenReturn(new RefreshTokenRevocationService.RevokedRefreshSessions(42L, "user@test.com"));
 
         assertThatThrownBy(() -> controller.reissue(request, response))
                 .isInstanceOfSatisfying(BadRequestBusinessException.class, ex -> {
                     assertThat(ex.getCode()).isEqualTo("REFRESH_TOKEN_REUSE_DETECTED");
-                    assertThat(ex.getMessage()).contains("모든 세션이 종료되었습니다");
+                    assertThat(ex.getMessage()).contains("해당 세션만 종료했습니다");
                 });
 
-        verify(refreshTokenRevocationService).revokeAllSessionsAfterReuse(42L);
+        verify(refreshTokenRevocationService).revokeSessionAfterReuse(42L, "session-42");
         verify(authSecurityMonitoringService).recordRefreshReissueReject("REFRESH_TOKEN_REUSE_DETECTED");
     }
 
@@ -237,8 +247,9 @@ class ReissueControllerTest {
         when(jwtUtil.getTokenType("reused-token")).thenReturn("refresh");
         when(jwtUtil.isExpired("reused-token")).thenReturn(false);
         when(refreshRepository.findAllByTokenDigestForUpdate("reused-token")).thenReturn(List.of());
-        when(refreshTokenReuseDetector.findReuseUserId("reused-token")).thenReturn(Optional.of(42L));
-        when(refreshTokenRevocationService.revokeAllSessionsAfterReuse(42L))
+        when(refreshTokenReuseDetector.findReuseMarker("reused-token")).thenReturn(Optional.of(
+                new RefreshTokenReuseDetector.ReuseMarker(42L, "session-42")));
+        when(refreshTokenRevocationService.revokeSessionAfterReuse(42L, "session-42"))
                 .thenThrow(new RefreshTokenRevokeFailedException());
 
         assertThatThrownBy(() -> controller.reissue(request, response))
@@ -248,7 +259,7 @@ class ReissueControllerTest {
                     assertThat(ex.getMessage()).doesNotContain("모든 세션이 종료되었습니다");
                 });
 
-        verify(refreshTokenRevocationService).revokeAllSessionsAfterReuse(42L);
+        verify(refreshTokenRevocationService).revokeSessionAfterReuse(42L, "session-42");
         verify(authSecurityMonitoringService).recordRefreshReissueReject("REFRESH_TOKEN_REVOKE_FAILED");
         verify(authSecurityMonitoringService, never()).recordRefreshReissueReject("REFRESH_TOKEN_REUSE_DETECTED");
     }
@@ -260,20 +271,15 @@ class ReissueControllerTest {
         MockHttpServletRequest request = new MockHttpServletRequest();
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        RefreshToken rt = mock(RefreshToken.class);
-        when(rt.getEmail()).thenReturn("test@test.com");
-
         UserEntity user = mock(UserEntity.class);
         when(user.getId()).thenReturn(42L);
         when(user.isEnabled()).thenReturn(false);
 
         when(authSessionService.extractRefreshToken(request)).thenReturn("valid-token");
         when(jwtUtil.getTokenType("valid-token")).thenReturn("refresh");
-        when(jwtUtil.isExpired("valid-token")).thenReturn(false);
         when(jwtUtil.getUserId("valid-token")).thenReturn(42L);
         when(jwtUtil.getTokenVersion("valid-token")).thenReturn(0);
-        when(refreshRepository.findAllByTokenDigestForUpdate("valid-token")).thenReturn(List.of(rt));
-        when(userRepository.findById(42L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForWrite(42L)).thenReturn(Optional.of(user));
 
         assertThatThrownBy(() -> controller.reissue(request, response))
                 .isInstanceOf(InvalidAuthorException.class);
@@ -307,7 +313,7 @@ class ReissueControllerTest {
         when(jwtUtil.getRefreshTokenExpirationTime()).thenReturn(86400000L);
         when(jwtUtil.createJwt("test@test.com", "ROLE_USER", 42L, 7200000L, 0)).thenReturn("new-access");
         when(refreshRepository.findAllByTokenDigestForUpdate("valid-token")).thenReturn(List.of(rt));
-        when(userRepository.findById(42L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForWrite(42L)).thenReturn(Optional.of(user));
 
         AuthSessionService.IssuedRefreshSession issued = new AuthSessionService.IssuedRefreshSession("new-refresh", "sess");
         when(authSessionService.rotateRefreshSession(eq(rt), eq("test@test.com"), eq("ROLE_USER"),

@@ -30,7 +30,7 @@ public interface UserPowerupRepository extends JpaRepository<UserPowerup, Long> 
     @Query("UPDATE UserPowerup up SET up.quantity = up.quantity + :amount WHERE up.userId = :userId AND up.powerupType = :type")
     int addPowerup(@Param("userId") Long userId, @Param("type") UserPowerup.PowerupType type, @Param("amount") int amount);
 
-    @Modifying
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("UPDATE UserPowerup up SET up.quantity = up.quantity - 1 WHERE up.userId = :userId AND up.powerupType = :type AND up.quantity > 0")
     int usePowerup(@Param("userId") Long userId, @Param("type") UserPowerup.PowerupType type);
 

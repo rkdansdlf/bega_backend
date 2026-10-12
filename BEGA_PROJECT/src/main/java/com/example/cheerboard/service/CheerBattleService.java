@@ -1,17 +1,15 @@
 package com.example.cheerboard.service;
 
 import com.example.cheerboard.entity.CheerVoteEntity;
-import com.example.cheerboard.entity.CheerVoteId;
 import com.example.cheerboard.repository.CheerVoteRepository;
 import com.example.kbo.util.TeamCodeNormalizer;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -22,105 +20,72 @@ public class CheerBattleService {
     private final CheerVoteRepository cheerVoteRepository;
     private final com.example.cheerboard.repository.CheerBattleLogRepository cheerBattleLogRepository;
     private final com.example.auth.repository.UserRepository userRepository;
-    private final CheerMonitoringMetricsService metricsService;
+    private final CheerBattleVoteTransactionService voteTransactionService;
 
     // Game ID -> Team ID -> Vote Count (In-memory cache)
     private final Map<String, Map<String, AtomicInteger>> gameVotes = new ConcurrentHashMap<>();
+    private final java.util.Set<String> loadedGameStats = ConcurrentHashMap.newKeySet();
 
-    @Transactional
     public int vote(String gameId, String teamId, Long userId) {
         String normalizedTeamId = TeamCodeNormalizer.normalize(teamId);
+        int newValue;
+        try {
+            newValue = voteTransactionService.vote(gameId, normalizedTeamId, userId);
+        } catch (CheerBattleVoteTransactionService.VoteCountInsertRaceException race) {
+            newValue = voteTransactionService.vote(gameId, normalizedTeamId, userId);
+        }
+        updateMemoryAfterCommit(gameId, normalizedTeamId, newValue);
+        return newValue;
+    }
 
-        // 1. 사용자 정보 및 이메일 확인
-        com.example.auth.entity.UserEntity user = userRepository.findById(userId)
-                .orElseThrow(() -> {
-                    metricsService.recordBattleVote("user_not_found");
-                    return new IllegalArgumentException("사용자를 찾을 수 없습니다.");
+    private void updateMemoryAfterCommit(String gameId, String teamId, int voteCount) {
+        Runnable updateCache = () -> gameVotes.computeIfAbsent(gameId, ignored -> new ConcurrentHashMap<>())
+                .compute(teamId, (ignored, counter) -> {
+                    if (counter == null) {
+                        return new AtomicInteger(voteCount);
+                    }
+                    counter.accumulateAndGet(voteCount, Math::max);
+                    return counter;
                 });
 
-        String userEmail = user.getEmail();
-
-        // Check if already voted
-        if (cheerBattleLogRepository.existsByGameIdAndUserEmail(gameId, userEmail)) {
-            metricsService.recordBattleVote("already_voted");
-            throw new IllegalStateException("이미 투표에 참여하셨습니다.");
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            updateCache.run();
+            return;
         }
 
-        // 포인트 차감 (부족하면 예외 발생)
-        try {
-            user.deductCheerPoints(1);
-        } catch (IllegalStateException e) {
-            metricsService.recordBattleVote("insufficient_points");
-            throw e;
-        }
-        userRepository.save(user);
-
-        // 2. Save Vote Log
-        com.example.cheerboard.entity.CheerBattleLog battleLog = com.example.cheerboard.entity.CheerBattleLog.builder()
-                .gameId(gameId)
-                .teamId(normalizedTeamId)
-                .userEmail(userEmail)
-                .build();
-        cheerBattleLogRepository.save(Objects.requireNonNull(battleLog));
-
-        // 3. Update memory (DB backup fallback)
-        Map<String, AtomicInteger> teamVotes = gameVotes.computeIfAbsent(gameId, k -> new ConcurrentHashMap<>());
-
-        AtomicInteger counter = teamVotes.computeIfAbsent(normalizedTeamId, k -> {
-            // Memory miss -> Load from DB
-            CheerVoteId id = CheerVoteId.builder()
-                    .gameId(gameId)
-                    .teamId(normalizedTeamId)
-                    .build();
-            return cheerVoteRepository.findById(Objects.requireNonNull(id))
-                    .map(entity -> new AtomicInteger(entity.getVoteCount()))
-                    .orElse(new AtomicInteger(0));
-        });
-
-        int newValue = counter.incrementAndGet();
-
-        // 4. Update DB (Vote Count) using atomic increment to prevent lost updates
-        int updatedRows = cheerVoteRepository.incrementVoteCount(gameId, normalizedTeamId);
-        if (updatedRows == 0) {
-            try {
-                cheerVoteRepository.save(CheerVoteEntity.builder()
-                        .gameId(gameId)
-                        .teamId(normalizedTeamId)
-                        .voteCount(0)
-                        .build());
-            } catch (DataIntegrityViolationException ignored) {
-                // inserted by another concurrent request
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                updateCache.run();
             }
-            cheerVoteRepository.incrementVoteCount(gameId, normalizedTeamId);
-        }
-
-        Integer dbCount = cheerVoteRepository.findVoteCount(gameId, normalizedTeamId);
-        if (dbCount != null && dbCount > counter.get()) {
-            counter.set(dbCount);
-        }
-
-        metricsService.recordBattleVote("success");
-
-        return dbCount == null ? newValue : dbCount;
+        });
     }
 
     public Map<String, Integer> getGameStats(String gameId) {
-        Map<String, Integer> result = new java.util.HashMap<>();
-
-        // Try load from memory first
-        if (gameVotes.containsKey(gameId)) {
-            gameVotes.get(gameId).forEach((k, v) -> result.put(k, v.get()));
-        } else {
-            // If missing in memory, load from DB
-            List<CheerVoteEntity> entities = cheerVoteRepository.findByGameId(gameId);
-            entities.forEach(e -> {
-                result.put(e.getTeamId(), e.getVoteCount());
-                // Populate memory
-                gameVotes.computeIfAbsent(gameId, k -> new ConcurrentHashMap<>())
-                        .put(e.getTeamId(), new AtomicInteger(e.getVoteCount()));
-            });
+        if (loadedGameStats.contains(gameId)) {
+            return snapshotGameStats(gameId);
         }
 
+        List<CheerVoteEntity> entities = cheerVoteRepository.findByGameId(gameId);
+        entities.forEach(entity -> gameVotes
+                .computeIfAbsent(gameId, ignored -> new ConcurrentHashMap<>())
+                .compute(entity.getTeamId(), (ignored, current) -> {
+                    if (current == null) {
+                        return new AtomicInteger(entity.getVoteCount());
+                    }
+                    current.accumulateAndGet(entity.getVoteCount(), Math::max);
+                    return current;
+                }));
+        loadedGameStats.add(gameId);
+        return snapshotGameStats(gameId);
+    }
+
+    private Map<String, Integer> snapshotGameStats(String gameId) {
+        Map<String, Integer> result = new java.util.HashMap<>();
+        Map<String, AtomicInteger> cachedStats = gameVotes.get(gameId);
+        if (cachedStats != null) {
+            cachedStats.forEach((teamId, count) -> result.put(teamId, count.get()));
+        }
         return result;
     }
 
@@ -134,5 +99,6 @@ public class CheerBattleService {
     public void clearMemoryCache() {
         // 메모리 상의 투표 집계 초기화
         gameVotes.clear();
+        loadedGameStats.clear();
     }
 }

@@ -19,10 +19,8 @@ public class AiServiceSettings {
     static final String LOCAL_DEV_AI_SERVICE_URL = "http://localhost:8001";
     static final String LOCAL_DEV_AI_INTERNAL_TOKEN = "local-dev-ai-internal-token";
     private static final List<Path> LOCAL_TOKEN_ENV_PATHS = List.of(
-            Path.of("bega_AI", ".env"),
-            Path.of("bega_AI", ".env.prod"),
-            Path.of(".env.prod"),
-            Path.of(".env"));
+            Path.of("bega_AI", ".env.local"),
+            Path.of(".env.local"));
 
     private final Environment environment;
     private final String rawServiceUrl;
@@ -249,7 +247,7 @@ public class AiServiceSettings {
     private static Path detectWorkspaceRoot() {
         Path current = Paths.get("").toAbsolutePath().normalize();
         while (current != null) {
-            if (Files.exists(current.resolve("docker-compose.yml")) || Files.exists(current.resolve(".env.prod"))) {
+            if (Files.exists(current.resolve("docker-compose.yml"))) {
                 return current;
             }
             current = current.getParent();

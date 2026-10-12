@@ -55,7 +55,9 @@ class AdminUserDeletionPreparationServiceTest {
         assertThat(user.isEnabled()).isFalse();
         assertThat(user.getTokenVersion()).isEqualTo(4);
         assertThat(user.getLockExpiresAt()).isNull();
-        assertThat(user.isPendingDeletion()).isFalse();
+        assertThat(user.isPendingDeletion()).isTrue();
+        assertThat(user.getDeletionRequestedAt()).isNull();
+        assertThat(user.getDeletionScheduledFor()).isNotNull().isBeforeOrEqualTo(LocalDateTime.now());
         verify(userRepository).findByIdForWrite(41L);
         verify(userRepository).save(user);
         verify(accountDeletionTokenRepository).deleteByUser_Id(41L);
@@ -68,12 +70,17 @@ class AdminUserDeletionPreparationServiceTest {
                 .role("ROLE_USER")
                 .enabled(false)
                 .tokenVersion(7)
+                .pendingDeletion(true)
+                .deletionScheduledFor(LocalDateTime.now().minusMinutes(1))
                 .build();
+        LocalDateTime scheduledFor = user.getDeletionScheduledFor();
         given(userRepository.findByIdForWrite(42L)).willReturn(Optional.of(user));
 
         preparationService.disableForDeletion(42L, 99L);
 
         assertThat(user.getTokenVersion()).isEqualTo(7);
+        assertThat(user.isPendingDeletion()).isTrue();
+        assertThat(user.getDeletionScheduledFor()).isEqualTo(scheduledFor);
         verify(userRepository, never()).save(user);
         verify(accountDeletionTokenRepository).deleteByUser_Id(42L);
     }
@@ -95,11 +102,32 @@ class AdminUserDeletionPreparationServiceTest {
         preparationService.disableForDeletion(43L, 99L);
 
         assertThat(user.getTokenVersion()).isEqualTo(8);
-        assertThat(user.isPendingDeletion()).isFalse();
+        assertThat(user.isPendingDeletion()).isTrue();
         assertThat(user.getDeletionRequestedAt()).isNull();
-        assertThat(user.getDeletionScheduledFor()).isNull();
+        assertThat(user.getDeletionScheduledFor()).isNotNull().isBeforeOrEqualTo(LocalDateTime.now());
         verify(userRepository).save(user);
         verify(accountDeletionTokenRepository).deleteByUser_Id(43L);
+    }
+
+    @Test
+    void disableForDeletionDoesNotRescheduleAnAlreadyAnonymizedTombstone() {
+        UserEntity tombstone = UserEntity.builder()
+                .id(45L)
+                .role("ROLE_USER")
+                .enabled(false)
+                .pendingDeletion(true)
+                .locked(true)
+                .name("탈퇴한 사용자")
+                .email("deleted-45@deleted.invalid")
+                .build();
+        given(userRepository.findByIdForWrite(45L)).willReturn(Optional.of(tombstone));
+
+        UserEntity result = preparationService.disableForDeletion(45L, 99L);
+
+        assertThat(result).isSameAs(tombstone);
+        assertThat(tombstone.getDeletionScheduledFor()).isNull();
+        verify(userRepository, never()).save(tombstone);
+        verifyNoInteractions(accountDeletionTokenRepository);
     }
 
     @Test

@@ -1,7 +1,9 @@
 package com.example.mate.dto;
 
 import com.example.mate.entity.SellerPayoutProfile;
+import com.example.common.validation.TrimmedSize;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -20,7 +22,9 @@ public class SellerPayoutProfileDTO {
         private Long userId;
         @Builder.Default
         private String provider = "TOSS";
+        @TrimmedSize(max = 120, message = "providerSellerId는 공백 제거 후 120자 이하여야 합니다.")
         private String providerSellerId;
+        @Size(max = 50, message = "kycStatus는 50자 이하여야 합니다.")
         private String kycStatus;
         private String metadataJson;
     }

@@ -13,6 +13,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecificationExecutor<CheerPost> {
         @Override
@@ -37,6 +38,17 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
         @Modifying
         @Query("UPDATE CheerPost p SET p.views = p.views + :delta WHERE p.id = :postId")
         void incrementViewCountByDelta(@Param("postId") Long postId, @Param("delta") int delta);
+
+        @Modifying(clearAutomatically = true, flushAutomatically = true)
+        @Query("UPDATE CheerPost p SET p.views = p.views + :delta, p.viewSyncWatermark = :sequence "
+                        + "WHERE p.id = :postId AND p.viewSyncWatermark < :sequence")
+        int applyViewCountSyncBatch(
+                        @Param("postId") Long postId,
+                        @Param("sequence") long sequence,
+                        @Param("delta") int delta);
+
+        @Query("SELECT p.viewSyncWatermark FROM CheerPost p WHERE p.id = :postId")
+        Optional<Long> findViewSyncWatermarkById(@Param("postId") Long postId);
 
         @Query("SELECT p.likeCount FROM CheerPost p WHERE p.id = :postId")
         Integer findLikeCountById(@Param("postId") Long postId);
@@ -92,14 +104,34 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
         @Query("SELECT COUNT(p) FROM CheerPost p WHERE p.author.id = :userId")
         int countByUserId(@Param("userId") Long userId);
 
+        @Query("""
+                        SELECT p.author.id AS authorId, COUNT(p.id) AS postCount
+                        FROM CheerPost p
+                        WHERE p.author.id IN :authorIds
+                        GROUP BY p.author.id
+                        """)
+        List<CheerPostAuthorCountProjection> findPostCountsByAuthorIds(
+                        @Param("authorIds") Collection<Long> authorIds);
+
         long countByAuthor_IdAndSourceUrlAndCreatedAtAfter(Long authorId, String sourceUrl, java.time.Instant after);
 
         @EntityGraph(attributePaths = { "author", "team", "repostOf", "repostOf.author", "repostOf.team" })
         Page<CheerPost> findByAuthor_HandleOrderByCreatedAtDesc(String handle, Pageable pageable);
 
+        @EntityGraph(attributePaths = { "author", "team" })
         List<CheerPost> findAllByOrderByCreatedAtDesc();
 
         List<CheerPost> findByAuthor(UserEntity author);
+
+        List<CheerPost> findAllByAuthor_Id(Long authorId);
+
+        @Query(value = """
+                        SELECT * FROM cheer_post
+                        WHERE author_id = :authorId
+                        ORDER BY id
+                        FOR UPDATE
+                        """, nativeQuery = true)
+        List<CheerPost> findAllByAuthorIdIncludingDeletedForUpdate(@Param("authorId") Long authorId);
 
         @EntityGraph(attributePaths = { "author", "team" })
         Optional<CheerPost> findFirstByDiaryIdAndDeletedFalse(Long diaryId);
@@ -114,6 +146,7 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
                         FROM cheer_post
                         WHERE LOWER(TRIM(CAST(deleted AS CHAR(5)))) IN ('1','t','true')
                         """, nativeQuery = true)
+        @Transactional(readOnly = true)
         List<CheerPost> findSoftDeletedPosts();
 
         @Modifying

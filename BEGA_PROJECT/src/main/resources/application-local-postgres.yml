@@ -1,0 +1,155 @@
+---
+# Dedicated local PostgreSQL profile.
+#
+# This profile is intentionally separate from both the H2 `local` profile and
+# the `dev`/`prod` profiles. It only accepts LOCAL_POSTGRES_* connection
+# variables so a production or recovery-target URL cannot be selected by an
+# implicit DB_URL fallback.
+spring:
+  config:
+    activate:
+      on-profile: local-postgres
+  flyway:
+    enabled: true
+    locations: classpath:db/migration_postgresql/
+    baseline-on-migrate: true
+    validate-on-migrate: true
+    out-of-order: false
+    clean-disabled: true
+    connect-retries: 3
+    connect-retries-interval: 2
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: ${LOCAL_POSTGRES_PRIMARY_URL:?LOCAL_POSTGRES_PRIMARY_URL is required for local-postgres}
+    username: ${LOCAL_POSTGRES_PRIMARY_USERNAME:?LOCAL_POSTGRES_PRIMARY_USERNAME is required for local-postgres}
+    password: ${LOCAL_POSTGRES_PRIMARY_PASSWORD:?LOCAL_POSTGRES_PRIMARY_PASSWORD is required for local-postgres}
+    data-source-properties:
+      currentSchema: public
+      targetServerType: primary
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 1
+      connection-timeout: 5000
+      validation-timeout: 2000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+  jpa:
+    generate-ddl: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      "[hibernate.default_schema]": public
+      "[hibernate.jdbc.batch_size]": 50
+      "[hibernate.order_updates]": true
+      "[hibernate.order_inserts]": true
+      "[hibernate.boot.allow_jdbc_metadata_access]": false
+      "[hibernate.temp.use_jdbc_metadata_defaults]": false
+  sql:
+    init:
+      mode: never
+  jwt:
+    secret: ${LOCAL_JWT_SECRET:local-only-hs512-secret-change-me-0123456789012345678901234567890123456789}
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${LOCAL_GOOGLE_CLIENT_ID:local-google-client}
+            client-secret: ${LOCAL_GOOGLE_CLIENT_SECRET:local-google-secret}
+          kakao:
+            client-id: ${LOCAL_KAKAO_CLIENT_ID:local-kakao-client}
+            client-secret: ${LOCAL_KAKAO_CLIENT_SECRET:local-kakao-secret}
+          naver:
+            client-id: ${LOCAL_NAVER_CLIENT_ID:local-naver-client}
+            client-secret: ${LOCAL_NAVER_CLIENT_SECRET:local-naver-secret}
+  mail:
+    host: localhost
+    port: 25
+    username:
+    password:
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+
+baseball:
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: ${LOCAL_POSTGRES_BASEBALL_URL:?LOCAL_POSTGRES_BASEBALL_URL is required for local-postgres}
+    username: ${LOCAL_POSTGRES_BASEBALL_USERNAME:?LOCAL_POSTGRES_BASEBALL_USERNAME is required for local-postgres}
+    password: ${LOCAL_POSTGRES_BASEBALL_PASSWORD:?LOCAL_POSTGRES_BASEBALL_PASSWORD is required for local-postgres}
+    data-source-properties:
+      currentSchema: public
+      targetServerType: primary
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 1
+      connection-timeout: 5000
+      validation-timeout: 2000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+  jpa:
+    hibernate:
+      ddl-auto: none
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+  # The primary PostgreSQL Flyway set owns the shared local schema. The
+  # dedicated baseball Flyway remains disabled to avoid two migration owners.
+  flyway:
+    enabled: false
+
+kbo:
+  game:
+    db:
+      enabled: true
+  schema-guard:
+    strict: true
+
+app:
+  frontend:
+    url: ${LOCAL_APP_FRONTEND_URL:http://127.0.0.1:5176}
+  backend:
+    url: ${LOCAL_APP_BACKEND_URL:http://127.0.0.1:8080}
+  allowed-origins: ${LOCAL_ALLOWED_ORIGINS:http://127.0.0.1:5176,http://localhost:5176}
+  mail:
+    enabled: false
+  oauth2:
+    cookie-secret: ${LOCAL_OAUTH2_COOKIE_SECRET:local-only-cookie-signing-secret}
+  dev-data:
+    enabled: ${LOCAL_APP_DEV_DATA_ENABLED:false}
+    repair-existing: false
+  ai:
+    coach-auto-brief:
+      monitoring:
+        enabled: ${LOCAL_AI_COACH_MONITORING_ENABLED:false}
+
+jobrunr:
+  background-job-server:
+    enabled: ${LOCAL_POSTGRES_JOBRUNR_ENABLED:false}
+  dashboard:
+    enabled: false
+    port: 0
+
+storage:
+  type: oci
+
+# These are local-only defaults for context boot. They do not create a local
+# Object Storage service; file upload E2E remains unavailable until an
+# explicitly approved non-production provider is supplied.
+oci:
+  s3:
+    access-key: ${LOCAL_S3_ACCESS_KEY:local-access-key}
+    secret-key: ${LOCAL_S3_SECRET_KEY:local-secret-key}
+    region: ${LOCAL_S3_REGION:us-east-1}
+    endpoint: ${LOCAL_S3_ENDPOINT:http://127.0.0.1:19000}
+    bucket: ${LOCAL_S3_BUCKET:bega-local}
+
+ai:
+  service-url: ${LOCAL_AI_SERVICE_URL:http://127.0.0.1:18001}
+  internal-token: ${LOCAL_AI_INTERNAL_TOKEN:local-dev-ai-internal-token}
+
+management:
+  health:
+    jobrunr:
+      enabled: false

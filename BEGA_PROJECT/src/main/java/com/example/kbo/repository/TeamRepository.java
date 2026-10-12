@@ -2,6 +2,7 @@ package com.example.kbo.repository;
 
 import com.example.kbo.entity.TeamEntity;
 import com.example.kbo.entity.TeamFranchiseEntity;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -72,6 +73,7 @@ public interface TeamRepository extends JpaRepository<TeamEntity, String> {
      * @return 팀 엔티티 목록
      */
     @Query("SELECT t FROM TeamEntity t WHERE t.franchise.id = :franchiseId")
+    @EntityGraph(attributePaths = "franchise")
     List<TeamEntity> findByFranchiseId(@Param("franchiseId") Integer franchiseId);
 
     /**
@@ -81,6 +83,7 @@ public interface TeamRepository extends JpaRepository<TeamEntity, String> {
      * @param isActive 활성 여부
      * @return 팀 엔티티
      */
+    @EntityGraph(attributePaths = "franchise")
     Optional<TeamEntity> findByFranchise_IdAndIsActive(Integer franchiseId, Boolean isActive);
 
     /**
@@ -90,6 +93,7 @@ public interface TeamRepository extends JpaRepository<TeamEntity, String> {
      * @param isActive 활성 여부
      * @return 팀 엔티티 목록
      */
+    @EntityGraph(attributePaths = "franchise")
     List<TeamEntity> findAllByFranchise_IdAndIsActive(Integer franchiseId, Boolean isActive);
 
     /**

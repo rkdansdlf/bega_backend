@@ -49,9 +49,9 @@ class ReadOnlySchedulingContextTest {
             CoachAutoBriefMonitoringService.class, RankingPredictionSettlementScheduler.class);
 
     @Test
-    void readonlyContextRegistersNoneOfTheFourteenActualScheduledMethods() {
+    void readonlyContextRegistersNoneOfTheFifteenActualScheduledMethods() {
         assertThat(SCHEDULED_TYPES.stream().flatMap(type -> Arrays.stream(type.getDeclaredMethods()))
-                .filter(method -> AnnotatedElementUtils.hasAnnotation(method, Scheduled.class)).count()).isEqualTo(14);
+                .filter(method -> AnnotatedElementUtils.hasAnnotation(method, Scheduled.class)).count()).isEqualTo(15);
 
         // These are the actual scheduled target types. Mocking skips constructors and all external effects.
         List<Object> targets = new ArrayList<>();

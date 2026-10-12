@@ -2,6 +2,7 @@ package com.example.common.readonly;
 
 import com.example.auth.service.EmailJobTokenCipher;
 import com.example.auth.service.EmailService;
+import com.example.auth.service.AccountDeletionFinancialService;
 import com.example.common.exception.BusinessException;
 import com.example.common.jobs.JobSubmissionGateway;
 import com.example.mate.entity.PaymentTransaction;
@@ -63,6 +64,7 @@ class ReadOnlyOperationBoundaryTest {
         runner.withUserConfiguration(PayoutService.class)
                 .withBean(PayoutClaimService.class, () -> claims)
                 .withBean(PayoutStateService.class, () -> state)
+                .withBean(AccountDeletionFinancialService.class, () -> mock(AccountDeletionFinancialService.class))
                 .withBean(PayoutTransactionRepository.class, () -> payouts)
                 .withBean(PaymentTransactionRepository.class, () -> payments)
                 .withBean(SellerPayoutProfileService.class, () -> sellers)

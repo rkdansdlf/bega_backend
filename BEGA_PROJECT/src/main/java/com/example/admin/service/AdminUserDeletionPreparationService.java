@@ -3,11 +3,13 @@ package com.example.admin.service;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.AccountDeletionTokenRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.service.AccountDeletionIdentityService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.Objects;
 
 @Service
@@ -23,19 +25,30 @@ public class AdminUserDeletionPreparationService {
         UserEntity user = userRepository.findByIdForWrite(requiredUserId)
                 .orElseThrow(() -> new IllegalArgumentException("유저를 찾을 수 없습니다."));
         AdminUserDeletionPolicy.assertCanDelete(actingUserId, user);
+        if (AccountDeletionIdentityService.isAnonymizedTombstone(user)) {
+            return user;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
         boolean changed = false;
         if (user.isEnabled()) {
             user.setEnabled(false);
             user.setTokenVersion(Objects.requireNonNullElse(user.getTokenVersion(), 0) + 1);
             changed = true;
         }
-        if (user.isPendingDeletion()
-                || user.getDeletionRequestedAt() != null
-                || user.getDeletionScheduledFor() != null
-                || user.getLockExpiresAt() != null) {
-            user.setPendingDeletion(false);
+        if (!user.isPendingDeletion()) {
+            user.setPendingDeletion(true);
+            changed = true;
+        }
+        if (user.getDeletionRequestedAt() != null) {
             user.setDeletionRequestedAt(null);
-            user.setDeletionScheduledFor(null);
+            changed = true;
+        }
+        if (user.getDeletionScheduledFor() == null || user.getDeletionScheduledFor().isAfter(now)) {
+            user.setDeletionScheduledFor(now);
+            changed = true;
+        }
+        if (user.getLockExpiresAt() != null) {
             user.setLockExpiresAt(null);
             changed = true;
         }

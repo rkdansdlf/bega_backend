@@ -102,6 +102,42 @@ class LeaderboardServiceTest {
     }
 
     @Test
+    @DisplayName("leaderboard 피드와 개인 히스토리는 페이지 요청 경계를 검증한다")
+    void scoreFeeds_rejectInvalidLimitsAndPagination() {
+        assertThrows(IllegalArgumentException.class, () -> leaderboardService.getHotStreaks(3, 0, null));
+        assertThrows(IllegalArgumentException.class, () -> leaderboardService.getHotStreaks(3, 101, null));
+        assertThrows(IllegalArgumentException.class, () -> leaderboardService.getRecentScores(0, null));
+        assertThrows(IllegalArgumentException.class, () -> leaderboardService.getRecentScores(101, null));
+        assertThrows(IllegalArgumentException.class, () -> leaderboardService.getUserScoreHistory(1L, -1, 20));
+        assertThrows(IllegalArgumentException.class, () -> leaderboardService.getUserScoreHistory(1L, 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> leaderboardService.getUserScoreHistory(1L, 0, 101));
+    }
+
+    @Test
+    @DisplayName("리더보드 피드와 개인 히스토리는 1과 100 경계 limit/size를 허용한다")
+    void scoreFeeds_acceptBoundaryLimits() {
+        when(userScoreRepository.findVisibleHotStreaks(eq(3), isNull(), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(scoreEventRepository.findVisibleRecentScores(isNull(), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(scoreEventRepository.findByUserId(eq(1L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        for (int limit : new int[] { 1, 100 }) {
+            leaderboardService.getHotStreaks(3, limit, null);
+            leaderboardService.getRecentScores(limit, null);
+            leaderboardService.getUserScoreHistory(1L, 0, limit);
+        }
+
+        verify(userScoreRepository).findVisibleHotStreaks(eq(3), isNull(), eq(PageRequest.of(0, 1)));
+        verify(userScoreRepository).findVisibleHotStreaks(eq(3), isNull(), eq(PageRequest.of(0, 100)));
+        verify(scoreEventRepository).findVisibleRecentScores(isNull(), eq(PageRequest.of(0, 1)));
+        verify(scoreEventRepository).findVisibleRecentScores(isNull(), eq(PageRequest.of(0, 100)));
+        verify(scoreEventRepository).findByUserId(1L, PageRequest.of(0, 1));
+        verify(scoreEventRepository).findByUserId(1L, PageRequest.of(0, 100));
+    }
+
+    @Test
     @DisplayName("Handle-based leaderboard stats validate profile visibility")
     void getUserStatsByHandle_validatesVisibility() {
         UserEntity hiddenUser = UserEntity.builder().id(20L).handle("@hidden").privateAccount(true).build();

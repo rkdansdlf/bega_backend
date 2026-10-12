@@ -1,18 +1,15 @@
 package com.example.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.lenient;
 
-import com.example.auth.entity.RefreshToken;
-import com.example.auth.repository.RefreshRepository;
 import com.example.auth.service.AuthRegistrationService;
+import com.example.auth.service.AuthSessionLogoutService;
 import com.example.auth.service.OAuth2StateService;
 import com.example.auth.service.PolicyConsentService;
 import com.example.auth.service.TokenBlacklistService;
-import com.example.auth.service.RefreshTokenDigestService;
 import com.example.auth.security.CookieMutationOriginValidator;
 import com.example.auth.security.CookieCsrfTokenService;
 import com.example.auth.service.UserService;
@@ -21,7 +18,7 @@ import com.example.auth.util.JWTUtil;
 import com.example.common.dto.ApiResponse;
 import com.example.common.web.ClientIpResolver;
 import jakarta.servlet.http.Cookie;
-import java.util.List;
+import java.util.Date;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,16 +53,13 @@ class APIControllerLogoutTest {
     private TokenBlacklistService tokenBlacklistService;
 
     @Mock
-    private RefreshRepository refreshRepository;
-
-    @Mock
     private ClientIpResolver clientIpResolver;
 
     @Mock
     private JWTUtil jwtUtil;
 
     @Mock
-    private RefreshTokenDigestService refreshTokenDigestService;
+    private AuthSessionLogoutService authSessionLogoutService;
 
     @Mock
     private CookieMutationOriginValidator cookieMutationOriginValidator;
@@ -84,29 +78,20 @@ class APIControllerLogoutTest {
                 oAuth2StateService,
                 oAuth2LinkStateService,
                 tokenBlacklistService,
-                refreshRepository,
+                authSessionLogoutService,
                 new AuthCookieUtil(false),
                 clientIpResolver,
-                refreshTokenDigestService,
                 cookieMutationOriginValidator,
                 cookieCsrfTokenService);
         lenient().when(userService.getJWTUtil()).thenReturn(jwtUtil);
     }
 
     @Test
-    @DisplayName("logout는 refresh token DB row만 삭제한다")
-    void logout_deletesRefreshTokenRowsByTokenOnly() {
+    @DisplayName("logout는 refresh cookie를 세션 revocation 서비스에 위임한다")
+    void logoutDelegatesRefreshCookieToSessionRevocationService() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie("Refresh", "refresh-current"));
         MockHttpServletResponse response = new MockHttpServletResponse();
-
-        RefreshToken currentSession = new RefreshToken();
-        currentSession.setId(10L);
-        currentSession.setSessionId("session-current");
-        currentSession.setTokenDigest("refresh-digest");
-
-        when(refreshTokenDigestService.digest("refresh-current")).thenReturn("refresh-digest");
-        when(refreshRepository.findAllByTokenDigest("refresh-digest")).thenReturn(List.of(currentSession));
 
         ResponseEntity<ApiResponse<Void>> result = apiController.logout(request, response);
 
@@ -118,24 +103,22 @@ class APIControllerLogoutTest {
         assertThat(result.getHeaders().get(HttpHeaders.SET_COOKIE))
                 .anyMatch(header -> header.startsWith("XSRF-TOKEN=") && header.contains("Max-Age=0"));
         verify(cookieCsrfTokenService).validate(request);
-        verify(refreshRepository).deleteAll(List.of(currentSession));
-        verify(refreshRepository, never()).delete(currentSession);
+        verify(authSessionLogoutService).revoke("refresh-current", null);
     }
 
     @Test
-    @DisplayName("logout는 refresh token row가 없으면 세션 삭제를 건너뛴다")
-    void logout_skipsRefreshDeletionWhenTokenRowIsMissing() {
+    @DisplayName("refresh cookie가 없으면 기존 계정 단위 fallback을 유지한다")
+    void logoutPreservesAccountFallbackWhenRefreshCookieIsMissing() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setCookies(new Cookie("Refresh", "refresh-current"));
+        request.setCookies(new Cookie("Authorization", "access-current"));
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        when(refreshTokenDigestService.digest("refresh-current")).thenReturn("refresh-digest");
-        when(refreshRepository.findAllByTokenDigest("refresh-digest"))
-                .thenReturn(List.of());
+        when(jwtUtil.getUserId("access-current")).thenReturn(10L);
+        when(jwtUtil.getExpiration("access-current")).thenReturn(new Date(System.currentTimeMillis() + 60_000L));
 
         ResponseEntity<ApiResponse<Void>> result = apiController.logout(request, response);
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
-        verify(refreshRepository, never()).deleteAll(List.of());
+        verify(authSessionLogoutService).revoke(null, 10L);
     }
 }

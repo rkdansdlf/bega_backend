@@ -105,11 +105,11 @@ class PredictionOpenApiContractTest {
         assertNullableRef(openApi, "PredictionStatsResponseDto", "data", "UserPredictionStatsDto");
         assertNullablePrimitive(openApi, "PredictionStatsResponseDto", "code", "string", null);
         assertNullableStringMap(openApi, "PredictionStatsResponseDto", "errors");
-        assertThat(openApi.getComponents().getSchemas().get("HomeRankingSnapshotDto").getProperties())
+        assertThat(schema(openApi, "HomeRankingSnapshotDto").getProperties())
                 .doesNotContainKey("offSeason")
                 .containsKey("isOffSeason");
         assertThat(openApi.getComponents().getSchemas()).containsKey("MatchRangePageResponseDto");
-        assertThat(openApi.getComponents().getSchemas().get("MatchRangePageResponseDto").getRequired())
+        assertThat(schema(openApi, "MatchRangePageResponseDto").getRequired())
                 .contains("content", "page", "size", "totalElements", "totalPages", "hasNext", "hasPrevious");
         assertMatchesRangeOneOf(openApi);
     }
@@ -186,8 +186,8 @@ class PredictionOpenApiContractTest {
             String refSchemaName) {
         io.swagger.v3.oas.models.media.Schema<?> property = modelProperty(openApi, schemaName, propertyName);
         assertThat(property.getOneOf()).hasSize(2);
-        assertThat(property.getOneOf().getFirst().get$ref()).isEqualTo("#/components/schemas/" + refSchemaName);
-        assertThat(property.getOneOf().get(1).getTypes()).containsExactly("null");
+        assertThat(oneOf(property, 0).get$ref()).isEqualTo("#/components/schemas/" + refSchemaName);
+        assertThat(oneOf(property, 1).getTypes()).containsExactly("null");
     }
 
     private static void assertNullablePrimitive(
@@ -208,22 +208,22 @@ class PredictionOpenApiContractTest {
             String... values) {
         io.swagger.v3.oas.models.media.Schema<?> property = modelProperty(openApi, schemaName, propertyName);
         assertThat(property.getOneOf()).hasSize(2);
-        assertThat(property.getOneOf().getFirst().getTypes()).containsExactly("string");
-        assertThat(property.getOneOf().getFirst().getEnum()).containsExactlyElementsOf(List.of(values));
-        assertThat(property.getOneOf().get(1).getTypes()).containsExactly("null");
+        assertThat(oneOf(property, 0).getTypes()).containsExactly("string");
+        assertThat(oneOf(property, 0).getEnum()).map(Object::toString).containsExactly(values);
+        assertThat(oneOf(property, 1).getTypes()).containsExactly("null");
     }
 
     private static void assertNullableStringMap(OpenAPI openApi, String schemaName, String propertyName) {
         io.swagger.v3.oas.models.media.Schema<?> property = modelProperty(openApi, schemaName, propertyName);
         assertThat(property.getOneOf()).hasSize(2);
-        io.swagger.v3.oas.models.media.Schema<?> mapSchema = property.getOneOf().getFirst();
+        io.swagger.v3.oas.models.media.Schema<?> mapSchema = oneOf(property, 0);
         assertThat(mapSchema.getTypes()).containsExactly("object");
         Object additionalProperties = mapSchema.getAdditionalProperties();
         assertThat(additionalProperties).isInstanceOf(io.swagger.v3.oas.models.media.Schema.class);
         io.swagger.v3.oas.models.media.Schema<?> valueSchema =
                 (io.swagger.v3.oas.models.media.Schema<?>) additionalProperties;
         assertThat(valueSchema.getTypes()).containsExactly("string");
-        assertThat(property.getOneOf().get(1).getTypes()).containsExactly("null");
+        assertThat(oneOf(property, 1).getTypes()).containsExactly("null");
     }
 
     private static void assertMatchesRangeOneOf(OpenAPI openApi) {
@@ -237,16 +237,27 @@ class PredictionOpenApiContractTest {
                 .getSchema();
 
         assertThat(schema.getOneOf()).hasSize(2);
-        assertThat(schema.getOneOf().get(0).getItems().get$ref()).isEqualTo("#/components/schemas/MatchDto");
-        assertThat(schema.getOneOf().get(1).get$ref()).isEqualTo("#/components/schemas/MatchRangePageResponseDto");
+        assertThat(oneOf(schema, 0).getItems().get$ref()).isEqualTo("#/components/schemas/MatchDto");
+        assertThat(oneOf(schema, 1).get$ref()).isEqualTo("#/components/schemas/MatchRangePageResponseDto");
+    }
+
+    private static io.swagger.v3.oas.models.media.Schema<?> schema(OpenAPI openApi, String schemaName) {
+        io.swagger.v3.oas.models.media.Schema<?> schema = openApi.getComponents().getSchemas().get(schemaName);
+        assertThat(schema).as(schemaName).isNotNull();
+        return schema;
+    }
+
+    private static io.swagger.v3.oas.models.media.Schema<?> oneOf(
+            io.swagger.v3.oas.models.media.Schema<?> property,
+            int index) {
+        return property.getOneOf().get(index);
     }
 
     private static io.swagger.v3.oas.models.media.Schema<?> modelProperty(
             OpenAPI openApi,
             String schemaName,
             String propertyName) {
-        io.swagger.v3.oas.models.media.Schema<?> schema = openApi.getComponents().getSchemas().get(schemaName);
-        assertThat(schema).as(schemaName).isNotNull();
+        io.swagger.v3.oas.models.media.Schema<?> schema = schema(openApi, schemaName);
         io.swagger.v3.oas.models.media.Schema<?> property =
                 (io.swagger.v3.oas.models.media.Schema<?>) schema.getProperties().get(propertyName);
         assertThat(property).as("%s.%s", schemaName, propertyName).isNotNull();

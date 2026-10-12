@@ -28,9 +28,11 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.http.MediaType;
 
 import java.util.List;
@@ -130,6 +132,8 @@ class CheerEdgeCaseIntegrationTest {
         }
 
         @Test
+        @Transactional(propagation = Propagation.NOT_SUPPORTED)
+        @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
         @DisplayName("Repost Cycle: Manually crafting a circular repost graph should be rejected over resolveRepostRootPost")
         void testRepostCycleDetection() {
                 // Given: Create a root post by Author1

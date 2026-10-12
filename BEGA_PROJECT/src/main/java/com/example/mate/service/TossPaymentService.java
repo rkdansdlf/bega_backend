@@ -66,14 +66,12 @@ public class TossPaymentService {
                         HttpStatus.BAD_GATEWAY);
             }
 
-            log.info("[TossPayment] 결제 승인 완료: paymentKey={}, orderId={}, amount={}",
-                    paymentKey, orderId, amount);
+            log.info("[TossPayment] 결제 승인 완료: orderId={}, amount={}", orderId, amount);
             return response;
 
         } catch (RestClientResponseException e) {
             String tossErrorCode = parseTossErrorCode(e.getResponseBodyAsString());
-            log.warn("[TossPayment] 결제 승인 실패: status={}, code={}, body={}",
-                    e.getStatusCode(), tossErrorCode, e.getResponseBodyAsString());
+            log.warn("[TossPayment] 결제 승인 실패: status={}", e.getStatusCode());
             throw new TossPaymentException(
                     tossErrorCode != null ? tossErrorCode : "TOSS_CONFIRM_REQUEST_FAILED",
                     "결제 승인에 실패했습니다: " + e.getStatusCode(),
@@ -82,7 +80,8 @@ public class TossPaymentService {
         } catch (TossPaymentException e) {
             throw e;
         } catch (Exception e) {
-            log.error("[TossPayment] 결제 승인 중 예기치 않은 오류 발생", e);
+            log.error("[TossPayment] 결제 승인 중 예기치 않은 오류 발생: errorType={}",
+                    e.getClass().getSimpleName());
             throw new TossPaymentException(
                     "TOSS_CONFIRM_UNEXPECTED_ERROR",
                     "결제 승인 중 오류가 발생했습니다.",
@@ -111,19 +110,19 @@ public class TossPaymentService {
                     .retrieve()
                     .body(TossPaymentDTO.CancelResponse.class);
 
-            log.info("[TossPayment] 결제 취소 완료: paymentKey={}, cancelAmount={}", paymentKey, cancelAmount);
+            log.info("[TossPayment] 결제 취소 완료: cancelAmount={}", cancelAmount);
             return response;
         } catch (RestClientResponseException e) {
             String tossErrorCode = parseTossErrorCode(e.getResponseBodyAsString());
-            log.warn("[TossPayment] 결제 취소 실패: paymentKey={}, status={}, code={}, body={}",
-                    paymentKey, e.getStatusCode(), tossErrorCode, e.getResponseBodyAsString());
+            log.warn("[TossPayment] 결제 취소 실패: status={}", e.getStatusCode());
             throw new TossPaymentException(
                     tossErrorCode != null ? tossErrorCode : "TOSS_CANCEL_REQUEST_FAILED",
                     "결제 취소에 실패했습니다: " + e.getStatusCode(),
                     e.getStatusCode(),
                     tossErrorCode);
         } catch (Exception e) {
-            log.error("[TossPayment] 결제 취소 중 예기치 않은 오류 발생", e);
+            log.error("[TossPayment] 결제 취소 중 예기치 않은 오류 발생: errorType={}",
+                    e.getClass().getSimpleName());
             throw new TossPaymentException(
                     "TOSS_CANCEL_UNEXPECTED_ERROR",
                     "결제 취소 중 오류가 발생했습니다.",
@@ -167,7 +166,7 @@ public class TossPaymentService {
             TossPaymentDTO.ErrorResponse errorResponse = objectMapper.readValue(responseBody, TossPaymentDTO.ErrorResponse.class);
             return errorResponse.getCode();
         } catch (Exception e) {
-            log.debug("[TossPayment] 에러 응답 파싱 실패: {}", responseBody);
+            log.debug("[TossPayment] 에러 응답 파싱 실패: errorType={}", e.getClass().getSimpleName());
             return null;
         }
     }

@@ -79,6 +79,35 @@ public class MediaLinkService {
     }
 
     @Transactional
+    public void linkSeatViewAsset(Long userId, String storagePath, Long seatViewId) {
+        Map<String, MediaAsset> readyAssets = resolveReadyAssets(
+                userId,
+                MediaDomain.SEAT_VIEW,
+                List.of(storagePath));
+        MediaAsset asset = readyAssets.get(storagePath);
+        if (asset == null) {
+            throw new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요.");
+        }
+        createOrValidateLink(asset, MediaDomain.SEAT_VIEW, seatViewId, MediaLinkRole.SEAT_VIEW_PHOTO);
+    }
+
+    public MediaAsset requireLinkedSeatViewAsset(Long userId, String storagePath, Long seatViewId) {
+        Map<String, MediaAsset> readyAssets = resolveReadyAssets(
+                userId,
+                MediaDomain.SEAT_VIEW,
+                List.of(storagePath));
+        MediaAsset asset = readyAssets.get(storagePath);
+        if (asset == null || mediaAssetLinkRepository.findById(asset.getId())
+                .filter(link -> link.getDomain() == MediaDomain.SEAT_VIEW)
+                .filter(link -> Objects.equals(link.getEntityId(), seatViewId))
+                .filter(link -> link.getRole() == MediaLinkRole.SEAT_VIEW_PHOTO)
+                .isEmpty()) {
+            throw new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요.");
+        }
+        return asset;
+    }
+
+    @Transactional
     public void syncCheerLinks(Long postId, Long userId, List<String> storagePaths) {
         syncLinks(MediaDomain.CHEER, postId, userId, storagePaths, MediaLinkRole.CHEER_IMAGE);
     }
