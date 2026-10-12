@@ -48,6 +48,12 @@ public class DmRoom {
     @Column(name = "participant_two_last_read_at")
     private Instant participantTwoLastReadAt;
 
+    @Column(name = "participant_one_last_read_message_id")
+    private Long participantOneLastReadMessageId;
+
+    @Column(name = "participant_two_last_read_message_id")
+    private Long participantTwoLastReadMessageId;
+
     @PrePersist
     protected void onCreate() {
         createdAt = Instant.now();

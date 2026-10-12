@@ -1,6 +1,7 @@
 package com.example.notification.controller;
 
 import com.example.notification.dto.NotificationDTO;
+import com.example.notification.dto.MarkAllAsReadRequest;
 import com.example.notification.service.NotificationService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -50,6 +52,19 @@ class NotificationControllerTest {
         ResponseEntity<Long> result = controller.getMyUnreadCount(42L);
 
         assertThat(result.getBody()).isEqualTo(5L);
+    }
+
+    @Test
+    @DisplayName("클릭 시각 경계로 전체 알림 읽음을 요청한다")
+    void markAllAsRead_passesClientBoundary() {
+        Instant readThrough = Instant.parse("2026-10-12T02:30:00.123Z");
+
+        ResponseEntity<Void> result = controller.markAllAsRead(
+                42L,
+                new MarkAllAsReadRequest(readThrough));
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        verify(notificationService).markAllAsRead(42L, readThrough);
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.example.auth.repository;
 
 import com.example.auth.entity.UserEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -14,6 +15,10 @@ import java.util.Optional;
 public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
   Optional<UserEntity> findByHandle(String handle);
+
+  @EntityGraph(attributePaths = "favoriteTeam")
+  @Query("SELECT user FROM UserEntity user WHERE user.handle = :handle")
+  Optional<UserEntity> findByHandleWithFavoriteTeam(@Param("handle") String handle);
 
   Boolean existsByHandle(String handle);
 

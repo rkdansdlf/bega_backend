@@ -2,14 +2,17 @@ package com.example.dm.service;
 
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.auth.entity.UserEntity;
@@ -46,7 +49,7 @@ public class DmRoomService {
     private final UserBlockRepository userBlockRepository;
     private final ProfileImageService profileImageService;
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public DmRoomDto.BootstrapResponse bootstrapRoom(Long currentUserId, DmRoomDto.BootstrapRequest request) {
         long userId = requireCurrentUserId(currentUserId);
         UserEntity targetUser = findUserByHandleOrThrow(request.getTargetHandle());
@@ -82,7 +85,7 @@ public class DmRoomService {
                 .build();
 
         try {
-            DmRoom savedRoom = dmRoomRepository.save(room);
+            DmRoom savedRoom = dmRoomRepository.saveAndFlush(room);
             return toBootstrapResponse(savedRoom, targetUser);
         } catch (DataIntegrityViolationException e) {
             log.info("DM room already created concurrently for users {} and {}", participantOneId, participantTwoId);
@@ -96,6 +99,16 @@ public class DmRoomService {
     public DmRoom getAccessibleRoom(Long roomId, Long currentUserId) {
         long userId = requireCurrentUserId(currentUserId);
         DmRoom room = dmRoomRepository.findAccessibleByIdAndParticipantId(roomId, userId)
+                .orElseThrow(() -> new NotFoundBusinessException("DM_ROOM_NOT_FOUND", "대화방을 찾을 수 없습니다."));
+
+        ensureNoBlock(userId, resolveTargetUserId(room, userId));
+        return room;
+    }
+
+    @Transactional
+    public DmRoom getAccessibleRoomForUpdate(Long roomId, Long currentUserId) {
+        long userId = requireCurrentUserId(currentUserId);
+        DmRoom room = dmRoomRepository.findAccessibleByIdAndParticipantIdForUpdate(roomId, userId)
                 .orElseThrow(() -> new NotFoundBusinessException("DM_ROOM_NOT_FOUND", "대화방을 찾을 수 없습니다."));
 
         ensureNoBlock(userId, resolveTargetUserId(room, userId));
@@ -138,6 +151,8 @@ public class DmRoomService {
         Map<Long, DmMessage> latestByRoom = dmMessageRepository.findLatestMessagePerRoom(roomIds)
                 .stream()
                 .collect(Collectors.toMap(DmMessage::getRoomId, Function.identity(), (a, b) -> a));
+        Set<Long> unreadRoomIds = new HashSet<>(
+                dmMessageRepository.findUnreadRoomIdsForParticipant(userId, roomIds));
 
         List<Long> targetUserIds = rooms.stream()
                 .map(r -> resolveTargetUserId(r, userId))
@@ -152,12 +167,7 @@ public class DmRoomService {
                     Long targetUserId = resolveTargetUserId(room, userId);
                     UserEntity targetUser = usersById.get(targetUserId);
                     DmMessage lastMsg = latestByRoom.get(room.getId());
-                    Instant myLastRead = room.getParticipantOneId().equals(userId)
-                            ? room.getParticipantOneLastReadAt()
-                            : room.getParticipantTwoLastReadAt();
-                    boolean hasUnread = lastMsg != null
-                            && !lastMsg.getSenderId().equals(userId)
-                            && (myLastRead == null || lastMsg.getCreatedAt().isAfter(myLastRead));
+                    boolean hasUnread = unreadRoomIds.contains(room.getId());
 
                     return DmRoomDto.InboxItem.builder()
                             .roomId(room.getId())
@@ -179,15 +189,28 @@ public class DmRoomService {
     }
 
     @Transactional
-    public void markAsRead(Long roomId, Long userId) {
-        dmRoomRepository.findAccessibleByIdAndParticipantId(roomId, userId).ifPresent(room -> {
-            if (room.getParticipantOneId().equals(userId)) {
-                room.setParticipantOneLastReadAt(Instant.now());
+    public void markAsReadThrough(DmRoom lockedRoom, Long userId, Long messageId, Instant readAt) {
+        boolean participantOne = lockedRoom.getParticipantOneId().equals(userId);
+        Long lastReadMessageId = participantOne
+                ? lockedRoom.getParticipantOneLastReadMessageId()
+                : lockedRoom.getParticipantTwoLastReadMessageId();
+
+        if (lastReadMessageId == null || messageId > lastReadMessageId) {
+            if (participantOne) {
+                lockedRoom.setParticipantOneLastReadMessageId(messageId);
+                if (readAt != null && (lockedRoom.getParticipantOneLastReadAt() == null
+                        || readAt.isAfter(lockedRoom.getParticipantOneLastReadAt()))) {
+                    lockedRoom.setParticipantOneLastReadAt(readAt);
+                }
             } else {
-                room.setParticipantTwoLastReadAt(Instant.now());
+                lockedRoom.setParticipantTwoLastReadMessageId(messageId);
+                if (readAt != null && (lockedRoom.getParticipantTwoLastReadAt() == null
+                        || readAt.isAfter(lockedRoom.getParticipantTwoLastReadAt()))) {
+                    lockedRoom.setParticipantTwoLastReadAt(readAt);
+                }
             }
-            dmRoomRepository.save(room);
-        });
+            dmRoomRepository.save(lockedRoom);
+        }
     }
 
     private DmRoomDto.BootstrapResponse toBootstrapResponse(DmRoom room, UserEntity targetUser) {
@@ -223,7 +246,7 @@ public class DmRoomService {
 
     private UserEntity findUserByHandleOrThrow(String handle) {
         return HandleNormalizer.candidates(handle).stream()
-                .map(userRepository::findByHandle)
+                .map(userRepository::findByHandleWithFavoriteTeam)
                 .flatMap(Optional::stream)
                 .findFirst()
                 .orElseThrow(() -> new NotFoundBusinessException("DM_TARGET_NOT_FOUND", "대화 상대를 찾을 수 없습니다."));

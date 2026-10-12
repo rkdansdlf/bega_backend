@@ -8,6 +8,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -133,6 +135,17 @@ class NotificationServiceTest {
         Long count = notificationService.getMyUnreadCount(10L);
 
         assertThat(count).isEqualTo(3L);
+    }
+
+    @Test
+    void markAllAsReadPassesTheClientClickBoundaryToTheRepository() {
+        Instant readThrough = Instant.parse("2026-10-12T02:30:00.123Z");
+
+        notificationService.markAllAsRead(10L, readThrough);
+
+        verify(notificationRepository).markAllAsReadByUserId(
+                10L,
+                LocalDateTime.ofInstant(readThrough, ZoneId.systemDefault()));
     }
 
     // --- markAsRead ---

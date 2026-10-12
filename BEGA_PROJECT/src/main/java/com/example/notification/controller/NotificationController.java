@@ -1,7 +1,9 @@
 package com.example.notification.controller;
 
 import com.example.notification.dto.NotificationDTO;
+import com.example.notification.dto.MarkAllAsReadRequest;
 import com.example.notification.service.NotificationService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -43,8 +45,10 @@ public class NotificationController {
 
     // 전체 알림 일괄 읽음 처리
     @PostMapping("/mark-all-read")
-    public ResponseEntity<Void> markAllAsRead(@AuthenticationPrincipal Long userId) {
-        notificationService.markAllAsRead(userId);
+    public ResponseEntity<Void> markAllAsRead(
+            @AuthenticationPrincipal Long userId,
+            @Valid @RequestBody MarkAllAsReadRequest request) {
+        notificationService.markAllAsRead(userId, request.readThrough());
         return ResponseEntity.ok().build();
     }
 

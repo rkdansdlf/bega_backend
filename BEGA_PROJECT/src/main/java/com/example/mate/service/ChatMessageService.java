@@ -196,39 +196,11 @@ public class ChatMessageService {
                 PartyStatus.MATCHED,
                 PartyStatus.SELLING,
                 PartyStatus.CHECKED_IN);
-        List<com.example.mate.entity.Party> hostedParties = partyRepository.findByHostIdAndStatusIn(userId, activeStatuses);
-        List<com.example.mate.entity.PartyApplication> applications = applicationRepository
-                .findApprovedByApplicantIdAndPartyStatusIn(userId, activeStatuses);
-
-        long totalUnread = 0;
-
-        for (com.example.mate.entity.Party party : hostedParties) {
-            Instant lastRead = resolveUnreadCountStart(party.getHostLastReadChatAt(), party.getCreatedAt());
-            totalUnread += chatMessageRepository.countByPartyIdAndCreatedAtAfterAndSenderIdNot(
-                    party.getId(),
-                    lastRead,
-                    userId);
-        }
-
-        for (com.example.mate.entity.PartyApplication app : applications) {
-            Instant lastRead = resolveUnreadCountStart(app.getLastReadChatAt(), app.getCreatedAt());
-            totalUnread += chatMessageRepository.countByPartyIdAndCreatedAtAfterAndSenderIdNot(
-                    app.getPartyId(),
-                    lastRead,
-                    userId);
-        }
-
-        return totalUnread;
-    }
-
-    private Instant resolveUnreadCountStart(Instant lastReadAt, Instant createdAt) {
-        if (lastReadAt != null) {
-            return lastReadAt;
-        }
-        if (createdAt != null) {
-            return createdAt;
-        }
-        return Instant.EPOCH;
+        long hostedUnread = chatMessageRepository.countUnreadMessagesForHostedParties(
+                userId, activeStatuses, Instant.EPOCH);
+        long approvedApplicationUnread = chatMessageRepository.countUnreadMessagesForApprovedApplications(
+                userId, activeStatuses, Instant.EPOCH);
+        return hostedUnread + approvedApplicationUnread;
     }
 
     private Long resolveUserId(Principal principal) {

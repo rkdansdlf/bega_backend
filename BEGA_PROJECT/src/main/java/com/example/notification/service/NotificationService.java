@@ -3,6 +3,9 @@ package com.example.notification.service;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -118,9 +121,11 @@ public class NotificationService {
 
     // 전체 알림 일괄 읽음 처리
     @Transactional
-    public void markAllAsRead(@NonNull Long userId) {
+    public void markAllAsRead(@NonNull Long userId, @NonNull Instant readThrough) {
         ensureAuthenticatedUser(userId);
-        notificationRepository.markAllAsReadByUserId(userId);
+        notificationRepository.markAllAsReadByUserId(
+                userId,
+                LocalDateTime.ofInstant(readThrough, ZoneId.systemDefault()));
     }
 
     // 알림 삭제

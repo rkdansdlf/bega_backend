@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Collection;
+import java.time.LocalDateTime;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
@@ -26,6 +27,9 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     // 사용자 전체 알림 일괄 읽음 처리
     @Modifying
-    @Query("UPDATE Notification n SET n.isRead = true WHERE n.userId = :userId AND n.isRead = false")
-    void markAllAsReadByUserId(@Param("userId") Long userId);
+    @Query("UPDATE Notification n SET n.isRead = true "
+            + "WHERE n.userId = :userId AND n.isRead = false AND n.createdAt <= :readThrough")
+    void markAllAsReadByUserId(
+            @Param("userId") Long userId,
+            @Param("readThrough") LocalDateTime readThrough);
 }

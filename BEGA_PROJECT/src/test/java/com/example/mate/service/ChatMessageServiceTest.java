@@ -33,6 +33,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.never;
 
@@ -68,45 +69,28 @@ class ChatMessageServiceTest {
     private ChatMessageService chatMessageService;
 
     @Test
-    @DisplayName("getTotalUnreadCount falls back to epoch when legacy timestamps are missing")
-    void getTotalUnreadCount_usesEpochFallbackForLegacyRows() {
+    @DisplayName("getTotalUnreadCount uses bounded aggregate repository queries")
+    void getTotalUnreadCount_usesAggregateQueriesInsteadOfRoomFanOut() {
         Principal principal = () -> "host@example.com";
-        Party hostedParty = Party.builder()
-                .id(10L)
-                .hostId(77L)
-                .status(Party.PartyStatus.PENDING)
-                .createdAt(null)
-                .hostLastReadChatAt(null)
-                .build();
-        PartyApplication approvedApplication = PartyApplication.builder()
-                .partyId(11L)
-                .applicantId(77L)
-                .isApproved(true)
-                .createdAt(null)
-                .lastReadChatAt(null)
-                .build();
+        List<Party.PartyStatus> activeStatuses = List.of(
+                Party.PartyStatus.PENDING,
+                Party.PartyStatus.MATCHED,
+                Party.PartyStatus.SELLING,
+                Party.PartyStatus.CHECKED_IN);
 
         when(userService.getUserIdByEmail("host@example.com")).thenReturn(77L);
-        when(partyRepository.findByHostIdAndStatusIn(eq(77L), eq(List.of(
-                Party.PartyStatus.PENDING,
-                Party.PartyStatus.MATCHED,
-                Party.PartyStatus.SELLING,
-                Party.PartyStatus.CHECKED_IN))))
-                .thenReturn(List.of(hostedParty));
-        when(applicationRepository.findApprovedByApplicantIdAndPartyStatusIn(eq(77L), eq(List.of(
-                Party.PartyStatus.PENDING,
-                Party.PartyStatus.MATCHED,
-                Party.PartyStatus.SELLING,
-                Party.PartyStatus.CHECKED_IN))))
-                .thenReturn(List.of(approvedApplication));
-        when(chatMessageRepository.countByPartyIdAndCreatedAtAfterAndSenderIdNot(anyLong(), eq(Instant.EPOCH), eq(77L)))
-                .thenReturn(2L, 3L);
+        when(chatMessageRepository.countUnreadMessagesForHostedParties(77L, activeStatuses, Instant.EPOCH))
+                .thenReturn(2L);
+        when(chatMessageRepository.countUnreadMessagesForApprovedApplications(77L, activeStatuses, Instant.EPOCH))
+                .thenReturn(3L);
 
         long unreadCount = chatMessageService.getTotalUnreadCount(principal);
 
         assertThat(unreadCount).isEqualTo(5L);
-        verify(chatMessageRepository).countByPartyIdAndCreatedAtAfterAndSenderIdNot(10L, Instant.EPOCH, 77L);
-        verify(chatMessageRepository).countByPartyIdAndCreatedAtAfterAndSenderIdNot(11L, Instant.EPOCH, 77L);
+        verify(chatMessageRepository).countUnreadMessagesForHostedParties(77L, activeStatuses, Instant.EPOCH);
+        verify(chatMessageRepository).countUnreadMessagesForApprovedApplications(77L, activeStatuses, Instant.EPOCH);
+        verifyNoMoreInteractions(chatMessageRepository);
+        verifyNoInteractions(partyRepository, applicationRepository);
     }
 
     @Test
