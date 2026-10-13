@@ -187,4 +187,12 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
          */
         @Query("SELECT MAX(p.id) FROM CheerPost p WHERE (:teamId IS NULL OR p.team.teamId = :teamId) AND (p.repostType IS NULL OR p.repostType != 'SIMPLE')")
         Long findLatestPostId(@Param("teamId") String teamId);
+
+        @Query(value = """
+                        SELECT * FROM cheer_post
+                        WHERE author_id = :authorId
+                        ORDER BY id
+                        FOR UPDATE
+                        """, nativeQuery = true)
+        List<CheerPost> findAllByAuthorIdIncludingDeletedForUpdate(@Param("authorId") Long authorId);
 }

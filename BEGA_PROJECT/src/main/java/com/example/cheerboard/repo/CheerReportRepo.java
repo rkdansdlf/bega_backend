@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 public interface CheerReportRepo extends JpaRepository<CheerPostReport, Long> {
     List<CheerPostReport> findByPostId(Long postId);
@@ -34,4 +35,14 @@ public interface CheerReportRepo extends JpaRepository<CheerPostReport, Long> {
             @Param("fromAt") LocalDateTime fromAt,
             @Param("toAt") LocalDateTime toAt,
             Pageable pageable);
+
+    @Query(value = """
+            SELECT DISTINCT p.id
+              FROM cheer_post_reports r
+              JOIN cheer_post p ON p.id = r.post_id
+             WHERE p.author_id = :authorId
+               AND (r.status IN ('PENDING', 'IN_REVIEW')
+                    OR r.appeal_status IN ('REQUESTED', 'REVIEWING'))
+            """, nativeQuery = true)
+    Set<Long> findOpenModerationPostIdsByAuthorId(@Param("authorId") Long authorId);
 }
