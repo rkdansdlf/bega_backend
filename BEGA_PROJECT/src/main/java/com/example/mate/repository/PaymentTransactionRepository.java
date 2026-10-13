@@ -47,9 +47,10 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
                and payment.settlementStatus = :settlementStatus
                and exists (
                     select application.id
-                      from PartyApplication application
+                     from PartyApplication application
                      where application.id = payment.applicationId
-                       and application.isApproved = true)
+                       and application.isApproved = true
+                       and application.isRejected = false)
                and not exists (
                     select payout.id
                       from PayoutTransaction payout

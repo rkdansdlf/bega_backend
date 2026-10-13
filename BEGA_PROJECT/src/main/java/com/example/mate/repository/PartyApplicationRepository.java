@@ -162,4 +162,18 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
     // 사용자 삭제 시 cascade cleanup용 쿼리
     List<PartyApplication> findByApplicantIdAndIsApprovedTrueAndIsRejectedFalse(Long applicantId);
 
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
+    @Query("""
+            select pa
+              from PartyApplication pa
+             where pa.partyId = :partyId
+               and pa.isApproved = true
+               and pa.isPaid = true
+               and pa.isRejected = false
+             order by pa.id
+            """)
+    List<PartyApplication> findApprovedPaidApplicationsByPartyIdForUpdate(
+            @Param("partyId") Long partyId);
 }

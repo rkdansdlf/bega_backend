@@ -14,6 +14,10 @@ public interface SellerPayoutProfileRepository extends JpaRepository<SellerPayou
 
     Optional<SellerPayoutProfile> findByUserIdAndProvider(Long userId, String provider);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select spp from SellerPayoutProfile spp where spp.userId = :userId order by spp.id")
+    List<SellerPayoutProfile> findAllByUserIdForUpdate(@Param("userId") Long userId);
+
     Optional<SellerPayoutProfile> findByProviderAndProviderSellerId(String provider, String providerSellerId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -21,8 +25,4 @@ public interface SellerPayoutProfileRepository extends JpaRepository<SellerPayou
     Optional<SellerPayoutProfile> findByUserIdAndProviderForUpdate(
             @Param("userId") Long userId,
             @Param("provider") String provider);
-
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select spp from SellerPayoutProfile spp where spp.userId = :userId order by spp.id")
-    List<SellerPayoutProfile> findAllByUserIdForUpdate(@Param("userId") Long userId);
 }

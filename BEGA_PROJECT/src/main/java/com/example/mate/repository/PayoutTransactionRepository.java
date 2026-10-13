@@ -30,6 +30,10 @@ public interface PayoutTransactionRepository extends JpaRepository<PayoutTransac
             Collection<SettlementStatus> statuses,
             Instant nextRetryAt);
 
+    boolean existsBySellerIdAndProviderSellerIdIsNullAndStatusIn(
+            Long sellerId,
+            Collection<SettlementStatus> statuses);
+
     @Query("""
             SELECT CASE WHEN COUNT(pt) > 0 THEN true ELSE false END
               FROM PayoutTransaction pt
