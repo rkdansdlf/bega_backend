@@ -39,6 +39,7 @@ import com.example.mate.service.SellerPayoutProfileService;
 import com.example.mate.service.PartyService;
 import com.example.media.service.MediaUploadService;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -192,7 +193,7 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
 
     @Test
     void finalizerFailureRollsBackOnlyThatUserAndContinuesBatch() {
-        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1);
+        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
         UserEntity failedUser = savePendingUser(dueAt);
         UserEntity successfulUser = savePendingUser(dueAt);
         String failedToken = saveRecoveryToken(failedUser, dueAt);
@@ -212,7 +213,7 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
 
     @Test
     void recoveryCannotReviveAnAccountAfterFinalizerWinsTheUserLock() throws Exception {
-        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1);
+        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
         UserEntity user = savePendingUser(dueAt);
         String recoveryToken = saveRecoveryToken(user, dueAt);
         CountDownLatch finalizerHoldingUserLock = new CountDownLatch(1);
@@ -299,7 +300,7 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
 
     @Test
     void payoutProfileUpsertWaitsForFinalizerAndCannotRestoreScrubbedProfile() throws Exception {
-        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1);
+        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
         UserEntity user = savePendingUser(dueAt);
         sellerPayoutProfileRepository.saveAndFlush(SellerPayoutProfile.builder()
                 .userId(user.getId())
@@ -373,7 +374,7 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
 
     @Test
     void payoutProfileCreationWaitsForFinalizerWhenNoProfileExists() throws Exception {
-        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1);
+        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
         UserEntity user = savePendingUser(dueAt);
         assertThat(sellerPayoutProfileRepository.findByUserIdAndProvider(user.getId(), "TOSS")).isEmpty();
 
@@ -428,7 +429,7 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
 
     @Test
     void payoutClaimCommitsBeforeFinalizerAndRetainsTheRequiredFallback() throws Exception {
-        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1);
+        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
         UserEntity seller = savePendingUser(dueAt);
         sellerPayoutProfileRepository.saveAndFlush(SellerPayoutProfile.builder()
                 .userId(seller.getId())
@@ -493,7 +494,7 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
 
     @Test
     void payoutClaimWaitsForFinalizerAndUsesTheRetainedFallback() throws Exception {
-        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1);
+        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
         UserEntity seller = savePendingUser(dueAt);
         sellerPayoutProfileRepository.saveAndFlush(SellerPayoutProfile.builder()
                 .userId(seller.getId())
@@ -553,7 +554,7 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
 
     @Test
     void concurrentReportCommitIsVisibleBeforeFinalizerRedactsAuthoredPost() throws Exception {
-        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1);
+        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
         UserEntity author = savePendingUser(dueAt);
         UserEntity reporter = userRepository.saveAndFlush(UserEntity.builder()
                 .uniqueId(UUID.randomUUID())
@@ -625,7 +626,7 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
 
     @Test
     void moderationProtectionIncludesOpenReportsAndAppealsButNotClosedCases() {
-        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1);
+        LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
         UserEntity author = savePendingUser(dueAt);
         UserEntity reporter = userRepository.saveAndFlush(UserEntity.builder()
                 .uniqueId(UUID.randomUUID())
