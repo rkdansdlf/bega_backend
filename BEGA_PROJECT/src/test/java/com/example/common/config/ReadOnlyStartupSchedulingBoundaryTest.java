@@ -7,8 +7,6 @@ import static org.mockito.Mockito.mockConstruction;
 import java.util.stream.Stream;
 
 import com.example.BegaProjectApplication;
-import com.example.ai.scheduler.AiIngestScheduler;
-import com.example.ai.service.AiIngestOrchestrationService;
 import com.example.auth.config.DevDataInitializer;
 import com.example.auth.scheduler.AccountSecurityScheduler;
 import com.example.cheerboard.scheduler.CheerBattleScheduler;
@@ -111,9 +109,7 @@ class ReadOnlyStartupSchedulingBoundaryTest {
                 PaymentCompensationScheduler.class,
                 PostSyncScheduler.class,
                 CheerStorageScheduler.class,
-                CheerBattleScheduler.class,
-                AiIngestScheduler.class,
-                AiIngestOrchestrationService.class);
+                CheerBattleScheduler.class);
     }
 
     private static boolean profileAllows(Class<?> component, String... activeProfiles) {

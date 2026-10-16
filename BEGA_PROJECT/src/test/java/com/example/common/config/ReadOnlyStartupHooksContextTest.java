@@ -15,8 +15,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Stream;
 
-import com.example.ai.scheduler.AiIngestScheduler;
-import com.example.ai.service.AiIngestOrchestrationService;
 import com.example.auth.scheduler.AccountSecurityScheduler;
 import com.example.cheerboard.scheduler.CheerBattleScheduler;
 import com.example.cheerboard.scheduler.CheerStorageScheduler;
@@ -75,8 +73,7 @@ class ReadOnlyStartupHooksContextTest {
 
     private static Stream<Class<?>> startupComponents() {
         return Stream.of(AccountSecurityScheduler.class, PartyLifecycleScheduler.class, PaymentCompensationScheduler.class,
-                PostSyncScheduler.class, CheerStorageScheduler.class, CheerBattleScheduler.class,
-                AiIngestScheduler.class, AiIngestOrchestrationService.class);
+                PostSyncScheduler.class, CheerStorageScheduler.class, CheerBattleScheduler.class);
     }
 
     private static void registerDependencies(AnnotationConfigApplicationContext context, Class<?> type, List<Object> dependencies) {

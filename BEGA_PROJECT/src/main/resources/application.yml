@@ -220,13 +220,6 @@ app:
       retention: ${APP_REALTIME_OUTBOX_RETENTION:7d}
       cleanup-batch-size: ${APP_REALTIME_OUTBOX_CLEANUP_BATCH_SIZE:500}
       cleanup-max-batches: ${APP_REALTIME_OUTBOX_CLEANUP_MAX_BATCHES:20}
-  ai-ingest:
-    enabled: ${AI_INGEST_ENABLED:false}
-    cron: "${AI_INGEST_CRON:30 4 * * *}"
-    tables: ${AI_INGEST_TABLES:game,game_metadata,game_summary}
-    season-year: ${AI_INGEST_SEASON_YEAR:}
-    check-interval: ${AI_INGEST_CHECK_INTERVAL:30s}
-    monitoring-duration: ${AI_INGEST_MONITORING_DURATION:2h}
   tomcat:
     # Spring Boot does not expose Tomcat's upload body read timeout directly.
     # TomcatUploadTimeoutConfig maps these values to connectionUploadTimeout / disableUploadTimeout.

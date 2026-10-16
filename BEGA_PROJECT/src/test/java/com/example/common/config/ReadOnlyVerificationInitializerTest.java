@@ -48,12 +48,12 @@ class ReadOnlyVerificationInitializerTest {
             "spring.flyway.enabled", "baseball.flyway.enabled", "rag.flyway.enabled", "app.flyway.auto-repair",
             "spring.jpa.generate-ddl", "app.dev-data.enabled", "app.dev-data.repair-existing",
             "app.dev-db.hot-path-prewarm.enabled", "app.mail.enabled", "spring.mail.test-connection",
-            "app.realtime.outbox.enabled", "app.ai-ingest.enabled", "media.cleanup.enabled", "payment.payout.enabled",
+            "app.realtime.outbox.enabled", "media.cleanup.enabled", "payment.payout.enabled",
             "app.home.bootstrap.warmup.enabled", "app.prediction.warmup.enabled",
             "app.leaderboard.game-result-scheduler.enabled", "app.cheer.post-sync.scheduler.enabled",
             "app.ai.coach-auto-brief.monitoring.enabled", "app.prediction.ranking-settlement-scheduler.enabled",
             "app.client-error-monitoring.alerts.enabled", "app.worker.enabled",
-            "JOBRUNR_BACKGROUND_JOB_SERVER_ENABLED", "APP_MAIL_ENABLED", "AI_INGEST_ENABLED"
+            "JOBRUNR_BACKGROUND_JOB_SERVER_ENABLED", "APP_MAIL_ENABLED"
     })
     void mutationFlagsAndLegacyEnvironmentAliasesFailBeforeConstruction(String key) {
         assertRejectedBeforeConstruction(ReadOnlyVerificationTestEnvironment.create().withProperty(key, "true"));
