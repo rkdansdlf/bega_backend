@@ -105,4 +105,6 @@ public interface CheerCommentRepo extends JpaRepository<CheerComment, Long> {
             @Param("authorId") Long authorId,
             @Param("parentCommentId") Long parentCommentId,
             @Param("since") Instant since);
+
+    List<CheerComment> findAllByAuthor_Id(Long authorId);
 }

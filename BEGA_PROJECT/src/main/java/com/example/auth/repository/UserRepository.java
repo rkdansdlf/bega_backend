@@ -181,4 +181,10 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
       ORDER BY u.id
       """)
   List<Long> findDuePendingDeletionUserIds(@Param("cutoff") java.time.LocalDateTime cutoff);
+
+  @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+  @Transactional
+  @org.springframework.data.jpa.repository.Query("UPDATE UserEntity u SET u.createdAt = :createdAt WHERE u.id = :userId")
+  int anonymizeCreatedAtById(@org.springframework.data.repository.query.Param("userId") Long userId,
+      @org.springframework.data.repository.query.Param("createdAt") java.time.LocalDateTime createdAt);
 }

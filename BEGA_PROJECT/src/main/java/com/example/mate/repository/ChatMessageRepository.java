@@ -6,6 +6,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
 
@@ -37,4 +40,25 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             Long partyId,
             Long senderId,
             String clientMessageId);
+
+    @Query("""
+            select distinct message.imageUrl
+              from ChatMessage message
+             where message.senderId = :senderId
+               and message.imageUrl is not null
+            """)
+    List<String> findImageUrlsBySenderId(@Param("senderId") Long senderId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update ChatMessage message
+               set message.senderName = :redactedSenderName,
+                   message.message = :redactedContent,
+                   message.imageUrl = null
+             where message.senderId = :senderId
+            """)
+    int anonymizeBySenderId(
+            @Param("senderId") Long senderId,
+            @Param("redactedSenderName") String redactedSenderName,
+            @Param("redactedContent") String redactedContent);
 }
