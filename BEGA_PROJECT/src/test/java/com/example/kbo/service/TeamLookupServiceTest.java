@@ -10,7 +10,9 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.lang.reflect.Method;
 import java.util.List;
+import org.springframework.cache.annotation.Cacheable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
@@ -47,5 +49,17 @@ class TeamLookupServiceTest {
 
         assertThat(result).hasSize(1);
         verify(teamRepository).findAll();
+    }
+
+    @Test
+    @DisplayName("teams 테이블이 비어 있을 때의 빈 결과는 캐시하지 않는다")
+    void teamSummariesDoNotCacheEmptyResults() throws Exception {
+        for (String methodName : List.of("getActiveTeamSummaries", "getAllTeamSummaries")) {
+            Method method = TeamLookupService.class.getMethod(methodName);
+            Cacheable cacheable = method.getAnnotation(Cacheable.class);
+
+            assertThat(cacheable).isNotNull();
+            assertThat(cacheable.unless()).contains("#result.isEmpty()");
+        }
     }
 }

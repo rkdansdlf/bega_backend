@@ -337,4 +337,108 @@ class PredictionServiceManualDataTest extends PredictionServiceTestFixture {
         verify(baseballDataIntegrityGuard, times(1))
                 .ensurePredictionDateMatches(eq("prediction.matches_by_date"), eq(targetDate), anyList());
     }
+
+    @Test
+    void getMatchesByDateRangeShouldSkipOnlyGamesThatNeedManualData() {
+        LocalDate startDate = LocalDate.of(2026, 8, 10);
+        LocalDate endDate = LocalDate.of(2026, 8, 20);
+        MatchRangeProjection displayable = buildRangeMatch(
+                "20260815HTOB0", LocalDate.of(2026, 8, 15), "HT", "OB", 2026, 0, null);
+        MatchRangeProjection missingSeason = buildRangeMatch(
+                "20260816HHSS0", LocalDate.of(2026, 8, 16), "SS", "HH", null, null, null);
+        ManualBaseballDataRequest manualRequest = seasonContextRequest("20260816HHSS0");
+
+        when(gameRepository.findCanonicalRangeProjectionByDateRangeNoCount(
+                eq(startDate), eq(endDate), anyList(), any(Pageable.class)))
+                .thenReturn(List.of(displayable, missingSeason));
+        doThrow(new ManualBaseballDataRequiredException(manualRequest))
+                .when(baseballDataIntegrityGuard)
+                .ensurePredictionRangeMatches(eq("prediction.matches_by_range"), anyList());
+        doReturn(null)
+                .when(baseballDataIntegrityGuard)
+                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_range"), any(MatchRangeProjection.class));
+        doReturn(manualRequest)
+                .when(baseballDataIntegrityGuard)
+                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_range"), eq(missingSeason));
+
+        List<MatchDto> first = predictionService.getMatchesByDateRange(startDate, endDate, true, 0, 100);
+        List<MatchDto> second = predictionService.getMatchesByDateRange(startDate, endDate, true, 0, 100);
+
+        assertThat(first).extracting(MatchDto::getGameId).containsExactly("20260815HTOB0");
+        assertThat(first.get(0).getHomeTeam()).isEqualTo("KIA");
+        assertThat(first.get(0).getAwayTeam()).isEqualTo("DB");
+        assertThat(second).extracting(MatchDto::getGameId).containsExactly("20260815HTOB0");
+        // 일부 경기만 제외된 결과는 성공 캐시에 넣지 않아, 데이터가 보정되면 바로 반영된다.
+        verify(gameRepository, times(2)).findCanonicalRangeProjectionByDateRangeNoCount(
+                eq(startDate), eq(endDate), anyList(), any(Pageable.class));
+    }
+
+    @Test
+    void getMatchesByDateRangeWithMetadataShouldSkipOnlyGamesThatNeedManualData() {
+        LocalDate startDate = LocalDate.of(2026, 8, 10);
+        LocalDate endDate = LocalDate.of(2026, 8, 20);
+        MatchRangeProjection displayable = buildRangeMatch(
+                "20260815WOSK0", LocalDate.of(2026, 8, 15), "SK", "WO", 2026, 0, null);
+        MatchRangeProjection missingSeason = buildRangeMatch(
+                "20260816HHSS0", LocalDate.of(2026, 8, 16), "SS", "HH", null, null, null);
+        ManualBaseballDataRequest manualRequest = seasonContextRequest("20260816HHSS0");
+        PageRequest pageable = PageRequest.of(0, 20);
+
+        when(gameRepository.findCanonicalRangeProjectionByDateRange(
+                eq(startDate), eq(endDate), anyList(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(displayable, missingSeason), pageable, 2));
+        doThrow(new ManualBaseballDataRequiredException(manualRequest))
+                .when(baseballDataIntegrityGuard)
+                .ensurePredictionRangeMatches(eq("prediction.matches_by_range"), anyList());
+        doReturn(null)
+                .when(baseballDataIntegrityGuard)
+                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_range"), any(MatchRangeProjection.class));
+        doReturn(manualRequest)
+                .when(baseballDataIntegrityGuard)
+                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_range"), eq(missingSeason));
+
+        MatchRangePageResponseDto response =
+                predictionService.getMatchesByDateRangeWithMetadata(startDate, endDate, true, 0, 20);
+
+        assertThat(response.getContent()).extracting(MatchDto::getGameId).containsExactly("20260815WOSK0");
+        assertThat(response.getContent().get(0).getHomeTeam()).isEqualTo("SSG");
+        assertThat(response.getContent().get(0).getAwayTeam()).isEqualTo("KH");
+    }
+
+    @Test
+    void getMatchesByDateRangeShouldStillRequireManualDataWhenEveryGameIsBlocked() {
+        LocalDate startDate = LocalDate.of(2026, 8, 16);
+        LocalDate endDate = LocalDate.of(2026, 8, 16);
+        MatchRangeProjection missingSeason = buildRangeMatch(
+                "20260816HHSS0", startDate, "SS", "HH", null, null, null);
+        ManualBaseballDataRequest manualRequest = seasonContextRequest("20260816HHSS0");
+
+        when(gameRepository.findCanonicalRangeProjectionByDateRangeNoCount(
+                eq(startDate), eq(endDate), anyList(), any(Pageable.class)))
+                .thenReturn(List.of(missingSeason));
+        doThrow(new ManualBaseballDataRequiredException(manualRequest))
+                .when(baseballDataIntegrityGuard)
+                .ensurePredictionRangeMatches(eq("prediction.matches_by_range"), anyList());
+        doReturn(manualRequest)
+                .when(baseballDataIntegrityGuard)
+                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_range"), eq(missingSeason));
+
+        ManualBaseballDataRequiredException exception = assertThrows(
+                ManualBaseballDataRequiredException.class,
+                () -> predictionService.getMatchesByDateRange(startDate, endDate, true, 0, 100));
+
+        assertThat(exception.getData()).isEqualTo(manualRequest);
+    }
+
+    private ManualBaseballDataRequest seasonContextRequest(String gameId) {
+        return new ManualBaseballDataRequest(
+                "prediction.matches_by_range",
+                List.of(new ManualBaseballDataMissingItem(
+                        "season_league_context",
+                        "시즌/리그 구분",
+                        "season_id 또는 league_type_code가 비어 있어 시즌 문맥을 해석할 수 없습니다.",
+                        "season_id, league_type_code")),
+                "다음 야구 데이터가 필요합니다: 경기 ID=" + gameId,
+                true);
+    }
 }
