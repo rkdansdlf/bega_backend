@@ -26,6 +26,8 @@ class TeamCodeResolverTest {
     @DisplayName("canonical/legacy variants를 반환한다")
     void resolveVariants_containsLegacy() {
         assertThat(TeamCodeResolver.resolveVariants("SSG")).contains("SSG", "SK");
+        assertThat(TeamCodeResolver.resolveVariants("SSG")).contains("SL");
+        assertThat(TeamCodeResolver.resolveCanonical("SL")).isEqualTo("SSG");
         assertThat(TeamCodeResolver.resolveVariants("KH")).contains("KH", "WO", "NX");
     }
 

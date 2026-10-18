@@ -450,7 +450,9 @@ public class PredictionService {
             throw e;
         }
 
-        Map<String, Integer> seriesGameNos = computeSeriesGameNos(displayableMatches);
+        // 시리즈 차전 번호는 제외 전 원본 목록 기준으로 계산해, 수동 데이터가 필요한 경기를 빼도
+        // 뒤 경기의 차전 번호가 당겨지지 않게 한다.
+        Map<String, Integer> seriesGameNos = computeSeriesGameNos(matches);
         List<MatchDto> result = Objects.requireNonNull(displayableMatches.stream()
                 .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList()));
@@ -493,7 +495,8 @@ public class PredictionService {
             throw e;
         }
 
-        Map<String, Integer> seriesGameNos = computeSeriesGameNos(displayableMatches);
+        // 제외 전 원본 페이지 기준으로 차전 번호를 계산한다(제외된 경기로 번호가 밀리지 않도록).
+        Map<String, Integer> seriesGameNos = computeSeriesGameNos(matches.getContent());
         return new MatchRangePageResponseDto(
                 displayableMatches.stream()
                         .map(m -> toMatchDto(m, seriesGameNos))
@@ -685,8 +688,9 @@ public class PredictionService {
             if (seasonId == null || homeTeam == null || awayTeam == null) {
                 continue;
             }
-            String teamA = homeTeam.trim().toUpperCase(Locale.ROOT);
-            String teamB = awayTeam.trim().toUpperCase(Locale.ROOT);
+            // 옛 팀 코드(HT/OB/SK/WO 등)와 canonical 코드가 섞여 있어도 같은 시리즈로 묶이도록 정규화한다.
+            String teamA = normalizeSeriesTeamCode(homeTeam);
+            String teamB = normalizeSeriesTeamCode(awayTeam);
             // 정렬하여 팀 순서에 무관한 키 생성
             String seriesKey = seasonId + ":" + (teamA.compareTo(teamB) <= 0
                     ? teamA + ":" + teamB
@@ -695,6 +699,12 @@ public class PredictionService {
             result.put(gameId, gameNo);
         }
         return result;
+    }
+
+    private String normalizeSeriesTeamCode(String teamCode) {
+        String trimmed = teamCode.trim().toUpperCase(Locale.ROOT);
+        String normalized = com.example.kbo.util.TeamCodeNormalizer.normalize(trimmed);
+        return normalized == null || normalized.isBlank() ? trimmed : normalized.toUpperCase(Locale.ROOT);
     }
 
     private boolean isPostseasonMatch(MatchRangeProjection match) {

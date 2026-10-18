@@ -651,6 +651,71 @@ class HomePageGameServiceTest {
     }
 
     @Test
+    @DisplayName("예정 경기 윈도우는 일부 경기만 수동 데이터가 필요하면 그 경기만 빼고 반환한다")
+    void getScheduledGamesWindow_skipsOnlyGamesThatNeedManualData() {
+        LocalDate startDate = LocalDate.of(2026, 10, 18);
+        LocalDate endDate = startDate.plusDays(7);
+        MatchRangeProjection blocked = projection(
+                "20261018LGHT0", startDate, "광주", "HT", "LG", null, null, 202604, null, "SCHEDULED", null);
+        MatchRangeProjection valid = projection(
+                "20261020HTLG0", LocalDate.of(2026, 10, 20), "잠실", "LG", "HT",
+                null, null, 202604, null, "SCHEDULED", LocalTime.of(18, 30));
+        ManualBaseballDataRequest manualDataRequest = new ManualBaseballDataRequest(
+                "home.scheduled_window",
+                List.of(new ManualBaseballDataMissingItem(
+                        "final_score", "최종 점수", "과거 경기의 최종 점수가 비어 있습니다.", "home_score, away_score")),
+                "다음 야구 데이터가 필요합니다: 경기 ID=20261018LGHT0",
+                true);
+
+        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(gameRepository.findScheduledWindowProjectionByDateRange(
+                eq(startDate), eq(endDate), anyCollection(), anyList()))
+                .thenReturn(List.of(blocked, valid));
+        org.mockito.Mockito.doThrow(new com.example.kbo.validation.ManualBaseballDataRequiredException(manualDataRequest))
+                .when(baseballDataIntegrityGuard)
+                .ensurePredictionRangeMatches(eq("home.scheduled_window"), anyList());
+        when(baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.scheduled_window", blocked))
+                .thenReturn(manualDataRequest);
+        when(baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.scheduled_window", valid))
+                .thenReturn(null);
+
+        List<HomePageScheduledGameDto> scheduledGames = homePageGameService.getScheduledGamesWindow(startDate, endDate);
+
+        assertThat(scheduledGames).extracting(HomePageScheduledGameDto::getGameId).containsExactly("20261020HTLG0");
+        assertThat(scheduledGames.get(0).getAwayTeam()).isEqualTo("KIA");
+    }
+
+    @Test
+    @DisplayName("예정 경기 윈도우의 모든 경기가 수동 데이터가 필요하면 기존 예외를 유지한다")
+    void getScheduledGamesWindow_keepsManualDataExceptionWhenEveryGameIsBlocked() {
+        LocalDate startDate = LocalDate.of(2026, 10, 18);
+        LocalDate endDate = startDate.plusDays(7);
+        MatchRangeProjection blocked = projection(
+                "20261018LGHT0", startDate, "광주", "HT", "LG", null, null, 202604, null, "SCHEDULED", null);
+        ManualBaseballDataRequest manualDataRequest = new ManualBaseballDataRequest(
+                "home.scheduled_window",
+                List.of(new ManualBaseballDataMissingItem(
+                        "final_score", "최종 점수", "과거 경기의 최종 점수가 비어 있습니다.", "home_score, away_score")),
+                "다음 야구 데이터가 필요합니다: 경기 ID=20261018LGHT0",
+                true);
+
+        when(gameRepository.findScheduledWindowProjectionByDateRange(
+                eq(startDate), eq(endDate), anyCollection(), anyList()))
+                .thenReturn(List.of(blocked));
+        org.mockito.Mockito.doThrow(new com.example.kbo.validation.ManualBaseballDataRequiredException(manualDataRequest))
+                .when(baseballDataIntegrityGuard)
+                .ensurePredictionRangeMatches(eq("home.scheduled_window"), anyList());
+        when(baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.scheduled_window", blocked))
+                .thenReturn(manualDataRequest);
+
+        com.example.kbo.validation.ManualBaseballDataRequiredException exception = org.junit.jupiter.api.Assertions.assertThrows(
+                com.example.kbo.validation.ManualBaseballDataRequiredException.class,
+                () -> homePageGameService.getScheduledGamesWindow(startDate, endDate));
+
+        assertThat(exception.getData()).isEqualTo(manualDataRequest);
+    }
+
+    @Test
     @DisplayName("scope 미지정/all navigation은 bootstrap navigation과 같은 이전/다음 경기일을 돌려준다")
     void getScopedNavigation_allScopeMatchesBootstrapNavigation() {
         LocalDate selectedDate = LocalDate.of(2026, 10, 19);

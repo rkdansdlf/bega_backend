@@ -228,8 +228,8 @@ public class HomePageGameService {
         if (games.isEmpty()) {
             return List.of();
         }
-        baseballDataIntegrityGuard.ensurePredictionRangeMatches("home.scheduled_window", games);
-        return games.stream()
+        List<MatchRangeProjection> displayableGames = selectDisplayableScheduledWindowGames(startDate, endDate, games);
+        return displayableGames.stream()
                 .map(game -> {
                     HomePageGameDto baseDto = convertToDto(game);
                     return HomePageScheduledGameDto.builder()
@@ -251,6 +251,40 @@ public class HomePageGameService {
                             .build();
                 })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 7일 예정 경기 윈도우에서 일부 경기만 수동 데이터가 필요하면 그 경기만 제외한다.
+     * 윈도우 안의 모든 경기가 문제일 때만 기존처럼 수동 데이터 요청 예외를 던진다.
+     */
+    private List<MatchRangeProjection> selectDisplayableScheduledWindowGames(
+            LocalDate startDate,
+            LocalDate endDate,
+            List<MatchRangeProjection> games) {
+        try {
+            baseballDataIntegrityGuard.ensurePredictionRangeMatches("home.scheduled_window", games);
+            return games;
+        } catch (ManualBaseballDataRequiredException originalException) {
+            List<MatchRangeProjection> displayableGames = new ArrayList<>();
+            List<String> skippedGameIds = new ArrayList<>();
+            for (MatchRangeProjection game : games) {
+                if (baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.scheduled_window", game) != null) {
+                    skippedGameIds.add(game.getGameId());
+                    continue;
+                }
+                displayableGames.add(game);
+            }
+            if (skippedGameIds.isEmpty() || displayableGames.isEmpty()) {
+                throw originalException;
+            }
+            log.warn("home.scheduled_window.partial_manual_data_required window={}~{} total={} returned={} skippedGameIds={}",
+                    startDate,
+                    endDate,
+                    games.size(),
+                    displayableGames.size(),
+                    skippedGameIds);
+            return displayableGames;
+        }
     }
 
     private HomePageGameDto convertToDto(MatchRangeProjection game) {
