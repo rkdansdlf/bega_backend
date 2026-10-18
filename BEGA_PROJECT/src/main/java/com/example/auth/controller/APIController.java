@@ -97,8 +97,10 @@ public class APIController {
                 clientIpResolver.resolveOrUnknown(request),
                 request.getHeader("User-Agent"));
 
-        // 회원가입은 세션/토큰을 발급하지 않는다. 이메일 인증 전에는 로그인도 403 EMAIL_NOT_VERIFIED.
-        boolean verificationPending = !createdUser.isEmailVerified();
+        // 회원가입은 세션/토큰을 발급하지 않는다. 인증이 켜져 있으면(required=true) 인증 전 로그인은 403 EMAIL_NOT_VERIFIED.
+        // 꺼져 있으면 인증 메일은 보내되 프론트에 인증을 요구하지 않는다(emailVerificationRequired=false).
+        boolean verificationPending = authRegistrationService.isEmailVerificationRequired()
+                && !createdUser.isEmailVerified();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(
                         verificationPending

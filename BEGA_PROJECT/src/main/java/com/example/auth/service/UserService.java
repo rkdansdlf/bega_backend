@@ -88,8 +88,9 @@ public class UserService {
 
     // Issue #48: 이메일 회원가입 계정은 인증 완료 전 비밀번호 로그인을 막는다.
     // 롤백 스위치: APP_AUTH_EMAIL_VERIFICATION_REQUIRED=false
-    @org.springframework.beans.factory.annotation.Value("${app.auth.email-verification.required:true}")
-    private boolean emailVerificationRequired = true;
+    // 기본값 false: 프론트 인증 화면이 배포될 때 env 로 켠다.
+    @org.springframework.beans.factory.annotation.Value("${app.auth.email-verification.required:false}")
+    private boolean emailVerificationRequired = false;
 
     public UserService(UserRepository userRepository,
             TeamRepository teamRepository,
@@ -170,16 +171,13 @@ public class UserService {
         log.info("Existing User Found - ID: {}, Provider: {}",
                 existingUser.getId(), existingUser.getProvider());
 
-        boolean isLocalSignup = isLocalSignupAttempt(userDto);
-
-        if (isLocalSignup) {
-            handleLocalSignupConflict(existingUser);
-            return;
+        if (!isLocalSignupAttempt(userDto)) {
+            // /signup 의 provider/providerId 는 클라이언트 입력이다. 이 경로로 기존 계정에 소셜을 연결하지 않는다
+            // (연결은 OAuth 연동 흐름에서만). 예전에는 기존 계정의 provider 를 덮어쓰고 201 을 돌려줘
+            // 인증 메일 재발송 레이트리밋을 우회할 수 있었다.
+            log.warn("Rejected /signup provider linking attempt for existing userId={}", existingUser.getId());
         }
-
-        if (userDto.getProviderId() != null) {
-            handleSocialLinking(existingUser, userDto);
-        }
+        handleLocalSignupConflict(existingUser);
     }
 
     /**
@@ -188,17 +186,6 @@ public class UserService {
     private void handleLocalSignupConflict(UserEntity existingUser) {
         log.warn("Attempted Local Signup with existing account: userId={}", existingUser.getId());
         throw new DuplicateEmailException(existingUser.getEmail());
-    }
-
-    /**
-     * 소셜 계정 연동 처리
-     */
-    private void handleSocialLinking(UserEntity existingUser, UserDto userDto) {
-        if (existingUser.getProvider() == null || "LOCAL".equals(existingUser.getProvider())) {
-            existingUser.setProvider(userDto.getProvider());
-            existingUser.setProviderId(userDto.getProviderId());
-            userRepository.save(existingUser);
-        }
     }
 
     /**
@@ -224,9 +211,10 @@ public class UserService {
                 .password(encodedPassword)
                 .favoriteTeam(team)
                 .role(roleKey)
-                .provider(Optional.ofNullable(userDto.getProvider()).orElse("LOCAL"))
-                .providerId(userDto.getProviderId())
-                // /signup 의 provider 필드는 클라이언트 입력이므로 신뢰하지 않는다: 항상 미인증으로 시작.
+                // /signup 의 provider/providerId 는 클라이언트 입력이므로 신뢰하지 않는다:
+                // 항상 LOCAL 계정으로 만들고 미인증으로 시작한다(소셜 연결은 OAuth 흐름에서만).
+                .provider("LOCAL")
+                .providerId(null)
                 .emailVerified(false)
                 .build();
 

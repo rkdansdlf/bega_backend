@@ -29,5 +29,10 @@ public class AuthRegistrationService {
 
         return createdUser;
     }
+
+    /** 로그인에서 이메일 인증을 강제하는지(app.auth.email-verification.required). */
+    public boolean isEmailVerificationRequired() {
+        return emailVerificationService.isVerificationRequired();
+    }
 }
 

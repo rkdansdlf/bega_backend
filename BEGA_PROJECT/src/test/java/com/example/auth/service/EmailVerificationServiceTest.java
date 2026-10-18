@@ -1,6 +1,7 @@
 package com.example.auth.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -21,8 +22,11 @@ import com.example.common.exception.RateLimitExceededException;
 import com.example.common.ratelimit.RateLimitService;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 class EmailVerificationServiceTest {
 
@@ -32,6 +36,13 @@ class EmailVerificationServiceTest {
     private final RateLimitService rateLimitService = mock(RateLimitService.class);
     private final EmailVerificationService service = new EmailVerificationService(
             tokenRepository, userRepository, emailService, rateLimitService, true, 1440, true);
+
+    @AfterEach
+    void clearTransactionSynchronization() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
 
     @Test
     void issueForSignupStoresOnlyDigestAndMailsRawToken() {
@@ -169,6 +180,111 @@ class EmailVerificationServiceTest {
         verify(rateLimitService).isAllowed(keyCaptor.capture(), eq(3), eq(3600), eq(true));
         assertThat(keyCaptor.getValue()).doesNotContain("user@example.com");
         verify(userRepository, never()).findByEmail(anyString());
+    }
+
+    @Test
+    void issueForSignupSendsMailOnlyAfterTransactionCommits() {
+        UserEntity user = unverifiedUser();
+        when(tokenRepository.save(any(EmailVerificationToken.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        TransactionSynchronizationManager.initSynchronization();
+
+        service.issueForSignup(user);
+
+        verify(tokenRepository).save(any(EmailVerificationToken.class));
+        verify(emailService, never()).sendSignupVerificationEmail(anyString(), anyString(), anyLong());
+
+        TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+
+        verify(emailService).sendSignupVerificationEmail(eq("user@example.com"), anyString(), eq(1440L));
+    }
+
+    @Test
+    void issueForSignupDoesNotSendMailWhenTransactionRollsBack() {
+        UserEntity user = unverifiedUser();
+        when(tokenRepository.save(any(EmailVerificationToken.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        TransactionSynchronizationManager.initSynchronization();
+
+        service.issueForSignup(user);
+        TransactionSynchronizationManager.getSynchronizations()
+                .forEach(sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+
+        verify(emailService, never()).sendSignupVerificationEmail(anyString(), anyString(), anyLong());
+    }
+
+    @Test
+    void resendSendsMailOnlyAfterCommitAndSwallowsAfterCommitFailures() {
+        UserEntity user = unverifiedUser();
+        when(rateLimitService.isAllowed(anyString(), eq(3), eq(3600), eq(true))).thenReturn(true);
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(tokenRepository.save(any(EmailVerificationToken.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        doThrow(new IllegalStateException("Job scheduling is unavailable."))
+                .when(emailService).sendSignupVerificationEmail(anyString(), anyString(), anyLong());
+        TransactionSynchronizationManager.initSynchronization();
+
+        service.resend("user@example.com");
+        verify(emailService, never()).sendSignupVerificationEmail(anyString(), anyString(), anyLong());
+
+        // afterCommit 예외는 Spring 이 호출자에게 전파하므로 서비스가 직접 삼켜야 한다.
+        assertThatCode(() -> TransactionSynchronizationManager.getSynchronizations()
+                .forEach(TransactionSynchronization::afterCommit))
+                .doesNotThrowAnyException();
+        verify(emailService).sendSignupVerificationEmail(eq("user@example.com"), anyString(), eq(1440L));
+    }
+
+    @Test
+    void resendDoesNotRevealAccountWhenMailSendingFails() {
+        UserEntity user = unverifiedUser();
+        when(rateLimitService.isAllowed(anyString(), eq(3), eq(3600), eq(true))).thenReturn(true);
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(tokenRepository.save(any(EmailVerificationToken.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        doThrow(new org.springframework.mail.MailSendException("smtp down"))
+                .when(emailService).sendSignupVerificationEmail(anyString(), anyString(), anyLong());
+
+        assertThatCode(() -> service.resend("user@example.com")).doesNotThrowAnyException();
+
+        verify(emailService).sendSignupVerificationEmail(eq("user@example.com"), anyString(), eq(1440L));
+    }
+
+    @Test
+    void confirmRejectsDisabledOrPendingDeletionAccounts() {
+        UserEntity disabled = unverifiedUser();
+        disabled.setEnabled(false);
+        when(tokenRepository.findByTokenDigestForUpdate(EmailVerificationService.digest("disabled-token")))
+                .thenReturn(Optional.of(token(disabled, "disabled-token", LocalDateTime.now().plusHours(1))));
+        assertThatThrownBy(() -> service.confirm("disabled-token"))
+                .isInstanceOf(BadRequestBusinessException.class)
+                .extracting("code").isEqualTo("INVALID_EMAIL_VERIFICATION_TOKEN");
+
+        UserEntity pendingDeletion = unverifiedUser();
+        pendingDeletion.setPendingDeletion(true);
+        EmailVerificationToken pendingToken = token(pendingDeletion, "pending-token", LocalDateTime.now().plusHours(1));
+        when(tokenRepository.findByTokenDigestForUpdate(EmailVerificationService.digest("pending-token")))
+                .thenReturn(Optional.of(pendingToken));
+        assertThatThrownBy(() -> service.confirm("pending-token"))
+                .isInstanceOf(BadRequestBusinessException.class)
+                .extracting("code").isEqualTo("INVALID_EMAIL_VERIFICATION_TOKEN");
+
+        assertThat(disabled.isEmailVerified()).isFalse();
+        assertThat(pendingDeletion.isEmailVerified()).isFalse();
+        assertThat(pendingToken.isUsed()).isFalse();
+        verify(userRepository, never()).save(any());
+        verify(tokenRepository, never()).save(any());
+    }
+
+    @Test
+    void confirmWithLeftoverTokenOfAlreadyVerifiedAccountReturnsAlreadyUsed() {
+        UserEntity user = unverifiedUser();
+        user.markEmailVerified(LocalDateTime.now().minusMinutes(1)); // 예: 비밀번호 재설정으로 인증됨
+        EmailVerificationToken leftover = token(user, "leftover-token", LocalDateTime.now().plusHours(1));
+        when(tokenRepository.findByTokenDigestForUpdate(EmailVerificationService.digest("leftover-token")))
+                .thenReturn(Optional.of(leftover));
+
+        assertThatThrownBy(() -> service.confirm("leftover-token"))
+                .isInstanceOf(BadRequestBusinessException.class)
+                .extracting("code").isEqualTo("EMAIL_VERIFICATION_TOKEN_USED");
+
+        verify(userRepository, never()).save(any());
+        verify(tokenRepository, never()).deleteOtherTokensOfUser(anyLong(), anyLong());
     }
 
     private UserEntity unverifiedUser() {

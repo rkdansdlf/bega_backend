@@ -5,7 +5,14 @@ import com.example.auth.util.LogMaskingUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.jobrunr.jobs.annotations.Job;
+import com.example.auth.config.MailAsyncConfig;
 import com.example.common.jobs.JobSubmissionGateway;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
+import org.springframework.core.task.SyncTaskExecutor;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -24,16 +31,46 @@ public class EmailService {
     private final JobSubmissionGateway jobScheduler;
     private final EmailJobTokenCipher emailJobTokenCipher;
     private final boolean mailEnabled;
+    /** JobRunr 를 쓸 수 없을 때 인증 메일을 보내는 실행기. 호출 스레드(트랜잭션/DB 커넥션 보유)에서 SMTP 를 돌리지 않는다. */
+    private final TaskExecutor mailFallbackExecutor;
+
+    /** 단위 테스트용: 즉시 발송 폴백을 호출 스레드에서 동기 실행한다. */
+    public EmailService(
+            JavaMailSender mailSender,
+            JobSubmissionGateway jobScheduler,
+            EmailJobTokenCipher emailJobTokenCipher,
+            boolean mailEnabled) {
+        this(mailSender, jobScheduler, emailJobTokenCipher, mailEnabled, new SyncTaskExecutor());
+    }
 
     public EmailService(
             JavaMailSender mailSender,
             JobSubmissionGateway jobScheduler,
             EmailJobTokenCipher emailJobTokenCipher,
-            @Value("${app.mail.enabled:false}") boolean mailEnabled) {
+            boolean mailEnabled,
+            TaskExecutor mailFallbackExecutor) {
         this.mailSender = mailSender;
         this.jobScheduler = jobScheduler;
         this.emailJobTokenCipher = emailJobTokenCipher;
         this.mailEnabled = mailEnabled;
+        this.mailFallbackExecutor = mailFallbackExecutor;
+    }
+
+    @Autowired
+    public EmailService(
+            JavaMailSender mailSender,
+            JobSubmissionGateway jobScheduler,
+            EmailJobTokenCipher emailJobTokenCipher,
+            @Value("${app.mail.enabled:false}") boolean mailEnabled,
+            @Qualifier(MailAsyncConfig.MAIL_FALLBACK_TASK_EXECUTOR) ObjectProvider<TaskExecutor> mailFallbackExecutor) {
+        this(mailSender, jobScheduler, emailJobTokenCipher, mailEnabled,
+                mailFallbackExecutor.getIfAvailable(EmailService::defaultMailFallbackExecutor));
+    }
+
+    private static TaskExecutor defaultMailFallbackExecutor() {
+        SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor("mail-fallback-");
+        executor.setVirtualThreads(true);
+        return executor;
     }
 
     @Value("${app.frontend.url:http://localhost:5176}")
@@ -188,7 +225,20 @@ public class EmailService {
                         LogMaskingUtil.maskEmail(toEmail), e);
             }
         }
-        sendSignupVerificationEmailNow(toEmail, rawToken, ttlMinutes);
+        // 즉시 발송 폴백은 별도 실행기에서 돌린다. 호출 스레드가 트랜잭션 안(또는 afterCommit 콜백 안)에서
+        // DB 커넥션을 쥔 채 SMTP 응답을 기다리지 않게 하기 위함이다.
+        try {
+            mailFallbackExecutor.execute(() -> {
+                try {
+                    sendSignupVerificationEmailNow(toEmail, rawToken, ttlMinutes);
+                } catch (RuntimeException e) {
+                    log.warn("Fallback signup verification email failed for {}", LogMaskingUtil.maskEmail(toEmail), e);
+                }
+            });
+        } catch (RuntimeException e) {
+            log.error("Could not schedule fallback signup verification email for {}",
+                    LogMaskingUtil.maskEmail(toEmail), e);
+        }
     }
 
     @Job(name = "Send Signup Verification Email")

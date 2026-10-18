@@ -543,10 +543,42 @@ class UserServiceTest {
         verify(userRepository).save(captor.capture());
         org.junit.jupiter.api.Assertions.assertFalse(captor.getValue().isEmailVerified());
         org.junit.jupiter.api.Assertions.assertNull(captor.getValue().getEmailVerifiedAt());
+        // 클라이언트가 보낸 provider/providerId 는 저장하지 않는다.
+        assertEquals("LOCAL", captor.getValue().getProvider());
+        org.junit.jupiter.api.Assertions.assertNull(captor.getValue().getProviderId());
+    }
+
+    @Test
+    void signUp_rejectsProviderLinkingForExistingUnverifiedAccount() {
+        UserDto dto = UserDto.builder()
+                .name("tester")
+                .handle("@again")
+                .email("pending@example.com")
+                .password("raw-password")
+                .provider("KAKAO")
+                .providerId("kakao-client-supplied")
+                .build();
+
+        UserEntity existing = UserEntity.builder()
+                .id(8L)
+                .email("pending@example.com")
+                .password("already-encoded")
+                .provider("LOCAL")
+                .emailVerified(false)
+                .build();
+        when(userRepository.findByEmail("pending@example.com")).thenReturn(Optional.of(existing));
+
+        assertThrows(DuplicateEmailException.class, () -> userService.signUp(dto));
+
+        verify(userRepository, never()).save(any(UserEntity.class));
+        assertEquals("LOCAL", existing.getProvider());
+        org.junit.jupiter.api.Assertions.assertNull(existing.getProviderId());
     }
 
     @Test
     void authenticateAndGetToken_rejectsUnverifiedEmailWithDedicatedCode() {
+        // 기본값은 false(프론트 배포 때 env 로 켬)이므로 이 테스트는 명시적으로 켠다.
+        org.springframework.test.util.ReflectionTestUtils.setField(userService, "emailVerificationRequired", true);
         UserEntity user = baseUser(null);
         user.setPassword("ENCODED");
         user.setEnabled(true);
@@ -571,6 +603,7 @@ class UserServiceTest {
 
     @Test
     void authenticateAndGetToken_unverifiedUserWithWrongPasswordStillGetsGenericError() {
+        org.springframework.test.util.ReflectionTestUtils.setField(userService, "emailVerificationRequired", true);
         UserEntity user = baseUser(null);
         user.setPassword("ENCODED");
         user.setEnabled(true);
