@@ -399,19 +399,19 @@ public class HomePageGameService {
         LocalDate regularStart = gameRepository
                 .findConfiguredStartDateByTypeFromSeasonYear(0, seasonYear)
                 .or(() -> gameRepository.findFirstRegularSeasonDate(seasonYear))
-                .or(() -> gameRepository.findLatestStartDateByTypeAsOf(0, now))
+                .or(() -> gameRepository.findLatestStartDateByTypeAsOf(0, seasonYear, now))
                 .orElse(now);
 
         LocalDate postseasonStart = gameRepository
                 .findConfiguredStartDateByTypeFromSeasonYear(2, seasonYear)
                 .or(() -> gameRepository.findFirstPostseasonDate(seasonYear))
-                .or(() -> gameRepository.findLatestStartDateByTypeAsOf(2, now))
+                .or(() -> gameRepository.findLatestStartDateByTypeAsOf(2, seasonYear, now))
                 .orElse(null);
 
         LocalDate koreanSeriesStart = gameRepository
                 .findConfiguredStartDateByTypeFromSeasonYear(5, seasonYear)
                 .or(() -> gameRepository.findFirstKoreanSeriesDate(seasonYear))
-                .or(() -> gameRepository.findLatestStartDateByTypeAsOf(5, now))
+                .or(() -> gameRepository.findLatestStartDateByTypeAsOf(5, seasonYear, now))
                 .orElse(null);
 
         regularStart = normalizeDateToSeasonYear(regularStart, seasonYear);
