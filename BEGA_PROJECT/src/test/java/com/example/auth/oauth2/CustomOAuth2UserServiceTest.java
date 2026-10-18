@@ -116,6 +116,31 @@ class CustomOAuth2UserServiceTest {
     }
 
     @Test
+    @DisplayName("제공자가 검증한 이메일의 신규 OAuth 가입(saveNewUser)은 이메일 인증 완료 상태로 생성된다")
+    void processNormalLogin_verifiedNewAccountIsCreatedAsEmailVerified() {
+        when(userRepository.findByEmail("verified-new@example.com")).thenReturn(Optional.empty());
+        when(userRepository.save(org.mockito.ArgumentMatchers.any(UserEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserEntity created = invokeProcessNormalLogin(
+                Optional.empty(),
+                "verified-new@example.com",
+                "신규소셜",
+                "google",
+                "google-new-id",
+                null,
+                true);
+
+        org.mockito.ArgumentCaptor<UserEntity> captor = org.mockito.ArgumentCaptor.forClass(UserEntity.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().isEmailVerified()).isTrue();
+        assertThat(captor.getValue().getEmailVerifiedAt()).isNotNull();
+        assertThat(captor.getValue().getPassword()).isNull();
+        assertThat(created.isEmailVerified()).isTrue();
+        verifyNoInteractions(oauthEmailChallengeService);
+    }
+
+    @Test
     @DisplayName("검증되지 않은 이메일의 신규 OAuth 가입은 앱 이메일 challenge를 요구한다")
     void processNormalLogin_unverifiedNewAccountRequiresChallenge() {
         when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());

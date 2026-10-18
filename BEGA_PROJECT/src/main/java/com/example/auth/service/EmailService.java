@@ -5,7 +5,14 @@ import com.example.auth.util.LogMaskingUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.jobrunr.jobs.annotations.Job;
+import com.example.auth.config.MailAsyncConfig;
 import com.example.common.jobs.JobSubmissionGateway;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
+import org.springframework.core.task.SyncTaskExecutor;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -24,16 +31,46 @@ public class EmailService {
     private final JobSubmissionGateway jobScheduler;
     private final EmailJobTokenCipher emailJobTokenCipher;
     private final boolean mailEnabled;
+    /** JobRunr 를 쓸 수 없을 때 인증 메일을 보내는 실행기. 호출 스레드(트랜잭션/DB 커넥션 보유)에서 SMTP 를 돌리지 않는다. */
+    private final TaskExecutor mailFallbackExecutor;
+
+    /** 단위 테스트용: 즉시 발송 폴백을 호출 스레드에서 동기 실행한다. */
+    public EmailService(
+            JavaMailSender mailSender,
+            JobSubmissionGateway jobScheduler,
+            EmailJobTokenCipher emailJobTokenCipher,
+            boolean mailEnabled) {
+        this(mailSender, jobScheduler, emailJobTokenCipher, mailEnabled, new SyncTaskExecutor());
+    }
 
     public EmailService(
             JavaMailSender mailSender,
             JobSubmissionGateway jobScheduler,
             EmailJobTokenCipher emailJobTokenCipher,
-            @Value("${app.mail.enabled:false}") boolean mailEnabled) {
+            boolean mailEnabled,
+            TaskExecutor mailFallbackExecutor) {
         this.mailSender = mailSender;
         this.jobScheduler = jobScheduler;
         this.emailJobTokenCipher = emailJobTokenCipher;
         this.mailEnabled = mailEnabled;
+        this.mailFallbackExecutor = mailFallbackExecutor;
+    }
+
+    @Autowired
+    public EmailService(
+            JavaMailSender mailSender,
+            JobSubmissionGateway jobScheduler,
+            EmailJobTokenCipher emailJobTokenCipher,
+            @Value("${app.mail.enabled:false}") boolean mailEnabled,
+            @Qualifier(MailAsyncConfig.MAIL_FALLBACK_TASK_EXECUTOR) ObjectProvider<TaskExecutor> mailFallbackExecutor) {
+        this(mailSender, jobScheduler, emailJobTokenCipher, mailEnabled,
+                mailFallbackExecutor.getIfAvailable(EmailService::defaultMailFallbackExecutor));
+    }
+
+    private static TaskExecutor defaultMailFallbackExecutor() {
+        SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor("mail-fallback-");
+        executor.setVirtualThreads(true);
+        return executor;
     }
 
     @Value("${app.frontend.url:http://localhost:5176}")
@@ -162,6 +199,95 @@ public class EmailService {
             log.error("Failed to send email to {}", LogMaskingUtil.maskEmail(toEmail), e);
             throw e; // 예외 발생 시 JobRunr가 재시도(Retry) 함
         }
+    }
+
+    /**
+     * 이메일 회원가입 인증 메일을 보낸다. JobRunr 큐에는 원문 토큰 대신 암호화된 토큰만 남긴다.
+     */
+    public void sendSignupVerificationEmail(String toEmail, String rawToken, long ttlMinutes) {
+        jobScheduler.requireWritable();
+        if (!mailEnabled) {
+            log.warn("Mail delivery disabled. Signup verification email cannot be delivered to {}",
+                    LogMaskingUtil.maskEmail(toEmail));
+            return;
+        }
+        if (jobScheduler.isAvailable()) {
+            try {
+                String protectedToken = emailJobTokenCipher.encrypt(
+                        EmailJobTokenCipher.Purpose.EMAIL_VERIFICATION,
+                        rawToken);
+                jobScheduler.enqueue((EmailService emailService) ->
+                        emailService.sendSignupVerificationEmailJob(toEmail, protectedToken, ttlMinutes));
+                log.info("Signup verification email job enqueued for {}", LogMaskingUtil.maskEmail(toEmail));
+                return;
+            } catch (RuntimeException e) {
+                log.warn("Failed to enqueue signup verification email job for {}. Falling back to immediate send.",
+                        LogMaskingUtil.maskEmail(toEmail), e);
+            }
+        }
+        // 즉시 발송 폴백은 별도 실행기에서 돌린다. 호출 스레드가 트랜잭션 안(또는 afterCommit 콜백 안)에서
+        // DB 커넥션을 쥔 채 SMTP 응답을 기다리지 않게 하기 위함이다.
+        try {
+            mailFallbackExecutor.execute(() -> {
+                try {
+                    sendSignupVerificationEmailNow(toEmail, rawToken, ttlMinutes);
+                } catch (RuntimeException e) {
+                    log.warn("Fallback signup verification email failed for {}", LogMaskingUtil.maskEmail(toEmail), e);
+                }
+            });
+        } catch (RuntimeException e) {
+            log.error("Could not schedule fallback signup verification email for {}",
+                    LogMaskingUtil.maskEmail(toEmail), e);
+        }
+    }
+
+    @Job(name = "Send Signup Verification Email")
+    public void sendSignupVerificationEmailJob(String toEmail, String protectedToken, long ttlMinutes) {
+        jobScheduler.requireWritable();
+        if (!mailEnabled) {
+            log.debug("Mail delivery disabled. Skipping signup verification email job for {}",
+                    LogMaskingUtil.maskEmail(toEmail));
+            return;
+        }
+        String rawToken = emailJobTokenCipher.decrypt(
+                EmailJobTokenCipher.Purpose.EMAIL_VERIFICATION,
+                protectedToken);
+        sendSignupVerificationEmailNow(toEmail, rawToken, ttlMinutes);
+    }
+
+    private void sendSignupVerificationEmailNow(String toEmail, String rawToken, long ttlMinutes) {
+        String verificationLink = UriComponentsBuilder.fromUriString(frontendUrl)
+                .path("/signup/verify-email")
+                .queryParam("token", rawToken)
+                .build()
+                .encode()
+                .toUriString();
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(toEmail);
+        message.setSubject("[BEGA] 회원가입 이메일 인증");
+        message.setText(
+                "안녕하세요,\n\n"
+                        + "BEGA 회원가입을 완료하려면 아래 링크를 열어 이메일 주소를 인증해주세요:\n"
+                        + verificationLink + "\n\n"
+                        + "이 링크는 " + describeTtl(ttlMinutes) + " 동안 한 번만 사용할 수 있습니다.\n"
+                        + "인증 전에는 로그인할 수 없습니다.\n\n"
+                        + "본인이 가입하지 않았다면 이 이메일을 무시해주세요.\n\n"
+                        + "감사합니다.\n"
+                        + "BEGA 팀");
+        try {
+            mailSender.send(message);
+            log.info("Signup verification email sent to {}", LogMaskingUtil.maskEmail(toEmail));
+        } catch (Exception e) {
+            log.error("Failed to send signup verification email to {}", LogMaskingUtil.maskEmail(toEmail), e);
+            throw e;
+        }
+    }
+
+    private static String describeTtl(long ttlMinutes) {
+        if (ttlMinutes >= 60 && ttlMinutes % 60 == 0) {
+            return (ttlMinutes / 60) + "시간";
+        }
+        return ttlMinutes + "분";
     }
 
     public void sendNewDeviceLoginEmail(String toEmail, String deviceLabel, String browser, String os, String ipAddress) {

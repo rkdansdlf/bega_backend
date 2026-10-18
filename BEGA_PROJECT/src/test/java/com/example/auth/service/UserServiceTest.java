@@ -522,6 +522,102 @@ class UserServiceTest {
     }
 
     @Test
+    void signUp_createsUnverifiedUserEvenWhenClientClaimsSocialProvider() {
+        UserDto dto = UserDto.builder()
+                .name("tester")
+                .handle("@spoofed")
+                .email("spoof@example.com")
+                .password("raw-password")
+                .provider("google")
+                .providerId("client-supplied")
+                .build();
+
+        when(userRepository.findByEmail("spoof@example.com")).thenReturn(Optional.empty());
+        when(userRepository.existsByHandle("@spoofed")).thenReturn(false);
+        when(bCryptPasswordEncoder.encode("raw-password")).thenReturn("ENCODED");
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        userService.signUp(dto);
+
+        org.mockito.ArgumentCaptor<UserEntity> captor = org.mockito.ArgumentCaptor.forClass(UserEntity.class);
+        verify(userRepository).save(captor.capture());
+        org.junit.jupiter.api.Assertions.assertFalse(captor.getValue().isEmailVerified());
+        org.junit.jupiter.api.Assertions.assertNull(captor.getValue().getEmailVerifiedAt());
+        // 클라이언트가 보낸 provider/providerId 는 저장하지 않는다.
+        assertEquals("LOCAL", captor.getValue().getProvider());
+        org.junit.jupiter.api.Assertions.assertNull(captor.getValue().getProviderId());
+    }
+
+    @Test
+    void signUp_rejectsProviderLinkingForExistingUnverifiedAccount() {
+        UserDto dto = UserDto.builder()
+                .name("tester")
+                .handle("@again")
+                .email("pending@example.com")
+                .password("raw-password")
+                .provider("KAKAO")
+                .providerId("kakao-client-supplied")
+                .build();
+
+        UserEntity existing = UserEntity.builder()
+                .id(8L)
+                .email("pending@example.com")
+                .password("already-encoded")
+                .provider("LOCAL")
+                .emailVerified(false)
+                .build();
+        when(userRepository.findByEmail("pending@example.com")).thenReturn(Optional.of(existing));
+
+        assertThrows(DuplicateEmailException.class, () -> userService.signUp(dto));
+
+        verify(userRepository, never()).save(any(UserEntity.class));
+        assertEquals("LOCAL", existing.getProvider());
+        org.junit.jupiter.api.Assertions.assertNull(existing.getProviderId());
+    }
+
+    @Test
+    void authenticateAndGetToken_rejectsUnverifiedEmailWithDedicatedCode() {
+        // 기본값은 false(프론트 배포 때 env 로 켬)이므로 이 테스트는 명시적으로 켠다.
+        org.springframework.test.util.ReflectionTestUtils.setField(userService, "emailVerificationRequired", true);
+        UserEntity user = baseUser(null);
+        user.setPassword("ENCODED");
+        user.setEnabled(true);
+        user.setLocked(false);
+        user.setEmailVerified(false);
+
+        when(userRepository.findLoginPasswordByEmail("user@example.com")).thenReturn(Optional.of(loginPassword("ENCODED")));
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
+
+        com.example.common.exception.EmailNotVerifiedException exception = assertThrows(
+                com.example.common.exception.EmailNotVerifiedException.class,
+                () -> userService.authenticateAndGetToken("User@example.com", "raw-password"));
+
+        assertEquals("EMAIL_NOT_VERIFIED", exception.getCode());
+        assertEquals(org.springframework.http.HttpStatus.FORBIDDEN, exception.getStatus());
+        verify(loginAttemptService, never()).recordFailedAttempt(any(), any(), any());
+        verify(loginAttemptService, never()).recordSuccessfulLogin(any(), any());
+        verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
+        verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void authenticateAndGetToken_unverifiedUserWithWrongPasswordStillGetsGenericError() {
+        org.springframework.test.util.ReflectionTestUtils.setField(userService, "emailVerificationRequired", true);
+        UserEntity user = baseUser(null);
+        user.setPassword("ENCODED");
+        user.setEnabled(true);
+        user.setEmailVerified(false);
+
+        when(userRepository.findLoginPasswordByEmail("user@example.com")).thenReturn(Optional.of(loginPassword("ENCODED")));
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("wrong", "ENCODED")).thenReturn(false);
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("user@example.com", "wrong"));
+    }
+
+    @Test
     void signUp_throwsDuplicateEmail_whenLocalAccountExists() {
         UserDto dto = UserDto.builder()
                 .name("tester")
@@ -746,6 +842,7 @@ class UserServiceTest {
                 .role("ROLE_USER")
                 .favoriteTeam(defaultTeam)
                 .bio("old bio")
+                .emailVerified(true)
                 .build();
     }
 }

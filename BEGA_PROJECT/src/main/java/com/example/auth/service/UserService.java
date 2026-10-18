@@ -86,6 +86,12 @@ public class UserService {
     private final LoginAttemptService loginAttemptService;
     private final ConcurrentMap<String, Long> missingLoginEmailCache = new ConcurrentHashMap<>();
 
+    // Issue #48: 이메일 회원가입 계정은 인증 완료 전 비밀번호 로그인을 막는다.
+    // 롤백 스위치: APP_AUTH_EMAIL_VERIFICATION_REQUIRED=false
+    // 기본값 false: 프론트 인증 화면이 배포될 때 env 로 켠다.
+    @org.springframework.beans.factory.annotation.Value("${app.auth.email-verification.required:false}")
+    private boolean emailVerificationRequired = false;
+
     public UserService(UserRepository userRepository,
             TeamRepository teamRepository,
             RefreshRepository refreshRepository,
@@ -165,16 +171,13 @@ public class UserService {
         log.info("Existing User Found - ID: {}, Provider: {}",
                 existingUser.getId(), existingUser.getProvider());
 
-        boolean isLocalSignup = isLocalSignupAttempt(userDto);
-
-        if (isLocalSignup) {
-            handleLocalSignupConflict(existingUser);
-            return;
+        if (!isLocalSignupAttempt(userDto)) {
+            // /signup 의 provider/providerId 는 클라이언트 입력이다. 이 경로로 기존 계정에 소셜을 연결하지 않는다
+            // (연결은 OAuth 연동 흐름에서만). 예전에는 기존 계정의 provider 를 덮어쓰고 201 을 돌려줘
+            // 인증 메일 재발송 레이트리밋을 우회할 수 있었다.
+            log.warn("Rejected /signup provider linking attempt for existing userId={}", existingUser.getId());
         }
-
-        if (userDto.getProviderId() != null) {
-            handleSocialLinking(existingUser, userDto);
-        }
+        handleLocalSignupConflict(existingUser);
     }
 
     /**
@@ -183,17 +186,6 @@ public class UserService {
     private void handleLocalSignupConflict(UserEntity existingUser) {
         log.warn("Attempted Local Signup with existing account: userId={}", existingUser.getId());
         throw new DuplicateEmailException(existingUser.getEmail());
-    }
-
-    /**
-     * 소셜 계정 연동 처리
-     */
-    private void handleSocialLinking(UserEntity existingUser, UserDto userDto) {
-        if (existingUser.getProvider() == null || "LOCAL".equals(existingUser.getProvider())) {
-            existingUser.setProvider(userDto.getProvider());
-            existingUser.setProviderId(userDto.getProviderId());
-            userRepository.save(existingUser);
-        }
     }
 
     /**
@@ -219,8 +211,11 @@ public class UserService {
                 .password(encodedPassword)
                 .favoriteTeam(team)
                 .role(roleKey)
-                .provider(Optional.ofNullable(userDto.getProvider()).orElse("LOCAL"))
-                .providerId(userDto.getProviderId())
+                // /signup 의 provider/providerId 는 클라이언트 입력이므로 신뢰하지 않는다:
+                // 항상 LOCAL 계정으로 만들고 미인증으로 시작한다(소셜 연결은 OAuth 흐름에서만).
+                .provider("LOCAL")
+                .providerId(null)
+                .emailVerified(false)
                 .build();
 
         try {
@@ -345,6 +340,12 @@ public class UserService {
         if (user == null || storedHash == null || !passwordOk || !isLoginAuthorValid(user)) {
             loginAttemptService.recordFailedAttempt(normalizedEmail, user, request);
             throw new InvalidCredentialsException();
+        }
+
+        if (emailVerificationRequired && !user.isEmailVerified()) {
+            // 비밀번호가 맞은 경우에만 미인증 상태를 알려준다(비밀번호를 모르는 쪽에는 계정 상태가 드러나지 않음).
+            // 실패 횟수로 세지 않아 인증 대기 중인 사용자가 잠기지 않게 한다.
+            throw new com.example.common.exception.EmailNotVerifiedException(normalizedEmail);
         }
 
         clearExpiredLockIfNecessary(user);

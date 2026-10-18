@@ -216,6 +216,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 .favoriteTeam(null)
                 .uniqueId(java.util.UUID.randomUUID()) // Initialize uniqueId
                 .handle(generateRandomHandle()) // Initialize handle
+                // 신규 소셜 계정은 제공자 검증 이메일일 때만 여기로 온다(미검증이면 OAuthEmailChallenge 경로).
+                .emailVerified(true)
+                .emailVerifiedAt(java.time.LocalDateTime.now())
                 .build();
 
         UserEntity savedUser = userRepository.save(java.util.Objects.requireNonNull(userEntity));

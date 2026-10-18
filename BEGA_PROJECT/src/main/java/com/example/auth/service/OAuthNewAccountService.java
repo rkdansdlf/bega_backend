@@ -38,6 +38,9 @@ public class OAuthNewAccountService {
                 .favoriteTeam(null)
                 .uniqueId(UUID.randomUUID())
                 .handle(generateRandomHandle())
+                // 제공자가 검증했거나 BEGA 이메일 확인 링크(OAuthEmailChallenge)로 확인된 이메일
+                .emailVerified(true)
+                .emailVerifiedAt(java.time.LocalDateTime.now())
                 .build();
         try {
             UserEntity saved = userRepository.saveAndFlush(user);
