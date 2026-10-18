@@ -5,8 +5,8 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Paths: **265**
-Operations: **290**
+Paths: **267**
+Operations: **292**
 
 ## account-security-controller
 
@@ -4791,6 +4791,42 @@ OK
 Media type: `*/*`
 Schema: [ApiResponseMapStringObject](openapi-schemas.md#apiresponsemapstringobject)
 
+### POST `/api/auth/email-verification/confirm`
+- Operation ID: `confirmEmailVerification`
+- Tags: `인증`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Request body
+Required: **yes**
+
+Media type: `application/json`
+Schema: [EmailVerificationConfirmDto](openapi-schemas.md#emailverificationconfirmdto)
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseMapStringObject](openapi-schemas.md#apiresponsemapstringobject)
+
+### POST `/api/auth/email-verification/resend`
+- Operation ID: `resendEmailVerification`
+- Tags: `인증`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Request body
+Required: **yes**
+
+Media type: `application/json`
+Schema: [EmailVerificationResendDto](openapi-schemas.md#emailverificationresenddto)
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
+
 ### GET `/api/auth/link-token`
 - Operation ID: `generateLinkToken`
 - Tags: `인증`
@@ -4896,7 +4932,7 @@ Schema: [SignupDto](openapi-schemas.md#signupdto)
 OK
 
 Media type: `*/*`
-Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
+Schema: [ApiResponseMapStringObject](openapi-schemas.md#apiresponsemapstringobject)
 
 ## 파티 매칭
 

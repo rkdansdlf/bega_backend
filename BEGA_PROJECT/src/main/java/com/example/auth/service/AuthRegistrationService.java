@@ -12,6 +12,7 @@ public class AuthRegistrationService {
 
     private final UserService userService;
     private final PolicyConsentService policyConsentService;
+    private final EmailVerificationService emailVerificationService;
 
     @Transactional
     public UserEntity register(SignupDto signupDto, String clientIp, String userAgent) {
@@ -24,6 +25,7 @@ public class AuthRegistrationService {
                 "signup",
                 clientIp,
                 userAgent);
+        emailVerificationService.issueForSignup(createdUser);
 
         return createdUser;
     }

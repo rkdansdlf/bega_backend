@@ -164,6 +164,82 @@ public class EmailService {
         }
     }
 
+    /**
+     * 이메일 회원가입 인증 메일을 보낸다. JobRunr 큐에는 원문 토큰 대신 암호화된 토큰만 남긴다.
+     */
+    public void sendSignupVerificationEmail(String toEmail, String rawToken, long ttlMinutes) {
+        jobScheduler.requireWritable();
+        if (!mailEnabled) {
+            log.warn("Mail delivery disabled. Signup verification email cannot be delivered to {}",
+                    LogMaskingUtil.maskEmail(toEmail));
+            return;
+        }
+        if (jobScheduler.isAvailable()) {
+            try {
+                String protectedToken = emailJobTokenCipher.encrypt(
+                        EmailJobTokenCipher.Purpose.EMAIL_VERIFICATION,
+                        rawToken);
+                jobScheduler.enqueue((EmailService emailService) ->
+                        emailService.sendSignupVerificationEmailJob(toEmail, protectedToken, ttlMinutes));
+                log.info("Signup verification email job enqueued for {}", LogMaskingUtil.maskEmail(toEmail));
+                return;
+            } catch (RuntimeException e) {
+                log.warn("Failed to enqueue signup verification email job for {}. Falling back to immediate send.",
+                        LogMaskingUtil.maskEmail(toEmail), e);
+            }
+        }
+        sendSignupVerificationEmailNow(toEmail, rawToken, ttlMinutes);
+    }
+
+    @Job(name = "Send Signup Verification Email")
+    public void sendSignupVerificationEmailJob(String toEmail, String protectedToken, long ttlMinutes) {
+        jobScheduler.requireWritable();
+        if (!mailEnabled) {
+            log.debug("Mail delivery disabled. Skipping signup verification email job for {}",
+                    LogMaskingUtil.maskEmail(toEmail));
+            return;
+        }
+        String rawToken = emailJobTokenCipher.decrypt(
+                EmailJobTokenCipher.Purpose.EMAIL_VERIFICATION,
+                protectedToken);
+        sendSignupVerificationEmailNow(toEmail, rawToken, ttlMinutes);
+    }
+
+    private void sendSignupVerificationEmailNow(String toEmail, String rawToken, long ttlMinutes) {
+        String verificationLink = UriComponentsBuilder.fromUriString(frontendUrl)
+                .path("/signup/verify-email")
+                .queryParam("token", rawToken)
+                .build()
+                .encode()
+                .toUriString();
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(toEmail);
+        message.setSubject("[BEGA] 회원가입 이메일 인증");
+        message.setText(
+                "안녕하세요,\n\n"
+                        + "BEGA 회원가입을 완료하려면 아래 링크를 열어 이메일 주소를 인증해주세요:\n"
+                        + verificationLink + "\n\n"
+                        + "이 링크는 " + describeTtl(ttlMinutes) + " 동안 한 번만 사용할 수 있습니다.\n"
+                        + "인증 전에는 로그인할 수 없습니다.\n\n"
+                        + "본인이 가입하지 않았다면 이 이메일을 무시해주세요.\n\n"
+                        + "감사합니다.\n"
+                        + "BEGA 팀");
+        try {
+            mailSender.send(message);
+            log.info("Signup verification email sent to {}", LogMaskingUtil.maskEmail(toEmail));
+        } catch (Exception e) {
+            log.error("Failed to send signup verification email to {}", LogMaskingUtil.maskEmail(toEmail), e);
+            throw e;
+        }
+    }
+
+    private static String describeTtl(long ttlMinutes) {
+        if (ttlMinutes >= 60 && ttlMinutes % 60 == 0) {
+            return (ttlMinutes / 60) + "시간";
+        }
+        return ttlMinutes + "분";
+    }
+
     public void sendNewDeviceLoginEmail(String toEmail, String deviceLabel, String browser, String os, String ipAddress) {
         jobScheduler.requireWritable();
         if (!mailEnabled) {

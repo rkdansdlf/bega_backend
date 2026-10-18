@@ -353,6 +353,11 @@ app:
     # token_type claim이 없는 레거시 토큰을 access 토큰으로 인정하지 않는다(기본 true=거부).
     # 신규 발급 토큰은 항상 token_type을 포함하므로 거부가 안전. 문제 시 false로 즉시 롤백.
     reject-legacy-access-tokens: ${APP_AUTH_REJECT_LEGACY_ACCESS_TOKENS:true}
+    # Issue #48: 이메일 회원가입 인증. 인증 메일은 기존 메일 설정(APP_MAIL_ENABLED, MAIL_USERNAME/PASSWORD,
+    # APP_FRONTEND_URL)을 그대로 쓴다. required=false 는 긴급 롤백용(로그인 차단만 끄고 메일 발송은 유지).
+    email-verification:
+      required: ${APP_AUTH_EMAIL_VERIFICATION_REQUIRED:true}
+      token-ttl-minutes: ${APP_AUTH_EMAIL_VERIFICATION_TOKEN_TTL_MINUTES:1440}
 
 
 

@@ -86,6 +86,11 @@ public class UserService {
     private final LoginAttemptService loginAttemptService;
     private final ConcurrentMap<String, Long> missingLoginEmailCache = new ConcurrentHashMap<>();
 
+    // Issue #48: 이메일 회원가입 계정은 인증 완료 전 비밀번호 로그인을 막는다.
+    // 롤백 스위치: APP_AUTH_EMAIL_VERIFICATION_REQUIRED=false
+    @org.springframework.beans.factory.annotation.Value("${app.auth.email-verification.required:true}")
+    private boolean emailVerificationRequired = true;
+
     public UserService(UserRepository userRepository,
             TeamRepository teamRepository,
             RefreshRepository refreshRepository,
@@ -221,6 +226,8 @@ public class UserService {
                 .role(roleKey)
                 .provider(Optional.ofNullable(userDto.getProvider()).orElse("LOCAL"))
                 .providerId(userDto.getProviderId())
+                // /signup 의 provider 필드는 클라이언트 입력이므로 신뢰하지 않는다: 항상 미인증으로 시작.
+                .emailVerified(false)
                 .build();
 
         try {
@@ -345,6 +352,12 @@ public class UserService {
         if (user == null || storedHash == null || !passwordOk || !isLoginAuthorValid(user)) {
             loginAttemptService.recordFailedAttempt(normalizedEmail, user, request);
             throw new InvalidCredentialsException();
+        }
+
+        if (emailVerificationRequired && !user.isEmailVerified()) {
+            // 비밀번호가 맞은 경우에만 미인증 상태를 알려준다(비밀번호를 모르는 쪽에는 계정 상태가 드러나지 않음).
+            // 실패 횟수로 세지 않아 인증 대기 중인 사용자가 잠기지 않게 한다.
+            throw new com.example.common.exception.EmailNotVerifiedException(normalizedEmail);
         }
 
         clearExpiredLockIfNecessary(user);

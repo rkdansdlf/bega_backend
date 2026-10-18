@@ -91,14 +91,22 @@ public class APIController {
      * 일반 회원가입
      */
     @PostMapping("/signup")
-    public ResponseEntity<ApiResponse<Void>> signUp(@Valid @RequestBody SignupDto signupDto, HttpServletRequest request) {
-        authRegistrationService.register(
+    public ResponseEntity<ApiResponse<Map<String, Object>>> signUp(@Valid @RequestBody SignupDto signupDto, HttpServletRequest request) {
+        com.example.auth.entity.UserEntity createdUser = authRegistrationService.register(
                 signupDto,
                 clientIpResolver.resolveOrUnknown(request),
                 request.getHeader("User-Agent"));
 
+        // 회원가입은 세션/토큰을 발급하지 않는다. 이메일 인증 전에는 로그인도 403 EMAIL_NOT_VERIFIED.
+        boolean verificationPending = !createdUser.isEmailVerified();
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("회원가입이 완료되었습니다."));
+                .body(ApiResponse.success(
+                        verificationPending
+                                ? "회원가입이 완료되었습니다. 이메일로 보낸 인증 링크를 열어 가입을 마쳐주세요."
+                                : "회원가입이 완료되었습니다.",
+                        Map.of(
+                                "email", createdUser.getEmail(),
+                                "emailVerificationRequired", verificationPending)));
     }
 
     @GetMapping("/policies/required")
