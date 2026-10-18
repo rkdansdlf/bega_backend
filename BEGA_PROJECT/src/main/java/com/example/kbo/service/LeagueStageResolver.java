@@ -18,7 +18,11 @@ public class LeagueStageResolver {
     private final GameRepository gameRepository;
 
     private final Map<Integer, Optional<Integer>> rawLeagueTypeCache = new ConcurrentHashMap<>();
-    private final Map<Integer, PostseasonStartDates> postseasonStartDateCache = new ConcurrentHashMap<>();
+    /**
+     * (시즌 연도, 단계) 별로 확인된 시작일만 캐시한다. 아직 첫 경기가 진행되지 않아 비어 있는 단계는
+     * 캐시하지 않고 다음 조회 때 다시 확인한다.
+     */
+    private final Map<Long, LocalDate> postseasonStartDateCache = new ConcurrentHashMap<>();
 
     public Integer resolveEffectiveLeagueTypeCode(GameEntity game) {
         if (game == null) {
@@ -94,9 +98,7 @@ public class LeagueStageResolver {
         if (gameDate == null) {
             return null;
         }
-        PostseasonStartDates startDates = postseasonStartDateCache.computeIfAbsent(
-                gameDate.getYear(),
-                this::loadPostseasonStartDates);
+        PostseasonStartDates startDates = loadPostseasonStartDates(gameDate.getYear());
         return startDates.resolveLeagueTypeCode(gameDate, rawLeagueTypeCode);
     }
 
@@ -109,9 +111,18 @@ public class LeagueStageResolver {
     }
 
     private LocalDate loadPostseasonStartDate(int leagueTypeCode, int seasonYear) {
-        return gameRepository.findConfiguredStartDateByTypeFromSeasonYear(leagueTypeCode, seasonYear)
+        long cacheKey = seasonYear * 10L + leagueTypeCode;
+        LocalDate cached = postseasonStartDateCache.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        LocalDate fetched = gameRepository.findConfiguredStartDateByTypeFromSeasonYear(leagueTypeCode, seasonYear)
                 .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(leagueTypeCode, seasonYear))
                 .orElse(null);
+        if (fetched != null) {
+            postseasonStartDateCache.put(cacheKey, fetched);
+        }
+        return fetched;
     }
 
     private boolean isPostseasonCode(Integer leagueTypeCode) {

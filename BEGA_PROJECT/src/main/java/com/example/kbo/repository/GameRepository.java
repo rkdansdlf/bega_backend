@@ -930,7 +930,9 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    *
    * <p>season_id가 NULL인 경기는 어느 단계에도 속한다고 볼 수 없으므로 제외한다
    * (연도만으로 모든 단계에 조인되면 PO/KS 시작일이 같은 날짜로 오염된다).
-   * 또한 실제로 진행된 경기(종료/진행중/서스펜디드/무승부)만 집계한다.
+   * 또한 실제로 진행된 경기(종료/진행중/서스펜디드/무승부)만 집계한다. 원본 상태가 SCHEDULED여도
+   * 양 팀 점수가 있고 경기일이 오늘 이전이면 GameStatusResolver와 같이 진행된 경기로 본다.
+   * 더미/MOCK 경기는 형제 쿼리와 동일하게 제외한다.
    */
   @Query(value = """
       SELECT MIN(g.game_date)
@@ -939,10 +941,20 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
       WHERE g.season_id IS NOT NULL
         AND s.season_year = :seasonYear
         AND s.league_type_code = :leagueTypeCode
-        AND UPPER(TRIM(g.game_status)) IN (
-            'COMPLETED', 'FINAL', 'FINISHED', 'DONE', 'END', 'E', 'F',
-            'LIVE', 'IN_PROGRESS', 'INPROGRESS', 'PLAYING',
-            'SUSPENDED', 'DRAW'
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
+        AND (
+            UPPER(TRIM(g.game_status)) IN (
+                'COMPLETED', 'FINAL', 'FINISHED', 'DONE', 'END', 'E', 'F',
+                'LIVE', 'IN_PROGRESS', 'INPROGRESS', 'PLAYING',
+                'SUSPENDED', 'DRAW'
+            )
+            OR (
+                UPPER(TRIM(g.game_status)) = 'SCHEDULED'
+                AND g.home_score IS NOT NULL
+                AND g.away_score IS NOT NULL
+                AND g.game_date <= CURRENT_DATE
+            )
         )
       """, nativeQuery = true)
   Optional<LocalDate> findFirstStartDateByTypeFromSeasonYear(

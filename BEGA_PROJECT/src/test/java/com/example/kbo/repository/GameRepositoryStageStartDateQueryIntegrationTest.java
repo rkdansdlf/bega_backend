@@ -75,7 +75,7 @@ class GameRepositoryStageStartDateQueryIntegrationTest {
         insertSeason(20265, 2026, KOREAN_SERIES, null);
         saveGame("20251026KSLG0", LocalDate.of(2025, 10, 26), 20255, "COMPLETED");
         saveGame("20261024KSXX0", LocalDate.of(2026, 10, 24), 20265, "CANCELLED");
-        saveGame("20261025KSXX0", LocalDate.of(2026, 10, 25), 20265, "SCHEDULED");
+        saveGame("20261025KSXX0", LocalDate.of(2026, 10, 25), 20265, "SCHEDULED", false, null, null);
 
         assertThat(gameRepository.findFirstStartDateByTypeFromSeasonYear(KOREAN_SERIES, 2026)).isEmpty();
 
@@ -83,6 +83,42 @@ class GameRepositoryStageStartDateQueryIntegrationTest {
 
         assertThat(gameRepository.findFirstStartDateByTypeFromSeasonYear(KOREAN_SERIES, 2026))
                 .contains(LocalDate.of(2026, 10, 27));
+    }
+
+    @Test
+    @DisplayName("단계 첫 경기일 집계는 더미/MOCK 경기를 제외한다")
+    void findFirstStartDateByTypeFromSeasonYear_ignoresDummyAndMockGames() {
+        insertSeason(20255, 2025, KOREAN_SERIES, null);
+        saveGame("20251020KSDM0", LocalDate.of(2025, 10, 20), 20255, "COMPLETED", true, 3, 2);
+        saveGame("MOCK-KS-20251021", LocalDate.of(2025, 10, 21), 20255, "COMPLETED", false, 3, 2);
+        saveGame("20251026KSLG0", LocalDate.of(2025, 10, 26), 20255, "COMPLETED");
+
+        assertThat(gameRepository.findFirstStartDateByTypeFromSeasonYear(KOREAN_SERIES, 2025))
+                .contains(LocalDate.of(2025, 10, 26));
+    }
+
+    @Test
+    @DisplayName("원본 상태가 SCHEDULED여도 양 팀 점수가 있는 지난 경기는 진행된 경기로 본다")
+    void findFirstStartDateByTypeFromSeasonYear_countsPastScheduledGameWithScores() {
+        insertSeason(20255, 2025, KOREAN_SERIES, null);
+        saveGame("20251024KSNS0", LocalDate.of(2025, 10, 24), 20255, "SCHEDULED", false, null, null);
+        saveGame("20251025KSHS0", LocalDate.of(2025, 10, 25), 20255, "SCHEDULED", false, 4, null);
+        saveGame("20251026KSSC0", LocalDate.of(2025, 10, 26), 20255, " scheduled ", false, 5, 1);
+        saveGame("20251027KSLG0", LocalDate.of(2025, 10, 27), 20255, "COMPLETED");
+
+        assertThat(gameRepository.findFirstStartDateByTypeFromSeasonYear(KOREAN_SERIES, 2025))
+                .contains(LocalDate.of(2025, 10, 26));
+    }
+
+    @Test
+    @DisplayName("점수가 있어도 아직 오지 않은 SCHEDULED 경기는 진행된 경기로 보지 않는다")
+    void findFirstStartDateByTypeFromSeasonYear_ignoresFutureScheduledGameWithScores() {
+        int futureYear = LocalDate.now().getYear() + 1;
+        int seasonId = futureYear * 10 + KOREAN_SERIES;
+        insertSeason(seasonId, futureYear, KOREAN_SERIES, null);
+        saveGame(futureYear + "1026KSSC0", LocalDate.of(futureYear, 10, 26), seasonId, "SCHEDULED", false, 0, 0);
+
+        assertThat(gameRepository.findFirstStartDateByTypeFromSeasonYear(KOREAN_SERIES, futureYear)).isEmpty();
     }
 
     @Test
@@ -115,17 +151,28 @@ class GameRepositoryStageStartDateQueryIntegrationTest {
     }
 
     private void saveGame(String gameId, LocalDate gameDate, Integer seasonId, String gameStatus) {
+        saveGame(gameId, gameDate, seasonId, gameStatus, false, 3, 2);
+    }
+
+    private void saveGame(
+            String gameId,
+            LocalDate gameDate,
+            Integer seasonId,
+            String gameStatus,
+            boolean dummy,
+            Integer homeScore,
+            Integer awayScore) {
         gameRepository.saveAndFlush(GameEntity.builder()
                 .gameId(gameId)
                 .gameDate(gameDate)
                 .stadium("잠실")
                 .homeTeam("LG")
                 .awayTeam("HH")
-                .homeScore(3)
-                .awayScore(2)
+                .homeScore(homeScore)
+                .awayScore(awayScore)
                 .seasonId(seasonId)
                 .gameStatus(gameStatus)
-                .isDummy(false)
+                .isDummy(dummy)
                 .build());
     }
 }
