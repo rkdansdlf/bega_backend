@@ -13551,7 +13551,7 @@
           "name" : "scope",
           "required" : false,
           "schema" : {
-            "default" : "regular",
+            "default" : "all",
             "type" : "string"
           }
         }, {

@@ -24,7 +24,6 @@ import com.example.kbo.validation.ManualBaseballDataRequest;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import com.example.kbo.util.GameStatusResolver;
 import com.example.kbo.util.KboTeamCodePolicy;
-import com.example.kbo.util.TeamCodeResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -89,11 +88,7 @@ public class PredictionService {
             "IN_PROGRESS",
             "INPROGRESS");
     private static final Pattern GAME_ID_PATTERN = Pattern.compile("^[A-Za-z0-9_-]+$");
-    private static final List<String> CANONICAL_TEAMS = List.of("SS", "LT", "LG", "DB", "KIA", "KH", "HH", "SSG", "NC", "KT");
-    private static final List<String> QUERYABLE_TEAM_CODES = CANONICAL_TEAMS.stream()
-            .flatMap(teamCode -> TeamCodeResolver.resolveVariants(teamCode).stream())
-            .distinct()
-            .collect(Collectors.toList());
+    private static final List<String> QUERYABLE_TEAM_CODES = KboTeamCodePolicy.QUERYABLE_TEAM_CODES;
     private static final int MAX_VOTE_RETRY_ATTEMPTS = 2;
     private static final long MAX_SNAPSHOT_SYNC_RANGE_DAYS = 31;
     private static final long MATCH_DAY_SLOW_LOG_THRESHOLD_MS = 1000L;
@@ -364,6 +359,54 @@ public class PredictionService {
         }
     }
 
+    /**
+     * 기간 조회에서 일부 경기만 수동 데이터(시즌 ID, 최종 점수 등)가 필요하면 해당 경기만 제외한다.
+     * 범위 안의 모든 경기가 문제일 때만 기존처럼 수동 데이터 요청(409)을 던진다.
+     */
+    private List<MatchRangeProjection> selectDisplayableRangeMatches(
+            String scope,
+            CanonicalRangeRequest request,
+            List<MatchRangeProjection> matches) {
+        try {
+            baseballDataIntegrityGuard.ensurePredictionRangeMatches(scope, matches);
+            return matches;
+        } catch (ManualBaseballDataRequiredException originalException) {
+            if (matches == null || matches.isEmpty()) {
+                throw originalException;
+            }
+
+            List<MatchRangeProjection> displayableMatches = new ArrayList<>();
+            List<String> skippedGameIds = new ArrayList<>();
+            List<List<String>> skippedMissingKeys = new ArrayList<>();
+            for (MatchRangeProjection match : matches) {
+                ManualBaseballDataRequest manualRequest =
+                        baseballDataIntegrityGuard.findMatchProjectionManualDataRequest(scope, match);
+                if (manualRequest == null) {
+                    displayableMatches.add(match);
+                    continue;
+                }
+                skippedGameIds.add(match.getGameId());
+                skippedMissingKeys.add(manualRequest.missingItems().stream()
+                        .map(ManualBaseballDataMissingItem::key)
+                        .collect(Collectors.toList()));
+            }
+
+            if (skippedGameIds.isEmpty() || displayableMatches.isEmpty()) {
+                throw originalException;
+            }
+
+            log.warn(
+                    "prediction.matches_by_range.partial_manual_data_required window={}~{} total={} returned={} skippedGameIds={} missingKeys={}",
+                    request.effectiveStartDate(),
+                    request.effectiveEndDate(),
+                    matches.size(),
+                    displayableMatches.size(),
+                    skippedGameIds,
+                    skippedMissingKeys);
+            return displayableMatches;
+        }
+    }
+
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public List<MatchDto> getMatchesByDateRange(LocalDate startDate, LocalDate endDate) {
         return getMatchesByDateRange(startDate, endDate, true, 0, 1000);
@@ -396,18 +439,26 @@ public class PredictionService {
                 includePast,
                 page,
                 pageSize);
+        List<MatchRangeProjection> displayableMatches;
         try {
-            baseballDataIntegrityGuard.ensurePredictionRangeMatches("prediction.matches_by_range", matches);
+            displayableMatches = selectDisplayableRangeMatches(
+                    "prediction.matches_by_range",
+                    request,
+                    matches);
         } catch (ManualBaseballDataRequiredException e) {
             cacheManualDataException(manualCacheKey, e);
             throw e;
         }
 
+        // 시리즈 차전 번호는 제외 전 원본 목록 기준으로 계산해, 수동 데이터가 필요한 경기를 빼도
+        // 뒤 경기의 차전 번호가 당겨지지 않게 한다.
         Map<String, Integer> seriesGameNos = computeSeriesGameNos(matches);
-        List<MatchDto> result = Objects.requireNonNull(matches.stream()
+        List<MatchDto> result = Objects.requireNonNull(displayableMatches.stream()
                 .map(m -> toMatchDto(m, seriesGameNos))
                 .collect(Collectors.toList()));
-        cacheSuccessfulRange(successCacheKey, List.copyOf(result));
+        if (displayableMatches.size() == matches.size()) {
+            cacheSuccessfulRange(successCacheKey, List.copyOf(result));
+        }
         return result;
     }
 
@@ -433,18 +484,21 @@ public class PredictionService {
                 includePast,
                 page,
                 pageSize);
+        List<MatchRangeProjection> displayableMatches;
         try {
-            baseballDataIntegrityGuard.ensurePredictionRangeMatches(
+            displayableMatches = selectDisplayableRangeMatches(
                     "prediction.matches_by_range",
+                    request,
                     matches.getContent());
         } catch (ManualBaseballDataRequiredException e) {
             cacheManualDataException(manualCacheKey, e);
             throw e;
         }
 
+        // 제외 전 원본 페이지 기준으로 차전 번호를 계산한다(제외된 경기로 번호가 밀리지 않도록).
         Map<String, Integer> seriesGameNos = computeSeriesGameNos(matches.getContent());
         return new MatchRangePageResponseDto(
-                matches.getContent().stream()
+                displayableMatches.stream()
                         .map(m -> toMatchDto(m, seriesGameNos))
                         .collect(Collectors.toList()),
                 matches.getNumber(),
@@ -634,8 +688,9 @@ public class PredictionService {
             if (seasonId == null || homeTeam == null || awayTeam == null) {
                 continue;
             }
-            String teamA = homeTeam.trim().toUpperCase(Locale.ROOT);
-            String teamB = awayTeam.trim().toUpperCase(Locale.ROOT);
+            // 옛 팀 코드(HT/OB/SK/WO 등)와 canonical 코드가 섞여 있어도 같은 시리즈로 묶이도록 정규화한다.
+            String teamA = normalizeSeriesTeamCode(homeTeam);
+            String teamB = normalizeSeriesTeamCode(awayTeam);
             // 정렬하여 팀 순서에 무관한 키 생성
             String seriesKey = seasonId + ":" + (teamA.compareTo(teamB) <= 0
                     ? teamA + ":" + teamB
@@ -644,6 +699,12 @@ public class PredictionService {
             result.put(gameId, gameNo);
         }
         return result;
+    }
+
+    private String normalizeSeriesTeamCode(String teamCode) {
+        String trimmed = teamCode.trim().toUpperCase(Locale.ROOT);
+        String normalized = com.example.kbo.util.TeamCodeNormalizer.normalize(trimmed);
+        return normalized == null || normalized.isBlank() ? trimmed : normalized.toUpperCase(Locale.ROOT);
     }
 
     private boolean isPostseasonMatch(MatchRangeProjection match) {

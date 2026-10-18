@@ -169,6 +169,26 @@ class HomeControllerTest {
     }
 
     @Test
+    @DisplayName("scope 없이 /api/home/navigation을 호출하면 bootstrap과 같은 all 기준을 사용한다")
+    void getNavigationDefaultsToAllScope() throws Exception {
+        LocalDate selectedDate = LocalDate.of(2026, 10, 19);
+        given(homePageGameService.getScopedNavigation(eq(selectedDate), eq("all"), isNull()))
+                .willReturn(HomeScopedNavigationDto.builder()
+                        .resolvedDate("2026-10-20")
+                        .prevGameDate("2026-10-18")
+                        .nextGameDate("2026-10-20")
+                        .hasPrev(true)
+                        .hasNext(true)
+                        .build());
+
+        mockMvc.perform(get("/api/home/navigation")
+                        .param("date", "2026-10-19"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resolvedDate").value("2026-10-20"))
+                .andExpect(jsonPath("$.nextGameDate").value("2026-10-20"));
+    }
+
+    @Test
     @DisplayName("홈 widgets 응답은 인기글, 메이트 카드, 랭킹 스냅샷을 함께 반환한다")
     void getWidgetsReturnsAggregatedWidgets() throws Exception {
         LocalDate selectedDate = LocalDate.of(2026, 3, 15);
