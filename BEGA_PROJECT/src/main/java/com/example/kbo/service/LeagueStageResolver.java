@@ -2,23 +2,47 @@ package com.example.kbo.service;
 
 import com.example.kbo.entity.GameEntity;
 import com.example.kbo.repository.GameRepository;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
-@RequiredArgsConstructor
 @Slf4j
 public class LeagueStageResolver {
 
+    /** 현재/미래 시즌에서 아직 시작일이 없는 단계의 빈 결과를 재사용하는 시간. */
+    static final Duration EMPTY_STAGE_START_DATE_TTL = Duration.ofMinutes(2);
+
     private final GameRepository gameRepository;
+    private final Clock clock;
 
     private final Map<Integer, Optional<Integer>> rawLeagueTypeCache = new ConcurrentHashMap<>();
-    private final Map<Integer, PostseasonStartDates> postseasonStartDateCache = new ConcurrentHashMap<>();
+    /**
+     * (시즌 연도, 단계) 별 시작일 캐시.
+     * <ul>
+     *   <li>확인된 시작일: 영구 캐시</li>
+     *   <li>지난 시즌의 빈 결과: 더 이상 바뀌지 않으므로 영구 캐시</li>
+     *   <li>현재/미래 시즌의 빈 결과: 첫 경기가 진행되면 바로 반영되도록 짧은 TTL 동안만 캐시</li>
+     * </ul>
+     */
+    private final Map<Long, CachedStageStartDate> postseasonStartDateCache = new ConcurrentHashMap<>();
+
+    @Autowired
+    public LeagueStageResolver(GameRepository gameRepository) {
+        this(gameRepository, Clock.systemDefaultZone());
+    }
+
+    LeagueStageResolver(GameRepository gameRepository, Clock clock) {
+        this.gameRepository = gameRepository;
+        this.clock = clock == null ? Clock.systemDefaultZone() : clock;
+    }
 
     public Integer resolveEffectiveLeagueTypeCode(GameEntity game) {
         if (game == null) {
@@ -94,9 +118,7 @@ public class LeagueStageResolver {
         if (gameDate == null) {
             return null;
         }
-        PostseasonStartDates startDates = postseasonStartDateCache.computeIfAbsent(
-                gameDate.getYear(),
-                this::loadPostseasonStartDates);
+        PostseasonStartDates startDates = loadPostseasonStartDates(gameDate.getYear());
         return startDates.resolveLeagueTypeCode(gameDate, rawLeagueTypeCode);
     }
 
@@ -109,9 +131,27 @@ public class LeagueStageResolver {
     }
 
     private LocalDate loadPostseasonStartDate(int leagueTypeCode, int seasonYear) {
-        return gameRepository.findConfiguredStartDateByTypeFromSeasonYear(leagueTypeCode, seasonYear)
+        long cacheKey = seasonYear * 10L + leagueTypeCode;
+        Instant now = clock.instant();
+        CachedStageStartDate cached = postseasonStartDateCache.get(cacheKey);
+        if (cached != null && cached.isValidAt(now)) {
+            return cached.startDate();
+        }
+        LocalDate fetched = gameRepository.findConfiguredStartDateByTypeFromSeasonYear(leagueTypeCode, seasonYear)
                 .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(leagueTypeCode, seasonYear))
                 .orElse(null);
+        boolean permanent = fetched != null || seasonYear < LocalDate.now(clock).getYear();
+        postseasonStartDateCache.put(
+                cacheKey,
+                new CachedStageStartDate(fetched, permanent ? null : now.plus(EMPTY_STAGE_START_DATE_TTL)));
+        return fetched;
+    }
+
+    /** expiresAt이 null이면 만료되지 않는다. */
+    private record CachedStageStartDate(LocalDate startDate, Instant expiresAt) {
+        private boolean isValidAt(Instant now) {
+            return expiresAt == null || now.isBefore(expiresAt);
+        }
     }
 
     private boolean isPostseasonCode(Integer leagueTypeCode) {

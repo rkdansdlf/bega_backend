@@ -96,6 +96,30 @@ class HomePageGameServiceTest {
     }
 
     @Test
+    @DisplayName("리그 시작일 fallback은 요청 시즌 연도로 제한되어 이전 연도 KS 시작일을 사용하지 않는다")
+    void getLeagueStartDates_doesNotFallBackToPreviousSeasonStartDates() {
+        LocalDate now = LocalDate.now();
+        int seasonYear = now.getYear();
+
+        when(gameRepository.findConfiguredStartDateByTypeFromSeasonYear(0, seasonYear))
+                .thenReturn(Optional.of(LocalDate.of(seasonYear, 3, 28)));
+        when(gameRepository.findConfiguredStartDateByTypeFromSeasonYear(2, seasonYear))
+                .thenReturn(Optional.of(LocalDate.of(seasonYear, 10, 6)));
+        when(gameRepository.findConfiguredStartDateByTypeFromSeasonYear(5, seasonYear))
+                .thenReturn(Optional.empty());
+        when(gameRepository.findFirstKoreanSeriesDate(seasonYear))
+                .thenReturn(Optional.empty());
+        when(gameRepository.findLatestStartDateByTypeAsOf(eq(5), eq(seasonYear), eq(now)))
+                .thenReturn(Optional.empty());
+
+        LeagueStartDatesDto startDates = homePageGameService.getLeagueStartDates();
+
+        assertThat(startDates.getPostseasonStart()).isEqualTo(seasonYear + "-10-06");
+        assertThat(startDates.getKoreanSeriesStart()).isNull();
+        verify(gameRepository).findLatestStartDateByTypeAsOf(5, seasonYear, now);
+    }
+
+    @Test
     @DisplayName("팀 순위 조회는 fast season range 쿼리를 우선 사용한다")
     void getTeamRankingsUsesFastSeasonRangeQuery() {
         when(gameRepository.findTeamRankingsBySeasonFast(

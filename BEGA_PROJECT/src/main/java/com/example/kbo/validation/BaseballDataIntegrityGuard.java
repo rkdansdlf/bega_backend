@@ -455,7 +455,7 @@ public class BaseballDataIntegrityGuard {
 
         LocalDate stageStart = gameRepository.findConfiguredStartDateByTypeFromSeasonYear(leagueTypeCode, seasonYear)
                 .or(() -> gameRepository.findFirstStartDateByTypeFromSeasonYear(leagueTypeCode, seasonYear))
-                .or(() -> gameRepository.findLatestStartDateByTypeAsOf(leagueTypeCode, gameDate))
+                .or(() -> gameRepository.findLatestStartDateByTypeAsOf(leagueTypeCode, seasonYear, gameDate))
                 .orElse(null);
         if (stageStart != null) {
             return gameDate.isBefore(stageStart);

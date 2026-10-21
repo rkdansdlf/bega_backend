@@ -926,17 +926,39 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
   Optional<LocalDate> findFirstKoreanSeriesDate(@Param("seasonYear") int seasonYear);
 
   /**
-   * 특정 리그 타입의 해당 시즌 연도 기준 첫 경기 날짜 조회
+   * 특정 리그 타입의 해당 시즌 연도 기준 첫 경기 날짜 조회.
+   *
+   * <p>season_id가 NULL인 경기는 어느 단계에도 속한다고 볼 수 없으므로 제외한다
+   * (연도만으로 모든 단계에 조인되면 PO/KS 시작일이 같은 날짜로 오염된다).
+   * 또한 실제로 진행된 경기(종료/진행중/서스펜디드/무승부)만 집계한다. 원본 상태가 SCHEDULED여도
+   * 양 팀 점수가 있고 경기일이 오늘보다 이전(오늘 제외)이면 GameStatusResolver와 같이 진행된 경기로 본다.
+   * 오늘 경기는 사전 입력된 0:0 점수일 수 있으므로 제외한다.
+   * GameStatusResolver의 다른 예정 상태(UNKNOWN, TBD, READY 등)는 의도적으로 보지 않고 원본 값
+   * 'SCHEDULED'만 확인한다. 이 fallback은 단계 경계를 정하므로 보수적으로 둔다.
+   * 더미/MOCK 경기는 형제 쿼리와 동일하게 제외한다.
    */
   @Query(value = """
       SELECT MIN(g.game_date)
       FROM game g
-      JOIN kbo_seasons s ON (
-          g.season_id = s.season_id
-          OR (g.season_id IS NULL AND s.season_year = EXTRACT(YEAR FROM g.game_date))
-      )
-      WHERE COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
-        AND COALESCE(s.league_type_code, 0) = :leagueTypeCode
+      JOIN kbo_seasons s ON g.season_id = s.season_id
+      WHERE g.season_id IS NOT NULL
+        AND s.season_year = :seasonYear
+        AND s.league_type_code = :leagueTypeCode
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
+        AND (
+            UPPER(TRIM(g.game_status)) IN (
+                'COMPLETED', 'FINAL', 'FINISHED', 'DONE', 'END', 'E', 'F',
+                'LIVE', 'IN_PROGRESS', 'INPROGRESS', 'PLAYING',
+                'SUSPENDED', 'DRAW'
+            )
+            OR (
+                UPPER(TRIM(g.game_status)) = 'SCHEDULED'
+                AND g.home_score IS NOT NULL
+                AND g.away_score IS NOT NULL
+                AND g.game_date < CURRENT_DATE
+            )
+        )
       """, nativeQuery = true)
   Optional<LocalDate> findFirstStartDateByTypeFromSeasonYear(
       @Param("leagueTypeCode") int leagueTypeCode,
@@ -965,17 +987,21 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
       @Param("seasonYear") int seasonYear);
 
   /**
-   * 특정 리그 타입의 최근 시작일 조회 (기준일 이전)
+   * 특정 리그 타입의 해당 시즌 연도 내 최근 시작일 조회 (기준일 이전).
+   *
+   * <p>다른 시즌 연도의 시작일은 사용하지 않는다. 해당 연도 단계에 시작일이 없으면 비어 있는 결과를 반환한다.
    */
 	  @Query(value = """
 	      SELECT MAX(s.start_date)
 	      FROM kbo_seasons s
 	      WHERE s.league_type_code = :leagueTypeCode
+	        AND s.season_year = :seasonYear
 	        AND s.start_date IS NOT NULL
 	        AND s.start_date <= :asOfDate
 	      """, nativeQuery = true)
 	  Optional<LocalDate> findLatestStartDateByTypeAsOf(
           @Param("leagueTypeCode") int leagueTypeCode,
+          @Param("seasonYear") int seasonYear,
           @Param("asOfDate") LocalDate asOfDate);
 
   /**
