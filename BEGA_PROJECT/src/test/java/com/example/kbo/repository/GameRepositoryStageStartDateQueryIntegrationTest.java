@@ -122,6 +122,18 @@ class GameRepositoryStageStartDateQueryIntegrationTest {
     }
 
     @Test
+    @DisplayName("오늘 날짜의 SCHEDULED 0:0 경기는 사전 입력 점수일 수 있으므로 진행된 경기로 보지 않는다")
+    void findFirstStartDateByTypeFromSeasonYear_ignoresTodayScheduledGameWithZeroScores() {
+        LocalDate today = LocalDate.now();
+        int seasonYear = today.getYear();
+        int seasonId = seasonYear * 10 + KOREAN_SERIES;
+        insertSeason(seasonId, seasonYear, KOREAN_SERIES, null);
+        saveGame("TODAYKSSC0", today, seasonId, "SCHEDULED", false, 0, 0);
+
+        assertThat(gameRepository.findFirstStartDateByTypeFromSeasonYear(KOREAN_SERIES, seasonYear)).isEmpty();
+    }
+
+    @Test
     @DisplayName("기준일 이전 최근 시작일 조회는 요청 시즌 연도로 제한되어 이전 연도 KS 시작일을 반환하지 않는다")
     void findLatestStartDateByTypeAsOf_doesNotReturnPreviousSeasonStartDate() {
         insertSeason(20255, 2025, KOREAN_SERIES, LocalDate.of(2025, 10, 26));

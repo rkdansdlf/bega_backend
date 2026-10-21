@@ -931,7 +931,10 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
    * <p>season_id가 NULL인 경기는 어느 단계에도 속한다고 볼 수 없으므로 제외한다
    * (연도만으로 모든 단계에 조인되면 PO/KS 시작일이 같은 날짜로 오염된다).
    * 또한 실제로 진행된 경기(종료/진행중/서스펜디드/무승부)만 집계한다. 원본 상태가 SCHEDULED여도
-   * 양 팀 점수가 있고 경기일이 오늘 이전이면 GameStatusResolver와 같이 진행된 경기로 본다.
+   * 양 팀 점수가 있고 경기일이 오늘보다 이전(오늘 제외)이면 GameStatusResolver와 같이 진행된 경기로 본다.
+   * 오늘 경기는 사전 입력된 0:0 점수일 수 있으므로 제외한다.
+   * GameStatusResolver의 다른 예정 상태(UNKNOWN, TBD, READY 등)는 의도적으로 보지 않고 원본 값
+   * 'SCHEDULED'만 확인한다. 이 fallback은 단계 경계를 정하므로 보수적으로 둔다.
    * 더미/MOCK 경기는 형제 쿼리와 동일하게 제외한다.
    */
   @Query(value = """
@@ -953,7 +956,7 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
                 UPPER(TRIM(g.game_status)) = 'SCHEDULED'
                 AND g.home_score IS NOT NULL
                 AND g.away_score IS NOT NULL
-                AND g.game_date <= CURRENT_DATE
+                AND g.game_date < CURRENT_DATE
             )
         )
       """, nativeQuery = true)
