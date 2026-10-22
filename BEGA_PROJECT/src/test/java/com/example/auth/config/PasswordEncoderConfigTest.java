@@ -3,10 +3,9 @@ package com.example.auth.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.DelegatingPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import com.example.auth.util.PasswordEncoderPolicy;
 
 /**
  * [Security Fix - Critical #2] DelegatingPasswordEncoder가 Argon2id를 기본으로 사용하고
@@ -18,11 +17,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 class PasswordEncoderConfigTest {
 
     private PasswordEncoder buildEncoder() {
-        String idForEncode = "argon2";
-        java.util.Map<String, PasswordEncoder> encoders = new java.util.HashMap<>();
-        encoders.put("argon2", Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8());
-        encoders.put("bcrypt", new BCryptPasswordEncoder(12));
-        return new DelegatingPasswordEncoder(idForEncode, encoders);
+        return SecurityConfig.createPasswordEncoder();
     }
 
     @Test
@@ -40,10 +35,24 @@ class PasswordEncoderConfigTest {
         PasswordEncoder encoder = buildEncoder();
         // {bcrypt} prefix를 붙인 레거시 해시도 matches에서 검증되어야 한다.
         // (Flyway V100이 prod 테이블에 prefix를 씌운 뒤에도 로그인이 계속 동작해야 함)
-        String legacyBcryptEncoded = new BCryptPasswordEncoder(10).encode("legacy-password");
+        String legacyBcryptEncoded = new BCryptPasswordEncoder(
+                PasswordEncoderPolicy.MIGRATED_BCRYPT_STRENGTH).encode("legacy-password");
         String prefixed = "{bcrypt}" + legacyBcryptEncoded;
 
         assertThat(encoder.matches("legacy-password", prefixed)).isTrue();
+        assertThat(encoder.matches("wrong", prefixed)).isFalse();
+    }
+
+    @Test
+    void matches_currentBcryptHashWithConfiguredCost() {
+        PasswordEncoder encoder = buildEncoder();
+        String currentBcryptHash = new BCryptPasswordEncoder(
+                PasswordEncoderPolicy.DEFAULT_BCRYPT_STRENGTH).encode("current-password");
+        String prefixed = "{bcrypt}" + currentBcryptHash;
+
+        assertThat(currentBcryptHash.substring(4, 6))
+                .isEqualTo(String.valueOf(PasswordEncoderPolicy.DEFAULT_BCRYPT_STRENGTH));
+        assertThat(encoder.matches("current-password", prefixed)).isTrue();
         assertThat(encoder.matches("wrong", prefixed)).isFalse();
     }
 }

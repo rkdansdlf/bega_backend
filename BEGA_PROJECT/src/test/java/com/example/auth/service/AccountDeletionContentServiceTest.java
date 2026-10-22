@@ -3,6 +3,7 @@ package com.example.auth.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.cheerboard.domain.CheerPost;
@@ -53,8 +54,6 @@ class AccountDeletionContentServiceTest {
         assertThat(post.getImages()).isEmpty();
         assertThat(protectedPost.getContent()).isEqualTo("unresolved evidence");
         verify(cheerCommentRepo, never()).findAllByAuthor_Id(7L);
-        verify(mediaUploadService, never()).unlinkEntityMedia(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any());
-        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(7L, Set.of(102L));
+        verifyNoInteractions(mediaUploadService);
     }
 }

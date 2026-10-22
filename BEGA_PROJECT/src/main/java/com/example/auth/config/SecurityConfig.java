@@ -38,6 +38,7 @@ import com.example.auth.filter.JWTFilter;
 import com.example.auth.ratelimit.RateLimitFilter;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.util.JWTUtil;
+import com.example.auth.util.PasswordEncoderPolicy;
 
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.DispatcherType;
@@ -372,10 +373,14 @@ public class SecurityConfig {
          */
         @Bean
         public PasswordEncoder passwordEncoder() {
+                return createPasswordEncoder();
+        }
+
+        static PasswordEncoder createPasswordEncoder() {
                 String idForEncode = "argon2";
                 java.util.Map<String, PasswordEncoder> encoders = new java.util.HashMap<>();
                 encoders.put("argon2", Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8());
-                encoders.put("bcrypt", new BCryptPasswordEncoder(12));
+                encoders.put("bcrypt", new BCryptPasswordEncoder(PasswordEncoderPolicy.DEFAULT_BCRYPT_STRENGTH));
                 return new DelegatingPasswordEncoder(idForEncode, encoders);
         }
 
