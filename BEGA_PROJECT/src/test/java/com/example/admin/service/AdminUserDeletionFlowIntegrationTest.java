@@ -7,6 +7,7 @@ import com.example.admin.repository.AuditLogRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.service.AccountDeletionContentService;
 import com.example.auth.service.AccountDeletionFinalizationService;
 import com.example.cheerboard.repo.CheerCommentRepo;
 import com.example.cheerboard.repo.CheerPostLikeRepo;
@@ -53,6 +54,7 @@ class AdminUserDeletionFlowIntegrationTest {
     @MockitoBean private RefreshRepository refreshRepository;
     @MockitoBean private PredictionService predictionService;
     @MockitoBean private AdminMateDeletionGuard mateDeletionGuard;
+    @MockitoBean private AccountDeletionContentService accountDeletionContentService;
     @MockitoBean private AccountDeletionFinalizationService deletionFinalizationService;
 
     @Test

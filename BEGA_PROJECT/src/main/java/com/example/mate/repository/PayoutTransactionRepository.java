@@ -3,6 +3,8 @@ package com.example.mate.repository;
 import com.example.mate.entity.PayoutTransaction;
 import com.example.mate.entity.SettlementStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -14,6 +16,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface PayoutTransactionRepository extends JpaRepository<PayoutTransaction, Long> {
+
+    Page<PayoutTransaction> findAllByFailureCodeOrderByUpdatedAtDescIdDesc(
+            String failureCode,
+            Pageable pageable);
 
     Optional<PayoutTransaction> findTopByPaymentTransactionIdOrderByIdDesc(Long paymentTransactionId);
 
