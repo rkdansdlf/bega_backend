@@ -1136,10 +1136,6 @@ public class ImageService {
         return normalized;
     }
 
-    private Mono<String> resolveDiarySignedUrl(String pathOrUrl, Long ownerUserId, Long diaryId) {
-        return resolveDiarySignedUrl(pathOrUrl, ownerUserId, diaryId, config.getSignedUrlTtlSeconds());
-    }
-
     private Mono<String> resolveDiarySignedUrl(
             String pathOrUrl,
             Long ownerUserId,
