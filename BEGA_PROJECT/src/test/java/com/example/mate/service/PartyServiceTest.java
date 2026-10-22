@@ -752,7 +752,6 @@ class PartyServiceTest {
                 when(application.getPartyId()).thenReturn(2L);
                 when(application.getIsApproved()).thenReturn(true);
                 when(application.getIsRejected()).thenReturn(false);
-                when(application.getApplicantName()).thenReturn("DeletedUser");
 
                 when(partyRepository.findByHostIdAndStatusIn(eq(userId), anyList()))
                                 .thenReturn(List.of());

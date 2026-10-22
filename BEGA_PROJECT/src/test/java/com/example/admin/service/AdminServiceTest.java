@@ -3,9 +3,9 @@ package com.example.admin.service;
 import com.example.admin.repository.AdminNonCanonicalCleanupTrackerRepository;
 import com.example.admin.repository.AuditLogRepository;
 import com.example.admin.exception.MateDeletionBlockedException;
-import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.service.AccountDeletionFinalizationService;
 import com.example.cheerboard.repo.CheerCommentRepo;
 import com.example.cheerboard.repo.CheerPostLikeRepo;
 import com.example.cheerboard.repo.CheerPostRepo;
@@ -22,7 +22,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.CacheManager;
 
-import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.BDDMockito.given;
@@ -48,32 +47,19 @@ class AdminServiceTest {
     @Mock private RefreshRepository refreshRepository;
     @Mock private PredictionService predictionService;
     @Mock private AdminUserDeletionPreparationService deletionPreparationService;
+    @Mock private AccountDeletionFinalizationService deletionFinalizationService;
     @Mock private AdminMateDeletionGuard mateDeletionGuard;
 
     @InjectMocks
     private AdminService adminService;
 
     @Test
-    void deleteUserCommitsDisablementBeforeCleanupReadsAndPartyLocks() {
-        UserEntity disabledUser = UserEntity.builder()
-                .id(51L)
-                .email("deleted@example.com")
-                .role("ROLE_USER")
-                .enabled(false)
-                .tokenVersion(4)
-                .build();
-        given(deletionPreparationService.disableForDeletion(51L, null)).willReturn(disabledUser);
-        given(userRepository.findById(51L)).willReturn(Optional.of(disabledUser));
-        given(likeRepository.findByUser(disabledUser)).willReturn(List.of());
-        given(commentRepository.findByAuthor(disabledUser)).willReturn(List.of());
-        given(cheerPostRepository.findByAuthor(disabledUser)).willReturn(List.of());
-
+    void deleteUserPreparesAccountBeforeFinalization() {
         adminService.deleteUser(51L, null);
 
-        InOrder order = inOrder(userRepository, deletionPreparationService, partyService);
+        InOrder order = inOrder(deletionPreparationService, deletionFinalizationService);
         order.verify(deletionPreparationService).disableForDeletion(51L, null);
-        order.verify(userRepository).findById(51L);
-        order.verify(partyService).handleUserDeletion(51L);
+        order.verify(deletionFinalizationService).finalizeImmediatelyAfterAdminDeletion(51L, null);
     }
 
     @Test
