@@ -5,8 +5,8 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Paths: **272**
-Operations: **298**
+Paths: **273**
+Operations: **299**
 
 ## account-security-controller
 
@@ -554,6 +554,24 @@ OK
 
 Media type: `*/*`
 Schema: [ApiResponseMateLinkReconciliationCasePageDto](openapi-schemas.md#apiresponsematelinkreconciliationcasepagedto)
+
+### GET `/api/admin/mate-link-reconciliation-cases/payout-holds`
+- Operation ID: `listPayoutHolds`
+- Tags: `admin-mate-link-reconciliation-case-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `page` | query | no | `integer (int32)` | — | — |
+| `size` | query | no | `integer (int32)` | — | — |
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponsePayoutHoldPageDto](openapi-schemas.md#apiresponsepayoutholdpagedto)
 
 ## admin-media-maintenance-controller
 

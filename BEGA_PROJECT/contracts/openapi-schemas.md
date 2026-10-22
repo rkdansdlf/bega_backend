@@ -5,7 +5,7 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Schemas: **313**
+Schemas: **316**
 
 <a id="accountdeletionrecoveryinfodto"></a>
 ## AccountDeletionRecoveryInfoDto
@@ -1569,6 +1569,30 @@ Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
 | `data` | no | [PaymentIntentReconciliationReviewDto](openapi-schemas.md#paymentintentreconciliationreviewdto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponsepayoutholdpagedto"></a>
+## ApiResponsePayoutHoldPageDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PayoutHoldPageDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [PayoutHoldPageDto](openapi-schemas.md#payoutholdpagedto) | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -4413,6 +4437,35 @@ Schema: `{<br>  "properties" : {<br>    "candidateAmount" : {<br>      "format" 
 | `intentId` | no | `integer (int64)` | — | — |
 | `orderId` | no | `string` | — | — |
 | `requestedPaymentKey` | no | `string` | — | — |
+
+<a id="payoutholddto"></a>
+## PayoutHoldDto
+Schema: `{<br>  "properties" : {<br>    "paymentTransactionId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "payoutId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "reasonCode" : {<br>      "type" : "string"<br>    },<br>    "status" : {<br>      "enum" : [ "PENDING", "REQUESTED", "COMPLETED", "FAILED", "SKIPPED", "REFUNDED_AFTER_SETTLEMENT" ],<br>      "type" : "string"<br>    },<br>    "updatedAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `paymentTransactionId` | no | `integer (int64)` | — | — |
+| `payoutId` | no | `integer (int64)` | — | — |
+| `reasonCode` | no | `string` | — | — |
+| `status` | no | `string` | — | — |
+| `updatedAt` | no | `string (date-time)` | — | — |
+
+#### Property metadata: `status`
+- Enum: `PENDING`, `REQUESTED`, `COMPLETED`, `FAILED`, `SKIPPED`, `REFUNDED_AFTER_SETTLEMENT`
+
+<a id="payoutholdpagedto"></a>
+## PayoutHoldPageDto
+Schema: `{<br>  "properties" : {<br>    "items" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/PayoutHoldDto"<br>      },<br>      "type" : "array"<br>    },<br>    "page" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "size" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "totalElements" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "totalPages" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `items` | no | `array<[PayoutHoldDto](openapi-schemas.md#payoutholddto)>` | — | — |
+| `page` | no | `integer (int32)` | — | — |
+| `size` | no | `integer (int32)` | — | — |
+| `totalElements` | no | `integer (int64)` | — | — |
+| `totalPages` | no | `integer (int32)` | — | — |
 
 <a id="pitcherdto"></a>
 ## PitcherDto
