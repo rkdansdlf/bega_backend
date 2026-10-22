@@ -11,6 +11,7 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +31,7 @@ import com.example.auth.util.JWTUtil;
 import com.example.auth.util.AccountStatusUtil;
 import com.example.auth.util.HandleNormalizer;
 import com.example.auth.util.LogMaskingUtil;
+import com.example.auth.util.PasswordEncoderPolicy;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.repository.UserBlockRepository;
 import com.example.auth.repository.UserFollowRepository;
@@ -60,6 +62,8 @@ public class UserService {
     private static final int DAILY_LOGIN_BONUS_POINTS = 5;
     private static final Pattern HANDLE_PATTERN = Pattern.compile("^@[a-z0-9_]{1,14}$");
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+    private static final Pattern BCRYPT_HASH_PATTERN = Pattern.compile(
+            "^\\$2[aby]\\$(\\d{2})\\$[./A-Za-z0-9]{53}$");
 
     private final UserRepository userRepository;
     private final TeamRepository teamRepository;
@@ -76,6 +80,21 @@ public class UserService {
     // 비어있는 문자열을 argon2로 해시한 고정값(빌드 타임에 계산해 하드코딩하지 않고 필드 초기화로 처리).
     private static final String DUMMY_PASSWORD_HASH_SEED = "__never_match_placeholder__";
     private final String dummyPasswordHash;
+    private final Map<Integer, String> dummyBcryptPasswordHashes;
+
+    // Generate supported BCrypt dummy hashes once per JVM, not once per service instance.
+    private static final class DummyBcryptPasswordHashes {
+        private static final Map<Integer, String> VALUE = Map.of(
+                PasswordEncoderPolicy.MIGRATED_BCRYPT_STRENGTH,
+                encode(PasswordEncoderPolicy.MIGRATED_BCRYPT_STRENGTH),
+                PasswordEncoderPolicy.DEFAULT_BCRYPT_STRENGTH,
+                encode(PasswordEncoderPolicy.DEFAULT_BCRYPT_STRENGTH));
+
+        private static String encode(int strength) {
+            return "{bcrypt}" + new BCryptPasswordEncoder(strength).encode(DUMMY_PASSWORD_HASH_SEED);
+        }
+    }
+
     private final ProfileImageService profileImageService;
     private final MediaLinkService mediaLinkService;
     private final AccountDeletionService accountDeletionService;
@@ -106,6 +125,7 @@ public class UserService {
         this.userProviderRepository = userProviderRepository;
         this.passwordEncoder = passwordEncoder;
         this.dummyPasswordHash = passwordEncoder.encode(DUMMY_PASSWORD_HASH_SEED);
+        this.dummyBcryptPasswordHashes = DummyBcryptPasswordHashes.VALUE;
         this.jwtUtil = jwtUtil;
         this.profileImageService = profileImageService;
         this.mediaLinkService = mediaLinkService;
@@ -312,7 +332,7 @@ public class UserService {
             String captchaToken,
             HttpServletRequest request) {
         // [Security Fix - Critical #3] User Enumeration 방지:
-        // - 존재하지 않는 이메일도 동일하게 더미 해시와 matches()를 호출해 응답 시간을 평탄화한다.
+        // - 실패 인증은 Argon2와 지원하는 BCrypt work factor의 검증량을 같게 유지한다.
         // - 실패 원인(이메일 없음 / 비밀번호 불일치 / 소셜 전용 / 비활성 / 잠금 / 삭제예약)과 무관하게
         //   외부에는 동일한 메시지로 응답해 계정 상태를 추론할 수 없도록 한다.
         String normalizedEmail = normalizeEmail(email);
@@ -320,6 +340,7 @@ public class UserService {
         String rawPassword = password == null ? "" : password;
         if (isMissingLoginEmailCached(normalizedEmail)) {
             passwordEncoder.matches(rawPassword, dummyPasswordHash);
+            performComplementaryPasswordChecks(rawPassword, null);
             loginAttemptService.recordFailedAttempt(normalizedEmail, null, request);
             throw new InvalidCredentialsException();
         }
@@ -330,6 +351,7 @@ public class UserService {
         if (loginPassword.isEmpty()) {
             cacheMissingLoginEmail(normalizedEmail, missingLoginCacheGeneration);
             passwordEncoder.matches(rawPassword, dummyPasswordHash);
+            performComplementaryPasswordChecks(rawPassword, null);
             loginAttemptService.recordFailedAttempt(normalizedEmail, null, request);
             throw new InvalidCredentialsException();
         }
@@ -338,10 +360,12 @@ public class UserService {
         String storedHash = user != null
                 ? user.getPassword()
                 : loginPassword.map(UserRepository.LoginPasswordProjection::getPassword).orElse(null);
-        String hashToCompare = storedHash != null ? storedHash : dummyPasswordHash;
+        boolean malformedBcryptHash = isMalformedBcryptHash(storedHash);
+        String hashToCompare = storedHash != null && !malformedBcryptHash ? storedHash : dummyPasswordHash;
         boolean passwordOk = passwordEncoder.matches(rawPassword, hashToCompare);
 
-        if (user == null || storedHash == null || !passwordOk || !isLoginAuthorValid(user)) {
+        if (user == null || storedHash == null || malformedBcryptHash || !passwordOk || !isLoginAuthorValid(user)) {
+            performComplementaryPasswordChecks(rawPassword, malformedBcryptHash ? null : storedHash);
             loginAttemptService.recordFailedAttempt(normalizedEmail, user, request);
             throw new InvalidCredentialsException();
         }
@@ -381,6 +405,41 @@ public class UserService {
                 accessToken,
                 refreshToken,
                 profileData);
+    }
+
+    private void performComplementaryPasswordChecks(String rawPassword, String storedHash) {
+        Integer storedBcryptStrength = bcryptStrength(storedHash);
+        for (Map.Entry<Integer, String> dummyHash : dummyBcryptPasswordHashes.entrySet()) {
+            if (!dummyHash.getKey().equals(storedBcryptStrength)) {
+                passwordEncoder.matches(rawPassword, dummyHash.getValue());
+            }
+        }
+        if (storedBcryptStrength != null) {
+            passwordEncoder.matches(rawPassword, dummyPasswordHash);
+        }
+    }
+
+    private Integer bcryptStrength(String storedHash) {
+        if (storedHash == null || !storedHash.startsWith("{bcrypt}")) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = BCRYPT_HASH_PATTERN.matcher(
+                storedHash.substring("{bcrypt}".length()));
+        if (!matcher.matches()) {
+            return null;
+        }
+        try {
+            int strength = Integer.parseInt(matcher.group(1));
+            return strength >= 4 && strength <= 31 ? strength : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private boolean isMalformedBcryptHash(String storedHash) {
+        return storedHash != null
+                && storedHash.startsWith("{bcrypt}")
+                && bcryptStrength(storedHash) == null;
     }
 
     private boolean isMissingLoginEmailCached(String normalizedEmail) {

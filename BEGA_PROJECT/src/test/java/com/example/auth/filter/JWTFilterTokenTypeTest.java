@@ -197,6 +197,8 @@ class JWTFilterTokenTypeTest {
         assertThat(response.getContentAsString()).contains("INVALID_AUTHOR");
         assertThat(response.getContentAsString()).contains("접근 권한이 없는 토큰입니다");
         assertThat(chain.getRequest()).isNull();
+        Mockito.verify(securityMonitoringService).recordTokenReject();
+        Mockito.verify(userRepository, Mockito.never()).findUsableRoleByIdAndTokenVersion(Mockito.any(), Mockito.any());
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
@@ -213,6 +215,8 @@ class JWTFilterTokenTypeTest {
         assertThat(response.getContentAsString()).contains("INVALID_AUTHOR");
         assertThat(response.getContentAsString()).contains("접근 권한이 없는 토큰입니다");
         assertThat(chain.getRequest()).isNull();
+        Mockito.verify(securityMonitoringService).recordTokenReject();
+        Mockito.verify(userRepository, Mockito.never()).findUsableRoleByIdAndTokenVersion(Mockito.any(), Mockito.any());
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
@@ -229,7 +233,45 @@ class JWTFilterTokenTypeTest {
         assertThat(response.getContentAsString()).contains("INVALID_AUTHOR");
         assertThat(response.getContentAsString()).contains("접근 권한이 없는 토큰입니다");
         assertThat(chain.getRequest()).isNull();
+        Mockito.verify(securityMonitoringService).recordTokenReject();
+        Mockito.verify(userRepository, Mockito.never()).findUsableRoleByIdAndTokenVersion(Mockito.any(), Mockito.any());
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("POST 요청의 refresh token이 Authorization 쿠키로 와도 401 INVALID_AUTHOR로 차단된다")
+    void postWithRefreshTokenInCookie_isRejectedWith401BeforeChain() throws Exception {
+        String refreshToken = jwtUtil.createRefreshToken("user@test.com", "ROLE_USER", 1L);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        executeMutableRequest(refreshToken, true, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED.value());
+        assertThat(response.getContentAsString()).contains("INVALID_AUTHOR");
+        assertThat(chain.getRequest()).isNull();
+        Mockito.verify(securityMonitoringService).recordTokenReject();
+        Mockito.verify(userRepository, Mockito.never()).findUsableRoleByIdAndTokenVersion(Mockito.any(), Mockito.any());
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("허용되지 않은 Origin의 POST 요청은 recordInvalidOrigin을 기록하고 403으로 차단된다")
+    void postWithoutAllowedOrigin_recordsInvalidOriginAndReturns403() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/protected/resource");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+        request.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+        Mockito.verify(securityMonitoringService).recordInvalidOrigin();
+        Mockito.verify(securityMonitoringService, Mockito.never()).recordTokenReject();
+        assertThat(response.getContentAsString()).contains("CSRF Protection");
+        assertThat(chain.getRequest()).isNull();
     }
 
     @Test
