@@ -226,8 +226,8 @@ class CheerLikeCountReconciliationIntegrationTest {
 
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    @DisplayName("deleteUser anonymizes soft-deleted posts but preserves open report evidence")
-    void deleteUser_anonymizesSoftDeletedPostsExceptOpenModerationEvidence() {
+    @DisplayName("deleteUser preserves all authored content while any moderation report remains open")
+    void deleteUser_preservesAllAuthoredContentWhenModerationIsOpen() {
         String closedPostContent = "closed-case-private-content";
         String openPostContent = "open-case-preserved-evidence";
         CheerPost closedPost = createSoftDeletedPost(liker, closedPostContent);
@@ -244,8 +244,8 @@ class CheerLikeCountReconciliationIntegrationTest {
 
         Object[] closedPostRow = loadRawPostFields(closedPost.getId());
         Object[] openPostRow = loadRawPostFields(openPost.getId());
-        assertThat(closedPostRow[0]).isEqualTo("게시글이 비식별 처리되었습니다.");
-        assertThat(closedPostRow[1]).isNull();
+        assertThat(closedPostRow[0]).isEqualTo(closedPostContent);
+        assertThat(closedPostRow[1]).isEqualTo("synthetic-source-title");
         assertThat(openPostRow[0]).isEqualTo(openPostContent);
         assertThat(openPostRow[1]).isEqualTo("synthetic-source-title");
     }
