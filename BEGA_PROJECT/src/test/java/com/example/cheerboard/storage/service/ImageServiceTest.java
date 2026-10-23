@@ -279,7 +279,8 @@ class ImageServiceTest {
     @Test
     @DisplayName("I-06: 삭제된 게시글 이미지의 signed URL 재발급은 차단된다")
     void renewSignedUrl_rejectsSoftDeletedPostImage() {
-        CheerPost deletedPost = CheerPost.builder().id(100L).build();
+        UserEntity postOwner = UserEntity.builder().id(1L).role("ROLE_USER").build();
+        CheerPost deletedPost = CheerPost.builder().id(100L).author(postOwner).build();
         PostImage image = PostImage.builder()
                 .id(10L)
                 .post(deletedPost)
@@ -289,6 +290,7 @@ class ImageServiceTest {
                 .isThumbnail(false)
                 .build();
 
+        when(currentUser.get()).thenReturn(postOwner);
         when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
         when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.empty());
 
@@ -317,11 +319,53 @@ class ImageServiceTest {
 
         when(currentUser.get()).thenReturn(attacker);
         when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
-        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.of(post));
 
         assertThrows(AccessDeniedException.class, () -> imageService.renewSignedUrl(10L));
+        // 권한 없는 요청은 게시글 쓰기 락을 잡기 전에 거절된다.
+        verify(postRepo, never()).findByIdForWrite(any());
         verify(storageStrategy, never()).getUrl(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    @DisplayName("권한 없는 썸네일 지정 요청은 게시글 쓰기 락을 잡기 전에 거절된다")
+    void markAsThumbnail_forbidden_for_non_owner_without_taking_lock() {
+        UserEntity postOwner = UserEntity.builder().id(1L).role("ROLE_USER").build();
+        UserEntity attacker = UserEntity.builder().id(2L).role("ROLE_USER").build();
+        CheerPost post = CheerPost.builder().id(100L).author(postOwner).build();
+        PostImage image = PostImage.builder().id(10L).post(post).storagePath("posts/100/demo.webp")
+                .mimeType("image/webp").bytes(1024L).isThumbnail(false).build();
+
+        when(currentUser.get()).thenReturn(attacker);
+        when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
+
+        assertThrows(AccessDeniedException.class, () -> imageService.markAsThumbnail(10L));
+
+        verify(postRepo, never()).findByIdForWrite(any());
+        verify(postImageRepo, never()).save(any(PostImage.class));
+    }
+
+    @Test
+    @DisplayName("소프트 삭제된 게시글의 지연 프록시를 읽다 EntityNotFound 가 나면 락 이전에도 404 로 응답한다")
+    void renewSignedUrlAndThumbnail_mapDeletedPostProxyToNotFoundBeforeLock() {
+        UserEntity viewer = UserEntity.builder().id(2L).role("ROLE_USER").build();
+        CheerPost deletedProxy = org.mockito.Mockito.mock(CheerPost.class);
+        when(deletedProxy.getId()).thenReturn(100L);
+        when(deletedProxy.getAuthor()).thenThrow(new jakarta.persistence.EntityNotFoundException("deleted"));
+        PostImage image = PostImage.builder().id(10L).post(deletedProxy).storagePath("posts/100/demo.webp")
+                .mimeType("image/webp").bytes(1024L).isThumbnail(false).build();
+
+        when(currentUser.get()).thenReturn(viewer);
+        when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
+
+        NotFoundBusinessException renew = assertThrows(NotFoundBusinessException.class,
+                () -> imageService.renewSignedUrl(10L));
+        NotFoundBusinessException thumbnail = assertThrows(NotFoundBusinessException.class,
+                () -> imageService.markAsThumbnail(10L));
+
+        org.assertj.core.api.Assertions.assertThat(renew.getCode()).isEqualTo("CHEER_POST_NOT_FOUND");
+        org.assertj.core.api.Assertions.assertThat(thumbnail.getCode()).isEqualTo("CHEER_POST_NOT_FOUND");
+        verify(postRepo, never()).findByIdForWrite(any());
     }
 
     @Test

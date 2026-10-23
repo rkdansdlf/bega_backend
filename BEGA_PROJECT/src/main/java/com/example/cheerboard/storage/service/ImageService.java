@@ -1,5 +1,6 @@
 package com.example.cheerboard.storage.service;
 
+import jakarta.persistence.EntityNotFoundException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -662,9 +663,14 @@ public class ImageService {
     public SignedUrlDto renewSignedUrl(Long imageId) {
         return inImageUrlTransaction(() -> {
             UserEntity me = currentUser.get();
-            PostImage image = findPostImageById(imageId);
-            CheerPost post = requireAccessiblePost(image.getPost().getId());
+            PostImage initialImage = findPostImageById(imageId);
+            Long postId = Objects.requireNonNull(initialImage.getPost().getId());
+            // Reject unauthorized requests before taking the post lock, then recheck against the locked row.
+            rejectUnauthorizedBeforeLock(me, initialImage, "이미지 서명 URL 갱신");
+            CheerPost post = requireAccessiblePost(postId);
             permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "이미지 서명 URL 갱신");
+            PostImage image = postImageRepo.findByIdAndPostId(imageId, postId)
+                    .orElseThrow(() -> new NotFoundBusinessException("POST_IMAGE_NOT_FOUND", "이미지를 찾을 수 없습니다."));
 
             String signedUrl = generateSignedUrl(image.getStoragePath());
             Instant expiresAt = Instant.now().plusSeconds(config.getSignedUrlTtlSeconds());
@@ -680,11 +686,15 @@ public class ImageService {
     public PostImageDto markAsThumbnail(Long imageId) {
         return inImageUrlTransaction(() -> {
             UserEntity me = currentUser.get();
-            PostImage image = findPostImageById(imageId);
-            CheerPost post = requireAccessiblePost(image.getPost().getId());
+            PostImage initialImage = findPostImageById(imageId);
+            Long postId = Objects.requireNonNull(initialImage.getPost().getId());
 
-            // 권한 체크
+            // 권한 체크: 락을 잡기 전에 먼저 거절하고, 락 이후 최신 작성자 기준으로 다시 확인한다.
+            rejectUnauthorizedBeforeLock(me, initialImage, "썸네일 지정");
+            CheerPost post = requireAccessiblePost(postId);
             permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "썸네일 지정");
+            PostImage image = postImageRepo.findByIdAndPostId(imageId, postId)
+                    .orElseThrow(() -> new NotFoundBusinessException("POST_IMAGE_NOT_FOUND", "이미지를 찾을 수 없습니다."));
 
             // 기존 썸네일 해제
             postImageRepo.findByPostIdAndIsThumbnailTrue(post.getId())
@@ -800,6 +810,21 @@ public class ImageService {
     private CheerPost findPostByIdForImageWrite(Long postId) {
         return postRepo.findByIdForWrite(Objects.requireNonNull(postId))
                 .orElseThrow(() -> new NotFoundBusinessException("CHEER_POST_NOT_FOUND", "게시글을 찾을 수 없습니다."));
+    }
+
+    /**
+     * 게시글 락을 잡기 전에 권한 없는 요청을 거절한다. PostImage.post 는 지연 로딩이고 CheerPost 에는
+     * 소프트 삭제 제한이 있어, 삭제된 게시글의 작성자를 읽으면 EntityNotFoundException 이 나므로
+     * 락 이후 경로와 같은 404 로 맞춘다.
+     */
+    private void rejectUnauthorizedBeforeLock(UserEntity me, PostImage image, String action) {
+        UserEntity author;
+        try {
+            author = image.getPost().getAuthor();
+        } catch (EntityNotFoundException ex) {
+            throw new NotFoundBusinessException("CHEER_POST_NOT_FOUND", "게시글을 찾을 수 없습니다.");
+        }
+        permissionValidator.validateOwnerOrAdmin(me, author, action);
     }
 
     private CheerPost requireAccessiblePost(Long postId) {

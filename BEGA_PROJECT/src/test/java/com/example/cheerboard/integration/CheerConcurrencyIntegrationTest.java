@@ -166,7 +166,7 @@ class CheerConcurrencyIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @Autowired
+    @MockitoSpyBean
     private PostImageRepository postImageRepository;
 
     @Autowired
@@ -714,6 +714,102 @@ class CheerConcurrencyIntegrationTest {
             assertThat(testCacheManager.getCache("signedUrls").get(storagePath)).isNull();
         } finally {
             releaseUrlGeneration.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @DisplayName("이미지 삭제가 잠금 경합에서 먼저 끝나면 서명 URL 재발급은 삭제된 이미지를 반환하지 않는다")
+    void renewSignedUrl_rechecksImageAfterWaitingForPostLock() throws Exception {
+        assertImageOperationRejectsImageDeletedWhileWaitingForPostLock(
+                imageService::renewSignedUrl);
+    }
+
+    @Test
+    @DisplayName("이미지 삭제가 잠금 경합에서 먼저 끝나면 삭제된 이미지를 썸네일로 되살리지 않는다")
+    void markAsThumbnail_rechecksImageAfterWaitingForPostLock() throws Exception {
+        assertImageOperationRejectsImageDeletedWhileWaitingForPostLock(
+                imageService::markAsThumbnail);
+    }
+
+    private void assertImageOperationRejectsImageDeletedWhileWaitingForPostLock(
+            java.util.function.Function<Long, ?> imageOperation) throws Exception {
+        CheerPost post = postRepo.saveAndFlush(CheerPost.builder()
+                .author(author)
+                .team(team)
+                .content("Image operation and deletion race")
+                .postType(PostType.NORMAL)
+                .shareMode(CheerPost.ShareMode.INTERNAL_REPOST)
+                .build());
+        Long postId = post.getId();
+        String storagePath = "posts/" + postId + "/operation-delete-race.png";
+        var image = postImageRepository.saveAndFlush(com.example.cheerboard.storage.entity.PostImage.builder()
+                .post(post)
+                .storagePath(storagePath)
+                .mimeType("image/png")
+                .bytes(1L)
+                .isThumbnail(false)
+                .build());
+
+        CountDownLatch initialImageLoaded = new CountDownLatch(1);
+        CountDownLatch releaseInitialImage = new CountDownLatch(1);
+        AtomicReference<Thread> operationThread = new AtomicReference<>();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        doAnswer(invocation -> {
+            com.example.cheerboard.storage.entity.PostImage loadedImage = entityManager.find(
+                    com.example.cheerboard.storage.entity.PostImage.class,
+                    invocation.getArgument(0));
+            if (Thread.currentThread() == operationThread.get()) {
+                initialImageLoaded.countDown();
+                if (!releaseInitialImage.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Timed out waiting to release initial image lookup");
+                }
+            }
+            return java.util.Optional.ofNullable(loadedImage);
+        }).when(postImageRepository).findById(eq(image.getId()));
+        doReturn(reactor.core.publisher.Mono.just("https://signed.example/" + storagePath))
+                .when(storageStrategy).getUrl(anyString(), eq(storagePath), org.mockito.ArgumentMatchers.anyInt());
+        doReturn(reactor.core.publisher.Mono.empty())
+                .when(storageStrategy).deleteChecked(anyString(), eq(storagePath));
+
+        Future<?> operation = executor.submit(() -> {
+            operationThread.set(Thread.currentThread());
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+            SecurityContextHolder.getContext().setAuthentication(
+                    new UsernamePasswordAuthenticationToken(author.getId(), null, List.of()));
+            try {
+                return imageOperation.apply(image.getId());
+            } finally {
+                SecurityContextHolder.clearContext();
+                RequestContextHolder.resetRequestAttributes();
+            }
+        });
+
+        try {
+            assertThat(initialImageLoaded.await(5, TimeUnit.SECONDS)).isTrue();
+
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+            SecurityContextHolder.getContext().setAuthentication(
+                    new UsernamePasswordAuthenticationToken(author.getId(), null, List.of()));
+            try {
+                imageService.deleteImage(image.getId());
+            } finally {
+                SecurityContextHolder.clearContext();
+                RequestContextHolder.resetRequestAttributes();
+            }
+
+            assertThat(postImageRepository.findById(image.getId())).isEmpty();
+            releaseInitialImage.countDown();
+
+            assertThatThrownBy(() -> operation.get(10, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(NotFoundBusinessException.class);
+            verify(storageStrategy, never())
+                    .getUrl(anyString(), eq(storagePath), org.mockito.ArgumentMatchers.anyInt());
+            assertThat(postImageRepository.findById(image.getId())).isEmpty();
+        } finally {
+            releaseInitialImage.countDown();
             executor.shutdownNow();
             executor.awaitTermination(5, TimeUnit.SECONDS);
         }
