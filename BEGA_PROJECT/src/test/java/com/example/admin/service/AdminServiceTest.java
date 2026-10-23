@@ -1,5 +1,12 @@
 package com.example.admin.service;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Page;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import com.example.admin.repository.AdminNonCanonicalCleanupTrackerRepository;
 import com.example.admin.repository.AuditLogRepository;
 import com.example.admin.exception.MateDeletionBlockedException;
@@ -60,6 +67,27 @@ class AdminServiceTest {
         InOrder order = inOrder(deletionPreparationService, deletionFinalizationService);
         order.verify(deletionPreparationService).disableForDeletion(51L, null);
         order.verify(deletionFinalizationService).finalizeImmediatelyAfterAdminDeletion(51L, null);
+    }
+
+    @Test
+    void getReportsAlwaysPassesNonNullDateBoundsBecausePostgresCannotTypeNullTimestamps() {
+        given(cheerReportRepo.findForAdmin(any(), any(), any(), any(), any())).willReturn(Page.empty());
+        ArgumentCaptor<LocalDateTime> from = ArgumentCaptor.forClass(LocalDateTime.class);
+        ArgumentCaptor<LocalDateTime> to = ArgumentCaptor.forClass(LocalDateTime.class);
+
+        adminService.getReports(null, null, null, null, 0, 20);
+        adminService.getReports(null, null, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 2), 0, 20);
+
+        verify(cheerReportRepo, org.mockito.Mockito.times(2))
+                .findForAdmin(isNull(), isNull(), from.capture(), to.capture(), any());
+        assertThat(from.getAllValues()).doesNotContainNull();
+        assertThat(to.getAllValues()).doesNotContainNull();
+        // No filter: wide bounds that cover every row.
+        assertThat(from.getAllValues().get(0)).isBefore(LocalDateTime.of(2000, 1, 1, 0, 0));
+        assertThat(to.getAllValues().get(0)).isAfter(LocalDateTime.of(2100, 1, 1, 0, 0));
+        // Explicit dates: whole first day through the last nanosecond of the last day.
+        assertThat(from.getAllValues().get(1)).isEqualTo(LocalDateTime.of(2026, 10, 1, 0, 0));
+        assertThat(to.getAllValues().get(1)).isEqualTo(LocalDateTime.of(2026, 10, 2, 23, 59, 59, 999_999_999));
     }
 
     @Test

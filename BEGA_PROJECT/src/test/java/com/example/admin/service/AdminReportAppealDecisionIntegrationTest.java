@@ -31,7 +31,12 @@ import com.example.media.entity.MediaDomain;
 import com.example.media.service.MediaUploadService;
 import com.example.mate.repository.PartyRepository;
 import com.example.prediction.PredictionService;
+import com.example.support.HibernateQueryCountSupport;
+import com.example.support.HibernateStatisticsTestConfig;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -39,6 +44,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -53,7 +59,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @DataJpaTest
-@Import({AdminService.class, AccountDeletionContentService.class})
+@Import({AdminService.class, AccountDeletionContentService.class, HibernateStatisticsTestConfig.class})
 @TestPropertySource(properties = {
         "spring.datasource.url=jdbc:h2:mem:admin_appeal_decision;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;LOCK_TIMEOUT=30000",
         "spring.datasource.driver-class-name=org.h2.Driver",
@@ -75,6 +81,7 @@ class AdminReportAppealDecisionIntegrationTest {
     @Autowired private CheerPostRepo postRepository;
     @Autowired private CheerReportRepo reportRepository;
     @Autowired private EntityManager entityManager;
+    @Autowired private EntityManagerFactory entityManagerFactory;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private JdbcTemplate jdbcTemplate;
 
@@ -88,6 +95,48 @@ class AdminReportAppealDecisionIntegrationTest {
     @MockitoBean private AccountDeletionFinalizationService deletionFinalizationService;
     @MockitoBean private AdminMateDeletionGuard mateDeletionGuard;
     @MockitoBean private MediaUploadService mediaUploadService;
+
+    @Test
+    void adminReportListingFetchesPostAndReporterWithoutPerRowQueries() {
+        Long softDeletedReportId = createReportListingFixtures(ReportReason.ADVERTISEMENT);
+        Statistics statistics = HibernateQueryCountSupport.reset(entityManagerFactory);
+
+        var result = adminService.getReports(null, "ADVERTISEMENT", null, null, 0, 4);
+
+        assertThat(result.getContent()).hasSize(4);
+        assertThat(result.getTotalElements()).isEqualTo(4);
+        assertThat(result.getContent()).extracting(dto -> dto.getPostPreview()).containsExactlyInAnyOrder(
+                "synthetic report post 0", "synthetic report post 1", "synthetic report post 2", null);
+        assertThat(result.getContent()).extracting(dto -> dto.getReporterHandle())
+                .hasSize(4)
+                .allMatch(handle -> handle.startsWith("qreporter"));
+        assertThat(statistics.getPrepareStatementCount())
+                .as("admin report page and count query statements")
+                .isLessThanOrEqualTo(2);
+
+        var softDeletedDetail = adminService.getReport(softDeletedReportId);
+        assertThat(softDeletedDetail.getId()).isEqualTo(softDeletedReportId);
+        assertThat(softDeletedDetail.getPostId()).isNull();
+        assertThat(softDeletedDetail.getPostPreview()).isNull();
+    }
+
+    @Test
+    void adminReportPagesUseReportIdAsStableTieBreakerWhenCreatedAtMatches() {
+        Long latestReportId = createReportListingFixtures(ReportReason.SPAM);
+
+        LocalDate fixtureDate = LocalDate.of(2025, 1, 1);
+        var firstPage = adminService.getReports(null, "SPAM", fixtureDate, fixtureDate, 0, 2);
+        var secondPage = adminService.getReports(null, "SPAM", fixtureDate, fixtureDate, 1, 2);
+
+        assertThat(firstPage.getTotalElements()).isEqualTo(4);
+        assertThat(firstPage.getContent().get(0).getId()).isEqualTo(latestReportId);
+        assertThat(firstPage.getContent().get(0).getId())
+                .isGreaterThan(firstPage.getContent().get(1).getId());
+        assertThat(firstPage.getContent().get(1).getId())
+                .isGreaterThan(secondPage.getContent().get(0).getId());
+        assertThat(secondPage.getContent().get(0).getId())
+                .isGreaterThan(secondPage.getContent().get(1).getId());
+    }
 
     @Test
     void accountContentAndOwnedMediaRemainUntilTheLastRelatedCaseIsClosed() {
@@ -377,6 +426,57 @@ class AdminReportAppealDecisionIntegrationTest {
             }
             entityManager.flush();
             return new Fixture(owner.getId(), post.getId(), unrelatedPost.getId(), appeal.getId(), otherReportId);
+        });
+    }
+
+    private Long createReportListingFixtures(ReportReason reason) {
+        return transaction().execute(status -> {
+            String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+            TeamEntity team = teamRepository.saveAndFlush(TeamEntity.builder()
+                    .teamId("RQ" + suffix)
+                    .teamName("Report Query Team")
+                    .teamShortName("RQT")
+                    .city("Synthetic")
+                    .build());
+            UserEntity owner = userRepository.saveAndFlush(UserEntity.builder()
+                    .uniqueId(UUID.randomUUID())
+                    .handle("o" + suffix)
+                    .name("Synthetic Post Owner")
+                    .email("report-owner-" + suffix + "@example.test")
+                    .role("ROLE_USER")
+                    .build());
+
+            Long softDeletedReportId = null;
+            for (int index = 0; index < 4; index++) {
+                UserEntity reporter = userRepository.saveAndFlush(UserEntity.builder()
+                        .uniqueId(UUID.randomUUID())
+                        .handle("qreporter" + index + suffix.substring(0, 5))
+                        .name("Synthetic Reporter " + index)
+                        .email("reporter-" + index + "-" + suffix + "@example.test")
+                        .role("ROLE_USER")
+                        .build());
+                CheerPost post = postRepository.saveAndFlush(CheerPost.builder()
+                        .author(owner)
+                        .team(team)
+                        .postType(PostType.NORMAL)
+                        .content("synthetic report post " + index)
+                        .deleted(index == 3)
+                        .build());
+                CheerPostReport report = reportRepository.saveAndFlush(CheerPostReport.builder()
+                        .post(post)
+                        .reporter(reporter)
+                        .reason(reason)
+                        .status(CheerPostReport.ReportStatus.PENDING)
+                        .build());
+                jdbcTemplate.update(
+                        "UPDATE cheer_post_reports SET createdat = ? WHERE id = ?",
+                        LocalDateTime.of(2025, 1, 1, 0, 0),
+                        report.getId());
+                if (index == 3) {
+                    softDeletedReportId = report.getId();
+                }
+            }
+            return softDeletedReportId;
         });
     }
 
