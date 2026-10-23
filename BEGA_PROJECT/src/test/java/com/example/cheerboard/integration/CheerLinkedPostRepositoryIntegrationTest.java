@@ -97,6 +97,30 @@ class CheerLinkedPostRepositoryIntegrationTest {
     }
 
     @Test
+    void activeRepostRemainsLoadableWhenItsOriginalIsSoftDeleted() {
+        UserEntity originalAuthor = persistUser("deleted-original");
+        UserEntity repostAuthor = persistUser("active-repost");
+        TeamEntity team = persistTeam();
+        CheerPost original = persistPost(originalAuthor, team, PostType.NORMAL, null, null, false);
+        CheerPost repost = CheerPost.builder()
+                .author(repostAuthor)
+                .team(team)
+                .postType(PostType.NORMAL)
+                .content("synthetic quote repost")
+                .repostOf(original)
+                .repostType(CheerPost.RepostType.QUOTE)
+                .build();
+        entityManager.persist(repost);
+        original.setDeleted(true);
+        flushAndClear();
+
+        List<CheerPost> loaded = postRepository.findAllByIdWithGraph(List.of(repost.getId()));
+
+        assertThat(loaded).hasSize(1);
+        assertThat(loaded.get(0).getRepostOf()).isNull();
+    }
+
+    @Test
     void adminPostCountsAggregateAuthorsAndIgnoreSoftDeletedPostsInOneStatement() {
         UserEntity firstAuthor = persistUser("count-first");
         UserEntity secondAuthor = persistUser("count-second");
