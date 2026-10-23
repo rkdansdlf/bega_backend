@@ -19,6 +19,7 @@ import com.example.auth.repository.UserRepository;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.CheerPostReport;
 import com.example.cheerboard.domain.ReportReason;
+import com.example.cheerboard.repo.AdminReportListProjection;
 import com.example.cheerboard.repo.CheerPostAuthorCountProjection;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerReportRepo;
@@ -274,6 +275,9 @@ public class AdminService {
         }
     }
 
+    private static final LocalDateTime REPORT_FILTER_MIN_AT = LocalDateTime.of(1970, 1, 1, 0, 0);
+    private static final LocalDateTime REPORT_FILTER_MAX_AT = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
+
     @Transactional(readOnly = true)
     public Page<AdminReportDto> getReports(
             String status,
@@ -284,19 +288,20 @@ public class AdminService {
             int size) {
         CheerPostReport.ReportStatus statusFilter = parseReportStatus(status);
         ReportReason reasonFilter = parseReportReason(reason);
-        LocalDateTime fromAt = fromDate != null ? fromDate.atStartOfDay() : null;
-        LocalDateTime toAt = toDate != null ? toDate.plusDays(1).atStartOfDay().minusNanos(1) : null;
+        // The repository query takes non-null bounds (null timestamp parameters break on PostgreSQL).
+        LocalDateTime fromAt = fromDate != null ? fromDate.atStartOfDay() : REPORT_FILTER_MIN_AT;
+        LocalDateTime toAt = toDate != null ? toDate.plusDays(1).atStartOfDay().minusNanos(1) : REPORT_FILTER_MAX_AT;
         Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1));
 
         return cheerReportRepo.findForAdmin(statusFilter, reasonFilter, fromAt, toAt, pageable)
-                .map(this::convertToAdminReportDto);
+                .map(this::convertToAdminReportListDto);
     }
 
     @Transactional(readOnly = true)
     public AdminReportDto getReport(Long reportId) {
-        CheerPostReport report = cheerReportRepo.findById(reportId)
+        AdminReportListProjection report = cheerReportRepo.findAdminReportById(reportId)
                 .orElseThrow(() -> new IllegalArgumentException("신고 케이스를 찾을 수 없습니다."));
-        return Objects.requireNonNull(convertToAdminReportDto(report));
+        return convertToAdminReportListDto(report);
     }
 
     @Transactional
@@ -488,6 +493,33 @@ public class AdminService {
                 .postPreview(postPreview)
                 .reporterId(report.getReporter() != null ? report.getReporter().getId() : null)
                 .reporterHandle(report.getReporter() != null ? report.getReporter().getHandle() : null)
+                .reason(report.getReason() != null ? report.getReason().name() : null)
+                .description(report.getDescription())
+                .status(report.getStatus() != null ? report.getStatus().name() : null)
+                .adminAction(report.getAdminAction() != null ? report.getAdminAction().name() : null)
+                .adminMemo(report.getAdminMemo())
+                .handledBy(report.getHandledBy())
+                .handledAt(report.getHandledAt())
+                .evidenceUrl(report.getEvidenceUrl())
+                .requestedAction(report.getRequestedAction())
+                .appealStatus(report.getAppealStatus() != null ? report.getAppealStatus().name() : null)
+                .appealReason(report.getAppealReason())
+                .appealCount(report.getAppealCount())
+                .createdAt(report.getCreatedAt())
+                .build());
+    }
+
+    private AdminReportDto convertToAdminReportListDto(AdminReportListProjection report) {
+        String postContent = report.getPostContent();
+        String postPreview = postContent == null ? null
+                : (postContent.length() > 120 ? postContent.substring(0, 120) + "..." : postContent);
+
+        return Objects.requireNonNull(AdminReportDto.builder()
+                .id(report.getId())
+                .postId(report.getPostId())
+                .postPreview(postPreview)
+                .reporterId(report.getReporterId())
+                .reporterHandle(report.getReporterHandle())
                 .reason(report.getReason() != null ? report.getReason().name() : null)
                 .description(report.getDescription())
                 .status(report.getStatus() != null ? report.getStatus().name() : null)

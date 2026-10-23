@@ -89,8 +89,8 @@ public class AdminController {
             @RequestParam(required = false) String reason,
             @RequestParam(required = false) LocalDate fromDate,
             @RequestParam(required = false) LocalDate toDate,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
         Page<AdminReportDto> reports = adminService.getReports(status, reason, fromDate, toDate, page, size);
         return ResponseEntity.ok(ApiResponse.success("신고 케이스 조회 성공", reports));
     }
