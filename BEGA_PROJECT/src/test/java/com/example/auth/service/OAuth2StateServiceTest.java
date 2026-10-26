@@ -172,22 +172,35 @@ class OAuth2StateServiceTest {
     }
 
     @Test
-    @DisplayName("consumeState: 저장 데이터 만료 시 null")
-    void consumeState_returnsNullWhenExpired() throws Exception {
-        OAuth2StateStorageData expired = new OAuth2StateStorageData(10L, System.currentTimeMillis() - (6 * 60 * 1000L));
-        stubStateResult("expired", "C:" + objectMapper.writeValueAsString(expired));
+    @DisplayName("consumeState: 만료된 기본 상태는 replay marker를 만들기 전에 폐기")
+    void consumeState_discardsExpiredPrimaryStateBeforeCreatingReplayMarker() {
+        String stateId = "expired";
+        List<String> keys = List.of("oauth2:state:" + stateId, "oauth2:state-replay:" + stateId);
+        stubStateResult(stateId, null);
 
-        OAuth2StateData result = service.consumeState("expired");
+        OAuth2StateData result = service.consumeState(stateId);
 
         assertThat(result).isNull();
         verify(userRepository, never()).findById(any());
+
+        ArgumentCaptor<RedisScript> scriptCaptor = ArgumentCaptor.forClass(RedisScript.class);
+        verify(redisTemplate).execute(
+                scriptCaptor.capture(), eq(keys), anyString(), anyString(), anyString());
+        String script = scriptCaptor.getValue().getScriptAsString();
+        assertThat(script)
+                .contains("pcall(cjson.decode, state)", "tonumber(ARGV[2])",
+                        "tonumber(ARGV[3])", "nowMillis - createdAt > stateTtlMillis",
+                        "redis.call('DEL', KEYS[1])", "return false");
+        assertThat(script.indexOf("redis.call('DEL', KEYS[1])"))
+                .isLessThan(script.indexOf("redis.call('RENAME', KEYS[1], KEYS[2])"));
     }
 
     @Test
     @DisplayName("consumeState: Redis 조회 실패 시 null")
     void consumeState_returnsNullWhenRedisReadFails() {
         when(redisTemplate.execute(any(), eq(List.of(
-                "oauth2:state:redis-error", "oauth2:state-replay:redis-error")), anyString()))
+                "oauth2:state:redis-error", "oauth2:state-replay:redis-error")),
+                anyString(), anyString(), anyString()))
                 .thenThrow(new RuntimeException("redis down"));
 
         OAuth2StateData result = service.consumeState("redis-error");
@@ -200,7 +213,8 @@ class OAuth2StateServiceTest {
     void consumeState_doesNotLogStateIdFromRedisException() {
         String stateId = "consume-state-error-sentinel";
         when(redisTemplate.execute(any(), eq(List.of(
-                "oauth2:state:" + stateId, "oauth2:state-replay:" + stateId)), anyString()))
+                "oauth2:state:" + stateId, "oauth2:state-replay:" + stateId)),
+                anyString(), anyString(), anyString()))
                 .thenThrow(new IllegalStateException("Redis failed for oauth2:state:" + stateId));
         Logger logger = (Logger) LoggerFactory.getLogger(OAuth2StateService.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -319,7 +333,7 @@ class OAuth2StateServiceTest {
         user.setRole("ROLE_USER");
         user.setHandle("recovery_user");
         List<String> keys = List.of("oauth2:state:" + stateId, "oauth2:state-replay:" + stateId);
-        when(redisTemplate.execute(any(), eq(keys), anyString()))
+        when(redisTemplate.execute(any(), eq(keys), anyString(), anyString(), anyString()))
                 .thenReturn("C:" + stateJson)
                 .thenReturn("R:" + stateJson);
         when(userRepository.findById(77L)).thenReturn(Optional.of(user));
@@ -330,13 +344,43 @@ class OAuth2StateServiceTest {
         assertThat(firstResponse).isNotNull();
         assertThat(recoveredResponse).isEqualTo(firstResponse);
         ArgumentCaptor<RedisScript> scriptCaptor = ArgumentCaptor.forClass(RedisScript.class);
-        ArgumentCaptor<String> ttlCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> replayTtlCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> nowMillisCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> stateTtlCaptor = ArgumentCaptor.forClass(String.class);
         verify(redisTemplate, org.mockito.Mockito.times(2))
-                .execute(scriptCaptor.capture(), eq(keys), ttlCaptor.capture());
-        assertThat(ttlCaptor.getAllValues()).containsOnly("60");
+                .execute(
+                        scriptCaptor.capture(),
+                        eq(keys),
+                        replayTtlCaptor.capture(),
+                        nowMillisCaptor.capture(),
+                        stateTtlCaptor.capture());
+        assertThat(replayTtlCaptor.getAllValues()).containsOnly("60");
+        assertThat(nowMillisCaptor.getAllValues()).allMatch(value -> value.matches("\\d+"));
+        assertThat(stateTtlCaptor.getAllValues()).containsOnly("300000");
         assertThat(scriptCaptor.getAllValues().getFirst().getScriptAsString())
-                .contains("RENAME", "EXPIRE", "'C:'", "'R:'");
+                .contains("RENAME", "EXPIRE", "'C:'", "'R:'", "pcall(cjson.decode, state)");
         assertThat(stateJson).doesNotContain("recover@test.com", "Recovery User");
+    }
+
+    @Test
+    @DisplayName("consumeState: Redis replay TTL remains valid after the original state age exceeds five minutes")
+    void consumeState_allowsOwnerReplayWithinReplayTtlAfterOriginalStateExpiry() throws Exception {
+        String stateId = "recoverable-near-expiry";
+        String stateJson = objectMapper.writeValueAsString(
+                new OAuth2StateStorageData(77L, System.currentTimeMillis() - (6 * 60 * 1000L)));
+        UserEntity user = new UserEntity();
+        user.setId(77L);
+        user.setEmail("recover@test.com");
+        user.setName("Recovery User");
+        user.setRole("ROLE_USER");
+        user.setHandle("recovery_user");
+        stubStateResult(stateId, "R:" + stateJson);
+        when(userRepository.findById(77L)).thenReturn(Optional.of(user));
+
+        OAuth2StateData recoveredResponse = service.consumeState(stateId, 77L);
+
+        assertThat(recoveredResponse).isNotNull();
+        assertThat(recoveredResponse.email()).isEqualTo("recover@test.com");
     }
 
     @Test
@@ -364,57 +408,7 @@ class OAuth2StateServiceTest {
                 eq(List.of(
                         "oauth2:state:replay:" + markerStateId,
                         "oauth2:state-replay:replay:" + markerStateId)),
-                anyString());
-    }
-
-    @Test
-    @DisplayName("peekUserId: 정상 JSON이면 userId 반환")
-    void peekUserId_returnsUserIdForValidState() throws Exception {
-        when(valueOperations.get("oauth2:state:peek"))
-                .thenReturn(objectMapper.writeValueAsString(new OAuth2StateStorageData(123L, System.currentTimeMillis())));
-
-        Long userId = service.peekUserId("peek");
-
-        assertThat(userId).isEqualTo(123L);
-    }
-
-    @Test
-    @DisplayName("peekUserId: 값이 없거나 역직렬화 실패면 null")
-    void peekUserId_returnsNullWhenMissingOrInvalid() {
-        when(valueOperations.get("oauth2:state:missing")).thenReturn(null);
-        when(valueOperations.get("oauth2:state:invalid")).thenReturn("{invalid-json}");
-
-        assertThat(service.peekUserId("missing")).isNull();
-        assertThat(service.peekUserId("invalid")).isNull();
-    }
-
-    @Test
-    @DisplayName("peekUserId: Redis 조회 실패면 null")
-    void peekUserId_returnsNullWhenRedisFails() {
-        when(valueOperations.get("oauth2:state:redis-error"))
-                .thenThrow(new RuntimeException("redis down"));
-
-        assertThat(service.peekUserId("redis-error")).isNull();
-    }
-
-    @Test
-    @DisplayName("peekUserId: Redis 예외 메시지에 포함된 state ID를 로그에 남기지 않음")
-    void peekUserId_doesNotLogStateIdFromRedisException() {
-        String stateId = "peek-state-error-sentinel";
-        when(valueOperations.get("oauth2:state:" + stateId))
-                .thenThrow(new IllegalStateException("Redis failed for oauth2:state:" + stateId));
-        Logger logger = (Logger) LoggerFactory.getLogger(OAuth2StateService.class);
-        ListAppender<ILoggingEvent> appender = new ListAppender<>();
-        appender.start();
-        logger.addAppender(appender);
-
-        try {
-            assertThat(service.peekUserId(stateId)).isNull();
-            assertNoLogContains(appender, stateId);
-        } finally {
-            logger.detachAppender(appender);
-            appender.stop();
-        }
+                anyString(), anyString(), anyString());
     }
 
     private void assertNoLogContains(ListAppender<ILoggingEvent> appender, String value) {
@@ -431,7 +425,7 @@ class OAuth2StateServiceTest {
         when(redisTemplate.execute(
                 any(),
                 eq(List.of("oauth2:state:" + stateId, "oauth2:state-replay:" + stateId)),
-                anyString()))
+                anyString(), anyString(), anyString()))
                 .thenReturn(result);
     }
 }

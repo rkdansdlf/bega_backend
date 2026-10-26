@@ -19,6 +19,7 @@ import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.serializer.RedisSerializer;
 
+import com.example.auth.dto.OAuth2StateStorageData;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.auth.service.OAuth2StateService;
@@ -33,7 +34,7 @@ class RedisAclWorkloadIntegrationTest {
 
     @Test
     @EnabledIfSystemProperty(named = "realtime.redis.integration", matches = "true")
-    void approvedBackendWorkloadsSucceedWithProductionAcl() {
+    void approvedBackendWorkloadsSucceedWithProductionAcl() throws Exception {
         String prefix = "acl:integration:" + UUID.randomUUID();
         String stringKey = prefix + ":string";
         String absentKey = prefix + ":absent";
@@ -85,7 +86,9 @@ class RedisAclWorkloadIntegrationTest {
                     mock(UserRepository.class),
                     mock(AuthSecurityMonitoringService.class));
             oauthStateId = stateService.saveState(77L);
-            assertThat(stateService.peekUserId(oauthStateId)).isEqualTo(77L);
+            String storedOauthState = redisTemplate.opsForValue().get("oauth2:state:" + oauthStateId);
+            assertThat(objectMapper.readValue(storedOauthState, OAuth2StateStorageData.class).userId())
+                    .isEqualTo(77L);
             String oauthKey = "oauth2:state:" + oauthStateId;
             assertThat(redisTemplate.opsForValue().getAndDelete(oauthKey)).isNotNull();
             assertThat(redisTemplate.opsForValue().get(oauthKey)).isNull();
