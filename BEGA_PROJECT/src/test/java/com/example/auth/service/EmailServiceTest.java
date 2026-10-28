@@ -215,7 +215,22 @@ class EmailServiceTest {
 
         verify(mailSender).send(messageCaptor.capture());
         assertThat(messageCaptor.getValue().getText())
-                .contains("https://frontend.test/account/deletion/recovery?token=recovery-token&redirect=/mypage?view%3DaccountSettings");
+                .contains("https://frontend.test/account/deletion/recovery?redirect=/mypage?view%3DaccountSettings#token=recovery-token")
+                .doesNotContain("?token=recovery-token");
+    }
+
+    @Test
+    void accountDeletionRecoveryEmailEncodesFragmentToken() {
+        EmailService emailService = createEnabledEmailService(objectProvider(null));
+        ArgumentCaptor<SimpleMailMessage> messageCaptor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+
+        emailService.sendAccountDeletionRecoveryEmailJob(
+                "user@example.com", "token+with&reserved=chars", LocalDateTime.of(2026, 3, 12, 9, 0), null);
+
+        verify(mailSender).send(messageCaptor.capture());
+        assertThat(messageCaptor.getValue().getText())
+                .contains("/account/deletion/recovery#token=token%2Bwith%26reserved%3Dchars")
+                .doesNotContain("?token=");
     }
 
     @Test

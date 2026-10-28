@@ -15,7 +15,11 @@ import com.example.auth.entity.UserFollow;
 import com.example.auth.repository.UserFollowRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.TokenBlacklistService;
+import com.example.auth.service.AccountDeletionService;
+import com.example.auth.dto.AccountDeletionRecoveryInfoDto;
 import com.example.auth.util.JWTUtil;
+import com.example.common.ratelimit.RateLimitService;
+import jakarta.servlet.http.Cookie;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -84,6 +88,32 @@ class SecuritySurfaceHardeningIntegrationTest {
 
     @MockitoBean
     private TokenBlacklistService tokenBlacklistService;
+
+    @MockitoBean
+    private AccountDeletionService accountDeletionService;
+
+    @MockitoBean
+    private RateLimitService rateLimitService;
+
+    @Test
+    void recoveryInfoAcceptsAnonymousRequestWithStaleAccessCookie() throws Exception {
+        org.mockito.Mockito.when(rateLimitService.isAllowed(
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyInt(),
+                        org.mockito.ArgumentMatchers.anyInt(),
+                        org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(true);
+        org.mockito.Mockito.when(accountDeletionService.getRecoveryInfo("synthetic-token"))
+                .thenReturn(new AccountDeletionRecoveryInfoDto("2099-12-31T09:00:00"));
+
+        mockMvc.perform(post("/api/auth/account/deletion/recovery/info")
+                        .cookie(new Cookie("Authorization", "stale-token"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"synthetic-token\"}"))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(accountDeletionService).getRecoveryInfo("synthetic-token");
+    }
 
     @Test
     @DisplayName("mypage preflight should allow configured production frontend origin")

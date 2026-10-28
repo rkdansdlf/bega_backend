@@ -9,7 +9,11 @@ import com.example.auth.repository.UserRepository;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InvalidCredentialsException;
 import com.example.common.exception.UserNotFoundException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -90,7 +94,7 @@ public class AccountDeletionService {
         refreshRepository.deleteByEmail(user.getEmail());
         accountDeletionTokenRepository.deleteByUser_Id(user.getId());
         accountDeletionTokenRepository.save(AccountDeletionToken.builder()
-                .token(token)
+                .token(hashRecoveryToken(token))
                 .user(user)
                 .expiryDate(scheduledFor)
                 .used(false)
@@ -117,12 +121,13 @@ public class AccountDeletionService {
 
     @Transactional
     public void recoverAccount(String token) {
-        Long userId = accountDeletionTokenRepository.findUserIdByToken(token)
+        String storedToken = resolveStoredToken(token);
+        Long userId = accountDeletionTokenRepository.findUserIdByToken(storedToken)
                 .orElseThrow(() -> new BadRequestBusinessException("INVALID_RECOVERY_LINK", "유효하지 않은 복구 링크입니다."));
         UserEntity user = userRepository.findByIdForWrite(userId)
                 .orElseThrow(() -> new UserNotFoundException(userId));
         AccountDeletionToken deletionToken = accountDeletionTokenRepository
-                .findByTokenAndUser_Id(token, userId)
+                .findByTokenAndUser_Id(storedToken, userId)
                 .orElseThrow(() -> new BadRequestBusinessException("INVALID_RECOVERY_LINK", "유효하지 않은 복구 링크입니다."));
         validateRecoverableDeletion(deletionToken, user, LocalDateTime.now());
 
@@ -150,10 +155,29 @@ public class AccountDeletionService {
     }
 
     private AccountDeletionToken validateRecoveryToken(String token) {
-        AccountDeletionToken deletionToken = accountDeletionTokenRepository.findByToken(token)
+        AccountDeletionToken deletionToken = accountDeletionTokenRepository.findByToken(resolveStoredToken(token))
                 .orElseThrow(() -> new BadRequestBusinessException("INVALID_RECOVERY_LINK", "유효하지 않은 복구 링크입니다."));
         validateRecoverableDeletion(deletionToken, deletionToken.getUser(), LocalDateTime.now());
         return deletionToken;
+    }
+
+    private String resolveStoredToken(String token) {
+        // Previously issued links contain canonical UUIDs. Restricting the fallback
+        // prevents a leaked stored digest from being replayed as a legacy token.
+        if (token == null || !token.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) {
+            throw new BadRequestBusinessException("INVALID_RECOVERY_LINK", "유효하지 않은 복구 링크입니다.");
+        }
+        String digest = hashRecoveryToken(token);
+        return accountDeletionTokenRepository.findByToken(digest).isPresent() ? digest : token;
+    }
+
+    private static String hashRecoveryToken(String token) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(token.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
     }
 
     private void validateRecoverableDeletion(

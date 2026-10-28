@@ -106,6 +106,7 @@ public class JWTFilter extends OncePerRequestFilter {
                 normalizedRequestUri.equals("/api/auth/password/reset/request") ||
                 normalizedRequestUri.equals("/api/auth/password/reset/confirm") ||
                 normalizedRequestUri.equals("/api/auth/account/deletion/recovery") ||
+                normalizedRequestUri.equals("/api/auth/account/deletion/recovery/info") ||
                 normalizedRequestUri.startsWith("/api/auth/oauth2/email-challenge/") ||
                 normalizedRequestUri.equals("/api/auth/password-reset/request") ||
                 normalizedRequestUri.equals("/api/auth/password-reset/confirm"))) {

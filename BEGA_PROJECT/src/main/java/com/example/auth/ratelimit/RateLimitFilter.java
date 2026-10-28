@@ -48,6 +48,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             new RateLimitRule("POST", "/api/auth/password-reset/request", "auth:password-reset-request", 3, 3600),
             new RateLimitRule("POST", "/api/auth/password/reset/request", "auth:password-reset-request", 3, 3600),
             new RateLimitRule("POST", "/api/auth/oauth2/email-challenge/confirm", "auth:oauth-email-challenge-confirm", 10, 900),
+            new RateLimitRule("POST", "/api/auth/account/deletion/recovery", "auth:account-recovery", 10, 900),
+            new RateLimitRule("POST", "/api/auth/account/deletion/recovery/info", "auth:account-recovery-info", 10, 900),
             new RateLimitRule("POST", "/api/client-errors", "telemetry:client-error", 120, 60),
             new RateLimitRule("POST", "/api/client-errors/feedback", "telemetry:client-feedback", 30, 60),
             new RateLimitRule("POST", "/api/dm/messages", "dm:send", 60, 60),
