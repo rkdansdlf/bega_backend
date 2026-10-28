@@ -1,6 +1,7 @@
 package com.example.auth.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
@@ -107,6 +108,29 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
 
     @MockitoBean
     private AccountDeletionIdentityService identityService;
+
+    @Test
+    void hashedAndLegacyRecoveryTokensAreConsumedAndCannotBeReplayed() throws Exception {
+        for (boolean hashed : new boolean[] {true, false}) {
+            LocalDateTime expiry = LocalDateTime.now().plusDays(1).truncatedTo(ChronoUnit.MICROS);
+            UserEntity user = savePendingUser(expiry);
+            String raw = UUID.randomUUID().toString();
+            String stored = hashed ? java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8))) : raw;
+            accountDeletionTokenRepository.saveAndFlush(AccountDeletionToken.builder()
+                    .token(stored).user(user).expiryDate(expiry).build());
+
+            if (hashed) {
+                assertThatThrownBy(() -> accountDeletionService.recoverAccount(stored))
+                        .isInstanceOf(BadRequestBusinessException.class);
+            }
+            accountDeletionService.recoverAccount(raw);
+            assertThat(userRepository.findById(user.getId()).orElseThrow().isEnabled()).isTrue();
+            assertThat(accountDeletionTokenRepository.findByToken(stored)).isEmpty();
+            assertThatThrownBy(() -> accountDeletionService.recoverAccount(raw))
+                    .isInstanceOf(BadRequestBusinessException.class);
+        }
+    }
 
     @MockitoBean
     private AuditLogRepository auditLogRepository;
@@ -328,7 +352,7 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
     }
 
     private String saveRecoveryToken(UserEntity user, LocalDateTime expiryDate) {
-        String token = "recovery-" + UUID.randomUUID();
+        String token = UUID.randomUUID().toString();
         accountDeletionTokenRepository.saveAndFlush(AccountDeletionToken.builder()
                 .token(token)
                 .user(user)

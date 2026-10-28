@@ -11,7 +11,9 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -273,12 +275,11 @@ public class EmailService {
                 recoveryToken);
         String recoveryLink = UriComponentsBuilder.fromUriString(frontendUrl)
                 .path("/account/deletion/recovery")
-                .queryParam("token", rawRecoveryToken)
                 .queryParamIfPresent("redirect",
                         java.util.Optional.ofNullable(FrontendRedirectUtil.sanitizeRedirect(redirectPath)))
                 .build()
                 .encode()
-                .toUriString();
+                .toUriString() + "#token=" + UriUtils.encode(rawRecoveryToken, StandardCharsets.UTF_8);
         String requestedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"))
                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
         String formattedSchedule = scheduledFor == null

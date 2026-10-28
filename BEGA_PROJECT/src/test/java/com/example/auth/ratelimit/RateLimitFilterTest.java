@@ -195,6 +195,19 @@ class RateLimitFilterTest {
     }
 
     @Test
+    void accountRecoveryPosts_useTenPerFifteenMinuteRules() throws Exception {
+        doRequest("POST", "/api/auth/account/deletion/recovery", "203.0.113.72");
+        doRequest("POST", "/api/auth/account/deletion/recovery/info", "203.0.113.72");
+
+        verify(rateLimitService).isAllowed(
+                eq("rate:limit:auth:account-recovery:POST:/api/auth/account/deletion/recovery:203.0.113.72"),
+                eq(10), eq(900), eq(true));
+        verify(rateLimitService).isAllowed(
+                eq("rate:limit:auth:account-recovery-info:POST:/api/auth/account/deletion/recovery/info:203.0.113.72"),
+                eq(10), eq(900), eq(true));
+    }
+
+    @Test
     void publicHomeReadsShareOneFailClosedIpBudget() throws Exception {
         doRequest("GET", "/api/home/bootstrap", "203.0.113.80");
         doRequest("HEAD", "/api/home/widgets", "203.0.113.80");

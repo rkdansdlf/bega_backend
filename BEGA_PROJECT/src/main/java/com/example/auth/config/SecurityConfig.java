@@ -75,6 +75,7 @@ public class SecurityConfig {
                         "/api/auth/password/reset/request",
                         "/api/auth/password/reset/confirm",
                         "/api/auth/account/deletion/recovery",
+                        "/api/auth/account/deletion/recovery/info",
                         "/api/auth/password-reset/request",
                         "/api/auth/password-reset/confirm",
                         "/api/auth/oauth2/state/**",

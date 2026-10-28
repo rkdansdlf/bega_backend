@@ -27,7 +27,9 @@ final class ClientErrorSupport {
     private static final Pattern NUMERIC_PATH_SEGMENT = Pattern.compile("(?<=/)\\d+(?=/|$)");
     private static final Pattern BEARER_TOKEN = Pattern.compile("(?i)\\bbearer\\s+[A-Za-z0-9._~+/=-]+");
     private static final Pattern SENSITIVE_QUERY_VALUE = Pattern.compile(
-            "(?i)([?&;]\\s*(?:access_token|refresh_token|token|code|state|password|secret|authorization|cookie|session|session_id)=)([^\\s&#;]+)");
+            "(?i)([?#&;]\\s*(?:access_token|refresh_token|token|code|state|password|secret|authorization|cookie|session|session_id)=)([^\\s&#;]+)");
+    private static final Pattern SENSITIVE_JSON_TOKEN = Pattern.compile(
+            "(?i)(\"token\"\\s*:\\s*)\"(?:\\\\.|[^\"\\\\])*\"");
     private static final Pattern SENSITIVE_KEY_VALUE = Pattern.compile(
             "(?i)\\b(access_token|refresh_token|token|code|state|password|secret|authorization|cookie|session|session_id)\\b\\s*[:=]\\s*([^\\s,}&]+)");
 
@@ -80,6 +82,7 @@ final class ClientErrorSupport {
         }
         String redacted = BEARER_TOKEN.matcher(value).replaceAll("Bearer [REDACTED]");
         redacted = SENSITIVE_QUERY_VALUE.matcher(redacted).replaceAll("$1[REDACTED]");
+        redacted = SENSITIVE_JSON_TOKEN.matcher(redacted).replaceAll("$1\"[REDACTED]\"");
         redacted = SENSITIVE_KEY_VALUE.matcher(redacted).replaceAll("$1=[REDACTED]");
         return redacted;
     }
