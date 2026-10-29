@@ -65,7 +65,7 @@ public class ClientIpResolver {
             return remoteAddr;
         }
 
-        String forwardedFor = extractFirstIp(request.getHeader("X-Forwarded-For"));
+        String forwardedFor = extractClientIp(request.getHeader("X-Forwarded-For"));
         if (StringUtils.hasText(forwardedFor)) {
             return forwardedFor;
         }
@@ -102,17 +102,29 @@ public class ClientIpResolver {
         return false;
     }
 
-    private String extractFirstIp(String forwardedFor) {
+    /**
+     * 각 홉은 자신이 받은 주소를 오른쪽 끝에 덧붙이므로, 오른쪽에서부터 신뢰 프록시가 아닌 첫 주소가
+     * 실제 클라이언트다. 왼쪽 값은 요청자가 임의로 넣을 수 있어 신뢰하지 않는다.
+     * 모든 값이 신뢰 프록시면 가장 왼쪽 값을 돌려준다.
+     */
+    private String extractClientIp(String forwardedFor) {
         if (!StringUtils.hasText(forwardedFor)) {
             return null;
         }
 
         String[] values = forwardedFor.split(",");
-        if (values.length == 0) {
-            return null;
+        String leftmost = null;
+        for (int i = values.length - 1; i >= 0; i--) {
+            String candidate = normalize(values[i]);
+            if (!StringUtils.hasText(candidate)) {
+                continue;
+            }
+            leftmost = candidate;
+            if (!isTrustedProxy(candidate)) {
+                return candidate;
+            }
         }
-
-        return normalize(values[0]);
+        return leftmost;
     }
 
     private String normalize(String value) {

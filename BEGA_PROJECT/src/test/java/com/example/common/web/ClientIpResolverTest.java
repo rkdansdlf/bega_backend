@@ -86,6 +86,37 @@ class ClientIpResolverTest {
     }
 
     @Test
+    void forgedLeftmostForwardedForValueIsIgnored() {
+        ClientIpResolver resolver = new ClientIpResolver("10.0.0.10", new MockEnvironment());
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("10.0.0.10");
+        // 공격자가 보낸 값(198.51.100.66)을 신뢰 프록시가 실제 피어(203.0.113.10)를 덧붙여 전달한 상황
+        request.addHeader("X-Forwarded-For", "198.51.100.66, 203.0.113.10");
+
+        assertThat(resolver.resolve(request)).isEqualTo("203.0.113.10");
+    }
+
+    @Test
+    void multiHopTrustedChainResolvesToFirstUntrustedFromRight() {
+        ClientIpResolver resolver = new ClientIpResolver("10.0.0.10, 10.0.0.20", new MockEnvironment());
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("10.0.0.10");
+        request.addHeader("X-Forwarded-For", "198.51.100.66, 203.0.113.10, 10.0.0.20");
+
+        assertThat(resolver.resolve(request)).isEqualTo("203.0.113.10");
+    }
+
+    @Test
+    void allTrustedForwardedForChainFallsBackToLeftmostValue() {
+        ClientIpResolver resolver = new ClientIpResolver("10.0.0.10, 10.0.0.20", new MockEnvironment());
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("10.0.0.10");
+        request.addHeader("X-Forwarded-For", "10.0.0.20, 10.0.0.10");
+
+        assertThat(resolver.resolve(request)).isEqualTo("10.0.0.20");
+    }
+
+    @Test
     void malformedCidrEntryIsIgnoredWithoutFailing() {
         ClientIpResolver resolver = new ClientIpResolver("not-a-cidr/99, 10.0.0.10", new MockEnvironment());
         MockHttpServletRequest request = new MockHttpServletRequest();
