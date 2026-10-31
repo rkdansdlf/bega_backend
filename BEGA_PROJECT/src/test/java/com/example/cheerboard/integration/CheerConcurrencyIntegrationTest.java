@@ -323,7 +323,8 @@ class CheerConcurrencyIntegrationTest {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled("H2 in-memory does not replicate PostgreSQL row-locking for concurrent duplicate detection")
+    @org.junit.jupiter.api.Disabled("H2 in-memory does not replicate PostgreSQL row-locking for concurrent duplicate detection. "
+            + "The same scenario runs against real PostgreSQL in CheerCommentDuplicateRacePostgresIntegrationTest")
     @DisplayName("C-11: Concurrent duplicate comments should allow only one save")
     void testConcurrentDuplicateComments() throws InterruptedException {
         CheerPost post = CheerPost.builder()
