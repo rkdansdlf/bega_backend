@@ -33,7 +33,10 @@ final class Jackson2RedisSerializer implements RedisSerializer<Object> {
         }
 
         try {
-            return objectMapper.writeValueAsBytes(source);
+            // Root type must be Object so default typing always emits a type id. Without it the
+            // runtime class decides, and final root values (List.of()/Stream.toList() results,
+            // records) are written bare and fail on the next cache hit.
+            return objectMapper.writerFor(Object.class).writeValueAsBytes(source);
         } catch (JsonProcessingException ex) {
             throw new SerializationException("Could not write JSON", ex);
         }
