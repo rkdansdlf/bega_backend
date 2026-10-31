@@ -117,6 +117,18 @@ class ClientIpResolverTest {
     }
 
     @Test
+    void forwardedForLinesSentAsSeparateHeadersAreReadInHopOrder() {
+        ClientIpResolver resolver = new ClientIpResolver("10.0.0.10", new MockEnvironment());
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("10.0.0.10");
+        // 첫 줄은 공격자 값, 둘째 줄이 신뢰 프록시가 실제로 본 클라이언트다. getHeader 로 첫 줄만 읽으면 실패한다.
+        request.addHeader("X-Forwarded-For", "198.51.100.66");
+        request.addHeader("X-Forwarded-For", "203.0.113.10");
+
+        assertThat(resolver.resolve(request)).isEqualTo("203.0.113.10");
+    }
+
+    @Test
     void malformedCidrEntryIsIgnoredWithoutFailing() {
         ClientIpResolver resolver = new ClientIpResolver("not-a-cidr/99, 10.0.0.10", new MockEnvironment());
         MockHttpServletRequest request = new MockHttpServletRequest();
