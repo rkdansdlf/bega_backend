@@ -339,73 +339,6 @@ class PredictionServiceManualDataTest extends PredictionServiceTestFixture {
     }
 
     @Test
-    void getMatchesByDateRangeShouldSkipOnlyGamesThatNeedManualData() {
-        LocalDate startDate = LocalDate.of(2026, 8, 10);
-        LocalDate endDate = LocalDate.of(2026, 8, 20);
-        MatchRangeProjection displayable = buildRangeMatch(
-                "20260815HTOB0", LocalDate.of(2026, 8, 15), "HT", "OB", 2026, 0, null);
-        MatchRangeProjection missingSeason = buildRangeMatch(
-                "20260816HHSS0", LocalDate.of(2026, 8, 16), "SS", "HH", null, null, null);
-        ManualBaseballDataRequest manualRequest = seasonContextRequest("20260816HHSS0");
-
-        when(gameRepository.findCanonicalRangeProjectionByDateRangeNoCount(
-                eq(startDate), eq(endDate), anyList(), any(Pageable.class)))
-                .thenReturn(List.of(displayable, missingSeason));
-        doThrow(new ManualBaseballDataRequiredException(manualRequest))
-                .when(baseballDataIntegrityGuard)
-                .ensurePredictionRangeMatches(eq("prediction.matches_by_range"), anyList());
-        doReturn(null)
-                .when(baseballDataIntegrityGuard)
-                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_range"), any(MatchRangeProjection.class));
-        doReturn(manualRequest)
-                .when(baseballDataIntegrityGuard)
-                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_range"), eq(missingSeason));
-
-        List<MatchDto> first = predictionService.getMatchesByDateRange(startDate, endDate, true, 0, 100);
-        List<MatchDto> second = predictionService.getMatchesByDateRange(startDate, endDate, true, 0, 100);
-
-        assertThat(first).extracting(MatchDto::getGameId).containsExactly("20260815HTOB0");
-        assertThat(first.get(0).getHomeTeam()).isEqualTo("KIA");
-        assertThat(first.get(0).getAwayTeam()).isEqualTo("DB");
-        assertThat(second).extracting(MatchDto::getGameId).containsExactly("20260815HTOB0");
-        // 일부 경기만 제외된 결과는 성공 캐시에 넣지 않아, 데이터가 보정되면 바로 반영된다.
-        verify(gameRepository, times(2)).findCanonicalRangeProjectionByDateRangeNoCount(
-                eq(startDate), eq(endDate), anyList(), any(Pageable.class));
-    }
-
-    @Test
-    void getMatchesByDateRangeWithMetadataShouldSkipOnlyGamesThatNeedManualData() {
-        LocalDate startDate = LocalDate.of(2026, 8, 10);
-        LocalDate endDate = LocalDate.of(2026, 8, 20);
-        MatchRangeProjection displayable = buildRangeMatch(
-                "20260815WOSK0", LocalDate.of(2026, 8, 15), "SK", "WO", 2026, 0, null);
-        MatchRangeProjection missingSeason = buildRangeMatch(
-                "20260816HHSS0", LocalDate.of(2026, 8, 16), "SS", "HH", null, null, null);
-        ManualBaseballDataRequest manualRequest = seasonContextRequest("20260816HHSS0");
-        PageRequest pageable = PageRequest.of(0, 20);
-
-        when(gameRepository.findCanonicalRangeProjectionByDateRange(
-                eq(startDate), eq(endDate), anyList(), any(Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of(displayable, missingSeason), pageable, 2));
-        doThrow(new ManualBaseballDataRequiredException(manualRequest))
-                .when(baseballDataIntegrityGuard)
-                .ensurePredictionRangeMatches(eq("prediction.matches_by_range"), anyList());
-        doReturn(null)
-                .when(baseballDataIntegrityGuard)
-                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_range"), any(MatchRangeProjection.class));
-        doReturn(manualRequest)
-                .when(baseballDataIntegrityGuard)
-                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_range"), eq(missingSeason));
-
-        MatchRangePageResponseDto response =
-                predictionService.getMatchesByDateRangeWithMetadata(startDate, endDate, true, 0, 20);
-
-        assertThat(response.getContent()).extracting(MatchDto::getGameId).containsExactly("20260815WOSK0");
-        assertThat(response.getContent().get(0).getHomeTeam()).isEqualTo("SSG");
-        assertThat(response.getContent().get(0).getAwayTeam()).isEqualTo("KH");
-    }
-
-    @Test
     void getMatchesByDateRangeShouldStillRequireManualDataWhenEveryGameIsBlocked() {
         LocalDate startDate = LocalDate.of(2026, 8, 16);
         LocalDate endDate = LocalDate.of(2026, 8, 16);
@@ -419,9 +352,6 @@ class PredictionServiceManualDataTest extends PredictionServiceTestFixture {
         doThrow(new ManualBaseballDataRequiredException(manualRequest))
                 .when(baseballDataIntegrityGuard)
                 .ensurePredictionRangeMatches(eq("prediction.matches_by_range"), anyList());
-        doReturn(manualRequest)
-                .when(baseballDataIntegrityGuard)
-                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_range"), eq(missingSeason));
 
         ManualBaseballDataRequiredException exception = assertThrows(
                 ManualBaseballDataRequiredException.class,
@@ -431,12 +361,11 @@ class PredictionServiceManualDataTest extends PredictionServiceTestFixture {
     }
 
     @Test
-    void getMatchesByDateRangeShouldKeepPostseasonGameNosWhenOneGameIsSkipped() {
+    void getMatchesByDateRangeReturnsManualDataContractWhenOneGameNeedsManualData() {
         LocalDate day1 = LocalDate.of(2026, 10, 17);
         LocalDate day2 = LocalDate.of(2026, 10, 18);
         LocalDate day3 = LocalDate.of(2026, 10, 19);
         MatchRangeProjection game1 = buildRangeMatch("20261017LGHT0", day1, "HT", "LG", 264, 4, null);
-        // 과거 경기인데 점수가 없는 문제 경기(2차전)는 제외되지만, 3차전 번호는 3으로 유지돼야 한다.
         MatchRangeProjection missingScore = buildRangeMatch("20261018LGHT0", day2, "HT", "LG", 264, 4, null);
         MatchRangeProjection game3 = buildRangeMatch("20261019HTLG0", day3, "LG", "HT", 264, 4, null);
         ManualBaseballDataRequest manualRequest = finalScoreRequest("20261018LGHT0");
@@ -444,16 +373,17 @@ class PredictionServiceManualDataTest extends PredictionServiceTestFixture {
         when(gameRepository.findCanonicalRangeProjectionByDateRangeNoCount(
                 eq(day1), eq(day3), anyList(), any(Pageable.class)))
                 .thenReturn(List.of(game1, missingScore, game3));
-        stubPartialRangeManualData(missingScore, manualRequest);
+        stubRangeManualDataRequired(manualRequest);
 
-        List<MatchDto> matches = predictionService.getMatchesByDateRange(day1, day3, true, 0, 100);
+        ManualBaseballDataRequiredException exception = assertThrows(
+                ManualBaseballDataRequiredException.class,
+                () -> predictionService.getMatchesByDateRange(day1, day3, true, 0, 100));
 
-        assertThat(matches).extracting(MatchDto::getGameId).containsExactly("20261017LGHT0", "20261019HTLG0");
-        assertThat(matches).extracting(MatchDto::getSeriesGameNo).containsExactly(1, 3);
+        assertThat(exception.getData()).isEqualTo(manualRequest);
     }
 
     @Test
-    void getMatchesByDateRangeWithMetadataShouldKeepPostseasonGameNosWhenOneGameIsSkipped() {
+    void getMatchesByDateRangeWithMetadataReturnsManualDataContractWhenOneGameNeedsManualData() {
         LocalDate day1 = LocalDate.of(2026, 10, 17);
         LocalDate day2 = LocalDate.of(2026, 10, 18);
         LocalDate day3 = LocalDate.of(2026, 10, 19);
@@ -466,14 +396,13 @@ class PredictionServiceManualDataTest extends PredictionServiceTestFixture {
         when(gameRepository.findCanonicalRangeProjectionByDateRange(
                 eq(day1), eq(day3), anyList(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(game1, missingScore, game3), pageable, 3));
-        stubPartialRangeManualData(missingScore, manualRequest);
+        stubRangeManualDataRequired(manualRequest);
 
-        MatchRangePageResponseDto response =
-                predictionService.getMatchesByDateRangeWithMetadata(day1, day3, true, 0, 20);
+        ManualBaseballDataRequiredException exception = assertThrows(
+                ManualBaseballDataRequiredException.class,
+                () -> predictionService.getMatchesByDateRangeWithMetadata(day1, day3, true, 0, 20));
 
-        assertThat(response.getContent()).extracting(MatchDto::getGameId)
-                .containsExactly("20261017LGHT0", "20261019HTLG0");
-        assertThat(response.getContent()).extracting(MatchDto::getSeriesGameNo).containsExactly(1, 3);
+        assertThat(exception.getData()).isEqualTo(manualRequest);
     }
 
     @Test
@@ -494,16 +423,10 @@ class PredictionServiceManualDataTest extends PredictionServiceTestFixture {
         assertThat(matches).extracting(MatchDto::getAwayTeam).containsExactly("DB", "SSG");
     }
 
-    private void stubPartialRangeManualData(MatchRangeProjection blocked, ManualBaseballDataRequest manualRequest) {
+    private void stubRangeManualDataRequired(ManualBaseballDataRequest manualRequest) {
         doThrow(new ManualBaseballDataRequiredException(manualRequest))
                 .when(baseballDataIntegrityGuard)
                 .ensurePredictionRangeMatches(eq("prediction.matches_by_range"), anyList());
-        doReturn(null)
-                .when(baseballDataIntegrityGuard)
-                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_range"), any(MatchRangeProjection.class));
-        doReturn(manualRequest)
-                .when(baseballDataIntegrityGuard)
-                .findMatchProjectionManualDataRequest(eq("prediction.matches_by_range"), eq(blocked));
     }
 
     private ManualBaseballDataRequest finalScoreRequest(String gameId) {
