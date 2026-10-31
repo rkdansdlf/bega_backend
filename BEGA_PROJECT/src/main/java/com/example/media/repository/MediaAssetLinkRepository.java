@@ -14,4 +14,7 @@ public interface MediaAssetLinkRepository extends JpaRepository<MediaAssetLink, 
 
     @Transactional
     void deleteByDomainAndEntityId(MediaDomain domain, Long entityId);
+
+    @Transactional
+    void deleteByAssetId(Long assetId);
 }

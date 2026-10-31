@@ -5651,6 +5651,8 @@
       "MateSellerPayoutProfileUpsertRequest" : {
         "properties" : {
           "kycStatus" : {
+            "maxLength" : 50,
+            "minLength" : 0,
             "type" : "string"
           },
           "metadataJson" : {

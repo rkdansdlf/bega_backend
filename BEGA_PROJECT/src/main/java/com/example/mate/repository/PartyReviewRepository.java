@@ -55,4 +55,6 @@ public interface PartyReviewRepository extends JpaRepository<PartyReview, Long> 
             """)
     List<RevieweeRatingSummary> findRatingSummariesByRevieweeIds(
             @Param("revieweeIds") Collection<Long> revieweeIds);
+
+    List<PartyReview> findByReviewerIdOrRevieweeId(Long reviewerId, Long revieweeId);
 }

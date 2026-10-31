@@ -9,6 +9,7 @@ import com.example.mate.entity.PaymentFlowType;
 import com.example.mate.entity.PaymentIntent;
 import com.example.mate.entity.PaymentStatus;
 import com.example.mate.entity.PaymentTransaction;
+import com.example.mate.entity.PayoutTransaction;
 import com.example.mate.entity.SettlementStatus;
 import com.example.mate.exception.TossPaymentException;
 import com.example.mate.repository.PartyApplicationRepository;
@@ -23,6 +24,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.mock.env.MockEnvironment;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Optional;
 import java.util.List;
@@ -75,9 +80,7 @@ class PaymentTransactionServiceTest {
     private PaymentCancellationIntentService cancellationIntentService;
 
     @Mock
-
     private ReadOnlyVerificationPolicy readOnlyVerificationPolicy;
-
 
     @InjectMocks
     private PaymentTransactionService paymentTransactionService;
@@ -365,23 +368,73 @@ class PaymentTransactionServiceTest {
     }
 
     @Test
+    void requestSettlementOnApproval_defersPayoutUntilCommitInNormalMode() {
+        verifySettlementSynchronization(true);
+    }
+
+    @Test
+    void requestSettlementOnApproval_doesNotPayOnRollbackInNormalMode() {
+        verifySettlementSynchronization(false);
+    }
+
+    private void verifySettlementSynchronization(boolean committed) {
+        ReflectionTestUtils.setField(paymentTransactionService, "readOnlyVerificationPolicy",
+                new ReadOnlyVerificationPolicy(new MockEnvironment()));
+        PartyApplication application = PartyApplication.builder()
+                .id(99L).partyId(1L).applicantId(10L).orderId("ORDER-1")
+                .paymentKey("pay-approval-1").depositAmount(35000).isPaid(true).build();
+        PaymentTransaction transaction = PaymentTransaction.builder()
+                .id(500L).applicationId(99L).partyId(1L).buyerUserId(10L)
+                .orderId("ORDER-1").paymentKey("pay-approval-1").grossAmount(35000)
+                .paymentStatus(PaymentStatus.PAID).settlementStatus(SettlementStatus.PENDING).build();
+        given(paymentTransactionRepository.findByOrderIdForUpdate(application.getOrderId()))
+                .willReturn(Optional.of(transaction));
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            paymentTransactionService.requestSettlementOnApproval(application);
+            verify(payoutService, never()).requestPayout(any());
+            var callbacks = TransactionSynchronizationManager.getSynchronizations();
+            assertThat(callbacks).hasSize(1);
+            if (committed) {
+                callbacks.getFirst().afterCommit();
+                callbacks.getFirst().afterCompletion(TransactionSynchronization.STATUS_COMMITTED);
+                verify(payoutService, times(1)).requestPayout(transaction);
+            } else {
+                callbacks.getFirst().afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
+                verify(payoutService, never()).requestPayout(any());
+            }
+            verify(paymentTransactionRepository, never()).save(any());
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
     void requestSettlementOnApproval_doesNotOverwriteDurablePayoutStateWhenRequestFails() {
         PartyApplication application = PartyApplication.builder()
                 .id(99L)
                 .orderId("ORDER-1")
                 .partyId(1L)
                 .applicantId(10L)
+                .paymentKey("pay-approval-1")
+                .depositAmount(35000)
+                .isPaid(true)
                 .build();
 
         PaymentTransaction tx = PaymentTransaction.builder()
                 .id(500L)
+                .applicationId(99L)
+                .partyId(1L)
+                .buyerUserId(10L)
                 .orderId("ORDER-1")
+                .paymentKey("pay-approval-1")
+                .grossAmount(35000)
                 .paymentStatus(PaymentStatus.PAID)
                 .settlementStatus(SettlementStatus.PENDING)
                 .netAmount(35000)
                 .build();
 
-        given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
+        given(paymentTransactionRepository.findByOrderIdForUpdate(application.getOrderId()))
                 .willReturn(Optional.of(tx));
         given(payoutService.requestPayout(tx)).willThrow(new RuntimeException("payout failed"));
 
@@ -398,16 +451,26 @@ class PaymentTransactionServiceTest {
         PartyApplication application = PartyApplication.builder()
                 .id(99L)
                 .orderId("ORDER-2")
+                .partyId(1L)
+                .applicantId(10L)
+                .paymentKey("pay-approval-2")
+                .depositAmount(35000)
+                .isPaid(true)
                 .build();
 
         PaymentTransaction tx = PaymentTransaction.builder()
                 .id(501L)
+                .applicationId(99L)
+                .partyId(1L)
+                .buyerUserId(10L)
                 .orderId("ORDER-2")
+                .paymentKey("pay-approval-2")
+                .grossAmount(35000)
                 .paymentStatus(PaymentStatus.PAID)
                 .settlementStatus(SettlementStatus.COMPLETED)
                 .build();
 
-        given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
+        given(paymentTransactionRepository.findByOrderIdForUpdate(application.getOrderId()))
                 .willReturn(Optional.of(tx));
 
         paymentTransactionService.requestSettlementOnApproval(application);
@@ -415,7 +478,7 @@ class PaymentTransactionServiceTest {
         verify(payoutService, never()).requestPayout(tx);
         verify(paymentMetricsService, never()).recordPayout("fail");
         verifyNoMoreInteractions(payoutService, paymentMetricsService);
-        verify(paymentTransactionRepository).findByOrderId(application.getOrderId());
+        verify(paymentTransactionRepository).findByOrderIdForUpdate(application.getOrderId());
     }
 
     // BUG-01 검증: 정산 완료(COMPLETED) 후 환불 시 REFUNDED_AFTER_SETTLEMENT로 기록
@@ -674,6 +737,155 @@ class PaymentTransactionServiceTest {
     }
 
     @Test
+    void processCancellation_doesNotFinalizeWhenProviderTotalDiffersFromLocalGrossAmount() {
+        PartyApplication application = PartyApplication.builder()
+                .id(208L)
+                .orderId("ORDER-PROVIDER-TOTAL-MISMATCH")
+                .isPaid(true)
+                .build();
+        PaymentTransaction tx = PaymentTransaction.builder()
+                .id(608L)
+                .orderId(application.getOrderId())
+                .paymentKey("pay_key_provider_total_mismatch")
+                .grossAmount(20000)
+                .refundAmount(0)
+                .feeAmount(0)
+                .netAmount(20000)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.PENDING)
+                .build();
+        TossPaymentDTO.ConfirmResponse beforeCancellation = providerLookupResponse(
+                "pay_key_provider_total_mismatch", "DONE", 20000, 20000);
+        TossPaymentDTO.ConfirmResponse mismatchedLookup = providerLookupResponse(
+                "pay_key_provider_total_mismatch", "CANCELED", 30000, 0);
+        TossPaymentDTO.CancelResponse mismatchedCancel = providerCancelResponse(
+                "pay_key_provider_total_mismatch", "CANCELED", 30000, 0);
+        TossPaymentDTO.CancelDetail completedCancel = new TossPaymentDTO.CancelDetail();
+        setField(completedCancel, "cancelAmount", 20000);
+        setField(completedCancel, "cancelStatus", "DONE");
+        setField(mismatchedCancel, "cancels", List.of(completedCancel));
+
+        given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
+                .willReturn(Optional.of(tx));
+        given(cancelPolicyService.decide(20000, CancelReasonType.SYSTEM))
+                .willReturn(new CancelPolicyService.RefundDecision(20000, 0, "FULL_REFUND"));
+        given(tossPaymentService.getPayment("pay_key_provider_total_mismatch"))
+                .willReturn(beforeCancellation, mismatchedLookup);
+        given(tossPaymentService.cancelPayment(any(), any(), any())).willReturn(mismatchedCancel);
+
+        assertThrows(IllegalStateException.class, () -> paymentTransactionService.processCancellation(
+                application,
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.SYSTEM)
+                        .build()));
+
+        assertThat(tx.getPaymentStatus()).isEqualTo(PaymentStatus.REFUND_FAILED);
+        assertThat(tx.getRefundAmount()).isZero();
+        assertThat(getField(tx, "providerReconciledAt")).isNull();
+        verify(tossPaymentService, times(2)).getPayment("pay_key_provider_total_mismatch");
+    }
+
+    @Test
+    void processCancellation_doesNotTrustCompletedCancelsAboveLocalGrossAmount() {
+        PartyApplication application = PartyApplication.builder()
+                .id(209L)
+                .orderId("ORDER-PROVIDER-CANCEL-OVER-GROSS")
+                .isPaid(true)
+                .build();
+        PaymentTransaction tx = PaymentTransaction.builder()
+                .id(609L)
+                .orderId(application.getOrderId())
+                .paymentKey("pay_key_provider_cancel_over_gross")
+                .grossAmount(20000)
+                .refundAmount(0)
+                .feeAmount(0)
+                .netAmount(20000)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.PENDING)
+                .build();
+        TossPaymentDTO.ConfirmResponse beforeCancellation = providerLookupResponse(
+                "pay_key_provider_cancel_over_gross", "DONE", 20000, 20000);
+        TossPaymentDTO.ConfirmResponse overGrossLookup = providerLookupResponse(
+                "pay_key_provider_cancel_over_gross", "CANCELED", 20000, 0);
+        TossPaymentDTO.CancelResponse overGrossCancel = providerCancelResponse(
+                "pay_key_provider_cancel_over_gross", "CANCELED", 20000, 0);
+        TossPaymentDTO.CancelDetail overGrossCompletedCancel = new TossPaymentDTO.CancelDetail();
+        setField(overGrossCompletedCancel, "cancelAmount", 20001);
+        setField(overGrossCompletedCancel, "cancelStatus", "DONE");
+        setField(overGrossCancel, "cancels", List.of(overGrossCompletedCancel));
+        setField(overGrossLookup, "cancels", List.of(overGrossCompletedCancel));
+
+        given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
+                .willReturn(Optional.of(tx));
+        given(cancelPolicyService.decide(20000, CancelReasonType.SYSTEM))
+                .willReturn(new CancelPolicyService.RefundDecision(20000, 0, "FULL_REFUND"));
+        given(tossPaymentService.getPayment("pay_key_provider_cancel_over_gross"))
+                .willReturn(beforeCancellation, overGrossLookup);
+        given(tossPaymentService.cancelPayment(any(), any(), any())).willReturn(overGrossCancel);
+
+        assertThrows(IllegalStateException.class, () -> paymentTransactionService.processCancellation(
+                application,
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.SYSTEM)
+                        .build()));
+
+        assertThat(tx.getPaymentStatus()).isEqualTo(PaymentStatus.REFUND_FAILED);
+        assertThat(tx.getRefundAmount()).isZero();
+        assertThat(getField(tx, "providerReconciledAt")).isNull();
+        verify(tossPaymentService, times(2)).getPayment("pay_key_provider_cancel_over_gross");
+    }
+
+    @Test
+    void processCancellation_doesNotFinalizeFromBalanceWhenCancelDetailsAreIncomplete() {
+        PartyApplication application = PartyApplication.builder()
+                .id(210L)
+                .orderId("ORDER-PROVIDER-CANCEL-INCOMPLETE")
+                .isPaid(true)
+                .build();
+        PaymentTransaction tx = PaymentTransaction.builder()
+                .id(610L)
+                .orderId(application.getOrderId())
+                .paymentKey("pay_key_provider_cancel_incomplete")
+                .grossAmount(20000)
+                .refundAmount(0)
+                .feeAmount(0)
+                .netAmount(20000)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.PENDING)
+                .build();
+        TossPaymentDTO.ConfirmResponse beforeCancellation = providerLookupResponse(
+                "pay_key_provider_cancel_incomplete", "DONE", 20000, 20000);
+        TossPaymentDTO.CancelResponse incompleteCancel = providerCancelResponse(
+                "pay_key_provider_cancel_incomplete", "CANCELED", 20000, 0);
+        TossPaymentDTO.ConfirmResponse incompleteLookup = providerLookupResponse(
+                "pay_key_provider_cancel_incomplete", "CANCELED", 20000, 0);
+        TossPaymentDTO.CancelDetail pendingCancel = new TossPaymentDTO.CancelDetail();
+        setField(pendingCancel, "cancelAmount", 20000);
+        setField(pendingCancel, "cancelStatus", "PENDING");
+        setField(incompleteCancel, "cancels", List.of(pendingCancel));
+        setField(incompleteLookup, "cancels", List.of(pendingCancel));
+
+        given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
+                .willReturn(Optional.of(tx));
+        given(cancelPolicyService.decide(20000, CancelReasonType.SYSTEM))
+                .willReturn(new CancelPolicyService.RefundDecision(20000, 0, "FULL_REFUND"));
+        given(tossPaymentService.getPayment("pay_key_provider_cancel_incomplete"))
+                .willReturn(beforeCancellation, incompleteLookup);
+        given(tossPaymentService.cancelPayment(any(), any(), any())).willReturn(incompleteCancel);
+
+        assertThrows(IllegalStateException.class, () -> paymentTransactionService.processCancellation(
+                application,
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.SYSTEM)
+                        .build()));
+
+        assertThat(tx.getPaymentStatus()).isEqualTo(PaymentStatus.REFUND_FAILED);
+        assertThat(tx.getRefundAmount()).isZero();
+        assertThat(getField(tx, "providerReconciledAt")).isNull();
+        verify(tossPaymentService, times(2)).getPayment("pay_key_provider_cancel_incomplete");
+    }
+
+    @Test
     void processCancellation_failsClosedWhenProviderCanceledLessThanIntent() {
         PartyApplication application = PartyApplication.builder()
                 .id(205L)
@@ -779,18 +991,30 @@ class PaymentTransactionServiceTest {
     void processCancellation_backfillsRecoveryForPreviouslyCanceledSettledRefund() {
         PartyApplication application = PartyApplication.builder()
                 .id(304L)
+                .partyId(1L)
+                .applicantId(10L)
                 .orderId("ORDER-REFUNDED-AFTER-SETTLEMENT")
+                .paymentKey("pay-refunded-after-settlement")
+                .depositAmount(20000)
                 .isPaid(true)
                 .build();
         PaymentTransaction transaction = PaymentTransaction.builder()
                 .id(404L)
+                .applicationId(304L)
+                .partyId(1L)
+                .buyerUserId(10L)
                 .orderId(application.getOrderId())
+                .paymentKey(application.getPaymentKey())
                 .grossAmount(20000)
                 .netAmount(18000)
                 .paymentStatus(PaymentStatus.CANCELED)
                 .settlementStatus(SettlementStatus.REFUNDED_AFTER_SETTLEMENT)
                 .refundAmount(20000)
                 .feeAmount(0)
+                .requestedRefundAmount(20000)
+                .requestedFeeAmount(0)
+                .cancellationRequestedAt(Instant.now())
+                .providerReconciledAt(Instant.now())
                 .refundPolicyApplied("FULL_REFUND")
                 .build();
         given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
@@ -805,6 +1029,44 @@ class PaymentTransactionServiceTest {
         assertThat(response.getPaymentStatus()).isEqualTo(PaymentStatus.CANCELED);
         assertThat(response.getSettlementStatus()).isEqualTo(SettlementStatus.REFUNDED_AFTER_SETTLEMENT);
         verify(sellerRecoveryService).recordSettledRefund(transaction, 20000);
+        verify(tossPaymentService, never()).cancelPayment(any(), any(), any());
+    }
+
+    @Test
+    void processCancellation_rejectsCanceledTransactionWithoutPersistedProviderProof() {
+        PartyApplication application = PartyApplication.builder()
+                .id(305L)
+                .partyId(1L)
+                .applicantId(10L)
+                .orderId("ORDER-CANCELED-WITHOUT-PROOF")
+                .paymentKey("pay-canceled-without-proof")
+                .depositAmount(20000)
+                .isPaid(true)
+                .build();
+        PaymentTransaction transaction = PaymentTransaction.builder()
+                .id(405L)
+                .applicationId(305L)
+                .partyId(1L)
+                .buyerUserId(10L)
+                .orderId(application.getOrderId())
+                .paymentKey(application.getPaymentKey())
+                .grossAmount(20000)
+                .paymentStatus(PaymentStatus.CANCELED)
+                .settlementStatus(SettlementStatus.SKIPPED)
+                .refundAmount(20000)
+                .feeAmount(0)
+                .refundPolicyApplied("FULL_REFUND")
+                .build();
+        given(paymentTransactionRepository.findByOrderId(application.getOrderId()))
+                .willReturn(Optional.of(transaction));
+
+        assertThrows(IllegalStateException.class, () -> paymentTransactionService.processCancellation(
+                application,
+                PartyApplicationDTO.CancelRequest.builder()
+                        .cancelReasonType(CancelReasonType.SYSTEM)
+                        .build()));
+
+        verify(sellerRecoveryService, never()).recordSettledRefund(any(PaymentTransaction.class), anyInt());
         verify(tossPaymentService, never()).cancelPayment(any(), any(), any());
     }
 
@@ -865,6 +1127,71 @@ class PaymentTransactionServiceTest {
 
         verify(payoutService, never()).requestPayout(any());
         assertThat(transaction.getSettlementStatus()).isEqualTo(SettlementStatus.SKIPPED);
+    }
+
+    @Test
+    void requestManualPayout_rejectsUnapprovedApplicationBeforePayoutService() {
+        PaymentTransaction transaction = PaymentTransaction.builder()
+                .id(702L)
+                .applicationId(802L)
+                .partyId(902L)
+                .buyerUserId(1002L)
+                .orderId("ORDER-702")
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.PENDING)
+                .build();
+        PartyApplication application = PartyApplication.builder()
+                .id(802L)
+                .partyId(902L)
+                .applicantId(1002L)
+                .orderId("ORDER-702")
+                .isApproved(false)
+                .isRejected(false)
+                .build();
+        given(paymentTransactionRepository.findById(702L)).willReturn(Optional.of(transaction));
+        given(partyApplicationRepository.findById(802L)).willReturn(Optional.of(application));
+
+        assertThrows(
+                PayoutClaimService.PayoutEligibilityException.class,
+                () -> paymentTransactionService.requestManualPayout(702L));
+
+        verify(payoutService, never()).requestPayout(any());
+        verify(payoutService, never()).findLatestByPaymentTransactionId(702L);
+    }
+
+    @Test
+    void requestManualPayout_doesNotHideEligibilityRejectionBehindExistingPayoutFallback() {
+        PaymentTransaction transaction = PaymentTransaction.builder()
+                .id(701L)
+                .applicationId(801L)
+                .partyId(901L)
+                .buyerUserId(1001L)
+                .orderId("ORDER-701")
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.PENDING)
+                .build();
+        given(partyApplicationRepository.findById(801L)).willReturn(Optional.of(PartyApplication.builder()
+                .id(801L)
+                .partyId(901L)
+                .applicantId(1001L)
+                .orderId("ORDER-701")
+                .isApproved(true)
+                .isRejected(false)
+                .build()));
+        PayoutTransaction existingPayout = PayoutTransaction.builder()
+                .paymentTransactionId(701L)
+                .status(SettlementStatus.PENDING)
+                .build();
+        given(paymentTransactionRepository.findById(701L)).willReturn(Optional.of(transaction));
+        given(payoutService.requestPayout(transaction)).willThrow(
+                new PayoutClaimService.PayoutEligibilityException("신청 자격이 확인되지 않습니다."));
+
+        assertThrows(
+                PayoutClaimService.PayoutEligibilityException.class,
+                () -> paymentTransactionService.requestManualPayout(701L));
+
+        verify(payoutService, never()).findLatestByPaymentTransactionId(701L);
+        assertThat(existingPayout.getStatus()).isEqualTo(SettlementStatus.PENDING);
     }
 
     private static TossPaymentDTO.CancelResponse providerCancelResponse(

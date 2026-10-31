@@ -499,7 +499,9 @@ public class PartyService {
         }
 
         party.setCurrentParticipants(party.getCurrentParticipants() - 1);
-        party.setStatus(Party.PartyStatus.PENDING);
+        if (party.getStatus() == Party.PartyStatus.MATCHED) {
+            party.setStatus(Party.PartyStatus.PENDING);
+        }
 
         Party updatedParty = partyRepository.save(party);
         return Objects.requireNonNull(partyMapper.toResponse(updatedParty));

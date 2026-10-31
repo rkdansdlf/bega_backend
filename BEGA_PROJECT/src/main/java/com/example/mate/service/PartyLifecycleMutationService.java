@@ -5,11 +5,14 @@ import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.PaymentFlowType;
 import com.example.mate.entity.PaymentTransaction;
 import com.example.mate.entity.PaymentStatus;
+import com.example.mate.entity.PayoutTransaction;
 import com.example.mate.entity.SettlementStatus;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PaymentTransactionRepository;
+import com.example.mate.repository.PayoutTransactionRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,7 +21,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PartyLifecycleMutationService {
@@ -26,6 +32,10 @@ public class PartyLifecycleMutationService {
     private final PartyRepository partyRepository;
     private final PartyApplicationRepository applicationRepository;
     private final PaymentTransactionRepository paymentTransactionRepository;
+    private final PayoutTransactionRepository payoutTransactionRepository;
+
+    private record ApprovedPaidPayoutContext(PaymentTransaction payment, PayoutTransaction payout) {
+    }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Party expirePendingParty(Long partyId, LocalDate today) {
@@ -36,8 +46,90 @@ public class PartyLifecycleMutationService {
                 || !party.getGameDate().isBefore(today)) {
             return null;
         }
+
+        List<ApprovedPaidPayoutContext> approvedPaidPayouts = new ArrayList<>();
+        for (PartyApplication application : applicationRepository
+                .findApprovedPaidApplicationsByPartyIdForUpdate(partyId)) {
+            PaymentTransaction payment = application.getOrderId() == null || application.getOrderId().isBlank()
+                    ? null
+                    : paymentTransactionRepository.findByOrderIdForUpdate(application.getOrderId()).orElse(null);
+            if (!matchesApprovedPaidApplication(payment, application, partyId)) {
+                log.warn("[PartyLifecycle] approved paid application has no matching payment; keep payout held: partyId={}, applicationId={}",
+                        partyId, application.getId());
+                continue;
+            }
+            PayoutTransaction payout = payoutTransactionRepository
+                    .findTopByPaymentTransactionIdForUpdateOrderByIdDesc(payment.getId())
+                    .orElse(null);
+            approvedPaidPayouts.add(new ApprovedPaidPayoutContext(payment, payout));
+        }
+
         party.setStatus(Party.PartyStatus.FAILED);
+        Instant expiredAt = Instant.now();
+        for (PartyApplication application : applicationRepository
+                .findByPartyIdAndIsApprovedFalseAndIsRejectedFalse(partyId)) {
+            application.setIsRejected(true);
+            application.setRejectedAt(expiredAt);
+            applicationRepository.save(application);
+        }
+        for (ApprovedPaidPayoutContext context : approvedPaidPayouts) {
+            holdPayoutForManualReconciliation(context.payment(), context.payout());
+        }
         return partyRepository.save(party);
+    }
+
+    private boolean matchesApprovedPaidApplication(
+            PaymentTransaction payment,
+            PartyApplication application,
+            Long partyId) {
+        return payment != null
+                && payment.getId() != null
+                && payment.getSellerUserId() != null
+                && payment.getNetAmount() != null
+                && application.getId() != null
+                && application.getApplicantId() != null
+                && application.getOrderId() != null
+                && partyId.equals(application.getPartyId())
+                && Boolean.TRUE.equals(application.getIsApproved())
+                && Boolean.TRUE.equals(application.getIsPaid())
+                && !Boolean.TRUE.equals(application.getIsRejected())
+                && payment.getApplicationId() != null
+                && payment.getPartyId() != null
+                && payment.getBuyerUserId() != null
+                && payment.getOrderId() != null
+                && payment.getOrderId().equals(application.getOrderId())
+                && payment.getApplicationId().equals(application.getId())
+                && payment.getPartyId().equals(partyId)
+                && payment.getBuyerUserId().equals(application.getApplicantId());
+    }
+
+    private void holdPayoutForManualReconciliation(PaymentTransaction payment, PayoutTransaction existingPayout) {
+        if (existingPayout != null
+                && (existingPayout.getStatus() == SettlementStatus.COMPLETED
+                        || existingPayout.getStatus() == SettlementStatus.FAILED
+                        || existingPayout.getStatus() == SettlementStatus.SKIPPED)) {
+            return;
+        }
+        PayoutTransaction payout = existingPayout != null
+                ? existingPayout
+                : PayoutTransaction.builder()
+                        .paymentTransactionId(payment.getId())
+                        .sellerId(payment.getSellerUserId())
+                        .requestedAmount(payment.getNetAmount())
+                        .status(SettlementStatus.PENDING)
+                        .build();
+        if (payout.getStatus() == SettlementStatus.PENDING) {
+            payout.setStatus(SettlementStatus.REQUESTED);
+        }
+        payout.setFailureCode(PayoutStateService.MANUAL_RECONCILIATION_FAILURE_CODE);
+        payout.setFailReason("모집 미달 파티가 경기일 이후 만료되어 지급·환불을 자동 진행하지 않습니다. 운영자 수동 대사가 필요합니다.");
+        payout.setNextRetryAt(null);
+        payoutTransactionRepository.saveAndFlush(payout);
+
+        if (payout.getStatus() == SettlementStatus.REQUESTED) {
+            payment.setSettlementStatus(SettlementStatus.REQUESTED);
+            paymentTransactionRepository.save(payment);
+        }
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

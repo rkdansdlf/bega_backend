@@ -7,11 +7,15 @@ import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InternalServerBusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.example.media.entity.MediaDomain;
 import com.example.media.service.MediaObjectKeyGuard;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -141,6 +145,57 @@ public class ChatImageService {
         return normalized;
     }
 
+    /** Deletes only legacy chat objects proven to be in the departing user's internal key namespace. */
+    public void deleteLegacyChatImagesForUser(Long ownerUserId, List<String> storedReferences) {
+        if (ownerUserId == null) {
+            throw new IllegalArgumentException("A persisted account ID is required for chat media cleanup.");
+        }
+        if (storedReferences == null || storedReferences.isEmpty()) {
+            return;
+        }
+
+        Set<String> ownedLegacyKeys = new LinkedHashSet<>();
+        for (String storedReference : storedReferences) {
+            if (!StringUtils.hasText(storedReference) || isHttpUrl(storedReference.strip())) {
+                continue;
+            }
+            String storagePath = normalizeChatStoragePath(storedReference);
+            if (!StringUtils.hasText(storagePath)
+                    || isHttpUrl(storagePath)
+                    || MediaDomain.CHAT.isManagedPath(storagePath)
+                    || !isSafeLegacyChatKey(storagePath, ownerUserId)
+                    || !mediaObjectKeyGuard.canReadChatKey(storagePath, ownerUserId)) {
+                continue;
+            }
+            ownedLegacyKeys.add(storagePath);
+        }
+
+        String bucket = storageConfig.getCheerBucket();
+        for (String storagePath : ownedLegacyKeys) {
+            storageStrategy.delete(bucket, storagePath).block();
+        }
+    }
+
+    private boolean isSafeLegacyChatKey(String storagePath, Long ownerUserId) {
+        String ownerPrefix = "chat/" + ownerUserId + "/";
+        if (!storagePath.startsWith(ownerPrefix)) {
+            return false;
+        }
+        String relativePath = storagePath.substring(ownerPrefix.length());
+        if (!StringUtils.hasText(relativePath)) {
+            return false;
+        }
+        for (String segment : relativePath.split("/", -1)) {
+            if (segment.isBlank()
+                    || ".".equals(segment)
+                    || "..".equals(segment)
+                    || !segment.matches("[A-Za-z0-9._-]+")) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private void validateFile(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             metricsService.recordReject("mate_chat", "file_required");
@@ -215,7 +270,8 @@ public class ChatImageService {
     }
 
     private boolean isHttpUrl(String value) {
-        return value.startsWith("http://") || value.startsWith("https://");
+        return value.regionMatches(true, 0, "http://", 0, 7)
+                || value.regionMatches(true, 0, "https://", 0, 8);
     }
 
     public record UploadResult(String path, String url) {

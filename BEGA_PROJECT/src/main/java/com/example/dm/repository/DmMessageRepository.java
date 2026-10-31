@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.example.dm.entity.DmMessage;
+import org.springframework.data.jpa.repository.Modifying;
 
 public interface DmMessageRepository extends JpaRepository<DmMessage, Long> {
 
@@ -23,4 +24,10 @@ public interface DmMessageRepository extends JpaRepository<DmMessage, Long> {
               )
             """)
     List<DmMessage> findLatestMessagePerRoom(@Param("roomIds") List<Long> roomIds);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update DmMessage message set message.content = :redactedContent where message.senderId = :senderId")
+    int anonymizeBySenderId(
+            @Param("senderId") Long senderId,
+            @Param("redactedContent") String redactedContent);
 }

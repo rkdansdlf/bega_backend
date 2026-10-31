@@ -17,4 +17,8 @@ public interface AiChatFavoriteRepository extends JpaRepository<AiChatFavorite, 
     List<AiChatFavorite> findByUserIdOrderByCreatedAtDesc(Long userId);
 
     void deleteByUserIdAndMessage_Id(Long userId, Long messageId);
+
+    void deleteByUserId(Long userId);
+
+    void deleteByMessage_Session_UserId(Long userId);
 }
