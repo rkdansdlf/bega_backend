@@ -3101,6 +3101,29 @@
         },
         "type" : "object"
       },
+      "EmailVerificationConfirmDto" : {
+        "properties" : {
+          "token" : {
+            "maxLength" : 256,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "token" ],
+        "type" : "object"
+      },
+      "EmailVerificationResendDto" : {
+        "properties" : {
+          "email" : {
+            "format" : "email",
+            "maxLength" : 320,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "email" ],
+        "type" : "object"
+      },
       "EmbeddedPostDto" : {
         "properties" : {
           "author" : {
@@ -10904,6 +10927,62 @@
         "tags" : [ "인증" ]
       }
     },
+    "/api/auth/email-verification/confirm" : {
+      "post" : {
+        "operationId" : "confirmEmailVerification",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/EmailVerificationConfirmDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseMapStringObject"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "인증" ]
+      }
+    },
+    "/api/auth/email-verification/resend" : {
+      "post" : {
+        "operationId" : "resendEmailVerification",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/EmailVerificationResendDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "인증" ]
+      }
+    },
     "/api/auth/link-token" : {
       "get" : {
         "operationId" : "generateLinkToken",
@@ -11451,7 +11530,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponseVoid"
+                  "$ref" : "#/components/schemas/ApiResponseMapStringObject"
                 }
               }
             },
@@ -17115,6 +17194,9 @@
   }, {
     "description" : "리더보드 조회, 파워업, 업적, 핫스트릭, 사용자 순위",
     "name" : "리더보드"
+  }, {
+    "description" : "회원가입 이메일 인증",
+    "name" : "인증"
   }, {
     "description" : "게시물 CRUD, 좋아요, 댓글, 신고, 북마크, 리포스트",
     "name" : "응원 게시판"

@@ -231,6 +231,88 @@ class EmailServiceTest {
                 .doesNotContain("redirect=");
     }
 
+    @Test
+    void signupVerificationTokenIsEncryptedInJobRunrPayloadAndDecryptedByJob() {
+        InMemoryStorageProvider storage = new InMemoryStorageProvider();
+        JobMapper jobMapper = new JobMapper(new JacksonJsonMapper());
+        storage.setJobMapper(jobMapper);
+        JobScheduler inMemoryScheduler = new JobScheduler(storage);
+        EmailService emailService = createEnabledEmailService(objectProvider(inMemoryScheduler));
+        String rawToken = "synthetic-signup-verification-token";
+
+        try {
+            emailService.sendSignupVerificationEmail("signup@example.test", rawToken, 1440L);
+
+            List<Job> jobs = storage.getJobList(StateName.ENQUEUED, new AmountRequest("createdAt:ASC", 10));
+            assertThat(jobs).hasSize(1);
+            assertThat(jobMapper.serializeJob(jobs.get(0)))
+                    .contains(EmailJobTokenCipher.ENVELOPE_PREFIX)
+                    .doesNotContain(rawToken);
+            verify(mailSender, never()).send(any(SimpleMailMessage.class));
+
+            Object[] arguments = jobs.get(0).getJobDetails().getJobParameterValues();
+            assertThat(jobs.get(0).getJobDetails().getMethodName()).isEqualTo("sendSignupVerificationEmailJob");
+            assertThat((String) arguments[1]).startsWith(EmailJobTokenCipher.ENVELOPE_PREFIX).doesNotContain(rawToken);
+            emailService.sendSignupVerificationEmailJob(
+                    (String) arguments[0],
+                    (String) arguments[1],
+                    ((Number) arguments[2]).longValue());
+
+            ArgumentCaptor<SimpleMailMessage> messageCaptor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+            verify(mailSender).send(messageCaptor.capture());
+            assertThat(messageCaptor.getValue().getTo()).containsExactly("signup@example.test");
+            assertThat(messageCaptor.getValue().getText())
+                    .contains("https://frontend.test/signup/verify-email?token=" + rawToken)
+                    .contains("24시간");
+        } finally {
+            storage.close();
+        }
+    }
+
+    @Test
+    void signupVerificationFallbackRunsOnFallbackExecutorNotCallingThread() {
+        List<Runnable> deferred = new java.util.ArrayList<>();
+        EmailService emailService = new EmailService(
+                mailSender, gateway(objectProvider(null)), tokenCipher(), true, deferred::add);
+        ReflectionTestUtils.setField(emailService, "frontendUrl", "https://frontend.test");
+
+        emailService.sendSignupVerificationEmail("user@example.com", "raw-token", 60L);
+
+        // 호출 스레드(트랜잭션/DB 커넥션 보유 가능)에서는 SMTP 를 호출하지 않는다.
+        verify(mailSender, never()).send(any(SimpleMailMessage.class));
+        assertThat(deferred).hasSize(1);
+
+        deferred.get(0).run();
+        verify(mailSender).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    void signupVerificationEnqueueFailureFallsBackToExecutorAndSwallowsSmtpAndRejectionErrors() {
+        doThrow(new IllegalStateException("queue down"))
+                .when(jobScheduler)
+                .enqueue(org.mockito.Mockito.<IocJobLambda<Object>>any());
+        List<Runnable> deferred = new java.util.ArrayList<>();
+        EmailService emailService = new EmailService(
+                mailSender, gateway(objectProvider(jobScheduler)), tokenCipher(), true, deferred::add);
+        ReflectionTestUtils.setField(emailService, "frontendUrl", "https://frontend.test");
+        doThrow(new org.springframework.mail.MailSendException("smtp down"))
+                .when(mailSender).send(any(SimpleMailMessage.class));
+
+        emailService.sendSignupVerificationEmail("user@example.com", "raw-token", 60L);
+        verify(mailSender, never()).send(any(SimpleMailMessage.class));
+        assertThat(deferred).hasSize(1);
+        org.assertj.core.api.Assertions.assertThatCode(() -> deferred.get(0).run()).doesNotThrowAnyException();
+        verify(mailSender).send(any(SimpleMailMessage.class));
+
+        EmailService rejecting = new EmailService(
+                mailSender, gateway(objectProvider(null)), tokenCipher(), true, task -> {
+                    throw new org.springframework.core.task.TaskRejectedException("full");
+                });
+        org.assertj.core.api.Assertions.assertThatCode(
+                () -> rejecting.sendSignupVerificationEmail("user@example.com", "raw-token", 60L))
+                .doesNotThrowAnyException();
+    }
+
     private EmailService createEnabledEmailService(ObjectProvider<JobScheduler> provider) {
         EmailService emailService = new EmailService(mailSender, gateway(provider), tokenCipher(), true);
         ReflectionTestUtils.setField(emailService, "frontendUrl", "https://frontend.test");

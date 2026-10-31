@@ -119,6 +119,19 @@ public class UserEntity {
     @Column(name = "lock_expires_at")
     private LocalDateTime lockExpiresAt;
 
+    /**
+     * 이메일 소유 확인 여부.
+     * 이메일 회원가입 계정은 인증 링크를 열기 전까지 false 이며 비밀번호 로그인이 차단된다.
+     * 소셜(제공자 검증 이메일) 계정과 마이그레이션 이전 기존 계정은 true 로 둔다.
+     */
+    @Column(name = "email_verified", nullable = false)
+    @Builder.Default
+    private boolean emailVerified = false;
+
+    /** 이메일 인증 완료 시각 (기존 계정 grandfather 는 null) */
+    @Column(name = "email_verified_at")
+    private LocalDateTime emailVerifiedAt;
+
     /** 토큰 버전 (사용자 계정 무결성 검증용) */
     @Column(name = "token_version", nullable = false)
     @Builder.Default
@@ -190,6 +203,13 @@ public class UserEntity {
                 .provider(this.provider)
                 .providerId(this.providerId)
                 .build();
+    }
+
+    public void markEmailVerified(LocalDateTime verifiedAt) {
+        if (!this.emailVerified) {
+            this.emailVerified = true;
+            this.emailVerifiedAt = verifiedAt;
+        }
     }
 
     public void addCheerPoints(int points) {

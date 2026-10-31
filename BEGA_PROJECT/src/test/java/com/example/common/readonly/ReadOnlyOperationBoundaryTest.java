@@ -49,6 +49,8 @@ class ReadOnlyOperationBoundaryTest {
                     assertUnavailable(() -> service.sendNewDeviceLoginEmailJob("fixture@example.invalid", "", "", "", ""));
                     assertUnavailable(() -> service.sendAccountDeletionRecoveryEmail("fixture@example.invalid", "fixture", null));
                     assertUnavailable(() -> service.sendAccountDeletionRecoveryEmailJob("fixture@example.invalid", "fixture", null));
+                    assertUnavailable(() -> service.sendSignupVerificationEmail("fixture@example.invalid", "fixture", 60L));
+                    assertUnavailable(() -> service.sendSignupVerificationEmailJob("fixture@example.invalid", "fixture", 60L));
                     verifyNoInteractions(sender, context.getBean(JobScheduler.class));
                 });
     }

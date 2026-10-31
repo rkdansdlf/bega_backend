@@ -12,6 +12,7 @@ public class AuthRegistrationService {
 
     private final UserService userService;
     private final PolicyConsentService policyConsentService;
+    private final EmailVerificationService emailVerificationService;
 
     @Transactional
     public UserEntity register(SignupDto signupDto, String clientIp, String userAgent) {
@@ -24,8 +25,14 @@ public class AuthRegistrationService {
                 "signup",
                 clientIp,
                 userAgent);
+        emailVerificationService.issueForSignup(createdUser);
 
         return createdUser;
+    }
+
+    /** 로그인에서 이메일 인증을 강제하는지(app.auth.email-verification.required). */
+    public boolean isEmailVerificationRequired() {
+        return emailVerificationService.isVerificationRequired();
     }
 }
 
