@@ -3,6 +3,7 @@ package com.example.common.web;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -65,7 +66,7 @@ public class ClientIpResolver {
             return remoteAddr;
         }
 
-        String forwardedFor = extractClientIp(request.getHeader("X-Forwarded-For"));
+        String forwardedFor = extractClientIp(joinForwardedForLines(request));
         if (StringUtils.hasText(forwardedFor)) {
             return forwardedFor;
         }
@@ -76,6 +77,15 @@ public class ClientIpResolver {
         }
 
         return remoteAddr;
+    }
+
+    /**
+     * 프록시가 헤더를 여러 줄로 나눠 보내더라도 홉 순서대로 한 목록으로 합쳐서 해석한다.
+     * getHeader 는 첫 줄만 돌려주므로, 그 값만 쓰면 뒤에 덧붙은 신뢰 홉이 무시되고 공격자 값이 채택될 수 있다.
+     */
+    private String joinForwardedForLines(HttpServletRequest request) {
+        List<String> lines = Collections.list(request.getHeaders("X-Forwarded-For"));
+        return lines.isEmpty() ? null : String.join(",", lines);
     }
 
     public String resolveOrUnknown(HttpServletRequest request) {
