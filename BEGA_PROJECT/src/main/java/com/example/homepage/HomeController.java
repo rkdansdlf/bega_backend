@@ -97,7 +97,7 @@ public class HomeController {
     @GetMapping("/navigation")
     public ResponseEntity<HomeScopedNavigationDto> getNavigation(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            @RequestParam(defaultValue = "regular") String scope,
+            @RequestParam(defaultValue = "all") String scope,
             @RequestParam(required = false) Integer seasonYear) {
         LocalDate selectedDate = date == null ? LocalDate.now() : date;
         try {

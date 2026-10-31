@@ -19,13 +19,17 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import com.example.kbo.repository.CanonicalAdjacentGameDatesProjection;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.MatchRangeProjection;
 import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
 import com.example.kbo.validation.ManualBaseballDataRequest;
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import com.example.kbo.util.GameStatusResolver;
+import com.example.kbo.util.KboTeamCodePolicy;
 import com.example.kbo.util.TeamCodeNormalizer;
+import com.example.kbo.util.TeamCodeResolver;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,10 +44,19 @@ public class HomePageGameService {
 
     private static final String DEFAULT_GAME_TIME = "18:30";
     private static final DateTimeFormatter GAME_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
-    private static final List<String> CANONICAL_TEAMS = List.of("SS", "LT", "LG", "DB", "KIA", "KH", "HH", "SSG", "NC", "KT");
+    /**
+     * 옛 팀 코드(HT/OB/SK/WO 등)로 저장된 경기도 홈 일정에서 빠지지 않도록 canonical 코드와
+     * legacy 별칭을 함께 조회한다. /api/matches/day 와 같은 목록을 사용한다.
+     */
+    private static final List<String> QUERYABLE_TEAM_CODES = KboTeamCodePolicy.QUERYABLE_TEAM_CODES;
+    private static final long TEAM_TABLE_RELOAD_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(5);
     private static final String SCOPE_POSTSEASON = "postseason";
     private static final String SCOPE_KOREAN_SERIES = "koreanseries";
     private static final String SCOPE_SCHEDULED = "scheduled";
+    /**
+     * 리그 구분 없이 실제 경기일 기준으로 이동한다. /api/home/bootstrap 의 navigation 과 같은 기준이다.
+     */
+    static final String SCOPE_ALL = "all";
     private static final List<Integer> REGULAR_LEAGUE_CODES = List.of(0);
     private static final List<Integer> POSTSEASON_LEAGUE_CODES = List.of(2, 3, 4);
     private static final List<Integer> KOREAN_SERIES_LEAGUE_CODES = List.of(5);
@@ -74,21 +87,41 @@ public class HomePageGameService {
     private final BaseballDataIntegrityGuard baseballDataIntegrityGuard;
 
 	private final Map<String, HomePageTeam> teamMap = new ConcurrentHashMap<>();
+    private volatile long lastTeamLoadAttemptNanos;
+    private volatile boolean teamLoadAttempted;
 
     @Transactional(readOnly = true, transactionManager = "transactionManager")
     public void init() {
+        teamLoadAttempted = true;
+        lastTeamLoadAttemptNanos = System.nanoTime();
         try {
-            homePageTeamRepository.findAll().forEach(team -> teamMap.put(team.getTeamId(), team));
+            homePageTeamRepository.findAll().forEach(team -> {
+                if (team == null || team.getTeamId() == null) {
+                    return;
+                }
+                teamMap.put(team.getTeamId(), team);
+            });
         } catch (Exception e) {
             // 에러 발생해도 애플리케이션은 계속 실행
+            log.warn("event=home_team_table_load_failed message={}", e.getMessage());
+        }
+        if (teamMap.isEmpty()) {
+            log.warn("event=home_team_table_empty fallback=team_code_resolver");
         }
     }
 
-    private HomePageTeam getTeam(String teamId) {
-        if (teamMap.isEmpty()) {
+    /**
+     * teams 테이블은 팀 표시 이름 보강에만 쓴다. 테이블이 비어 있어도 팀 코드 정규화와 경기 조회는
+     * 이 테이블에 의존하지 않으며, 빈 테이블을 경기마다 다시 조회하지 않도록 재조회 간격을 둔다.
+     */
+    private HomePageTeam getTeam(String canonicalTeamId) {
+        if (teamMap.isEmpty()
+                && (!teamLoadAttempted
+                        || System.nanoTime() - lastTeamLoadAttemptNanos >= TEAM_TABLE_RELOAD_INTERVAL_NANOS)) {
             init();
         }
-        return teamMap.getOrDefault(teamId, new HomePageTeam());
+        HomePageTeam team = canonicalTeamId == null ? null : teamMap.get(canonicalTeamId);
+        return team == null ? new HomePageTeam() : team;
     }
 
     public String buildScheduledGamesWindowCacheKey(LocalDate startDate, LocalDate endDate) {
@@ -113,7 +146,30 @@ public class HomePageGameService {
         if (games.isEmpty()) {
             return List.of();
         }
-        baseballDataIntegrityGuard.ensurePredictionDateMatches("home.schedule", date, games);
+        try {
+            baseballDataIntegrityGuard.ensurePredictionDateMatches("home.schedule", date, games);
+        } catch (ManualBaseballDataRequiredException originalException) {
+            // 옛 팀 코드 경기까지 조회하면서 같은 날 일부 경기만 수동 데이터가 필요한 경우가 생긴다.
+            // 그 경기만 빼고 나머지는 보여 주고, 모든 경기가 문제일 때만 기존처럼 409를 유지한다.
+            List<HomePageGameDto> validGames = new ArrayList<>();
+            List<String> skippedGameIds = new ArrayList<>();
+            for (MatchRangeProjection game : games) {
+                if (baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.schedule", game) != null) {
+                    skippedGameIds.add(game.getGameId());
+                    continue;
+                }
+                validGames.add(convertToDto(game));
+            }
+            if (skippedGameIds.isEmpty() || validGames.isEmpty()) {
+                throw originalException;
+            }
+            log.warn("home.schedule.partial_manual_data_required date={} total={} returned={} skippedGameIds={}",
+                    date,
+                    games.size(),
+                    validGames.size(),
+                    skippedGameIds);
+            return validGames;
+        }
 
         return games.stream()
                 .map(this::convertToDto)
@@ -145,7 +201,7 @@ public class HomePageGameService {
     }
 
     private List<MatchRangeProjection> findGameProjectionsByDate(LocalDate date) {
-        List<MatchRangeProjection> games = gameRepository.findCanonicalRangeProjectionByGameDate(date, CANONICAL_TEAMS);
+        List<MatchRangeProjection> games = gameRepository.findCanonicalRangeProjectionByGameDate(date, QUERYABLE_TEAM_CODES);
         if (!games.isEmpty()) {
             return games;
         }
@@ -168,12 +224,12 @@ public class HomePageGameService {
                 startDate,
                 endDate,
                 SCHEDULED_WINDOW_STATUSES,
-                CANONICAL_TEAMS);
+                QUERYABLE_TEAM_CODES);
         if (games.isEmpty()) {
             return List.of();
         }
-        baseballDataIntegrityGuard.ensurePredictionRangeMatches("home.scheduled_window", games);
-        return games.stream()
+        List<MatchRangeProjection> displayableGames = selectDisplayableScheduledWindowGames(startDate, endDate, games);
+        return displayableGames.stream()
                 .map(game -> {
                     HomePageGameDto baseDto = convertToDto(game);
                     return HomePageScheduledGameDto.builder()
@@ -197,11 +253,45 @@ public class HomePageGameService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 7일 예정 경기 윈도우에서 일부 경기만 수동 데이터가 필요하면 그 경기만 제외한다.
+     * 윈도우 안의 모든 경기가 문제일 때만 기존처럼 수동 데이터 요청 예외를 던진다.
+     */
+    private List<MatchRangeProjection> selectDisplayableScheduledWindowGames(
+            LocalDate startDate,
+            LocalDate endDate,
+            List<MatchRangeProjection> games) {
+        try {
+            baseballDataIntegrityGuard.ensurePredictionRangeMatches("home.scheduled_window", games);
+            return games;
+        } catch (ManualBaseballDataRequiredException originalException) {
+            List<MatchRangeProjection> displayableGames = new ArrayList<>();
+            List<String> skippedGameIds = new ArrayList<>();
+            for (MatchRangeProjection game : games) {
+                if (baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.scheduled_window", game) != null) {
+                    skippedGameIds.add(game.getGameId());
+                    continue;
+                }
+                displayableGames.add(game);
+            }
+            if (skippedGameIds.isEmpty() || displayableGames.isEmpty()) {
+                throw originalException;
+            }
+            log.warn("home.scheduled_window.partial_manual_data_required window={}~{} total={} returned={} skippedGameIds={}",
+                    startDate,
+                    endDate,
+                    games.size(),
+                    displayableGames.size(),
+                    skippedGameIds);
+            return displayableGames;
+        }
+    }
+
     private HomePageGameDto convertToDto(MatchRangeProjection game) {
-		HomePageTeam homeTeam = getTeam(game.getHomeTeam());
-		HomePageTeam awayTeam = getTeam(game.getAwayTeam());
-        String resolvedHomeTeamId = resolveTeamId(game.getHomeTeam(), homeTeam.getTeamId());
-        String resolvedAwayTeamId = resolveTeamId(game.getAwayTeam(), awayTeam.getTeamId());
+        String resolvedHomeTeamId = resolveTeamId(game.getHomeTeam());
+        String resolvedAwayTeamId = resolveTeamId(game.getAwayTeam());
+		HomePageTeam homeTeam = getTeam(resolvedHomeTeamId);
+		HomePageTeam awayTeam = getTeam(resolvedAwayTeamId);
         String resolvedHomeTeamName = resolveTeamName(resolvedHomeTeamId, homeTeam.getTeamName());
         String resolvedAwayTeamName = resolveTeamName(resolvedAwayTeamId, awayTeam.getTeamName());
 
@@ -442,8 +532,9 @@ public class HomePageGameService {
     @Cacheable(value = GAME_SCHEDULE, key = "#root.target.buildScheduleNavigationCacheKey(#date)")
     @Transactional(readOnly = true, transactionManager = "kboGameTransactionManager")
     public ScheduleNavigationDto getScheduleNavigation(LocalDate date) {
-        LocalDate prev = gameRepository.findPrevGameDate(date).orElse(null);
-        LocalDate next = gameRepository.findNextGameDate(date).orElse(null);
+        CanonicalAdjacentGameDatesProjection adjacentDates = findAdjacentGameDates(date);
+        LocalDate prev = adjacentDates == null ? null : adjacentDates.getPrevDate();
+        LocalDate next = adjacentDates == null ? null : adjacentDates.getNextDate();
 
         return ScheduleNavigationDto.builder()
                 .prevGameDate(prev)
@@ -458,6 +549,9 @@ public class HomePageGameService {
     public HomeScopedNavigationDto getScopedNavigation(LocalDate date, String scope, Integer seasonYear) {
         LocalDate anchorDate = date == null ? LocalDate.now() : date;
         String normalizedScope = normalizeNavigationScope(scope);
+        if (SCOPE_ALL.equals(normalizedScope)) {
+            return getAllScopeNavigation(anchorDate);
+        }
         int resolvedSeasonYear = seasonYear == null ? anchorDate.getYear() : seasonYear;
 
         LocalDate resolvedDate = resolveScopedDate(anchorDate, normalizedScope, resolvedSeasonYear);
@@ -474,15 +568,44 @@ public class HomePageGameService {
                 .build();
     }
 
+    /**
+     * scope=all: 정규시즌/포스트시즌 구분 없이 실제 경기일(더미·MOCK 제외, legacy 팀 코드 포함)을 기준으로
+     * 이전/다음 경기일을 계산한다. prev/next 는 요청 날짜 기준이라 /api/home/bootstrap 의
+     * navigation 과 항상 같은 값을 돌려준다. resolvedDate 는 요청 날짜에 경기가 있으면 그 날짜,
+     * 없으면 다음 경기일(없으면 이전 경기일)이다.
+     */
+    private HomeScopedNavigationDto getAllScopeNavigation(LocalDate anchorDate) {
+        CanonicalAdjacentGameDatesProjection adjacentDates = findAdjacentGameDates(anchorDate);
+        LocalDate prev = adjacentDates == null ? null : adjacentDates.getPrevDate();
+        LocalDate next = adjacentDates == null ? null : adjacentDates.getNextDate();
+
+        CanonicalAdjacentGameDatesProjection fromNextDay = findAdjacentGameDates(anchorDate.plusDays(1));
+        boolean anchorHasGames = fromNextDay != null && anchorDate.equals(fromNextDay.getPrevDate());
+        LocalDate resolvedDate = anchorHasGames ? anchorDate : (next != null ? next : prev);
+
+        return HomeScopedNavigationDto.builder()
+                .resolvedDate(resolvedDate == null ? null : resolvedDate.toString())
+                .prevGameDate(prev == null ? null : prev.toString())
+                .nextGameDate(next == null ? null : next.toString())
+                .hasPrev(prev != null)
+                .hasNext(next != null)
+                .build();
+    }
+
+    private CanonicalAdjacentGameDatesProjection findAdjacentGameDates(LocalDate date) {
+        return gameRepository.findCanonicalAdjacentGameDates(date, QUERYABLE_TEAM_CODES);
+    }
+
     private String normalizeNavigationScope(String scope) {
         if (scope == null || scope.isBlank()) {
-            return "regular";
+            return SCOPE_ALL;
         }
 
         String normalized = scope.trim().toLowerCase();
         if (SCOPE_POSTSEASON.equals(normalized)
                 || SCOPE_KOREAN_SERIES.equals(normalized)
-                || SCOPE_SCHEDULED.equals(normalized)) {
+                || SCOPE_SCHEDULED.equals(normalized)
+                || SCOPE_ALL.equals(normalized)) {
             return normalized;
         }
 
@@ -557,10 +680,10 @@ public class HomePageGameService {
         return REGULAR_LEAGUE_CODES;
     }
 
-    private String resolveTeamId(String rawTeamCode, String mappedTeamId) {
-        if (mappedTeamId != null && !mappedTeamId.isBlank()) {
-            return mappedTeamId;
-        }
+    /**
+     * 응답 팀 코드는 항상 canonical 코드(HT→KIA, OB→DB, SK→SSG, WO→KH 등)로 정규화한다.
+     */
+    private String resolveTeamId(String rawTeamCode) {
         String normalized = TeamCodeNormalizer.normalize(rawTeamCode);
         if (normalized == null || normalized.isBlank()) {
             return rawTeamCode;
@@ -571,6 +694,10 @@ public class HomePageGameService {
     private String resolveTeamName(String resolvedTeamId, String mappedTeamName) {
         if (mappedTeamName != null && !mappedTeamName.isBlank()) {
             return mappedTeamName;
+        }
+        String displayName = TeamCodeResolver.getDisplayName(resolvedTeamId);
+        if (displayName != null && !displayName.isBlank()) {
+            return displayName;
         }
         return resolvedTeamId;
     }

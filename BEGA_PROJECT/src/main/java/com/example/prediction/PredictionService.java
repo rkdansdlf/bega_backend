@@ -24,7 +24,6 @@ import com.example.kbo.validation.ManualBaseballDataRequest;
 import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import com.example.kbo.util.GameStatusResolver;
 import com.example.kbo.util.KboTeamCodePolicy;
-import com.example.kbo.util.TeamCodeResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -89,11 +88,7 @@ public class PredictionService {
             "IN_PROGRESS",
             "INPROGRESS");
     private static final Pattern GAME_ID_PATTERN = Pattern.compile("^[A-Za-z0-9_-]+$");
-    private static final List<String> CANONICAL_TEAMS = List.of("SS", "LT", "LG", "DB", "KIA", "KH", "HH", "SSG", "NC", "KT");
-    private static final List<String> QUERYABLE_TEAM_CODES = CANONICAL_TEAMS.stream()
-            .flatMap(teamCode -> TeamCodeResolver.resolveVariants(teamCode).stream())
-            .distinct()
-            .collect(Collectors.toList());
+    private static final List<String> QUERYABLE_TEAM_CODES = KboTeamCodePolicy.QUERYABLE_TEAM_CODES;
     private static final int MAX_VOTE_RETRY_ATTEMPTS = 2;
     private static final long MAX_SNAPSHOT_SYNC_RANGE_DAYS = 31;
     private static final long MATCH_DAY_SLOW_LOG_THRESHOLD_MS = 1000L;
@@ -634,8 +629,9 @@ public class PredictionService {
             if (seasonId == null || homeTeam == null || awayTeam == null) {
                 continue;
             }
-            String teamA = homeTeam.trim().toUpperCase(Locale.ROOT);
-            String teamB = awayTeam.trim().toUpperCase(Locale.ROOT);
+            // 옛 팀 코드(HT/OB/SK/WO 등)와 canonical 코드가 섞여 있어도 같은 시리즈로 묶이도록 정규화한다.
+            String teamA = normalizeSeriesTeamCode(homeTeam);
+            String teamB = normalizeSeriesTeamCode(awayTeam);
             // 정렬하여 팀 순서에 무관한 키 생성
             String seriesKey = seasonId + ":" + (teamA.compareTo(teamB) <= 0
                     ? teamA + ":" + teamB
@@ -644,6 +640,12 @@ public class PredictionService {
             result.put(gameId, gameNo);
         }
         return result;
+    }
+
+    private String normalizeSeriesTeamCode(String teamCode) {
+        String trimmed = teamCode.trim().toUpperCase(Locale.ROOT);
+        String normalized = com.example.kbo.util.TeamCodeNormalizer.normalize(trimmed);
+        return normalized == null || normalized.isBlank() ? trimmed : normalized.toUpperCase(Locale.ROOT);
     }
 
     private boolean isPostseasonMatch(MatchRangeProjection match) {
