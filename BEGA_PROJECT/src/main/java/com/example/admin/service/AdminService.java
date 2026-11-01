@@ -330,6 +330,8 @@ public class AdminService {
             if (locked.post().getPurgeStartedAt() != null) {
                 throw new ConflictBusinessException("POST_PURGE_STARTED", "이미 영구 삭제가 시작된 게시글은 복구할 수 없습니다.");
             }
+            com.example.cheerboard.service.CheerPurgeCoordination.assertNoStartedPurge(cheerPostRepository, locked.owner().getId());
+            com.example.cheerboard.service.CheerPurgeCoordination.assertNoOwnedReservedAssets(mediaAssetRepository, locked.owner().getId());
             locked.post().setDeleted(false);
             cheerPostRepository.save(locked.post());
         }
