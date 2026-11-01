@@ -20,6 +20,7 @@ import com.example.auth.service.AccountDeletionContentService;
 import com.example.auth.service.AccountContentAnonymizationRetryService;
 import com.example.auth.service.ModerationHoldAlertService;
 import com.example.auth.service.AccountDeletionFinalizationService;
+import com.example.auth.service.ModerationHoldAlertService;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.CheerPostReport;
 import com.example.cheerboard.domain.PostType;
@@ -450,6 +451,20 @@ class AdminReportAppealDecisionIntegrationTest {
         Integer allowed = transaction().execute(status -> postRepository.claimPurge(
                 fixture.postId(), "closed-claim", now, now.plusMinutes(15)));
         assertThat(allowed).as("closed appeal allows purge").isEqualTo(1);
+    }
+
+    @Test
+    void restoreIsRejectedWhileAnotherPostOfTheAuthorIsBeingPurged() {
+        Fixture fixture = createFixture(false);
+        jdbcTemplate.update("UPDATE cheer_post SET deleted = ? WHERE id = ?", true, fixture.postId());
+        jdbcTemplate.update("UPDATE cheer_post SET deleted = ?, purge_started_at = ? WHERE id = ?",
+                true, LocalDateTime.now(java.time.ZoneOffset.UTC), fixture.unrelatedPostId());
+        assertThatThrownBy(() -> adminService.handleReport(fixture.firstReportId(),
+                new AdminReportActionReq(CheerPostReport.AdminAction.RESTORE, "synthetic", null), 9001L))
+                .isInstanceOfSatisfying(ConflictBusinessException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo("POST_PURGE_IN_PROGRESS"));
+        assertThat(jdbcTemplate.queryForObject("SELECT deleted FROM cheer_post WHERE id = ?", Boolean.class, fixture.postId()))
+                .isTrue();
     }
 
     @Test
