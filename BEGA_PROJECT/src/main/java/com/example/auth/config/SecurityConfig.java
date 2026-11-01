@@ -677,6 +677,10 @@ public class SecurityConfig {
                 if ("oauth2_email_required".equals(message)) {
                         return message;
                 }
+                if (CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_RATE_LIMITED.equals(message)
+                                || CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_UNAVAILABLE.equals(message)) {
+                        return message;
+                }
                 if ("oauth2_link_conflict".equals(message)
                                 || "oauth2_link_requires_unlink".equals(message)
                                 || "oauth2_link_replayed".equals(message)

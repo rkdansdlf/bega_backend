@@ -24,6 +24,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -135,6 +136,81 @@ class CustomOAuth2UserServiceTest {
         verify(oauthEmailChallengeService).issue(
                 "naver", "naver-provider-id", "new@example.com", "신규유저", null);
         verify(userRepository, never()).save(org.mockito.ArgumentMatchers.any(UserEntity.class));
+    }
+
+    @Test
+    @DisplayName("이메일 challenge 발송 rate limit 초과는 OAuth2 실패(rate_limited)로 변환된다")
+    void processNormalLogin_challengeRateLimitedBecomesOAuth2Failure() {
+        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+        com.example.common.exception.RateLimitExceededException cause =
+                new com.example.common.exception.RateLimitExceededException("too many");
+        when(oauthEmailChallengeService.issue(any(), any(), any(), any(), any())).thenThrow(cause);
+
+        assertThatThrownBy(() -> invokeProcessNormalLogin(
+                Optional.empty(), "new@example.com", "신규유저", "naver", "naver-provider-id", null, false))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception -> {
+                    assertThat(exception.getError().getErrorCode())
+                            .isEqualTo(CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_RATE_LIMITED);
+                    assertThat(exception.getMessage())
+                            .isEqualTo(CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_RATE_LIMITED);
+                    assertThat(exception.getCause()).isSameAs(cause);
+                });
+        verify(request, never()).setAttribute(
+                org.mockito.ArgumentMatchers.eq(CustomOAuth2UserService.OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE), any());
+    }
+
+    @Test
+    @DisplayName("이메일 challenge 메일 발송 실패는 OAuth2 실패(unavailable)로 변환된다")
+    void processNormalLogin_challengeMailFailureBecomesOAuth2Failure() {
+        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+        org.springframework.mail.MailSendException cause = new org.springframework.mail.MailSendException("smtp down");
+        when(oauthEmailChallengeService.issue(any(), any(), any(), any(), any())).thenThrow(cause);
+
+        assertThatThrownBy(() -> invokeProcessNormalLogin(
+                Optional.empty(), "new@example.com", "신규유저", "naver", "naver-provider-id", null, false))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception -> {
+                    assertThat(exception.getError().getErrorCode())
+                            .isEqualTo(CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_UNAVAILABLE);
+                    assertThat(exception.getCause()).isSameAs(cause);
+                });
+        verify(request, never()).setAttribute(
+                org.mockito.ArgumentMatchers.eq(CustomOAuth2UserService.OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE), any());
+    }
+
+    @Test
+    @DisplayName("읽기 전용 모드 등 BusinessException 도 OAuth2 실패(unavailable)로 변환된다")
+    void processNormalLogin_challengeReadOnlyBecomesOAuth2Failure() {
+        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+        when(oauthEmailChallengeService.issue(any(), any(), any(), any(), any()))
+                .thenThrow(new com.example.common.readonly.ReadOnlyVerificationUnavailableException());
+
+        assertThatThrownBy(() -> invokeProcessNormalLogin(
+                Optional.empty(), "new@example.com", "신규유저", "naver", "naver-provider-id", null, false))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                        assertThat(exception.getError().getErrorCode())
+                                .isEqualTo(CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_UNAVAILABLE));
+    }
+
+    @Test
+    @DisplayName("이메일 미제공 challenge 발급 실패도 OAuth2 실패(unavailable)로 변환된다")
+    void emailRequiredChallenge_issueFailureBecomesOAuth2Failure() throws Exception {
+        when(oauthEmailChallengeService.issueEmailRequired(any(), any(), any(), any()))
+                .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("db down"));
+        Method method = CustomOAuth2UserService.class.getDeclaredMethod(
+                "emailRequiredChallenge", String.class, String.class, String.class, String.class);
+        method.setAccessible(true);
+
+        assertThatThrownBy(() -> {
+            try {
+                method.invoke(customOAuth2UserService, "naver", "naver-provider-id", "신규유저", null);
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                throw e.getCause();
+            }
+        }).isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                assertThat(exception.getError().getErrorCode())
+                        .isEqualTo(CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_UNAVAILABLE));
+        verify(request, never()).setAttribute(
+                org.mockito.ArgumentMatchers.eq(CustomOAuth2UserService.OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE), any());
     }
 
     @Test
