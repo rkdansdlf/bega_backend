@@ -407,8 +407,7 @@ public class PaymentIntentService {
                 .findFirstByPaymentIntentIdAndEventTypeOrderByCreatedAtAsc(intentId, EventType.IDENTITY_MISMATCH_HOLD)
                 .filter(hold -> requestedPaymentKey.equals(hold.getRequestedPaymentKey()))
                 .isPresent()
-                && reconciliationEventRepository.existsByPaymentIntentIdAndEventType(
-                        intentId, EventType.VERIFIED_PAYMENT_BOUND);
+                && hasVerifiedIdentityPaymentBinding(intentId);
     }
 
     @Transactional(readOnly = true)
@@ -416,10 +415,187 @@ public class PaymentIntentService {
         if (intentId == null) {
             return false;
         }
-        return reconciliationEventRepository.existsByPaymentIntentIdAndEventType(
-                        intentId, EventType.IDENTITY_MISMATCH_HOLD)
-                && reconciliationEventRepository.existsByPaymentIntentIdAndEventType(
-                        intentId, EventType.VERIFIED_PAYMENT_BOUND);
+        PaymentIntent intent = paymentIntentRepository.findById(intentId).orElse(null);
+        if (intent == null) {
+            return false;
+        }
+        List<PaymentIntentReconciliationEvent> events = reconciliationEventRepository
+                .findByPaymentIntentIdOrderByCreatedAtAscIdAsc(intentId);
+        return findValidVerifiedPaymentBinding(intent, events) != null;
+    }
+
+    @Transactional(readOnly = true)
+    public ProviderVerificationTarget getProviderVerificationTarget(Long intentId) {
+        PaymentIntent intent = paymentIntentRepository.findById(intentId)
+                .orElseThrow(() -> providerVerificationNotFound(intentId));
+        List<PaymentIntentReconciliationEvent> events = reconciliationEventRepository
+                .findByPaymentIntentIdOrderByCreatedAtAscIdAsc(intentId);
+        PaymentIntentReconciliationEvent hold = findIdentityMismatchHold(events);
+        if (findValidVerifiedPaymentBinding(intent, events) != null) {
+            return new ProviderVerificationTarget(
+                    intent.getId(), hold.getRequestedPaymentKey(), intent.getOrderId(), intent.getExpectedAmount(), true);
+        }
+        if (containsEvent(events, EventType.VERIFIED_PAYMENT_BOUND)) {
+            throw providerVerificationStateChanged();
+        }
+        validateProviderVerificationHold(intent, hold);
+        return new ProviderVerificationTarget(
+                intent.getId(), hold.getRequestedPaymentKey(), intent.getOrderId(), intent.getExpectedAmount(), false);
+    }
+
+    @Transactional
+    public ProviderVerificationTarget recordProviderVerification(
+            ProviderVerificationTarget target,
+            Long administratorId,
+            TossPaymentDTO.ConfirmResponse providerPayment,
+            boolean lookupFailed) {
+        jobScheduler.requireWritable();
+        if (administratorId == null) {
+            throw new TossPaymentException(
+                    "ADMIN_ID_REQUIRED", "관리자 인증 정보를 확인할 수 없습니다.", HttpStatus.FORBIDDEN);
+        }
+        if (target == null || target.intentId() == null || target.alreadyVerified()) {
+            throw providerVerificationStateChanged();
+        }
+
+        PaymentIntent intent = paymentIntentRepository.findByIdForUpdate(target.intentId())
+                .orElseThrow(() -> providerVerificationNotFound(target.intentId()));
+        List<PaymentIntentReconciliationEvent> events = reconciliationEventRepository
+                .findByPaymentIntentIdOrderByCreatedAtAscIdAsc(target.intentId());
+        PaymentIntentReconciliationEvent hold = findIdentityMismatchHold(events);
+
+        if (findValidVerifiedPaymentBinding(intent, events) != null) {
+            return new ProviderVerificationTarget(
+                    intent.getId(), target.requestedPaymentKey(), intent.getOrderId(), intent.getExpectedAmount(), true);
+        }
+        if (containsEvent(events, EventType.VERIFIED_PAYMENT_BOUND)) {
+            throw providerVerificationStateChanged();
+        }
+        validateProviderVerificationHold(intent, hold);
+        if (!java.util.Objects.equals(target.requestedPaymentKey(), hold.getRequestedPaymentKey())
+                || !java.util.Objects.equals(target.orderId(), intent.getOrderId())
+                || !java.util.Objects.equals(target.expectedAmount(), intent.getExpectedAmount())) {
+            throw providerVerificationStateChanged();
+        }
+
+        if (lookupFailed) {
+            reconciliationEventRepository.save(PaymentIntentReconciliationEvent.builder()
+                    .paymentIntentId(intent.getId())
+                    .eventType(EventType.PROVIDER_LOOKUP_FAILED)
+                    .recordedBy(administratorId)
+                    .build());
+            return new ProviderVerificationTarget(
+                    intent.getId(), target.requestedPaymentKey(), intent.getOrderId(), intent.getExpectedAmount(), false);
+        }
+
+        boolean exactCompletedPayment = providerPayment != null
+                && java.util.Objects.equals(target.requestedPaymentKey(), providerPayment.getPaymentKey())
+                && java.util.Objects.equals(intent.getOrderId(), providerPayment.getOrderId())
+                && java.util.Objects.equals(intent.getExpectedAmount(), providerPayment.getTotalAmount())
+                && "DONE".equals(providerPayment.getStatus());
+        if (!exactCompletedPayment) {
+            reconciliationEventRepository.save(PaymentIntentReconciliationEvent.builder()
+                    .paymentIntentId(intent.getId())
+                    .eventType(EventType.PROVIDER_VERIFICATION_MISMATCH)
+                    .candidatePaymentKey(providerPayment != null
+                            ? boundedEvidence(providerPayment.getPaymentKey(), 200)
+                            : null)
+                    .candidateOrderId(providerPayment != null
+                            ? boundedEvidence(providerPayment.getOrderId(), 100)
+                            : null)
+                    .candidateAmount(providerPayment != null ? providerPayment.getTotalAmount() : null)
+                    .candidateStatus(providerPayment != null
+                            ? boundedEvidence(providerPayment.getStatus(), 30)
+                            : null)
+                    .recordedBy(administratorId)
+                    .build());
+            return new ProviderVerificationTarget(
+                    intent.getId(), target.requestedPaymentKey(), intent.getOrderId(), intent.getExpectedAmount(), false);
+        }
+
+        intent.setPaymentKey(target.requestedPaymentKey());
+        intent.setFailureCode("VERIFIED_PAYMENT_PENDING_APPLICATION");
+        intent.setFailureMessage("Provider payment identity verified; application completion is pending.");
+        paymentIntentRepository.saveAndFlush(intent);
+        reconciliationEventRepository.save(PaymentIntentReconciliationEvent.builder()
+                .paymentIntentId(intent.getId())
+                .eventType(EventType.VERIFIED_PAYMENT_BOUND)
+                .verifiedPaymentKey(providerPayment.getPaymentKey())
+                .verifiedOrderId(providerPayment.getOrderId())
+                .verifiedAmount(providerPayment.getTotalAmount())
+                .verifiedStatus(providerPayment.getStatus())
+                .recordedBy(administratorId)
+                .build());
+        return new ProviderVerificationTarget(
+                intent.getId(), target.requestedPaymentKey(), intent.getOrderId(), intent.getExpectedAmount(), true);
+    }
+
+    private PaymentIntentReconciliationEvent findIdentityMismatchHold(
+            List<PaymentIntentReconciliationEvent> events) {
+        return events.stream()
+                .filter(event -> event.getEventType() == EventType.IDENTITY_MISMATCH_HOLD)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private PaymentIntentReconciliationEvent findValidVerifiedPaymentBinding(
+            PaymentIntent intent,
+            List<PaymentIntentReconciliationEvent> events) {
+        PaymentIntentReconciliationEvent hold = findIdentityMismatchHold(events);
+        if (hold == null || hold.getRequestedPaymentKey() == null || hold.getRequestedPaymentKey().isBlank()) {
+            return null;
+        }
+        return events.stream()
+                .filter(event -> event.getEventType() == EventType.VERIFIED_PAYMENT_BOUND)
+                .filter(event -> java.util.Objects.equals(hold.getRequestedPaymentKey(), event.getVerifiedPaymentKey()))
+                .filter(event -> java.util.Objects.equals(intent.getPaymentKey(), event.getVerifiedPaymentKey()))
+                .filter(event -> java.util.Objects.equals(intent.getOrderId(), event.getVerifiedOrderId()))
+                .filter(event -> java.util.Objects.equals(intent.getExpectedAmount(), event.getVerifiedAmount()))
+                .filter(event -> "DONE".equals(event.getVerifiedStatus()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private void validateProviderVerificationHold(
+            PaymentIntent intent,
+            PaymentIntentReconciliationEvent hold) {
+        if (hold == null || hold.getRequestedPaymentKey() == null || hold.getRequestedPaymentKey().isBlank()) {
+            throw providerVerificationStateChanged();
+        }
+        if (intent.getStatus() != PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED
+                || intent.getFailureCode() == null
+                || !("PROVIDER_IDENTITY_MISMATCH".equals(intent.getFailureCode())
+                        || "PROVIDER_IDENTITY_MISMATCH_REVIEW_PENDING".equals(intent.getFailureCode()))
+                || (intent.getPaymentKey() != null
+                        && !java.util.Objects.equals(intent.getPaymentKey(), hold.getRequestedPaymentKey()))) {
+            throw providerVerificationStateChanged();
+        }
+    }
+
+    private boolean containsEvent(List<PaymentIntentReconciliationEvent> events, EventType eventType) {
+        return events.stream().anyMatch(event -> event.getEventType() == eventType);
+    }
+
+    private TossPaymentException providerVerificationNotFound(Long intentId) {
+        return new TossPaymentException(
+                "PAYMENT_INTENT_RECONCILIATION_NOT_FOUND",
+                "결제 대사 기록을 찾을 수 없습니다: " + intentId,
+                HttpStatus.NOT_FOUND);
+    }
+
+    private TossPaymentException providerVerificationStateChanged() {
+        return new TossPaymentException(
+                "PAYMENT_INTENT_RECONCILIATION_STATE_CHANGED",
+                "대상 결제의 대사 상태가 변경되어 provider 검증을 완료할 수 없습니다.",
+                HttpStatus.CONFLICT);
+    }
+
+    public record ProviderVerificationTarget(
+            Long intentId,
+            String requestedPaymentKey,
+            String orderId,
+            Integer expectedAmount,
+            boolean alreadyVerified) {
     }
 
     @Transactional

@@ -541,6 +541,27 @@
         },
         "type" : "object"
       },
+      "ApiResponse" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : { },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseAccountDeletionRecoveryInfoDto" : {
         "properties" : {
           "code" : {
@@ -847,6 +868,29 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/ClientErrorEventPageDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseDmMessageResponse" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/DmMessageResponse"
           },
           "errors" : {
             "additionalProperties" : {
@@ -1233,6 +1277,32 @@
         },
         "type" : "object"
       },
+      "ApiResponseListDmMessageResponse" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/DmMessageResponse"
+            },
+            "type" : "array"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseListInboxItem" : {
         "properties" : {
           "code" : {
@@ -1267,32 +1337,6 @@
           "data" : {
             "items" : {
               "$ref" : "#/components/schemas/OffseasonMovementAdminDto"
-            },
-            "type" : "array"
-          },
-          "errors" : {
-            "additionalProperties" : {
-              "type" : "string"
-            },
-            "type" : "object"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "success" : {
-            "type" : "boolean"
-          }
-        },
-        "type" : "object"
-      },
-      "ApiResponseListResponse" : {
-        "properties" : {
-          "code" : {
-            "type" : "string"
-          },
-          "data" : {
-            "items" : {
-              "$ref" : "#/components/schemas/Response"
             },
             "type" : "array"
           },
@@ -1742,6 +1786,29 @@
         },
         "type" : "object"
       },
+      "ApiResponsePaymentIntentProviderVerificationResultDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PaymentIntentProviderVerificationResultDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponsePaymentIntentReconciliationPageDto" : {
         "properties" : {
           "code" : {
@@ -1910,29 +1977,6 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/PublicUserProfileDto"
-          },
-          "errors" : {
-            "additionalProperties" : {
-              "type" : "string"
-            },
-            "type" : "object"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "success" : {
-            "type" : "boolean"
-          }
-        },
-        "type" : "object"
-      },
-      "ApiResponseResponse" : {
-        "properties" : {
-          "code" : {
-            "type" : "string"
-          },
-          "data" : {
-            "$ref" : "#/components/schemas/Response"
           },
           "errors" : {
             "additionalProperties" : {
@@ -3276,6 +3320,33 @@
           },
           "yearlyWins" : {
             "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "DmMessageResponse" : {
+        "properties" : {
+          "clientMessageId" : {
+            "type" : "string"
+          },
+          "content" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "roomId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "senderId" : {
+            "format" : "int64",
             "type" : "integer"
           }
         },
@@ -5065,6 +5136,32 @@
         },
         "type" : "object"
       },
+      "MateCheckInHistoryPageResponse" : {
+        "properties" : {
+          "content" : {
+            "items" : {
+              "$ref" : "#/components/schemas/MateCheckInResponse"
+            },
+            "type" : "array"
+          },
+          "hasNext" : {
+            "type" : "boolean"
+          },
+          "page" : {
+            "format" : "int32",
+            "minimum" : 0,
+            "type" : "integer"
+          },
+          "size" : {
+            "format" : "int32",
+            "maximum" : 100,
+            "minimum" : 1,
+            "type" : "integer"
+          }
+        },
+        "required" : [ "content", "hasNext", "page", "size" ],
+        "type" : "object"
+      },
       "MateCheckInQrSessionRequest" : {
         "properties" : {
           "partyId" : {
@@ -6225,6 +6322,36 @@
         },
         "type" : "object"
       },
+      "NotificationResponse" : {
+        "properties" : {
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "isRead" : {
+            "type" : "boolean"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "relatedId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "type" : {
+            "enum" : [ "APPLICATION_RECEIVED", "APPLICATION_APPROVED", "APPLICATION_REJECTED", "PARTY_EXPIRED", "PARTY_AUTO_COMPLETED", "GAME_TOMORROW_REMINDER", "GAME_DAY_REMINDER", "HOST_RESPONSE_NUDGE", "REVIEW_REQUEST", "PARTY_CANCELLED_HOST_DELETED", "PARTY_PARTICIPANT_LEFT", "POST_COMMENT", "COMMENT_REPLY", "POST_LIKE", "POST_REPOST", "NEW_FOLLOWER", "FOLLOWING_NEW_POST", "NEW_DEVICE_LOGIN", "RANKING_PREDICTION_SETTLED" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "OAuthEmailChallengeConfirmDto" : {
         "properties" : {
           "token" : {
@@ -6859,6 +6986,19 @@
           }
         },
         "required" : [ "email" ],
+        "type" : "object"
+      },
+      "PaymentIntentProviderVerificationResultDto" : {
+        "properties" : {
+          "outcome" : {
+            "enum" : [ "VERIFIED", "ALREADY_VERIFIED" ],
+            "type" : "string"
+          },
+          "paymentIntentId" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
         "type" : "object"
       },
       "PaymentIntentReconciliationPageDto" : {
@@ -8113,33 +8253,6 @@
         "required" : [ "content", "roomId" ],
         "type" : "object"
       },
-      "Response" : {
-        "properties" : {
-          "clientMessageId" : {
-            "type" : "string"
-          },
-          "content" : {
-            "type" : "string"
-          },
-          "createdAt" : {
-            "format" : "date-time",
-            "type" : "string"
-          },
-          "id" : {
-            "format" : "int64",
-            "type" : "integer"
-          },
-          "roomId" : {
-            "format" : "int64",
-            "type" : "integer"
-          },
-          "senderId" : {
-            "format" : "int64",
-            "type" : "integer"
-          }
-        },
-        "type" : "object"
-      },
       "RoleChangeRequestDto" : {
         "properties" : {
           "reason" : {
@@ -8845,6 +8958,7 @@
             "type" : "object"
           }
         },
+        "required" : [ "answers" ],
         "type" : "object"
       },
       "TicketInfo" : {
@@ -10251,6 +10365,74 @@
         "tags" : [ "admin-payment-intent-reconciliation-controller" ]
       }
     },
+    "/api/admin/payment-intents/reconciliation/{intentId}/verify-provider" : {
+      "post" : {
+        "description" : "Looks up the held payment using its originally requested payment key. It binds that key only when the provider response exactly matches the payment key, internal order ID, expected amount, and DONE status. The lookup is audited; this endpoint does not confirm, cancel, or refund a payment.",
+        "operationId" : "verifyProvider",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "intentId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePaymentIntentProviderVerificationResultDto"
+                }
+              }
+            },
+            "description" : "Provider payment matched and was bound, or was already bound."
+          },
+          "403" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePaymentIntentProviderVerificationResultDto"
+                }
+              }
+            },
+            "description" : "Administrator authentication is required."
+          },
+          "404" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePaymentIntentProviderVerificationResultDto"
+                }
+              }
+            },
+            "description" : "Reconciliation intent was not found."
+          },
+          "409" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePaymentIntentProviderVerificationResultDto"
+                }
+              }
+            },
+            "description" : "The provider identity mismatched or reconciliation state changed."
+          },
+          "502" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePaymentIntentProviderVerificationResultDto"
+                }
+              }
+            },
+            "description" : "Provider payment lookup failed; the hold remains in place."
+          }
+        },
+        "tags" : [ "admin-payment-intent-reconciliation-controller" ]
+      }
+    },
     "/api/admin/posts" : {
       "get" : {
         "operationId" : "getPosts",
@@ -10336,6 +10518,7 @@
           "schema" : {
             "default" : 0,
             "format" : "int32",
+            "minimum" : 0,
             "type" : "integer"
           }
         }, {
@@ -10345,6 +10528,8 @@
           "schema" : {
             "default" : 20,
             "format" : "int32",
+            "maximum" : 100,
+            "minimum" : 1,
             "type" : "integer"
           }
         } ],
@@ -11807,30 +11992,6 @@
       }
     },
     "/api/auth/account/deletion/recovery" : {
-      "get" : {
-        "operationId" : "getDeletionRecoveryInfo",
-        "parameters" : [ {
-          "in" : "query",
-          "name" : "token",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "responses" : {
-          "200" : {
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponseAccountDeletionRecoveryInfoDto"
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        },
-        "tags" : [ "account-security-controller" ]
-      },
       "post" : {
         "operationId" : "recoverDeletedAccount",
         "requestBody" : {
@@ -11849,6 +12010,34 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "account-security-controller" ]
+      }
+    },
+    "/api/auth/account/deletion/recovery/info" : {
+      "post" : {
+        "operationId" : "getDeletionRecoveryInfo",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AccountDeletionRecoveryRequestDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseAccountDeletionRecoveryInfoDto"
                 }
               }
             },
@@ -12832,22 +13021,65 @@
             "format" : "int64",
             "type" : "integer"
           }
+        }, {
+          "description" : "0부터 시작하는 페이지 번호 (page × size는 2147483647 이하)",
+          "example" : 0,
+          "in" : "query",
+          "name" : "page",
+          "required" : false,
+          "schema" : {
+            "default" : 0,
+            "format" : "int32",
+            "minimum" : 0,
+            "type" : "integer"
+          }
+        }, {
+          "description" : "페이지 크기(1~100)",
+          "example" : 30,
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "default" : 30,
+            "format" : "int32",
+            "maximum" : 100,
+            "minimum" : 1,
+            "type" : "integer"
+          }
         } ],
         "responses" : {
           "200" : {
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "items" : {
-                    "$ref" : "#/components/schemas/MateCheckInResponse"
-                  },
-                  "type" : "array"
+                  "$ref" : "#/components/schemas/MateCheckInHistoryPageResponse"
                 }
               }
             },
-            "description" : "OK"
+            "description" : "체크인 기록 페이지"
+          },
+          "400" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description" : "page 또는 size가 허용 범위를 벗어났습니다."
+          },
+          "403" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description" : "본인의 체크인 기록만 조회할 수 있습니다."
           }
         },
+        "summary" : "사용자별 체크인 기록을 페이지 단위로 조회합니다.",
         "tags" : [ "check-in-record-controller" ]
       }
     },
@@ -13088,7 +13320,17 @@
                 }
               }
             },
-            "description" : "OK"
+            "description" : "게시글 변경 정보"
+          },
+          "429" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description" : "게시글 변경 폴링 요청 한도 초과"
           }
         },
         "tags" : [ "응원 게시판" ]
@@ -14129,7 +14371,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponseResponse"
+                  "$ref" : "#/components/schemas/ApiResponseDmMessageResponse"
                 }
               }
             },
@@ -14229,7 +14471,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponseListResponse"
+                  "$ref" : "#/components/schemas/ApiResponseListDmMessageResponse"
                 }
               }
             },
@@ -15829,11 +16071,37 @@
       "get" : {
         "operationId" : "getMyNotifications",
         "parameters" : [ {
+          "description" : "기본 30건입니다. 숫자 100 초과는 거부하며 0 이하 또는 숫자가 아닌 값은 기본값을 사용합니다.",
+          "example" : 30,
           "in" : "query",
-          "name" : "pageable",
-          "required" : true,
+          "name" : "size",
+          "required" : false,
           "schema" : {
-            "$ref" : "#/components/schemas/Pageable"
+            "default" : 30,
+            "maximum" : 100,
+            "minimum" : 1,
+            "type" : "integer"
+          }
+        }, {
+          "description" : "Zero-based page index (0..N)",
+          "in" : "query",
+          "name" : "page",
+          "required" : false,
+          "schema" : {
+            "default" : 0,
+            "minimum" : 0,
+            "type" : "integer"
+          }
+        }, {
+          "description" : "Sorting criteria in the format: property,(asc|desc). Default sort order is ascending. Multiple sort criteria are supported.",
+          "in" : "query",
+          "name" : "sort",
+          "required" : false,
+          "schema" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
           }
         } ],
         "responses" : {
@@ -15842,15 +16110,26 @@
               "*/*" : {
                 "schema" : {
                   "items" : {
-                    "$ref" : "#/components/schemas/Response"
+                    "$ref" : "#/components/schemas/NotificationResponse"
                   },
                   "type" : "array"
                 }
               }
             },
-            "description" : "OK"
+            "description" : "알림 목록"
+          },
+          "400" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description" : "페이지 크기가 허용 범위를 벗어났습니다."
           }
         },
+        "summary" : "내 알림을 페이지 단위로 조회합니다.",
         "tags" : [ "notification-controller" ]
       }
     },
@@ -16945,7 +17224,17 @@
                 }
               }
             },
-            "description" : "OK"
+            "description" : "팀 추천 결과"
+          },
+          "409" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description" : "내부 팀 추천 데이터가 없어 운영자 확인이 필요합니다 (MANUAL_BASEBALL_DATA_REQUIRED)."
           }
         },
         "tags" : [ "team-recommendation-test-controller" ]

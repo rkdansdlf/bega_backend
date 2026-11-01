@@ -33,11 +33,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class MediaUploadService {
+
+    private static final long STAGING_UPLOAD_QUIESCENCE_MINUTES = 15;
 
     private static final int ACCOUNT_ASSET_CLEANUP_BATCH_SIZE = 100;
     private static final Set<MediaDomain> ACCOUNT_FINALIZATION_MEDIA_DOMAINS = Set.of(
@@ -46,6 +49,8 @@ public class MediaUploadService {
             MediaDomain.CHAT);
 
     private final MediaAssetRepository mediaAssetRepository;
+    private final MediaFinalizeClaimService finalizeClaimService;
+    private final MediaFinalizeAttemptCleanupService finalizeAttemptCleanupService;
     private final MediaAssetLinkRepository mediaAssetLinkRepository;
     private final StorageStrategy storageStrategy;
     private final StorageConfig storageConfig;
@@ -101,27 +106,57 @@ public class MediaUploadService {
     }
 
     /**
-     * NOTE: finalizeUpload는 의도적으로 메서드 레벨 @Transactional을 사용하지 않습니다.
-     * 메서드 전체를 단일 트랜잭션으로 감싸면 OCI Object Storage의 download/upload/delete
-     * 동기 호출(수백 ms)이 끝날 때까지 HikariCP 커넥션을 점유합니다. prod 풀(30)을 빠르게
-     * 고갈시킬 수 있어, OCI I/O는 트랜잭션 밖에서 실행하고 DB 변경(findById/save)은
-     * Spring Data JPA가 메서드별로 자동 생성하는 짧은 트랜잭션에 위임합니다.
+     * OCI I/O는 짧은 claim/commit 트랜잭션 사이에서 실행해 DB 커넥션을 점유하지 않습니다.
      */
     public FinalizeMediaUploadResponse finalizeUpload(Long userId, Long assetId) {
-        MediaAsset asset = mediaAssetRepository.findByIdAndOwnerUserId(assetId, userId)
+        MediaAsset existingAsset = mediaAssetRepository.findByIdAndOwnerUserId(assetId, userId)
                 .orElseThrow(() -> new NotFoundBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드 대상을 찾을 수 없습니다."));
 
-        if (asset.getStatus() == MediaAssetStatus.READY && asset.getObjectKey() != null) {
-            return buildFinalizeResponse(asset);
+        if (existingAsset.getStatus() == MediaAssetStatus.READY && existingAsset.getObjectKey() != null) {
+            return buildFinalizeResponse(existingAsset);
         }
-        if (asset.getStatus() != MediaAssetStatus.PENDING) {
+        if (existingAsset.getStatus() != MediaAssetStatus.PENDING
+                && existingAsset.getStatus() != MediaAssetStatus.FINALIZING) {
             throw new BadRequestBusinessException("MEDIA_ASSET_INVALID_STATUS", "완료할 수 없는 업로드 상태입니다.");
         }
 
-        String bucket = asset.getDomain().resolveBucket(storageConfig);
+        String bucket = existingAsset.getDomain().resolveBucket(storageConfig);
+        MediaFinalizeClaimService.FinalizeClaim claim = finalizeClaimService
+                .claim(userId, assetId, bucket)
+                .orElse(null);
+        if (claim == null) {
+            MediaAsset latestAsset = mediaAssetRepository.findByIdAndOwnerUserId(assetId, userId)
+                    .orElseThrow(() -> new NotFoundBusinessException(
+                            "MEDIA_ASSET_NOT_FOUND", "업로드 대상을 찾을 수 없습니다."));
+            if (latestAsset.getStatus() == MediaAssetStatus.READY && latestAsset.getObjectKey() != null) {
+                return buildFinalizeResponse(latestAsset);
+            }
+            if (latestAsset.getStatus() == MediaAssetStatus.PENDING
+                    || latestAsset.getStatus() == MediaAssetStatus.FINALIZING) {
+                throw new ServiceUnavailableBusinessException(
+                        "MEDIA_FINALIZATION_IN_PROGRESS", "이미지 처리가 진행 중입니다. 잠시 후 다시 시도해 주세요.");
+            }
+            throw new BadRequestBusinessException("MEDIA_ASSET_INVALID_STATUS", "완료할 수 없는 업로드 상태입니다.");
+        }
+
+        MediaAsset asset = claim.asset();
         String finalObjectKey = null;
         String feedObjectKey = null;
         try {
+            boolean previousObjectsDeleted = tryDelete(bucket, asset.getFinalizeObjectKey());
+            previousObjectsDeleted &= tryDelete(bucket, asset.getFinalizeFeedObjectKey());
+            if (!previousObjectsDeleted) {
+                throw new ServiceUnavailableBusinessException(
+                        "MEDIA_STORAGE_TEMPORARILY_UNAVAILABLE", "이전 이미지 처리 정리 중입니다. 잠시 후 다시 시도해 주세요.");
+            }
+            if ((asset.getFinalizeObjectKey() != null || asset.getFinalizeFeedObjectKey() != null)
+                    && !finalizeClaimService.clearObjectKeys(claim)) {
+                throw finalizeClaimLost();
+            }
+            if (!finalizeClaimService.renew(claim)) {
+                throw finalizeClaimLost();
+            }
+
             Boolean exists = storageStrategy.exists(bucket, asset.getStagingObjectKey()).block();
             if (exists == null || !exists) {
                 throw new NotFoundBusinessException("MEDIA_STAGING_OBJECT_NOT_FOUND", "업로드한 파일을 찾을 수 없습니다.");
@@ -151,73 +186,58 @@ public class MediaUploadService {
                 case DIARY, SEAT_VIEW, CHEER, CHAT -> imageUtil.process(uploadedFile, metricSource);
             };
             ImageUtil.ImageDimension storedDimension = validationService.getActualDimension(processedImage.getBytes());
-            finalObjectKey = asset.getDomain().buildFinalObjectKey(userId, asset.getId(), processedImage.getExtension());
-            storageStrategy.uploadBytes(
-                    processedImage.getBytes(),
-                    processedImage.getContentType(),
-                    bucket,
-                    finalObjectKey).block();
+            finalObjectKey = asset.getDomain().buildFinalObjectKey(
+                    userId, asset.getId(), claim.token(), processedImage.getExtension());
 
             ImageUtil.ProcessedImage feedImage = null;
             ImageUtil.ImageDimension feedDimension = null;
             if (asset.getDomain() == MediaDomain.PROFILE) {
                 feedImage = imageUtil.processFeedProfileImage(uploadedFile, "media_profile_feed");
                 feedDimension = validationService.getActualDimension(feedImage.getBytes());
-                feedObjectKey = asset.getDomain().buildProfileFeedObjectKey(userId, asset.getId(), feedImage.getExtension());
+                feedObjectKey = asset.getDomain().buildProfileFeedObjectKey(
+                        userId, asset.getId(), claim.token(), feedImage.getExtension());
+            }
+
+            if (!finalizeClaimService.recordObjectKeys(claim, finalObjectKey, feedObjectKey)
+                    || !finalizeClaimService.renew(claim)) {
+                throw finalizeClaimLost();
+            }
+            storageStrategy.uploadBytes(
+                    processedImage.getBytes(),
+                    processedImage.getContentType(),
+                    bucket,
+                    finalObjectKey).block();
+            if (feedImage != null) {
                 storageStrategy.uploadBytes(feedImage.getBytes(), feedImage.getContentType(), bucket, feedObjectKey).block();
             }
 
-            // 스토리지 쓰기가 전부 끝난 뒤에만 DB를 READY로 바꾼다. 중간에 스토리지가 실패해도
-            // READY인데 객체가 없는 상태는 생기지 않는다.
-            asset.markReady(
+            if (!finalizeClaimService.renew(claim)) {
+                throw finalizeClaimLost();
+            }
+
+            MediaFinalizeClaimService.FinalizedObject primary = new MediaFinalizeClaimService.FinalizedObject(
                     finalObjectKey,
                     processedImage.getContentType(),
                     processedImage.getSize(),
                     storedDimension.width(),
                     storedDimension.height());
-            mediaAssetRepository.save(asset);
-
-            if (feedImage != null) {
-                MediaAsset feedAsset = mediaAssetRepository.findByDerivedFrom_Id(asset.getId())
-                        .orElseGet(() -> MediaAsset.builder()
-                                .ownerUserId(userId)
-                                .domain(MediaDomain.PROFILE)
-                                .status(MediaAssetStatus.PENDING)
-                                .originalFileName(asset.getOriginalFileName())
-                                .declaredContentType(asset.getDeclaredContentType())
-                                .declaredBytes(asset.getDeclaredBytes())
-                                .declaredWidth(asset.getDeclaredWidth())
-                                .declaredHeight(asset.getDeclaredHeight())
-                                .stagingObjectKey(asset.getStagingObjectKey())
-                                .uploadExpiresAt(asset.getUploadExpiresAt())
-                                .derivedFrom(asset)
-                                .build());
-                feedAsset.markReady(
-                        feedObjectKey,
-                        feedImage.getContentType(),
-                        feedImage.getSize(),
-                        feedDimension.width(),
-                        feedDimension.height());
-                mediaAssetRepository.save(feedAsset);
-            }
-
-            // 최종 객체는 이미 저장됐다. staging 정리가 실패해도 업로드를 실패로 되돌리지 않는다.
-            tryDelete(bucket, asset.getStagingObjectKey());
-            metricsService.recordMediaFinalize(asset.getDomain().name(), "success");
-            return buildFinalizeResponse(asset);
+            MediaFinalizeClaimService.FinalizedObject feed = feedImage == null
+                    ? null
+                    : new MediaFinalizeClaimService.FinalizedObject(
+                            feedObjectKey,
+                            feedImage.getContentType(),
+                            feedImage.getSize(),
+                            feedDimension.width(),
+                            feedDimension.height());
+            asset = finalizeClaimService.complete(claim, primary, feed).orElseThrow(this::finalizeClaimLost);
         } catch (StorageOperationException ex) {
+            cleanupFinalizeAttempt(claim);
+            finalizeClaimService.release(claim);
             if (ex.isObjectNotFound()) {
-                // 다운로드 직전에 사라진 경우 등 — 객체가 실제로 없으니 부재와 같게 정리한다.
                 metricsService.recordMediaFinalize(asset.getDomain().name(), "failure");
-                cleanupFailedFinalize(asset, finalObjectKey, feedObjectKey);
                 throw new NotFoundBusinessException("MEDIA_STAGING_OBJECT_NOT_FOUND", "업로드한 파일을 찾을 수 없습니다.");
             }
-            // 검증 실패("failure")와 구분해 스토리지 장애율을 따로 볼 수 있게 한다.
             metricsService.recordMediaFinalize(asset.getDomain().name(), "storage_unavailable");
-            // 스토리지 상태를 알 수 없다. staging 객체와 PENDING 상태를 그대로 두어 재시도할 수 있게 하고,
-            // 이번 호출이 새로 쓴 객체만 치운다. (키가 결정적이라 재시도 시 덮어쓴다.)
-            tryDelete(bucket, finalObjectKey);
-            tryDelete(bucket, feedObjectKey);
             log.warn("Media finalize storage failure, keeping PENDING: assetId={}, kind={}, cause={}",
                     asset.getId(), ex.getKind(), ex.getMessage());
             if (ex.getKind() == StorageOperationException.Kind.TRANSIENT) {
@@ -226,14 +246,23 @@ public class MediaUploadService {
             }
             throw new InternalServerBusinessException("MEDIA_STORAGE_FAILURE", "이미지 저장소 처리에 실패했습니다.");
         } catch (RuntimeException ex) {
-            cleanupFailedFinalize(asset, finalObjectKey, feedObjectKey);
+            cleanupFinalizeAttempt(claim);
+            finalizeClaimService.release(claim);
             metricsService.recordMediaFinalize(asset.getDomain().name(), "failure");
             throw ex;
         } catch (Exception ex) {
-            cleanupFailedFinalize(asset, finalObjectKey, feedObjectKey);
+            cleanupFinalizeAttempt(claim);
+            finalizeClaimService.release(claim);
             metricsService.recordMediaFinalize(asset.getDomain().name(), "failure");
             throw new InternalServerBusinessException("MEDIA_UPLOAD_FINALIZE_FAILED", "이미지 업로드 완료 처리에 실패했습니다.");
         }
+
+        // DB가 READY로 커밋된 뒤에만 공유 staging 객체를 지운다. 실패하면 별도 cleanup이 재시도한다.
+        // The presigned PUT may still be in flight or replayed until its expiry. Keep the
+        // staging key for the scheduled cleanup even if this eager delete currently succeeds.
+        deleteAndConfirmAbsent(bucket, asset.getStagingObjectKey());
+        metricsService.recordMediaFinalize(asset.getDomain().name(), "success");
+        return buildFinalizeResponse(asset);
     }
 
     @Transactional
@@ -243,13 +272,22 @@ public class MediaUploadService {
         }
     }
 
-    /** Deletes only objects identified by this user's internal media-asset rows. */
+    public boolean hasPendingCheerPurge(Long userId) {
+        return mediaAssetRepository.existsByOwnerUserIdAndStatus(userId, MediaAssetStatus.CHEER_PURGE_PENDING);
+    }
+
+    /**
+     * Reserves owned objects for deletion after the surrounding account transaction commits.
+     * Returns how many owned assets could not be claimed for a reason other than a cheer purge,
+     * so the caller can keep the account's cleanup retry pending instead of reporting completion.
+     */
     @Transactional
-    public void deleteOwnedAssetsForAccount(Long userId, Set<Long> protectedCheerPostIds) {
+    public int deleteOwnedAssetsForAccount(Long userId, Set<Long> protectedCheerPostIds) {
         if (userId == null) {
             throw new IllegalArgumentException("A persisted account ID is required for media cleanup.");
         }
         Set<Long> protectedIds = protectedCheerPostIds == null ? Set.of() : protectedCheerPostIds;
+        int unclaimedAssets = 0;
         long afterId = 0L;
         List<MediaAsset> batch;
         do {
@@ -272,16 +310,45 @@ public class MediaUploadService {
                         || (derivedAsset != null && hasProtectedCheerLink(derivedAsset, protectedIds))) {
                     continue;
                 }
+                MediaFinalizeClaimService.FinalizeCleanupClaim cleanupClaim = finalizeClaimService
+                        .claimOwnedAssetForAccountDeletion(asset, userId)
+                        .orElse(null);
+                if (cleanupClaim == null) {
+                    failIfCheerPurgePending(asset.getId(), userId);
+                    unclaimedAssets++;
+                    continue;
+                }
                 mediaAssetLinkRepository.deleteByAssetId(asset.getId());
-                deleteAndForgetAccountAsset(asset);
-                if (derivedAsset != null
-                        && userId.equals(derivedAsset.getOwnerUserId())
-                        && ACCOUNT_FINALIZATION_MEDIA_DOMAINS.contains(derivedAsset.getDomain())) {
-                    mediaAssetLinkRepository.deleteByAssetId(derivedAsset.getId());
-                    deleteAndForgetAccountAsset(derivedAsset);
+                // The parent claim fences a profile finalize from publishing a new derivative.
+                // Re-read after the claim to catch a derivative committed between the page scan
+                // and the parent claim.
+                MediaAsset derivedAssetToDelete = mediaAssetRepository.findByDerivedFrom_Id(asset.getId())
+                        .orElse(derivedAsset);
+                if (derivedAssetToDelete != null
+                        && userId.equals(derivedAssetToDelete.getOwnerUserId())
+                        && ACCOUNT_FINALIZATION_MEDIA_DOMAINS.contains(derivedAssetToDelete.getDomain())
+                        && !hasProtectedCheerLink(derivedAssetToDelete, protectedIds)) {
+                    MediaFinalizeClaimService.FinalizeCleanupClaim derivedCleanupClaim = finalizeClaimService
+                            .claimOwnedAssetForAccountDeletion(derivedAssetToDelete, userId)
+                            .orElse(null);
+                    if (derivedCleanupClaim != null) {
+                        mediaAssetLinkRepository.deleteByAssetId(derivedAssetToDelete.getId());
+                    } else {
+                        failIfCheerPurgePending(derivedAssetToDelete.getId(), userId);
+                        unclaimedAssets++;
+                    }
                 }
             }
         } while (batch.size() == ACCOUNT_ASSET_CLEANUP_BATCH_SIZE);
+        return unclaimedAssets;
+    }
+
+    private void failIfCheerPurgePending(Long assetId, Long userId) {
+        if (mediaAssetRepository.findByIdAndOwnerUserId(assetId, userId)
+                .filter(asset -> asset.getStatus() == MediaAssetStatus.CHEER_PURGE_PENDING).isPresent()) {
+            throw new ServiceUnavailableBusinessException(
+                    "MEDIA_DELETION_IN_PROGRESS", "게시글 이미지 정리가 진행 중입니다. 잠시 후 다시 시도해 주세요.");
+        }
     }
 
     private boolean hasProtectedCheerLink(MediaAsset asset, Set<Long> protectedCheerPostIds) {
@@ -291,28 +358,7 @@ public class MediaUploadService {
                 .orElse(false);
     }
 
-    private void deleteAndForgetAccountAsset(MediaAsset asset) {
-        String bucket = asset.getDomain().resolveBucket(storageConfig);
-        deleteObject(bucket, asset.getStagingObjectKey());
-        deleteObject(bucket, asset.getObjectKey());
-        asset.markDeleted();
-        asset.setOwnerUserId(null);
-        asset.setOriginalFileName(null);
-        asset.setDeclaredContentType("application/octet-stream");
-        asset.setDeclaredBytes(0L);
-        asset.setDeclaredWidth(0);
-        asset.setDeclaredHeight(0);
-        asset.setStagingObjectKey("");
-        asset.setObjectKey(null);
-        asset.setStoredContentType(null);
-        asset.setStoredBytes(null);
-        asset.setStoredWidth(null);
-        asset.setStoredHeight(null);
-        asset.setDerivedFrom(null);
-        mediaAssetRepository.save(asset);
-    }
-
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void deleteUpload(Long userId, Long assetId) {
         MediaAsset asset = mediaAssetRepository.findByIdAndOwnerUserId(assetId, userId)
                 .orElseThrow(() -> new NotFoundBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드 대상을 찾을 수 없습니다."));
@@ -320,18 +366,28 @@ public class MediaUploadService {
             throw new BadRequestBusinessException("MEDIA_ASSET_LINKED", "이미 사용 중인 이미지는 삭제할 수 없습니다.");
         }
 
-        try {
-            deleteAssetObject(asset);
-            mediaAssetRepository.findByDerivedFrom_Id(asset.getId()).ifPresent(this::deleteAssetObject);
-        } catch (StorageOperationException ex) {
-            // 트랜잭션이 롤백되므로 DB는 삭제됐다고 기록하지 않는다. 객체 삭제는 멱등이라 재시도해도 안전하다.
-            log.warn("Media upload delete failed: assetId={}, kind={}, cause={}", assetId, ex.getKind(), ex.getMessage());
+        MediaFinalizeClaimService.FinalizeCleanupClaim cleanupClaim = finalizeClaimService
+                .claimOwnedAssetForDeletion(asset, userId)
+                .orElseThrow(() -> new ServiceUnavailableBusinessException(
+                        "MEDIA_DELETION_IN_PROGRESS", "이미지 삭제 처리가 진행 중입니다. 잠시 후 다시 시도해 주세요."));
+        MediaAsset derivedAsset = mediaAssetRepository.findByDerivedFrom_Id(assetId).orElse(null);
+        MediaFinalizeClaimService.FinalizeCleanupClaim derivedCleanupClaim = derivedAsset == null
+                ? null
+                : finalizeClaimService.claimOwnedAssetForDeletion(derivedAsset, userId).orElse(null);
+
+        mediaAssetLinkRepository.deleteByAssetId(assetId);
+        boolean allAbsent = cleanupTombstoneObjects(cleanupClaim);
+        if (derivedCleanupClaim != null) {
+            mediaAssetLinkRepository.deleteByAssetId(derivedAsset.getId());
+            allAbsent &= cleanupTombstoneObjects(derivedCleanupClaim);
+        }
+        if (!allAbsent) {
+            log.warn("Media upload delete left a retryable tombstone: assetId={}", assetId);
             throw new ServiceUnavailableBusinessException(
                     "MEDIA_STORAGE_TEMPORARILY_UNAVAILABLE", "이미지 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.");
         }
     }
 
-    @Transactional
     public MediaCleanupTargetReport cleanupExpiredPendingAssets() {
         LocalDateTime cutoff = LocalDateTime.now().minusHours(storageConfig.getMediaPendingRetentionHours());
         List<MediaAsset> expiredAssets = mediaAssetRepository.findByStatusAndUploadExpiresAtBeforeOrderByUploadExpiresAtAscIdAsc(
@@ -341,17 +397,123 @@ public class MediaUploadService {
         int deletedCount = 0;
         int errorCount = 0;
         for (MediaAsset asset : expiredAssets) {
-            try {
-                deleteAssetObject(asset);
+            MediaFinalizeClaimService.FinalizeCleanupClaim cleanupClaim = finalizeClaimService
+                    .claimExpiredPendingForCleanup(asset, LocalDateTime.now(), cutoff)
+                    .orElse(null);
+            if (cleanupClaim == null) {
+                continue;
+            }
+            if (cleanupExpiredFinalizeObjects(asset, cleanupClaim)) {
                 metricsService.recordMediaCleanup("pending", "deleted");
                 deletedCount++;
-            } catch (RuntimeException ex) {
+            } else {
                 metricsService.recordMediaCleanup("pending", "error");
-                log.warn("Expired pending media cleanup failed: assetId={}, cause={}", asset.getId(), ex.getMessage());
+                log.warn("Expired pending media cleanup failed: assetId={}", asset.getId());
                 errorCount++;
             }
         }
-        return new MediaCleanupTargetReport(MediaCleanupTarget.PENDING, expiredAssets.size(), deletedCount, errorCount);
+
+        List<MediaAsset> expiredFinalizingAssets = mediaAssetRepository
+                        .findByStatusAndFinalizeLeaseUntilBeforeAndUploadExpiresAtBeforeOrderByFinalizeLeaseUntilAscUploadExpiresAtAscIdAsc(
+                        MediaAssetStatus.FINALIZING,
+                        LocalDateTime.now(),
+                        cutoff,
+                        cleanupPageRequest());
+        for (MediaAsset asset : expiredFinalizingAssets) {
+            MediaFinalizeClaimService.FinalizeCleanupClaim cleanupClaim = finalizeClaimService
+                    .claimExpiredForCleanup(asset, LocalDateTime.now(), cutoff)
+                    .orElse(null);
+            if (cleanupClaim == null) {
+                continue;
+            }
+            if (cleanupExpiredFinalizeObjects(asset, cleanupClaim)) {
+                metricsService.recordMediaCleanup("pending", "deleted");
+                deletedCount++;
+            } else {
+                metricsService.recordMediaCleanup("pending", "error");
+                log.warn("Expired media finalize cleanup failed: assetId={}", asset.getId());
+                errorCount++;
+            }
+        }
+        return new MediaCleanupTargetReport(
+                MediaCleanupTarget.PENDING, expiredAssets.size() + expiredFinalizingAssets.size(), deletedCount, errorCount);
+    }
+
+    private boolean cleanupExpiredFinalizeObjects(
+            MediaAsset asset,
+            MediaFinalizeClaimService.FinalizeCleanupClaim cleanupClaim) {
+        String bucket = asset.getDomain().resolveBucket(storageConfig);
+        boolean allDeleted = deleteAndConfirmAbsent(bucket, asset.getStagingObjectKey());
+        allDeleted &= deleteAndConfirmAbsent(bucket, asset.getFinalizeObjectKey());
+        allDeleted &= deleteAndConfirmAbsent(bucket, asset.getFinalizeFeedObjectKey());
+        allDeleted &= finalizeAttemptCleanupService.cleanupForAsset(asset.getId());
+        return allDeleted && finalizeClaimService.markExpiredCleanupComplete(cleanupClaim);
+    }
+
+    public void cleanupReadyStagingObjects() {
+        cleanupReadyStagingObjects(LocalDateTime.now());
+    }
+
+    void cleanupReadyStagingObjects(LocalDateTime now) {
+        LocalDateTime eligibleBefore = now.minusMinutes(STAGING_UPLOAD_QUIESCENCE_MINUTES);
+        long afterId = 0L;
+        List<MediaAsset> batch;
+        do {
+            batch = mediaAssetRepository
+                    .findByStatusAndStagingObjectKeyIsNotNullAndStagingObjectKeyNotAndUploadExpiresAtBeforeAndIdGreaterThanOrderByIdAsc(
+                            MediaAssetStatus.READY,
+                            MediaAsset.CLEARED_STAGING_OBJECT_KEY,
+                            eligibleBefore,
+                            afterId,
+                            cleanupPageRequest());
+            for (MediaAsset asset : batch) {
+                afterId = asset.getId();
+                String stagingKey = asset.getStagingObjectKey();
+                if (deleteAndConfirmAbsent(asset.getDomain().resolveBucket(storageConfig), stagingKey)) {
+                    mediaAssetRepository.clearReadyStagingObjectKey(
+                            asset.getId(),
+                            stagingKey,
+                            MediaAsset.CLEARED_STAGING_OBJECT_KEY,
+                            now,
+                            eligibleBefore);
+                } else {
+                    log.warn("Ready media staging cleanup will retry: assetId={}", asset.getId());
+                }
+            }
+        } while (batch.size() == Math.max(1, storageConfig.getMediaCleanupBatchSize()));
+    }
+
+    public int cleanupExpiredFinalizeAttempts() {
+        return finalizeAttemptCleanupService.cleanupDueAttempts();
+    }
+
+    public void cleanupDeletedFinalizeTombstones() {
+        List<MediaAsset> tombstones = mediaAssetRepository
+                .findByStatusAndFinalizeTokenIsNotNullAndFinalizeLeaseUntilBeforeOrderByFinalizeLeaseUntilAscIdAsc(
+                        MediaAssetStatus.DELETED, LocalDateTime.now(), cleanupPageRequest());
+        for (MediaAsset asset : tombstones) {
+            MediaFinalizeClaimService.FinalizeCleanupClaim cleanupClaim = finalizeClaimService
+                    .claimDeletedTombstoneForCleanup(asset, LocalDateTime.now())
+                    .orElse(null);
+            if (cleanupClaim == null) {
+                continue;
+            }
+            String bucket = asset.getDomain().resolveBucket(storageConfig);
+            boolean allAbsent = deleteAndConfirmAbsent(bucket, asset.getStagingObjectKey());
+            allAbsent &= deleteAndConfirmAbsent(bucket, asset.getObjectKey());
+            allAbsent &= deleteAndConfirmAbsent(bucket, asset.getFinalizeObjectKey());
+            allAbsent &= deleteAndConfirmAbsent(bucket, asset.getFinalizeFeedObjectKey());
+            allAbsent &= finalizeAttemptCleanupService.cleanupForAsset(asset.getId());
+            if (allAbsent) {
+                if (asset.getFinalizeCleanupVerifiedAt() == null) {
+                    finalizeClaimService.updateDeletedTombstoneVerification(cleanupClaim, LocalDateTime.now());
+                } else {
+                    finalizeClaimService.clearDeletedTombstone(cleanupClaim);
+                }
+            } else {
+                finalizeClaimService.updateDeletedTombstoneVerification(cleanupClaim, null);
+            }
+        }
     }
 
     @Transactional
@@ -364,6 +526,25 @@ public class MediaUploadService {
         int deletedCount = 0;
         int errorCount = 0;
         for (MediaAsset asset : orphanAssets) {
+            if (asset.getDomain() != null) {
+                try {
+                    var claim = finalizeClaimService.claimUnlinkedMediaForCleanup(
+                            asset.getId(), asset.getOwnerUserId(), asset.getDomain(), cutoff).orElse(null);
+                    if (claim == null) continue;
+                    if (cleanupTombstoneObjects(claim)) {
+                        metricsService.recordMediaCleanup("orphan", "deleted");
+                        deletedCount++;
+                    } else {
+                        metricsService.recordMediaCleanup("orphan", "error");
+                        errorCount++;
+                    }
+                } catch (RuntimeException ex) {
+                    metricsService.recordMediaCleanup("orphan", "error");
+                    log.warn("Media orphan cleanup failed: assetId={}, cause={}", asset.getId(), ex.getMessage());
+                    errorCount++;
+                }
+                continue;
+            }
             MediaAssetStatus previousStatus = asset.getStatus();
             try {
                 asset.markOrphaned();
@@ -398,37 +579,33 @@ public class MediaUploadService {
         return new FinalizeMediaUploadResponse(asset.getId(), asset.getObjectKey(), publicUrl);
     }
 
-    /**
-     * 실패한 finalize를 정리한다. 객체를 실제로 지웠을 때만 DELETED로 표시하고,
-     * 삭제가 하나라도 실패하면 상태를 그대로 두어 만료 정리 작업이 다시 시도하게 한다.
-     */
-    private void cleanupFailedFinalize(MediaAsset asset, String finalObjectKey, String feedObjectKey) {
-        String bucket = asset.getDomain().resolveBucket(storageConfig);
-        boolean allDeleted = tryDelete(bucket, asset.getStagingObjectKey());
-        allDeleted &= tryDelete(bucket, finalObjectKey);
-        allDeleted &= tryDelete(bucket, feedObjectKey);
-        if (!allDeleted) {
-            log.warn("Media finalize cleanup incomplete, leaving asset for retry: assetId={}", asset.getId());
-            return;
-        }
-        asset.markDeleted();
-        mediaAssetRepository.save(asset);
-        mediaAssetRepository.findByDerivedFrom_Id(asset.getId()).ifPresent(feedAsset -> {
-            feedAsset.markDeleted();
-            mediaAssetRepository.save(feedAsset);
-        });
+    private void cleanupFinalizeAttempt(
+            MediaFinalizeClaimService.FinalizeClaim claim) {
+        finalizeAttemptCleanupService.cleanupAfterFailedFinalize(claim);
+    }
+
+    private ServiceUnavailableBusinessException finalizeClaimLost() {
+        return new ServiceUnavailableBusinessException(
+                "MEDIA_FINALIZATION_CLAIM_LOST", "이미지 처리 권한이 만료되었습니다. 다시 시도해 주세요.");
     }
 
     /** 객체 삭제에 실패하면 {@link StorageOperationException}이 전파되어 markDeleted까지 가지 않는다. */
     private void deleteAssetObject(MediaAsset asset) {
         String bucket = asset.getDomain().resolveBucket(storageConfig);
-        if (asset.getStatus() == MediaAssetStatus.PENDING) {
-            deleteObject(bucket, asset.getStagingObjectKey());
-        }
+        boolean finalizationWasActive = asset.getStatus() == MediaAssetStatus.FINALIZING;
+        deleteObject(bucket, asset.getStagingObjectKey());
         if (asset.getObjectKey() != null && !asset.getObjectKey().isBlank()) {
             deleteObject(bucket, asset.getObjectKey());
         }
-        asset.markDeleted();
+        deleteObject(bucket, asset.getFinalizeObjectKey());
+        deleteObject(bucket, asset.getFinalizeFeedObjectKey());
+        if (finalizationWasActive) {
+            asset.setStatus(MediaAssetStatus.DELETED);
+            asset.setFinalizeLeaseUntil(LocalDateTime.now().plusMinutes(15));
+            asset.setFinalizeCleanupVerifiedAt(null);
+        } else {
+            asset.markDeleted();
+        }
         mediaAssetRepository.save(asset);
     }
 
@@ -451,5 +628,33 @@ public class MediaUploadService {
             log.warn("Media object delete failed: key={}, cause={}", objectKey, ex.getMessage());
             return false;
         }
+    }
+
+    private boolean deleteAndConfirmAbsent(String bucket, String objectKey) {
+        if (objectKey == null || objectKey.isBlank()) {
+            return true;
+        }
+        if (!tryDelete(bucket, objectKey)) {
+            return false;
+        }
+        try {
+            return Boolean.FALSE.equals(storageStrategy.exists(bucket, objectKey).block());
+        } catch (Exception ex) {
+            log.warn("Media object absence check failed: key={}, cause={}", objectKey, ex.getMessage());
+            return false;
+        }
+    }
+
+    private boolean cleanupTombstoneObjects(MediaFinalizeClaimService.FinalizeCleanupClaim claim) {
+        MediaAsset asset = claim.asset();
+        String bucket = asset.getDomain().resolveBucket(storageConfig);
+        boolean allAbsent = deleteAndConfirmAbsent(bucket, asset.getStagingObjectKey());
+        allAbsent &= deleteAndConfirmAbsent(bucket, asset.getObjectKey());
+        allAbsent &= deleteAndConfirmAbsent(bucket, asset.getFinalizeObjectKey());
+        allAbsent &= deleteAndConfirmAbsent(bucket, asset.getFinalizeFeedObjectKey());
+        allAbsent &= finalizeAttemptCleanupService.cleanupForAsset(asset.getId());
+        finalizeClaimService.updateDeletedTombstoneVerification(
+                claim, allAbsent ? LocalDateTime.now() : null);
+        return allAbsent;
     }
 }

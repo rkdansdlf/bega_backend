@@ -13,4 +13,11 @@ class ClientErrorRecoveryTokenRedactionTest {
         assertThat(result).doesNotContain("fragment-secret", "json-secret", "suffix");
         assertThat(result).contains("message", "safe");
     }
+
+    @Test
+    void redactsPercentEncodedTokenParameterNames() {
+        String input = "failure /account/deletion/recovery?%74oken=query-secret#%74%6F%6b%65%6e=fragment-secret";
+        assertThat(ClientErrorSupport.sanitizeSensitive(input, 1000))
+                .doesNotContain("query-secret", "fragment-secret");
+    }
 }

@@ -1,6 +1,8 @@
 package com.example.mate.repository;
 
 import com.example.mate.entity.CheckInRecord;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -14,7 +16,7 @@ public interface CheckInRecordRepository extends JpaRepository<CheckInRecord, Lo
     List<CheckInRecord> findByPartyId(Long partyId);
 
     // 사용자별 체크인 기록 조회
-    List<CheckInRecord> findByUserId(Long userId);
+    Slice<CheckInRecord> findByUserIdOrderByCheckedInAtDescIdDesc(Long userId, Pageable pageable);
 
     // 특정 파티의 특정 사용자 체크인 확인
     Optional<CheckInRecord> findByPartyIdAndUserId(Long partyId, Long userId);

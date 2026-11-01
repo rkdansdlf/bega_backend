@@ -167,6 +167,24 @@ class GameResultScoringServiceTest {
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("Reproduced LIVE settlement path; awaiting approval of the completed-status contract")
+    @DisplayName("진행 중 경기의 점수는 예측 정산에 사용하지 않는다")
+    void processGameResult_liveScoreIsNotSettled() {
+        GameEntity game = GameEntity.builder()
+                .gameId("SYNTHETIC-LIVE").homeTeam("LG").awayTeam("KIA")
+                .homeScore(3).awayScore(1).gameDate(DATE).gameStatus("LIVE").isDummy(false).build();
+        when(gameRepository.findByGameId("SYNTHETIC-LIVE")).thenReturn(Optional.of(game));
+        Prediction prediction = prediction(123L, "SYNTHETIC-LIVE", "home");
+        lenient().when(predictionRepository.findByGameId("SYNTHETIC-LIVE")).thenReturn(List.of(prediction));
+        lenient().when(scoringService.processPredictionResult(123L, prediction.getId(), "SYNTHETIC-LIVE", true, false))
+                .thenReturn(ScoreResultDto.builder().userId(123L).correct(true).totalEarned(100).build());
+
+        assertThat(gameResultScoringService.processGameResult("SYNTHETIC-LIVE")).isZero();
+        verify(predictionRepository, never()).findByGameId(anyString());
+        verify(scoringService, never()).processPredictionResult(anyLong(), anyLong(), anyString(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
     @DisplayName("무승부 게임도 처리 (winner='draw')")
     void processGameResult_noWinner() {
         GameEntity game = finishedGame("g5", "LG", "KIA", 3, 3, DATE);

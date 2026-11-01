@@ -143,7 +143,8 @@ class AdminAccountDeletionProviderReloadIntegrationTest {
             return null;
         }).when(contentService).anonymize(user.getId());
 
-        assertThat(finalizationService.finalizeImmediatelyAfterAdminDeletion(user.getId(), 77L)).isTrue();
+        assertThat(finalizationService.finalizeImmediatelyAfterAdminDeletion(user.getId(), 77L))
+                .isEqualTo(AccountDeletionFinalizationService.Outcome.FINALIZED);
 
         entityManager.clear();
         UserEntity finalizedUser = userRepository.findById(user.getId()).orElseThrow();

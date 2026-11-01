@@ -64,6 +64,23 @@ class AdminUserDeletionPreparationServiceTest {
     }
 
     @Test
+    void disableForDeletionStillDisablesAccountWhileAPostPurgeIsRunning() {
+        UserEntity user = UserEntity.builder().id(41L).role("ROLE_USER").enabled(true).tokenVersion(3).build();
+        given(userRepository.findByIdForWrite(41L)).willReturn(Optional.of(user));
+        given(userRepository.save(user)).willReturn(user);
+
+        UserEntity result = preparationService.disableForDeletion(41L, 99L);
+
+        assertThat(result).isSameAs(user);
+        assertThat(user.isEnabled()).isFalse();
+        assertThat(user.getTokenVersion()).isEqualTo(4);
+        assertThat(user.isPendingDeletion()).isTrue();
+        assertThat(user.getDeletionScheduledFor()).isNotNull().isBeforeOrEqualTo(LocalDateTime.now());
+        verify(userRepository).save(user);
+        verify(accountDeletionTokenRepository).deleteByUser_Id(41L);
+    }
+
+    @Test
     void disableForDeletionDoesNotIncrementTokenVersionAgainOnRetry() {
         UserEntity user = UserEntity.builder()
                 .id(42L)

@@ -66,7 +66,7 @@ class ReadOnlyStartupHooksContextTest {
             context.register(AccountSecurityScheduler.class);
             context.refresh();
             assertThat(context.getBeanNamesForType(AccountSecurityScheduler.class)).hasSize(1);
-            verify(context.getBean(JobScheduler.class), times(2))
+            verify(context.getBean(JobScheduler.class), times(4))
                     .scheduleRecurrently(any(String.class), any(String.class), any(JobLambda.class));
         }
     }

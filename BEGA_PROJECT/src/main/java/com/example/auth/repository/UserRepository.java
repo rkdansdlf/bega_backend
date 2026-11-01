@@ -224,4 +224,43 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
       ORDER BY u.id
       """)
   List<Long> findDuePendingDeletionUserIds(@Param("cutoff") java.time.LocalDateTime cutoff);
+
+  /** Pending deletions whose due time is at or before the cutoff, i.e. still not finalized. */
+  @Query("""
+      SELECT COUNT(u) FROM UserEntity u
+      WHERE u.pendingDeletion = true AND u.deletionScheduledFor <= :cutoff
+      """)
+  long countStaleDeferredDeletions(@Param("cutoff") java.time.LocalDateTime cutoff);
+
+  @Query("""
+      SELECT u.id FROM UserEntity u
+      WHERE u.pendingDeletion = true AND u.deletionScheduledFor <= :cutoff
+      ORDER BY u.deletionScheduledFor, u.id
+      """)
+  List<Long> findStaleDeferredDeletionUserIds(@Param("cutoff") java.time.LocalDateTime cutoff,
+      org.springframework.data.domain.Pageable page);
+
+  /** Content retries whose marker is at or before the cutoff, i.e. the retry loop has not reached them. */
+  @Query("""
+      SELECT COUNT(u) FROM UserEntity u
+      WHERE u.contentAnonymizationRetryAt IS NOT NULL AND u.contentAnonymizationRetryAt <= :cutoff
+      """)
+  long countStaleContentRetries(@Param("cutoff") java.time.LocalDateTime cutoff);
+
+  @Query("""
+      SELECT u.id FROM UserEntity u
+      WHERE u.contentAnonymizationRetryAt IS NOT NULL AND u.contentAnonymizationRetryAt <= :cutoff
+      ORDER BY u.contentAnonymizationRetryAt, u.id
+      """)
+  List<Long> findStaleContentRetryUserIds(@Param("cutoff") java.time.LocalDateTime cutoff,
+      org.springframework.data.domain.Pageable page);
+
+  @Query("""
+      SELECT u.id FROM UserEntity u
+      WHERE u.contentAnonymizationRetryAt IS NOT NULL AND u.contentAnonymizationRetryAt <= :cutoff
+      ORDER BY u.contentAnonymizationRetryAt, u.id
+      """)
+  @Transactional(readOnly = true)
+  List<Long> findDueContentAnonymizationIds(@Param("cutoff") java.time.LocalDateTime cutoff,
+                                            org.springframework.data.domain.Pageable pageable);
 }

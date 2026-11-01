@@ -13,6 +13,7 @@ import com.example.admin.dto.AdminSeatViewDto;
 import com.example.admin.dto.AdminStatsDto;
 import com.example.admin.dto.AdminUserDto;
 import com.example.admin.service.AdminService;
+import com.example.auth.service.AccountDeletionFinalizationService;
 import com.example.BegaDiary.Service.SeatViewService;
 import com.example.common.dto.ApiResponse;
 import com.example.prediction.GameInningScoreRequestDto;
@@ -27,6 +28,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.data.domain.Page;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -184,7 +186,11 @@ public class AdminController {
         if (adminId == null) {
             throw new AccessDeniedException("인증된 관리자 식별자가 필요합니다.");
         }
-        adminService.deleteUser(userId, adminId);
+        AccountDeletionFinalizationService.Outcome outcome = adminService.deleteUser(userId, adminId);
+        if (outcome == AccountDeletionFinalizationService.Outcome.DEFERRED) {
+            return ResponseEntity.status(HttpStatus.ACCEPTED)
+                    .body(ApiResponse.success("유저 삭제가 보류되었습니다. 게시물 정리가 끝나면 자동으로 완료됩니다."));
+        }
         return ResponseEntity.ok(ApiResponse.success("유저가 삭제되었습니다."));
     }
 

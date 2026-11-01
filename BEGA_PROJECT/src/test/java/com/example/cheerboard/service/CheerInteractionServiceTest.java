@@ -17,6 +17,8 @@ import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerPostRepostRepo;
 import com.example.cheerboard.repo.CheerReportRepo;
 import com.example.notification.service.NotificationService;
+import com.example.media.repository.MediaAssetRepository;
+import com.example.media.entity.MediaAssetStatus;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,6 +58,8 @@ class CheerInteractionServiceTest {
     private CheerPostRepostRepo repostRepo;
     @Mock
     private UserRepository userRepo;
+    @Mock
+    private MediaAssetRepository mediaAssetRepository;
     @Mock
     private NotificationService notificationService;
     @Mock
@@ -158,6 +162,8 @@ class CheerInteractionServiceTest {
         UserEntity deletedAuthor = UserEntity.builder().id(200L).name("탈퇴한 사용자").build();
         CheerPost post = CheerPost.builder().id(postId).author(deletedAuthor).content("redacted").build();
         mockWriteEnabledAuthor(reporter);
+        when(postRepo.findPurgeAuthorId(postId)).thenReturn(Optional.of(200L));
+        when(userRepo.findByIdForWrite(200L)).thenReturn(Optional.of(deletedAuthor));
         when(postRepo.findByIdForWrite(postId)).thenReturn(Optional.of(post));
         when(userRepo.existsFinalizedTombstoneById(200L)).thenReturn(true);
 
@@ -170,6 +176,62 @@ class CheerInteractionServiceTest {
         reportOrder.verify(postRepo).findByIdForWrite(postId);
         reportOrder.verify(userRepo).existsFinalizedTombstoneById(200L);
         verify(reportRepo, never()).save(any());
+    }
+
+    @Test
+    void reportPostRejectsStartedPurgeAndLocksUsersInIdOrder() {
+        UserEntity reporter = UserEntity.builder().id(200L).name("Reporter").build();
+        UserEntity author = UserEntity.builder().id(100L).name("Author").build();
+        CheerPost post = CheerPost.builder().id(5L).author(author).build();
+        mockWriteEnabledAuthor(reporter);
+        when(userRepo.findByIdForWrite(100L)).thenReturn(Optional.of(author));
+        when(postRepo.findPurgeAuthorId(5L)).thenReturn(Optional.of(100L));
+        when(postRepo.findByIdForWrite(5L)).thenReturn(Optional.of(post));
+        when(postRepo.findStartedPurgeIdsByAuthor(eq(100L), any())).thenReturn(java.util.List.of(6L));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> interactionService.reportPost(
+                5L, new ReportRequest(ReportReason.OTHER, "synthetic"), reporter))
+                .isInstanceOf(com.example.common.exception.ConflictBusinessException.class);
+        InOrder order = inOrder(userRepo);
+        order.verify(userRepo).findByIdForWrite(100L);
+        order.verify(userRepo, times(3)).findByIdForWrite(200L);
+        verify(reportRepo, never()).save(any());
+    }
+
+    @Test
+    void reportPostRejectsReservedAssetOwnedByAuthor() {
+        UserEntity reporter = UserEntity.builder().id(200L).name("Reporter").build();
+        UserEntity author = UserEntity.builder().id(100L).name("Author").build();
+        CheerPost post = CheerPost.builder().id(5L).author(author).build();
+        mockWriteEnabledAuthor(reporter);
+        when(userRepo.findByIdForWrite(100L)).thenReturn(Optional.of(author));
+        when(postRepo.findPurgeAuthorId(5L)).thenReturn(Optional.of(100L));
+        when(postRepo.findByIdForWrite(5L)).thenReturn(Optional.of(post));
+        when(mediaAssetRepository.existsByOwnerUserIdAndStatus(100L, MediaAssetStatus.CHEER_PURGE_PENDING))
+                .thenReturn(true);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> interactionService.reportPost(
+                5L, new ReportRequest(ReportReason.OTHER, "synthetic"), reporter))
+                .isInstanceOf(com.example.common.exception.ConflictBusinessException.class);
+        verify(reportRepo, never()).save(any());
+    }
+
+    @Test
+    void inaccessiblePostDoesNotExposeOwnerPurgeState() {
+        UserEntity reporter = UserEntity.builder().id(100L).name("Reporter").build();
+        UserEntity author = UserEntity.builder().id(200L).name("Author").privateAccount(true).build();
+        CheerPost post = CheerPost.builder().id(5L).author(author).build();
+        mockWriteEnabledAuthor(reporter);
+        when(userRepo.findByIdForWrite(200L)).thenReturn(Optional.of(author));
+        when(postRepo.findPurgeAuthorId(5L)).thenReturn(Optional.of(200L));
+        when(postRepo.findByIdForWrite(5L)).thenReturn(Optional.of(post));
+        doThrow(new org.springframework.security.access.AccessDeniedException("비공개 계정"))
+                .when(publicVisibilityVerifier).validate(author, 100L, "게시글");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> interactionService.reportPost(
+                5L, new ReportRequest(ReportReason.OTHER, "synthetic"), reporter))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        verify(postRepo, never()).findStartedPurgeIdsByAuthor(anyLong(), any());
     }
 
     private void mockWriteEnabledAuthor(UserEntity me) {

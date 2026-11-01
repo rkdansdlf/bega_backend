@@ -14,6 +14,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.util.List;
 
@@ -39,7 +40,8 @@ class NotificationControllerTest {
         Pageable pageable = PageRequest.of(0, 30);
         when(notificationService.getMyNotifications(eq(42L), any(Pageable.class))).thenReturn(List.of(resp));
 
-        ResponseEntity<List<NotificationDTO.Response>> result = controller.getMyNotifications(42L, pageable);
+        ResponseEntity<List<NotificationDTO.Response>> result = controller.getMyNotifications(
+                42L, pageable, new MockHttpServletRequest());
 
         assertThat(result.getBody()).hasSize(1);
     }

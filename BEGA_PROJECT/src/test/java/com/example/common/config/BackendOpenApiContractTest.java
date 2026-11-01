@@ -296,6 +296,20 @@ class BackendOpenApiContractTest {
                 .getContentAsString(StandardCharsets.UTF_8);
 
         JsonNode runtimeContract = objectMapper.readTree(runtimeJson);
+        JsonNode responseSchemas = runtimeContract.path("components").path("schemas");
+        assertThat(responseSchemas.path("DmMessageResponse").path("properties").has("content")).isTrue();
+        assertThat(responseSchemas.path("DmMessageResponse").path("properties").has("roomId")).isTrue();
+        assertThat(responseSchemas.path("NotificationResponse").path("properties").has("isRead")).isTrue();
+        assertThat(responseSchemas.path("NotificationResponse").path("properties").has("content")).isFalse();
+        String dmWrapperRef = runtimeContract.path("paths").path("/api/dm/messages").path("post")
+                .path("responses").path("200").path("content").path("*/*").path("schema").path("$ref").asText();
+        assertThat(dmWrapperRef).startsWith("#/components/schemas/");
+        String dmWrapperName = dmWrapperRef.substring(dmWrapperRef.lastIndexOf('/') + 1);
+        assertThat(responseSchemas.path(dmWrapperName).path("properties").path("data").path("$ref").asText())
+                .isEqualTo("#/components/schemas/DmMessageResponse");
+        assertThat(runtimeContract.path("paths").path("/api/notifications/my").path("get")
+                .path("responses").path("200").path("content").path("*/*").path("schema")
+                .path("items").path("$ref").asText()).isEqualTo("#/components/schemas/NotificationResponse");
         assertOperation(runtimeContract, "/api/payments/capability", "get");
         assertOperation(runtimeContract, "/api/admin/maintenance/cheer-posts/cleanup", "post");
         assertOperation(runtimeContract, "/api/admin/mate-link-reconciliation-cases", "get");

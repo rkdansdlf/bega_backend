@@ -2,6 +2,7 @@ package com.example.notification.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.example.notification.entity.Notification;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,6 +18,7 @@ public class NotificationDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "NotificationResponse")
     public static class Response {
         private Long id;
         private Notification.NotificationType type;

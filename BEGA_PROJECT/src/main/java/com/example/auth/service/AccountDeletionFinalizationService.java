@@ -58,35 +58,46 @@ public class AccountDeletionFinalizationService {
         this.auditLogRepository = auditLogRepository;
     }
 
+    public enum Outcome { FINALIZED, DEFERRED, SKIPPED }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean finalizeIfDue(Long userId, LocalDateTime cutoff) {
-        return finalizeLockedDueDeletion(userId, cutoff, null);
+        return finalizeLockedDueDeletion(userId, cutoff, null) == Outcome.FINALIZED;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean finalizeImmediatelyAfterAdminDeletion(Long userId, Long administratorId) {
+    public Outcome finalizeImmediatelyAfterAdminDeletion(Long userId, Long administratorId) {
         return finalizeLockedDueDeletion(userId, LocalDateTime.now(), administratorId);
     }
 
-    private boolean finalizeLockedDueDeletion(Long userId, LocalDateTime cutoff, Long administratorId) {
+    private Outcome finalizeLockedDueDeletion(Long userId, LocalDateTime cutoff, Long administratorId) {
         UserEntity user = userRepository.findByIdForWrite(userId).orElse(null);
         if (user == null
                 || !user.isPendingDeletion()
                 || user.getDeletionScheduledFor() == null
                 || user.getDeletionScheduledFor().isAfter(cutoff)) {
-            return false;
+            return Outcome.SKIPPED;
         }
         if (AccountDeletionIdentityService.isAnonymizedTombstone(user)) {
-            return false;
+            return Outcome.SKIPPED;
         }
 
         // Self-service always persists deletionRequestedAt; null marks the admin immediate/retry path.
         boolean adminInitiated = user.getDeletionRequestedAt() == null;
+        // Content goes first: PURGE_PENDING returns before any side effect, so nothing partial commits
+        // and the daily finalizer retries the whole pass (deletionScheduledFor stays set).
+        AccountDeletionContentService.Result contentResult = contentService.anonymize(userId);
+        if (contentResult == AccountDeletionContentService.Result.PURGE_PENDING) {
+            if (adminInitiated && administratorId != null) {
+                saveDeleteUserAudit(administratorId, userId, "사용자 삭제 보류: 게시물 purge 완료 대기");
+            }
+            log.warn("Deferred account finalization until post purge completes: userId={}", userId);
+            return Outcome.DEFERRED;
+        }
         partyService.handleUserDeletion(userId);
         if (adminInitiated) {
             removeAdminLikes(user);
         }
-        contentService.anonymize(userId);
         reviewService.anonymize(userId);
         financialService.anonymize(userId);
         // Bulk updates may clear the persistence context; reload a managed user before lazy identity access.
@@ -94,21 +105,27 @@ public class AccountDeletionFinalizationService {
                 .orElseThrow(() -> new IllegalStateException("The account disappeared during deletion finalization."));
         user.getProviders().size();
         identityService.anonymize(user);
+        user.setContentAnonymizationRetryAt(contentResult != AccountDeletionContentService.Result.COMPLETED
+                ? LocalDateTime.now(java.time.ZoneOffset.UTC).plusMinutes(10) : null);
         user.setDeletionScheduledFor(null);
         userRepository.save(user);
         accountDeletionTokenRepository.deleteByUser_Id(userId);
         if (adminInitiated && administratorId != null) {
-            auditLogRepository.save(AuditLog.builder()
-                    .adminId(administratorId)
-                    .targetUserId(userId)
-                    .action(AuditLog.AuditAction.DELETE_USER)
-                    .oldValue("[REDACTED]")
-                    .newValue(null)
-                    .description("사용자 삭제 및 비식별 처리")
-                    .build());
+            saveDeleteUserAudit(administratorId, userId, "사용자 삭제 및 비식별 처리");
         }
         log.info("Finalized pending account deletion for userId={}", userId);
-        return true;
+        return Outcome.FINALIZED;
+    }
+
+    private void saveDeleteUserAudit(Long administratorId, Long userId, String description) {
+        auditLogRepository.save(AuditLog.builder()
+                .adminId(administratorId)
+                .targetUserId(userId)
+                .action(AuditLog.AuditAction.DELETE_USER)
+                .oldValue("[REDACTED]")
+                .newValue(null)
+                .description(description)
+                .build());
     }
 
     private void removeAdminLikes(UserEntity user) {

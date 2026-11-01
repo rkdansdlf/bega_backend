@@ -20,6 +20,8 @@ import com.example.auth.repository.UserRepository;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.ArgumentCaptor;
@@ -27,9 +29,19 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class AccountDeletionServiceTest {
+
+    @Mock
+    private com.example.cheerboard.repo.CheerPostRepo cheerPostRepo;
+
+    @Mock
+    private com.example.media.repository.MediaAssetRepository mediaAssetRepository;
 
     @InjectMocks
     private AccountDeletionService accountDeletionService;
@@ -109,6 +121,90 @@ class AccountDeletionServiceTest {
 
         verify(accountDeletionTokenRepository, never()).save(any());
         verify(emailService, never()).sendAccountDeletionRecoveryEmail(any(), any(), any(), any());
+    }
+
+    @Test
+    void scheduleAccountDeletionRejectsStartedPostPurgeWithoutSideEffects() {
+        UserEntity user = UserEntity.builder().id(42L).email("user@example.test")
+                .enabled(true).provider("LOCAL").password("encoded").build();
+        when(userRepository.findByIdForWrite(42L)).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("password", "encoded")).thenReturn(true);
+        when(cheerPostRepo.findStartedPurgeIdsByAuthor(eq(42L), any())).thenReturn(java.util.List.of(7L));
+
+        assertThatThrownBy(() -> accountDeletionService.scheduleAccountDeletion(42L, "password"))
+                .isInstanceOf(com.example.common.exception.ConflictBusinessException.class);
+        assertThat(user.isPendingDeletion()).isFalse();
+        verify(accountDeletionTokenRepository, never()).save(any());
+        verify(refreshRepository, never()).deleteByEmail(any());
+        verify(emailService, never()).sendAccountDeletionRecoveryEmail(any(), any(), any(), any());
+    }
+
+    @Test
+    void scheduleAccountDeletionRejectsOwnedAssetReservedByAnotherAuthorsPurge() {
+        UserEntity user = UserEntity.builder().id(42L).email("user@example.test")
+                .enabled(true).provider("LOCAL").password("encoded").build();
+        when(userRepository.findByIdForWrite(42L)).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("password", "encoded")).thenReturn(true);
+        when(mediaAssetRepository.existsByOwnerUserIdAndStatus(42L,
+                com.example.media.entity.MediaAssetStatus.CHEER_PURGE_PENDING)).thenReturn(true);
+        assertThatThrownBy(() -> accountDeletionService.scheduleAccountDeletion(42L, "password"))
+                .isInstanceOf(com.example.common.exception.ConflictBusinessException.class);
+        assertThat(user.isPendingDeletion()).isFalse();
+        verify(accountDeletionTokenRepository, never()).save(any());
+        verify(refreshRepository, never()).deleteByEmail(any());
+    }
+
+    @Test
+    void transitionModeIssuesLegacyUuidUntilAllReadersAreUpgraded() {
+        ReflectionTestUtils.setField(accountDeletionService, "hashNewTokens", false);
+        UserEntity user = UserEntity.builder().id(53L).uniqueId(UUID.randomUUID())
+                .email("transition@example.test").provider("LOCAL").password("encoded")
+                .enabled(true).build();
+        when(userRepository.findByIdForWrite(53L)).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("password", "encoded")).thenReturn(true);
+
+        accountDeletionService.scheduleAccountDeletion(53L, "password");
+
+        ArgumentCaptor<AccountDeletionToken> saved = ArgumentCaptor.forClass(AccountDeletionToken.class);
+        ArgumentCaptor<String> emailed = ArgumentCaptor.forClass(String.class);
+        verify(accountDeletionTokenRepository).save(saved.capture());
+        verify(emailService).sendAccountDeletionRecoveryEmail(eq("transition@example.test"), emailed.capture(), any(), any());
+        assertThat(saved.getValue().getToken()).isEqualTo(emailed.getValue());
+        assertThat(UUID.fromString(emailed.getValue()).toString()).isEqualTo(emailed.getValue());
+    }
+
+    @Test
+    void rolloutPropertyIsAppliedBySpring() {
+        ApplicationContextRunner runner = new ApplicationContextRunner()
+                .withBean(AccountDeletionService.class, () -> new AccountDeletionService(
+                        userRepository, refreshRepository, accountDeletionTokenRepository,
+                        bCryptPasswordEncoder, emailService, accountSecurityService, accountDeletionFinalizationService, cheerPostRepo, mediaAssetRepository));
+        runner.run(context -> assertThat(ReflectionTestUtils.getField(
+                context.getBean(AccountDeletionService.class), "hashNewTokens")).isEqualTo(true));
+        runner.withPropertyValues("app.auth.account-deletion.hash-new-tokens=false")
+                .run(context -> {
+                    assertThat(context.getEnvironment().getProperty("app.auth.account-deletion.hash-new-tokens"))
+                            .isEqualTo("false");
+                    assertThat(ReflectionTestUtils.getField(
+                            context.getBean(AccountDeletionService.class), "hashNewTokens")).isEqualTo(false);
+                });
+    }
+
+    @Test
+    void transitionEnvironmentVariableIsResolvedThroughApplicationYaml() throws Exception {
+        var yaml = new YamlPropertySourceLoader().load("application", new FileSystemResource("src/main/resources/application.yml")).get(0);
+        new ApplicationContextRunner()
+                .withInitializer(context -> context.getEnvironment().getPropertySources().addLast(yaml))
+                .withPropertyValues("APP_AUTH_ACCOUNT_DELETION_HASH_NEW_TOKENS=false")
+                .withBean(AccountDeletionService.class, () -> new AccountDeletionService(
+                        userRepository, refreshRepository, accountDeletionTokenRepository,
+                        bCryptPasswordEncoder, emailService, accountSecurityService, accountDeletionFinalizationService, cheerPostRepo, mediaAssetRepository))
+                .run(context -> {
+                    assertThat(context.getEnvironment().getProperty("app.auth.account-deletion.hash-new-tokens"))
+                            .isEqualTo("false");
+                    assertThat(ReflectionTestUtils.getField(
+                            context.getBean(AccountDeletionService.class), "hashNewTokens")).isEqualTo(false);
+                });
     }
 
     @Test
@@ -216,8 +312,51 @@ class AccountDeletionServiceTest {
         when(accountDeletionTokenRepository.findByToken(digest))
                 .thenReturn(Optional.of(hashed), Optional.of(hashed), Optional.empty());
         when(accountDeletionTokenRepository.findByToken(raw)).thenReturn(Optional.of(legacy));
+        ReflectionTestUtils.setField(accountDeletionService, "hashNewTokens", false);
         assertThat(accountDeletionService.getRecoveryInfo(raw).getScheduledFor()).isNotNull();
+        ReflectionTestUtils.setField(accountDeletionService, "hashNewTokens", true);
         assertThat(accountDeletionService.getRecoveryInfo(raw).getScheduledFor()).isNotNull();
+    }
+
+    @Test
+    void recoveryInfoSurvivesTokenHashBackfillBetweenLookups() throws Exception {
+        String raw = "123e4567-e89b-12d3-a456-426614174000";
+        String digest = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        UserEntity user = UserEntity.builder().id(54L).pendingDeletion(true)
+                .deletionScheduledFor(java.time.LocalDateTime.now().plusDays(1)).build();
+        AccountDeletionToken hashed = AccountDeletionToken.builder().token(digest).user(user)
+                .expiryDate(java.time.LocalDateTime.now().plusDays(1)).build();
+        when(accountDeletionTokenRepository.findByToken(digest)).thenReturn(Optional.empty(), Optional.of(hashed));
+        when(accountDeletionTokenRepository.findByToken(raw)).thenReturn(Optional.empty());
+
+        assertThat(accountDeletionService.getRecoveryInfo(raw).getScheduledFor()).isNotNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void recoverySurvivesBackfillBeforeUserLookupOrAfterUserLock(boolean beforeUserLookup) throws Exception {
+        String raw = "123e4567-e89b-12d3-a456-426614174000";
+        String digest = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        UserEntity user = UserEntity.builder().id(55L).enabled(false).pendingDeletion(true)
+                .deletionScheduledFor(java.time.LocalDateTime.now().plusDays(1)).build();
+        AccountDeletionToken hashed = AccountDeletionToken.builder().token(digest).user(user)
+                .expiryDate(java.time.LocalDateTime.now().plusDays(1)).build();
+        when(accountDeletionTokenRepository.findByToken(digest)).thenReturn(Optional.empty());
+        when(accountDeletionTokenRepository.findUserIdByToken(raw))
+                .thenReturn(beforeUserLookup ? Optional.empty() : Optional.of(55L));
+        if (beforeUserLookup) {
+            when(accountDeletionTokenRepository.findUserIdByToken(digest)).thenReturn(Optional.of(55L));
+        }
+        when(userRepository.findByIdForWrite(55L)).thenReturn(Optional.of(user));
+        when(accountDeletionTokenRepository.findByTokenAndUser_Id(raw, 55L)).thenReturn(Optional.empty());
+        when(accountDeletionTokenRepository.findByTokenAndUser_Id(digest, 55L)).thenReturn(Optional.of(hashed));
+
+        accountDeletionService.recoverAccount(raw);
+
+        assertThat(user.isEnabled()).isTrue();
+        verify(accountDeletionTokenRepository).deleteByUser_Id(55L);
     }
 
     @Test
