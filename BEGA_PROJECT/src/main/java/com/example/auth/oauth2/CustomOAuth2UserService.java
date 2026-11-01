@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +28,8 @@ import java.util.regex.Pattern;
 public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     public static final String OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE = "OAUTH_EMAIL_CHALLENGE_ID";
+    public static final String OAUTH2_EMAIL_CHALLENGE_RATE_LIMITED = "oauth2_email_challenge_rate_limited";
+    public static final String OAUTH2_EMAIL_CHALLENGE_UNAVAILABLE = "oauth2_email_challenge_unavailable";
 
     private static final Pattern KAKAO_PROFILE_SIZE_PATTERN =
             Pattern.compile("_(?:\\d{2,4})x(?:\\d{2,4})(?=\\.[a-zA-Z0-9]+(?:\\?|#|$))");
@@ -452,8 +455,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             } else {
                 if (!emailVerified) {
                     if (oauthEmailChallengeService != null) {
-                        String challengeId = oauthEmailChallengeService.issue(
-                                provider, providerId, email, userName, profileImageUrl);
+                        String challengeId = issueEmailChallenge(provider, email,
+                                () -> oauthEmailChallengeService.issue(
+                                        provider, providerId, email, userName, profileImageUrl));
                         request.setAttribute(OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE, challengeId);
                     }
                     log.warn("New OAuth account requires app email verification: provider={} email={}",
@@ -480,9 +484,34 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         if (oauthEmailChallengeService == null) {
             return new OAuth2AuthenticationException("oauth2_email_required");
         }
-        String challengeId = oauthEmailChallengeService.issueEmailRequired(
-                provider, providerId, userName, profileImageUrl);
+        String challengeId = issueEmailChallenge(provider, null,
+                () -> oauthEmailChallengeService.issueEmailRequired(
+                        provider, providerId, userName, profileImageUrl));
         request.setAttribute(OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE, challengeId);
         return new OAuth2AuthenticationException("oauth2_email_required");
+    }
+
+    /**
+     * 이메일 challenge 발급(동기 메일 발송, rate limit 포함) 중 발생한 비-OAuth2 예외를
+     * OAuth2AuthenticationException 으로 변환한다. 변환하지 않으면 OAuth2 로그인 필터의
+     * failureHandler 를 우회해 콜백이 raw 500(Whitelabel)으로 끝난다.
+     */
+    private String issueEmailChallenge(String provider, String email,
+            java.util.function.Supplier<String> issuer) {
+        try {
+            return issuer.get();
+        } catch (OAuth2AuthenticationException e) {
+            throw e;
+        } catch (com.example.common.exception.RateLimitExceededException e) {
+            log.warn("OAuth email challenge rate limited: provider={} email={}",
+                    provider, LogMaskingUtil.maskEmail(email));
+            throw new OAuth2AuthenticationException(
+                    new OAuth2Error(OAUTH2_EMAIL_CHALLENGE_RATE_LIMITED), OAUTH2_EMAIL_CHALLENGE_RATE_LIMITED, e);
+        } catch (RuntimeException e) {
+            log.error("OAuth email challenge unavailable: provider={} email={} errorType={}",
+                    provider, LogMaskingUtil.maskEmail(email), e.getClass().getName(), e);
+            throw new OAuth2AuthenticationException(
+                    new OAuth2Error(OAUTH2_EMAIL_CHALLENGE_UNAVAILABLE), OAUTH2_EMAIL_CHALLENGE_UNAVAILABLE, e);
+        }
     }
 }
