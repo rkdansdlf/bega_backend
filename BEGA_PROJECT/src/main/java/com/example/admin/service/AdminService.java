@@ -30,6 +30,7 @@ import com.example.auth.service.AccountDeletionIdentityService;
 import com.example.common.exception.ConflictBusinessException;
 import com.example.mate.entity.Party;
 import com.example.mate.repository.PartyRepository;
+import com.example.media.repository.MediaAssetRepository;
 import com.example.prediction.GameScoreSyncBatchResultDto;
 import com.example.prediction.GameInningScoreRequestDto;
 import com.example.prediction.GameScoreSyncResultDto;
@@ -39,6 +40,7 @@ import com.example.prediction.PredictionService;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.Hibernate;
 import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -70,6 +72,7 @@ public class AdminService {
     private final UserRepository userRepository;
     private final CheerPostRepo cheerPostRepository;
     private final CheerReportRepo cheerReportRepo;
+    private final MediaAssetRepository mediaAssetRepository;
     private final PartyRepository partyRepository;
     private final CacheManager cacheManager;
     private final AuditLogRepository auditLogRepository;
@@ -204,11 +207,12 @@ public class AdminService {
     /**
      * 사용자 삭제를 비활성화 + due marker 기록 후 공통 finalizer에 위임한다.
      * finalizer는 별도 트랜잭션이므로 실패해도 scheduler가 due marker를 재시도할 수 있다.
+     * 게시물 purge 대기로 보류되면 DEFERRED를 돌려주어 호출자가 완료가 아님을 알 수 있게 한다.
      */
-    public void deleteUser(Long userId, Long adminId) {
+    public AccountDeletionFinalizationService.Outcome deleteUser(Long userId, Long adminId) {
         Long requiredUserId = Objects.requireNonNull(userId, "userId must not be null");
         deletionPreparationService.disableForDeletion(requiredUserId, adminId);
-        deletionFinalizationService.finalizeImmediatelyAfterAdminDeletion(requiredUserId, adminId);
+        return deletionFinalizationService.finalizeImmediatelyAfterAdminDeletion(requiredUserId, adminId);
     }
 
     /**
@@ -320,11 +324,14 @@ public class AdminService {
         report.setHandledAt(LocalDateTime.now());
 
         if (req.action() == CheerPostReport.AdminAction.TAKE_DOWN) {
-            report.getPost().setDeleted(true);
-            cheerPostRepository.save(Objects.requireNonNull(report.getPost()));
+            locked.post().setDeleted(true);
+            cheerPostRepository.save(locked.post());
         } else if (req.action() == CheerPostReport.AdminAction.RESTORE) {
-            report.getPost().setDeleted(false);
-            cheerPostRepository.save(Objects.requireNonNull(report.getPost()));
+            if (locked.post().getPurgeStartedAt() != null) {
+                throw new ConflictBusinessException("POST_PURGE_STARTED", "이미 영구 삭제가 시작된 게시글은 복구할 수 없습니다.");
+            }
+            locked.post().setDeleted(false);
+            cheerPostRepository.save(locked.post());
         }
 
         CheerPostReport saved = cheerReportRepo.save(Objects.requireNonNull(report));
@@ -344,6 +351,8 @@ public class AdminService {
             }
         }
 
+        // Media reservation may clear the persistence context before the response is built.
+        Hibernate.initialize(saved.getReporter());
         anonymizeDeletedOwnerIfCasesAreClosed(locked.owner());
 
         return Objects.requireNonNull(convertToAdminReportDto(saved));
@@ -352,6 +361,8 @@ public class AdminService {
     @Transactional
     public AdminReportDto requestAppeal(Long reportId, AdminReportAppealReq req, Long userId) {
         LockedReport locked = lockReportOwnerThenReport(reportId);
+        com.example.cheerboard.service.CheerPurgeCoordination.assertNoStartedPurge(cheerPostRepository, locked.owner().getId());
+        com.example.cheerboard.service.CheerPurgeCoordination.assertNoOwnedReservedAssets(mediaAssetRepository, locked.owner().getId());
         CheerPostReport report = locked.report();
 
         report.setAppealStatus(CheerPostReport.AppealStatus.REQUESTED);
@@ -419,6 +430,7 @@ public class AdminService {
 
         if (target == CheerPostReport.AppealStatus.ACCEPTED
                 || target == CheerPostReport.AppealStatus.REJECTED) {
+            Hibernate.initialize(saved.getReporter());
             anonymizeDeletedOwnerIfCasesAreClosed(locked.owner());
         }
 
@@ -434,19 +446,19 @@ public class AdminService {
         UserEntity owner = userRepository.findByIdForWrite(ownerId)
                 .orElseThrow(() -> new ConflictBusinessException(
                         "REPORT_OWNER_MISSING", "신고 게시물 작성자 계정을 확인할 수 없습니다."));
+        Long postId = cheerReportRepo.findPostIdByReportId(reportId)
+                .orElseThrow(() -> new IllegalArgumentException("신고 게시물을 찾을 수 없습니다."));
+        CheerPost post = cheerPostRepository.findIncludingDeletedByIdForUpdate(postId)
+                .orElseThrow(() -> new IllegalArgumentException("신고 게시물을 찾을 수 없습니다."));
         CheerPostReport report = cheerReportRepo.findByIdForWrite(reportId)
                 .orElseThrow(() -> new IllegalArgumentException("신고 케이스를 찾을 수 없습니다."));
-        if (!Objects.equals(ownerId, reportOwnerId(report))) {
+        if (report.getPost() == null || !Objects.equals(postId, report.getPost().getId())
+                || post.getAuthor() == null || !Objects.equals(ownerId, post.getAuthor().getId())) {
             throw new ConflictBusinessException(
                     "REPORT_OWNER_CHANGED", "신고 게시물 작성자가 변경되어 다시 확인해야 합니다.");
         }
-        return new LockedReport(report, owner);
-    }
-
-    private Long reportOwnerId(CheerPostReport report) {
-        return report.getPost() == null || report.getPost().getAuthor() == null
-                ? null
-                : report.getPost().getAuthor().getId();
+        report.setPost(post);
+        return new LockedReport(report, owner, post);
     }
 
     private void anonymizeDeletedOwnerIfCasesAreClosed(UserEntity owner) {
@@ -456,11 +468,16 @@ public class AdminService {
         cheerReportRepo.flush();
         Set<Long> openPostIds = cheerReportRepo.findOpenModerationPostIdsByAuthorId(owner.getId());
         if (openPostIds != null && openPostIds.isEmpty()) {
-            accountDeletionContentService.anonymize(owner.getId());
+            var result = accountDeletionContentService.anonymize(owner.getId());
+            UserEntity currentOwner = userRepository.findByIdForWrite(owner.getId())
+                    .orElseThrow(() -> new IllegalStateException("The account disappeared during content finalization"));
+            currentOwner.setContentAnonymizationRetryAt(result == AccountDeletionContentService.Result.COMPLETED
+                    ? null : java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).plusMinutes(10));
+            userRepository.save(currentOwner);
         }
     }
 
-    private record LockedReport(CheerPostReport report, UserEntity owner) {
+    private record LockedReport(CheerPostReport report, UserEntity owner, CheerPost post) {
     }
 
     /**

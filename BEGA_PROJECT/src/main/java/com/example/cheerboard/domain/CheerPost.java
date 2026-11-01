@@ -7,6 +7,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.ArrayList;
 
@@ -146,6 +147,22 @@ public class CheerPost {
     @Column(nullable = false)
     @Builder.Default
     private Boolean deleted = false;
+
+    @Column(name = "purge_started_at")
+    private LocalDateTime purgeStartedAt;
+
+    @Column(name = "purge_claim_token", length = 36)
+    private String purgeClaimToken;
+
+    @Column(name = "purge_lease_until")
+    private LocalDateTime purgeLeaseUntil;
+
+    @Column(name = "purge_retry_at")
+    private LocalDateTime purgeRetryAt;
+
+    @Column(name = "purge_attempt_count", nullable = false)
+    @Builder.Default
+    private int purgeAttemptCount = 0;
 
     // 연관관계 매핑 (cascade 삭제를 위해 추가)
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)

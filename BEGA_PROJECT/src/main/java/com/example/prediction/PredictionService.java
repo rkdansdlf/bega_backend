@@ -49,6 +49,7 @@ import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -56,6 +57,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -92,7 +94,15 @@ public class PredictionService {
     private static final List<String> QUERYABLE_TEAM_CODES = KboTeamCodePolicy.QUERYABLE_TEAM_CODES;
     private static final int MAX_VOTE_RETRY_ATTEMPTS = 2;
     private static final int MAX_INNING_SCORE_ROWS = 40;
+    private static final int PREDICTION_STATS_BATCH_SIZE = 500;
+    private static final int PREDICTION_STATS_STREAK_LIMIT = 50;
     private static final long MAX_SNAPSHOT_SYNC_RANGE_DAYS = 31;
+
+    private static final Comparator<CompletedPredictionStatsRow> RECENT_COMPLETED_PREDICTION_ORDER =
+            Comparator.comparing(
+                            (CompletedPredictionStatsRow row) -> row.prediction().getCreatedAt(),
+                            Comparator.nullsFirst(Comparator.reverseOrder()))
+                    .thenComparing(row -> row.prediction().getId(), Comparator.reverseOrder());
     private static final long MATCH_DAY_SLOW_LOG_THRESHOLD_MS = 1000L;
     private static final Duration MANUAL_DATA_NEGATIVE_CACHE_TTL = Duration.ofSeconds(60);
     private static final String MATCH_NOT_FOUND_CODE = "MATCH_NOT_FOUND";
@@ -1834,9 +1844,9 @@ public class PredictionService {
     @Cacheable(value = CacheConfig.PREDICTION_USER_STATS, key = "#userId", unless = "#result == null")
     @Transactional(readOnly = true, transactionManager = "transactionManager")
     public UserPredictionStatsDto getUserStats(Long userId) {
-        List<PredictionStatsRowProjection> predictions = predictionRepository
-                .findStatsRowsByUserIdOrderByCreatedAtDesc(java.util.Objects.requireNonNull(userId));
-        if (predictions.isEmpty()) {
+        Long normalizedUserId = Objects.requireNonNull(userId);
+        Optional<Long> cutoffId = predictionRepository.findStatsCutoffIdByUserId(normalizedUserId);
+        if (cutoffId.isEmpty()) {
             return Objects.requireNonNull(
                     UserPredictionStatsDto.builder()
                             .totalPredictions(0)
@@ -1846,40 +1856,59 @@ public class PredictionService {
                             .build());
         }
 
-        List<String> gameIds = predictions.stream()
-                .map(PredictionStatsRowProjection::getGameId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .collect(Collectors.toList());
-
-        List<PredictionStatsGameProjection> loadedGames = gameIds.isEmpty()
-                ? List.of()
-                : gameRepository.findPredictionStatsGameSummaries(gameIds, QUERYABLE_TEAM_CODES);
-        Map<String, String> winnerByGameId = loadedGames
-                .stream()
-                .collect(Collectors.toMap(PredictionStatsGameProjection::getGameId, PredictionStatsGameProjection::getWinner));
-
-        // 집계 루프 (전체 순회, 총 완료 + 정답 수)
+        long maximumPredictionId = cutoffId.get();
+        long lastProcessedId = 0L;
         int totalFinished = 0;
         int correctCount = 0;
-        for (PredictionStatsRowProjection prediction : predictions) {
-            String actualWinner = winnerByGameId.get(prediction.getGameId());
-            if (actualWinner == null) continue;
-            totalFinished++;
-            if (prediction.getVotedTeam().equalsIgnoreCase(actualWinner)) {
-                correctCount++;
+        PriorityQueue<CompletedPredictionStatsRow> recentCompletedPredictions = new PriorityQueue<>(
+                RECENT_COMPLETED_PREDICTION_ORDER.reversed());
+
+        while (true) {
+            List<PredictionStatsRowProjection> predictions = predictionRepository
+                    .findStatsRowsByUserIdAfterIdAndIdAtMostOrderByIdAsc(
+                            normalizedUserId,
+                            lastProcessedId,
+                            maximumPredictionId,
+                            PageRequest.of(0, PREDICTION_STATS_BATCH_SIZE));
+            if (predictions.isEmpty()) {
+                break;
+            }
+
+            lastProcessedId = predictions.get(predictions.size() - 1).getId();
+            Map<String, String> winnerByGameId = loadPredictionStatsWinners(predictions);
+            for (PredictionStatsRowProjection prediction : predictions) {
+                String actualWinner = winnerByGameId.get(prediction.getGameId());
+                if (actualWinner == null) {
+                    continue;
+                }
+
+                totalFinished++;
+                if (prediction.getVotedTeam().equalsIgnoreCase(actualWinner)) {
+                    correctCount++;
+                }
+
+                CompletedPredictionStatsRow completedPrediction =
+                        new CompletedPredictionStatsRow(prediction, actualWinner);
+                if (recentCompletedPredictions.size() < PREDICTION_STATS_STREAK_LIMIT) {
+                    recentCompletedPredictions.offer(completedPrediction);
+                } else if (RECENT_COMPLETED_PREDICTION_ORDER.compare(
+                        completedPrediction,
+                        recentCompletedPredictions.peek()) < 0) {
+                    recentCompletedPredictions.poll();
+                    recentCompletedPredictions.offer(completedPrediction);
+                }
+            }
+
+            if (predictions.size() < PREDICTION_STATS_BATCH_SIZE) {
+                break;
             }
         }
 
-        // 스트릭 루프 (최근 50개 완료 경기만, 최신순으로 정렬됨)
         int currentStreak = 0;
-        int finishedForStreak = 0;
-        for (PredictionStatsRowProjection prediction : predictions) {
-            if (finishedForStreak >= 50) break;
-            String actualWinner = winnerByGameId.get(prediction.getGameId());
-            if (actualWinner == null) continue;
-            finishedForStreak++;
-            if (prediction.getVotedTeam().equalsIgnoreCase(actualWinner)) {
+        for (CompletedPredictionStatsRow prediction : recentCompletedPredictions.stream()
+                .sorted(RECENT_COMPLETED_PREDICTION_ORDER)
+                .toList()) {
+            if (prediction.prediction().getVotedTeam().equalsIgnoreCase(prediction.winner())) {
                 currentStreak++;
             } else {
                 break;
@@ -1891,6 +1920,27 @@ public class PredictionService {
         return Objects.requireNonNull(
                 UserPredictionStatsDto.builder().totalPredictions(totalFinished).correctPredictions(correctCount)
                         .accuracy(accuracy).streak(currentStreak).build());
+    }
+
+    private Map<String, String> loadPredictionStatsWinners(List<PredictionStatsRowProjection> predictions) {
+        List<String> gameIds = predictions.stream()
+                .map(PredictionStatsRowProjection::getGameId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (gameIds.isEmpty()) {
+            return Map.of();
+        }
+
+        List<PredictionStatsGameProjection> loadedGames = gameRepository
+                .findPredictionStatsGameSummaries(gameIds, QUERYABLE_TEAM_CODES);
+        return loadedGames.stream()
+                .collect(Collectors.toMap(
+                        PredictionStatsGameProjection::getGameId,
+                        PredictionStatsGameProjection::getWinner));
+    }
+
+    private record CompletedPredictionStatsRow(PredictionStatsRowProjection prediction, String winner) {
     }
 
     private record CanonicalRangeRequest(

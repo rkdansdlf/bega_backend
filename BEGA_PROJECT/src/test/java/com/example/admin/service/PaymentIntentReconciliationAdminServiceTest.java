@@ -9,6 +9,8 @@ import com.example.mate.exception.TossPaymentException;
 import com.example.mate.repository.PaymentIntentReconciliationEventRepository;
 import com.example.mate.repository.PaymentIntentRepository;
 import com.example.common.jobs.JobSubmissionGateway;
+import com.example.mate.service.PaymentIntentService;
+import com.example.mate.service.TossPaymentService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -38,6 +40,10 @@ class PaymentIntentReconciliationAdminServiceTest {
     private PaymentIntentReconciliationEventRepository eventRepository;
     @Mock
     private JobSubmissionGateway jobScheduler;
+    @Mock
+    private PaymentIntentService paymentIntentService;
+    @Mock
+    private TossPaymentService tossPaymentService;
 
     @InjectMocks
     private PaymentIntentReconciliationAdminService service;

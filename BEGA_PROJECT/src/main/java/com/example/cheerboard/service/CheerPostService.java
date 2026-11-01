@@ -19,6 +19,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.BlockService;
 import com.example.auth.service.FollowService;
+import com.example.common.exception.ConflictBusinessException;
 import com.example.common.exception.RepostNotAllowedException;
 import com.example.common.exception.RepostSelfNotAllowedException;
 import com.example.common.exception.RepostTargetNotFoundException;
@@ -29,6 +30,7 @@ import com.example.kbo.util.TeamCodeNormalizer;
 import com.example.media.entity.MediaAsset;
 import com.example.media.entity.MediaDomain;
 import com.example.media.service.MediaLinkService;
+import com.example.media.service.CheerMediaPurgeReservation;
 import com.example.notification.service.NotificationService;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
@@ -92,6 +94,7 @@ public class CheerPostService {
     private final StorageConfig storageConfig;
     private final CheerLinkedPostService linkedPostService;
     private final CheerPostTransactionBoundary transactionBoundary;
+    private final CheerMediaPurgeReservation mediaPurgeReservation;
 
     @Transactional
     public CheerPostCreationOutcome createPost(CreatePostReq req, UserEntity me) {
@@ -302,29 +305,84 @@ public class CheerPostService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public boolean cleanupSoftDeletedPost(Long postId) {
         Long id = Objects.requireNonNull(postId);
+        String token = java.util.UUID.randomUUID().toString();
+        Integer claimed;
+        try {
+            claimed = transactionBoundary.inWriteTransaction(() -> {
+                Long authorId = postRepo.findPurgeAuthorId(id).orElse(null);
+                if (authorId == null) return 0;
+                java.util.Set<Long> ownerIds = new java.util.TreeSet<>(mediaPurgeReservation.ownerIds(id));
+                ownerIds.add(authorId);
+                for (Long ownerId : ownerIds) {
+                    if (userRepo.findByIdForWrite(ownerId).isEmpty()) {
+                        throw new IllegalStateException("Post media owner no longer exists");
+                    }
+                }
+                java.time.LocalDateTime now = java.time.LocalDateTime.now(java.time.ZoneOffset.UTC);
+                int acquired = postRepo.claimPurge(id, token, now, now.plusMinutes(15));
+                if (acquired != 1) return 0;
+                if (!ownerIds.containsAll(mediaPurgeReservation.ownerIds(id))) {
+                    throw new IllegalStateException("Post media ownership changed during purge claim");
+                }
+                mediaPurgeReservation.reserve(id, postImageRepository.findByPostIdOrderByCreatedAtAsc(id).stream()
+                        .map(PostImage::getStoragePath).toList());
+                return 1;
+            });
+        } catch (RuntimeException ex) {
+            log.warn("게시글 정리 claim 실패. Soft Delete 상태를 유지하고 재시도합니다: postId={}", id, ex);
+            deferUnclaimedPurge(id);
+            return false;
+        }
+        if (claimed == null || claimed != 1) return false;
         boolean storageClean;
         try {
             storageClean = imageService.deleteImagesByPostId(id);
         } catch (RuntimeException ex) {
             log.error("게시글 이미지 정리 조회/삭제 실패. Soft Delete 및 이미지 경로를 보존하고 재시도합니다: postId={}", id, ex);
+            releasePurgeForRetry(id, token);
             return false;
         }
         if (!storageClean) {
             log.warn("게시글 삭제 중 일부 이미지 삭제 실패. Soft Delete 상태 유지 및 스케줄러 위임: postId={}", id);
+            releasePurgeForRetry(id, token);
             return false;
         }
 
         try {
-            transactionBoundary.inWriteTransaction(() -> {
+            Boolean completed = transactionBoundary.inWriteTransaction(() -> {
+                if (postRepo.lockClaimedPurge(id, token).isEmpty()) return false;
+                mediaPurgeReservation.finish(id, postImageRepository.findByPostIdOrderByCreatedAtAsc(id).stream()
+                        .map(PostImage::getStoragePath).toList());
                 mediaLinkService.unlinkEntity(MediaDomain.CHEER, id);
                 postImageRepository.deleteByPostId(id);
                 postRepo.hardDeleteById(id);
-                return null;
+                return true;
             });
-            return true;
+            return Boolean.TRUE.equals(completed);
         } catch (RuntimeException ex) {
             log.error("스토리지 정리 후 DB 삭제 트랜잭션 실패. 경로를 보존하고 스케줄러 재시도에 위임합니다: postId={}", id, ex);
+            releasePurgeForRetry(id, token);
             return false;
+        }
+    }
+
+    private void deferUnclaimedPurge(Long id) {
+        try {
+            transactionBoundary.inWriteTransaction(() -> {
+                java.time.LocalDateTime now = java.time.LocalDateTime.now(java.time.ZoneOffset.UTC);
+                return postRepo.deferUnclaimedPurge(id, now, now.plusMinutes(10));
+            });
+        } catch (RuntimeException ex) {
+            log.warn("게시글 정리 실패 지연 예약에 실패했습니다: postId={}", id, ex);
+        }
+    }
+
+    private void releasePurgeForRetry(Long id, String token) {
+        try {
+            transactionBoundary.inWriteTransaction(() -> postRepo.releasePurgeForRetry(
+                    id, token, java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).plusMinutes(10)));
+        } catch (RuntimeException ex) {
+            log.warn("게시글 정리 재시도 예약 실패; 임대 만료 후 다시 시도합니다: postId={}", id, ex);
         }
     }
 
@@ -359,6 +417,7 @@ public class CheerPostService {
                 author, original, CheerPost.RepostType.SIMPLE);
 
         if (existing.isPresent()) {
+            assertRepostRemovable(existing.get());
             postRepo.delete(existing.get());
             repostRepo.deleteByPostIdAndUserId(original.getId(), author.getId());
             postRepo.decrementRepostCount(original.getId());
@@ -429,6 +488,7 @@ public class CheerPostService {
         try {
             CheerPost repost = findPostById(repostId);
             validateRepostCancelRequest(author, repost);
+            assertRepostRemovable(repost);
 
             CheerPost original = requireRepostTarget(repost);
             postRepo.delete(repost);
@@ -515,6 +575,17 @@ public class CheerPostService {
                         .findByAuthorAndRepostOfAndRepostType(author, original, CheerPost.RepostType.SIMPLE)
                         .isPresent();
         return new RepostToggleResponse(isCurrentlyReposted, readRepostCount(original.getId()));
+    }
+
+    /**
+     * Refuses to delete a repost that has an open moderation case, because the reports cascade-delete with it.
+     * The row lock serializes this check with {@code reportPost}, which locks the same post before inserting.
+     */
+    private void assertRepostRemovable(CheerPost repost) {
+        findPostByIdForWrite(repost.getId());
+        if (postRepo.existsOpenModerationByPostId(repost.getId())) {
+            throw new ConflictBusinessException("REPOST_MODERATION_OPEN", "신고 처리 중인 리포스트는 취소할 수 없습니다.");
+        }
     }
 
     private CheerPost requireRepostTarget(CheerPost repost) {
@@ -690,6 +761,10 @@ public class CheerPostService {
         for (String desiredPath : desiredPaths) {
             if (existingByPath.containsKey(desiredPath)) {
                 continue;
+            }
+
+            if (!MediaDomain.CHEER.isManagedPath(desiredPath)) {
+                throw new IllegalArgumentException("이미지 업로드를 다시 완료한 뒤 저장해주세요.");
             }
 
             MediaAsset asset = mediaLinkService.findReadyAsset(desiredPath)

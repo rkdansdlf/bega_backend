@@ -3,6 +3,7 @@ package com.example.admin.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -16,6 +17,7 @@ import com.example.admin.repository.AuditLogRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.AccountDeletionContentService;
+import com.example.auth.service.AccountContentAnonymizationRetryService;
 import com.example.auth.service.AccountDeletionFinalizationService;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.CheerPostReport;
@@ -28,6 +30,9 @@ import com.example.common.exception.ConflictBusinessException;
 import com.example.kbo.entity.TeamEntity;
 import com.example.kbo.repository.TeamRepository;
 import com.example.media.entity.MediaDomain;
+import com.example.media.entity.MediaAsset;
+import com.example.media.entity.MediaAssetStatus;
+import com.example.media.repository.MediaAssetRepository;
 import com.example.media.service.MediaUploadService;
 import com.example.mate.repository.PartyRepository;
 import com.example.prediction.PredictionService;
@@ -59,7 +64,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @DataJpaTest
-@Import({AdminService.class, AccountDeletionContentService.class, HibernateStatisticsTestConfig.class})
+@Import({AdminService.class, AccountDeletionContentService.class, AccountContentAnonymizationRetryService.class, HibernateStatisticsTestConfig.class})
 @TestPropertySource(properties = {
         "spring.datasource.url=jdbc:h2:mem:admin_appeal_decision;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;LOCK_TIMEOUT=30000",
         "spring.datasource.driver-class-name=org.h2.Driver",
@@ -76,10 +81,12 @@ class AdminReportAppealDecisionIntegrationTest {
     private static final long TIMEOUT_SECONDS = 10;
 
     @Autowired private AdminService adminService;
+    @Autowired private AccountContentAnonymizationRetryService contentRetryService;
     @Autowired private UserRepository userRepository;
     @Autowired private TeamRepository teamRepository;
     @Autowired private CheerPostRepo postRepository;
     @Autowired private CheerReportRepo reportRepository;
+    @Autowired private MediaAssetRepository mediaAssetRepository;
     @Autowired private EntityManager entityManager;
     @Autowired private EntityManagerFactory entityManagerFactory;
     @Autowired private PlatformTransactionManager transactionManager;
@@ -186,6 +193,165 @@ class AdminReportAppealDecisionIntegrationTest {
         verify(mediaUploadService).unlinkEntityMedia(MediaDomain.CHEER, fixture.postId());
         verify(mediaUploadService).unlinkEntityMedia(MediaDomain.CHEER, fixture.unrelatedPostId());
         verify(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+    }
+
+    @Test
+    void restoreRejectsPostAfterPurgeHasStarted() {
+        Fixture fixture = createFixture(false);
+        jdbcTemplate.update("UPDATE cheer_post SET deleted = ?, purge_started_at = ? WHERE id = ?",
+                true, LocalDateTime.now(), fixture.postId());
+        assertThatThrownBy(() -> adminService.handleReport(fixture.firstReportId(),
+                new AdminReportActionReq(CheerPostReport.AdminAction.RESTORE, "synthetic", null), 9001L))
+                .isInstanceOf(com.example.common.exception.ConflictBusinessException.class);
+        assertThat(jdbcTemplate.queryForObject("SELECT deleted FROM cheer_post WHERE id = ?", Boolean.class, fixture.postId()))
+                .isTrue();
+    }
+
+    @Test
+    void newAppealIsRejectedWhileAnotherPostOfTheOwnerIsBeingPurged() {
+        Fixture fixture = createFixture(false);
+        jdbcTemplate.update("UPDATE cheer_post SET deleted = ?, purge_started_at = ? WHERE id = ?",
+                true, LocalDateTime.now(), fixture.unrelatedPostId());
+        assertThatThrownBy(() -> adminService.requestAppeal(fixture.firstReportId(),
+                new AdminReportAppealReq("synthetic appeal"), null))
+                .isInstanceOf(ConflictBusinessException.class);
+        CheerPostReport.AppealStatus appealStatus = transaction().execute(status ->
+                reportRepository.findById(fixture.firstReportId()).orElseThrow().getAppealStatus());
+        assertThat(appealStatus).isEqualTo(CheerPostReport.AppealStatus.REVIEWING);
+    }
+
+    @Test
+    void newAppealIsRejectedWhenAnOwnedAssetIsReservedByAnotherPostPurge() {
+        Fixture fixture = createFixture(false);
+        transaction().executeWithoutResult(status -> mediaAssetRepository.saveAndFlush(MediaAsset.builder()
+                .ownerUserId(fixture.ownerId()).domain(MediaDomain.CHEER)
+                .status(MediaAssetStatus.CHEER_PURGE_PENDING)
+                .declaredContentType("image/png").declaredBytes(1L).declaredWidth(1).declaredHeight(1)
+                .stagingObjectKey("synthetic/" + UUID.randomUUID())
+                .uploadExpiresAt(LocalDateTime.now().plusHours(1)).build()));
+        assertThatThrownBy(() -> adminService.requestAppeal(fixture.firstReportId(),
+                new AdminReportAppealReq("synthetic appeal"), null))
+                .isInstanceOf(ConflictBusinessException.class);
+        CheerPostReport.AppealStatus appealStatus = transaction().execute(status ->
+                reportRepository.findById(fixture.firstReportId()).orElseThrow().getAppealStatus());
+        assertThat(appealStatus).isEqualTo(CheerPostReport.AppealStatus.REVIEWING);
+    }
+
+    @Test
+    void closingReportCanReturnReporterAfterMediaClaimClearsPersistenceContext() {
+        Fixture fixture = createFixture(false);
+        transaction().executeWithoutResult(status -> {
+            CheerPostReport report = reportRepository.findByIdForWrite(fixture.firstReportId()).orElseThrow();
+            report.setStatus(CheerPostReport.ReportStatus.PENDING);
+            report.setAppealStatus(CheerPostReport.AppealStatus.NONE);
+        });
+        doAnswer(invocation -> {
+            entityManager.flush();
+            entityManager.clear();
+            return 0;
+        }).when(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        var result = adminService.handleReport(fixture.firstReportId(),
+                new AdminReportActionReq(CheerPostReport.AdminAction.WARNING, "synthetic", null), null);
+        assertThat(result.getReporterHandle()).startsWith("r");
+    }
+
+    @Test
+    void decidingAppealCanReturnReporterAfterMediaClaimClearsPersistenceContext() {
+        Fixture fixture = createFixture(false);
+        doAnswer(invocation -> {
+            entityManager.flush();
+            entityManager.clear();
+            return 0;
+        }).when(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        var result = adminService.decideReportAppeal(fixture.firstReportId(),
+                new AdminReportAppealDecisionReq(AdminReportAppealDecision.REJECTED), null);
+        assertThat(result.getReporterHandle()).startsWith("r");
+    }
+
+    @Test
+    void resolvingLastCaseDefersContentAnonymizationWithoutRollingBackDecision() {
+        Fixture fixture = createFixture(false);
+        transaction().execute(status -> {
+            CheerPostReport report = reportRepository.findByIdForWrite(fixture.firstReportId()).orElseThrow();
+            report.setStatus(CheerPostReport.ReportStatus.PENDING);
+            report.setAppealStatus(CheerPostReport.AppealStatus.NONE);
+            reportRepository.saveAndFlush(report);
+            return null;
+        });
+        jdbcTemplate.update("UPDATE cheer_post SET deleted = ?, purge_started_at = ? WHERE id = ?",
+                true, LocalDateTime.now(), fixture.unrelatedPostId());
+        adminService.handleReport(fixture.firstReportId(),
+                new AdminReportActionReq(CheerPostReport.AdminAction.WARNING, "synthetic", null), 9001L);
+        assertThat(jdbcTemplate.queryForObject("SELECT content FROM cheer_post WHERE id = ?", String.class, fixture.unrelatedPostId()))
+                .isEqualTo("synthetic unrelated content");
+        assertThat(jdbcTemplate.queryForObject("SELECT content_anonymization_retry_at FROM users WHERE id = ?",
+                LocalDateTime.class, fixture.ownerId())).isNotNull();
+        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        verify(mediaUploadService, never()).unlinkEntityMedia(MediaDomain.CHEER, fixture.unrelatedPostId());
+
+        jdbcTemplate.update("UPDATE users SET content_anonymization_retry_at = ? WHERE id = ?",
+                LocalDateTime.now(java.time.ZoneOffset.UTC).minusMinutes(1), fixture.ownerId());
+        contentRetryService.retry(fixture.ownerId());
+        assertThat(jdbcTemplate.queryForObject("SELECT content_anonymization_retry_at FROM users WHERE id = ?",
+                LocalDateTime.class, fixture.ownerId())).isNotNull();
+        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        jdbcTemplate.update("DELETE FROM cheer_post WHERE id = ?", fixture.unrelatedPostId());
+        jdbcTemplate.update("UPDATE users SET content_anonymization_retry_at = ? WHERE id = ?",
+                LocalDateTime.now(java.time.ZoneOffset.UTC).minusMinutes(1), fixture.ownerId());
+        contentRetryService.retry(fixture.ownerId());
+        assertThat(jdbcTemplate.queryForObject("SELECT content_anonymization_retry_at FROM users WHERE id = ?",
+                LocalDateTime.class, fixture.ownerId())).isNull();
+        assertThat(readPostContent(fixture.postId())).isEqualTo("게시글이 비식별 처리되었습니다.");
+        verify(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+    }
+
+    @Test
+    void restoreCanWinBeforePurgeStarts() {
+        Fixture fixture = createFixture(false);
+        jdbcTemplate.update("UPDATE cheer_post SET deleted = ? WHERE id = ?", true, fixture.postId());
+        adminService.handleReport(fixture.firstReportId(),
+                new AdminReportActionReq(CheerPostReport.AdminAction.RESTORE, "synthetic", null), 9001L);
+        assertThat(jdbcTemplate.queryForObject("SELECT deleted FROM cheer_post WHERE id = ?", Boolean.class, fixture.postId()))
+                .isFalse();
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
+        Integer claimed = transaction().execute(status -> postRepository.claimPurge(
+                fixture.postId(), "synthetic-claim", now, now.plusMinutes(15)));
+        assertThat(claimed).isZero();
+    }
+
+    @Test
+    void concurrentRestoreWaitsForPurgeClaimThenRejects() throws Exception {
+        Fixture fixture = createFixture(false);
+        jdbcTemplate.update("UPDATE users SET pending_deletion = ? WHERE id = ?", false, fixture.ownerId());
+        jdbcTemplate.update("UPDATE cheer_post SET deleted = ? WHERE id = ?", true, fixture.postId());
+        CountDownLatch claimed = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch restoreStarted = new CountDownLatch(1);
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var claim = workers.submit(() -> transaction().execute(status -> {
+                LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
+                userRepository.findByIdForWrite(fixture.ownerId()).orElseThrow();
+                int count = postRepository.claimPurge(fixture.postId(), "concurrent-claim", now, now.plusMinutes(15));
+                claimed.countDown();
+                await(release);
+                return count;
+            }));
+            assertThat(claimed.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+            var restore = workers.submit(() -> {
+                restoreStarted.countDown();
+                return adminService.handleReport(fixture.firstReportId(),
+                        new AdminReportActionReq(CheerPostReport.AdminAction.RESTORE, "synthetic", null), 9001L);
+            });
+            assertThat(restoreStarted.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+            release.countDown();
+            assertThat(claim.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isEqualTo(1);
+            assertThatThrownBy(() -> restore.get(TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(com.example.common.exception.ConflictBusinessException.class);
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+        }
     }
 
     @Test

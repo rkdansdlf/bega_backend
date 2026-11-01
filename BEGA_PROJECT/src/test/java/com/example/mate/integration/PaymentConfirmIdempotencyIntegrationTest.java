@@ -104,7 +104,7 @@ class PaymentConfirmIdempotencyIntegrationTest {
     @Autowired
     private PartyApplicationRepository partyApplicationRepository;
 
-    @Autowired
+    @MockitoSpyBean
     private PaymentIntentRepository paymentIntentRepository;
 
     @Autowired
@@ -157,6 +157,7 @@ class PaymentConfirmIdempotencyIntegrationTest {
         long intentId = prepareNode.get("intentId").asLong();
         String orderId = prepareNode.get("orderId").asText();
         int amount = prepareNode.get("amount").asInt();
+        Long applicantId = userRepository.findByEmail(APPLICANT_EMAIL).orElseThrow().getId();
 
         CountDownLatch providerConfirmationStarted = new CountDownLatch(1);
         CountDownLatch allowProviderConfirmationToComplete = new CountDownLatch(1);
@@ -183,38 +184,43 @@ class PaymentConfirmIdempotencyIntegrationTest {
                 "message", "동시 confirm"));
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
-        Callable<ConfirmResult> confirmTask = () -> {
-            var result = mockMvc.perform(post("/api/payments/toss/confirm")
-                            .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
-                            .contentType("application/json")
-                            .content(confirmBody))
-                    .andReturn();
-            return new ConfirmResult(
-                    result.getResponse().getStatus(), result.getResponse().getContentAsString());
-        };
+        try {
+            Callable<ConfirmResult> confirmTask = () -> {
+                var result = mockMvc.perform(post("/api/payments/toss/confirm")
+                                .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
+                                .contentType("application/json")
+                                .content(confirmBody))
+                        .andReturn();
+                return new ConfirmResult(
+                        result.getResponse().getStatus(), result.getResponse().getContentAsString());
+            };
 
-        Future<ConfirmResult> first = executor.submit(confirmTask);
-        assertThat(providerConfirmationStarted.await(10, TimeUnit.SECONDS)).isTrue();
-        CountDownLatch secondRequestStarted = new CountDownLatch(1);
-        Future<ConfirmResult> second = executor.submit(() -> {
-            secondRequestStarted.countDown();
-            return confirmTask.call();
-        });
-        assertThat(secondRequestStarted.await(5, TimeUnit.SECONDS)).isTrue();
-        boolean secondWaitedForFirstConfirmation = !second.isDone();
-        allowProviderConfirmationToComplete.countDown();
-        assertThat(secondWaitedForFirstConfirmation).isTrue();
-        ConfirmResult responseA = first.get(20, TimeUnit.SECONDS);
-        ConfirmResult responseB = second.get(20, TimeUnit.SECONDS);
-        executor.shutdownNow();
+            Future<ConfirmResult> first = executor.submit(confirmTask);
+            assertThat(providerConfirmationStarted.await(10, TimeUnit.SECONDS)).isTrue();
+            verify(paymentIntentRepository, times(3))
+                    .findByIdAndApplicantIdForUpdate(intentId, applicantId);
 
-        assertThat(List.of(responseA.status(), responseB.status()))
-                .as("response bodies: %s | %s", responseA.body(), responseB.body())
-                .containsExactlyInAnyOrder(200, 201);
-        assertThat(partyApplicationRepository.countByOrderId(orderId)).isEqualTo(1L);
-        assertThat(paymentTransactionRepository.findByOrderId(orderId)).isPresent();
-        verify(tossPaymentService, times(1)).confirmPayment("race-pay-key", orderId, amount);
-        verify(tossPaymentService, never()).getPayment(anyString());
+            Future<ConfirmResult> second = executor.submit(confirmTask);
+            verify(paymentIntentRepository, timeout(5_000).times(4))
+                    .findByIdAndApplicantIdForUpdate(intentId, applicantId);
+            verify(tossPaymentService, times(1))
+                    .confirmPayment("race-pay-key", orderId, amount);
+
+            allowProviderConfirmationToComplete.countDown();
+            ConfirmResult responseA = first.get(20, TimeUnit.SECONDS);
+            ConfirmResult responseB = second.get(20, TimeUnit.SECONDS);
+
+            assertThat(List.of(responseA.status(), responseB.status()))
+                    .as("response bodies: %s | %s", responseA.body(), responseB.body())
+                    .containsExactlyInAnyOrder(200, 201);
+            assertThat(partyApplicationRepository.countByOrderId(orderId)).isEqualTo(1L);
+            assertThat(paymentTransactionRepository.findByOrderId(orderId)).isPresent();
+            verify(tossPaymentService, times(1)).confirmPayment("race-pay-key", orderId, amount);
+            verify(tossPaymentService, never()).getPayment(anyString());
+        } finally {
+            allowProviderConfirmationToComplete.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test

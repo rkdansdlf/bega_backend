@@ -21,6 +21,7 @@ import com.example.kbo.entity.TeamEntity;
 import com.example.media.entity.MediaDomain;
 import com.example.media.service.MediaLinkService;
 import com.example.notification.service.NotificationService;
+import com.example.common.exception.ConflictBusinessException;
 import com.example.common.exception.RepostNotAllowedException;
 import com.example.common.exception.RepostSelfNotAllowedException;
 import com.example.common.exception.RepostTargetNotFoundException;
@@ -104,6 +105,9 @@ class CheerPostServiceTest {
         private MediaLinkService mediaLinkService;
 
         @Mock
+        private com.example.media.service.CheerMediaPurgeReservation mediaPurgeReservation;
+
+        @Mock
         private StorageConfig storageConfig;
 
         @Mock
@@ -120,6 +124,11 @@ class CheerPostServiceTest {
 
         @BeforeEach
         void setUp() {
+                lenient().when(postRepo.findPurgeAuthorId(anyLong())).thenReturn(Optional.of(1L));
+                lenient().when(userRepo.findByIdForWrite(1L)).thenReturn(Optional.of(UserEntity.builder().id(1L).build()));
+                lenient().when(postRepo.claimPurge(anyLong(), any(), any(), any())).thenReturn(1);
+                lenient().when(postRepo.lockClaimedPurge(anyLong(), any()))
+                                .thenAnswer(invocation -> java.util.Optional.of(invocation.getArgument(0)));
                 lenient().when(storageConfig.getMaxImagesPerPost()).thenReturn(4);
                 lenient().when(mediaLinkService.resolveReadyAssets(anyLong(), eq(MediaDomain.CHEER), anyCollection()))
                                 .thenReturn(Map.of());
@@ -801,6 +810,7 @@ class CheerPostServiceTest {
 
                 mockWriteEnabledAuthor(owner);
                 when(postRepo.findById(repostId)).thenReturn(Optional.of(repost));
+                when(postRepo.findByIdForWrite(repostId)).thenReturn(Optional.of(repost));
                 when(postRepo.findRepostCountById(originalId)).thenReturn(4);
 
                 RepostToggleResponse response = postService.cancelRepost(repostId, owner);
@@ -809,6 +819,75 @@ class CheerPostServiceTest {
                 assertThat(response.count()).isEqualTo(4);
                 verify(postRepo).delete(repost);
                 verify(postRepo).decrementRepostCount(originalId);
+        }
+
+        @Test
+        @DisplayName("Cancel Repost - blocked while the repost has an open moderation case")
+        void cancelRepost_blocked_when_repost_has_open_moderation_case() {
+                Long repostId = 1L;
+                Long originalId = 2L;
+                UserEntity owner = UserEntity.builder().id(200L).name("Owner").build();
+                CheerPost original = CheerPost.builder()
+                                .id(originalId)
+                                .author(UserEntity.builder().id(300L).name("Author").build())
+                                .content("Original Content")
+                                .postType(PostType.NORMAL)
+                                .build();
+                CheerPost repost = CheerPost.builder()
+                                .id(repostId)
+                                .author(owner)
+                                .repostOf(original)
+                                .repostType(CheerPost.RepostType.QUOTE)
+                                .postType(PostType.NORMAL)
+                                .build();
+
+                mockWriteEnabledAuthor(owner);
+                when(postRepo.findById(repostId)).thenReturn(Optional.of(repost));
+                when(postRepo.findByIdForWrite(repostId)).thenReturn(Optional.of(repost));
+                when(postRepo.existsOpenModerationByPostId(repostId)).thenReturn(true);
+
+                ConflictBusinessException ex = assertThrows(ConflictBusinessException.class,
+                                () -> postService.cancelRepost(repostId, owner));
+
+                assertThat(ex.getCode()).isEqualTo("REPOST_MODERATION_OPEN");
+                verify(postRepo).findByIdForWrite(repostId);
+                verify(postRepo, never()).delete(any(CheerPost.class));
+                verify(postRepo, never()).decrementRepostCount(anyLong());
+        }
+
+        @Test
+        @DisplayName("Toggle Repost off - blocked while the repost has an open moderation case")
+        void toggleRepost_off_blocked_when_existing_repost_has_open_moderation_case() {
+                Long postId = 1L;
+                UserEntity me = UserEntity.builder().id(100L).name("Me").build();
+                UserEntity author = UserEntity.builder().id(200L).name("Author").build();
+                CheerPost original = CheerPost.builder()
+                                .id(postId)
+                                .author(author)
+                                .content("Original Post")
+                                .postType(PostType.NORMAL)
+                                .build();
+                CheerPost existingRepost = CheerPost.builder()
+                                .id(11L)
+                                .author(me)
+                                .repostType(CheerPost.RepostType.SIMPLE)
+                                .repostOf(original)
+                                .postType(PostType.NORMAL)
+                                .build();
+
+                mockWriteEnabledAuthor(me);
+                when(postRepo.findById(postId)).thenReturn(Optional.of(original));
+                when(blockService.hasBidirectionalBlock(me.getId(), author.getId())).thenReturn(false);
+                when(postRepo.findByAuthorAndRepostOfAndRepostType(me, original, CheerPost.RepostType.SIMPLE))
+                                .thenReturn(Optional.of(existingRepost));
+                when(postRepo.findByIdForWrite(existingRepost.getId())).thenReturn(Optional.of(existingRepost));
+                when(postRepo.existsOpenModerationByPostId(existingRepost.getId())).thenReturn(true);
+
+                assertThrows(ConflictBusinessException.class, () -> postService.toggleRepost(postId, me));
+
+                verify(postRepo, never()).delete(any(CheerPost.class));
+                verify(postRepo, never()).decrementRepostCount(anyLong());
+                verify(repostRepo, never()).deleteByPostIdAndUserId(anyLong(), anyLong());
         }
 
         @Test
@@ -1206,6 +1285,66 @@ class CheerPostServiceTest {
                 order.verify(mediaLinkService).unlinkEntity(MediaDomain.CHEER, postId);
                 order.verify(postImageRepository).deleteByPostId(postId);
                 order.verify(postRepo).hardDeleteById(postId);
+        }
+
+        @Test
+        void cleanupDoesNotTouchStorageWhenClaimIsUnavailable() {
+                when(postRepo.claimPurge(eq(991L), any(), any(), any())).thenReturn(0);
+                assertThat(postService.cleanupSoftDeletedPost(991L)).isFalse();
+                verify(imageService, never()).deleteImagesByPostId(991L);
+        }
+
+        @Test
+        void cleanupCalculatesLeaseAfterAcquiringAuthorLock() {
+                java.util.concurrent.atomic.AtomicReference<java.time.LocalDateTime> lockedAt = new java.util.concurrent.atomic.AtomicReference<>();
+                when(userRepo.findByIdForWrite(1L)).thenAnswer(invocation -> {
+                        lockedAt.set(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC));
+                        return Optional.of(UserEntity.builder().id(1L).build());
+                });
+                when(postRepo.claimPurge(eq(995L), any(), any(), any())).thenAnswer(invocation -> {
+                        java.time.LocalDateTime claimTime = invocation.getArgument(2);
+                        java.time.LocalDateTime lease = invocation.getArgument(3);
+                        assertThat(claimTime).isAfterOrEqualTo(lockedAt.get());
+                        assertThat(lease).isEqualTo(claimTime.plusMinutes(15));
+                        return 0;
+                });
+                assertThat(postService.cleanupSoftDeletedPost(995L)).isFalse();
+        }
+
+        @Test
+        void claimFailureLeavesSoftDeletedPostForRetry() {
+                when(postRepo.claimPurge(eq(994L), any(), any(), any()))
+                                .thenThrow(new IllegalStateException("synthetic database failure"));
+                assertThat(postService.cleanupSoftDeletedPost(994L)).isFalse();
+                verify(imageService, never()).deleteImagesByPostId(994L);
+                verify(postRepo, never()).hardDeleteById(994L);
+        }
+
+        @Test
+        void missingAssetOwnerDefersPurgeInsteadOfBlockingTheQueue() {
+                when(mediaPurgeReservation.ownerIds(996L)).thenReturn(java.util.List.of(2L));
+                when(userRepo.findByIdForWrite(2L)).thenReturn(Optional.empty());
+                assertThat(postService.cleanupSoftDeletedPost(996L)).isFalse();
+                verify(postRepo).deferUnclaimedPurge(eq(996L), any(), any());
+                verify(imageService, never()).deleteImagesByPostId(996L);
+        }
+
+        @Test
+        void cleanupFailureSchedulesRetryAndRetainsDatabasePaths() {
+                when(imageService.deleteImagesByPostId(992L)).thenReturn(false);
+                assertThat(postService.cleanupSoftDeletedPost(992L)).isFalse();
+                verify(postRepo).releasePurgeForRetry(eq(992L), any(), any());
+                verify(postImageRepository, never()).deleteByPostId(992L);
+                verify(postRepo, never()).hardDeleteById(992L);
+        }
+
+        @Test
+        void staleCleanupClaimCannotDeleteDatabaseState() {
+                when(imageService.deleteImagesByPostId(993L)).thenReturn(true);
+                when(postRepo.lockClaimedPurge(eq(993L), any())).thenReturn(Optional.empty());
+                assertThat(postService.cleanupSoftDeletedPost(993L)).isFalse();
+                verify(mediaLinkService, never()).unlinkEntity(MediaDomain.CHEER, 993L);
+                verify(postRepo, never()).hardDeleteById(993L);
         }
 
         @Test

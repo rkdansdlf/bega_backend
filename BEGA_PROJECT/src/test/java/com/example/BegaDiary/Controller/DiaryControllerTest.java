@@ -166,8 +166,6 @@ class DiaryControllerTest {
     @DisplayName("잘못된 sourceTypes 값은 표준 400 응답을 반환한다")
     void uploadImages_rejectsInvalidSourceTypes() throws Exception {
         when(diaryService.getOwnedDiaryEntity(1L, 1L)).thenReturn(ownedDiary(1L));
-        when(imageService.uploadDiaryImages(eq(1L), eq(1L), anyList()))
-                .thenReturn(Mono.just(List.of("diary/1/1/test.webp")));
 
         mockMvc.perform(multipart("/api/diary/{id}/images", 1L)
                         .file(imageFile())
@@ -178,7 +176,19 @@ class DiaryControllerTest {
                 .andExpect(jsonPath("$.code").value("INVALID_SEAT_VIEW_SOURCE_TYPE"))
                 .andExpect(jsonPath("$.message").value("sourceTypes 값이 올바르지 않습니다: invalid"));
 
-        verifyNoInteractions(seatViewService);
+        verifyNoInteractions(imageService, seatViewService);
+    }
+
+    @Test
+    void uploadImages_rejectsSeatmapSourceBeforeStorageUpload() throws Exception {
+        when(diaryService.getOwnedDiaryEntity(1L, 1L)).thenReturn(ownedDiary(1L));
+        mockMvc.perform(multipart("/api/diary/{id}/images", 1L)
+                        .file(imageFile())
+                        .file(imageFile())
+                        .param("sourceTypes", "DIARY_UPLOAD", "SEATMAP_UPLOAD")
+                        .principal(() -> "1"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(imageService, seatViewService);
     }
 
     @Test

@@ -17,6 +17,8 @@ import com.example.mate.service.PaymentIntentReconciliationService;
 import com.example.mate.service.TossPaymentService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -346,6 +348,154 @@ class PaymentIntentReconciliationIntegrationTest {
                         PaymentIntentReconciliationEvent.EventType.VERIFIED_PAYMENT_PROPOSED,
                         PaymentIntentReconciliationEvent.EventType.VERIFIED_PAYMENT_PROPOSED,
                         PaymentIntentReconciliationEvent.EventType.VERIFIED_PAYMENT_PROPOSED);
+    }
+
+    @Test
+    void providerVerificationBindsOnlyTheExactProviderPaymentAndRecordsAdminAudit() {
+        PaymentIntent intent = heldIdentityMismatchIntent("MATE-PROVIDER-VERIFY-EXACT", 35000);
+        TossPaymentDTO.ConfirmResponse providerPayment = new TossPaymentDTO.ConfirmResponse(
+                "synthetic-request-key", intent.getOrderId(), "DONE", 35000, "card");
+        given(tossPaymentService.getPayment("synthetic-request-key")).willReturn(providerPayment);
+
+        PaymentIntentReconciliationAdminService.ProviderVerificationResult result =
+                reconciliationAdminService.verifyProvider(intent.getId(), 915L);
+
+        assertThat(result.outcome()).isEqualTo(PaymentIntentReconciliationAdminService.ProviderVerificationOutcome.VERIFIED);
+        PaymentIntent persisted = paymentIntentRepository.findById(intent.getId()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED);
+        assertThat(persisted.getPaymentKey()).isEqualTo("synthetic-request-key");
+        assertThat(persisted.getFailureCode()).isEqualTo("VERIFIED_PAYMENT_PENDING_APPLICATION");
+        assertThat(paymentIntentService.hasVerifiedIdentityPaymentBinding(intent.getId())).isTrue();
+        assertThat(reconciliationEventRepository.findByPaymentIntentIdOrderByCreatedAtAscIdAsc(intent.getId()))
+                .extracting(PaymentIntentReconciliationEvent::getEventType)
+                .containsExactly(
+                        PaymentIntentReconciliationEvent.EventType.IDENTITY_MISMATCH_HOLD,
+                        PaymentIntentReconciliationEvent.EventType.VERIFIED_PAYMENT_BOUND);
+        PaymentIntentReconciliationEvent binding = reconciliationEventRepository
+                .findByPaymentIntentIdOrderByCreatedAtAscIdAsc(intent.getId()).get(1);
+        assertThat(binding.getVerifiedPaymentKey()).isEqualTo("synthetic-request-key");
+        assertThat(binding.getVerifiedOrderId()).isEqualTo(intent.getOrderId());
+        assertThat(binding.getVerifiedAmount()).isEqualTo(35000);
+        assertThat(binding.getVerifiedStatus()).isEqualTo("DONE");
+        assertThat(binding.getRecordedBy()).isEqualTo(915L);
+
+        PaymentIntentReconciliationAdminService.ProviderVerificationResult repeated =
+                reconciliationAdminService.verifyProvider(intent.getId(), 916L);
+        assertThat(repeated.outcome())
+                .isEqualTo(PaymentIntentReconciliationAdminService.ProviderVerificationOutcome.ALREADY_VERIFIED);
+        verify(tossPaymentService, times(1)).getPayment("synthetic-request-key");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"payment-key", "order-id", "amount", "pending", "lowercase-done"})
+    void providerVerificationKeepsTheIntentHeldWhenAnyProviderTupleFieldDiffers(String mismatch) {
+        PaymentIntent intent = heldIdentityMismatchIntent("MATE-PROVIDER-VERIFY-MISMATCH-" + mismatch, 36000);
+        TossPaymentDTO.ConfirmResponse providerPayment = switch (mismatch) {
+            case "payment-key" -> new TossPaymentDTO.ConfirmResponse(
+                    "synthetic-other-key", intent.getOrderId(), "DONE", 36000, "card");
+            case "order-id" -> new TossPaymentDTO.ConfirmResponse(
+                    "synthetic-request-key", "MATE-OTHER-ORDER", "DONE", 36000, "card");
+            case "amount" -> new TossPaymentDTO.ConfirmResponse(
+                    "synthetic-request-key", intent.getOrderId(), "DONE", 36001, "card");
+            case "pending" -> new TossPaymentDTO.ConfirmResponse(
+                    "synthetic-request-key", intent.getOrderId(), "WAITING_FOR_DEPOSIT", 36000, "card");
+            case "lowercase-done" -> new TossPaymentDTO.ConfirmResponse(
+                    "synthetic-request-key", intent.getOrderId(), "done", 36000, "card");
+            default -> throw new IllegalArgumentException("Unexpected mismatch: " + mismatch);
+        };
+        given(tossPaymentService.getPayment("synthetic-request-key")).willReturn(providerPayment);
+
+        PaymentIntentReconciliationAdminService.ProviderVerificationResult result =
+                reconciliationAdminService.verifyProvider(intent.getId(), 917L);
+
+        assertThat(result.outcome()).isEqualTo(PaymentIntentReconciliationAdminService.ProviderVerificationOutcome.MISMATCH);
+        PaymentIntent persisted = paymentIntentRepository.findById(intent.getId()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED);
+        assertThat(persisted.getPaymentKey()).isEqualTo("synthetic-request-key");
+        assertThat(persisted.getFailureCode()).isEqualTo("PROVIDER_IDENTITY_MISMATCH");
+        assertThat(paymentIntentService.hasVerifiedIdentityPaymentBinding(intent.getId())).isFalse();
+        assertThat(reconciliationEventRepository.findByPaymentIntentIdOrderByCreatedAtAscIdAsc(intent.getId()))
+                .extracting(PaymentIntentReconciliationEvent::getEventType)
+                .containsExactly(
+                        PaymentIntentReconciliationEvent.EventType.IDENTITY_MISMATCH_HOLD,
+                        PaymentIntentReconciliationEvent.EventType.PROVIDER_VERIFICATION_MISMATCH);
+        PaymentIntentReconciliationEvent observation = reconciliationEventRepository
+                .findByPaymentIntentIdOrderByCreatedAtAscIdAsc(intent.getId()).get(1);
+        assertThat(observation.getRecordedBy()).isEqualTo(917L);
+        assertThat(observation.getCandidatePaymentKey()).isEqualTo(providerPayment.getPaymentKey());
+    }
+
+    @Test
+    void providerLookupFailureIsAuditedWithoutChangingTheHoldOrPersistingExceptionDetails() {
+        PaymentIntent intent = heldIdentityMismatchIntent("MATE-PROVIDER-VERIFY-FAILURE", 37000);
+        given(tossPaymentService.getPayment("synthetic-request-key"))
+                .willThrow(new IllegalStateException("synthetic provider lookup failure detail"));
+
+        PaymentIntentReconciliationAdminService.ProviderVerificationResult result =
+                reconciliationAdminService.verifyProvider(intent.getId(), 918L);
+
+        assertThat(result.outcome()).isEqualTo(PaymentIntentReconciliationAdminService.ProviderVerificationOutcome.LOOKUP_FAILED);
+        PaymentIntent persisted = paymentIntentRepository.findById(intent.getId()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED);
+        assertThat(persisted.getPaymentKey()).isEqualTo("synthetic-request-key");
+        assertThat(persisted.getFailureCode()).isEqualTo("PROVIDER_IDENTITY_MISMATCH");
+        assertThat(persisted.getFailureMessage()).isNull();
+        assertThat(paymentIntentService.hasVerifiedIdentityPaymentBinding(intent.getId())).isFalse();
+        assertThat(reconciliationEventRepository.findByPaymentIntentIdOrderByCreatedAtAscIdAsc(intent.getId())
+                        .stream()
+                        .filter(event -> event.getEventType()
+                                == PaymentIntentReconciliationEvent.EventType.PROVIDER_LOOKUP_FAILED)
+                        .toList())
+                .isNotEmpty()
+                .allSatisfy(event -> assertThat(event.getRecordedBy()).isEqualTo(918L));
+    }
+
+    @Test
+    void malformedExistingBindingCannotAuthorizeAProviderRetryOrBeReplaced() {
+        PaymentIntent intent = heldIdentityMismatchIntent("MATE-PROVIDER-VERIFY-MALFORMED-BINDING", 38000);
+        reconciliationEventRepository.save(PaymentIntentReconciliationEvent.builder()
+                .paymentIntentId(intent.getId())
+                .eventType(PaymentIntentReconciliationEvent.EventType.VERIFIED_PAYMENT_BOUND)
+                .verifiedPaymentKey("synthetic-request-key")
+                .verifiedOrderId(intent.getOrderId())
+                .verifiedAmount(38001)
+                .verifiedStatus("DONE")
+                .recordedBy(919L)
+                .build());
+
+        assertThat(paymentIntentService.hasVerifiedIdentityPaymentBinding(intent.getId())).isFalse();
+        assertThat(paymentIntentService.isVerifiedIdentityResolutionRetry(intent.getId(), "synthetic-request-key"))
+                .isFalse();
+        assertThatThrownBy(() -> reconciliationAdminService.verifyProvider(intent.getId(), 920L))
+                .isInstanceOf(com.example.mate.exception.TossPaymentException.class)
+                .hasMessageContaining("상태가 변경");
+        verify(tossPaymentService, never()).getPayment("synthetic-request-key");
+    }
+
+    private PaymentIntent heldIdentityMismatchIntent(String orderId, int amount) {
+        PaymentIntent intent = paymentIntentRepository.save(PaymentIntent.builder()
+                .orderId(orderId)
+                .partyId(821L)
+                .applicantId(822L)
+                .expectedAmount(amount)
+                .currency("KRW")
+                .flowType(PaymentFlowType.DEPOSIT)
+                .paymentType(PartyApplication.PaymentType.DEPOSIT)
+                .mode(PaymentIntent.IntentMode.PREPARED)
+                .status(PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED)
+                .paymentKey("synthetic-request-key")
+                .failureCode("PROVIDER_IDENTITY_MISMATCH")
+                .build());
+        reconciliationEventRepository.save(PaymentIntentReconciliationEvent.builder()
+                .paymentIntentId(intent.getId())
+                .eventType(PaymentIntentReconciliationEvent.EventType.IDENTITY_MISMATCH_HOLD)
+                .requestedPaymentKey("synthetic-request-key")
+                .candidatePaymentKey("synthetic-untrusted-key")
+                .candidateOrderId("MATE-UNTRUSTED-ORDER")
+                .candidateAmount(amount)
+                .candidateStatus("DONE")
+                .build());
+        return intent;
     }
 
     private void submitConcurrentApproval(

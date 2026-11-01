@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 public interface PostImageRepository extends JpaRepository<PostImage, Long> {
 
@@ -35,6 +36,9 @@ public interface PostImageRepository extends JpaRepository<PostImage, Long> {
 
     @Query("SELECT image FROM PostImage image WHERE image.id = :imageId AND image.post.id = :postId")
     Optional<PostImage> findByIdAndPostId(@Param("imageId") Long imageId, @Param("postId") Long postId);
+
+    @Query(value = "SELECT COUNT(*) FROM post_images WHERE post_id <> :postId AND storage_path IN (:paths)", nativeQuery = true)
+    long countOtherPostReferences(@Param("postId") Long postId, @Param("paths") Collection<String> paths);
 
     /**
      * 게시글 삭제 시 모든 이미지 삭제 (CASCADE로 자동 처리됨)

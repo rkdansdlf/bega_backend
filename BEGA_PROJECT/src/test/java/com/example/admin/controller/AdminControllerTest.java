@@ -2,6 +2,7 @@ package com.example.admin.controller;
 
 import com.example.admin.dto.*;
 import com.example.admin.service.AdminService;
+import com.example.auth.service.AccountDeletionFinalizationService;
 import com.example.BegaDiary.Service.SeatViewService;
 import com.example.common.dto.ApiResponse;
 import com.example.common.exception.GlobalExceptionHandler;
@@ -20,6 +21,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -312,6 +314,16 @@ class AdminControllerTest {
         controller.deleteUser(42L, 1L);
 
         verify(adminService).deleteUser(1L, 42L);
+    }
+
+    @Test
+    @DisplayName("purge 대기로 삭제가 보류되면 202를 응답한다")
+    void deleteUser_returnsAcceptedWhenDeletionIsDeferred() {
+        when(adminService.deleteUser(1L, 42L)).thenReturn(AccountDeletionFinalizationService.Outcome.DEFERRED);
+
+        ResponseEntity<ApiResponse<Void>> result = controller.deleteUser(42L, 1L);
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
     }
 
     @Test

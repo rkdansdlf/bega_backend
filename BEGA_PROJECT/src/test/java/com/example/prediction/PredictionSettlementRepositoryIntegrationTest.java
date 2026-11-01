@@ -89,6 +89,37 @@ class PredictionSettlementRepositoryIntegrationTest {
     }
 
     @Test
+    @DisplayName("예측 통계 projection은 사용자별 keyset batch와 cutoff를 적용한다")
+    void statsProjectionUsesUserScopedKeysetBatchesAndCutoff() {
+        assertThat(predictionRepository.findStatsCutoffIdByUserId(404L)).isEmpty();
+
+        Prediction first = predictionRepository.saveAndFlush(prediction("SYNTHETIC-GAME-1", 7L, "home"));
+        predictionRepository.saveAndFlush(prediction("SYNTHETIC-GAME-OTHER", 8L, "away"));
+        Prediction second = predictionRepository.saveAndFlush(prediction("SYNTHETIC-GAME-2", 7L, "away"));
+        Long cutoffId = predictionRepository.findStatsCutoffIdByUserId(7L).orElseThrow();
+        predictionRepository.saveAndFlush(prediction("SYNTHETIC-GAME-AFTER-CUTOFF", 7L, "home"));
+
+        List<PredictionStatsRowProjection> firstBatch = predictionRepository
+                .findStatsRowsByUserIdAfterIdAndIdAtMostOrderByIdAsc(
+                        7L, 0L, cutoffId, PageRequest.of(0, 1));
+        List<PredictionStatsRowProjection> secondBatch = predictionRepository
+                .findStatsRowsByUserIdAfterIdAndIdAtMostOrderByIdAsc(
+                        7L, first.getId(), cutoffId, PageRequest.of(0, 1));
+        List<PredictionStatsRowProjection> afterCutoff = predictionRepository
+                .findStatsRowsByUserIdAfterIdAndIdAtMostOrderByIdAsc(
+                        7L, second.getId(), cutoffId, PageRequest.of(0, 1));
+
+        assertThat(firstBatch).extracting(PredictionStatsRowProjection::getId)
+                .containsExactly(first.getId());
+        assertThat(firstBatch.get(0).getGameId()).isEqualTo("SYNTHETIC-GAME-1");
+        assertThat(firstBatch.get(0).getVotedTeam()).isEqualTo("home");
+        assertThat(firstBatch.get(0).getCreatedAt()).isNotNull();
+        assertThat(secondBatch).extracting(PredictionStatsRowProjection::getId)
+                .containsExactly(second.getId());
+        assertThat(afterCutoff).isEmpty();
+    }
+
+    @Test
     @DisplayName("퍼펙트데이 영구 receipt는 사용자·경기일 조합당 하나만 저장")
     void perfectDayReceiptUniqueConstraintIsEnforced() {
         LocalDate gameDate = LocalDate.of(2026, 10, 12);

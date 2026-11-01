@@ -326,6 +326,7 @@ app:
         enabled: ${APP_CHEER_POST_SYNC_SCHEDULER_ENABLED:true}
   flyway:
     auto-repair: ${APP_FLYWAY_AUTO_REPAIR:false}
+    account-deletion-hash-readers-ready: ${APP_FLYWAY_ACCOUNT_DELETION_HASH_READERS_READY:false}
   ai:
     proxy:
       # 기본값은 false. dev/local에서만 필요 시 APP_AI_PROXY_PUBLIC_IN_DEV=true로 명시적으로 엽니다.
@@ -361,6 +362,8 @@ app:
     cookie-secret: ${OAUTH2_COOKIE_SECRET:}
   auth:
     refresh-token-pepper: ${APP_REFRESH_TOKEN_PEPPER:local-dev-refresh-token-pepper}
+    account-deletion:
+      hash-new-tokens: ${APP_AUTH_ACCOUNT_DELETION_HASH_NEW_TOKENS:true}
     # token_type claim이 없는 레거시 토큰을 access 토큰으로 인정하지 않는다(기본 true=거부).
     # 신규 발급 토큰은 항상 token_type을 포함하므로 거부가 안전. 문제 시 false로 즉시 롤백.
     reject-legacy-access-tokens: ${APP_AUTH_REJECT_LEGACY_ACCESS_TOKENS:true}

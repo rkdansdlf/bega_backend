@@ -3,11 +3,13 @@ package com.example.cheerboard.repo;
 import com.example.cheerboard.domain.CheerPostReport;
 import com.example.cheerboard.domain.ReportReason;
 import jakarta.persistence.LockModeType;
+import jakarta.persistence.QueryHint;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
@@ -32,6 +34,10 @@ public interface CheerReportRepo extends JpaRepository<CheerPostReport, Long> {
             """, nativeQuery = true)
     Optional<Long> findPostAuthorIdByReportId(@Param("reportId") Long reportId);
 
+    @Query(value = "SELECT post_id FROM cheer_post_reports WHERE id = :reportId", nativeQuery = true)
+    Optional<Long> findPostIdByReportId(@Param("reportId") Long reportId);
+
+
     @Query(value = """
             SELECT DISTINCT p.id
               FROM cheer_post_reports r
@@ -41,6 +47,23 @@ public interface CheerReportRepo extends JpaRepository<CheerPostReport, Long> {
                     OR r.appeal_status IN ('REQUESTED', 'REVIEWING'))
             """, nativeQuery = true)
     Set<Long> findOpenModerationPostIdsByAuthorId(@Param("authorId") Long authorId);
+
+    /**
+     * True when an open moderation case for the author's posts was filed before {@code cutoff}.
+     * The query runs under a 2-second timeout so this observability check cannot hold a transaction for long.
+     */
+    @QueryHints(@QueryHint(name = "jakarta.persistence.query.timeout", value = "2000"))
+    @Query(value = """
+            SELECT EXISTS (
+                SELECT 1
+                  FROM cheer_post_reports r
+                  JOIN cheer_post p ON p.id = r.post_id
+                 WHERE p.author_id = :authorId
+                   AND r.createdat < :cutoff
+                   AND (r.status IN ('PENDING', 'IN_REVIEW')
+                        OR r.appeal_status IN ('REQUESTED', 'REVIEWING')))
+            """, nativeQuery = true)
+    boolean existsOpenModerationOlderThan(@Param("authorId") Long authorId, @Param("cutoff") LocalDateTime cutoff);
 
     boolean existsByPost_IdAndReporter_IdAndCreatedAtAfter(Long postId, Long reporterId, LocalDateTime after);
 

@@ -19,6 +19,11 @@ public class AdminUserDeletionPreparationService {
     private final UserRepository userRepository;
     private final AccountDeletionTokenRepository accountDeletionTokenRepository;
 
+    /**
+     * Disables the account and revokes its sessions even while a post purge is running.
+     * A started purge does not block this step: the finalizer returns DEFERRED for it, so the
+     * account stays disabled and the purge finishes first.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public UserEntity disableForDeletion(Long userId, Long actingUserId) {
         Long requiredUserId = Objects.requireNonNull(userId, "userId must not be null");

@@ -17,6 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AccountDeletionContentService {
 
+    public enum Result { COMPLETED, MODERATION_PENDING, PURGE_PENDING, ASSET_CLEANUP_PENDING }
+
     private static final String REDACTED_POST = "게시글이 비식별 처리되었습니다.";
     private static final String REDACTED_COMMENT = "댓글이 비식별 처리되었습니다.";
 
@@ -26,14 +28,20 @@ public class AccountDeletionContentService {
     private final MediaUploadService mediaUploadService;
 
     @Transactional
-    public void anonymize(Long userId) {
+    public Result anonymize(Long userId) {
         if (userId == null) {
             throw new IllegalArgumentException("A persisted account ID is required for finalization.");
         }
         var authoredPosts = cheerPostRepo.findAllByAuthorIdIncludingDeletedForUpdate(userId);
+        // Moderation is checked before purge. An open case also blocks the purge claim query, so waiting on a
+        // started purge while a case is open would hold the identity until the case closes.
         Set<Long> queryProtectedPostIds = cheerReportRepo.findOpenModerationPostIdsByAuthorId(userId);
         if (queryProtectedPostIds == null || !queryProtectedPostIds.isEmpty()) {
-            return;
+            return Result.MODERATION_PENDING;
+        }
+        if (authoredPosts.stream().anyMatch(post -> post.getPurgeStartedAt() != null)
+                || mediaUploadService.hasPendingCheerPurge(userId)) {
+            return Result.PURGE_PENDING;
         }
 
         for (CheerPost post : authoredPosts) {
@@ -54,6 +62,7 @@ public class AccountDeletionContentService {
         for (CheerComment comment : cheerCommentRepo.findAllByAuthor_Id(userId)) {
             comment.setContent(REDACTED_COMMENT);
         }
-        mediaUploadService.deleteOwnedAssetsForAccount(userId, Set.of());
+        int unclaimedAssets = mediaUploadService.deleteOwnedAssetsForAccount(userId, Set.of());
+        return unclaimedAssets == 0 ? Result.COMPLETED : Result.ASSET_CLEANUP_PENDING;
     }
 }

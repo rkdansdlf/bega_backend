@@ -4,14 +4,19 @@ import com.example.admin.dto.PaymentIntentReconciliationPageDto;
 import com.example.admin.dto.PaymentIntentReconciliationResolutionRequest;
 import com.example.admin.dto.PaymentIntentReconciliationResolutionResultDto;
 import com.example.admin.dto.PaymentIntentReconciliationReviewDto;
+import com.example.admin.dto.PaymentIntentProviderVerificationResultDto;
 import com.example.common.jobs.JobSubmissionGateway;
+import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.PaymentIntent;
 import com.example.mate.entity.PaymentIntentReconciliationEvent;
 import com.example.mate.entity.PaymentIntentReconciliationEvent.EventType;
 import com.example.mate.exception.TossPaymentException;
 import com.example.mate.repository.PaymentIntentReconciliationEventRepository;
 import com.example.mate.repository.PaymentIntentRepository;
+import com.example.mate.service.PaymentIntentService;
+import com.example.mate.service.TossPaymentService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
@@ -22,6 +27,7 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentIntentReconciliationAdminService {
 
     private static final String HOLD_CODE = "PROVIDER_IDENTITY_MISMATCH";
@@ -33,6 +39,8 @@ public class PaymentIntentReconciliationAdminService {
     private final PaymentIntentRepository paymentIntentRepository;
     private final PaymentIntentReconciliationEventRepository eventRepository;
     private final JobSubmissionGateway jobScheduler;
+    private final PaymentIntentService paymentIntentService;
+    private final TossPaymentService tossPaymentService;
 
     @Transactional(readOnly = true)
     public PaymentIntentReconciliationPageDto listPending(int requestedPage, int requestedSize) {
@@ -114,6 +122,70 @@ public class PaymentIntentReconciliationAdminService {
                 intentId, administratorId, request, proposalEventType(request)));
         return new PaymentIntentReconciliationResolutionResultDto(
                 false, true, request.getOutcome().name());
+    }
+
+    public ProviderVerificationResult verifyProvider(Long intentId, Long administratorId) {
+        jobScheduler.requireWritable();
+        if (administratorId == null) {
+            throw new TossPaymentException(
+                    "ADMIN_ID_REQUIRED", "관리자 인증 정보를 확인할 수 없습니다.", HttpStatus.FORBIDDEN);
+        }
+
+        PaymentIntentService.ProviderVerificationTarget target =
+                paymentIntentService.getProviderVerificationTarget(intentId);
+        if (target.alreadyVerified()) {
+            return verificationResult(intentId, ProviderVerificationOutcome.ALREADY_VERIFIED);
+        }
+
+        TossPaymentDTO.ConfirmResponse providerPayment;
+        try {
+            providerPayment = tossPaymentService.getPayment(target.requestedPaymentKey());
+        } catch (RuntimeException lookupFailure) {
+            log.warn("Provider payment verification lookup failed: intentId={}, errorType={}",
+                    intentId, lookupFailure.getClass().getSimpleName());
+            PaymentIntentService.ProviderVerificationTarget recorded = paymentIntentService.recordProviderVerification(
+                    target, administratorId, null, true);
+            return verificationResult(
+                    intentId,
+                    recorded.alreadyVerified()
+                            ? ProviderVerificationOutcome.ALREADY_VERIFIED
+                            : ProviderVerificationOutcome.LOOKUP_FAILED);
+        }
+
+        PaymentIntentService.ProviderVerificationTarget recorded = paymentIntentService.recordProviderVerification(
+                target, administratorId, providerPayment, false);
+        ProviderVerificationOutcome outcome = recorded.alreadyVerified()
+                ? isExactCompletedProviderPayment(target, providerPayment)
+                        ? ProviderVerificationOutcome.VERIFIED
+                        : ProviderVerificationOutcome.ALREADY_VERIFIED
+                : ProviderVerificationOutcome.MISMATCH;
+        return verificationResult(intentId, outcome);
+    }
+
+    private boolean isExactCompletedProviderPayment(
+            PaymentIntentService.ProviderVerificationTarget target,
+            TossPaymentDTO.ConfirmResponse providerPayment) {
+        return providerPayment != null
+                && java.util.Objects.equals(target.requestedPaymentKey(), providerPayment.getPaymentKey())
+                && java.util.Objects.equals(target.orderId(), providerPayment.getOrderId())
+                && java.util.Objects.equals(target.expectedAmount(), providerPayment.getTotalAmount())
+                && "DONE".equals(providerPayment.getStatus());
+    }
+
+    private ProviderVerificationResult verificationResult(
+            Long intentId,
+            ProviderVerificationOutcome outcome) {
+        return new ProviderVerificationResult(intentId, outcome);
+    }
+
+    public record ProviderVerificationResult(Long paymentIntentId, ProviderVerificationOutcome outcome) {
+    }
+
+    public enum ProviderVerificationOutcome {
+        VERIFIED,
+        ALREADY_VERIFIED,
+        MISMATCH,
+        LOOKUP_FAILED
     }
 
     private PaymentIntentReconciliationEvent createProposalEvent(

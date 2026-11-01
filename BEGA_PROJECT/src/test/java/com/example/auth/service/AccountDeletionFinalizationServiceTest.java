@@ -92,9 +92,9 @@ class AccountDeletionFinalizationServiceTest {
                 identityService,
                 accountDeletionTokenRepository);
         finalizationOrder.verify(userRepository).findByIdForWrite(44L);
+        finalizationOrder.verify(contentService).anonymize(44L);
         finalizationOrder.verify(partyService).handleUserDeletion(44L);
         finalizationOrder.verify(likeRepository).findByUser(user);
-        finalizationOrder.verify(contentService).anonymize(44L);
         finalizationOrder.verify(reviewService).anonymize(44L);
         finalizationOrder.verify(financialService).anonymize(44L);
         finalizationOrder.verify(identityService).anonymize(user);
@@ -123,6 +123,59 @@ class AccountDeletionFinalizationServiceTest {
     }
 
     @Test
+    void purgePendingDefersFinalizationWithoutAnySideEffect() {
+        LocalDateTime cutoff = LocalDateTime.now();
+        LocalDateTime scheduledFor = cutoff.minusMinutes(1);
+        UserEntity user = UserEntity.builder()
+                .id(44L)
+                .pendingDeletion(true)
+                .deletionRequestedAt(cutoff.minusDays(7))
+                .deletionScheduledFor(scheduledFor)
+                .build();
+        when(userRepository.findByIdForWrite(44L)).thenReturn(Optional.of(user));
+        when(contentService.anonymize(44L)).thenReturn(AccountDeletionContentService.Result.PURGE_PENDING);
+
+        boolean finalized = finalizationService.finalizeIfDue(44L, cutoff);
+
+        assertThat(finalized).isFalse();
+        assertThat(user.getDeletionScheduledFor()).isEqualTo(scheduledFor);
+        verify(partyService, never()).handleUserDeletion(44L);
+        verify(likeRepository, never()).findByUser(any());
+        verify(reviewService, never()).anonymize(any());
+        verify(financialService, never()).anonymize(any());
+        verify(identityService, never()).anonymize(any(UserEntity.class));
+        verify(userRepository, never()).save(any());
+        verify(accountDeletionTokenRepository, never()).deleteByUser_Id(any());
+        verify(auditLogRepository, never()).save(any());
+    }
+
+    @Test
+    void adminDeletionDeferredByPurgeReportsDeferralAndAuditsAtDeferralTime() {
+        LocalDateTime cutoff = LocalDateTime.now();
+        UserEntity user = UserEntity.builder()
+                .id(44L)
+                .pendingDeletion(true)
+                .deletionScheduledFor(cutoff.minusMinutes(1))
+                .build();
+        when(userRepository.findByIdForWrite(44L)).thenReturn(Optional.of(user));
+        when(contentService.anonymize(44L)).thenReturn(AccountDeletionContentService.Result.PURGE_PENDING);
+
+        AccountDeletionFinalizationService.Outcome outcome =
+                finalizationService.finalizeImmediatelyAfterAdminDeletion(44L, 77L);
+
+        assertThat(outcome).isEqualTo(AccountDeletionFinalizationService.Outcome.DEFERRED);
+        assertThat(user.getDeletionScheduledFor()).isNotNull();
+        verify(auditLogRepository).save(argThat((AuditLog log) -> log.getAdminId().equals(77L)
+                && log.getTargetUserId().equals(44L)
+                && log.getAction() == AuditLog.AuditAction.DELETE_USER
+                && "[REDACTED]".equals(log.getOldValue())
+                && log.getNewValue() == null
+                && log.getDescription().contains("보류")));
+        verify(partyService, never()).handleUserDeletion(44L);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
     void selfServiceFinalizationDoesNotRunAdminOnlyLikeCleanup() {
         LocalDateTime cutoff = LocalDateTime.now();
         UserEntity user = UserEntity.builder()
@@ -145,6 +198,68 @@ class AccountDeletionFinalizationServiceTest {
     }
 
     @Test
+    void moderationPendingFinalizesIdentityAndKeepsContentRetryMarker() {
+        LocalDateTime cutoff = LocalDateTime.now();
+        UserEntity user = UserEntity.builder()
+                .id(44L)
+                .pendingDeletion(true)
+                .deletionRequestedAt(cutoff.minusDays(7))
+                .deletionScheduledFor(cutoff.minusMinutes(1))
+                .build();
+        when(userRepository.findByIdForWrite(44L)).thenReturn(Optional.of(user));
+        when(userRepository.save(user)).thenReturn(user);
+        when(contentService.anonymize(44L)).thenReturn(AccountDeletionContentService.Result.MODERATION_PENDING);
+
+        boolean finalized = finalizationService.finalizeIfDue(44L, cutoff);
+
+        assertThat(finalized).isTrue();
+        verify(identityService).anonymize(user);
+        assertThat(user.getDeletionScheduledFor()).isNull();
+        assertThat(user.getContentAnonymizationRetryAt()).isNotNull();
+    }
+
+    @Test
+    void assetCleanupPendingFinalizesIdentityAndKeepsContentRetryMarker() {
+        LocalDateTime cutoff = LocalDateTime.now();
+        UserEntity user = UserEntity.builder()
+                .id(44L)
+                .pendingDeletion(true)
+                .deletionRequestedAt(cutoff.minusDays(7))
+                .deletionScheduledFor(cutoff.minusMinutes(1))
+                .build();
+        when(userRepository.findByIdForWrite(44L)).thenReturn(Optional.of(user));
+        when(userRepository.save(user)).thenReturn(user);
+        when(contentService.anonymize(44L)).thenReturn(AccountDeletionContentService.Result.ASSET_CLEANUP_PENDING);
+
+        boolean finalized = finalizationService.finalizeIfDue(44L, cutoff);
+
+        assertThat(finalized).isTrue();
+        verify(identityService).anonymize(user);
+        assertThat(user.getDeletionScheduledFor()).isNull();
+        assertThat(user.getContentAnonymizationRetryAt()).isNotNull();
+    }
+
+    @Test
+    void completedContentClearsRetryMarkerAfterFinalization() {
+        LocalDateTime cutoff = LocalDateTime.now();
+        UserEntity user = UserEntity.builder()
+                .id(44L)
+                .pendingDeletion(true)
+                .deletionRequestedAt(cutoff.minusDays(7))
+                .deletionScheduledFor(cutoff.minusMinutes(1))
+                .contentAnonymizationRetryAt(cutoff.plusMinutes(10))
+                .build();
+        when(userRepository.findByIdForWrite(44L)).thenReturn(Optional.of(user));
+        when(userRepository.save(user)).thenReturn(user);
+        when(contentService.anonymize(44L)).thenReturn(AccountDeletionContentService.Result.COMPLETED);
+
+        boolean finalized = finalizationService.finalizeIfDue(44L, cutoff);
+
+        assertThat(finalized).isTrue();
+        assertThat(user.getContentAnonymizationRetryAt()).isNull();
+    }
+
+    @Test
     void successfulAdminFinalizationWritesOnlyRedactedAuditValues() {
         LocalDateTime cutoff = LocalDateTime.now();
         UserEntity user = UserEntity.builder()
@@ -160,15 +275,15 @@ class AccountDeletionFinalizationServiceTest {
         ListAppender<ILoggingEvent> logAppender = new ListAppender<>();
         logAppender.start();
         logger.addAppender(logAppender);
-        boolean finalized;
+        AccountDeletionFinalizationService.Outcome outcome;
         try {
-            finalized = finalizationService.finalizeImmediatelyAfterAdminDeletion(44L, 77L);
+            outcome = finalizationService.finalizeImmediatelyAfterAdminDeletion(44L, 77L);
         } finally {
             logger.detachAppender(logAppender);
             logAppender.stop();
         }
 
-        assertThat(finalized).isTrue();
+        assertThat(outcome).isEqualTo(AccountDeletionFinalizationService.Outcome.FINALIZED);
         verify(auditLogRepository).save(argThat((AuditLog log) -> log.getAdminId().equals(77L)
                 && log.getTargetUserId().equals(44L)
                 && log.getAction() == AuditLog.AuditAction.DELETE_USER

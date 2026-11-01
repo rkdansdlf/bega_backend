@@ -39,13 +39,19 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @DataJpaTest
 @Import({AccountDeletionService.class, AccountDeletionFinalizationService.class})
@@ -61,8 +67,14 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
     @Autowired
     private UserRepository userRepository;
 
-    @Autowired
+    @MockitoSpyBean
     private AccountDeletionTokenRepository accountDeletionTokenRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Autowired
     private CheerPostLikeRepo likeRepository;
@@ -132,6 +144,110 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
         }
     }
 
+    @Test
+    void recoveryInfoSurvivesCommittedHashBackfillBetweenQueries() throws Exception {
+        LocalDateTime expiry = LocalDateTime.now().plusDays(1).truncatedTo(ChronoUnit.MICROS);
+        UserEntity user = savePendingUser(expiry);
+        String raw = UUID.randomUUID().toString();
+        String digest = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        accountDeletionTokenRepository.saveAndFlush(AccountDeletionToken.builder()
+                .token(raw).user(user).expiryDate(expiry).build());
+        doAnswer(invocation -> {
+            TransactionTemplate independent = new TransactionTemplate(transactionManager);
+            independent.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            independent.executeWithoutResult(status -> assertThat(jdbcTemplate.update(
+                    "update account_deletion_tokens set token = ? where token = ?", digest, raw)).isEqualTo(1));
+            return java.util.Optional.empty();
+        }).when(accountDeletionTokenRepository).findByToken(raw);
+
+        assertThat(accountDeletionService.getRecoveryInfo(raw).getScheduledFor()).isNotNull();
+        assertThat(accountDeletionTokenRepository.findByToken(digest)).isPresent();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void recoverySurvivesCommittedHashBackfillAtEitherLookup(boolean beforeUserLookup) throws Exception {
+        LocalDateTime expiry = LocalDateTime.now().plusDays(1).truncatedTo(ChronoUnit.MICROS);
+        UserEntity user = savePendingUser(expiry);
+        String raw = UUID.randomUUID().toString();
+        String digest = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        accountDeletionTokenRepository.saveAndFlush(AccountDeletionToken.builder()
+                .token(raw).user(user).expiryDate(expiry).build());
+        java.util.concurrent.atomic.AtomicBoolean backfilled = new java.util.concurrent.atomic.AtomicBoolean();
+        org.mockito.stubbing.Answer<java.util.Optional<?>> backfill = invocation -> {
+            if (!backfilled.compareAndSet(false, true)) {
+                return java.util.Optional.empty();
+            }
+            TransactionTemplate independent = new TransactionTemplate(transactionManager);
+            independent.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            independent.executeWithoutResult(status -> assertThat(jdbcTemplate.update(
+                    "update account_deletion_tokens set token = ? where token = ?", digest, raw)).isEqualTo(1));
+            return java.util.Optional.empty();
+        };
+        if (beforeUserLookup) {
+            doAnswer(backfill).when(accountDeletionTokenRepository).findUserIdByToken(raw);
+        } else {
+            doAnswer(backfill).when(accountDeletionTokenRepository).findByTokenAndUser_Id(raw, user.getId());
+        }
+
+        accountDeletionService.recoverAccount(raw);
+
+        assertThat(backfilled.get()).isTrue();
+        assertThat(userRepository.findById(user.getId()).orElseThrow().isEnabled()).isTrue();
+        assertThat(accountDeletionTokenRepository.findByToken(digest)).isEmpty();
+        assertThatThrownBy(() -> accountDeletionService.recoverAccount(raw))
+                .isInstanceOf(BadRequestBusinessException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void concurrentRecoveriesConsumeTokenOnlyOnce(boolean hashed) throws Exception {
+        LocalDateTime expiry = LocalDateTime.now().plusDays(1).truncatedTo(ChronoUnit.MICROS);
+        UserEntity user = savePendingUser(expiry);
+        String raw = UUID.randomUUID().toString();
+        String digest = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        String stored = hashed ? digest : raw;
+        accountDeletionTokenRepository.saveAndFlush(AccountDeletionToken.builder()
+                .token(stored).user(user).expiryDate(expiry).build());
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch bothResolvedUser = new CountDownLatch(2);
+        doAnswer(invocation -> {
+            java.util.List<Long> ids = jdbcTemplate.query(
+                    "select user_id from account_deletion_tokens where token = ?",
+                    (row, index) -> row.getLong(1), stored);
+            assertThat(ids).containsExactly(user.getId());
+            bothResolvedUser.countDown();
+            if (!bothResolvedUser.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Timed out waiting for both recovery lookups");
+            }
+            return ids.stream().findFirst();
+        }).when(accountDeletionTokenRepository).findUserIdByToken(stored);
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.Callable<Boolean> attempt = () -> {
+                start.await();
+                try {
+                    accountDeletionService.recoverAccount(raw);
+                    return true;
+                } catch (BadRequestBusinessException expected) {
+                    return false;
+                }
+            };
+            Future<Boolean> first = workers.submit(attempt);
+            Future<Boolean> second = workers.submit(attempt);
+            start.countDown();
+            assertThat(java.util.List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(true, false);
+            assertThat(bothResolvedUser.getCount()).isZero();
+            assertThat(accountDeletionTokenRepository.findByToken(stored)).isEmpty();
+        } finally {
+            workers.shutdownNow();
+        }
+    }
+
     @MockitoBean
     private AuditLogRepository auditLogRepository;
 
@@ -156,14 +272,20 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
         assertThat(accountDeletionTokenRepository.findByTokenAndUser_Id(successfulToken, successfulUser.getId())).isEmpty();
     }
 
-    @Test
-    void recoveryCannotReviveAnAccountAfterFinalizerWinsTheUserLock() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void recoveryCannotReviveAnAccountAfterFinalizerWinsTheUserLock(boolean hashed) throws Exception {
         // DB timestamps are microsecond precision; Linux clocks are nanosecond. Compare at the stored precision.
         LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
         UserEntity user = savePendingUser(dueAt);
-        String recoveryToken = saveRecoveryToken(user, dueAt);
+        String recoveryToken = UUID.randomUUID().toString();
+        String storedToken = hashed ? java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(recoveryToken.getBytes(java.nio.charset.StandardCharsets.UTF_8))) : recoveryToken;
+        accountDeletionTokenRepository.saveAndFlush(AccountDeletionToken.builder()
+                .token(storedToken).user(user).expiryDate(dueAt).build());
         CountDownLatch finalizerHoldingUserLock = new CountDownLatch(1);
         CountDownLatch releaseFinalizer = new CountDownLatch(1);
+        CountDownLatch recoveryResolvedUser = new CountDownLatch(1);
         doAnswer(invocation -> {
             finalizerHoldingUserLock.countDown();
             if (!releaseFinalizer.await(5, TimeUnit.SECONDS)) {
@@ -178,6 +300,15 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
                     .finalizeIfDue(user.getId(), LocalDateTime.now()));
             assertThat(finalizerHoldingUserLock.await(5, TimeUnit.SECONDS)).isTrue();
 
+            doAnswer(invocation -> {
+                java.util.List<Long> ids = jdbcTemplate.query(
+                        "select user_id from account_deletion_tokens where token = ?",
+                        (row, index) -> row.getLong(1), storedToken);
+                assertThat(ids).containsExactly(user.getId());
+                recoveryResolvedUser.countDown();
+                return ids.stream().findFirst();
+            }).when(accountDeletionTokenRepository).findUserIdByToken(storedToken);
+
             Future<String> recovery = workers.submit(() -> {
                 try {
                     accountDeletionService.recoverAccount(recoveryToken);
@@ -187,6 +318,7 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
                 }
             });
 
+            assertThat(recoveryResolvedUser.await(5, TimeUnit.SECONDS)).isTrue();
             releaseFinalizer.countDown();
             assertThat(finalization.get(5, TimeUnit.SECONDS)).isTrue();
             assertThat(recovery.get(5, TimeUnit.SECONDS)).contains("유효하지 않은 복구 링크");
@@ -199,7 +331,7 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
         assertThat(finalizedUser.isPendingDeletion()).isTrue();
         assertThat(finalizedUser.isEnabled()).isFalse();
         assertThat(finalizedUser.getDeletionScheduledFor()).isNull();
-        assertThat(accountDeletionTokenRepository.findByTokenAndUser_Id(recoveryToken, user.getId())).isEmpty();
+        assertThat(accountDeletionTokenRepository.findByTokenAndUser_Id(storedToken, user.getId())).isEmpty();
     }
 
     @Test
@@ -227,7 +359,7 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
         like.setUser(adminDeletedUser);
         likeRepository.saveAndFlush(like);
         doThrow(new IllegalStateException("synthetic content finalization failure"))
-                .doNothing()
+                .doReturn(AccountDeletionContentService.Result.COMPLETED)
                 .when(contentService).anonymize(adminDeletedUser.getId());
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> accountDeletionFinalizationService

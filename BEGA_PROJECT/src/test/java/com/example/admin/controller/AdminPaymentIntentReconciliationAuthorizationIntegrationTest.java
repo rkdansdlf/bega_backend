@@ -89,6 +89,16 @@ class AdminPaymentIntentReconciliationAuthorizationIntegrationTest {
     }
 
     @Test
+    @WithMockUser(roles = "USER")
+    void regularUserCannotTriggerProviderVerification() throws Exception {
+        mockMvc.perform(post("/api/admin/payment-intents/reconciliation/410/verify-provider"))
+                .andExpect(status().isForbidden());
+
+        verify(reconciliationAdminService, never()).verifyProvider(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     @WithMockUser(roles = "ADMIN")
     void administratorCanReadReconciliationQueue() throws Exception {
         given(reconciliationAdminService.listPending(0, 20))
