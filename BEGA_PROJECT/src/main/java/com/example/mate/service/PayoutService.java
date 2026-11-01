@@ -143,8 +143,17 @@ public class PayoutService {
                     payout,
                     payoutAmount);
             PayoutGateway payoutGateway = resolveGateway(providerCode);
+            PayoutClaimService.DispatchIntentClaim dispatchIntent = payoutClaimService
+                    .claimProviderDispatchIntent(paymentTransaction.getId(), payout.getId());
+            payout = dispatchIntent.payout();
+            if (!dispatchIntent.dispatchAllowed()) {
+                return payout;
+            }
             gatewayResult = payoutGateway.requestPayout(payoutRequest);
         } catch (RuntimeException e) {
+            if (e instanceof PayoutClaimService.PayoutEligibilityException) {
+                throw e;
+            }
             String failureCode = resolveFailureCode(e);
             try {
                 if (isAmbiguousPayoutFailure(e, failureCode)) {
@@ -172,24 +181,32 @@ public class PayoutService {
         }
 
         try {
-            payout.setProviderRef(gatewayResult.providerRef());
             String rawStatus = normalizeProviderStatus(gatewayResult.rawStatus());
-            if (isProviderCompleted(rawStatus)) {
-                payout = markPayoutCompleted(paymentTransaction, payout);
-            } else if (isProviderDefinitivelyFailed(rawStatus)) {
-                payout = markPayoutFailed(
+            String providerRef = gatewayResult.providerRef();
+            if (isProviderCompleted(rawStatus) && (providerRef == null || providerRef.isBlank())) {
+                payout = payoutStateService.requireManualReconciliation(
                         paymentTransaction,
                         payout,
-                        "PAYOUT_PROVIDER_STATUS_" + rawStatus,
-                        "providerStatus=" + rawStatus,
-                        true);
+                        "providerStatus=COMPLETED, providerRef missing or blank");
             } else {
-                payout = keepPayoutRequested(
-                        paymentTransaction,
-                        payout,
-                        null,
-                        "providerStatus=" + rawStatus,
-                        false);
+                payout.setProviderRef(providerRef);
+                if (isProviderCompleted(rawStatus)) {
+                    payout = markPayoutCompleted(paymentTransaction, payout);
+                } else if (isProviderDefinitivelyFailed(rawStatus)) {
+                    payout = markPayoutFailed(
+                            paymentTransaction,
+                            payout,
+                            "PAYOUT_PROVIDER_STATUS_" + rawStatus,
+                            "providerStatus=" + rawStatus,
+                            true);
+                } else {
+                    payout = keepPayoutRequested(
+                            paymentTransaction,
+                            payout,
+                            null,
+                            "providerStatus=" + rawStatus,
+                            false);
+                }
             }
         } catch (RuntimeException localFailure) {
             log.error("[Payout] provider response persistence failed; durable claim remains conservative: payoutId={}",
@@ -209,6 +226,9 @@ public class PayoutService {
             providerResult = resolveGateway(payout.getProviderCode())
                     .getPayoutStatus(payout.getProviderRef());
         } catch (RuntimeException lookupFailure) {
+            if (lookupFailure instanceof PayoutClaimService.PayoutEligibilityException) {
+                throw lookupFailure;
+            }
             String failureCode = resolveFailureCode(lookupFailure);
             try {
                 keepPayoutRequested(
@@ -226,31 +246,40 @@ public class PayoutService {
         }
 
         try {
-            if (providerResult != null
-                    && providerResult.providerRef() != null
-                    && !providerResult.providerRef().isBlank()) {
-                payout.setProviderRef(providerResult.providerRef());
+            String expectedProviderRef = payout.getProviderRef();
+            if (providerResult == null
+                    || expectedProviderRef == null
+                    || expectedProviderRef.isBlank()
+                    || providerResult.providerRef() == null
+                    || !expectedProviderRef.equals(providerResult.providerRef())) {
+                payoutStateService.requireManualReconciliation(
+                        paymentTransaction,
+                        payout,
+                        "지급 상태 응답의 providerRef가 조회 요청과 일치하지 않습니다.");
+                return;
             }
             String rawStatus = normalizeProviderStatus(
-                    providerResult != null ? providerResult.rawStatus() : null);
+                    providerResult.rawStatus());
             if (isProviderCompleted(rawStatus)) {
                 markPayoutCompleted(paymentTransaction, payout);
             } else if (isProviderDefinitivelyFailed(rawStatus)) {
-                String failureCode = providerResult != null && providerResult.failureCode() != null
+                String failureCode = providerResult.failureCode() != null
                         ? providerResult.failureCode()
                         : "PAYOUT_PROVIDER_STATUS_" + rawStatus;
                 markPayoutFailed(
                         paymentTransaction,
                         payout,
                         failureCode,
-                        providerResult != null ? providerResult.failureMessage() : null,
+                        providerResult.failureMessage(),
                         true);
             } else {
                 keepPayoutRequested(
                         paymentTransaction,
                         payout,
-                        providerResult != null ? providerResult.failureCode() : null,
-                        providerResult != null ? providerResult.failureMessage() : "providerStatus=" + rawStatus,
+                        providerResult.failureCode(),
+                        providerResult.failureMessage() != null
+                                ? providerResult.failureMessage()
+                                : "providerStatus=" + rawStatus,
                         true);
             }
         } catch (RuntimeException localFailure) {

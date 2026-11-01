@@ -85,4 +85,9 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, Long> {
             @Param("status") MediaAssetStatus status,
             @Param("cutoff") LocalDateTime cutoff,
             Pageable pageable);
+
+    List<MediaAsset> findByOwnerUserIdAndIdGreaterThanOrderByIdAsc(
+            Long ownerUserId,
+            Long afterId,
+            Pageable pageable);
 }

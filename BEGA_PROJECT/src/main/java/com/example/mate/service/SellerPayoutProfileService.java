@@ -3,6 +3,8 @@ package com.example.mate.service;
 import com.example.mate.dto.SellerPayoutProfileDTO;
 import com.example.mate.entity.SellerPayoutProfile;
 import com.example.mate.repository.SellerPayoutProfileRepository;
+import com.example.auth.entity.UserEntity;
+import com.example.auth.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,15 +16,31 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class SellerPayoutProfileService {
 
+    private static final int MAX_PROVIDER_SELLER_ID_LENGTH = 120;
+    private static final int MAX_KYC_STATUS_LENGTH = 50;
+
     private final SellerPayoutProfileRepository sellerPayoutProfileRepository;
+    private final UserRepository userRepository;
 
     @Transactional
     public SellerPayoutProfile upsert(SellerPayoutProfileDTO.UpsertRequest request) {
         if (request == null || request.getUserId() == null) {
             throw new IllegalArgumentException("userId는 필수입니다.");
         }
+        UserEntity user = userRepository.findByIdForWrite(request.getUserId())
+                .orElseThrow(() -> new IllegalStateException("PAYOUT_PROFILE_ACCOUNT_UNAVAILABLE"));
+        if (!user.isEnabled() || user.isPendingDeletion()) {
+            throw new IllegalStateException("PAYOUT_PROFILE_ACCOUNT_UNAVAILABLE");
+        }
         String provider = normalizeProvider(request.getProvider());
         String providerSellerId = normalizeProviderSellerId(request.getProviderSellerId());
+        if (providerSellerId.length() > MAX_PROVIDER_SELLER_ID_LENGTH) {
+            throw new IllegalArgumentException("providerSellerId는 공백 제거 후 120자 이하여야 합니다.");
+        }
+        String kycStatus = request.getKycStatus();
+        if (kycStatus != null && kycStatus.length() > MAX_KYC_STATUS_LENGTH) {
+            throw new IllegalArgumentException("kycStatus는 50자 이하여야 합니다.");
+        }
 
         sellerPayoutProfileRepository.findByProviderAndProviderSellerId(provider, providerSellerId)
                 .filter(existing -> !existing.getUserId().equals(request.getUserId()))
@@ -38,7 +56,7 @@ public class SellerPayoutProfileService {
                         .build());
 
         profile.setProviderSellerId(providerSellerId);
-        profile.setKycStatus(request.getKycStatus());
+        profile.setKycStatus(kycStatus);
         profile.setMetadataJson(request.getMetadataJson());
         return sellerPayoutProfileRepository.save(profile);
     }

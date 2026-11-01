@@ -3660,12 +3660,12 @@ Schema: `{<br>  "properties" : {<br>    "createdAt" : {<br>      "format" : "dat
 
 <a id="matesellerpayoutprofileupsertrequest"></a>
 ## MateSellerPayoutProfileUpsertRequest
-Schema: `{<br>  "properties" : {<br>    "kycStatus" : {<br>      "type" : "string"<br>    },<br>    "metadataJson" : {<br>      "type" : "string"<br>    },<br>    "provider" : {<br>      "type" : "string"<br>    },<br>    "providerSellerId" : {<br>      "type" : "string"<br>    },<br>    "userId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "kycStatus" : {<br>      "maxLength" : 50,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "metadataJson" : {<br>      "type" : "string"<br>    },<br>    "provider" : {<br>      "type" : "string"<br>    },<br>    "providerSellerId" : {<br>      "type" : "string"<br>    },<br>    "userId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `kycStatus` | no | `string` | — | — |
+| `kycStatus` | no | `string` | — | minLength=0, maxLength=50 |
 | `metadataJson` | no | `string` | — | — |
 | `provider` | no | `string` | — | — |
 | `providerSellerId` | no | `string` | — | — |

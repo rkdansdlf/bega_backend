@@ -14,4 +14,6 @@ public interface TrustedDeviceRepository extends JpaRepository<TrustedDevice, Lo
     Optional<TrustedDevice> findByUserIdAndFingerprint(Long userId, String fingerprint);
 
     Optional<TrustedDevice> findByIdAndUserIdAndRevokedAtIsNull(Long id, Long userId);
+
+    void deleteByUserId(Long userId);
 }

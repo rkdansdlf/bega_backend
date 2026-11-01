@@ -27,6 +27,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -37,6 +38,12 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Slf4j
 public class MediaUploadService {
+
+    private static final int ACCOUNT_ASSET_CLEANUP_BATCH_SIZE = 100;
+    private static final Set<MediaDomain> ACCOUNT_FINALIZATION_MEDIA_DOMAINS = Set.of(
+            MediaDomain.PROFILE,
+            MediaDomain.CHEER,
+            MediaDomain.CHAT);
 
     private final MediaAssetRepository mediaAssetRepository;
     private final MediaAssetLinkRepository mediaAssetLinkRepository;
@@ -226,6 +233,82 @@ public class MediaUploadService {
             metricsService.recordMediaFinalize(asset.getDomain().name(), "failure");
             throw new InternalServerBusinessException("MEDIA_UPLOAD_FINALIZE_FAILED", "이미지 업로드 완료 처리에 실패했습니다.");
         }
+    }
+
+    @Transactional
+    public void unlinkEntityMedia(MediaDomain domain, Long entityId) {
+        if (domain != null && entityId != null) {
+            mediaAssetLinkRepository.deleteByDomainAndEntityId(domain, entityId);
+        }
+    }
+
+    /** Deletes only objects identified by this user's internal media-asset rows. */
+    @Transactional
+    public void deleteOwnedAssetsForAccount(Long userId, Set<Long> protectedCheerPostIds) {
+        if (userId == null) {
+            throw new IllegalArgumentException("A persisted account ID is required for media cleanup.");
+        }
+        Set<Long> protectedIds = protectedCheerPostIds == null ? Set.of() : protectedCheerPostIds;
+        long afterId = 0L;
+        List<MediaAsset> batch;
+        do {
+            batch = mediaAssetRepository.findByOwnerUserIdAndIdGreaterThanOrderByIdAsc(
+                    userId, afterId, PageRequest.of(0, ACCOUNT_ASSET_CLEANUP_BATCH_SIZE));
+            for (MediaAsset asset : batch) {
+                afterId = asset.getId();
+                if (!userId.equals(asset.getOwnerUserId())
+                        || !ACCOUNT_FINALIZATION_MEDIA_DOMAINS.contains(asset.getDomain())) {
+                    continue;
+                }
+                MediaAsset derivedAsset = mediaAssetRepository.findByDerivedFrom_Id(asset.getId()).orElse(null);
+                if (derivedAsset != null
+                        && userId.equals(derivedAsset.getOwnerUserId())
+                        && !ACCOUNT_FINALIZATION_MEDIA_DOMAINS.contains(derivedAsset.getDomain())) {
+                    continue;
+                }
+                if (hasProtectedCheerLink(asset, protectedIds)
+                        || (asset.getDerivedFrom() != null && hasProtectedCheerLink(asset.getDerivedFrom(), protectedIds))
+                        || (derivedAsset != null && hasProtectedCheerLink(derivedAsset, protectedIds))) {
+                    continue;
+                }
+                mediaAssetLinkRepository.deleteByAssetId(asset.getId());
+                deleteAndForgetAccountAsset(asset);
+                if (derivedAsset != null
+                        && userId.equals(derivedAsset.getOwnerUserId())
+                        && ACCOUNT_FINALIZATION_MEDIA_DOMAINS.contains(derivedAsset.getDomain())) {
+                    mediaAssetLinkRepository.deleteByAssetId(derivedAsset.getId());
+                    deleteAndForgetAccountAsset(derivedAsset);
+                }
+            }
+        } while (batch.size() == ACCOUNT_ASSET_CLEANUP_BATCH_SIZE);
+    }
+
+    private boolean hasProtectedCheerLink(MediaAsset asset, Set<Long> protectedCheerPostIds) {
+        return mediaAssetLinkRepository.findById(asset.getId())
+                .filter(link -> link.getDomain() == MediaDomain.CHEER)
+                .map(link -> protectedCheerPostIds.contains(link.getEntityId()))
+                .orElse(false);
+    }
+
+    private void deleteAndForgetAccountAsset(MediaAsset asset) {
+        String bucket = asset.getDomain().resolveBucket(storageConfig);
+        deleteObject(bucket, asset.getStagingObjectKey());
+        deleteObject(bucket, asset.getObjectKey());
+        asset.markDeleted();
+        asset.setOwnerUserId(null);
+        asset.setOriginalFileName(null);
+        asset.setDeclaredContentType("application/octet-stream");
+        asset.setDeclaredBytes(0L);
+        asset.setDeclaredWidth(0);
+        asset.setDeclaredHeight(0);
+        asset.setStagingObjectKey("");
+        asset.setObjectKey(null);
+        asset.setStoredContentType(null);
+        asset.setStoredBytes(null);
+        asset.setStoredWidth(null);
+        asset.setStoredHeight(null);
+        asset.setDerivedFrom(null);
+        mediaAssetRepository.save(asset);
     }
 
     @Transactional

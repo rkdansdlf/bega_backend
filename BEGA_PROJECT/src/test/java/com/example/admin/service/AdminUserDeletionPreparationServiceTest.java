@@ -55,14 +55,16 @@ class AdminUserDeletionPreparationServiceTest {
         assertThat(user.isEnabled()).isFalse();
         assertThat(user.getTokenVersion()).isEqualTo(4);
         assertThat(user.getLockExpiresAt()).isNull();
-        assertThat(user.isPendingDeletion()).isFalse();
+        assertThat(user.isPendingDeletion()).isTrue();
+        assertThat(user.getDeletionRequestedAt()).isNotNull();
+        assertThat(user.getDeletionScheduledFor()).isNotNull().isBeforeOrEqualTo(LocalDateTime.now());
         verify(userRepository).findByIdForWrite(41L);
         verify(userRepository).save(user);
         verify(accountDeletionTokenRepository).deleteByUser_Id(41L);
     }
 
     @Test
-    void disableForDeletionDoesNotIncrementTokenVersionAgainOnRetry() {
+    void disableForDeletionKeepsVersionAndSchedulesImmediateRetryForDisabledAccounts() {
         UserEntity user = UserEntity.builder()
                 .id(42L)
                 .role("ROLE_USER")
@@ -74,12 +76,36 @@ class AdminUserDeletionPreparationServiceTest {
         preparationService.disableForDeletion(42L, 99L);
 
         assertThat(user.getTokenVersion()).isEqualTo(7);
-        verify(userRepository, never()).save(user);
+        assertThat(user.isPendingDeletion()).isTrue();
+        assertThat(user.getDeletionScheduledFor()).isNotNull().isBeforeOrEqualTo(LocalDateTime.now());
+        verify(userRepository).save(user);
         verify(accountDeletionTokenRepository).deleteByUser_Id(42L);
     }
 
     @Test
-    void disableForDeletionClearsRecoveryStateEvenWhenAlreadyDisabled() {
+    void disableForDeletionDoesNotClearAnonymizedTombstoneMarkerOnRetry() {
+        UserEntity tombstone = UserEntity.builder()
+                .id(43L)
+                .role("ROLE_USER")
+                .name("탈퇴한 사용자")
+                .email("deleted-43@deleted.invalid")
+                .enabled(false)
+                .locked(true)
+                .pendingDeletion(true)
+                .build();
+        given(userRepository.findByIdForWrite(43L)).willReturn(Optional.of(tombstone));
+
+        UserEntity result = preparationService.disableForDeletion(43L, 99L);
+
+        assertThat(result).isSameAs(tombstone);
+        assertThat(tombstone.isPendingDeletion()).isTrue();
+        assertThat(tombstone.isLocked()).isTrue();
+        verify(userRepository, never()).save(tombstone);
+        verifyNoInteractions(accountDeletionTokenRepository);
+    }
+
+    @Test
+    void disableForDeletionReplacesRecoveryWindowWithImmediateRetryMarker() {
         UserEntity user = UserEntity.builder()
                 .id(43L)
                 .role("ROLE_USER")
@@ -95,9 +121,9 @@ class AdminUserDeletionPreparationServiceTest {
         preparationService.disableForDeletion(43L, 99L);
 
         assertThat(user.getTokenVersion()).isEqualTo(8);
-        assertThat(user.isPendingDeletion()).isFalse();
-        assertThat(user.getDeletionRequestedAt()).isNull();
-        assertThat(user.getDeletionScheduledFor()).isNull();
+        assertThat(user.isPendingDeletion()).isTrue();
+        assertThat(user.getDeletionRequestedAt()).isNotNull();
+        assertThat(user.getDeletionScheduledFor()).isNotNull().isBeforeOrEqualTo(LocalDateTime.now());
         verify(userRepository).save(user);
         verify(accountDeletionTokenRepository).deleteByUser_Id(43L);
     }

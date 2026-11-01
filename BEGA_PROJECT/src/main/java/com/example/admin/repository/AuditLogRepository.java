@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import org.springframework.data.jpa.repository.Modifying;
 
 /**
  * 감사 로그 Repository
@@ -33,4 +34,28 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
      * 작업 유형별 조회
      */
     List<AuditLog> findByActionOrderByCreatedAtDesc(AuditLog.AuditAction action);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update AuditLog audit
+               set audit.oldValue = :redactedValue
+             where audit.targetUserId = :targetUserId
+               and audit.action in (:actions)
+            """)
+    int redactDeletedUserAuditValues(
+            @Param("targetUserId") Long targetUserId,
+            @Param("actions") List<AuditLog.AuditAction> actions,
+            @Param("redactedValue") String redactedValue);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update AuditLog audit
+               set audit.description = :redactedValue
+             where audit.targetUserId = :targetUserId
+               and audit.action in (:actions)
+            """)
+    int redactDeletedUserAuditDescriptions(
+            @Param("targetUserId") Long targetUserId,
+            @Param("actions") List<AuditLog.AuditAction> actions,
+            @Param("redactedValue") String redactedValue);
 }
