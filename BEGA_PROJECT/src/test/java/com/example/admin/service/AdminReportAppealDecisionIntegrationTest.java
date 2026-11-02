@@ -18,6 +18,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.AccountDeletionContentService;
 import com.example.auth.service.AccountContentAnonymizationRetryService;
+import com.example.auth.service.ModerationHoldAlertService;
 import com.example.auth.service.AccountDeletionFinalizationService;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.CheerPostReport;
@@ -64,7 +65,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @DataJpaTest
-@Import({AdminService.class, AccountDeletionContentService.class, AccountContentAnonymizationRetryService.class, HibernateStatisticsTestConfig.class})
+@Import({AdminService.class, AccountDeletionContentService.class, AccountContentAnonymizationRetryService.class, ModerationHoldAlertService.class, HibernateStatisticsTestConfig.class})
 @TestPropertySource(properties = {
         "spring.datasource.url=jdbc:h2:mem:admin_appeal_decision;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;LOCK_TIMEOUT=30000",
         "spring.datasource.driver-class-name=org.h2.Driver",
@@ -320,10 +321,28 @@ class AdminReportAppealDecisionIntegrationTest {
     }
 
     @Test
+    void purgeClaimIsRefusedWhileAppealIsReviewingAndAllowedOnceClosed() {
+        Fixture fixture = createFixture(false);
+        jdbcTemplate.update("UPDATE users SET pending_deletion = ? WHERE id = ?", false, fixture.ownerId());
+        jdbcTemplate.update("UPDATE cheer_post SET deleted = ? WHERE id = ?", true, fixture.postId());
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
+        Integer refused = transaction().execute(status -> postRepository.claimPurge(
+                fixture.postId(), "reviewing-claim", now, now.plusMinutes(15)));
+        assertThat(refused).as("open appeal must block purge").isZero();
+
+        jdbcTemplate.update("UPDATE cheer_post_reports SET appeal_status = ? WHERE id = ?", "NONE", fixture.firstReportId());
+        Integer allowed = transaction().execute(status -> postRepository.claimPurge(
+                fixture.postId(), "closed-claim", now, now.plusMinutes(15)));
+        assertThat(allowed).as("closed appeal allows purge").isEqualTo(1);
+    }
+
+    @Test
     void concurrentRestoreWaitsForPurgeClaimThenRejects() throws Exception {
         Fixture fixture = createFixture(false);
         jdbcTemplate.update("UPDATE users SET pending_deletion = ? WHERE id = ?", false, fixture.ownerId());
         jdbcTemplate.update("UPDATE cheer_post SET deleted = ? WHERE id = ?", true, fixture.postId());
+        // Purge is only claimable once no moderation case is open, so close the fixture's reviewing appeal first.
+        jdbcTemplate.update("UPDATE cheer_post_reports SET appeal_status = ? WHERE id = ?", "NONE", fixture.firstReportId());
         CountDownLatch claimed = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         CountDownLatch restoreStarted = new CountDownLatch(1);
