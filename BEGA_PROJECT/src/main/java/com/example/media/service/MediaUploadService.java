@@ -1,5 +1,6 @@
 package com.example.media.service;
 
+import com.example.cheerboard.service.CheerPurgeCoordination;
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.strategy.PresignedUpload;
 import com.example.cheerboard.storage.strategy.StorageOperationException;
@@ -273,7 +274,8 @@ public class MediaUploadService {
     }
 
     public boolean hasPendingCheerPurge(Long userId) {
-        return mediaAssetRepository.existsByOwnerUserIdAndStatus(userId, MediaAssetStatus.CHEER_PURGE_PENDING);
+        return mediaAssetRepository.existsOwnerPurgePendingNotStale(userId,
+                LocalDateTime.now(ZoneOffset.UTC).minus(CheerPurgeCoordination.CHEER_PURGE_HOLD_LIMIT));
     }
 
     /**

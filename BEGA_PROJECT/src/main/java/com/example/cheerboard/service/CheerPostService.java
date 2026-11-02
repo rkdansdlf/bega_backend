@@ -334,6 +334,15 @@ public class CheerPostService {
             return false;
         }
         if (claimed == null || claimed != 1) return false;
+        // Re-check report history before the irreversible storage delete. A report filed after the claim must keep
+        // its evidence media, so the storage objects are left alone.
+        Boolean evidenceIntact = transactionBoundary.inWriteTransaction(() ->
+                postRepo.lockClaimedPurge(id, token).isPresent() && !postRepo.existsReportByPostId(id));
+        if (!Boolean.TRUE.equals(evidenceIntact)) {
+            log.error("게시글 삭제 전 신고 이력 재확인 실패. 이미지 저장소를 건드리지 않습니다: postId={}", id);
+            releasePurgeForRetry(id, token);
+            return false;
+        }
         boolean storageClean;
         try {
             storageClean = imageService.deleteImagesByPostId(id);
@@ -355,7 +364,10 @@ public class CheerPostService {
                         .map(PostImage::getStoragePath).toList());
                 mediaLinkService.unlinkEntity(MediaDomain.CHEER, id);
                 postImageRepository.deleteByPostId(id);
-                postRepo.hardDeleteById(id);
+                // 0 rows: a report was filed after the claim, so the post must stay. Throwing rolls this transaction back.
+                if (postRepo.hardDeleteById(id) != 1) {
+                    throw new IllegalStateException("Post with report history cannot be hard deleted: postId=" + id);
+                }
                 return true;
             });
             return Boolean.TRUE.equals(completed);

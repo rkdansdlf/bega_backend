@@ -153,27 +153,22 @@ class AccountDeletionModerationHoldIntegrationTest {
     }
 
     @Test
-    void resolvedCaseReleasesStartedPurgeAndContentPassReportsPurgePending() {
+    void reportedPostNeverResumesPurgeAndDoesNotHoldTheAccount() {
         Fixture fixture = newDeletedPostWithAuthor();
         Long authorId = fixture.authorId();
         Long postId = fixture.postId();
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-        new TransactionTemplate(transactionManager).execute(status ->
-                posts.claimPurge(postId, "first", now, now.minusMinutes(1)));
-        jdbc.update("UPDATE users SET pending_deletion = ?, deletion_scheduled_for = ? WHERE id = ?",
-                true, LocalDateTime.now().minusMinutes(1), authorId);
+        jdbc.update("UPDATE cheer_post SET purge_started_at = ?, purge_claim_token = ? WHERE id = ?",
+                LocalDateTime.now().minusMinutes(1), "held", postId);
         insertReport(postId, authorId, "PENDING", LocalDateTime.now().minusDays(2));
-
         jdbc.update("UPDATE cheer_post_reports SET status = ? WHERE post_id = ?", "RESOLVED", postId);
 
-        assertThat(posts.findDuePurgeIds(now, 1, PageRequest.of(0, 50))).contains(postId);
-        Integer claim = new TransactionTemplate(transactionManager).execute(status ->
-                posts.claimPurge(postId, "allowed", now, now.plusMinutes(15)));
-        assertThat(claim).isEqualTo(1);
-        // The purge has started, so the content pass waits for it to finish instead of redacting early.
-        var result = new TransactionTemplate(transactionManager).execute(status -> contentService.anonymize(authorId));
-        assertThat(result).isEqualTo(AccountDeletionContentService.Result.PURGE_PENDING);
-        verifyNoInteractions(mediaUploadService);
+        // Reports keep the post out of purge for good, so the started purge is never resumed or claimed again.
+        assertThat(posts.findDuePurgeIds(now, 1, PageRequest.of(0, 50))).doesNotContain(postId);
+        assertThat(claimPurge(postId, "allowed", now)).isZero();
+        // The content pass does not wait on a purge that cannot finish, so it completes and redacts the content.
+        assertThat(anonymize(authorId)).isEqualTo(AccountDeletionContentService.Result.COMPLETED);
+        assertThat(contentOf(postId)).isEqualTo(REDACTED_POST);
     }
 
     @Test
@@ -216,7 +211,8 @@ class AccountDeletionModerationHoldIntegrationTest {
 
         jdbc.update("UPDATE cheer_post_reports SET status = ? WHERE post_id = ?", "RESOLVED", postId);
 
-        assertThat(claimPurge(postId, "active-author-released", now)).isEqualTo(1);
+        // The case is closed, but the report stays on the post, so the post is still never purged.
+        assertThat(claimPurge(postId, "active-author-released", now)).isZero();
     }
 
     @Test
@@ -230,10 +226,9 @@ class AccountDeletionModerationHoldIntegrationTest {
         insertReport(postId, authorId, "CLOSED", "REJECTED", LocalDateTime.now().minusDays(2));
 
         assertThat(reports.findOpenModerationPostIdsByAuthorId(authorId)).isEmpty();
-        assertThat(claimPurge(postId, "closed", now)).isEqualTo(1);
-        // The purge is now in progress, so the content pass waits for it rather than redacting early.
-        assertThat(anonymize(authorId)).isEqualTo(AccountDeletionContentService.Result.PURGE_PENDING);
-        assertThat(contentOf(postId)).isEqualTo("original");
+        assertThat(claimPurge(postId, "closed", now)).isZero();
+        assertThat(anonymize(authorId)).isEqualTo(AccountDeletionContentService.Result.COMPLETED);
+        assertThat(contentOf(postId)).isEqualTo(REDACTED_POST);
     }
 
     @Test

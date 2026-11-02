@@ -33,6 +33,29 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, Long> {
 
     boolean existsByOwnerUserIdAndStatus(Long ownerUserId, MediaAssetStatus status);
 
+    /**
+     * True when the owner has a reserved asset that is not held only by a reported post whose purge started before
+     * {@code staleBefore}. Such a purge never finishes, so its reservation must not hold the account indefinitely.
+     */
+    @Query(value = """
+            SELECT EXISTS (
+                SELECT 1 FROM media_assets a
+                 WHERE a.owner_user_id = :ownerUserId
+                   AND a.status = 'CHEER_PURGE_PENDING'
+                   AND NOT EXISTS (
+                       SELECT 1 FROM media_asset_links l
+                         JOIN cheer_post p ON p.id = l.entity_id
+                        WHERE l.asset_id = a.id
+                          AND l.domain = 'CHEER'
+                          AND p.purge_started_at IS NOT NULL
+                          AND p.purge_started_at <= :staleBefore
+                          AND EXISTS (SELECT 1 FROM cheer_post_reports r WHERE r.post_id = p.id)
+                   )
+            )
+            """, nativeQuery = true)
+    boolean existsOwnerPurgePendingNotStale(@Param("ownerUserId") Long ownerUserId,
+                                            @Param("staleBefore") LocalDateTime staleBefore);
+
     List<MediaAsset> findByOwnerUserIdAndIdGreaterThanOrderByIdAsc(
             Long ownerUserId,
             Long afterId,

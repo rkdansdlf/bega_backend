@@ -1276,6 +1276,7 @@ class CheerPostServiceTest {
                 CheerPost post = CheerPost.builder().id(postId).author(owner).content("content").build();
                 when(postRepo.findByIdForWrite(postId)).thenReturn(Optional.of(post));
                 when(imageService.deleteImagesByPostId(postId)).thenReturn(true);
+                when(postRepo.hardDeleteById(postId)).thenReturn(1);
 
                 postService.deletePost(postId, owner);
 
@@ -1340,11 +1341,27 @@ class CheerPostServiceTest {
 
         @Test
         void staleCleanupClaimCannotDeleteDatabaseState() {
-                when(imageService.deleteImagesByPostId(993L)).thenReturn(true);
                 when(postRepo.lockClaimedPurge(eq(993L), any())).thenReturn(Optional.empty());
                 assertThat(postService.cleanupSoftDeletedPost(993L)).isFalse();
                 verify(mediaLinkService, never()).unlinkEntity(MediaDomain.CHEER, 993L);
                 verify(postRepo, never()).hardDeleteById(993L);
+        }
+
+        @Test
+        void cleanupDoesNotReportCompletionWhenHardDeleteKeepsReportedPost() {
+                when(imageService.deleteImagesByPostId(997L)).thenReturn(true);
+                when(postRepo.hardDeleteById(997L)).thenReturn(0);
+                assertThat(postService.cleanupSoftDeletedPost(997L)).isFalse();
+                verify(postRepo).releasePurgeForRetry(eq(997L), any(), any());
+        }
+
+        @Test
+        void cleanupLeavesStorageUntouchedWhenReportArrivesAfterClaim() {
+                when(postRepo.existsReportByPostId(998L)).thenReturn(true);
+                assertThat(postService.cleanupSoftDeletedPost(998L)).isFalse();
+                verify(imageService, never()).deleteImagesByPostId(998L);
+                verify(postRepo).releasePurgeForRetry(eq(998L), any(), any());
+                verify(postRepo, never()).hardDeleteById(998L);
         }
 
         @Test

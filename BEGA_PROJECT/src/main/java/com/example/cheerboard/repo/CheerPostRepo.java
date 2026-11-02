@@ -152,8 +152,26 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
         @Query(value = "SELECT author_id FROM cheer_post WHERE id = :id", nativeQuery = true)
         Optional<Long> findPurgeAuthorId(@Param("id") Long id);
 
-        @Query(value = "SELECT id FROM cheer_post WHERE author_id = :authorId AND purge_started_at IS NOT NULL ORDER BY id", nativeQuery = true)
-        List<Long> findStartedPurgeIdsByAuthor(@Param("authorId") Long authorId, Pageable pageable);
+        /** Started purges that still block the author: all without reports, and reported ones within the hold limit. */
+        @Query(value = """
+                        SELECT p.id FROM cheer_post p
+                         WHERE p.author_id = :authorId AND p.purge_started_at IS NOT NULL
+                           AND NOT (p.purge_started_at <= :staleBefore AND EXISTS (
+                             SELECT 1 FROM cheer_post_reports r WHERE r.post_id = p.id))
+                         ORDER BY p.id
+                        """, nativeQuery = true)
+        List<Long> findStartedPurgeIdsByAuthor(@Param("authorId") Long authorId,
+                                               @Param("staleBefore") java.time.LocalDateTime staleBefore,
+                                               Pageable pageable);
+
+        /**
+         * True when any report was ever filed on this post. A reported repost is soft deleted instead of hard deleted,
+         * so the cascade on {@code cheer_post_reports} never erases the moderation record.
+         */
+        @Query(value = """
+                        SELECT EXISTS (SELECT 1 FROM cheer_post_reports r WHERE r.post_id = :postId)
+                        """, nativeQuery = true)
+        boolean existsReportByPostId(@Param("postId") Long postId);
 
         /** True when this post has a report or appeal still awaiting a decision. Deleting the post cascades to its reports. */
         @Query(value = """
@@ -169,6 +187,7 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
         @Query(value = """
                         SELECT p.id FROM cheer_post p
                         WHERE LOWER(TRIM(CAST(p.deleted AS CHAR(5)))) IN ('1','t','true')
+                          AND NOT EXISTS (SELECT 1 FROM cheer_post_reports rr WHERE rr.post_id = p.id)
                           AND (p.purge_retry_at IS NULL OR p.purge_retry_at <= :now)
                           AND (p.purge_lease_until IS NULL OR p.purge_lease_until <= :now)
                           AND ((:started = 0 AND p.purge_started_at IS NULL)
@@ -181,7 +200,7 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
                           AND NOT EXISTS (
                             SELECT 1 FROM cheer_post evidence
                             JOIN cheer_post_reports r ON r.post_id = evidence.id
-                            WHERE evidence.author_id = p.author_id
+                            WHERE evidence.id = p.id
                               AND (r.status IN ('PENDING','IN_REVIEW') OR r.appeal_status IN ('REQUESTED','REVIEWING'))
                           )
                           AND (p.purge_started_at IS NOT NULL OR NOT EXISTS (
@@ -214,6 +233,7 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
                                purge_attempt_count = purge_attempt_count + 1
                          WHERE p.id = :id
                            AND LOWER(TRIM(CAST(p.deleted AS CHAR(5)))) IN ('1','t','true')
+                          AND NOT EXISTS (SELECT 1 FROM cheer_post_reports rr WHERE rr.post_id = p.id)
                            AND (p.purge_retry_at IS NULL OR p.purge_retry_at <= :now)
                            AND (p.purge_lease_until IS NULL OR p.purge_lease_until <= :now)
                            AND (p.purge_started_at IS NOT NULL OR NOT EXISTS (
@@ -224,7 +244,7 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
                            AND NOT EXISTS (
                              SELECT 1 FROM cheer_post evidence
                              JOIN cheer_post_reports r ON r.post_id = evidence.id
-                             WHERE evidence.author_id = p.author_id
+                             WHERE evidence.id = p.id
                                AND (r.status IN ('PENDING','IN_REVIEW') OR r.appeal_status IN ('REQUESTED','REVIEWING'))
                            )
                            AND (p.purge_started_at IS NOT NULL OR NOT EXISTS (
@@ -277,9 +297,16 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
         @Query(value = "SELECT * FROM cheer_post WHERE id = :id FOR UPDATE", nativeQuery = true)
         Optional<CheerPost> findIncludingDeletedByIdForUpdate(@Param("id") Long id);
 
+        /**
+         * Never deletes a post that has report history, so the cascade on {@code cheer_post_reports} cannot run.
+         * Returns the number of rows deleted: 0 means the post was kept because it has report history.
+         */
         @Modifying
-        @Query(value = "DELETE FROM cheer_post WHERE id = :id", nativeQuery = true)
-        void hardDeleteById(@Param("id") Long id);
+        @Query(value = """
+                        DELETE FROM cheer_post p WHERE p.id = :id
+                           AND NOT EXISTS (SELECT 1 FROM cheer_post_reports r WHERE r.post_id = p.id)
+                        """, nativeQuery = true)
+        int hardDeleteById(@Param("id") Long id);
 
         /**
          * 팔로우한 유저들의 게시글 조회 (팔로우 피드용)
