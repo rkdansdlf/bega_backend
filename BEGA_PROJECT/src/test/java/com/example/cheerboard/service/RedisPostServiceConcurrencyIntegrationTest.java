@@ -314,11 +314,17 @@ class RedisPostServiceConcurrencyIntegrationTest {
         view.get(10, TimeUnit.SECONDS);
     }
 
-    private boolean redisServerAvailable() throws IOException, InterruptedException {
-        Process probe = new ProcessBuilder("redis-server", "--version")
-                .redirectErrorStream(true)
-                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                .start();
+    private boolean redisServerAvailable() throws InterruptedException {
+        Process probe;
+        try {
+            probe = new ProcessBuilder("redis-server", "--version")
+                    .redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .start();
+        } catch (IOException e) {
+            // redis-server is not installed on this runner (CI); skip via assumption instead of failing.
+            return false;
+        }
         if (!probe.waitFor(2, TimeUnit.SECONDS)) {
             probe.destroyForcibly();
             return false;
