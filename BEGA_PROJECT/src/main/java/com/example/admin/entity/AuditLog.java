@@ -81,7 +81,9 @@ public class AuditLog {
         DISMISS_REPORT("신고 기각"),
         RESTORE_REPORT("신고 조치 복구"),
         WARN_REPEATED_INFRACTION("반복 침해 경고"),
-        DECIDE_REPORT_APPEAL("신고 이의제기 결정");
+        DECIDE_REPORT_APPEAL("신고 이의제기 결정"),
+        EVIDENCE_EXTENSION_APPROVED("신고 증거 보존 연장 승인"),
+        EVIDENCE_LEGAL_HOLD_PLACED("신고 증거 법적 보존 기록");
 
         private final String description;
 
