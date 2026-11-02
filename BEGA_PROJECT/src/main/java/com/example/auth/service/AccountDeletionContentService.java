@@ -39,7 +39,9 @@ public class AccountDeletionContentService {
         if (queryProtectedPostIds == null || !queryProtectedPostIds.isEmpty()) {
             return Result.MODERATION_PENDING;
         }
-        if (authoredPosts.stream().anyMatch(post -> post.getPurgeStartedAt() != null)
+        // A reported post is never hard deleted, so a purge that started on it will not finish and must not hold the account.
+        if (authoredPosts.stream().anyMatch(post -> post.getPurgeStartedAt() != null
+                        && !cheerPostRepo.existsReportByPostId(post.getId()))
                 || mediaUploadService.hasPendingCheerPurge(userId)) {
             return Result.PURGE_PENDING;
         }

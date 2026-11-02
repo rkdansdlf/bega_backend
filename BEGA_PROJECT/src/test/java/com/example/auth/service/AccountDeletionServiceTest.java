@@ -129,7 +129,7 @@ class AccountDeletionServiceTest {
                 .enabled(true).provider("LOCAL").password("encoded").build();
         when(userRepository.findByIdForWrite(42L)).thenReturn(Optional.of(user));
         when(bCryptPasswordEncoder.matches("password", "encoded")).thenReturn(true);
-        when(cheerPostRepo.findStartedPurgeIdsByAuthor(eq(42L), any())).thenReturn(java.util.List.of(7L));
+        when(cheerPostRepo.findStartedPurgeIdsByAuthor(eq(42L), any(), any())).thenReturn(java.util.List.of(7L));
 
         assertThatThrownBy(() -> accountDeletionService.scheduleAccountDeletion(42L, "password"))
                 .isInstanceOf(com.example.common.exception.ConflictBusinessException.class);
@@ -145,8 +145,7 @@ class AccountDeletionServiceTest {
                 .enabled(true).provider("LOCAL").password("encoded").build();
         when(userRepository.findByIdForWrite(42L)).thenReturn(Optional.of(user));
         when(bCryptPasswordEncoder.matches("password", "encoded")).thenReturn(true);
-        when(mediaAssetRepository.existsByOwnerUserIdAndStatus(42L,
-                com.example.media.entity.MediaAssetStatus.CHEER_PURGE_PENDING)).thenReturn(true);
+        when(mediaAssetRepository.existsOwnerPurgePendingNotStale(eq(42L), any())).thenReturn(true);
         assertThatThrownBy(() -> accountDeletionService.scheduleAccountDeletion(42L, "password"))
                 .isInstanceOf(com.example.common.exception.ConflictBusinessException.class);
         assertThat(user.isPendingDeletion()).isFalse();
