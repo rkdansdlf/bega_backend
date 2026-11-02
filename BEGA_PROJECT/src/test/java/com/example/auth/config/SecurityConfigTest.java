@@ -335,6 +335,26 @@ class SecurityConfigTest {
         field.set(target, value);
     }
 
+    @Test
+    @DisplayName("OAuth2 failure code sanitizer should pass email challenge failure codes through")
+    void sanitizeOAuth2FailureCode_passesEmailChallengeFailureCodes() throws Exception {
+        SecurityConfig securityConfig = newSecurityConfig("prod");
+        java.lang.reflect.Method sanitize = SecurityConfig.class.getDeclaredMethod(
+                "sanitizeOAuth2FailureCode", Exception.class);
+        sanitize.setAccessible(true);
+
+        for (String code : new String[] {
+                com.example.auth.oauth2.CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_RATE_LIMITED,
+                com.example.auth.oauth2.CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_UNAVAILABLE }) {
+            Exception exception = new org.springframework.security.oauth2.core.OAuth2AuthenticationException(
+                    new org.springframework.security.oauth2.core.OAuth2Error(code), code,
+                    new RuntimeException("cause"));
+            assertThat(sanitize.invoke(securityConfig, exception)).isEqualTo(code);
+        }
+        assertThat(sanitize.invoke(securityConfig, new RuntimeException("unexpected detail")))
+                .isEqualTo("oauth2_auth_failed");
+    }
+
     private SecurityConfig newSecurityConfig(String... activeProfiles) {
         return newSecurityConfig(mock(AiServiceSettings.class), activeProfiles);
     }
