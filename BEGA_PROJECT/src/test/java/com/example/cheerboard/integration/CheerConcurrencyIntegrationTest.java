@@ -11,7 +11,6 @@ import com.example.cheerboard.domain.CheerPostRepost;
 import com.example.cheerboard.domain.PostType;
 import com.example.cheerboard.storage.repository.PostImageRepository;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
-import com.example.cheerboard.storage.strategy.StorageOperationException;
 import com.example.media.entity.MediaDomain;
 import com.example.media.entity.MediaAsset;
 import com.example.media.entity.MediaAssetLink;
@@ -602,8 +601,8 @@ class CheerConcurrencyIntegrationTest {
     }
 
     @Test
-    @DisplayName("개별 이미지 삭제는 피드 URL 발급과 직렬화되고 스토리지 실패 시 재시도 상태를 보존한다")
-    void deleteImage_waitsForFeedUrlAndRetainsImageUntilStorageDeleteSucceeds() throws Exception {
+    @DisplayName("개별 이미지 삭제는 피드 URL 발급과 직렬화되고 스토리지 삭제는 예약된 정리에 맡긴다")
+    void deleteImage_waitsForFeedUrlAndLeavesPhysicalDeleteToReservedCleanup() throws Exception {
         CheerPost post = postRepo.saveAndFlush(CheerPost.builder()
                 .author(author)
                 .team(team)
@@ -612,7 +611,7 @@ class CheerConcurrencyIntegrationTest {
                 .shareMode(CheerPost.ShareMode.INTERNAL_REPOST)
                 .build());
         Long postId = post.getId();
-        String storagePath = "posts/" + postId + "/individual-delete.png";
+        String storagePath = managedCheerKey(author.getId());
         var image = postImageRepository.saveAndFlush(com.example.cheerboard.storage.entity.PostImage.builder()
                 .post(post)
                 .storagePath(storagePath)
@@ -620,11 +619,10 @@ class CheerConcurrencyIntegrationTest {
                 .bytes(1L)
                 .isThumbnail(false)
                 .build());
+        MediaAsset asset = linkManagedCheerAsset(author.getId(), postId, storagePath);
 
         CountDownLatch urlGenerationStarted = new CountDownLatch(1);
         CountDownLatch releaseUrlGeneration = new CountDownLatch(1);
-        CountDownLatch storageDeleteStarted = new CountDownLatch(1);
-        AtomicBoolean failFirstStorageDelete = new AtomicBoolean(true);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         Map<String, String> postImageUrlCache = new ConcurrentHashMap<>();
         @SuppressWarnings("unchecked")
@@ -647,27 +645,11 @@ class CheerConcurrencyIntegrationTest {
             }
             return "https://signed.example/" + storagePath;
         })).when(storageStrategy).getUrl(anyString(), anyString(), org.mockito.ArgumentMatchers.anyInt());
-        doAnswer(invocation -> {
-            storageDeleteStarted.countDown();
-            return failFirstStorageDelete.getAndSet(false)
-                    ? reactor.core.publisher.Mono.error(new StorageOperationException(
-                            StorageOperationException.Kind.TRANSIENT,
-                            "temporary storage failure",
-                            new IllegalStateException("synthetic failure")))
-                    : reactor.core.publisher.Mono.empty();
-        }).when(storageStrategy).deleteChecked(anyString(), eq(storagePath));
 
         Future<Map<Long, List<String>>> urlLookup = executor.submit(
                 () -> imageService.getPostImageUrlsByPostIds(List.of(postId)));
         try {
-            boolean generationStarted = urlGenerationStarted.await(5, TimeUnit.SECONDS);
-            if (!generationStarted) {
-                assertThat(postImageRepository.countByPostId(postId)).isEqualTo(1L);
-                assertThat(urlLookup.get(5, TimeUnit.SECONDS).get(postId))
-                        .as("the URL lookup should issue a signed URL for the persisted image")
-                        .containsExactly("https://signed.example/" + storagePath);
-            }
-            assertThat(generationStarted).isTrue();
+            assertThat(urlGenerationStarted.await(5, TimeUnit.SECONDS)).isTrue();
             Future<?> deletion = executor.submit(() -> {
                 RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
                 SecurityContextHolder.getContext().setAuthentication(
@@ -680,38 +662,28 @@ class CheerConcurrencyIntegrationTest {
                 }
             });
 
-            assertThat(storageDeleteStarted.await(300, TimeUnit.MILLISECONDS)).isFalse();
+            // Deletion must wait for the feed URL issuance that holds the post lock.
             Thread.sleep(300);
             assertThat(deletion.isDone()).isFalse();
+            assertThat(postImageRepository.findById(image.getId())).isPresent();
 
             releaseUrlGeneration.countDown();
             assertThat(urlLookup.get(10, TimeUnit.SECONDS).get(postId))
                     .containsExactly("https://signed.example/" + storagePath);
-            String postImageCacheKey = "postImageUrls::" + postId;
-            assertThat(postImageUrlCache).containsEntry(postImageCacheKey,
-                    "[\"https://signed.example/" + storagePath + "\"]");
-            assertThat(storageDeleteStarted.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThatThrownBy(() -> deletion.get(10, TimeUnit.SECONDS))
-                    .hasCauseInstanceOf(StorageOperationException.class);
-
-            assertThat(postImageRepository.findById(image.getId())).isPresent();
-            assertThat(postImageUrlCache).containsKey(postImageCacheKey);
-            assertThat(testCacheManager.getCache("signedUrls").get(storagePath, String.class))
-                    .isEqualTo("https://signed.example/" + storagePath);
-
-            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
-            SecurityContextHolder.getContext().setAuthentication(
-                    new UsernamePasswordAuthenticationToken(author.getId(), null, List.of()));
-            try {
-                imageService.deleteImage(image.getId());
-            } finally {
-                SecurityContextHolder.clearContext();
-                RequestContextHolder.resetRequestAttributes();
-            }
+            deletion.get(10, TimeUnit.SECONDS);
 
             assertThat(postImageRepository.findById(image.getId())).isEmpty();
-            assertThat(postImageUrlCache).doesNotContainKey(postImageCacheKey);
+            assertThat(postImageUrlCache).doesNotContainKey("postImageUrls::" + postId);
             assertThat(testCacheManager.getCache("signedUrls").get(storagePath)).isNull();
+
+            // The object is not deleted inline. The asset is reserved as a tombstone that the cleanup worker claims.
+            assertThat(mediaAssetLinkRepository.countCheerPostLink(asset.getId(), postId)).isZero();
+            MediaAsset reserved = mediaAssetRepository.findById(asset.getId()).orElseThrow();
+            assertThat(reserved.getStatus()).isEqualTo(MediaAssetStatus.DELETED);
+            assertThat(reserved.getFinalizeToken()).isNotBlank();
+            assertThat(reserved.getFinalizeLeaseUntil()).isAfter(LocalDateTime.now());
+            assertThat(reserved.getFinalizeCleanupVerifiedAt()).isNull();
+            verify(storageStrategy, never()).deleteChecked(anyString(), anyString());
         } finally {
             releaseUrlGeneration.countDown();
             executor.shutdownNow();
@@ -733,6 +705,42 @@ class CheerConcurrencyIntegrationTest {
                 imageService::markAsThumbnail);
     }
 
+    /** Managed cheer object key; only these can be deleted individually under the reference-aware policy. */
+    private String managedCheerKey(Long ownerId) {
+        return "media/cheer/" + ownerId + "/" + UUID.randomUUID() + ".png";
+    }
+
+    private MediaAsset linkManagedCheerAsset(Long ownerId, Long postId, String key) {
+        LocalDateTime now = LocalDateTime.now();
+        MediaAsset asset = mediaAssetRepository.saveAndFlush(MediaAsset.builder()
+                .ownerUserId(ownerId)
+                .domain(MediaDomain.CHEER)
+                .status(MediaAssetStatus.READY)
+                .declaredContentType("image/png")
+                .declaredBytes(1L)
+                .declaredWidth(1)
+                .declaredHeight(1)
+                .stagingObjectKey("staging/" + postId + "/" + UUID.randomUUID())
+                .objectKey(key)
+                .storedContentType("image/png")
+                .storedBytes(1L)
+                .storedWidth(1)
+                .storedHeight(1)
+                .uploadExpiresAt(now.plusHours(1))
+                .finalizedAt(now)
+                .createdAt(now)
+                .updatedAt(now)
+                .build());
+        mediaAssetLinkRepository.saveAndFlush(MediaAssetLink.builder()
+                .assetId(asset.getId())
+                .asset(asset)
+                .domain(MediaDomain.CHEER)
+                .entityId(postId)
+                .role(MediaLinkRole.CHEER_IMAGE)
+                .build());
+        return asset;
+    }
+
     private void assertImageOperationRejectsImageDeletedWhileWaitingForPostLock(
             java.util.function.Function<Long, ?> imageOperation) throws Exception {
         CheerPost post = postRepo.saveAndFlush(CheerPost.builder()
@@ -743,7 +751,7 @@ class CheerConcurrencyIntegrationTest {
                 .shareMode(CheerPost.ShareMode.INTERNAL_REPOST)
                 .build());
         Long postId = post.getId();
-        String storagePath = "posts/" + postId + "/operation-delete-race.png";
+        String storagePath = managedCheerKey(author.getId());
         var image = postImageRepository.saveAndFlush(com.example.cheerboard.storage.entity.PostImage.builder()
                 .post(post)
                 .storagePath(storagePath)
@@ -751,6 +759,7 @@ class CheerConcurrencyIntegrationTest {
                 .bytes(1L)
                 .isThumbnail(false)
                 .build());
+        linkManagedCheerAsset(author.getId(), postId, storagePath);
 
         CountDownLatch initialImageLoaded = new CountDownLatch(1);
         CountDownLatch releaseInitialImage = new CountDownLatch(1);
@@ -854,7 +863,7 @@ class CheerConcurrencyIntegrationTest {
                 .postType(PostType.NORMAL)
                 .shareMode(CheerPost.ShareMode.INTERNAL_REPOST)
                 .build());
-        String storagePath = "posts/" + post.getId() + "/retry-image.png";
+        String storagePath = managedCheerKey(author.getId());
         postImageRepository.saveAndFlush(com.example.cheerboard.storage.entity.PostImage.builder()
                 .post(post)
                 .storagePath(storagePath)
@@ -871,7 +880,7 @@ class CheerConcurrencyIntegrationTest {
                 .declaredBytes(1L)
                 .declaredWidth(1)
                 .declaredHeight(1)
-                .stagingObjectKey("staging/" + post.getId() + "/retry-image.png")
+                .stagingObjectKey("staging/" + post.getId() + "/" + UUID.randomUUID())
                 .objectKey(storagePath)
                 .storedContentType("image/png")
                 .storedBytes(1L)

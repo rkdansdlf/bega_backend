@@ -21,7 +21,6 @@ import com.example.kbo.entity.TeamEntity;
 import com.example.media.entity.MediaDomain;
 import com.example.media.service.MediaLinkService;
 import com.example.notification.service.NotificationService;
-import com.example.common.exception.ConflictBusinessException;
 import com.example.common.exception.RepostNotAllowedException;
 import com.example.common.exception.RepostSelfNotAllowedException;
 import com.example.common.exception.RepostTargetNotFoundException;
@@ -822,8 +821,8 @@ class CheerPostServiceTest {
         }
 
         @Test
-        @DisplayName("Cancel Repost - blocked while the repost has an open moderation case")
-        void cancelRepost_blocked_when_repost_has_open_moderation_case() {
+        @DisplayName("Cancel Repost - a reported repost is soft deleted, not hard deleted")
+        void cancelRepost_reported_repost_is_soft_deleted() {
                 Long repostId = 1L;
                 Long originalId = 2L;
                 UserEntity owner = UserEntity.builder().id(200L).name("Owner").build();
@@ -844,20 +843,24 @@ class CheerPostServiceTest {
                 mockWriteEnabledAuthor(owner);
                 when(postRepo.findById(repostId)).thenReturn(Optional.of(repost));
                 when(postRepo.findByIdForWrite(repostId)).thenReturn(Optional.of(repost));
-                when(postRepo.existsOpenModerationByPostId(repostId)).thenReturn(true);
+                when(postRepo.existsReportByPostId(repostId)).thenReturn(true);
+                when(postRepo.findRepostOfIdById(repostId)).thenReturn(Optional.of(originalId));
+                when(postRepo.findById(originalId)).thenReturn(Optional.of(original));
+                when(postRepo.findRepostCountById(originalId)).thenReturn(3);
 
-                ConflictBusinessException ex = assertThrows(ConflictBusinessException.class,
-                                () -> postService.cancelRepost(repostId, owner));
+                RepostToggleResponse response = postService.cancelRepost(repostId, owner);
 
-                assertThat(ex.getCode()).isEqualTo("REPOST_MODERATION_OPEN");
-                verify(postRepo).findByIdForWrite(repostId);
+                assertThat(response.reposted()).isFalse();
+                assertThat(response.count()).isEqualTo(3);
+                assertThat(repost.getDeleted()).isTrue();
+                verify(postRepo).saveAndFlush(repost);
+                verify(postRepo).decrementRepostCount(originalId);
                 verify(postRepo, never()).delete(any(CheerPost.class));
-                verify(postRepo, never()).decrementRepostCount(anyLong());
         }
 
         @Test
-        @DisplayName("Toggle Repost off - blocked while the repost has an open moderation case")
-        void toggleRepost_off_blocked_when_existing_repost_has_open_moderation_case() {
+        @DisplayName("Toggle Repost off - a reported repost is soft deleted and drops its tracking row")
+        void toggleRepost_off_reported_repost_is_soft_deleted() {
                 Long postId = 1L;
                 UserEntity me = UserEntity.builder().id(100L).name("Me").build();
                 UserEntity author = UserEntity.builder().id(200L).name("Author").build();
@@ -881,13 +884,128 @@ class CheerPostServiceTest {
                 when(postRepo.findByAuthorAndRepostOfAndRepostType(me, original, CheerPost.RepostType.SIMPLE))
                                 .thenReturn(Optional.of(existingRepost));
                 when(postRepo.findByIdForWrite(existingRepost.getId())).thenReturn(Optional.of(existingRepost));
-                when(postRepo.existsOpenModerationByPostId(existingRepost.getId())).thenReturn(true);
+                when(postRepo.existsReportByPostId(existingRepost.getId())).thenReturn(true);
+                when(postRepo.findRepostOfIdById(existingRepost.getId())).thenReturn(Optional.of(postId));
+                when(postRepo.findRepostCountById(postId)).thenReturn(3);
 
-                assertThrows(ConflictBusinessException.class, () -> postService.toggleRepost(postId, me));
+                RepostToggleResponse response = postService.toggleRepost(postId, me);
 
+                assertThat(response.reposted()).isFalse();
+                assertThat(response.count()).isEqualTo(3);
+                assertThat(existingRepost.getDeleted()).isTrue();
+                verify(postRepo).saveAndFlush(existingRepost);
+                verify(repostRepo).deleteByPostIdAndUserId(postId, me.getId());
+                verify(postRepo, never()).delete(any(CheerPost.class));
+        }
+
+        @Test
+        @DisplayName("Toggle Repost off - repost purged before the lock reports the unreposted state")
+        void toggleRepost_off_when_repost_purged_before_lock_returns_unreposted() {
+                Long postId = 1L;
+                UserEntity me = UserEntity.builder().id(100L).name("Me").build();
+                UserEntity author = UserEntity.builder().id(200L).name("Author").build();
+                CheerPost original = CheerPost.builder()
+                                .id(postId)
+                                .author(author)
+                                .content("Original Post")
+                                .postType(PostType.NORMAL)
+                                .build();
+                CheerPost existingRepost = CheerPost.builder()
+                                .id(11L)
+                                .author(me)
+                                .repostType(CheerPost.RepostType.SIMPLE)
+                                .repostOf(original)
+                                .postType(PostType.NORMAL)
+                                .build();
+
+                mockWriteEnabledAuthor(me);
+                when(postRepo.findById(postId)).thenReturn(Optional.of(original));
+                when(blockService.hasBidirectionalBlock(me.getId(), author.getId())).thenReturn(false);
+                when(postRepo.findByAuthorAndRepostOfAndRepostType(me, original, CheerPost.RepostType.SIMPLE))
+                                .thenReturn(Optional.of(existingRepost));
+                when(postRepo.findByIdForWrite(existingRepost.getId())).thenReturn(Optional.empty());
+                when(postRepo.findRepostCountById(postId)).thenReturn(3);
+
+                RepostToggleResponse response = postService.toggleRepost(postId, me);
+
+                assertThat(response.reposted()).isFalse();
+                assertThat(response.count()).isEqualTo(3);
                 verify(postRepo, never()).delete(any(CheerPost.class));
                 verify(postRepo, never()).decrementRepostCount(anyLong());
+        }
+
+        @Test
+        @DisplayName("Delete Repost - soft delete drops the tracking row and the original's count")
+        void deletePost_simple_repost_releases_tracking_and_count() {
+                Long originalId = 1L;
+                UserEntity owner = UserEntity.builder().id(200L).name("Owner").build();
+                CheerPost original = CheerPost.builder()
+                                .id(originalId)
+                                .author(UserEntity.builder().id(300L).name("Author").build())
+                                .content("Original Content")
+                                .postType(PostType.NORMAL)
+                                .build();
+                CheerPost repost = CheerPost.builder()
+                                .id(11L)
+                                .author(owner)
+                                .repostOf(original)
+                                .repostType(CheerPost.RepostType.SIMPLE)
+                                .postType(PostType.NORMAL)
+                                .build();
+
+                when(postRepo.findByIdForWrite(11L)).thenReturn(Optional.of(repost));
+                when(postRepo.findRepostOfIdById(11L)).thenReturn(Optional.of(originalId));
+                when(postRepo.findById(originalId)).thenReturn(Optional.of(original));
+                when(postRepo.findRepostCountById(originalId)).thenReturn(2);
+
+                postService.deletePost(11L, owner);
+
+                verify(repostRepo).deleteByPostIdAndUserId(originalId, owner.getId());
+                verify(postRepo).decrementRepostCount(originalId);
+                assertThat(original.getRepostCount()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("Delete Repost - a hidden original does not block the soft delete")
+        void deletePost_repost_with_hidden_original_still_soft_deletes() {
+                Long originalId = 1L;
+                UserEntity owner = UserEntity.builder().id(200L).name("Owner").build();
+                CheerPost repost = CheerPost.builder()
+                                .id(11L)
+                                .author(owner)
+                                .repostType(CheerPost.RepostType.QUOTE)
+                                .postType(PostType.NORMAL)
+                                .build();
+
+                when(postRepo.findByIdForWrite(11L)).thenReturn(Optional.of(repost));
+                when(postRepo.findRepostOfIdById(11L)).thenReturn(Optional.of(originalId));
+                when(postRepo.findById(originalId)).thenReturn(Optional.empty());
+
+                postService.deletePost(11L, owner);
+
+                assertThat(repost.getDeleted()).isTrue();
+                verify(postRepo).decrementRepostCount(originalId);
+                verify(postRepo, never()).delete(any(CheerPost.class));
+        }
+
+        @Test
+        @DisplayName("Delete Post - a non-repost soft delete leaves repost tracking alone")
+        void deletePost_plain_post_does_not_touch_repost_tracking() {
+                Long postId = 1L;
+                UserEntity owner = UserEntity.builder().id(200L).name("Owner").build();
+                CheerPost post = CheerPost.builder()
+                                .id(postId)
+                                .author(owner)
+                                .content("Plain")
+                                .postType(PostType.NORMAL)
+                                .build();
+
+                when(postRepo.findByIdForWrite(postId)).thenReturn(Optional.of(post));
+
+                postService.deletePost(postId, owner);
+
                 verify(repostRepo, never()).deleteByPostIdAndUserId(anyLong(), anyLong());
+                verify(postRepo, never()).decrementRepostCount(anyLong());
         }
 
         @Test

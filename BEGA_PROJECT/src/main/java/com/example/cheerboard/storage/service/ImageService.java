@@ -10,6 +10,7 @@ import io.micrometer.core.instrument.Metrics;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -36,6 +37,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -54,6 +56,7 @@ import com.example.cheerboard.storage.dto.SignedUrlDto;
 import com.example.cheerboard.storage.entity.PostImage;
 import com.example.cheerboard.storage.repository.PostImageRepository;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
+import com.example.cheerboard.storage.strategy.StorageObjectKey;
 import com.example.cheerboard.storage.validator.ImageValidator;
 import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.auth.entity.UserEntity;
@@ -62,6 +65,14 @@ import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InternalServerBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
 import com.example.media.service.MediaObjectKeyGuard;
+import com.example.media.service.CheerIndividualMediaDeletion;
+import com.example.media.entity.MediaAsset;
+import com.example.media.entity.MediaAssetLink;
+import com.example.media.entity.MediaAssetStatus;
+import com.example.media.entity.MediaDomain;
+import com.example.media.entity.MediaLinkRole;
+import com.example.media.repository.MediaAssetLinkRepository;
+import com.example.media.repository.MediaAssetRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -77,12 +88,16 @@ import reactor.core.publisher.Mono;
 @Slf4j
 public class ImageService {
 
+    private record UploadResult(String path, com.example.common.image.ImageUtil.ProcessedImage info) {
+    }
+
     private static final ObjectMapper CACHE_OBJECT_MAPPER = new ObjectMapper();
     private static final Duration POST_IMAGE_URL_CACHE_TTL = Duration.ofMinutes(50);
     private static final int DEFAULT_IMAGE_UPLOAD_THREADS =
             Math.max(2, Math.min(8, Runtime.getRuntime().availableProcessors()));
     private static final int DEFAULT_IMAGE_UPLOAD_QUEUE_CAPACITY = 64;
     private static final AtomicInteger IMAGE_UPLOAD_THREAD_SEQUENCE = new AtomicInteger();
+    private final Object dirtyImageCacheKey = new Object();
 
     private final PostImageRepository postImageRepo;
     private final CheerPostRepo postRepo;
@@ -98,7 +113,10 @@ public class ImageService {
     private final com.example.common.image.ImageOptimizationMetricsService metricsService;
     private final PublicVisibilityVerifier publicVisibilityVerifier;
     private final MediaObjectKeyGuard mediaObjectKeyGuard;
+    private final CheerIndividualMediaDeletion individualMediaDeletion;
     private final PlatformTransactionManager transactionManager;
+    private final MediaAssetRepository mediaAssetRepository;
+    private final MediaAssetLinkRepository mediaAssetLinkRepository;
     private volatile ExecutorService imageUploadExecutor;
     private volatile MeterRegistry imageUploadMeterRegistry = Metrics.globalRegistry;
     private volatile boolean imageUploadExecutorMetricsRegistered;
@@ -150,11 +168,7 @@ public class ImageService {
             throw new BadRequestBusinessException("INVALID_POST_IMAGE_REQUEST", e.getMessage());
         }
 
-        List<PostImageDto> uploadedImages = new ArrayList<>();
-
-        // Async Result Helper
-        record UploadResult(String path, com.example.common.image.ImageUtil.ProcessedImage info) {
-        }
+        Long ownerId = Objects.requireNonNull(post.getAuthor().getId());
 
         // 1. Parallel Process & Upload
         List<CompletableFuture<UploadResult>> futures = files.stream()
@@ -166,7 +180,7 @@ public class ImageService {
                                 file.getSize(), processed.getSize(), processed.getExtension());
 
                         // 스토리지 경로 생성
-                        String storagePath = generateStoragePath("posts", postId, processed.getExtension());
+                        String storagePath = managedCheerObjectKey(ownerId, processed.getExtension());
 
                         // 2. 스토리지 업로드 (Blocking IO in Async Thread)
                         log.debug("Parallel Upload Start: path={}", storagePath);
@@ -206,30 +220,12 @@ public class ImageService {
             throw new InternalServerBusinessException("POST_IMAGE_UPLOAD_FAILED", "이미지 업로드 중 오류가 발생했습니다.");
         }
 
-        // 3. DB Save (Single Batch Transaction)
+        // 3. DB Save (one transaction for the asset, its link and the image row)
         List<UploadResult> results = futures.stream().map(CompletableFuture::join).toList();
 
+        List<PostImageDto> uploadedImages;
         try {
-            for (UploadResult res : results) {
-                PostImage image = PostImage.builder()
-                        .post(post)
-                        .storagePath(res.path())
-                        .mimeType(res.info().getContentType())
-                        .bytes(res.info().getSize())
-                        .isThumbnail(false)
-                        .build();
-
-                postImageRepo.save(Objects.requireNonNull(image));
-                log.info("DB 저장 성공: imageId={}, path={}", image.getId(), res.path());
-
-                uploadedImages.add(new PostImageDto(
-                        image.getId(),
-                        image.getStoragePath(),
-                        image.getMimeType(),
-                        image.getBytes(),
-                        image.getIsThumbnail(),
-                        generateSignedUrl(image.getStoragePath())));
-            }
+            uploadedImages = inImageUrlTransaction(() -> savePostImages(post, ownerId, results));
         } catch (RuntimeException e) {
             compensateUploadFailure(results.stream().map(UploadResult::path).toList());
             throw new InternalServerBusinessException("POST_IMAGE_UPLOAD_FAILED", "이미지 업로드 중 오류가 발생했습니다.");
@@ -407,7 +403,7 @@ public class ImageService {
     }
 
     private List<String> getCachedPostImageUrls(Long postId) {
-        if (postId == null) {
+        if (postId == null || hasUncommittedImageChange(postId)) {
             return null;
         }
 
@@ -523,7 +519,7 @@ public class ImageService {
     }
 
     private void cachePostImageUrls(Long postId, List<String> urls) {
-        if (postId == null) {
+        if (postId == null || hasUncommittedImageChange(postId)) {
             return;
         }
 
@@ -572,6 +568,10 @@ public class ImageService {
      */
     @Transactional
     public void deleteImage(Long imageId) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isCurrentTransactionReadOnly()) {
+            throw new IllegalStateException("이미지 삭제는 쓰기 트랜잭션에서만 가능합니다.");
+        }
         inImageUrlTransaction(() -> {
             UserEntity me = currentUser.get();
             PostImage initialImage = findPostImageById(imageId);
@@ -579,22 +579,54 @@ public class ImageService {
 
             // Reject unauthorized requests before taking the post lock, then recheck against the locked row.
             permissionValidator.validateOwnerOrAdmin(me, initialImage.getPost().getAuthor(), "이미지 삭제");
+            String initialPath = initialImage.getStoragePath();
+            Long initialAuthorId = initialImage.getPost().getAuthor().getId();
+            CheerIndividualMediaDeletion.Candidate candidate = MediaDomain.CHEER.isManagedPath(initialPath)
+                    ? individualMediaDeletion.lockOwners(initialPath, initialAuthorId) : null;
             CheerPost post = requireAccessiblePost(postId);
             permissionValidator.validateOwnerOrAdmin(me, post.getAuthor(), "이미지 삭제");
+            if (!Objects.equals(initialAuthorId, post.getAuthor().getId())) {
+                throw new com.example.common.exception.ConflictBusinessException(
+                        "POST_OWNER_CHANGED", "게시글 작성자가 변경되어 다시 시도해주세요.");
+            }
 
             // Re-query after acquiring the parent lock so a concurrent delete cannot reuse a stale entity.
             PostImage image = postImageRepo.findByIdAndPostId(imageId, postId)
                     .orElseThrow(() -> new NotFoundBusinessException("POST_IMAGE_NOT_FOUND", "이미지를 찾을 수 없습니다."));
             String storagePath = image.getStoragePath();
 
-            // Keep the row and path available for retry unless storage confirms deletion (or object absence).
-            storageStrategy.deleteChecked(config.getCheerBucket(), storagePath).block();
+            if (candidate != null) {
+                individualMediaDeletion.reserve(candidate, postId, imageId, storagePath);
+            } else {
+                // Legacy paths still require a durable, reference-aware deletion protocol.
+                throw new com.example.common.exception.ConflictBusinessException(
+                        "LEGACY_CHEER_MEDIA_DELETE_UNAVAILABLE", "이전 형식 이미지는 현재 삭제할 수 없습니다.");
+            }
             postImageRepo.delete(image);
 
-            evictPostImageCache(postId);
+            // Strict in-transaction eviction (fails closed) plus the after-commit pass; same as account anonymization.
+            evictPostImageUrlCache(postId);
             evictSignedUrlCache(storagePath);
             return null;
         });
+    }
+
+    /**
+     * Drops the cached image URL list for a post whose images were removed outside the normal delete path, such as
+     * account anonymization. Without this, the cached signed URLs keep resolving until their cache TTL runs out.
+     */
+    public void evictPostImageUrlCache(Long postId) {
+        Long targetPostId = Objects.requireNonNull(postId);
+        // Deliberately not swallowed: a failed Redis delete must roll back the caller, so the account retry runs again
+        // instead of committing while stale signed URLs can still be served.
+        stringRedisTemplate.delete(getPostImageCacheKey(targetPostId));
+        var cache = cacheManager.getCache(POST_IMAGE_URLS);
+        if (cache != null) {
+            cache.evict(targetPostId);
+        }
+        // Evicted again after commit: the readers' row lock on the post keeps other readers from caching uncommitted
+        // rows, and this flag only stops reads made by this transaction's own thread from caching.
+        invalidatePostImageCacheAtTransactionCompletion(targetPostId);
     }
 
     /**
@@ -609,6 +641,36 @@ public class ImageService {
             cache.evict(targetPostId);
         }
         log.debug("이미지 URL 캐시 무효화: postId={}", targetPostId);
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean hasUncommittedImageChange(Long postId) {
+        Object value = TransactionSynchronizationManager.getResource(dirtyImageCacheKey);
+        return value instanceof java.util.Set<?> dirty && dirty.contains(postId);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void invalidatePostImageCacheAtTransactionCompletion(Long postId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) return;
+        java.util.Set<Long> dirty = (java.util.Set<Long>) TransactionSynchronizationManager.getResource(dirtyImageCacheKey);
+        if (dirty == null) {
+            dirty = new java.util.HashSet<>();
+            java.util.Set<Long> transactionDirty = dirty;
+            TransactionSynchronizationManager.bindResource(dirtyImageCacheKey, transactionDirty);
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void suspend() {
+                    TransactionSynchronizationManager.unbindResource(dirtyImageCacheKey);
+                }
+                @Override public void resume() {
+                    TransactionSynchronizationManager.bindResource(dirtyImageCacheKey, transactionDirty);
+                }
+                @Override public void afterCompletion(int status) {
+                    TransactionSynchronizationManager.unbindResourceIfPossible(dirtyImageCacheKey);
+                    transactionDirty.forEach(ImageService.this::evictPostImageCache);
+                }
+            });
+        }
+        dirty.add(postId);
     }
 
     /**
@@ -721,10 +783,60 @@ public class ImageService {
      * 스토리지 경로 생성
      * 형식: posts/{postId}/{uuid}.{ext} 또는 comments/{commentId}/{uuid}.{ext}
      */
-    private String generateStoragePath(String prefix, Long entityId, String extension) {
-        String uuid = UUID.randomUUID().toString();
-        // entityId가 Nullable로 오인되지 않도록 Objects.requireNonNull 및 primitive 변환 사용
-        return String.format("%s/%d/%s.%s", prefix, Objects.requireNonNull(entityId).longValue(), uuid, extension);
+    /** Cheer objects use the managed {@code media/cheer/} layout so reference-aware deletion can reserve them. */
+    private String managedCheerObjectKey(Long ownerId, String extension) {
+        return "media/cheer/" + ownerId + "/" + UUID.randomUUID() + "." + extension;
+    }
+
+    private List<PostImageDto> savePostImages(CheerPost post, Long ownerId, List<UploadResult> results) {
+        LocalDateTime now = LocalDateTime.now();
+        List<PostImageDto> saved = new ArrayList<>();
+        for (UploadResult res : results) {
+            MediaAsset asset = mediaAssetRepository.saveAndFlush(MediaAsset.builder()
+                    .ownerUserId(ownerId)
+                    .domain(MediaDomain.CHEER)
+                    .status(MediaAssetStatus.READY)
+                    .declaredContentType(res.info().getContentType())
+                    .declaredBytes(res.info().getSize())
+                    // Dimensions are not recorded on this upload path.
+                    .declaredWidth(0)
+                    .declaredHeight(0)
+                    .stagingObjectKey("staging/cheer-upload/" + UUID.randomUUID())
+                    .objectKey(res.path())
+                    .storedContentType(res.info().getContentType())
+                    .storedBytes(res.info().getSize())
+                    .uploadExpiresAt(now.plusHours(1))
+                    .finalizedAt(now)
+                    .createdAt(now)
+                    .updatedAt(now)
+                    .build());
+            mediaAssetLinkRepository.saveAndFlush(MediaAssetLink.builder()
+                    .assetId(asset.getId())
+                    .asset(asset)
+                    .domain(MediaDomain.CHEER)
+                    .entityId(post.getId())
+                    .role(MediaLinkRole.CHEER_IMAGE)
+                    .build());
+
+            PostImage image = PostImage.builder()
+                    .post(post)
+                    .storagePath(res.path())
+                    .mimeType(res.info().getContentType())
+                    .bytes(res.info().getSize())
+                    .isThumbnail(false)
+                    .build();
+            postImageRepo.save(Objects.requireNonNull(image));
+            log.info("DB 저장 성공: imageId={}, path={}", image.getId(), res.path());
+
+            saved.add(new PostImageDto(
+                    image.getId(),
+                    image.getStoragePath(),
+                    image.getMimeType(),
+                    image.getBytes(),
+                    image.getIsThumbnail(),
+                    generateSignedUrl(image.getStoragePath())));
+        }
+        return saved;
     }
 
     /**
@@ -1016,9 +1128,14 @@ public class ImageService {
         }
 
         List<Mono<Void>> deleteMonos = storagePaths.stream()
+                .filter(path -> !mayBeManagedDiaryObject(path))
                 .map(this::normalizeDiaryStoragePath)
                 .filter(StringUtils::hasText)
                 .filter(path -> !isHttpUrl(path))
+                // Normalization can itself change which physical key the storage strategy addresses.
+                .filter(path -> !mayBeManagedDiaryObject(path))
+                // Managed assets are reclaimed only after their links and seat-view references are rechecked.
+                .filter(path -> !MediaDomain.DIARY.isManagedPath(path))
                 .filter(path -> canReadDiaryKey(path, ownerUserId, diaryId))
                 .map(path -> storageStrategy.delete(config.getDiaryBucket(), path)
                         .doOnSuccess(v -> log.info("다이어리 이미지 삭제 성공: path={}", path))
@@ -1029,6 +1146,13 @@ public class ImageService {
         return Mono.when(deleteMonos)
                 .doOnSuccess(v -> log.info("다이어리 이미지 삭제 완료: 총 {}개", storagePaths.size()))
                 .doOnError(err -> log.error("다이어리 이미지 삭제 중 오류 발생: error={}", err.getMessage()));
+    }
+
+    private boolean mayBeManagedDiaryObject(String pathOrUrl) {
+        if (!StringUtils.hasText(pathOrUrl) || isHttpUrl(pathOrUrl.strip())) return true;
+        String bucket = config.getDiaryBucket();
+        if (!StringUtils.hasText(bucket)) return true;
+        return StorageObjectKey.isWithinResolvedPrefix(bucket, pathOrUrl, "media/diary/");
     }
 
     /**

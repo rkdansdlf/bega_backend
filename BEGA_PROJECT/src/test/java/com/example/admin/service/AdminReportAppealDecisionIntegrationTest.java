@@ -27,6 +27,7 @@ import com.example.cheerboard.domain.ReportReason;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerReportRepo;
 import com.example.cheerboard.service.CheerPostService;
+import com.example.cheerboard.storage.service.ImageService;
 import com.example.common.exception.ConflictBusinessException;
 import com.example.kbo.entity.TeamEntity;
 import com.example.kbo.repository.TeamRepository;
@@ -34,6 +35,7 @@ import com.example.media.entity.MediaDomain;
 import com.example.media.entity.MediaAsset;
 import com.example.media.entity.MediaAssetStatus;
 import com.example.media.repository.MediaAssetRepository;
+import com.example.media.service.AccountCheerAssetVerifier;
 import com.example.media.service.MediaUploadService;
 import com.example.mate.repository.PartyRepository;
 import com.example.prediction.PredictionService;
@@ -65,7 +67,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @DataJpaTest
-@Import({AdminService.class, AccountDeletionContentService.class, AccountContentAnonymizationRetryService.class, ModerationHoldAlertService.class, HibernateStatisticsTestConfig.class})
+@Import({AdminService.class, AccountDeletionContentService.class, AccountCheerAssetVerifier.class, AccountContentAnonymizationRetryService.class, ModerationHoldAlertService.class, HibernateStatisticsTestConfig.class})
 @TestPropertySource(properties = {
         "spring.datasource.url=jdbc:h2:mem:admin_appeal_decision;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;LOCK_TIMEOUT=30000",
         "spring.datasource.driver-class-name=org.h2.Driver",
@@ -99,6 +101,8 @@ class AdminReportAppealDecisionIntegrationTest {
     @MockitoBean private AdminNonCanonicalCleanupTrackerRepository cleanupTrackerRepository;
     @MockitoBean private PredictionService predictionService;
     @MockitoBean private CheerPostService cheerPostService;
+    @MockitoBean private ImageService imageService;
+    @MockitoBean private com.example.cheerboard.storage.config.StorageConfig storageConfig;
     @MockitoBean private AdminUserDeletionPreparationService deletionPreparationService;
     @MockitoBean private AccountDeletionFinalizationService deletionFinalizationService;
     @MockitoBean private AdminMateDeletionGuard mateDeletionGuard;
@@ -155,7 +159,7 @@ class AdminReportAppealDecisionIntegrationTest {
 
         assertThat(readPostContent(fixture.postId())).isEqualTo("synthetic moderation evidence");
         assertThat(readPostContent(fixture.unrelatedPostId())).isEqualTo("synthetic unrelated content");
-        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(org.mockito.ArgumentMatchers.eq(fixture.ownerId()), org.mockito.ArgumentMatchers.anySet());
 
         transaction().execute(status -> {
             CheerPostReport otherCase = reportRepository.findByIdForWrite(fixture.otherReportId()).orElseThrow();
@@ -168,9 +172,10 @@ class AdminReportAppealDecisionIntegrationTest {
 
         assertThat(readPostContent(fixture.postId())).isEqualTo("게시글이 비식별 처리되었습니다.");
         assertThat(readPostContent(fixture.unrelatedPostId())).isEqualTo("게시글이 비식별 처리되었습니다.");
-        verify(mediaUploadService).unlinkEntityMedia(MediaDomain.CHEER, fixture.postId());
+        // A reported post keeps its media linked and is passed to cleanup as protected.
+        verify(mediaUploadService, never()).unlinkEntityMedia(MediaDomain.CHEER, fixture.postId());
         verify(mediaUploadService).unlinkEntityMedia(MediaDomain.CHEER, fixture.unrelatedPostId());
-        verify(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        verify(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of(fixture.postId()));
     }
 
     @Test
@@ -191,9 +196,10 @@ class AdminReportAppealDecisionIntegrationTest {
 
         assertThat(readPostContent(fixture.postId())).isEqualTo("게시글이 비식별 처리되었습니다.");
         assertThat(readPostContent(fixture.unrelatedPostId())).isEqualTo("게시글이 비식별 처리되었습니다.");
-        verify(mediaUploadService).unlinkEntityMedia(MediaDomain.CHEER, fixture.postId());
+        // A reported post keeps its media linked and is passed to cleanup as protected.
+        verify(mediaUploadService, never()).unlinkEntityMedia(MediaDomain.CHEER, fixture.postId());
         verify(mediaUploadService).unlinkEntityMedia(MediaDomain.CHEER, fixture.unrelatedPostId());
-        verify(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        verify(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of(fixture.postId()));
     }
 
     @Test
@@ -250,9 +256,12 @@ class AdminReportAppealDecisionIntegrationTest {
             entityManager.flush();
             entityManager.clear();
             return 0;
-        }).when(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        }).when(mediaUploadService).deleteOwnedAssetsForAccount(org.mockito.ArgumentMatchers.eq(fixture.ownerId()), org.mockito.ArgumentMatchers.anySet());
         var result = adminService.handleReport(fixture.firstReportId(),
                 new AdminReportActionReq(CheerPostReport.AdminAction.WARNING, "synthetic", null), null);
+        // The stub must actually run, or the persistence-context clear this test exists for never happens.
+        verify(mediaUploadService).deleteOwnedAssetsForAccount(org.mockito.ArgumentMatchers.eq(fixture.ownerId()),
+                org.mockito.ArgumentMatchers.anySet());
         assertThat(result.getReporterHandle()).startsWith("r");
     }
 
@@ -263,10 +272,117 @@ class AdminReportAppealDecisionIntegrationTest {
             entityManager.flush();
             entityManager.clear();
             return 0;
-        }).when(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        }).when(mediaUploadService).deleteOwnedAssetsForAccount(org.mockito.ArgumentMatchers.eq(fixture.ownerId()), org.mockito.ArgumentMatchers.anySet());
         var result = adminService.decideReportAppeal(fixture.firstReportId(),
                 new AdminReportAppealDecisionReq(AdminReportAppealDecision.REJECTED), null);
+        // The stub must actually run, or the persistence-context clear this test exists for never happens.
+        verify(mediaUploadService).deleteOwnedAssetsForAccount(org.mockito.ArgumentMatchers.eq(fixture.ownerId()),
+                org.mockito.ArgumentMatchers.anySet());
         assertThat(result.getReporterHandle()).startsWith("r");
+    }
+
+    @Test
+    void unverifiedManagedImageHoldsAccountContentAndMediaWithoutAnyCleanup() {
+        Fixture fixture = createFixture(false);
+        transaction().execute(status -> {
+            CheerPostReport report = reportRepository.findByIdForWrite(fixture.firstReportId()).orElseThrow();
+            report.setStatus(CheerPostReport.ReportStatus.PENDING);
+            report.setAppealStatus(CheerPostReport.AppealStatus.NONE);
+            reportRepository.saveAndFlush(report);
+            return null;
+        });
+        // A managed cheer image with no owned, linked asset behind it: the verifier must hold the whole account.
+        String path = "media/cheer/" + fixture.ownerId() + "/" + UUID.randomUUID() + ".webp";
+        jdbcTemplate.update("INSERT INTO post_images (post_id, storage_path, mime_type, bytes, is_thumbnail, created_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?)", fixture.unrelatedPostId(), path, "image/webp", 1L, false, java.time.Instant.now());
+
+        adminService.handleReport(fixture.firstReportId(),
+                new AdminReportActionReq(CheerPostReport.AdminAction.WARNING, "synthetic resolution", null), 9001L);
+
+        assertThat(readPostContent(fixture.postId())).isEqualTo("synthetic moderation evidence");
+        assertThat(readPostContent(fixture.unrelatedPostId())).isEqualTo("synthetic unrelated content");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM post_images WHERE post_id = ?", Integer.class,
+                fixture.unrelatedPostId())).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT content_anonymization_retry_at FROM users WHERE id = ?",
+                LocalDateTime.class, fixture.ownerId())).isNotNull();
+        verify(mediaUploadService, never()).unlinkEntityMedia(MediaDomain.CHEER, fixture.postId());
+        verify(mediaUploadService, never()).unlinkEntityMedia(MediaDomain.CHEER, fixture.unrelatedPostId());
+        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(org.mockito.ArgumentMatchers.eq(fixture.ownerId()),
+                org.mockito.ArgumentMatchers.anySet());
+    }
+
+    @Test
+    void ownedReadyAssetWithoutPostLinkStillHoldsAccountContentAndMedia() {
+        Fixture fixture = createFixture(false);
+        transaction().execute(status -> {
+            CheerPostReport report = reportRepository.findByIdForWrite(fixture.firstReportId()).orElseThrow();
+            report.setStatus(CheerPostReport.ReportStatus.PENDING);
+            report.setAppealStatus(CheerPostReport.AppealStatus.NONE);
+            reportRepository.saveAndFlush(report);
+            return null;
+        });
+        // The owner has a ready cheer asset for this path, but nothing links it to the post: still unverified.
+        String path = "media/cheer/" + fixture.ownerId() + "/" + UUID.randomUUID() + ".webp";
+        java.time.LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
+        jdbcTemplate.update("""
+                INSERT INTO media_assets (owner_user_id, domain, status, object_key, declared_content_type,
+                    declared_bytes, declared_width, declared_height, staging_object_key, upload_expires_at, created_at, updated_at)
+                VALUES (?, 'CHEER', 'READY', ?, 'image/webp', 1, 1, 1, ?, ?, ?, ?)
+                """, fixture.ownerId(), path, "staging/" + UUID.randomUUID(), now.plusHours(1), now, now);
+        jdbcTemplate.update("INSERT INTO post_images (post_id, storage_path, mime_type, bytes, is_thumbnail, created_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?)", fixture.unrelatedPostId(), path, "image/webp", 1L, false, java.time.Instant.now());
+
+        adminService.handleReport(fixture.firstReportId(),
+                new AdminReportActionReq(CheerPostReport.AdminAction.WARNING, "synthetic resolution", null), 9001L);
+
+        assertThat(readPostContent(fixture.postId())).isEqualTo("synthetic moderation evidence");
+        assertThat(readPostContent(fixture.unrelatedPostId())).isEqualTo("synthetic unrelated content");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM post_images WHERE post_id = ?", Integer.class,
+                fixture.unrelatedPostId())).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT content_anonymization_retry_at FROM users WHERE id = ?",
+                LocalDateTime.class, fixture.ownerId())).isNotNull();
+        verify(mediaUploadService, never()).unlinkEntityMedia(MediaDomain.CHEER, fixture.postId());
+        verify(mediaUploadService, never()).unlinkEntityMedia(MediaDomain.CHEER, fixture.unrelatedPostId());
+        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(org.mockito.ArgumentMatchers.eq(fixture.ownerId()),
+                org.mockito.ArgumentMatchers.anySet());
+    }
+
+    @Test
+    void ownedReadyAssetLinkedToThePostLetsTheAccountComplete() {
+        Fixture fixture = createFixture(false);
+        transaction().execute(status -> {
+            CheerPostReport report = reportRepository.findByIdForWrite(fixture.firstReportId()).orElseThrow();
+            report.setStatus(CheerPostReport.ReportStatus.PENDING);
+            report.setAppealStatus(CheerPostReport.AppealStatus.NONE);
+            reportRepository.saveAndFlush(report);
+            return null;
+        });
+        // Positive control: the same managed image, but its owned ready asset is linked to the post, so nothing holds.
+        String path = "media/cheer/" + fixture.ownerId() + "/" + UUID.randomUUID() + ".webp";
+        String stagingKey = "staging/" + UUID.randomUUID();
+        java.time.LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
+        jdbcTemplate.update("""
+                INSERT INTO media_assets (owner_user_id, domain, status, object_key, declared_content_type,
+                    declared_bytes, declared_width, declared_height, staging_object_key, upload_expires_at, created_at, updated_at)
+                VALUES (?, 'CHEER', 'READY', ?, 'image/webp', 1, 1, 1, ?, ?, ?, ?)
+                """, fixture.ownerId(), path, stagingKey, now.plusHours(1), now, now);
+        Long assetId = jdbcTemplate.queryForObject("SELECT id FROM media_assets WHERE staging_object_key = ?",
+                Long.class, stagingKey);
+        jdbcTemplate.update("INSERT INTO media_asset_links (asset_id, domain, entity_id, role, linked_at) "
+                + "VALUES (?, 'CHEER', ?, 'CHEER_IMAGE', ?)", assetId, fixture.unrelatedPostId(), now);
+        jdbcTemplate.update("INSERT INTO post_images (post_id, storage_path, mime_type, bytes, is_thumbnail, created_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?)", fixture.unrelatedPostId(), path, "image/webp", 1L, false, java.time.Instant.now());
+
+        adminService.handleReport(fixture.firstReportId(),
+                new AdminReportActionReq(CheerPostReport.AdminAction.WARNING, "synthetic resolution", null), 9001L);
+
+        assertThat(readPostContent(fixture.postId())).isEqualTo("게시글이 비식별 처리되었습니다.");
+        assertThat(readPostContent(fixture.unrelatedPostId())).isEqualTo("게시글이 비식별 처리되었습니다.");
+        assertThat(jdbcTemplate.queryForObject("SELECT content_anonymization_retry_at FROM users WHERE id = ?",
+                LocalDateTime.class, fixture.ownerId())).isNull();
+        verify(mediaUploadService).unlinkEntityMedia(MediaDomain.CHEER, fixture.unrelatedPostId());
+        verify(mediaUploadService, never()).unlinkEntityMedia(MediaDomain.CHEER, fixture.postId());
+        verify(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of(fixture.postId()));
     }
 
     @Test
@@ -287,7 +403,7 @@ class AdminReportAppealDecisionIntegrationTest {
                 .isEqualTo("synthetic unrelated content");
         assertThat(jdbcTemplate.queryForObject("SELECT content_anonymization_retry_at FROM users WHERE id = ?",
                 LocalDateTime.class, fixture.ownerId())).isNotNull();
-        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(org.mockito.ArgumentMatchers.eq(fixture.ownerId()), org.mockito.ArgumentMatchers.anySet());
         verify(mediaUploadService, never()).unlinkEntityMedia(MediaDomain.CHEER, fixture.unrelatedPostId());
 
         jdbcTemplate.update("UPDATE users SET content_anonymization_retry_at = ? WHERE id = ?",
@@ -295,7 +411,7 @@ class AdminReportAppealDecisionIntegrationTest {
         contentRetryService.retry(fixture.ownerId());
         assertThat(jdbcTemplate.queryForObject("SELECT content_anonymization_retry_at FROM users WHERE id = ?",
                 LocalDateTime.class, fixture.ownerId())).isNotNull();
-        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(org.mockito.ArgumentMatchers.eq(fixture.ownerId()), org.mockito.ArgumentMatchers.anySet());
         jdbcTemplate.update("DELETE FROM cheer_post WHERE id = ?", fixture.unrelatedPostId());
         jdbcTemplate.update("UPDATE users SET content_anonymization_retry_at = ? WHERE id = ?",
                 LocalDateTime.now(java.time.ZoneOffset.UTC).minusMinutes(1), fixture.ownerId());
@@ -303,7 +419,7 @@ class AdminReportAppealDecisionIntegrationTest {
         assertThat(jdbcTemplate.queryForObject("SELECT content_anonymization_retry_at FROM users WHERE id = ?",
                 LocalDateTime.class, fixture.ownerId())).isNull();
         assertThat(readPostContent(fixture.postId())).isEqualTo("게시글이 비식별 처리되었습니다.");
-        verify(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        verify(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of(fixture.postId()));
     }
 
     @Test
@@ -339,28 +455,33 @@ class AdminReportAppealDecisionIntegrationTest {
         Fixture fixture = createFixture(false);
         jdbcTemplate.update("UPDATE users SET pending_deletion = ? WHERE id = ?", false, fixture.ownerId());
         jdbcTemplate.update("UPDATE cheer_post SET deleted = ? WHERE id = ?", true, fixture.postId());
-        // An appeal under review blocks the purge claim, so close it first; restore must still lose to the claim.
-        jdbcTemplate.update("UPDATE cheer_post_reports SET appeal_status = 'NONE' WHERE post_id = ?", fixture.postId());
+        // Report history prevents purging the reported post; claim the author's other post instead.
+        jdbcTemplate.update("UPDATE cheer_post SET deleted = ? WHERE id = ?", true, fixture.unrelatedPostId());
         CountDownLatch claimed = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         CountDownLatch restoreStarted = new CountDownLatch(1);
+        AtomicLong claimSessionId = new AtomicLong();
+        AtomicLong restoreSessionId = new AtomicLong();
         var workers = Executors.newFixedThreadPool(2);
         try {
             var claim = workers.submit(() -> transaction().execute(status -> {
                 LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
+                claimSessionId.set(currentSessionId());
                 userRepository.findByIdForWrite(fixture.ownerId()).orElseThrow();
-                int count = postRepository.claimPurge(fixture.postId(), "concurrent-claim", now, now.plusMinutes(15));
+                int count = postRepository.claimPurge(fixture.unrelatedPostId(), "concurrent-claim", now, now.plusMinutes(15));
                 claimed.countDown();
                 await(release);
                 return count;
             }));
             assertThat(claimed.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
-            var restore = workers.submit(() -> {
+            var restore = workers.submit(() -> transaction().execute(status -> {
+                restoreSessionId.set(currentSessionId());
                 restoreStarted.countDown();
                 return adminService.handleReport(fixture.firstReportId(),
                         new AdminReportActionReq(CheerPostReport.AdminAction.RESTORE, "synthetic", null), 9001L);
-            });
+            }));
             assertThat(restoreStarted.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+            awaitBlockedBy(restoreSessionId.get(), claimSessionId.get());
             release.countDown();
             assertThat(claim.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isEqualTo(1);
             assertThatThrownBy(() -> restore.get(TIMEOUT_SECONDS, TimeUnit.SECONDS))
@@ -382,7 +503,7 @@ class AdminReportAppealDecisionIntegrationTest {
 
         assertThat(readPostContent(fixture.postId())).isEqualTo("synthetic moderation evidence");
         assertThat(readPostContent(fixture.unrelatedPostId())).isEqualTo("synthetic unrelated content");
-        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(org.mockito.ArgumentMatchers.eq(fixture.ownerId()), org.mockito.ArgumentMatchers.anySet());
 
         adminService.decideReportAppeal(
                 fixture.firstReportId(),
@@ -391,9 +512,10 @@ class AdminReportAppealDecisionIntegrationTest {
 
         assertThat(readPostContent(fixture.postId())).isEqualTo("게시글이 비식별 처리되었습니다.");
         assertThat(readPostContent(fixture.unrelatedPostId())).isEqualTo("게시글이 비식별 처리되었습니다.");
-        verify(mediaUploadService).unlinkEntityMedia(MediaDomain.CHEER, fixture.postId());
+        // A reported post keeps its media linked and is passed to cleanup as protected.
+        verify(mediaUploadService, never()).unlinkEntityMedia(MediaDomain.CHEER, fixture.postId());
         verify(mediaUploadService).unlinkEntityMedia(MediaDomain.CHEER, fixture.unrelatedPostId());
-        verify(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        verify(mediaUploadService).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of(fixture.postId()));
     }
 
     @Test
@@ -415,7 +537,7 @@ class AdminReportAppealDecisionIntegrationTest {
 
         assertThat(readPostContent(fixture.postId())).isEqualTo("synthetic moderation evidence");
         verify(mediaUploadService, never()).unlinkEntityMedia(MediaDomain.CHEER, fixture.postId());
-        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(fixture.ownerId(), java.util.Set.of());
+        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(org.mockito.ArgumentMatchers.eq(fixture.ownerId()), org.mockito.ArgumentMatchers.anySet());
     }
 
     @Test
@@ -450,7 +572,7 @@ class AdminReportAppealDecisionIntegrationTest {
                 reportRepository.findById(terminalAppeal.firstReportId()).orElseThrow().getAppealStatus());
         assertThat(persistedStatus).isEqualTo(CheerPostReport.AppealStatus.ACCEPTED);
         verify(mediaUploadService, times(1))
-                .deleteOwnedAssetsForAccount(terminalAppeal.ownerId(), java.util.Set.of());
+                .deleteOwnedAssetsForAccount(terminalAppeal.ownerId(), java.util.Set.of(terminalAppeal.postId()));
     }
 
     @Test

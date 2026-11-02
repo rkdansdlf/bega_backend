@@ -152,6 +152,9 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
         @Query(value = "SELECT author_id FROM cheer_post WHERE id = :id", nativeQuery = true)
         Optional<Long> findPurgeAuthorId(@Param("id") Long id);
 
+        @Query(value = "SELECT repost_of_id FROM cheer_post WHERE id = :id", nativeQuery = true)
+        Optional<Long> findRepostOfIdById(@Param("id") Long id);
+
         /** Started purges that still block the author: all without reports, and reported ones within the hold limit. */
         @Query(value = """
                         SELECT p.id FROM cheer_post p
@@ -172,17 +175,6 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
                         SELECT EXISTS (SELECT 1 FROM cheer_post_reports r WHERE r.post_id = :postId)
                         """, nativeQuery = true)
         boolean existsReportByPostId(@Param("postId") Long postId);
-
-        /** True when this post has a report or appeal still awaiting a decision. Deleting the post cascades to its reports. */
-        @Query(value = """
-                        SELECT EXISTS (
-                            SELECT 1
-                              FROM cheer_post_reports r
-                             WHERE r.post_id = :postId
-                               AND (r.status IN ('PENDING', 'IN_REVIEW')
-                                    OR r.appeal_status IN ('REQUESTED', 'REVIEWING')))
-                        """, nativeQuery = true)
-        boolean existsOpenModerationByPostId(@Param("postId") Long postId);
 
         @Query(value = """
                         SELECT p.id FROM cheer_post p

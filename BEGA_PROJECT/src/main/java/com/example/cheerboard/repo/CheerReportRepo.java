@@ -65,6 +65,17 @@ public interface CheerReportRepo extends JpaRepository<CheerPostReport, Long> {
             """, nativeQuery = true)
     boolean existsOpenModerationOlderThan(@Param("authorId") Long authorId, @Param("cutoff") LocalDateTime cutoff);
 
+    /** Open cases filed before {@code cutoff}, as {@code [report id, createdat]} rows for the staleness alert. */
+    @Query(value = """
+            SELECT r.id, r.createdat
+              FROM cheer_post_reports r
+             WHERE (r.status IN ('PENDING', 'IN_REVIEW')
+                    OR r.appeal_status IN ('REQUESTED', 'REVIEWING'))
+               AND r.createdat < :cutoff
+             ORDER BY r.createdat, r.id
+            """, nativeQuery = true)
+    List<Object[]> findOpenCasesCreatedBefore(@Param("cutoff") LocalDateTime cutoff);
+
     boolean existsByPost_IdAndReporter_IdAndCreatedAtAfter(Long postId, Long reporterId, LocalDateTime after);
 
     long countByReporter_IdAndCreatedAtAfter(Long reporterId, LocalDateTime after);

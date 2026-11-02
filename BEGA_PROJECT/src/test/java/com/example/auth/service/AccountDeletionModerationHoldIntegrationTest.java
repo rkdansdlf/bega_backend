@@ -1,23 +1,30 @@
 package com.example.auth.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.cheerboard.domain.CheerPost;
+import com.example.cheerboard.storage.config.StorageConfig;
+import com.example.cheerboard.storage.service.ImageService;
 import com.example.cheerboard.domain.PostType;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerReportRepo;
 import com.example.kbo.entity.TeamEntity;
 import com.example.kbo.repository.TeamRepository;
 import com.example.media.entity.MediaDomain;
+import com.example.media.service.AccountCheerAssetVerifier;
 import com.example.media.service.MediaUploadService;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -35,7 +42,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * unclaimed, and the account-deletion content pass must report MODERATION_PENDING without touching media.
  */
 @DataJpaTest
-@Import(AccountDeletionContentService.class)
+@Import({AccountDeletionContentService.class, AccountCheerAssetVerifier.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class AccountDeletionModerationHoldIntegrationTest {
     @Autowired CheerPostRepo posts;
@@ -47,8 +54,15 @@ class AccountDeletionModerationHoldIntegrationTest {
     @Autowired AccountDeletionContentService contentService;
 
     @MockitoBean MediaUploadService mediaUploadService;
+    @MockitoBean ImageService imageService;
+    @MockitoBean StorageConfig storageConfig;
 
     private static final String REDACTED_POST = "게시글이 비식별 처리되었습니다.";
+
+    @BeforeEach
+    void stubCheerBucket() {
+        doReturn("synthetic-bucket").when(storageConfig).getCheerBucket();
+    }
 
     private record Fixture(Long authorId, Long postId) {}
 
@@ -158,8 +172,10 @@ class AccountDeletionModerationHoldIntegrationTest {
         Long authorId = fixture.authorId();
         Long postId = fixture.postId();
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-        jdbc.update("UPDATE cheer_post SET purge_started_at = ?, purge_claim_token = ? WHERE id = ?",
-                LocalDateTime.now().minusMinutes(1), "held", postId);
+        new TransactionTemplate(transactionManager).execute(status ->
+                posts.claimPurge(postId, "first", now, now.minusMinutes(1)));
+        jdbc.update("UPDATE users SET pending_deletion = ?, deletion_scheduled_for = ? WHERE id = ?",
+                true, LocalDateTime.now().minusMinutes(1), authorId);
         insertReport(postId, authorId, "PENDING", LocalDateTime.now().minusDays(2));
         jdbc.update("UPDATE cheer_post_reports SET status = ? WHERE post_id = ?", "RESOLVED", postId);
 
@@ -216,7 +232,7 @@ class AccountDeletionModerationHoldIntegrationTest {
     }
 
     @Test
-    void closedCasesDoNotHoldContentOrPurge() {
+    void closedCaseKeepsReportsAndNeverPurgesThePost() {
         Fixture fixture = newDeletedPostWithAuthor();
         Long authorId = fixture.authorId();
         Long postId = fixture.postId();
@@ -229,6 +245,23 @@ class AccountDeletionModerationHoldIntegrationTest {
         assertThat(claimPurge(postId, "closed", now)).isZero();
         assertThat(anonymize(authorId)).isEqualTo(AccountDeletionContentService.Result.COMPLETED);
         assertThat(contentOf(postId)).isEqualTo(REDACTED_POST);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cheer_post_reports WHERE post_id = ?", Integer.class, postId))
+                .isEqualTo(2);
+    }
+
+    @Test
+    void hardDeleteNeverCascadesReportsOfAReportedPost() {
+        Long authorId = newUser();
+        Long reporterId = newUser();
+        Long postId = newPost(authorId, true);
+        insertReport(postId, reporterId, "CLOSED", "REJECTED", LocalDateTime.now().minusDays(2));
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> posts.hardDeleteById(postId));
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cheer_post WHERE id = ?", Integer.class, postId))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cheer_post_reports WHERE post_id = ?", Integer.class, postId))
+                .isEqualTo(1);
     }
 
     @Test
@@ -294,23 +327,178 @@ class AccountDeletionModerationHoldIntegrationTest {
 
         assertThat(anonymize(authorId)).isEqualTo(AccountDeletionContentService.Result.COMPLETED);
         assertThat(contentOf(postId)).isEqualTo(REDACTED_POST);
-        verify(mediaUploadService).unlinkEntityMedia(MediaDomain.CHEER, postId);
-        verify(mediaUploadService).deleteOwnedAssetsForAccount(authorId, Set.of());
+        // The post is reported, so its media stays linked and is protected from account cleanup.
+        verify(mediaUploadService, never()).unlinkEntityMedia(MediaDomain.CHEER, postId);
+        verify(mediaUploadService).deleteOwnedAssetsForAccount(authorId, Set.of(postId));
     }
 
     @Test
-    void repostGuardSeesOnlyOpenCasesOnThatPost() {
+    void closedReportedPostHoldsLegacyImagePathForLaterReconciliation() {
+        Long authorId = newUser();
+        Long postId = newPost(authorId, true);
+        String legacyPath = "posts/legacy/reconciliation-image.webp";
+        Long imageId = insertLegacyImage(postId, legacyPath);
+        insertReport(postId, authorId, "RESOLVED", LocalDateTime.now().minusDays(2));
+
+        assertThat(anonymize(authorId)).isEqualTo(AccountDeletionContentService.Result.COMPLETED);
+        assertThat(imageRowCount(postId)).isZero();
+        Map<String, Object> hold = holdOf(imageId);
+        assertThat(hold.get("owner_user_id")).isEqualTo(authorId);
+        assertThat(hold.get("post_id")).isEqualTo(postId);
+        assertThat(hold.get("storage_path")).isEqualTo(legacyPath);
+        assertThat(hold.get("logical_bucket")).isEqualTo("synthetic-bucket");
+        assertThat(hold.get("report_protected")).isEqualTo(true);
+        assertThat(hold.get("status")).isEqualTo("UNRESOLVED");
+    }
+
+    @Test
+    void activeUnreportedPostHoldsLegacyImagePathForLaterReconciliation() {
+        Long authorId = newUser();
+        Long postId = newPost(authorId, false);
+        String legacyPath = "posts/legacy/active-reconciliation-image.webp";
+        Long imageId = insertLegacyImage(postId, legacyPath);
+
+        assertThat(anonymize(authorId)).isEqualTo(AccountDeletionContentService.Result.COMPLETED);
+        assertThat(imageRowCount(postId)).isZero();
+        Map<String, Object> hold = holdOf(imageId);
+        assertThat(hold.get("storage_path")).isEqualTo(legacyPath);
+        assertThat(hold.get("report_protected")).isEqualTo(false);
+    }
+
+    @Test
+    void managedLookingPathWithoutAssetRemainsTracked() {
+        Long authorId = newUser();
+        Long postId = newPost(authorId, false);
+        Long imageId = insertLegacyImage(postId, "media/cheer/" + authorId + "/" + UUID.randomUUID() + ".webp");
+
+        // No owned asset backs the managed path, so the account is held and the image row stays in place.
+        assertThat(anonymize(authorId)).isEqualTo(AccountDeletionContentService.Result.PURGE_PENDING);
+        assertThat(imageRowCount(postId)).isEqualTo(1);
+        assertThat(holdCount(imageId)).isZero();
+    }
+
+    @Test
+    void managedImageWithOwnedReadyAssetAndMatchingLinkCanBeFinalized() {
+        Long authorId = newUser();
+        Long postId = newPost(authorId, false);
+        String path = "media/cheer/" + authorId + "/" + UUID.randomUUID() + ".webp";
+        Long imageId = insertLegacyImage(postId, path);
+        insertManagedAsset(authorId, postId, path);
+
+        assertThat(anonymize(authorId)).isEqualTo(AccountDeletionContentService.Result.COMPLETED);
+        assertThat(imageRowCount(postId)).isZero();
+        assertThat(holdCount(imageId)).isZero();
+    }
+
+    @Test
+    void managedImageOwnedByAnotherUserDefersWithoutDeletingThePath() {
+        Long authorId = newUser();
+        Long otherOwnerId = newUser();
+        Long postId = newPost(authorId, false);
+        String path = "media/cheer/" + otherOwnerId + "/" + UUID.randomUUID() + ".webp";
+        insertLegacyImage(postId, path);
+        insertManagedAsset(otherOwnerId, postId, path);
+
+        assertThat(anonymize(authorId)).isEqualTo(AccountDeletionContentService.Result.PURGE_PENDING);
+        assertThat(imageRowCount(postId)).isEqualTo(1);
+        assertThat(contentOf(postId)).isEqualTo("original");
+        verify(mediaUploadService, never()).unlinkEntityMedia(MediaDomain.CHEER, postId);
+        verify(mediaUploadService, never()).deleteOwnedAssetsForAccount(authorId, Set.of());
+    }
+
+    @Test
+    void managedImageWithoutItsPostLinkDefersWithoutDeletingThePath() {
+        Long authorId = newUser();
+        Long postId = newPost(authorId, false);
+        String path = "media/cheer/" + authorId + "/" + UUID.randomUUID() + ".webp";
+        insertLegacyImage(postId, path);
+        insertManagedAsset(authorId, postId, path);
+        jdbc.update("DELETE FROM media_asset_links WHERE entity_id = ? AND domain = 'CHEER'", postId);
+
+        assertThat(anonymize(authorId)).isEqualTo(AccountDeletionContentService.Result.PURGE_PENDING);
+        assertThat(imageRowCount(postId)).isEqualTo(1);
+        assertThat(contentOf(postId)).isEqualTo("original");
+    }
+
+    private void insertManagedAsset(Long ownerId, Long postId, String path) {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        String staging = "staging/" + UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO media_assets (owner_user_id, domain, status, object_key, declared_content_type,
+                    declared_bytes, declared_width, declared_height, staging_object_key, upload_expires_at, created_at, updated_at)
+                VALUES (?, 'CHEER', 'READY', ?, 'image/webp', 1, 1, 1, ?, ?, ?, ?)
+                """, ownerId, path, staging, now.plusHours(1), now, now);
+        Long assetId = jdbc.queryForObject("SELECT id FROM media_assets WHERE staging_object_key = ?", Long.class, staging);
+        jdbc.update("INSERT INTO media_asset_links (asset_id, domain, entity_id, role, linked_at) VALUES (?, 'CHEER', ?, 'CHEER_IMAGE', ?)",
+                assetId, postId, now);
+    }
+
+    /** Inserts a legacy image row with a database-generated id and returns that id. */
+    private Long insertLegacyImage(Long postId, String storagePath) {
+        jdbc.update("INSERT INTO post_images (post_id, storage_path, mime_type, bytes, is_thumbnail, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                postId, storagePath, "image/webp", 1L, false, java.time.Instant.now());
+        return jdbc.queryForObject("SELECT id FROM post_images WHERE post_id = ? AND storage_path = ?",
+                Long.class, postId, storagePath);
+    }
+
+    private Integer imageRowCount(Long postId) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM post_images WHERE post_id = ?", Integer.class, postId);
+    }
+
+    private Integer holdCount(Long postImageId) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM legacy_post_image_holds WHERE post_image_id = ?",
+                Integer.class, postImageId);
+    }
+
+    private Map<String, Object> holdOf(Long postImageId) {
+        return jdbc.queryForMap("SELECT owner_user_id, post_id, storage_path, logical_bucket, report_protected, status "
+                + "FROM legacy_post_image_holds WHERE post_image_id = ?", postImageId);
+    }
+
+    @Test
+    void reportCheckSeesAnyReportOnThatPostOnly() {
         Long authorId = newUser();
         Long reporterId = newUser();
         Long repostId = newPost(authorId, false);
         Long otherPostId = newPost(authorId, false);
-        insertReport(repostId, reporterId, "CLOSED", "REJECTED", LocalDateTime.now().minusDays(2));
         insertReport(otherPostId, reporterId, "PENDING", LocalDateTime.now().minusDays(2));
 
-        assertThat(posts.existsOpenModerationByPostId(repostId)).isFalse();
+        assertThat(posts.existsReportByPostId(repostId)).isFalse();
 
-        insertReport(repostId, reporterId, "IN_REVIEW", LocalDateTime.now().minusDays(1));
+        insertReport(repostId, reporterId, "CLOSED", "REJECTED", LocalDateTime.now().minusDays(2));
 
-        assertThat(posts.existsOpenModerationByPostId(repostId)).isTrue();
+        assertThat(posts.existsReportByPostId(repostId)).isTrue();
+        assertThat(posts.existsReportByPostId(otherPostId)).isTrue();
+    }
+
+    @Test
+    void openCaseOnSiblingPostDoesNotHoldPurgeOfThisPost() {
+        Long authorId = newUser();
+        Long reporterId = newUser();
+        Long heldPostId = newPost(authorId, true);
+        Long siblingPostId = newPost(authorId, true);
+        insertReport(siblingPostId, reporterId, "IN_REVIEW", LocalDateTime.now().minusDays(2));
+
+        LocalDateTime now = LocalDateTime.now();
+        assertThat(posts.findDuePurgeIds(now, 0, PageRequest.of(0, 50)))
+                .contains(heldPostId)
+                .doesNotContain(siblingPostId);
+        assertThat(claimPurge(heldPostId, "sibling-token", now)).isEqualTo(1);
+        assertThat(claimPurge(siblingPostId, "sibling-held", now)).isEqualTo(0);
+    }
+
+    @Test
+    void reportedPostIsNeverDueForPurgeEvenAfterTheCaseCloses() {
+        Long authorId = newUser();
+        Long reporterId = newUser();
+        Long repostId = newPost(authorId, true);
+        Long plainPostId = newPost(authorId, true);
+        Long originalId = newPost(authorId, false);
+        jdbc.update("UPDATE cheer_post SET repost_type = 'SIMPLE', repost_of_id = ? WHERE id = ?", originalId, repostId);
+        insertReport(repostId, reporterId, "CLOSED", "REJECTED", LocalDateTime.now().minusDays(2));
+        insertReport(plainPostId, reporterId, "CLOSED", "REJECTED", LocalDateTime.now().minusDays(2));
+
+        LocalDateTime now = LocalDateTime.now();
+        assertThat(posts.findDuePurgeIds(now, 0, PageRequest.of(0, 50))).doesNotContain(plainPostId, repostId);
     }
 }

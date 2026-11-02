@@ -121,6 +121,20 @@ public class MediaLinkService {
         syncLinks(MediaDomain.DIARY, diaryId, userId, storagePaths, MediaLinkRole.DIARY_PHOTO, lockedIds);
     }
 
+    /** Keeps managed diary assets stable until derived seat-view rows are committed. */
+    @Transactional
+    public void lockDiaryAssetsForSeatView(Long userId, Collection<String> storagePaths) {
+        List<String> keys = normalizeManagedKeys(MediaDomain.DIARY, storagePaths).stream().distinct().toList();
+        if (keys.isEmpty()) return;
+        entityManager.flush();
+        Set<Long> lockedIds = new java.util.TreeSet<>(mediaAssetRepository.findIdsByObjectKeyInOrderById(keys));
+        lockAssetIds(lockedIds);
+        Map<String, MediaAsset> current = resolveReadyAssets(userId, MediaDomain.DIARY, keys);
+        if (current.size() != keys.size() || current.values().stream().anyMatch(asset -> !lockedIds.contains(asset.getId()))) {
+            throw new BadRequestBusinessException("MEDIA_ASSET_NOT_READY", "이미지 상태가 변경되었습니다. 다시 시도해주세요.");
+        }
+    }
+
     @Transactional
     public void linkSeatViewAsset(Long userId, String storagePath, Long seatViewId) {
         Set<Long> lockedIds = lockAssetsForLink(MediaDomain.SEAT_VIEW, seatViewId, List.of(storagePath));

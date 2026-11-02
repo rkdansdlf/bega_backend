@@ -42,7 +42,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @DataJpaTest(properties = {"spring.flyway.enabled=false", "spring.jpa.hibernate.ddl-auto=create-drop"})
 @Import({MediaLinkService.class, CheerPostTransactionBoundary.class, CheerMediaPurgeReservation.class,
-        AccountDeletionContentService.class})
+        AccountDeletionContentService.class, CheerIndividualMediaDeletion.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class CheerPurgedAssetReuseProbeTest {
     @Autowired MediaAssetRepository assets;
@@ -58,7 +58,10 @@ class CheerPurgedAssetReuseProbeTest {
     @Autowired EntityManager entityManager;
     @Autowired JdbcTemplate jdbc;
     @Autowired AccountDeletionContentService contentService;
+    @Autowired CheerIndividualMediaDeletion individualMediaDeletion;
     @MockitoBean MediaUploadService mediaUploadService;
+    @MockitoBean ImageService imageService;
+    @MockitoBean com.example.cheerboard.storage.config.StorageConfig storageConfig;
 
     @Test
     void individuallyDeletedManagedImageCannotBeLinkedAgain() {
@@ -85,6 +88,7 @@ class CheerPurgedAssetReuseProbeTest {
         var storage = mock(com.example.cheerboard.storage.strategy.StorageStrategy.class);
         var config = mock(com.example.cheerboard.storage.config.StorageConfig.class);
         when(config.getCheerBucket()).thenReturn("synthetic-bucket");
+        when(storageConfig.getCheerBucket()).thenReturn("synthetic-bucket");
         when(storage.deleteChecked("synthetic-bucket", key)).thenReturn(reactor.core.publisher.Mono.empty());
         var imageService = new ImageService(images, posts, storage,
                 mock(com.example.cheerboard.storage.validator.ImageValidator.class), config, currentUser,
@@ -93,9 +97,59 @@ class CheerPurgedAssetReuseProbeTest {
                 mock(com.example.common.image.ImageUtil.class),
                 mock(com.example.common.image.ImageOptimizationMetricsService.class),
                 mock(com.example.auth.service.PublicVisibilityVerifier.class),
-                mock(MediaObjectKeyGuard.class), transactionManager);
+                mock(MediaObjectKeyGuard.class), individualMediaDeletion, transactionManager, assets, links);
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            assertThat(users.findById(ids[1]).orElseThrow().isPendingDeletion()).isFalse();
+            try (var executor = Executors.newSingleThreadExecutor()) {
+                executor.submit(() -> jdbc.update(
+                        "UPDATE users SET pending_deletion = ?, deletion_scheduled_for = ? WHERE id = ?",
+                        true, LocalDateTime.now().plusDays(1), ids[1])).get(10, TimeUnit.SECONDS);
+            } catch (Exception ex) {
+                throw new IllegalStateException(ex);
+            }
+            assertThatThrownBy(() -> imageService.deleteImage(ids[3]))
+                    .isInstanceOf(com.example.common.exception.ConflictBusinessException.class);
+            status.setRollbackOnly();
+        });
+        jdbc.update("UPDATE users SET pending_deletion = ?, deletion_scheduled_for = NULL WHERE id = ?", false, ids[1]);
+
+        TransactionTemplate readOnly = new TransactionTemplate(transactionManager);
+        readOnly.setReadOnly(true);
+        readOnly.executeWithoutResult(status -> {
+            assertThatThrownBy(() -> imageService.deleteImage(ids[3])).isInstanceOf(IllegalStateException.class);
+            status.setRollbackOnly();
+        });
+        assertThat(images.findById(ids[3])).isPresent();
+
+        jdbc.update("INSERT INTO seat_view_photo (user_id, storage_path, source_type, user_selected, reward_granted, createdat, updatedat) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ids[1], "synthetic-bucket/" + key, "SEATMAP_UPLOAD", false, false, LocalDateTime.now(), LocalDateTime.now());
+        assertThatThrownBy(() -> imageService.deleteImage(ids[3]))
+                .isInstanceOf(com.example.common.exception.ConflictBusinessException.class);
+        assertThat(images.findById(ids[3])).isPresent();
+        assertThat(assets.findById(ids[2]).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.READY);
+        jdbc.update("DELETE FROM seat_view_photo WHERE storage_path = ?", "synthetic-bucket/" + key);
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            imageService.deleteImage(ids[3]);
+            status.setRollbackOnly();
+        });
+        assertThat(assets.findById(ids[2]).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.READY);
+        assertThat(links.existsByAssetId(ids[2])).isTrue();
+        assertThat(images.findById(ids[3])).isPresent();
+        org.mockito.Mockito.verify(storage, org.mockito.Mockito.never())
+                .deleteChecked(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
 
         imageService.deleteImage(ids[3]);
+
+        MediaAsset tombstone = assets.findById(ids[2]).orElseThrow();
+        assertThat(tombstone.getStatus()).isEqualTo(MediaAssetStatus.DELETED);
+        assertThat(tombstone.getFinalizeToken()).isNotBlank();
+        assertThat(tombstone.getFinalizeLeaseUntil()).isAfter(tombstone.getUploadExpiresAt());
+        assertThat(tombstone.getObjectKey()).isEqualTo(key);
+        assertThat(images.findById(ids[3])).isEmpty();
+        assertThat(links.existsByAssetId(ids[2])).isFalse();
+        org.mockito.Mockito.verify(storage, org.mockito.Mockito.never()).deleteChecked(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
 
         assertThatThrownBy(() -> mediaLinks.syncCheerLinks(ids[0], ids[1], List.of(key)))
                 .as("a removed storage object must not be linked again")

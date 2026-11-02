@@ -76,6 +76,9 @@ class MediaFinalizeClaimIntegrationTest {
     @MockitoBean
     private StorageStrategy storageStrategy;
 
+    @MockitoBean
+    private com.example.cheerboard.storage.config.StorageConfig storageConfig;
+
     @BeforeEach
     void clearAssets() {
         links.deleteAll();

@@ -477,6 +477,14 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, Long> {
                   from MediaAssetLink l
                   where l.assetId = a.id
               )
+              and (a.domain <> com.example.media.entity.MediaDomain.DIARY or a.objectKey is null or not exists (
+                  select 1 from SeatViewPhoto sv
+                  where length(trim(sv.storagePath)) > 0
+                    and (trim(sv.storagePath) like concat('%', a.objectKey, '%')
+                         or a.objectKey like concat('%', trim(sv.storagePath), '%')
+                         or trim(sv.storagePath) like concat('%', substring(a.objectKey, 7), '%'))
+              ))
+            order by a.createdAt asc, a.id asc
             """)
     List<MediaAsset> findUnlinkedAssetsOlderThan(
             @Param("status") MediaAssetStatus status,

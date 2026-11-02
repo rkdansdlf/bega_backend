@@ -40,6 +40,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionSynchronization;
 import reactor.core.publisher.Mono;
 
 import java.util.Collections;
@@ -105,6 +106,9 @@ class ImageServiceTest {
     private MediaObjectKeyGuard mediaObjectKeyGuard;
 
     @Mock
+    private com.example.media.service.CheerIndividualMediaDeletion individualMediaDeletion;
+
+    @Mock
     private PublicVisibilityVerifier publicVisibilityVerifier;
 
     @Mock
@@ -161,8 +165,8 @@ class ImageServiceTest {
     }
 
     @Test
-    @DisplayName("개별 이미지 삭제가 실패하면 DB 레코드와 URL 캐시 무효화 기회를 보존한다")
-    void deleteImage_preservesRetryStateWhenStorageDeleteFails() {
+    @DisplayName("기존 경로의 안전한 정리를 결정할 수 없으면 이미지 행과 객체를 보존한다")
+    void deleteImage_preservesUnverifiedLegacyImage() {
         UserEntity owner = UserEntity.builder().id(1L).role("ROLE_USER").build();
         CheerPost post = CheerPost.builder().id(100L).author(owner).build();
         PostImage image = PostImage.builder()
@@ -177,31 +181,24 @@ class ImageServiceTest {
         when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
         when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.of(post));
         when(postImageRepo.findByIdAndPostId(10L, 100L)).thenReturn(Optional.of(image));
-        when(config.getCheerBucket()).thenReturn("cheer");
-        when(storageStrategy.deleteChecked("cheer", "posts/100/demo.webp"))
-                .thenReturn(Mono.error(new StorageOperationException(
-                        StorageOperationException.Kind.TRANSIENT,
-                        "temporary storage failure",
-                        new IllegalStateException("synthetic failure"))));
-
-        assertThrows(StorageOperationException.class, () -> imageService.deleteImage(10L));
+        assertThrows(com.example.common.exception.ConflictBusinessException.class, () -> imageService.deleteImage(10L));
 
         verify(postRepo).findByIdForWrite(100L);
         verify(postImageRepo).findByIdAndPostId(10L, 100L);
-        verify(storageStrategy).deleteChecked("cheer", "posts/100/demo.webp");
+        verify(storageStrategy, never()).deleteChecked(anyString(), anyString());
         verify(postImageRepo, never()).delete(image);
         verify(cacheManager, never()).getCache(anyString());
     }
 
     @Test
-    @DisplayName("개별 이미지 삭제는 게시글 잠금 후 스토리지 삭제 성공 시에만 DB와 URL 캐시를 정리한다")
-    void deleteImage_locksPostAndDeletesStorageBeforeDatabaseRow() {
+    @DisplayName("관리형 개별 이미지 삭제는 자산 삭제 예약과 이미지 행을 함께 처리한다")
+    void deleteImage_reservesManagedAssetBeforeRemovingRow() {
         UserEntity owner = UserEntity.builder().id(1L).role("ROLE_USER").build();
         CheerPost post = CheerPost.builder().id(100L).author(owner).build();
         PostImage image = PostImage.builder()
                 .id(10L)
                 .post(post)
-                .storagePath("posts/100/demo.webp")
+                .storagePath("media/cheer/1/demo.webp")
                 .mimeType("image/webp")
                 .bytes(1024L)
                 .isThumbnail(false)
@@ -210,18 +207,46 @@ class ImageServiceTest {
         when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
         when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.of(post));
         when(postImageRepo.findByIdAndPostId(10L, 100L)).thenReturn(Optional.of(image));
-        when(config.getCheerBucket()).thenReturn("cheer");
-        when(storageStrategy.deleteChecked("cheer", "posts/100/demo.webp")).thenReturn(Mono.empty());
+        var candidate = new com.example.media.service.CheerIndividualMediaDeletion.Candidate(55L, 1L, "media/cheer/1/demo.webp");
+        when(individualMediaDeletion.lockOwners("media/cheer/1/demo.webp", 1L)).thenReturn(candidate);
 
         imageService.deleteImage(10L);
 
-        InOrder deletionOrder = inOrder(postRepo, postImageRepo, storageStrategy);
+        InOrder deletionOrder = inOrder(postRepo, postImageRepo, individualMediaDeletion);
         deletionOrder.verify(postImageRepo).findById(10L);
+        deletionOrder.verify(individualMediaDeletion).lockOwners("media/cheer/1/demo.webp", 1L);
         deletionOrder.verify(postRepo).findByIdForWrite(100L);
         deletionOrder.verify(postImageRepo).findByIdAndPostId(10L, 100L);
-        deletionOrder.verify(storageStrategy).deleteChecked("cheer", "posts/100/demo.webp");
+        deletionOrder.verify(individualMediaDeletion).reserve(candidate, 100L, 10L, "media/cheer/1/demo.webp");
         deletionOrder.verify(postImageRepo).delete(image);
+        verify(storageStrategy, never()).deleteChecked(anyString(), anyString());
         verify(cacheManager, org.mockito.Mockito.atLeastOnce()).getCache(anyString());
+    }
+
+    @Test
+    void rolledBackImageDeletionDoesNotPublishItsUncommittedUrlList() {
+        UserEntity owner = UserEntity.builder().id(1L).role("ROLE_USER").build();
+        CheerPost post = CheerPost.builder().id(100L).author(owner).build();
+        PostImage image = PostImage.builder().id(10L).post(post).storagePath("media/cheer/1/demo.webp").build();
+        when(currentUser.get()).thenReturn(owner);
+        when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
+        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.of(post));
+        when(postImageRepo.findByIdAndPostId(10L, 100L)).thenReturn(Optional.of(image));
+        when(postImageRepo.findByPostIdOrderByCreatedAtAsc(100L)).thenReturn(List.of());
+        var candidate = new com.example.media.service.CheerIndividualMediaDeletion.Candidate(55L, 1L, "media/cheer/1/demo.webp");
+        when(individualMediaDeletion.lockOwners("media/cheer/1/demo.webp", 1L)).thenReturn(candidate);
+        TransactionSynchronizationManager.initSynchronization();
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        try {
+            imageService.deleteImage(10L);
+            imageService.getPostImageUrls(100L);
+            verify(stringValueOperations, never()).set(anyString(), anyString(), any(Duration.class));
+            TransactionSynchronizationManager.getSynchronizations().forEach(sync ->
+                    sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+            verify(stringRedisTemplate, org.mockito.Mockito.atLeast(2)).delete(anyString());
+        } finally {
+            TransactionSynchronizationManager.clear();
+        }
     }
 
     @Test
@@ -247,6 +272,44 @@ class ImageServiceTest {
         verify(storageStrategy).deleteChecked("cheer", "posts/100/demo.webp");
         verify(storageStrategy, never()).delete(anyString(), anyString());
         verify(postImageRepo, never()).delete(image);
+    }
+
+    @Test
+    void diaryDeleteDoesNotDirectlyDeleteManagedMediaObjects() {
+        lenient().when(config.getDiaryBucket()).thenReturn("synthetic-bucket");
+        lenient().when(mediaObjectKeyGuard.canReadDiaryKey("media/diary/10/shared.webp", 10L, 100L)).thenReturn(true);
+        lenient().when(storageStrategy.delete("synthetic-bucket", "media/diary/10/shared.webp")).thenReturn(Mono.empty());
+        imageService.deleteDiaryImages(List.of("media/diary/10/shared.webp"), 10L, 100L).block();
+        verify(storageStrategy, never()).delete(anyString(), anyString());
+    }
+
+    @Test
+    void diaryDeleteDoesNotMisclassifyManagedPathWhenBucketIsMedia() {
+        lenient().when(config.getDiaryBucket()).thenReturn("media");
+        lenient().when(mediaObjectKeyGuard.canReadDiaryKey("diary/7/123/image.webp", 7L, 123L)).thenReturn(true);
+        lenient().when(storageStrategy.delete("media", "diary/7/123/image.webp")).thenReturn(Mono.empty());
+
+        imageService.deleteDiaryImages(List.of("media/diary/7/123/image.webp",
+                "/media/diary/7/123/image.webp", "diary/7/123/image.webp"), 7L, 123L).block();
+
+        verify(storageStrategy, never()).delete(anyString(), anyString());
+    }
+
+    @Test
+    void diaryDeleteRechecksPhysicalKeyAfterNormalization() {
+        lenient().when(config.getDiaryBucket()).thenReturn("media");
+        lenient().when(storageStrategy.delete("media", "/diary/7/123/image.webp")).thenReturn(Mono.empty());
+        lenient().when(mediaObjectKeyGuard.canReadDiaryKey("/diary/7/123/image.webp", 7L, 123L)).thenReturn(true);
+        imageService.deleteDiaryImages(List.of("//diary/7/123/image.webp")).block();
+        imageService.deleteDiaryImages(List.of("//diary/7/123/image.webp"), 7L, 123L).block();
+
+        lenient().when(config.getDiaryBucket()).thenReturn("shared");
+        lenient().when(storageStrategy.delete("shared", "shared/media/diary/7/123/image.webp")).thenReturn(Mono.empty());
+        lenient().when(mediaObjectKeyGuard.canReadDiaryKey("shared/media/diary/7/123/image.webp", 7L, 123L)).thenReturn(true);
+        imageService.deleteDiaryImages(List.of("shared/shared/media/diary/7/123/image.webp")).block();
+        imageService.deleteDiaryImages(List.of("shared/shared/media/diary/7/123/image.webp"), 7L, 123L).block();
+
+        verify(storageStrategy, never()).delete(anyString(), anyString());
     }
 
     @Test

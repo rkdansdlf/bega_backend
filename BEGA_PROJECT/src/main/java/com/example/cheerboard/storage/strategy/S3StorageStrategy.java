@@ -36,20 +36,7 @@ public class S3StorageStrategy implements StorageStrategy {
      * path가 이미 "bucket/..." 형태인 경우 중복 prefix를 방지한다.
      */
     private String buildObjectKey(String bucket, String path) {
-        String normalizedPath = path == null ? "" : path.strip();
-        if (normalizedPath.startsWith("/")) {
-            normalizedPath = normalizedPath.substring(1);
-        }
-
-        if (bucket == null || bucket.isBlank()) {
-            return normalizedPath;
-        }
-
-        String prefix = bucket + "/";
-        if (normalizedPath.startsWith(prefix)) {
-            return normalizedPath;
-        }
-        return prefix + normalizedPath;
+        return StorageObjectKey.resolve(bucket, path);
     }
 
     @Override
