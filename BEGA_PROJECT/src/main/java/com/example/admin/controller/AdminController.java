@@ -147,6 +147,11 @@ public class AdminController {
         return ResponseEntity.ok(ApiResponse.success("신고 케이스 조치 완료", result));
     }
 
+    /**
+     * 관리자가 접수하는 이의제기 흐름이다. 게시글 작성자가 직접 거는 경로는 없으며,
+     * 작성자 소유권 검사를 두지 않는 것이 설계 결정이다(2026-11-02, 관리자 접수 모델 유지).
+     * 접수한 관리자 ID는 감사 로그에 남는다.
+     */
     @PostMapping("/reports/{reportId}/appeal")
     public ResponseEntity<ApiResponse<AdminReportDto>> requestAppeal(
             @AuthenticationPrincipal Long userId,
