@@ -2087,7 +2087,7 @@ Schema: [GameRelaySnapshotDto](openapi-schemas.md#gamerelaysnapshotdto)
 #### Parameters
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
-| `date` | query | no | `string (date)` | 1982-01-01부터 2030-12-31까지의 날짜 | — |
+| `date` | query | no | `string (date)` | — | — |
 
 ### Response `200`
 OK
@@ -2104,9 +2104,9 @@ Schema: [HomeBootstrapResponseDto](openapi-schemas.md#homebootstrapresponsedto)
 #### Parameters
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
-| `date` | query | no | `string (date)` | 1982-01-01부터 2030-12-31까지의 날짜 | — |
+| `date` | query | no | `string (date)` | — | — |
 | `scope` | query | no | `string` | — | — |
-| `seasonYear` | query | no | `integer (int32)` | 1982년부터 2030년까지의 시즌 연도 | — |
+| `seasonYear` | query | no | `integer (int32)` | — | — |
 
 ### Response `200`
 OK
@@ -2123,8 +2123,8 @@ Schema: [HomeScopedNavigationDto](openapi-schemas.md#homescopednavigationdto)
 #### Parameters
 | Name | In | Required | Schema | Description | Example |
 | --- | --- | --- | --- | --- | --- |
-| `date` | query | no | `string (date)` | 1982-01-01부터 2030-12-31까지의 날짜 | — |
-| `seasonYear` | query | no | `integer (int32)` | 1982년부터 2030년까지의 시즌 연도 | — |
+| `date` | query | no | `string (date)` | — | — |
+| `seasonYear` | query | no | `integer (int32)` | — | — |
 
 ### Response `200`
 OK

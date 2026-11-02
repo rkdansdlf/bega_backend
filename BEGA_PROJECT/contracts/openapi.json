@@ -1878,6 +1878,29 @@
         },
         "type" : "object"
       },
+      "ApiResponsePayoutHoldPageDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PayoutHoldPageDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponsePlaceDto" : {
         "properties" : {
           "code" : {
@@ -7109,6 +7132,57 @@
         },
         "type" : "object"
       },
+      "PayoutHoldDto" : {
+        "properties" : {
+          "paymentTransactionId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "payoutId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "reasonCode" : {
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "PENDING", "REQUESTED", "COMPLETED", "FAILED", "SKIPPED", "REFUNDED_AFTER_SETTLEMENT" ],
+            "type" : "string"
+          },
+          "updatedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "PayoutHoldPageDto" : {
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/PayoutHoldDto"
+            },
+            "type" : "array"
+          },
+          "page" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "size" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "totalElements" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalPages" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "PitcherDto" : {
         "properties" : {
           "era" : {
@@ -9934,6 +10008,43 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ApiResponseMateLinkReconciliationCasePageDto"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "admin-mate-link-reconciliation-case-controller" ]
+      }
+    },
+    "/api/admin/mate-link-reconciliation-cases/payout-holds" : {
+      "get" : {
+        "operationId" : "listPayoutHolds",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "page",
+          "required" : false,
+          "schema" : {
+            "default" : 0,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "default" : 20,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePayoutHoldPageDto"
                 }
               }
             },
@@ -14660,7 +14771,6 @@
       "get" : {
         "operationId" : "getBootstrap",
         "parameters" : [ {
-          "description" : "1982-01-01부터 2030-12-31까지의 날짜",
           "in" : "query",
           "name" : "date",
           "required" : false,
@@ -14688,7 +14798,6 @@
       "get" : {
         "operationId" : "getNavigation",
         "parameters" : [ {
-          "description" : "1982-01-01부터 2030-12-31까지의 날짜",
           "in" : "query",
           "name" : "date",
           "required" : false,
@@ -14705,7 +14814,6 @@
             "type" : "string"
           }
         }, {
-          "description" : "1982년부터 2030년까지의 시즌 연도",
           "in" : "query",
           "name" : "seasonYear",
           "required" : false,
@@ -14733,7 +14841,6 @@
       "get" : {
         "operationId" : "getWidgets",
         "parameters" : [ {
-          "description" : "1982-01-01부터 2030-12-31까지의 날짜",
           "in" : "query",
           "name" : "date",
           "required" : false,
@@ -14742,7 +14849,6 @@
             "type" : "string"
           }
         }, {
-          "description" : "1982년부터 2030년까지의 시즌 연도",
           "in" : "query",
           "name" : "seasonYear",
           "required" : false,
