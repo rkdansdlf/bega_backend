@@ -19,7 +19,6 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.BlockService;
 import com.example.auth.service.FollowService;
-import com.example.common.exception.ConflictBusinessException;
 import com.example.common.exception.RepostNotAllowedException;
 import com.example.common.exception.RepostSelfNotAllowedException;
 import com.example.common.exception.RepostTargetNotFoundException;
@@ -291,6 +290,30 @@ public class CheerPostService {
         Objects.requireNonNull(post.getId());
         post.setDeleted(true);
         postRepo.saveAndFlush(post);
+        if (post.isRepost()) {
+            releaseRepostCount(post);
+        }
+    }
+
+    /**
+     * A soft-deleted repost stops counting toward its original, so the count and the "reposted" tracking row
+     * drop in the same transaction as the soft delete. The later purge then only removes the row.
+     */
+    private void releaseRepostCount(CheerPost repost) {
+        // Read the original's id from the row instead of through the lazy association: a soft-deleted original is
+        // hidden by @SQLRestriction, and initializing the proxy would fail and roll back this delete.
+        Long originalId = postRepo.findRepostOfIdById(repost.getId()).orElse(null);
+        if (originalId == null) {
+            return;
+        }
+        if (repost.isSimpleRepost()) {
+            repostRepo.deleteByPostIdAndUserId(originalId, repost.getAuthor().getId());
+        }
+        postRepo.decrementRepostCount(originalId);
+        postRepo.findById(originalId).ifPresent(original -> {
+            original.setRepostCount(readRepostCount(originalId));
+            updateHotScore(original);
+        });
     }
 
     private void invalidateDeletedPostCaches(Long id) {
@@ -429,8 +452,16 @@ public class CheerPostService {
                 author, original, CheerPost.RepostType.SIMPLE);
 
         if (existing.isPresent()) {
-            assertRepostRemovable(existing.get());
-            postRepo.delete(existing.get());
+            Optional<CheerPost> locked = postRepo.findByIdForWrite(existing.get().getId());
+            if (locked.isEmpty()) {
+                // Purged between the lookup and the lock: the repost is already gone, so report the unreposted state.
+                return new RepostToggleResponse(false, readRepostCount(original.getId()));
+            }
+            if (postRepo.existsReportByPostId(locked.get().getId())) {
+                markPostDeleted(locked.get());
+                return new RepostToggleResponse(false, readRepostCount(original.getId()));
+            }
+            postRepo.delete(locked.get());
             repostRepo.deleteByPostIdAndUserId(original.getId(), author.getId());
             postRepo.decrementRepostCount(original.getId());
             updateHotScore(original);
@@ -500,9 +531,13 @@ public class CheerPostService {
         try {
             CheerPost repost = findPostById(repostId);
             validateRepostCancelRequest(author, repost);
-            assertRepostRemovable(repost);
+            findPostByIdForWrite(repost.getId());
 
             CheerPost original = requireRepostTarget(repost);
+            if (postRepo.existsReportByPostId(repost.getId())) {
+                markPostDeleted(repost);
+                return new RepostToggleResponse(false, original == null ? 0 : readRepostCount(original.getId()));
+            }
             postRepo.delete(repost);
 
             if (original != null && original.getId() != null) {
@@ -587,17 +622,6 @@ public class CheerPostService {
                         .findByAuthorAndRepostOfAndRepostType(author, original, CheerPost.RepostType.SIMPLE)
                         .isPresent();
         return new RepostToggleResponse(isCurrentlyReposted, readRepostCount(original.getId()));
-    }
-
-    /**
-     * Refuses to delete a repost that has an open moderation case, because the reports cascade-delete with it.
-     * The row lock serializes this check with {@code reportPost}, which locks the same post before inserting.
-     */
-    private void assertRepostRemovable(CheerPost repost) {
-        findPostByIdForWrite(repost.getId());
-        if (postRepo.existsOpenModerationByPostId(repost.getId())) {
-            throw new ConflictBusinessException("REPOST_MODERATION_OPEN", "신고 처리 중인 리포스트는 취소할 수 없습니다.");
-        }
     }
 
     private CheerPost requireRepostTarget(CheerPost repost) {

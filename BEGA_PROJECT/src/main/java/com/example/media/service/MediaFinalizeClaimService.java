@@ -8,6 +8,12 @@ import com.example.media.entity.MediaFinalizeAttempt;
 import com.example.media.entity.MediaFinalizeAttemptStatus;
 import com.example.media.repository.MediaAssetRepository;
 import com.example.media.repository.MediaFinalizeAttemptRepository;
+import com.example.BegaDiary.Repository.SeatViewPhotoRepository;
+import com.example.cheerboard.storage.config.StorageConfig;
+import com.example.cheerboard.storage.strategy.StorageObjectKey;
+import com.example.common.exception.BadRequestBusinessException;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +34,9 @@ public class MediaFinalizeClaimService {
 
     private final MediaAssetRepository mediaAssetRepository;
     private final MediaFinalizeAttemptRepository finalizeAttemptRepository;
+    private final SeatViewPhotoRepository seatViewPhotos;
+    private final StorageConfig storageConfig;
+    private final EntityManager entityManager;
 
     @Transactional
     public Optional<FinalizeClaim> claim(Long ownerUserId, Long assetId, String bucketName) {
@@ -236,8 +245,14 @@ public class MediaFinalizeClaimService {
     public Optional<FinalizeCleanupClaim> claimOwnedAssetForDeletion(
             MediaAsset asset,
             Long ownerUserId) {
-        if (mediaAssetRepository.findByIdForUpdate(asset.getId()).isEmpty()) {
+        MediaAsset locked = mediaAssetRepository.findByIdForUpdate(asset.getId()).orElse(null);
+        if (locked == null) {
             return Optional.empty();
+        }
+        entityManager.refresh(locked, LockModeType.PESSIMISTIC_WRITE);
+        if (!java.util.Objects.equals(locked.getOwnerUserId(), ownerUserId)) return Optional.empty();
+        if (hasDiarySeatViewReference(locked)) {
+            throw new BadRequestBusinessException("MEDIA_ASSET_LINKED", "이미 사용 중인 이미지는 삭제할 수 없습니다.");
         }
         LocalDateTime now = LocalDateTime.now();
         String cleanupToken = UUID.randomUUID().toString();
@@ -246,7 +261,7 @@ public class MediaFinalizeClaimService {
                         ownerUserId,
                         cleanupToken,
                         now,
-                        cleanupLeaseUntil(asset, now))
+                        cleanupLeaseUntil(locked, now))
                 != 1) {
             return Optional.empty();
         }
@@ -263,7 +278,10 @@ public class MediaFinalizeClaimService {
         if (domain == null) throw new IllegalArgumentException("A media domain is required.");
         MediaAsset locked = mediaAssetRepository.findByIdForUpdate(assetId).orElse(null);
         // this is a scan->lock TOCTOU guard on an immutable owner field (not an authorization check), so both-null must match so ownerless READY orphans can be claimed.
-        if (locked == null || !java.util.Objects.equals(locked.getOwnerUserId(), ownerId)) return Optional.empty();
+        if (locked == null) return Optional.empty();
+        entityManager.refresh(locked, LockModeType.PESSIMISTIC_WRITE);
+        if (!java.util.Objects.equals(locked.getOwnerUserId(), ownerId)) return Optional.empty();
+        if (hasDiarySeatViewReference(locked)) return Optional.empty();
         LocalDateTime now = LocalDateTime.now();
         String token = UUID.randomUUID().toString();
         if (mediaAssetRepository.claimUnlinkedMediaForCleanup(
@@ -274,6 +292,16 @@ public class MediaFinalizeClaimService {
         return mediaAssetRepository.findById(assetId)
                 .filter(claimed -> token.equals(claimed.getFinalizeToken()))
                 .map(claimed -> new FinalizeCleanupClaim(claimed, token));
+    }
+
+    private boolean hasDiarySeatViewReference(MediaAsset asset) {
+        if (asset.getDomain() != MediaDomain.DIARY || asset.getObjectKey() == null) return false;
+        String bucket = storageConfig.getDiaryBucket();
+        if (bucket == null || bucket.isBlank()) throw new IllegalStateException("Diary storage bucket is required for cleanup");
+        var aliases = StorageObjectKey.aliases(bucket, asset.getObjectKey());
+        String shortest = aliases.stream().min(java.util.Comparator.comparingInt(String::length)).orElseThrow();
+        return seatViewPhotos.existsByTrimmedStoragePathIn(aliases)
+                || seatViewPhotos.existsPossiblyReferencingStoragePath(shortest);
     }
 
     @Transactional
