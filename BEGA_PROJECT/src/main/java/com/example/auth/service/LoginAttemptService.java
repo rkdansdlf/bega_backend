@@ -1,5 +1,6 @@
 package com.example.auth.service;
 
+import com.example.common.web.ClientIpBucket;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.common.exception.CaptchaRequiredException;
@@ -123,7 +124,7 @@ public class LoginAttemptService {
     }
 
     private String ipFailureKey(HttpServletRequest request) {
-        return "auth:login:fail:ip:" + digest(clientIpResolver.resolveOrUnknown(request));
+        return "auth:login:fail:ip:" + digest(ClientIpBucket.of(clientIpResolver.resolveOrUnknown(request)));
     }
 
     private String emailFailureKey(String normalizedEmail) {
@@ -131,7 +132,8 @@ public class LoginAttemptService {
     }
 
     private String captchaFailureKey(String normalizedEmail, HttpServletRequest request) {
-        String subject = StringUtils.hasText(normalizedEmail) ? normalizedEmail : clientIpResolver.resolveOrUnknown(request);
+        String subject = StringUtils.hasText(normalizedEmail) ? normalizedEmail
+                : ClientIpBucket.of(clientIpResolver.resolveOrUnknown(request));
         return "auth:login:fail:captcha:" + digest(subject);
     }
 
