@@ -1,5 +1,6 @@
 package com.example.common.ratelimit;
 
+import com.example.common.web.ClientIpBucket;
 import com.example.common.exception.RateLimitExceededException;
 import com.example.common.web.ClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
@@ -89,7 +90,7 @@ public class RateLimitAspect {
         if (auth != null && auth.isAuthenticated() && !auth.getPrincipal().equals("anonymousUser")) {
             clientIdentifier = auth.getName(); // Email or Username
         } else {
-            clientIdentifier = clientIpResolver.resolveOrUnknown(request);
+            clientIdentifier = ClientIpBucket.of(clientIpResolver.resolveOrUnknown(request));
         }
 
         // 3. 사용자 정의 키가 있으면 추가

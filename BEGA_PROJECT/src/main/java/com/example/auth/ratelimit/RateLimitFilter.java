@@ -1,5 +1,6 @@
 package com.example.auth.ratelimit;
 
+import com.example.common.web.ClientIpBucket;
 import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.common.dto.ApiResponse;
 import com.example.common.ratelimit.RateLimitService;
@@ -107,7 +108,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     private String resolveClientIp(HttpServletRequest request) {
-        return clientIpResolver.resolveOrUnknown(request);
+        return ClientIpBucket.of(clientIpResolver.resolveOrUnknown(request));
     }
 
     private void writeTooManyRequests(HttpServletResponse response, long retryAfterSeconds) throws IOException {
