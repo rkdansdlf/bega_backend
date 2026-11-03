@@ -17,6 +17,7 @@ import com.example.media.repository.MediaAssetRepository;
 import com.example.media.repository.MediaFinalizeAttemptRepository;
 import com.example.media.repository.MediaAssetLinkRepository;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.HashSet;
 import java.util.Optional;
@@ -424,7 +425,7 @@ class MediaFinalizeClaimIntegrationTest {
         when(storageStrategy.exists("media-profile", objectKey))
                 .thenAnswer(invocation -> Mono.just(objects.contains(objectKey)));
 
-        LocalDateTime firstCleanupAt = LocalDateTime.now().plusSeconds(2);
+        LocalDateTime firstCleanupAt = LocalDateTime.now().plusSeconds(2).truncatedTo(ChronoUnit.MICROS);
         assertEquals(1, attemptCleanupService.cleanupDueAttempts(firstCleanupAt));
         var cleanedAttempt = finalizeAttemptRepository.findById(attempt.token()).orElseThrow();
         assertEquals(MediaFinalizeAttemptStatus.CLEANED, cleanedAttempt.getStatus());
