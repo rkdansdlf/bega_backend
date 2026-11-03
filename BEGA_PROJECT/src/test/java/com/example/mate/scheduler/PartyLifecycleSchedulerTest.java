@@ -178,6 +178,117 @@ class PartyLifecycleSchedulerTest {
     }
 
     @Test
+    @DisplayName("PENDING 파티 만료는 응답 기한이 남은 유료 신청을 환불 대기열에 넣고 실패 후 재시도한다")
+    void managePartyLifecycle_refundsFutureDeadlineApplicationAndRetriesAfterFailure() {
+        LocalDate today = LocalDate.now();
+        Party party = newParty(705L, 7L, today.minusDays(1));
+        party.setStatus(Party.PartyStatus.PENDING);
+        PartyApplication application = newApplication(705L, 9006L);
+        application.setId(805L);
+        application.setIsApproved(false);
+        application.setIsRejected(false);
+        application.setIsPaid(true);
+        application.setOrderId("MATE-705-9006");
+        Instant responseDeadline = Instant.now().plusSeconds(48 * 60 * 60);
+        application.setResponseDeadline(responseDeadline);
+
+        when(partyRepository.findByStatusAndGameDateBefore(
+                eq(Party.PartyStatus.PENDING), any(LocalDate.class)))
+                .thenReturn(List.of(party), Collections.emptyList());
+        when(partyRepository.findByStatusAndGameDate(
+                eq(Party.PartyStatus.MATCHED), any(LocalDate.class)))
+                .thenReturn(Collections.emptyList());
+        when(partyRepository.findByStatus(Party.PartyStatus.CHECKED_IN))
+                .thenReturn(Collections.emptyList());
+        when(lifecycleMutationService.expirePendingParty(eq(705L), any(LocalDate.class)))
+                .thenAnswer(invocation -> {
+                    application.setIsRejected(true);
+                    application.setRejectedAt(Instant.now());
+                    party.setStatus(Party.PartyStatus.FAILED);
+                    return party;
+                });
+        when(applicationRepository.findByIsRejectedTrueAndIsPaidTrue())
+                .thenAnswer(invocation -> Boolean.TRUE.equals(application.getIsRejected())
+                        && Boolean.TRUE.equals(application.getIsPaid())
+                                ? List.of(application)
+                                : Collections.emptyList());
+        when(applicationRepository.findByIsApprovedFalseAndIsRejectedFalseAndResponseDeadlineBefore(any()))
+                .thenReturn(Collections.emptyList());
+        PartyLifecycleMutationService.RefundAttemptClaim claim =
+                new PartyLifecycleMutationService.RefundAttemptClaim(application, false);
+        when(lifecycleMutationService.claimRefundAttempt(eq(705L), eq(805L), eq(9006L), any()))
+                .thenReturn(claim, claim);
+        when(paymentTransactionService.processCancellation(eq(application), any()))
+                .thenThrow(new RuntimeException("synthetic refund failure"))
+                .thenReturn(canceledRefund(805L));
+
+        scheduler.managePartyLifecycle();
+        scheduler.managePartyLifecycle();
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(
+                lifecycleMutationService, applicationRepository, paymentTransactionService);
+        order.verify(lifecycleMutationService).expirePendingParty(eq(705L), any(LocalDate.class));
+        order.verify(applicationRepository).findByIsRejectedTrueAndIsPaidTrue();
+        order.verify(applicationRepository).findByIsApprovedFalseAndIsRejectedFalseAndResponseDeadlineBefore(any());
+        order.verify(lifecycleMutationService).claimRefundAttempt(eq(705L), eq(805L), eq(9006L), any());
+        order.verify(paymentTransactionService).processCancellation(eq(application), any());
+        order.verify(lifecycleMutationService).recordRefundFailure("MATE-705-9006");
+        order.verify(applicationRepository).findByIsRejectedTrueAndIsPaidTrue();
+        order.verify(lifecycleMutationService).claimRefundAttempt(eq(705L), eq(805L), eq(9006L), any());
+        order.verify(paymentTransactionService).processCancellation(eq(application), any());
+        order.verify(lifecycleMutationService).markApplicationUnpaidAfterRefund(705L, 805L, 9006L);
+
+        verify(lifecycleMutationService, times(1)).expirePendingParty(eq(705L), any(LocalDate.class));
+        verify(paymentTransactionService, times(2)).processCancellation(eq(application), any());
+        org.assertj.core.api.Assertions.assertThat(responseDeadline.isAfter(Instant.now())).isTrue();
+        org.assertj.core.api.Assertions.assertThat(application.getIsRejected()).isTrue();
+        verify(lifecycleMutationService, times(1)).recordRefundFailure("MATE-705-9006");
+        verify(lifecycleMutationService, times(1)).markApplicationUnpaidAfterRefund(705L, 805L, 9006L);
+    }
+
+    @Test
+    @DisplayName("PENDING 파티 만료는 이미 승인된 유료 신청을 자동 거절·환불하지 않는다")
+    void managePartyLifecycle_doesNotRefundApprovedApplicationWhenPendingPartyExpires() {
+        LocalDate today = LocalDate.now();
+        Party party = newParty(706L, 7L, today.minusDays(1));
+        party.setStatus(Party.PartyStatus.PENDING);
+        PartyApplication application = newApplication(706L, 9007L);
+        application.setId(806L);
+        application.setIsApproved(true);
+        application.setIsRejected(false);
+        application.setIsPaid(true);
+        application.setOrderId("MATE-706-9007");
+        application.setResponseDeadline(Instant.now().plusSeconds(48 * 60 * 60));
+
+        when(partyRepository.findByStatusAndGameDateBefore(
+                eq(Party.PartyStatus.PENDING), any(LocalDate.class)))
+                .thenReturn(List.of(party));
+        when(partyRepository.findByStatusAndGameDate(
+                eq(Party.PartyStatus.MATCHED), any(LocalDate.class)))
+                .thenReturn(Collections.emptyList());
+        when(partyRepository.findByStatus(Party.PartyStatus.CHECKED_IN))
+                .thenReturn(Collections.emptyList());
+        when(lifecycleMutationService.expirePendingParty(eq(706L), any(LocalDate.class)))
+                .thenAnswer(invocation -> {
+                    party.setStatus(Party.PartyStatus.FAILED);
+                    return party;
+                });
+        when(applicationRepository.findByIsRejectedTrueAndIsPaidTrue())
+                .thenReturn(Collections.emptyList());
+        when(applicationRepository.findByIsApprovedFalseAndIsRejectedFalseAndResponseDeadlineBefore(any()))
+                .thenReturn(Collections.emptyList());
+
+        scheduler.managePartyLifecycle();
+
+        verify(lifecycleMutationService).expirePendingParty(eq(706L), any(LocalDate.class));
+        verify(lifecycleMutationService, never()).claimRefundAttempt(eq(706L), eq(806L), eq(9007L), any());
+        verify(paymentTransactionService, never()).processCancellation(eq(application), any());
+        org.assertj.core.api.Assertions.assertThat(application.getIsApproved()).isTrue();
+        org.assertj.core.api.Assertions.assertThat(application.getIsRejected()).isFalse();
+        org.assertj.core.api.Assertions.assertThat(application.getIsPaid()).isTrue();
+    }
+
+    @Test
     @DisplayName("환불 실패로 남은 결제된 자동 거절 신청은 다음 실행에서 재시도한다")
     void managePartyLifecycle_retriesPaidRejectedExpiredApplication() {
         Party party = newParty(701L, 7L, LocalDate.now().plusDays(2));

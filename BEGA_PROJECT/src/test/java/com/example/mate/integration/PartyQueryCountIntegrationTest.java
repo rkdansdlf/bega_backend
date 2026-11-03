@@ -54,6 +54,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
         PartyService.class,
         PartyFavoriteService.class,
         PartyMapper.class,
+        com.example.mate.service.PartyReviewRatingService.class,
         MateHistoryMetricsService.class,
         PublicVisibilityVerifier.class,
         HibernateStatisticsTestConfig.class,

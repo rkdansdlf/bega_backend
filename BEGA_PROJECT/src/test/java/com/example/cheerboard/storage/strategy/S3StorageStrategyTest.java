@@ -12,6 +12,13 @@ import static org.mockito.Mockito.when;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -35,6 +42,14 @@ class S3StorageStrategyTest {
         return (S3Exception) S3Exception.builder().statusCode(status).message("status " + status).build();
     }
 
+    private static S3Exception s3Error(int status, String errorCode) {
+        return (S3Exception) S3Exception.builder()
+                .statusCode(status)
+                .awsErrorDetails(AwsErrorDetails.builder().errorCode(errorCode).build())
+                .message("status " + status + " " + errorCode)
+                .build();
+    }
+
     private static StorageOperationException.Kind kindOf(Runnable call) {
         return assertThrows(StorageOperationException.class, call::run).getKind();
     }
@@ -50,18 +65,27 @@ class S3StorageStrategyTest {
     }
 
     @Test
-    @DisplayName("NoSuchKey와 404는 객체 없음으로 처리한다")
+    @DisplayName("NoSuchKey는 객체 없음으로 처리한다")
     void notFoundIsMissing() {
         when(s3Client.headObject(any(HeadObjectRequest.class)))
                 .thenThrow(NoSuchKeyException.builder().message("nope").build())
-                .thenThrow(s3Error(404))
+                .thenThrow(s3Error(404, "NoSuchKey"))
                 .thenThrow(NoSuchKeyException.builder().message("nope").build())
-                .thenThrow(s3Error(404));
+                .thenThrow(s3Error(404, "NoSuchKey"));
 
         assertFalse(strategy.exists("b", "k").block());
         assertFalse(strategy.exists("b", "k").block());
         assertNull(strategy.head("b", "k").block());
         assertNull(strategy.head("b", "k").block());
+    }
+
+    @Test
+    @DisplayName("분류 코드 없는 404는 객체 부재로 삼키지 않는다")
+    void unclassified404IsNotMissing() {
+        when(s3Client.headObject(any(HeadObjectRequest.class))).thenThrow(s3Error(404));
+
+        assertEquals(StorageOperationException.Kind.PERMANENT,
+                kindOf(() -> strategy.exists("b", "k").block()));
     }
 
     @Test
@@ -109,15 +133,45 @@ class S3StorageStrategyTest {
     }
 
     @Test
-    @DisplayName("deleteChecked: 성공과 404(이미 없음)는 성공, 5xx는 TRANSIENT 예외")
+    @DisplayName("presigned PUT의 SigV4 서명은 정확한 Content-Length를 고정한다")
+    void presignPutSignsExactContentLength() {
+        try (S3Presigner presigner = S3Presigner.builder()
+                .region(Region.US_EAST_1)
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create("test-access", "test-secret")))
+                .endpointOverride(URI.create("https://object.example.com"))
+                .build()) {
+            S3StorageStrategy presigningStrategy = new S3StorageStrategy(s3Client, presigner, "bucket");
+            PresignedUpload upload = presigningStrategy
+                    .presignPut("diary", "media/staging/diary/7/12.png", "image/png", 2_048L, 300)
+                    .block();
+
+            assertTrue(upload != null && upload.url() != null);
+            String signedHeaders = URI.create(upload.url()).getRawQuery().split("&").length == 0
+                    ? ""
+                    : java.util.Arrays.stream(URI.create(upload.url()).getRawQuery().split("&"))
+                            .filter(param -> param.startsWith("X-Amz-SignedHeaders="))
+                            .map(param -> URLDecoder.decode(param.substring(param.indexOf('=') + 1), StandardCharsets.UTF_8))
+                            .findFirst()
+                            .orElse("");
+
+            assertTrue(java.util.Arrays.asList(signedHeaders.split(";")).contains("content-length"), signedHeaders);
+        }
+    }
+
+    @Test
+    @DisplayName("deleteChecked: 성공과 NoSuchKey는 성공, 모호한 404와 5xx는 실패")
     void deleteCheckedReportsFailures() {
         when(s3Client.deleteObject(any(DeleteObjectRequest.class)))
                 .thenReturn(DeleteObjectResponse.builder().build())
                 .thenThrow(NoSuchKeyException.builder().message("nope").build())
+                .thenThrow(s3Error(404, "NoSuchBucket"))
                 .thenThrow(s3Error(503));
 
         strategy.deleteChecked("b", "k").block();
         strategy.deleteChecked("b", "k").block();
+        assertEquals(StorageOperationException.Kind.PERMANENT,
+                kindOf(() -> strategy.deleteChecked("b", "k").block()));
         assertEquals(StorageOperationException.Kind.TRANSIENT, kindOf(() -> strategy.deleteChecked("b", "k").block()));
     }
 

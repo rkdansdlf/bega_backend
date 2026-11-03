@@ -13,6 +13,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecificationExecutor<CheerPost> {
         @Override
@@ -37,6 +38,17 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
         @Modifying
         @Query("UPDATE CheerPost p SET p.views = p.views + :delta WHERE p.id = :postId")
         void incrementViewCountByDelta(@Param("postId") Long postId, @Param("delta") int delta);
+
+        @Modifying(clearAutomatically = true, flushAutomatically = true)
+        @Query("UPDATE CheerPost p SET p.views = p.views + :delta, p.viewSyncWatermark = :sequence "
+                        + "WHERE p.id = :postId AND p.viewSyncWatermark < :sequence")
+        int applyViewCountSyncBatch(
+                        @Param("postId") Long postId,
+                        @Param("sequence") long sequence,
+                        @Param("delta") int delta);
+
+        @Query("SELECT p.viewSyncWatermark FROM CheerPost p WHERE p.id = :postId")
+        Optional<Long> findViewSyncWatermarkById(@Param("postId") Long postId);
 
         @Query("SELECT p.likeCount FROM CheerPost p WHERE p.id = :postId")
         Integer findLikeCountById(@Param("postId") Long postId);
@@ -92,14 +104,34 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
         @Query("SELECT COUNT(p) FROM CheerPost p WHERE p.author.id = :userId")
         int countByUserId(@Param("userId") Long userId);
 
+        @Query("""
+                        SELECT p.author.id AS authorId, COUNT(p.id) AS postCount
+                        FROM CheerPost p
+                        WHERE p.author.id IN :authorIds
+                        GROUP BY p.author.id
+                        """)
+        List<CheerPostAuthorCountProjection> findPostCountsByAuthorIds(
+                        @Param("authorIds") Collection<Long> authorIds);
+
         long countByAuthor_IdAndSourceUrlAndCreatedAtAfter(Long authorId, String sourceUrl, java.time.Instant after);
 
         @EntityGraph(attributePaths = { "author", "team", "repostOf", "repostOf.author", "repostOf.team" })
         Page<CheerPost> findByAuthor_HandleOrderByCreatedAtDesc(String handle, Pageable pageable);
 
+        @EntityGraph(attributePaths = { "author", "team" })
         List<CheerPost> findAllByOrderByCreatedAtDesc();
 
         List<CheerPost> findByAuthor(UserEntity author);
+
+        List<CheerPost> findAllByAuthor_Id(Long authorId);
+
+        @Query(value = """
+                        SELECT * FROM cheer_post
+                        WHERE author_id = :authorId
+                        ORDER BY id
+                        FOR UPDATE
+                        """, nativeQuery = true)
+        List<CheerPost> findAllByAuthorIdIncludingDeletedForUpdate(@Param("authorId") Long authorId);
 
         @EntityGraph(attributePaths = { "author", "team" })
         Optional<CheerPost> findFirstByDiaryIdAndDeletedFalse(Long diaryId);
@@ -114,7 +146,136 @@ public interface CheerPostRepo extends JpaRepository<CheerPost, Long>, JpaSpecif
                         FROM cheer_post
                         WHERE LOWER(TRIM(CAST(deleted AS CHAR(5)))) IN ('1','t','true')
                         """, nativeQuery = true)
+        @Transactional(readOnly = true)
         List<CheerPost> findSoftDeletedPosts();
+
+        @Query(value = "SELECT author_id FROM cheer_post WHERE id = :id", nativeQuery = true)
+        Optional<Long> findPurgeAuthorId(@Param("id") Long id);
+
+        @Query(value = "SELECT id FROM cheer_post WHERE author_id = :authorId AND purge_started_at IS NOT NULL ORDER BY id", nativeQuery = true)
+        List<Long> findStartedPurgeIdsByAuthor(@Param("authorId") Long authorId, Pageable pageable);
+
+        /** True when this post has a report or appeal still awaiting a decision. Deleting the post cascades to its reports. */
+        @Query(value = """
+                        SELECT EXISTS (
+                            SELECT 1
+                              FROM cheer_post_reports r
+                             WHERE r.post_id = :postId
+                               AND (r.status IN ('PENDING', 'IN_REVIEW')
+                                    OR r.appeal_status IN ('REQUESTED', 'REVIEWING')))
+                        """, nativeQuery = true)
+        boolean existsOpenModerationByPostId(@Param("postId") Long postId);
+
+        @Query(value = """
+                        SELECT p.id FROM cheer_post p
+                        WHERE LOWER(TRIM(CAST(p.deleted AS CHAR(5)))) IN ('1','t','true')
+                          AND (p.purge_retry_at IS NULL OR p.purge_retry_at <= :now)
+                          AND (p.purge_lease_until IS NULL OR p.purge_lease_until <= :now)
+                          AND ((:started = 0 AND p.purge_started_at IS NULL)
+                               OR (:started = 1 AND p.purge_started_at IS NOT NULL))
+                          AND (p.purge_started_at IS NOT NULL OR NOT EXISTS (
+                            SELECT 1 FROM users pending_owner WHERE pending_owner.id = p.author_id
+                              AND LOWER(TRIM(CAST(pending_owner.pending_deletion AS CHAR(5)))) IN ('1','t','true')
+                              AND pending_owner.deletion_scheduled_for IS NOT NULL
+                          ))
+                          AND NOT EXISTS (
+                            SELECT 1 FROM cheer_post evidence
+                            JOIN cheer_post_reports r ON r.post_id = evidence.id
+                            WHERE evidence.author_id = p.author_id
+                              AND (r.status IN ('PENDING','IN_REVIEW') OR r.appeal_status IN ('REQUESTED','REVIEWING'))
+                          )
+                          AND (p.purge_started_at IS NOT NULL OR NOT EXISTS (
+                            SELECT 1 FROM media_asset_links l JOIN media_assets a ON a.id = l.asset_id
+                            JOIN users asset_owner ON asset_owner.id = a.owner_user_id
+                            WHERE l.domain = 'CHEER' AND l.entity_id = p.id
+                              AND LOWER(TRIM(CAST(asset_owner.pending_deletion AS CHAR(5)))) IN ('1','t','true')
+                              AND asset_owner.deletion_scheduled_for IS NOT NULL
+                          ))
+                          AND NOT EXISTS (
+                            SELECT 1 FROM media_asset_links l JOIN media_assets a ON a.id = l.asset_id
+                            JOIN users asset_owner ON asset_owner.id = a.owner_user_id
+                            JOIN cheer_post evidence ON evidence.author_id = asset_owner.id
+                            JOIN cheer_post_reports r ON r.post_id = evidence.id
+                            WHERE l.domain = 'CHEER' AND l.entity_id = p.id
+                              AND LOWER(TRIM(CAST(asset_owner.pending_deletion AS CHAR(5)))) IN ('1','t','true')
+                              AND (r.status IN ('PENDING','IN_REVIEW') OR r.appeal_status IN ('REQUESTED','REVIEWING'))
+                          )
+                        ORDER BY COALESCE(p.purge_retry_at, p.createdat), p.id
+                        """, nativeQuery = true)
+        @Transactional(readOnly = true)
+        List<Long> findDuePurgeIds(@Param("now") java.time.LocalDateTime now,
+                                   @Param("started") int started, Pageable pageable);
+
+        @Modifying(flushAutomatically = true, clearAutomatically = true)
+        @Query(value = """
+                        UPDATE cheer_post p
+                           SET purge_started_at = COALESCE(purge_started_at, :now),
+                               purge_claim_token = :token, purge_lease_until = :leaseUntil,
+                               purge_attempt_count = purge_attempt_count + 1
+                         WHERE p.id = :id
+                           AND LOWER(TRIM(CAST(p.deleted AS CHAR(5)))) IN ('1','t','true')
+                           AND (p.purge_retry_at IS NULL OR p.purge_retry_at <= :now)
+                           AND (p.purge_lease_until IS NULL OR p.purge_lease_until <= :now)
+                           AND (p.purge_started_at IS NOT NULL OR NOT EXISTS (
+                             SELECT 1 FROM users pending_owner WHERE pending_owner.id = p.author_id
+                               AND LOWER(TRIM(CAST(pending_owner.pending_deletion AS CHAR(5)))) IN ('1','t','true')
+                               AND pending_owner.deletion_scheduled_for IS NOT NULL
+                           ))
+                           AND NOT EXISTS (
+                             SELECT 1 FROM cheer_post evidence
+                             JOIN cheer_post_reports r ON r.post_id = evidence.id
+                             WHERE evidence.author_id = p.author_id
+                               AND (r.status IN ('PENDING','IN_REVIEW') OR r.appeal_status IN ('REQUESTED','REVIEWING'))
+                           )
+                           AND (p.purge_started_at IS NOT NULL OR NOT EXISTS (
+                             SELECT 1 FROM media_asset_links l JOIN media_assets a ON a.id = l.asset_id
+                             JOIN users asset_owner ON asset_owner.id = a.owner_user_id
+                             WHERE l.domain = 'CHEER' AND l.entity_id = p.id
+                               AND LOWER(TRIM(CAST(asset_owner.pending_deletion AS CHAR(5)))) IN ('1','t','true')
+                               AND asset_owner.deletion_scheduled_for IS NOT NULL
+                           ))
+                           AND NOT EXISTS (
+                             SELECT 1 FROM media_asset_links l JOIN media_assets a ON a.id = l.asset_id
+                             JOIN users asset_owner ON asset_owner.id = a.owner_user_id
+                             JOIN cheer_post evidence ON evidence.author_id = asset_owner.id
+                             JOIN cheer_post_reports r ON r.post_id = evidence.id
+                             WHERE l.domain = 'CHEER' AND l.entity_id = p.id
+                               AND LOWER(TRIM(CAST(asset_owner.pending_deletion AS CHAR(5)))) IN ('1','t','true')
+                               AND (r.status IN ('PENDING','IN_REVIEW') OR r.appeal_status IN ('REQUESTED','REVIEWING'))
+                           )
+                        """, nativeQuery = true)
+        int claimPurge(@Param("id") Long id, @Param("token") String token,
+                       @Param("now") java.time.LocalDateTime now,
+                       @Param("leaseUntil") java.time.LocalDateTime leaseUntil);
+
+        @Modifying(flushAutomatically = true, clearAutomatically = true)
+        @Query(value = """
+                        UPDATE cheer_post SET purge_retry_at = :retryAt
+                         WHERE id = :id
+                           AND LOWER(TRIM(CAST(deleted AS CHAR(5)))) IN ('1','t','true')
+                           AND (purge_retry_at IS NULL OR purge_retry_at <= :now)
+                           AND (purge_lease_until IS NULL OR purge_lease_until <= :now)
+                        """, nativeQuery = true)
+        int deferUnclaimedPurge(@Param("id") Long id, @Param("now") java.time.LocalDateTime now,
+                                @Param("retryAt") java.time.LocalDateTime retryAt);
+
+        @Modifying(flushAutomatically = true, clearAutomatically = true)
+        @Query(value = """
+                        UPDATE cheer_post SET purge_claim_token = NULL, purge_lease_until = NULL,
+                               purge_retry_at = :retryAt
+                         WHERE id = :id AND purge_claim_token = :token
+                        """, nativeQuery = true)
+        int releasePurgeForRetry(@Param("id") Long id, @Param("token") String token,
+                                 @Param("retryAt") java.time.LocalDateTime retryAt);
+
+        @Query(value = """
+                        SELECT id FROM cheer_post WHERE id = :id AND purge_claim_token = :token
+                          AND LOWER(TRIM(CAST(deleted AS CHAR(5)))) IN ('1','t','true') FOR UPDATE
+                        """, nativeQuery = true)
+        Optional<Long> lockClaimedPurge(@Param("id") Long id, @Param("token") String token);
+
+        @Query(value = "SELECT * FROM cheer_post WHERE id = :id FOR UPDATE", nativeQuery = true)
+        Optional<CheerPost> findIncludingDeletedByIdForUpdate(@Param("id") Long id);
 
         @Modifying
         @Query(value = "DELETE FROM cheer_post WHERE id = :id", nativeQuery = true)

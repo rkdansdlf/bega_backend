@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -25,6 +26,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -87,6 +89,23 @@ class MateSearchTermServiceTest {
                 eq("잠실 블루존"),
                 any());
         verify(mateSearchTermRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("a duplicate insert retries the atomic increment after repository rollback")
+    void recordSearchTerm_duplicateInsertRetriesIncrement() {
+        when(mateSearchTermRepository.incrementDailyTerm(any(), anyString(), anyString(), any()))
+                .thenReturn(0, 1);
+        doThrow(new DataIntegrityViolationException("simulated concurrent insert"))
+                .when(mateSearchTermRepository).saveAndFlush(any());
+
+        mateSearchTermService.recordSearchTerm("KIA 응원석");
+
+        verify(mateSearchTermRepository, org.mockito.Mockito.times(2)).incrementDailyTerm(
+                eq(LocalDate.now()),
+                eq("kia 응원석"),
+                eq("KIA 응원석"),
+                any());
     }
 
     @Test

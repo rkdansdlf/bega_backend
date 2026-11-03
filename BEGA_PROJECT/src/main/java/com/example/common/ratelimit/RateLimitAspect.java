@@ -67,7 +67,8 @@ public class RateLimitAspect {
                     log.warn("Failed to record auth rate-limit security event", exception);
                 }
             }
-            log.warn("Rate limit exceeded for key: {}", key);
+            log.warn("Rate limit exceeded endpoint={} limit={} windowSeconds={}",
+                    signature.toShortString(), limit, window);
             throw new RateLimitExceededException("너무 많은 요청을 보냈습니다. 잠시 후 다시 시도해주세요.");
         }
     }

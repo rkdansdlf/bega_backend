@@ -16,13 +16,16 @@ class MediaCleanupSchedulerTest {
     private MediaUploadService mediaUploadService;
 
     @Test
-    @DisplayName("cleanup scheduler는 만료 pending과 orphan ready 정리를 모두 호출한다")
+    @DisplayName("cleanup scheduler는 finalize 시도 ledger, 만료 업로드, staging, tombstone, orphan을 정리한다")
     void cleanupExpiredAssets_runsBothCleanupPaths() {
         MediaCleanupScheduler mediaCleanupScheduler = new MediaCleanupScheduler(mediaUploadService, true);
 
         mediaCleanupScheduler.cleanupExpiredAssets();
 
         verify(mediaUploadService).cleanupExpiredPendingAssets();
+        verify(mediaUploadService).cleanupExpiredFinalizeAttempts();
+        verify(mediaUploadService).cleanupReadyStagingObjects();
+        verify(mediaUploadService).cleanupDeletedFinalizeTombstones();
         verify(mediaUploadService).cleanupUnlinkedReadyAssets();
     }
 

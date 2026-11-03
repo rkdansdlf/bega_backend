@@ -18,6 +18,8 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class PayoutStateService {
 
+    static final String MANUAL_RECONCILIATION_FAILURE_CODE = "PAYOUT_MANUAL_RECONCILIATION_REQUIRED";
+
     private static final int MAX_PAYOUT_RETRY_ATTEMPTS = 5;
     private static final long BASE_RETRY_DELAY_SECONDS = 30;
     private static final long MAX_RETRY_DELAY_SECONDS = 3600;
@@ -35,6 +37,7 @@ public class PayoutStateService {
         LockedState state = lockState(paymentCandidate, payoutCandidate);
         PaymentTransaction payment = state.payment();
         PayoutTransaction payout = state.payout();
+        boolean manualReconciliationRequired = MANUAL_RECONCILIATION_FAILURE_CODE.equals(payout.getFailureCode());
         if (payout.getStatus() == SettlementStatus.COMPLETED
                 || payout.getStatus() == SettlementStatus.FAILED
                 || payout.getStatus() == SettlementStatus.SKIPPED) {
@@ -47,8 +50,10 @@ public class PayoutStateService {
         sellerRecoveryService.applyReservedOffset(payout);
         payout.setCompletedAt(Instant.now());
         payout.setStatus(SettlementStatus.COMPLETED);
-        payout.setFailureCode("PAYOUT_COMPLETION_VERIFIED");
-        payout.setFailReason(null);
+        if (!manualReconciliationRequired) {
+            payout.setFailureCode("PAYOUT_COMPLETION_VERIFIED");
+            payout.setFailReason(null);
+        }
         payout.setNextRetryAt(null);
         payoutTransactionRepository.save(payout);
 
@@ -85,6 +90,7 @@ public class PayoutStateService {
             return payout;
         }
 
+        boolean manualReconciliationRequired = MANUAL_RECONCILIATION_FAILURE_CODE.equals(payout.getFailureCode());
         if (providerRef != null && !providerRef.isBlank()) {
             payout.setProviderRef(providerRef);
         }
@@ -92,6 +98,15 @@ public class PayoutStateService {
         payout.setCompletedAt(null);
         if (incrementRetryCount) {
             payout.setRetryCount(Objects.requireNonNullElse(payout.getRetryCount(), 0) + 1);
+        }
+        if (manualReconciliationRequired) {
+            payout.setFailureCode(MANUAL_RECONCILIATION_FAILURE_CODE);
+            payout.setNextRetryAt(null);
+            payoutTransactionRepository.save(payout);
+            payment.setSettlementStatus(SettlementStatus.REQUESTED);
+            paymentTransactionRepository.save(payment);
+            metricsService.recordPayout("manual_reconciliation");
+            return payout;
         }
         int attempt = Math.max(1, Objects.requireNonNullElse(payout.getRetryCount(), 0));
         if (attempt >= MAX_PAYOUT_RETRY_ATTEMPTS) {
@@ -108,6 +123,32 @@ public class PayoutStateService {
         payoutTransactionRepository.save(payout);
         payment.setSettlementStatus(SettlementStatus.REQUESTED);
         paymentTransactionRepository.save(payment);
+        return payout;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public PayoutTransaction requireManualReconciliation(
+            PaymentTransaction paymentCandidate,
+            PayoutTransaction payoutCandidate,
+            String failReason) {
+        LockedState state = lockState(paymentCandidate, payoutCandidate);
+        PaymentTransaction payment = state.payment();
+        PayoutTransaction payout = state.payout();
+        if (payout.getStatus() == SettlementStatus.COMPLETED
+                || payout.getStatus() == SettlementStatus.FAILED
+                || payout.getStatus() == SettlementStatus.SKIPPED) {
+            return payout;
+        }
+
+        payout.setStatus(SettlementStatus.REQUESTED);
+        payout.setCompletedAt(null);
+        payout.setFailureCode(MANUAL_RECONCILIATION_FAILURE_CODE);
+        payout.setFailReason(failReason);
+        payout.setNextRetryAt(null);
+        payoutTransactionRepository.save(payout);
+        payment.setSettlementStatus(SettlementStatus.REQUESTED);
+        paymentTransactionRepository.save(payment);
+        metricsService.recordPayout("manual_reconciliation");
         return payout;
     }
 
@@ -129,6 +170,7 @@ public class PayoutStateService {
             return payout;
         }
 
+        boolean manualReconciliationRequired = MANUAL_RECONCILIATION_FAILURE_CODE.equals(payout.getFailureCode());
         if (providerRef != null && !providerRef.isBlank()) {
             payout.setProviderRef(providerRef);
         }
@@ -139,12 +181,19 @@ public class PayoutStateService {
         if (incrementRetryCount) {
             payout.setRetryCount(Objects.requireNonNullElse(payout.getRetryCount(), 0) + 1);
         }
-        payout.setFailureCode(failureCode);
-        payout.setFailReason(failReason);
+        if (manualReconciliationRequired) {
+            payout.setFailureCode(MANUAL_RECONCILIATION_FAILURE_CODE);
+            payout.setNextRetryAt(null);
+        } else {
+            payout.setFailureCode(failureCode);
+            payout.setFailReason(failReason);
+        }
         int attempt = Math.max(1, Objects.requireNonNullElse(payout.getRetryCount(), 0));
-        payout.setNextRetryAt(retryable && attempt < MAX_PAYOUT_RETRY_ATTEMPTS
-                ? Instant.now().plusSeconds(calculateRetryDelaySeconds(attempt))
-                : null);
+        if (!manualReconciliationRequired) {
+            payout.setNextRetryAt(retryable && attempt < MAX_PAYOUT_RETRY_ATTEMPTS
+                    ? Instant.now().plusSeconds(calculateRetryDelaySeconds(attempt))
+                    : null);
+        }
         payoutTransactionRepository.save(payout);
 
         payment.setSettlementStatus(SettlementStatus.FAILED);

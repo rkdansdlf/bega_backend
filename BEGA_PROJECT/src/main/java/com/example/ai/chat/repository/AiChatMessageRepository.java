@@ -16,4 +16,6 @@ public interface AiChatMessageRepository extends JpaRepository<AiChatMessage, Lo
             Long sessionId,
             Long messageId,
             AiChatMessageRole role);
+
+    void deleteBySession_UserId(Long userId);
 }

@@ -5,6 +5,7 @@ import com.example.admin.repository.AuditLogRepository;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.service.AccountDeletionFinalizationService;
 import com.example.cheerboard.repo.CheerCommentRepo;
 import com.example.cheerboard.repo.CheerPostLikeRepo;
 import com.example.cheerboard.repo.CheerPostRepo;
@@ -42,6 +43,7 @@ class AdminServiceUserDeletionAuthorizationTest {
     @Mock private RefreshRepository refreshRepository;
     @Mock private PredictionService predictionService;
     @Mock private AdminUserDeletionPreparationService deletionPreparationService;
+    @Mock private AccountDeletionFinalizationService deletionFinalizationService;
     @Mock private AdminMateDeletionGuard mateDeletionGuard;
 
     @InjectMocks
@@ -72,19 +74,19 @@ class AdminServiceUserDeletionAuthorizationTest {
                 trackerRepository,
                 partyService,
                 refreshRepository,
-                predictionService);
+                predictionService,
+                deletionFinalizationService);
     }
 
     @Test
     void deleteUserStillAllowsAnAdministratorToDeleteAnOrdinaryUser() {
         UserEntity target = user(22L, "ROLE_USER");
-        when(userRepository.findById(22L)).thenReturn(Optional.of(target));
         when(deletionPreparationService.disableForDeletion(22L, 11L)).thenReturn(target);
 
         adminService.deleteUser(22L, 11L);
 
         verify(deletionPreparationService).disableForDeletion(22L, 11L);
-        verify(partyService).handleUserDeletion(22L);
+        verify(deletionFinalizationService).finalizeImmediatelyAfterAdminDeletion(22L, 11L);
     }
 
     private UserEntity user(Long id, String role) {

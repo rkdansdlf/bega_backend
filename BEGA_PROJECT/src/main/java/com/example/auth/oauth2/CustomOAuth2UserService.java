@@ -7,6 +7,7 @@ import com.example.auth.dto.KaKaoResponse;
 import com.example.auth.dto.NaverResponse;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.util.AccountStatusUtil;
 import com.example.auth.util.LogMaskingUtil;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,7 @@ import java.util.regex.Pattern;
 public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     public static final String OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE = "OAUTH_EMAIL_CHALLENGE_ID";
+    public static final String OAUTH2_ACCOUNT_NOT_ELIGIBLE = "oauth2_account_not_eligible";
     public static final String OAUTH2_EMAIL_CHALLENGE_RATE_LIMITED = "oauth2_email_challenge_rate_limited";
     public static final String OAUTH2_EMAIL_CHALLENGE_UNAVAILABLE = "oauth2_email_challenge_unavailable";
 
@@ -189,6 +191,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                     profileImageUrl,
                     oAuth2Response.isEmailVerified());
         }
+        assertEligible(userEntity);
         applyProfileImageFromOAuth(userEntity, profileImageUrl, provider);
 
         // [일일 출석 보너스 지급]
@@ -202,6 +205,17 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
         // 6. CustomOAuth2User 객체 반환
         return new CustomOAuth2User(userEntity.toDto(), oAuth2User.getAttributes(), linkData != null && linkData.isLinkMode());
+    }
+
+    private void assertEligible(UserEntity user) {
+        if (!AccountStatusUtil.isAccountEligible(user)) {
+            log.warn("OAuth2 flow rejected for ineligible user: id={}, enabled={}, pendingDeletion={}, locked={}",
+                    user != null ? user.getId() : null,
+                    user != null && user.isEnabled(),
+                    user != null && user.isPendingDeletion(),
+                    user != null && user.isLocked());
+            throw new OAuth2AuthenticationException(OAUTH2_ACCOUNT_NOT_ELIGIBLE);
+        }
     }
 
     private UserEntity saveNewUser(String email, String name, String provider, String providerId,
@@ -376,6 +390,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         }
 
         UserEntity userEntity = targetUserOpt.get();
+        assertEligible(userEntity);
         Optional<com.example.auth.entity.UserProvider> currentProviderLink = userProviderRepository
                 .findByUserIdAndProviderForUpdate(userId, provider);
 
@@ -441,6 +456,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             // [일반 로그인] 이미 연동된 계정이 있는 경우 -> 해당 사용자 반환
             log.info("Existing Provider Found. Logging in.");
             UserEntity userEntity = userProviderOpt.get().getUser();
+            assertEligible(userEntity);
             // 이름 강제 업데이트 방지 (선택적 업데이트)
             updateUser(userEntity, userName);
             return userEntity;

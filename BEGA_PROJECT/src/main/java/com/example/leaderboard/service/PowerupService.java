@@ -1,11 +1,14 @@
 package com.example.leaderboard.service;
 
+import com.example.common.exception.BadRequestBusinessException;
 import com.example.leaderboard.dto.ActivePowerupDto;
 import com.example.leaderboard.dto.PowerupInventoryDto;
 import com.example.leaderboard.entity.ActivePowerup;
 import com.example.leaderboard.entity.UserPowerup;
 import com.example.leaderboard.repository.ActivePowerupRepository;
 import com.example.leaderboard.repository.UserPowerupRepository;
+import com.example.kbo.entity.GameEntity;
+import com.example.kbo.repository.GameRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,6 +32,7 @@ public class PowerupService {
 
     private final UserPowerupRepository userPowerupRepository;
     private final ActivePowerupRepository activePowerupRepository;
+    private final GameRepository gameRepository;
 
     /**
      * 사용자 파워업 인벤토리 조회
@@ -65,11 +69,15 @@ public class PowerupService {
      * 특정 게임에 파워업 사용
      * @param userId 사용자 ID
      * @param type 파워업 타입
-     * @param gameId 게임 ID (선택적)
+     * @param gameId 필수 내부 경기 ID
      * @return 성공 여부
      */
     @Transactional
     public Integer usePowerup(Long userId, String type, String gameId) {
+        if (gameId == null || gameId.isBlank()) {
+            throw new BadRequestBusinessException("GAME_ID_REQUIRED", "경기 ID가 필요합니다.");
+        }
+
         UserPowerup.PowerupType powerupType;
         try {
             powerupType = UserPowerup.PowerupType.valueOf(type.toUpperCase());
@@ -78,24 +86,30 @@ public class PowerupService {
             return null;
         }
 
-        // 인벤토리에서 파워업 확인
-        UserPowerup inventory = userPowerupRepository.findByUserIdAndPowerupType(userId, powerupType)
-                .orElse(null);
+        String resolvedGameId = gameId.trim();
+        GameEntity game = gameRepository.findByGameId(resolvedGameId).orElse(null);
+        if (game == null || game.isDummyGame() || !game.isScheduled()) {
+            throw new BadRequestBusinessException(
+                    "GAME_NOT_AVAILABLE",
+                    "선택한 경기 ID가 내부 예정 경기 일정에 없습니다.");
+        }
 
-        if (inventory == null || !inventory.hasAny()) {
+        // 조건부 UPDATE로 재고 확인과 차감을 원자적으로 수행한다.
+        int updatedRows = userPowerupRepository.usePowerup(userId, powerupType);
+        if (updatedRows == 0) {
             log.warn("User {} has no {} powerup available", userId, powerupType);
             return null;
         }
 
-        // 인벤토리에서 차감
-        inventory.use();
-        userPowerupRepository.save(inventory);
+        // bulk update 후 persistence context를 비웠으므로 현재 수량을 다시 읽는다.
+        UserPowerup inventory = userPowerupRepository.findByUserIdAndPowerupType(userId, powerupType)
+                .orElseThrow(() -> new IllegalStateException("Powerup inventory disappeared after decrement"));
 
         // 활성화된 파워업 생성
-        ActivePowerup activePowerup = ActivePowerup.activateForGame(userId, powerupType, gameId);
+        ActivePowerup activePowerup = ActivePowerup.activateForGame(userId, powerupType, resolvedGameId);
         activePowerupRepository.save(activePowerup);
 
-        log.info("User {} activated {} powerup for game {}", userId, powerupType, gameId);
+        log.info("User {} activated {} powerup for game {}", userId, powerupType, resolvedGameId);
         return inventory.getQuantity();
     }
 

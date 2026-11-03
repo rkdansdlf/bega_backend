@@ -37,6 +37,9 @@ class MediaLinkServiceTest {
     @Mock
     private MediaAssetLinkRepository mediaAssetLinkRepository;
 
+    @Mock
+    private jakarta.persistence.EntityManager entityManager;
+
     @Test
     @DisplayName("프로필 링크 동기화는 원본과 feed derivative를 함께 연결한다")
     void syncProfileLinks_linksPrimaryAndFeedAssets() {
@@ -57,6 +60,9 @@ class MediaLinkServiceTest {
                 .build();
 
         when(mediaAssetLinkRepository.findByDomainAndEntityId(MediaDomain.PROFILE, 5L)).thenReturn(List.of());
+        when(mediaAssetRepository.findIdsByObjectKeyInOrderById(List.of("media/profile/5/31.webp"))).thenReturn(List.of(31L));
+        when(mediaAssetRepository.findByIdForUpdate(31L)).thenReturn(Optional.of(primaryAsset));
+        when(mediaAssetRepository.findByIdForUpdate(32L)).thenReturn(Optional.of(feedAsset));
         when(mediaAssetRepository.findByObjectKeyIn(List.of("media/profile/5/31.webp"))).thenReturn(List.of(primaryAsset));
         when(mediaAssetRepository.findByDerivedFrom_Id(31L)).thenReturn(Optional.of(feedAsset));
         when(mediaAssetLinkRepository.findById(31L)).thenReturn(Optional.empty());
@@ -67,7 +73,7 @@ class MediaLinkServiceTest {
 
         assertEquals("media/profile/5/31.webp", result.profileObjectKey());
         assertEquals("media/profile-feed/5/31.webp", result.profileFeedObjectKey());
-        verify(mediaAssetLinkRepository).findByDomainAndEntityId(MediaDomain.PROFILE, 5L);
+        verify(mediaAssetLinkRepository, times(2)).findByDomainAndEntityId(MediaDomain.PROFILE, 5L);
 
         ArgumentCaptor<MediaAssetLink> linkCaptor = ArgumentCaptor.forClass(MediaAssetLink.class);
         verify(mediaAssetLinkRepository, times(2)).save(linkCaptor.capture());
@@ -134,5 +140,77 @@ class MediaLinkServiceTest {
                 () -> mediaLinkService.resolveReadyAssets(2L, MediaDomain.CHAT, List.of("media/chat/9/51.webp")));
 
         assertEquals("MEDIA_ASSET_NOT_FOUND", exception.getCode());
+    }
+
+    @Test
+    @DisplayName("standalone 시야뷰는 본인 소유의 READY SEAT_VIEW 자산만 해당 후보에 연결한다")
+    void linkSeatViewAsset_validatesOwnershipDomainAndReadinessBeforeLinking() {
+        String storagePath = "media/seat-view/7/61.webp";
+        MediaAsset asset = MediaAsset.builder()
+                .id(61L)
+                .ownerUserId(7L)
+                .domain(MediaDomain.SEAT_VIEW)
+                .status(MediaAssetStatus.READY)
+                .objectKey(storagePath)
+                .build();
+        when(mediaAssetRepository.findByObjectKeyIn(List.of(storagePath))).thenReturn(List.of(asset));
+        when(mediaAssetRepository.findIdsByObjectKeyInOrderById(List.of(storagePath))).thenReturn(List.of(61L));
+        when(mediaAssetRepository.findByIdForUpdate(61L)).thenReturn(Optional.of(asset));
+        when(mediaAssetLinkRepository.findById(61L)).thenReturn(Optional.empty());
+        when(mediaAssetLinkRepository.save(any(MediaAssetLink.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        mediaLinkService.linkSeatViewAsset(7L, storagePath, 501L);
+
+        ArgumentCaptor<MediaAssetLink> linkCaptor = ArgumentCaptor.forClass(MediaAssetLink.class);
+        verify(mediaAssetLinkRepository).save(linkCaptor.capture());
+        assertEquals(MediaDomain.SEAT_VIEW, linkCaptor.getValue().getDomain());
+        assertEquals(501L, linkCaptor.getValue().getEntityId());
+        assertEquals(MediaLinkRole.SEAT_VIEW_PHOTO, linkCaptor.getValue().getRole());
+    }
+
+    @Test
+    @DisplayName("standalone 시야뷰는 다른 계정 소유 자산을 연결할 수 없다")
+    void linkSeatViewAsset_rejectsAnotherUsersAsset() {
+        String storagePath = "media/seat-view/9/62.webp";
+        MediaAsset otherUsersAsset = MediaAsset.builder()
+                .id(62L)
+                .ownerUserId(9L)
+                .domain(MediaDomain.SEAT_VIEW)
+                .status(MediaAssetStatus.READY)
+                .objectKey(storagePath)
+                .build();
+        when(mediaAssetRepository.findByObjectKeyIn(List.of(storagePath))).thenReturn(List.of(otherUsersAsset));
+
+        BadRequestBusinessException exception = assertThrows(
+                BadRequestBusinessException.class,
+                () -> mediaLinkService.linkSeatViewAsset(7L, storagePath, 502L));
+
+        assertEquals("MEDIA_ASSET_NOT_FOUND", exception.getCode());
+    }
+
+    @Test
+    void linkSeatViewAssetRejectsAssetThatAppearedAfterLockCandidateLookup() {
+        String path = "media/seat-view/7/late.webp";
+        MediaAsset asset = MediaAsset.builder().id(99L).ownerUserId(7L).domain(MediaDomain.SEAT_VIEW)
+                .status(MediaAssetStatus.READY).objectKey(path).build();
+        when(mediaAssetRepository.findIdsByObjectKeyInOrderById(List.of(path))).thenReturn(List.of());
+        when(mediaAssetRepository.findByObjectKeyIn(List.of(path))).thenReturn(List.of(asset));
+
+        BadRequestBusinessException exception = assertThrows(BadRequestBusinessException.class,
+                () -> mediaLinkService.linkSeatViewAsset(7L, path, 502L));
+        assertEquals("MEDIA_ASSET_NOT_FOUND", exception.getCode());
+        org.mockito.Mockito.verify(mediaAssetLinkRepository, org.mockito.Mockito.never()).save(any(MediaAssetLink.class));
+    }
+
+    @Test
+    void syncCheerLinksRejectsExistingLinkThatAppearedAfterLockCandidateLookup() {
+        MediaAssetLink lateLink = MediaAssetLink.builder().assetId(91L).domain(MediaDomain.CHEER)
+                .entityId(501L).role(MediaLinkRole.CHEER_IMAGE).build();
+        when(mediaAssetLinkRepository.findByDomainAndEntityId(MediaDomain.CHEER, 501L))
+                .thenReturn(List.of(), List.of(lateLink));
+        BadRequestBusinessException exception = assertThrows(BadRequestBusinessException.class,
+                () -> mediaLinkService.syncCheerLinks(501L, 7L, List.of()));
+        assertEquals("MEDIA_ASSET_NOT_READY", exception.getCode());
+        org.mockito.Mockito.verify(mediaAssetLinkRepository, org.mockito.Mockito.never()).delete(any());
     }
 }

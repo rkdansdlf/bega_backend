@@ -36,6 +36,13 @@ public class Prediction {
     
     @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "score_settlement_status", nullable = false, length = 16)
+    private ScoreSettlementStatus scoreSettlementStatus;
+
+    @Column(name = "score_settled_at")
+    private LocalDateTime scoreSettledAt;
     
     @Builder
     public Prediction(String gameId, Long userId, String votedTeam) {
@@ -43,6 +50,7 @@ public class Prediction {
         this.userId = userId;
         this.votedTeam = votedTeam;
         this.createdAt = LocalDateTime.now();
+        this.scoreSettlementStatus = ScoreSettlementStatus.PENDING;
     }
     
  
@@ -53,5 +61,11 @@ public class Prediction {
 
     public String getVotedTeam() {
         return votedTeam;
+    }
+
+    public enum ScoreSettlementStatus {
+        LEGACY,
+        PENDING,
+        SETTLED
     }
 }

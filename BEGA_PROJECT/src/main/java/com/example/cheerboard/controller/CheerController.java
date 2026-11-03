@@ -73,7 +73,14 @@ public class CheerController {
      * @param teamId  팀 필터 (선택사항)
      * @return 새 게시글 수와 최신 게시글 ID
      */
+    @RateLimit(limit = 60, window = 60, key = "cheer:post_changes", failClosed = true)
     @GetMapping("/posts/changes")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "게시글 변경 정보",
+                    content = @Content(schema = @Schema(implementation = PostChangesResponse.class))),
+            @ApiResponse(responseCode = "429", description = "게시글 변경 폴링 요청 한도 초과",
+                    content = @Content(schema = @Schema(implementation = com.example.common.dto.ApiResponse.class)))
+    })
     public PostChangesResponse checkChanges(
             @RequestParam(required = false) Long sinceId,
             @RequestParam(required = false) String teamId) {

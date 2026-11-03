@@ -35,6 +35,20 @@ public interface PartyApplicationRepository extends JpaRepository<PartyApplicati
     // 파티별 승인된 신청 목록
     List<PartyApplication> findByPartyIdAndIsApprovedTrue(Long partyId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
+    @Query("""
+            select pa
+              from PartyApplication pa
+             where pa.partyId = :partyId
+               and pa.isApproved = true
+               and pa.isPaid = true
+               and pa.isRejected = false
+             order by pa.id
+            """)
+    List<PartyApplication> findApprovedPaidApplicationsByPartyIdForUpdate(
+            @Param("partyId") Long partyId);
+
     // 여러 파티의 승인된 신청 목록 (스케줄러 N+1 방지용 bulk 조회)
     List<PartyApplication> findByPartyIdInAndIsApprovedTrue(Collection<Long> partyIds);
 

@@ -37,6 +37,19 @@ public class MediaObjectKeyGuard {
         return evaluateDiaryReadKey(objectKey, ownerUserId, diaryId).allowed();
     }
 
+    public boolean canReadSeatViewKey(String objectKey, Long ownerUserId, Long seatViewId) {
+        if (!StringUtils.hasText(objectKey) || ownerUserId == null || seatViewId == null
+                || !MediaDomain.SEAT_VIEW.isManagedPath(objectKey)) {
+            return false;
+        }
+        try {
+            mediaLinkService.requireLinkedSeatViewAsset(ownerUserId, objectKey, seatViewId);
+            return true;
+        } catch (BadRequestBusinessException ex) {
+            return false;
+        }
+    }
+
     public void requireProfileWriteKey(String objectKey, Long ownerUserId) {
         KeyDecision decision = evaluateProfileWriteKey(objectKey, ownerUserId);
         if (!decision.allowed()) {

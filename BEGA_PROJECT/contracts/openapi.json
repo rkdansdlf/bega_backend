@@ -288,6 +288,8 @@
             "type" : "string"
           },
           "adminMemo" : {
+            "maxLength" : 1000,
+            "minLength" : 0,
             "type" : "string"
           },
           "visibleUntil" : {
@@ -296,9 +298,21 @@
         },
         "type" : "object"
       },
+      "AdminReportAppealDecisionReq" : {
+        "properties" : {
+          "decision" : {
+            "enum" : [ "REVIEWING", "ACCEPTED", "REJECTED" ],
+            "type" : "string"
+          }
+        },
+        "required" : [ "decision" ],
+        "type" : "object"
+      },
       "AdminReportAppealReq" : {
         "properties" : {
           "appealReason" : {
+            "maxLength" : 1200,
+            "minLength" : 0,
             "type" : "string"
           }
         },
@@ -376,6 +390,8 @@
             "type" : "string"
           },
           "adminMemo" : {
+            "maxLength" : 1000,
+            "minLength" : 0,
             "type" : "string"
           },
           "moderationStatus" : {
@@ -405,12 +421,15 @@
           "block" : {
             "type" : "string"
           },
+          "comment" : {
+            "type" : [ "string", "null" ]
+          },
           "diaryDate" : {
             "type" : "string"
           },
           "diaryId" : {
             "format" : "int64",
-            "type" : "integer"
+            "type" : [ "integer", "null" ]
           },
           "id" : {
             "format" : "int64",
@@ -420,7 +439,11 @@
             "type" : "string"
           },
           "photoUrl" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
+          },
+          "rating" : {
+            "format" : "int32",
+            "type" : [ "integer", "null" ]
           },
           "reviewedAt" : {
             "type" : "string"
@@ -449,6 +472,12 @@
           },
           "storagePath" : {
             "type" : "string"
+          },
+          "tags" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
           },
           "ticketVerified" : {
             "type" : "boolean"
@@ -508,6 +537,27 @@
           },
           "role" : {
             "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponse" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : { },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
           }
         },
         "type" : "object"
@@ -834,6 +884,29 @@
         },
         "type" : "object"
       },
+      "ApiResponseDmMessageResponse" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/DmMessageResponse"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseFinalizeMediaUploadResponse" : {
         "properties" : {
           "code" : {
@@ -1100,32 +1173,6 @@
         },
         "type" : "object"
       },
-      "ApiResponseListAdminSeatViewDto" : {
-        "properties" : {
-          "code" : {
-            "type" : "string"
-          },
-          "data" : {
-            "items" : {
-              "$ref" : "#/components/schemas/AdminSeatViewDto"
-            },
-            "type" : "array"
-          },
-          "errors" : {
-            "additionalProperties" : {
-              "type" : "string"
-            },
-            "type" : "object"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "success" : {
-            "type" : "boolean"
-          }
-        },
-        "type" : "object"
-      },
       "ApiResponseListAdminUserDto" : {
         "properties" : {
           "code" : {
@@ -1230,6 +1277,32 @@
         },
         "type" : "object"
       },
+      "ApiResponseListDmMessageResponse" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/DmMessageResponse"
+            },
+            "type" : "array"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseListInboxItem" : {
         "properties" : {
           "code" : {
@@ -1264,32 +1337,6 @@
           "data" : {
             "items" : {
               "$ref" : "#/components/schemas/OffseasonMovementAdminDto"
-            },
-            "type" : "array"
-          },
-          "errors" : {
-            "additionalProperties" : {
-              "type" : "string"
-            },
-            "type" : "object"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "success" : {
-            "type" : "boolean"
-          }
-        },
-        "type" : "object"
-      },
-      "ApiResponseListResponse" : {
-        "properties" : {
-          "code" : {
-            "type" : "string"
-          },
-          "data" : {
-            "items" : {
-              "$ref" : "#/components/schemas/Response"
             },
             "type" : "array"
           },
@@ -1509,6 +1556,29 @@
         },
         "type" : "object"
       },
+      "ApiResponseMateLinkReconciliationCasePageDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/MateLinkReconciliationCasePageDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseMatePaymentCancelIntentResponse" : {
         "properties" : {
           "code" : {
@@ -1653,7 +1723,30 @@
             "type" : "string"
           },
           "data" : {
-            "$ref" : "#/components/schemas/PageObject"
+            "$ref" : "#/components/schemas/PageAdminReportDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponsePageAdminSeatViewDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageAdminSeatViewDto"
           },
           "errors" : {
             "additionalProperties" : {
@@ -1676,7 +1769,122 @@
             "type" : "string"
           },
           "data" : {
-            "$ref" : "#/components/schemas/PageObject"
+            "$ref" : "#/components/schemas/PageAuditLogDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponsePaymentIntentProviderVerificationResultDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PaymentIntentProviderVerificationResultDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponsePaymentIntentReconciliationPageDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PaymentIntentReconciliationPageDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponsePaymentIntentReconciliationResolutionResultDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PaymentIntentReconciliationResolutionResultDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponsePaymentIntentReconciliationReviewDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PaymentIntentReconciliationReviewDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponsePayoutHoldPageDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PayoutHoldPageDto"
           },
           "errors" : {
             "additionalProperties" : {
@@ -1785,13 +1993,13 @@
         },
         "type" : "object"
       },
-      "ApiResponseResponse" : {
+      "ApiResponseRoleChangeResponseDto" : {
         "properties" : {
           "code" : {
             "type" : "string"
           },
           "data" : {
-            "$ref" : "#/components/schemas/Response"
+            "$ref" : "#/components/schemas/RoleChangeResponseDto"
           },
           "errors" : {
             "additionalProperties" : {
@@ -1808,13 +2016,36 @@
         },
         "type" : "object"
       },
-      "ApiResponseRoleChangeResponseDto" : {
+      "ApiResponseSeatViewPreviewDto" : {
         "properties" : {
           "code" : {
             "type" : "string"
           },
           "data" : {
-            "$ref" : "#/components/schemas/RoleChangeResponseDto"
+            "$ref" : "#/components/schemas/SeatViewPreviewDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseSeatViewSubmissionDto" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/SeatViewSubmissionDto"
           },
           "errors" : {
             "additionalProperties" : {
@@ -1943,8 +2174,7 @@
           "targetUserName" : {
             "type" : "string"
           }
-        },
-        "type" : "object"
+        }
       },
       "AvailabilityCheckResponseDto" : {
         "properties" : {
@@ -2643,9 +2873,7 @@
           "cancelled" : {
             "type" : "boolean"
           },
-          "citations" : {
-            "$ref" : "#/components/schemas/JsonNode"
-          },
+          "citations" : { },
           "content" : {
             "maxLength" : 12000,
             "minLength" : 0,
@@ -2671,9 +2899,7 @@
             "minLength" : 0,
             "type" : "string"
           },
-          "metadata" : {
-            "$ref" : "#/components/schemas/JsonNode"
-          },
+          "metadata" : { },
           "plannerCacheHit" : {
             "type" : "boolean"
           },
@@ -2690,9 +2916,7 @@
             "minLength" : 0,
             "type" : "string"
           },
-          "toolCalls" : {
-            "$ref" : "#/components/schemas/JsonNode"
-          },
+          "toolCalls" : { },
           "toolExecutionMode" : {
             "maxLength" : 50,
             "minLength" : 0,
@@ -3101,6 +3325,33 @@
         },
         "type" : "object"
       },
+      "DmMessageResponse" : {
+        "properties" : {
+          "clientMessageId" : {
+            "type" : "string"
+          },
+          "content" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "roomId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "senderId" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "EmbeddedPostDto" : {
         "properties" : {
           "author" : {
@@ -3154,6 +3405,51 @@
             "type" : "string"
           },
           "teamId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "Event" : {
+        "properties" : {
+          "candidateAmount" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "candidateOrderId" : {
+            "type" : "string"
+          },
+          "candidatePaymentKey" : {
+            "type" : "string"
+          },
+          "candidateStatus" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "eventType" : {
+            "type" : "string"
+          },
+          "evidenceReference" : {
+            "type" : "string"
+          },
+          "recordedBy" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "verifiedAmount" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "verifiedOrderId" : {
+            "type" : "string"
+          },
+          "verifiedPaymentKey" : {
+            "type" : "string"
+          },
+          "verifiedStatus" : {
             "type" : "string"
           }
         },
@@ -3218,7 +3514,7 @@
             "type" : "integer"
           },
           "publicUrl" : {
-            "type" : "string"
+            "type" : [ "string", "null" ]
           },
           "storagePath" : {
             "type" : "string"
@@ -4184,7 +4480,7 @@
             "type" : "string"
           },
           "domain" : {
-            "enum" : [ "PROFILE", "DIARY", "CHEER", "CHAT" ],
+            "enum" : [ "PROFILE", "DIARY", "SEAT_VIEW", "CHEER", "CHAT" ],
             "type" : "string"
           },
           "fileName" : {
@@ -4399,6 +4695,34 @@
             "type" : "string"
           }
         },
+        "type" : "object"
+      },
+      "MarkAllAsReadRequest" : {
+        "properties" : {
+          "notificationIds" : {
+            "items" : {
+              "format" : "int64",
+              "type" : "integer"
+            },
+            "maxItems" : 100,
+            "minItems" : 0,
+            "type" : "array"
+          }
+        },
+        "required" : [ "notificationIds" ],
+        "type" : "object"
+      },
+      "MarkAllAsReadResponse" : {
+        "properties" : {
+          "notificationIds" : {
+            "items" : {
+              "format" : "int64",
+              "type" : "integer"
+            },
+            "type" : "array"
+          }
+        },
+        "required" : [ "notificationIds" ],
         "type" : "object"
       },
       "MatchBoundsResponseDto" : {
@@ -4812,6 +5136,32 @@
         },
         "type" : "object"
       },
+      "MateCheckInHistoryPageResponse" : {
+        "properties" : {
+          "content" : {
+            "items" : {
+              "$ref" : "#/components/schemas/MateCheckInResponse"
+            },
+            "type" : "array"
+          },
+          "hasNext" : {
+            "type" : "boolean"
+          },
+          "page" : {
+            "format" : "int32",
+            "minimum" : 0,
+            "type" : "integer"
+          },
+          "size" : {
+            "format" : "int32",
+            "maximum" : 100,
+            "minimum" : 1,
+            "type" : "integer"
+          }
+        },
+        "required" : [ "content", "hasNext", "page", "size" ],
+        "type" : "object"
+      },
       "MateCheckInQrSessionRequest" : {
         "properties" : {
           "partyId" : {
@@ -4972,6 +5322,62 @@
           "status" : {
             "enum" : [ "PENDING", "REQUESTED", "COMPLETED", "FAILED", "SKIPPED", "REFUNDED_AFTER_SETTLEMENT" ],
             "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "MateLinkReconciliationCaseDto" : {
+        "properties" : {
+          "applicationId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "observedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "partyId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "paymentTransactionId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "reasonCode" : {
+            "enum" : [ "PAYMENT_TRANSACTION_MISSING", "PAYMENT_LINK_INCOMPLETE", "APPLICATION_LINK_MISSING", "APPLICATION_LINK_INCOMPLETE", "PARTY_LINK_MISSING", "PARTY_LINK_MISMATCH", "PAYMENT_APPLICATION_LINK_MISMATCH", "PAYMENT_PARTY_LINK_MISMATCH", "PAYMENT_BUYER_LINK_MISMATCH", "PAYMENT_ORDER_LINK_MISMATCH", "PAYMENT_SELLER_LINK_MISMATCH", "PAYOUT_TRANSACTION_MISSING", "PAYOUT_PAYMENT_LINK_MISMATCH", "PAYOUT_SELLER_LINK_MISMATCH" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "MateLinkReconciliationCasePageDto" : {
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/MateLinkReconciliationCaseDto"
+            },
+            "type" : "array"
+          },
+          "page" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "size" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "totalElements" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalPages" : {
+            "format" : "int32",
+            "type" : "integer"
           }
         },
         "type" : "object"
@@ -5422,7 +5828,7 @@
             "type" : "integer"
           },
           "status" : {
-            "enum" : [ "PREPARED", "CONFIRMED", "APPLICATION_CREATED", "CANCEL_REQUESTED", "CANCELED", "CANCEL_FAILED", "EXPIRED" ],
+            "enum" : [ "PREPARED", "CONFIRMED", "APPLICATION_CREATED", "CANCEL_REQUESTED", "CANCELED", "CANCEL_FAILED", "RECONCILIATION_REQUIRED", "EXPIRED" ],
             "type" : "string"
           }
         },
@@ -5651,6 +6057,8 @@
       "MateSellerPayoutProfileUpsertRequest" : {
         "properties" : {
           "kycStatus" : {
+            "maxLength" : 50,
+            "minLength" : 0,
             "type" : "string"
           },
           "metadataJson" : {
@@ -5828,7 +6236,7 @@
             "type" : "integer"
           },
           "domain" : {
-            "enum" : [ "PROFILE", "DIARY", "CHEER", "CHAT" ],
+            "enum" : [ "PROFILE", "DIARY", "SEAT_VIEW", "CHEER", "CHAT" ],
             "type" : "string"
           },
           "failedObjectKeys" : {
@@ -5909,6 +6317,36 @@
             "type" : "array"
           },
           "startTime" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "NotificationResponse" : {
+        "properties" : {
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "isRead" : {
+            "type" : "boolean"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "relatedId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "type" : {
+            "enum" : [ "APPLICATION_RECEIVED", "APPLICATION_APPROVED", "APPLICATION_REJECTED", "PARTY_EXPIRED", "PARTY_AUTO_COMPLETED", "GAME_TOMORROW_REMINDER", "GAME_DAY_REMINDER", "HOST_RESPONSE_NUDGE", "REVIEW_REQUEST", "PARTY_CANCELLED_HOST_DELETED", "PARTY_PARTICIPANT_LEFT", "POST_COMMENT", "COMMENT_REPLY", "POST_LIKE", "POST_REPOST", "NEW_FOLLOWER", "FOLLOWING_NEW_POST", "NEW_DEVICE_LOGIN", "RANKING_PREDICTION_SETTLED" ],
             "type" : "string"
           }
         },
@@ -6171,6 +6609,141 @@
         },
         "type" : "object"
       },
+      "PageAdminReportDto" : {
+        "properties" : {
+          "content" : {
+            "items" : {
+              "$ref" : "#/components/schemas/AdminReportDto"
+            },
+            "type" : "array"
+          },
+          "empty" : {
+            "type" : "boolean"
+          },
+          "first" : {
+            "type" : "boolean"
+          },
+          "last" : {
+            "type" : "boolean"
+          },
+          "number" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "numberOfElements" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "pageable" : {
+            "$ref" : "#/components/schemas/PageableObject"
+          },
+          "size" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "sort" : {
+            "$ref" : "#/components/schemas/SortObject"
+          },
+          "totalElements" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalPages" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        }
+      },
+      "PageAdminSeatViewDto" : {
+        "properties" : {
+          "content" : {
+            "items" : {
+              "$ref" : "#/components/schemas/AdminSeatViewDto"
+            },
+            "type" : "array"
+          },
+          "empty" : {
+            "type" : "boolean"
+          },
+          "first" : {
+            "type" : "boolean"
+          },
+          "last" : {
+            "type" : "boolean"
+          },
+          "number" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "numberOfElements" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "pageable" : {
+            "$ref" : "#/components/schemas/PageableObject"
+          },
+          "size" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "sort" : {
+            "$ref" : "#/components/schemas/SortObject"
+          },
+          "totalElements" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalPages" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        }
+      },
+      "PageAuditLogDto" : {
+        "properties" : {
+          "content" : {
+            "items" : {
+              "$ref" : "#/components/schemas/AuditLogDto"
+            },
+            "type" : "array"
+          },
+          "empty" : {
+            "type" : "boolean"
+          },
+          "first" : {
+            "type" : "boolean"
+          },
+          "last" : {
+            "type" : "boolean"
+          },
+          "number" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "numberOfElements" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "pageable" : {
+            "$ref" : "#/components/schemas/PageableObject"
+          },
+          "size" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "sort" : {
+            "$ref" : "#/components/schemas/SortObject"
+          },
+          "totalElements" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalPages" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        }
+      },
       "PageMetadata" : {
         "properties" : {
           "number" : {
@@ -6196,7 +6769,7 @@
         "properties" : {
           "content" : {
             "items" : {
-              "$ref" : "#/components/schemas/AuditLogDto"
+              "$ref" : "#/components/schemas/AdminSeatViewDto"
             },
             "type" : "array"
           },
@@ -6413,6 +6986,201 @@
           }
         },
         "required" : [ "email" ],
+        "type" : "object"
+      },
+      "PaymentIntentProviderVerificationResultDto" : {
+        "properties" : {
+          "outcome" : {
+            "enum" : [ "VERIFIED", "ALREADY_VERIFIED" ],
+            "type" : "string"
+          },
+          "paymentIntentId" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "PaymentIntentReconciliationPageDto" : {
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/PaymentIntentReconciliationReviewDto"
+            },
+            "type" : "array"
+          },
+          "page" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "size" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "totalElements" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalPages" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "PaymentIntentReconciliationResolutionRequest" : {
+        "properties" : {
+          "evidenceReference" : {
+            "description" : "Opaque administrator audit reference. The server does not dereference or verify this reference.",
+            "maxLength" : 300,
+            "minLength" : 0,
+            "pattern" : "[A-Za-z0-9][A-Za-z0-9._:/-]{0,299}",
+            "type" : "string"
+          },
+          "outcome" : {
+            "description" : "Administrator-proposed outcome only; this field does not assert a provider-verified result.",
+            "enum" : [ "VERIFIED_PAYMENT", "VERIFIED_CANCELED", "VERIFIED_REFUNDED" ],
+            "type" : "string"
+          },
+          "verifiedAmount" : {
+            "description" : "Administrator-submitted candidate amount; must match the internal payment intent.",
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "verifiedOrderId" : {
+            "description" : "Administrator-submitted candidate order ID; must match the internal payment intent.",
+            "maxLength" : 100,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "verifiedPaymentKey" : {
+            "description" : "Administrator-submitted candidate payment key; not independently verified by the server.",
+            "maxLength" : 200,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "verifiedStatus" : {
+            "description" : "Administrator-submitted candidate provider status; not independently verified by the server.",
+            "maxLength" : 30,
+            "minLength" : 0,
+            "pattern" : "[A-Z_]{1,30}",
+            "type" : "string"
+          }
+        },
+        "required" : [ "evidenceReference", "outcome", "verifiedAmount", "verifiedOrderId", "verifiedPaymentKey", "verifiedStatus" ],
+        "type" : "object"
+      },
+      "PaymentIntentReconciliationResolutionResultDto" : {
+        "properties" : {
+          "awaitingIndependentReview" : {
+            "description" : "True until a different administrator records the same proposal; this review does not resolve the payment.",
+            "type" : "boolean"
+          },
+          "awaitingTrustedProviderProof" : {
+            "description" : "Always true for this endpoint until trusted provider proof is independently obtained.",
+            "type" : "boolean"
+          },
+          "outcome" : {
+            "description" : "The requested proposal type, not a verified provider outcome.",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "PaymentIntentReconciliationReviewDto" : {
+        "properties" : {
+          "candidateAmount" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "candidateOrderId" : {
+            "type" : "string"
+          },
+          "candidatePaymentKey" : {
+            "type" : "string"
+          },
+          "candidateStatus" : {
+            "type" : "string"
+          },
+          "currency" : {
+            "type" : "string"
+          },
+          "detectedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "events" : {
+            "items" : {
+              "$ref" : "#/components/schemas/Event"
+            },
+            "type" : "array"
+          },
+          "expectedAmount" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "intentId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "orderId" : {
+            "type" : "string"
+          },
+          "requestedPaymentKey" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "PayoutHoldDto" : {
+        "properties" : {
+          "paymentTransactionId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "payoutId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "reasonCode" : {
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "PENDING", "REQUESTED", "COMPLETED", "FAILED", "SKIPPED", "REFUNDED_AFTER_SETTLEMENT" ],
+            "type" : "string"
+          },
+          "updatedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "PayoutHoldPageDto" : {
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/PayoutHoldDto"
+            },
+            "type" : "array"
+          },
+          "page" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "size" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "totalElements" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "totalPages" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
         "type" : "object"
       },
       "PitcherDto" : {
@@ -7485,36 +8253,11 @@
         "required" : [ "content", "roomId" ],
         "type" : "object"
       },
-      "Response" : {
-        "properties" : {
-          "clientMessageId" : {
-            "type" : "string"
-          },
-          "content" : {
-            "type" : "string"
-          },
-          "createdAt" : {
-            "format" : "date-time",
-            "type" : "string"
-          },
-          "id" : {
-            "format" : "int64",
-            "type" : "integer"
-          },
-          "roomId" : {
-            "format" : "int64",
-            "type" : "integer"
-          },
-          "senderId" : {
-            "format" : "int64",
-            "type" : "integer"
-          }
-        },
-        "type" : "object"
-      },
       "RoleChangeRequestDto" : {
         "properties" : {
           "reason" : {
+            "maxLength" : 500,
+            "minLength" : 0,
             "type" : "string"
           }
         },
@@ -7586,16 +8329,37 @@
           "block" : {
             "type" : "string"
           },
+          "comment" : {
+            "type" : "string"
+          },
           "diaryDate" : {
             "type" : "string"
           },
           "photoUrl" : {
             "type" : "string"
           },
+          "rating" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
           "section" : {
             "type" : "string"
           },
           "stadium" : {
+            "type" : "string"
+          },
+          "tags" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "SeatViewPreviewDto" : {
+        "properties" : {
+          "photoUrl" : {
             "type" : "string"
           }
         },
@@ -7633,6 +8397,119 @@
             "type" : "array"
           }
         },
+        "type" : "object"
+      },
+      "SeatViewSubmissionDto" : {
+        "properties" : {
+          "aiConfidence" : {
+            "format" : "double",
+            "type" : "number"
+          },
+          "aiSuggestedLabel" : {
+            "type" : "string"
+          },
+          "block" : {
+            "type" : "string"
+          },
+          "comment" : {
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "moderationStatus" : {
+            "type" : "string"
+          },
+          "photoUrl" : {
+            "type" : [ "string", "null" ]
+          },
+          "rating" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "seatNumber" : {
+            "type" : "string"
+          },
+          "seatRow" : {
+            "type" : "string"
+          },
+          "section" : {
+            "type" : "string"
+          },
+          "sourceType" : {
+            "type" : "string"
+          },
+          "stadium" : {
+            "type" : "string"
+          },
+          "storagePath" : {
+            "type" : "string"
+          },
+          "tags" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "SeatViewSubmissionRequest" : {
+        "properties" : {
+          "block" : {
+            "maxLength" : 100,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "comment" : {
+            "maxLength" : 140,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "rating" : {
+            "format" : "int32",
+            "maximum" : 5,
+            "minimum" : 1,
+            "type" : "integer"
+          },
+          "seatNumber" : {
+            "maxLength" : 100,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "seatRow" : {
+            "maxLength" : 100,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "section" : {
+            "maxLength" : 100,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "stadium" : {
+            "maxLength" : 100,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "storagePath" : {
+            "maxLength" : 2048,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "tags" : {
+            "items" : {
+              "maxLength" : 40,
+              "minLength" : 0,
+              "type" : "string"
+            },
+            "maxItems" : 12,
+            "minItems" : 0,
+            "type" : "array"
+          }
+        },
+        "required" : [ "rating", "stadium", "storagePath" ],
         "type" : "object"
       },
       "SignedUrlDto" : {
@@ -8081,6 +8958,7 @@
             "type" : "object"
           }
         },
+        "required" : [ "answers" ],
         "type" : "object"
       },
       "TicketInfo" : {
@@ -8202,6 +9080,16 @@
           }
         },
         "required" : [ "content" ],
+        "type" : "object"
+      },
+      "UsePowerupRequest" : {
+        "properties" : {
+          "gameId" : {
+            "minLength" : 1,
+            "type" : "string"
+          }
+        },
+        "required" : [ "gameId" ],
         "type" : "object"
       },
       "UserFollowSummaryDto" : {
@@ -9092,6 +9980,80 @@
         "tags" : [ "admin-ranking-prediction-controller" ]
       }
     },
+    "/api/admin/mate-link-reconciliation-cases" : {
+      "get" : {
+        "operationId" : "list_1",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "page",
+          "required" : false,
+          "schema" : {
+            "default" : 0,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "default" : 20,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseMateLinkReconciliationCasePageDto"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "admin-mate-link-reconciliation-case-controller" ]
+      }
+    },
+    "/api/admin/mate-link-reconciliation-cases/payout-holds" : {
+      "get" : {
+        "operationId" : "listPayoutHolds",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "page",
+          "required" : false,
+          "schema" : {
+            "default" : 0,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "default" : 20,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePayoutHoldPageDto"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "admin-mate-link-reconciliation-case-controller" ]
+      }
+    },
     "/api/admin/mates" : {
       "get" : {
         "operationId" : "getMates",
@@ -9301,6 +10263,176 @@
         "tags" : [ "offseason-movement-admin-controller" ]
       }
     },
+    "/api/admin/payment-intents/reconciliation" : {
+      "get" : {
+        "operationId" : "listPending",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "page",
+          "required" : false,
+          "schema" : {
+            "default" : 0,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "default" : 20,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePaymentIntentReconciliationPageDto"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "admin-payment-intent-reconciliation-controller" ]
+      }
+    },
+    "/api/admin/payment-intents/reconciliation/{intentId}" : {
+      "get" : {
+        "operationId" : "getReview",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "intentId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePaymentIntentReconciliationReviewDto"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "admin-payment-intent-reconciliation-controller" ]
+      }
+    },
+    "/api/admin/payment-intents/reconciliation/{intentId}/resolution" : {
+      "post" : {
+        "description" : "Records an administrator-proposed reconciliation outcome only. The evidence reference and submitted provider tuple are not independently verified or fetched from a provider. Even after a second administrator reviews the proposal, this endpoint does not bind a payment key, change payment status, cancel or refund a payment, or call a provider; trusted provider proof is still required.",
+        "operationId" : "resolve",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "intentId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PaymentIntentReconciliationResolutionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePaymentIntentReconciliationResolutionResultDto"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "admin-payment-intent-reconciliation-controller" ]
+      }
+    },
+    "/api/admin/payment-intents/reconciliation/{intentId}/verify-provider" : {
+      "post" : {
+        "description" : "Looks up the held payment using its originally requested payment key. It binds that key only when the provider response exactly matches the payment key, internal order ID, expected amount, and DONE status. The lookup is audited; this endpoint does not confirm, cancel, or refund a payment.",
+        "operationId" : "verifyProvider",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "intentId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePaymentIntentProviderVerificationResultDto"
+                }
+              }
+            },
+            "description" : "Provider payment matched and was bound, or was already bound."
+          },
+          "403" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePaymentIntentProviderVerificationResultDto"
+                }
+              }
+            },
+            "description" : "Administrator authentication is required."
+          },
+          "404" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePaymentIntentProviderVerificationResultDto"
+                }
+              }
+            },
+            "description" : "Reconciliation intent was not found."
+          },
+          "409" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePaymentIntentProviderVerificationResultDto"
+                }
+              }
+            },
+            "description" : "The provider identity mismatched or reconciliation state changed."
+          },
+          "502" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponsePaymentIntentProviderVerificationResultDto"
+                }
+              }
+            },
+            "description" : "Provider payment lookup failed; the hold remains in place."
+          }
+        },
+        "tags" : [ "admin-payment-intent-reconciliation-controller" ]
+      }
+    },
     "/api/admin/posts" : {
       "get" : {
         "operationId" : "getPosts",
@@ -9386,6 +10518,7 @@
           "schema" : {
             "default" : 0,
             "format" : "int32",
+            "minimum" : 0,
             "type" : "integer"
           }
         }, {
@@ -9395,6 +10528,8 @@
           "schema" : {
             "default" : 20,
             "format" : "int32",
+            "maximum" : 100,
+            "minimum" : 1,
             "type" : "integer"
           }
         } ],
@@ -9476,6 +10611,41 @@
       }
     },
     "/api/admin/reports/{reportId}/appeal" : {
+      "patch" : {
+        "operationId" : "decideReportAppeal",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "reportId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AdminReportAppealDecisionReq"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseAdminReportDto"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "admin-controller" ]
+      },
       "post" : {
         "operationId" : "requestAppeal",
         "parameters" : [ {
@@ -9647,13 +10817,34 @@
           "schema" : {
             "type" : "boolean"
           }
+        }, {
+          "in" : "query",
+          "name" : "page",
+          "required" : false,
+          "schema" : {
+            "default" : 0,
+            "format" : "int32",
+            "minimum" : 0,
+            "type" : "integer"
+          }
+        }, {
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "default" : 20,
+            "format" : "int32",
+            "maximum" : 100,
+            "minimum" : 1,
+            "type" : "integer"
+          }
         } ],
         "responses" : {
           "200" : {
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponseListAdminSeatViewDto"
+                  "$ref" : "#/components/schemas/ApiResponsePageAdminSeatViewDto"
                 }
               }
             },
@@ -10801,30 +11992,6 @@
       }
     },
     "/api/auth/account/deletion/recovery" : {
-      "get" : {
-        "operationId" : "getDeletionRecoveryInfo",
-        "parameters" : [ {
-          "in" : "query",
-          "name" : "token",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "responses" : {
-          "200" : {
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponseAccountDeletionRecoveryInfoDto"
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        },
-        "tags" : [ "account-security-controller" ]
-      },
       "post" : {
         "operationId" : "recoverDeletedAccount",
         "requestBody" : {
@@ -10843,6 +12010,34 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "account-security-controller" ]
+      }
+    },
+    "/api/auth/account/deletion/recovery/info" : {
+      "post" : {
+        "operationId" : "getDeletionRecoveryInfo",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AccountDeletionRecoveryRequestDto"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseAccountDeletionRecoveryInfoDto"
                 }
               }
             },
@@ -10962,6 +12157,17 @@
                 }
               }
             },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "인증" ]
+      }
+    },
+    "/api/auth/logout/csrf" : {
+      "get" : {
+        "operationId" : "issueLogoutCsrfCookie",
+        "responses" : {
+          "200" : {
             "description" : "OK"
           }
         },
@@ -11815,22 +13021,65 @@
             "format" : "int64",
             "type" : "integer"
           }
+        }, {
+          "description" : "0부터 시작하는 페이지 번호 (page × size는 2147483647 이하)",
+          "example" : 0,
+          "in" : "query",
+          "name" : "page",
+          "required" : false,
+          "schema" : {
+            "default" : 0,
+            "format" : "int32",
+            "minimum" : 0,
+            "type" : "integer"
+          }
+        }, {
+          "description" : "페이지 크기(1~100)",
+          "example" : 30,
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "default" : 30,
+            "format" : "int32",
+            "maximum" : 100,
+            "minimum" : 1,
+            "type" : "integer"
+          }
         } ],
         "responses" : {
           "200" : {
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "items" : {
-                    "$ref" : "#/components/schemas/MateCheckInResponse"
-                  },
-                  "type" : "array"
+                  "$ref" : "#/components/schemas/MateCheckInHistoryPageResponse"
                 }
               }
             },
-            "description" : "OK"
+            "description" : "체크인 기록 페이지"
+          },
+          "400" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description" : "page 또는 size가 허용 범위를 벗어났습니다."
+          },
+          "403" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description" : "본인의 체크인 기록만 조회할 수 있습니다."
           }
         },
+        "summary" : "사용자별 체크인 기록을 페이지 단위로 조회합니다.",
         "tags" : [ "check-in-record-controller" ]
       }
     },
@@ -12071,7 +13320,17 @@
                 }
               }
             },
-            "description" : "OK"
+            "description" : "게시글 변경 정보"
+          },
+          "429" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description" : "게시글 변경 폴링 요청 한도 초과"
           }
         },
         "tags" : [ "응원 게시판" ]
@@ -13112,7 +14371,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponseResponse"
+                  "$ref" : "#/components/schemas/ApiResponseDmMessageResponse"
                 }
               }
             },
@@ -13212,7 +14471,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponseListResponse"
+                  "$ref" : "#/components/schemas/ApiResponseListDmMessageResponse"
                 }
               }
             },
@@ -14045,6 +15304,8 @@
           "schema" : {
             "default" : 10,
             "format" : "int32",
+            "maximum" : 100,
+            "minimum" : 1,
             "type" : "integer"
           }
         } ],
@@ -14076,6 +15337,8 @@
           "schema" : {
             "default" : 5,
             "format" : "int32",
+            "maximum" : 100,
+            "minimum" : 1,
             "type" : "integer"
           }
         } ],
@@ -14116,6 +15379,8 @@
           "schema" : {
             "default" : 10,
             "format" : "int32",
+            "maximum" : 100,
+            "minimum" : 1,
             "type" : "integer"
           }
         } ],
@@ -14165,6 +15430,7 @@
           "schema" : {
             "default" : 0,
             "format" : "int32",
+            "minimum" : 0,
             "type" : "integer"
           }
         }, {
@@ -14174,6 +15440,8 @@
           "schema" : {
             "default" : 20,
             "format" : "int32",
+            "maximum" : 100,
+            "minimum" : 1,
             "type" : "integer"
           }
         } ],
@@ -14245,23 +15513,16 @@
           "schema" : {
             "type" : "string"
           }
-        }, {
-          "in" : "query",
-          "name" : "gameId",
-          "required" : false,
-          "schema" : {
-            "type" : "string"
-          }
         } ],
         "requestBody" : {
           "content" : {
             "application/json" : {
               "schema" : {
-                "additionalProperties" : { },
-                "type" : "object"
+                "$ref" : "#/components/schemas/UsePowerupRequest"
               }
             }
-          }
+          },
+          "required" : true
         },
         "responses" : {
           "200" : {
@@ -14340,6 +15601,8 @@
           "schema" : {
             "default" : 20,
             "format" : "int32",
+            "maximum" : 100,
+            "minimum" : 1,
             "type" : "integer"
           }
         } ],
@@ -14774,8 +16037,25 @@
     "/api/notifications/mark-all-read" : {
       "post" : {
         "operationId" : "markAllAsRead",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/MarkAllAsReadRequest"
+              }
+            }
+          },
+          "required" : true
+        },
         "responses" : {
           "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/MarkAllAsReadResponse"
+                }
+              }
+            },
             "description" : "OK"
           }
         },
@@ -14786,11 +16066,37 @@
       "get" : {
         "operationId" : "getMyNotifications",
         "parameters" : [ {
+          "description" : "기본 30건입니다. 숫자 100 초과는 거부하며 0 이하 또는 숫자가 아닌 값은 기본값을 사용합니다.",
+          "example" : 30,
           "in" : "query",
-          "name" : "pageable",
-          "required" : true,
+          "name" : "size",
+          "required" : false,
           "schema" : {
-            "$ref" : "#/components/schemas/Pageable"
+            "default" : 30,
+            "maximum" : 100,
+            "minimum" : 1,
+            "type" : "integer"
+          }
+        }, {
+          "description" : "Zero-based page index (0..N)",
+          "in" : "query",
+          "name" : "page",
+          "required" : false,
+          "schema" : {
+            "default" : 0,
+            "minimum" : 0,
+            "type" : "integer"
+          }
+        }, {
+          "description" : "Sorting criteria in the format: property,(asc|desc). Default sort order is ascending. Multiple sort criteria are supported.",
+          "in" : "query",
+          "name" : "sort",
+          "required" : false,
+          "schema" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
           }
         } ],
         "responses" : {
@@ -14799,15 +16105,26 @@
               "*/*" : {
                 "schema" : {
                   "items" : {
-                    "$ref" : "#/components/schemas/Response"
+                    "$ref" : "#/components/schemas/NotificationResponse"
                   },
                   "type" : "array"
                 }
               }
             },
-            "description" : "OK"
+            "description" : "알림 목록"
+          },
+          "400" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description" : "페이지 크기가 허용 범위를 벗어났습니다."
           }
         },
+        "summary" : "내 알림을 페이지 단위로 조회합니다.",
         "tags" : [ "notification-controller" ]
       }
     },
@@ -15902,7 +17219,17 @@
                 }
               }
             },
-            "description" : "OK"
+            "description" : "팀 추천 결과"
+          },
+          "409" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description" : "내부 팀 추천 데이터가 없어 운영자 확인이 필요합니다 (MANUAL_BASEBALL_DATA_REQUIRED)."
           }
         },
         "tags" : [ "team-recommendation-test-controller" ]
@@ -15994,6 +17321,61 @@
           }
         },
         "tags" : [ "party-review-controller" ]
+      }
+    },
+    "/api/seat-views" : {
+      "post" : {
+        "operationId" : "submit",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SeatViewSubmissionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseSeatViewSubmissionDto"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "seat-view-controller" ]
+      }
+    },
+    "/api/seat-views/{seatViewId}/preview" : {
+      "get" : {
+        "operationId" : "getOwnerPreview",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "seatViewId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseSeatViewPreviewDto"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "seat-view-controller" ]
       }
     },
     "/api/stadiums" : {

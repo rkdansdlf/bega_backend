@@ -5,9 +5,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.SessionCallback;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.serializer.GenericToStringSerializer;
+import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -16,6 +20,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.Locale;
 import java.util.stream.Collectors;
@@ -29,18 +34,84 @@ public class RedisPostService {
 
     private static final String VIEW_COUNT_KEY = "post:views:%d";
     private static final String VIEWED_USERS_KEY = "post:viewed:%d";
+    private static final String VIEW_SYNC_INFLIGHT_KEY = "post:views:sync:inflight:%d";
+    private static final String VIEW_SYNC_SEQUENCE_KEY = "post:views:sync:sequence:%d";
     private static final String DIRTY_POSTS_KEY = "posts:dirty:views";
     private static final String HOT_STATUS_KEY = "post:hot:%d";
     private static final String HOT_POSTS_ZSET_KEY = "posts:hot:list";
     private static final String HOT_POSTS_ZSET_KEY_TEMPLATE = "posts:hot:list:%s";
+    private static final RedisSerializer<byte[]> BINARY_SCRIPT_ARGUMENT_SERIALIZER = RedisSerializer.byteArray();
+    private static final RedisSerializer<Long> SCRIPT_RESULT_SERIALIZER = new GenericToStringSerializer<>(Long.class);
+    private static final RedisSerializer<String> STRING_SCRIPT_RESULT_SERIALIZER = RedisSerializer.string();
+    private static final DefaultRedisScript<Long> INCREMENT_VIEW_COUNT_SCRIPT = new DefaultRedisScript<>("""
+            local added = redis.call('SADD', KEYS[1], ARGV[1])
+            if added == 0 then
+                return 0
+            end
+            redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2]))
+            redis.call('INCR', KEYS[2])
+            redis.call('PERSIST', KEYS[2])
+            redis.call('SADD', KEYS[3], ARGV[3])
+            return 1
+            """, Long.class);
+    private static final DefaultRedisScript<String> CLAIM_VIEW_COUNT_SYNC_BATCH_SCRIPT = new DefaultRedisScript<>("""
+            local existingBatch = redis.call('GET', KEYS[2])
+            if existingBatch then
+                return existingBatch
+            end
 
-    /**
-     * 조회수 증가 로직 (Redis에서 관리)
-     * 
-     * @param postId 게시글 ID
-     * @param userId 사용자 ID (null일 경우 익명)
-     * @return 증가 후 조회수
-     */
+            local delta = tonumber(redis.call('GET', KEYS[1]) or '0')
+            if not delta or delta <= 0 then
+                return ''
+            end
+
+            local minimumSequence = tonumber(ARGV[1]) or 0
+            local currentSequence = tonumber(redis.call('GET', KEYS[3]) or '0')
+            if not currentSequence or currentSequence < minimumSequence then
+                redis.call('SET', KEYS[3], ARGV[1])
+            end
+
+            local sequence = redis.call('INCR', KEYS[3])
+            local batch = tostring(sequence) .. '|' .. tostring(delta)
+            redis.call('SET', KEYS[2], batch)
+            redis.call('DEL', KEYS[1])
+            redis.call('SADD', KEYS[4], ARGV[2])
+            return batch
+            """, String.class);
+    private static final DefaultRedisScript<Long> ACK_VIEW_COUNT_SYNC_BATCH_SCRIPT = new DefaultRedisScript<>("""
+            local currentBatch = redis.call('GET', KEYS[1])
+            if currentBatch then
+                local separator = string.find(currentBatch, '|', 1, true)
+                if not separator or string.sub(currentBatch, 1, separator - 1) ~= ARGV[1] then
+                    return -1
+                end
+                redis.call('DEL', KEYS[1])
+                redis.call('DEL', KEYS[4])
+            end
+
+            local pendingDelta = tonumber(redis.call('GET', KEYS[2]) or '0')
+            if pendingDelta and pendingDelta > 0 then
+                redis.call('SADD', KEYS[3], ARGV[2])
+                return pendingDelta
+            end
+
+            redis.call('DEL', KEYS[2])
+            redis.call('SREM', KEYS[3], ARGV[2])
+            return 0
+            """, Long.class);
+    private static final DefaultRedisScript<Long> CLEAR_EMPTY_DIRTY_MARKER_SCRIPT = new DefaultRedisScript<>("""
+            local currentBatch = redis.call('GET', KEYS[2])
+            local pendingDelta = tonumber(redis.call('GET', KEYS[1]) or '0')
+            if currentBatch or (pendingDelta and pendingDelta > 0) then
+                redis.call('SADD', KEYS[3], ARGV[1])
+                return 1
+            end
+
+            redis.call('DEL', KEYS[1])
+            redis.call('SREM', KEYS[3], ARGV[1])
+            return 0
+            """, Long.class);
+
     /**
      * 조회수 증가 로직 (Redis에서 관리)
      * 
@@ -52,24 +123,88 @@ public class RedisPostService {
         try {
             String viewedKey = String.format(VIEWED_USERS_KEY, postId);
             String identifier = (userId != null) ? userId.toString() : "anonymous";
+            String viewKey = String.format(VIEW_COUNT_KEY, postId);
 
-            // 중복 조회 방지 (Set 활용)
-            Boolean alreadyViewed = redisTemplate.opsForSet().isMember(Objects.requireNonNull(viewedKey),
-                    Objects.requireNonNull(identifier));
-            if (Boolean.FALSE.equals(alreadyViewed)) {
-                redisTemplate.opsForSet().add(Objects.requireNonNull(viewedKey), Objects.requireNonNull(identifier));
-                // 하루 동안 유지 (중복 방지 세션)
-                redisTemplate.expire(Objects.requireNonNull(viewedKey), Objects.requireNonNull(Duration.ofDays(1)));
-
-                String viewKey = String.format(VIEW_COUNT_KEY, postId);
-                redisTemplate.opsForValue().increment(Objects.requireNonNull(viewKey));
-
-                // 동기화 대상 목록에 추가
-                redisTemplate.opsForSet().add(DIRTY_POSTS_KEY, Objects.requireNonNull(postId.toString()));
-            }
+            // Deduplication, counter increment, and dirty registration must be one Redis operation.
+            redisTemplate.execute(
+                    INCREMENT_VIEW_COUNT_SCRIPT,
+                    BINARY_SCRIPT_ARGUMENT_SERIALIZER,
+                    SCRIPT_RESULT_SERIALIZER,
+                    List.of(viewedKey, viewKey, DIRTY_POSTS_KEY),
+                    serializeRedisValue(identifier),
+                    Long.toString(Duration.ofDays(1).toSeconds()).getBytes(StandardCharsets.UTF_8),
+                    serializeRedisValue(postId.toString()));
         } catch (Exception e) {
             log.warn("Redis error in incrementViewCount: {}", e.getMessage());
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private byte[] serializeRedisValue(Object value) {
+        RedisSerializer<Object> valueSerializer = (RedisSerializer<Object>) Objects.requireNonNull(
+                redisTemplate.getValueSerializer());
+        return valueSerializer.serialize(value);
+    }
+
+    public Optional<ViewCountSyncBatch> claimViewCountSyncBatch(Long postId, long minimumSequence) {
+        String postIdValue = Objects.requireNonNull(postId).toString();
+        String batch = redisTemplate.execute(
+                CLAIM_VIEW_COUNT_SYNC_BATCH_SCRIPT,
+                BINARY_SCRIPT_ARGUMENT_SERIALIZER,
+                STRING_SCRIPT_RESULT_SERIALIZER,
+                List.of(
+                        String.format(VIEW_COUNT_KEY, postId),
+                        String.format(VIEW_SYNC_INFLIGHT_KEY, postId),
+                        String.format(VIEW_SYNC_SEQUENCE_KEY, postId),
+                        DIRTY_POSTS_KEY),
+                Long.toString(minimumSequence).getBytes(StandardCharsets.UTF_8),
+                serializeRedisValue(postIdValue));
+        if (batch == null || batch.isEmpty()) {
+            return Optional.empty();
+        }
+
+        int separator = batch.indexOf('|');
+        if (separator <= 0 || separator == batch.length() - 1) {
+            throw new IllegalStateException("Redis view sync batch is malformed");
+        }
+        long sequence = Long.parseLong(batch.substring(0, separator));
+        int delta = Integer.parseInt(batch.substring(separator + 1));
+        if (sequence <= 0 || delta <= 0) {
+            throw new IllegalStateException("Redis view sync batch values must be positive");
+        }
+        return Optional.of(new ViewCountSyncBatch(sequence, delta));
+    }
+
+    public boolean acknowledgeViewCountSyncBatch(Long postId, long sequence) {
+        String postIdValue = Objects.requireNonNull(postId).toString();
+        Long result = redisTemplate.execute(
+                ACK_VIEW_COUNT_SYNC_BATCH_SCRIPT,
+                BINARY_SCRIPT_ARGUMENT_SERIALIZER,
+                SCRIPT_RESULT_SERIALIZER,
+                List.of(
+                        String.format(VIEW_SYNC_INFLIGHT_KEY, postId),
+                        String.format(VIEW_COUNT_KEY, postId),
+                        DIRTY_POSTS_KEY,
+                        String.format(VIEW_SYNC_SEQUENCE_KEY, postId)),
+                Long.toString(sequence).getBytes(StandardCharsets.UTF_8),
+                serializeRedisValue(postIdValue));
+        return result != null && result >= 0;
+    }
+
+    public void clearDirtyPostIfNoSyncWork(Long postId) {
+        String postIdValue = Objects.requireNonNull(postId).toString();
+        redisTemplate.execute(
+                CLEAR_EMPTY_DIRTY_MARKER_SCRIPT,
+                BINARY_SCRIPT_ARGUMENT_SERIALIZER,
+                SCRIPT_RESULT_SERIALIZER,
+                List.of(
+                        String.format(VIEW_COUNT_KEY, postId),
+                        String.format(VIEW_SYNC_INFLIGHT_KEY, postId),
+                        DIRTY_POSTS_KEY),
+                serializeRedisValue(postIdValue));
+    }
+
+    public record ViewCountSyncBatch(long sequence, int delta) {
     }
 
     /**
@@ -85,6 +220,24 @@ public class RedisPostService {
             log.warn("Redis error in getViewCount: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Scheduler read that distinguishes a missing counter from a Redis read failure.
+     */
+    public Optional<Integer> getViewCountForSync(Long postId) {
+        Object value = redisTemplate.opsForValue().get(
+                Objects.requireNonNull(String.format(VIEW_COUNT_KEY, postId)));
+        if (value == null) {
+            return Optional.empty();
+        }
+        if (value instanceof Integer integerValue) {
+            return Optional.of(integerValue);
+        }
+        if (value instanceof Long longValue) {
+            return Optional.of(longValue.intValue());
+        }
+        throw new IllegalStateException("Redis view counter has an unexpected value type");
     }
 
     /**
@@ -105,30 +258,19 @@ public class RedisPostService {
     }
 
     /**
-     * 동기화 완료 후 Redis 데이터 정리 및 델타 차감
-     */
-    public void clearDirtyPost(Long postId, int delta) {
-        try {
-            redisTemplate.opsForSet().remove(DIRTY_POSTS_KEY, postId.toString());
-            // 반영된 만큼 차감
-            String key = String.format(VIEW_COUNT_KEY, postId);
-            redisTemplate.opsForValue().increment(Objects.requireNonNull(key), -delta);
-            redisTemplate.expire(Objects.requireNonNull(key), Objects.requireNonNull(Duration.ofHours(6)));
-        } catch (Exception e) {
-            log.warn("Redis error in clearDirtyPost: {}", e.getMessage());
-        }
-    }
-
-    /**
      * HOT 게시글 상태 캐싱
      */
     public void cacheHotStatus(Long postId, boolean isHot) {
         try {
-            redisTemplate.opsForValue().set(Objects.requireNonNull(String.format(HOT_STATUS_KEY, postId)), isHot,
-                    Objects.requireNonNull(Duration.ofMinutes(10)));
+            cacheHotStatusForSync(postId, isHot);
         } catch (Exception e) {
             log.warn("Redis error in cacheHotStatus: {}", e.getMessage());
         }
+    }
+
+    public void cacheHotStatusForSync(Long postId, boolean isHot) {
+        redisTemplate.opsForValue().set(Objects.requireNonNull(String.format(HOT_STATUS_KEY, postId)), isHot,
+                Objects.requireNonNull(Duration.ofMinutes(10)));
     }
 
     /**
@@ -156,12 +298,16 @@ public class RedisPostService {
      */
     public void updateHotScore(Long postId, double score, PopularFeedAlgorithm algorithm) {
         try {
-            String key = resolveHotListKey(algorithm);
-            redisTemplate.opsForZSet().add(Objects.requireNonNull(key),
-                    Objects.requireNonNull(postId.toString()), score);
+            updateHotScoreForSync(postId, score, algorithm);
         } catch (Exception e) {
             log.warn("Redis error in updateHotScore: {}", e.getMessage());
         }
+    }
+
+    public void updateHotScoreForSync(Long postId, double score, PopularFeedAlgorithm algorithm) {
+        String key = resolveHotListKey(algorithm);
+        redisTemplate.opsForZSet().add(Objects.requireNonNull(key),
+                Objects.requireNonNull(postId.toString()), score);
     }
 
     /**
@@ -194,13 +340,17 @@ public class RedisPostService {
      */
     public void removeFromHotList(Long postId) {
         try {
-            Object member = Objects.requireNonNull(postId.toString());
-            redisTemplate.opsForZSet().remove(Objects.requireNonNull(HOT_POSTS_ZSET_KEY), member);
-            redisTemplate.opsForZSet()
-                    .remove(Objects.requireNonNull(resolveHotListKey(PopularFeedAlgorithm.ENGAGEMENT_RATE)), member);
+            removeFromHotListForSync(postId);
         } catch (Exception e) {
             log.warn("Redis error in removeFromHotList: {}", e.getMessage());
         }
+    }
+
+    public void removeFromHotListForSync(Long postId) {
+        Object member = Objects.requireNonNull(postId.toString());
+        redisTemplate.opsForZSet().remove(Objects.requireNonNull(HOT_POSTS_ZSET_KEY), member);
+        redisTemplate.opsForZSet()
+                .remove(Objects.requireNonNull(resolveHotListKey(PopularFeedAlgorithm.ENGAGEMENT_RATE)), member);
     }
 
     /**

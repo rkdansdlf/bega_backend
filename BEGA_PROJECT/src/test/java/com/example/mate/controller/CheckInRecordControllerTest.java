@@ -8,12 +8,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -64,13 +67,35 @@ class CheckInRecordControllerTest {
     }
 
     @Test
-    @DisplayName("사용자별 체크인 기록을 조회한다")
-    void getCheckInsByUserId_returnsList() {
-        when(checkInRecordService.getCheckInsByUserId(42L, userId)).thenReturn(List.of());
+    @DisplayName("사용자별 체크인 기록을 지정한 페이지로 조회한다")
+    void getCheckInsByUserId_returnsPage() {
+        CheckInRecordDTO.HistoryPageResponse expected = CheckInRecordDTO.HistoryPageResponse.builder()
+                .content(List.of())
+                .page(0)
+                .size(30)
+                .hasNext(false)
+                .build();
+        when(checkInRecordService.getCheckInsByUserId(42L, userId, PageRequest.of(0, 30)))
+                .thenReturn(expected);
 
-        ResponseEntity<List<CheckInRecordDTO.Response>> result = controller.getCheckInsByUserId(42L, userId);
+        ResponseEntity<CheckInRecordDTO.HistoryPageResponse> result =
+                controller.getCheckInsByUserId(42L, userId, 0, 30);
 
-        assertThat(result.getBody()).isEmpty();
+        assertThat(result.getBody()).isEqualTo(expected);
+        assertThat(result.getBody().isHasNext()).isFalse();
+    }
+
+    @Test
+    @DisplayName("페이지 번호와 크기 범위를 벗어나면 service를 호출하지 않는다")
+    void getCheckInsByUserId_rejectsInvalidPageBounds() {
+        assertThatThrownBy(() -> controller.getCheckInsByUserId(42L, userId, -1, 30))
+                .isInstanceOf(com.example.common.exception.BadRequestBusinessException.class);
+        assertThatThrownBy(() -> controller.getCheckInsByUserId(42L, userId, 0, 0))
+                .isInstanceOf(com.example.common.exception.BadRequestBusinessException.class);
+        assertThatThrownBy(() -> controller.getCheckInsByUserId(42L, userId, 0, 101))
+                .isInstanceOf(com.example.common.exception.BadRequestBusinessException.class);
+
+        verifyNoInteractions(checkInRecordService);
     }
 
     @Test

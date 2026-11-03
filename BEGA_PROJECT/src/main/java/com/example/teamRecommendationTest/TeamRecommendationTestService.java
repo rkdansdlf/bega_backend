@@ -4,6 +4,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.example.kbo.validation.ManualBaseballDataMissingItem;
+import com.example.kbo.validation.ManualBaseballDataRequest;
+import com.example.kbo.validation.ManualBaseballDataRequiredException;
 import org.springframework.stereotype.Service;
 
 
@@ -20,6 +23,15 @@ public class TeamRecommendationTestService {
     	
     	// DB에 저장된 모든 팀의 정보를 리스트 형태로 불러옴
         List<TeamRecommendationTest> allTeams = teamRecommendationTestRepository.findAll();
+        if (allTeams.isEmpty()) {
+            throw new ManualBaseballDataRequiredException(new ManualBaseballDataRequest(
+                    "team_recommendation",
+                    List.of(new ManualBaseballDataMissingItem(
+                            "teams", "팀 추천 데이터", "내부 팀 추천 데이터가 없습니다.",
+                            "teams(team_id, team_name, team_short_name, color), team_profiles(team_id, profile)")),
+                    "운영자가 내부 팀과 팀별 추천 프로필 데이터를 제공해야 합니다.",
+                    true));
+        }
         
         // 각 팀의 점수를 저장할 Map 생성 및 0으로 초기화
         Map<String, Integer> scores = new HashMap<>();

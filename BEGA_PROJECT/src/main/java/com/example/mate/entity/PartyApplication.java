@@ -1,10 +1,13 @@
 package com.example.mate.entity;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -36,7 +39,7 @@ public class PartyApplication {
     @Enumerated(EnumType.STRING)
     private Party.BadgeType applicantBadge; // 신청자 뱃지
 
-    @Column(name = "applicant_rating", nullable = false)
+    @Column(name = "applicant_rating")
     private Double applicantRating; // 신청자 평점
 
     @Column(nullable = false, length = 500)
@@ -61,8 +64,13 @@ public class PartyApplication {
     @Column(name = "ticket_verified")
     private Boolean ticketVerified; // 티켓 인증 여부
 
-    @Column(name = "ticket_image_url", length = 500)
+    @Size(max = 2048)
+    @JdbcTypeCode(SqlTypes.LONG32VARCHAR)
+    @Column(name = "ticket_image_url_extended")
     private String ticketImageUrl; // 인증 티켓 이미지 URL
+
+    @Column(name = "ticket_image_url", length = 500)
+    private String legacyTicketImageUrl;
 
     @Column(name = "payment_key", length = 200)
     private String paymentKey; // Toss Payments paymentKey
@@ -89,6 +97,7 @@ public class PartyApplication {
     protected void onCreate() {
         createdAt = Instant.now();
         lastReadChatAt = Instant.now();
+        synchronizeLegacyTicketImageUrl();
         if (isPaid == null) {
             isPaid = false;
         }
@@ -104,6 +113,24 @@ public class PartyApplication {
         if (ticketVerified == null) {
             ticketVerified = false;
         }
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        synchronizeLegacyTicketImageUrl();
+    }
+
+    @PostLoad
+    void restoreTicketImageUrlFromLegacyColumn() {
+        if (ticketImageUrl == null) {
+            ticketImageUrl = legacyTicketImageUrl;
+        }
+    }
+
+    private void synchronizeLegacyTicketImageUrl() {
+        legacyTicketImageUrl = ticketImageUrl != null && ticketImageUrl.length() <= 500
+                ? ticketImageUrl
+                : null;
     }
 
     // Enum 정의

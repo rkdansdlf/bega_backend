@@ -33,7 +33,7 @@ public class SellerPayoutProfile {
     @Column(name = "provider", nullable = false, length = 20)
     private String provider;
 
-    @Column(name = "provider_seller_id", nullable = false, length = 120)
+    @Column(name = "provider_seller_id", length = 120)
     private String providerSellerId;
 
     @Column(name = "kyc_status", length = 50)

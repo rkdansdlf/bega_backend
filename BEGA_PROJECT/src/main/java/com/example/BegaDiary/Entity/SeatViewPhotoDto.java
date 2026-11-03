@@ -1,5 +1,6 @@
 package com.example.BegaDiary.Entity;
 
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,4 +16,7 @@ public class SeatViewPhotoDto {
     private String section;
     private String block;
     private String diaryDate;
+    private Integer rating;
+    private String comment;
+    private List<String> tags;
 }

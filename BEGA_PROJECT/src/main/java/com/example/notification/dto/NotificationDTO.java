@@ -2,12 +2,15 @@ package com.example.notification.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.example.notification.entity.Notification;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 
 public class NotificationDTO {
 
@@ -15,6 +18,7 @@ public class NotificationDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    @Schema(name = "NotificationResponse")
     public static class Response {
         private Long id;
         private Notification.NotificationType type;
@@ -23,7 +27,7 @@ public class NotificationDTO {
         private Long relatedId;
         @JsonProperty("isRead")
         private Boolean isRead;
-        private LocalDateTime createdAt;
+        private OffsetDateTime createdAt;
 
         public static Response from(Notification notification) {
             return Response.builder()
@@ -33,8 +37,14 @@ public class NotificationDTO {
                     .message(notification.getMessage())
                     .relatedId(notification.getRelatedId())
                     .isRead(notification.getIsRead())
-                    .createdAt(notification.getCreatedAt())
+                    .createdAt(toServerOffset(notification.getCreatedAt()))
                     .build();
+        }
+
+        private static OffsetDateTime toServerOffset(LocalDateTime createdAt) {
+            return createdAt == null
+                    ? null
+                    : createdAt.atZone(ZoneId.systemDefault()).toOffsetDateTime();
         }
     }
 }

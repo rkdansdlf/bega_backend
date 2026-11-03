@@ -47,9 +47,10 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
                and payment.settlementStatus = :settlementStatus
                and exists (
                     select application.id
-                      from PartyApplication application
+                     from PartyApplication application
                      where application.id = payment.applicationId
-                       and application.isApproved = true)
+                       and application.isApproved = true
+                       and application.isRejected = false)
                and not exists (
                     select payout.id
                       from PayoutTransaction payout
@@ -57,6 +58,30 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
              order by payment.id
             """)
     List<PaymentTransaction> findApprovedWithoutPayout(
+            @Param("paymentStatus") PaymentStatus paymentStatus,
+            @Param("settlementStatus") SettlementStatus settlementStatus,
+            Pageable pageable);
+
+    @Query("""
+            select payment.id
+              from PaymentTransaction payment
+             where payment.sellerUserId = :sellerId
+               and payment.paymentStatus = :paymentStatus
+               and payment.settlementStatus = :settlementStatus
+               and exists (
+                    select application.id
+                     from PartyApplication application
+                     where application.id = payment.applicationId
+                       and application.isApproved = true
+                       and application.isRejected = false)
+               and not exists (
+                    select payout.id
+                      from PayoutTransaction payout
+                     where payout.paymentTransactionId = payment.id)
+             order by payment.id
+            """)
+    List<Long> findApprovedWithoutPayoutForSeller(
+            @Param("sellerId") Long sellerId,
             @Param("paymentStatus") PaymentStatus paymentStatus,
             @Param("settlementStatus") SettlementStatus settlementStatus,
             Pageable pageable);

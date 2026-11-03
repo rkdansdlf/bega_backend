@@ -131,7 +131,7 @@ class CheerLinkedPostServiceTest {
     @Test
     void validateCreate_requiresPartyHost() {
         Party party = party(21L, owner.getId(), PartyStatus.PENDING);
-        when(partyRepository.findById(21L)).thenReturn(Optional.of(party));
+        when(partyRepository.findByIdForUpdate(21L)).thenReturn(Optional.of(party));
 
         assertThatThrownBy(() -> service.validateCreate(PostType.RECRUITMENT, recruitmentRequest(21L), stranger))
                 .satisfies(error -> assertBusinessError(error, HttpStatus.FORBIDDEN, "PARTY_HOST_REQUIRED"));
@@ -140,7 +140,7 @@ class CheerLinkedPostServiceTest {
     @Test
     void validateCreate_requiresPendingParty() {
         Party party = party(22L, owner.getId(), PartyStatus.MATCHED);
-        when(partyRepository.findById(22L)).thenReturn(Optional.of(party));
+        when(partyRepository.findByIdForUpdate(22L)).thenReturn(Optional.of(party));
 
         assertThatThrownBy(() -> service.validateCreate(PostType.RECRUITMENT, recruitmentRequest(22L), owner))
                 .satisfies(error -> assertBusinessError(error, HttpStatus.CONFLICT, "PARTY_NOT_RECRUITING"));
@@ -148,7 +148,7 @@ class CheerLinkedPostServiceTest {
 
     @Test
     void validateCreate_mapsMissingPartyToExactNotFoundBoundary() {
-        when(partyRepository.findById(22L)).thenReturn(Optional.empty());
+        when(partyRepository.findByIdForUpdate(22L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.validateCreate(PostType.RECRUITMENT, recruitmentRequest(22L), owner))
                 .isInstanceOf(NotFoundBusinessException.class)

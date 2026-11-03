@@ -99,6 +99,11 @@ public class DiaryController {
         Long userId = requireUserId(principal);
 
         diaryService.getOwnedDiaryEntity(diaryId, userId);
+        List<SeatViewPhoto.SourceType> parsedSourceTypes = parseSourceTypes(sourceTypes);
+        if (parsedSourceTypes.stream().limit(images.size())
+                .anyMatch(type -> type == SeatViewPhoto.SourceType.SEATMAP_UPLOAD)) {
+            throw new IllegalArgumentException("SEATMAP_UPLOAD은 독립 시야뷰 등록 경로에서만 사용할 수 있습니다.");
+        }
 
         List<String> storagePaths;
         try {
@@ -117,7 +122,6 @@ public class DiaryController {
                     .build());
         }
 
-        List<SeatViewPhoto.SourceType> parsedSourceTypes = parseSourceTypes(sourceTypes);
         try {
             List<SeatViewCandidateDto> candidates = seatViewService.createCandidates(
                     diaryId,

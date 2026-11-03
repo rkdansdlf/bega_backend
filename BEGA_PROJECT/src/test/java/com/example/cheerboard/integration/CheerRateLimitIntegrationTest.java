@@ -2,6 +2,7 @@ package com.example.cheerboard.integration;
 
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
+import com.example.cheerboard.service.CheerService;
 import com.example.common.ratelimit.RateLimitService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -13,6 +14,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
@@ -25,6 +27,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -64,6 +67,9 @@ class CheerRateLimitIntegrationTest {
 
     @MockitoBean
     private RateLimitService rateLimitService;
+
+    @MockitoSpyBean
+    private CheerService cheerService;
 
     private UserEntity user;
 
@@ -153,5 +159,54 @@ class CheerRateLimitIntegrationTest {
                     assertThat(key).contains("cheer:linked");
                     assertThat(key).doesNotContain("create(");
                 });
+    }
+
+    @Test
+    @DisplayName("Public changes polling rejects over-budget requests before the feed service is called")
+    void postChangesPolling_rejectsOverBudgetBeforeCallingFeedService() throws Exception {
+        when(rateLimitService.isAllowed(anyString(), eq(60), eq(60), eq(true))).thenReturn(true, false);
+
+        mockMvc.perform(get("/api/cheer/posts/changes").param("sinceId", "10"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/cheer/posts/changes").param("sinceId", "10"))
+                .andExpect(status().isTooManyRequests());
+
+        org.mockito.ArgumentCaptor<String> keyCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(rateLimitService, times(2)).isAllowed(keyCaptor.capture(), eq(60), eq(60), eq(true));
+        assertThat(keyCaptor.getAllValues())
+                .hasSize(2)
+                .allSatisfy(key -> assertThat(key).contains("cheer:post_changes"));
+        assertThat(keyCaptor.getAllValues().get(1)).isEqualTo(keyCaptor.getAllValues().get(0));
+        verify(cheerService, times(1)).checkPostChanges(10L, null);
+    }
+
+    @Test
+    @DisplayName("Changes polling uses separate buckets for anonymous IPs and authenticated users")
+    void postChangesPolling_separatesAnonymousIpsAndAuthenticatedUser() throws Exception {
+        when(rateLimitService.isAllowed(anyString(), eq(60), eq(60), eq(true))).thenReturn(true);
+
+        for (String address : new String[] {"192.0.2.10", "192.0.2.10", "192.0.2.11"}) {
+            mockMvc.perform(get("/api/cheer/posts/changes").param("sinceId", "10")
+                    .with(request -> {
+                        request.setRemoteAddr(address);
+                        return request;
+                    }))
+                    .andExpect(status().isOk());
+        }
+        mockMvc.perform(get("/api/cheer/posts/changes").param("sinceId", "10")
+                .with(user(user.getId().toString()).roles("USER"))
+                .with(request -> {
+                    request.setRemoteAddr("192.0.2.10");
+                    return request;
+                }))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<String> keys = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(rateLimitService, times(4)).isAllowed(keys.capture(), eq(60), eq(60), eq(true));
+        assertThat(keys.getAllValues().get(0)).endsWith(":192.0.2.10");
+        assertThat(keys.getAllValues().get(1)).isEqualTo(keys.getAllValues().get(0));
+        assertThat(keys.getAllValues().get(2)).endsWith(":192.0.2.11");
+        assertThat(keys.getAllValues().get(3)).endsWith(":" + user.getId());
+        assertThat(keys.getAllValues().get(3)).isNotEqualTo(keys.getAllValues().get(0));
     }
 }

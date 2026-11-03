@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,7 +26,9 @@ import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.ForbiddenBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
 import com.example.dm.dto.DmRoomDto;
+import com.example.dm.entity.DmMessage;
 import com.example.dm.entity.DmRoom;
+import com.example.dm.repository.DmMessageRepository;
 import com.example.dm.repository.DmRoomRepository;
 import com.example.profile.storage.service.ProfileImageService;
 
@@ -34,6 +38,9 @@ class DmRoomServiceTest {
 
     @Mock
     private DmRoomRepository dmRoomRepository;
+
+    @Mock
+    private DmMessageRepository dmMessageRepository;
 
     @Mock
     private UserRepository userRepository;
@@ -60,7 +67,7 @@ class DmRoomServiceTest {
                 .participantTwoId(20L)
                 .build();
 
-        when(userRepository.findByHandle("@target")).thenReturn(Optional.of(target));
+        when(userRepository.findByHandleWithFavoriteTeam("@target")).thenReturn(Optional.of(target));
         when(userBlockRepository.existsBidirectionalBlock(10L, 20L)).thenReturn(false);
         when(dmRoomRepository.findByParticipantOneIdAndParticipantTwoId(10L, 20L)).thenReturn(Optional.of(existingRoom));
 
@@ -85,7 +92,7 @@ class DmRoomServiceTest {
                 .role("ROLE_USER")
                 .build();
 
-        when(userRepository.findByHandle("@self")).thenReturn(Optional.of(self));
+        when(userRepository.findByHandleWithFavoriteTeam("@self")).thenReturn(Optional.of(self));
 
         assertThatThrownBy(() -> dmRoomService.bootstrapRoom(10L, DmRoomDto.BootstrapRequest.builder()
                 .targetHandle("@self")
@@ -99,7 +106,7 @@ class DmRoomServiceTest {
     void bootstrapRoom_requiresFollowForNewRoom() {
         UserEntity target = targetUser();
 
-        when(userRepository.findByHandle("@target")).thenReturn(Optional.of(target));
+        when(userRepository.findByHandleWithFavoriteTeam("@target")).thenReturn(Optional.of(target));
         when(userBlockRepository.existsBidirectionalBlock(10L, 20L)).thenReturn(false);
         when(dmRoomRepository.findByParticipantOneIdAndParticipantTwoId(10L, 20L)).thenReturn(Optional.empty());
         when(userFollowRepository.existsById(any())).thenReturn(false);
@@ -112,11 +119,35 @@ class DmRoomServiceTest {
     }
 
     @Test
+    @DisplayName("new room creation flushes before resolving a competing bootstrap")
+    void bootstrapRoom_createsRoomAfterFollowCheck() {
+        UserEntity target = targetUser();
+        DmRoom createdRoom = DmRoom.builder()
+                .id(89L)
+                .participantOneId(10L)
+                .participantTwoId(20L)
+                .build();
+
+        when(userRepository.findByHandleWithFavoriteTeam("@target")).thenReturn(Optional.of(target));
+        when(userBlockRepository.existsBidirectionalBlock(10L, 20L)).thenReturn(false);
+        when(dmRoomRepository.findByParticipantOneIdAndParticipantTwoId(10L, 20L)).thenReturn(Optional.empty());
+        when(userFollowRepository.existsById(any())).thenReturn(true);
+        when(dmRoomRepository.saveAndFlush(any())).thenReturn(createdRoom);
+
+        DmRoomDto.BootstrapResponse response = dmRoomService.bootstrapRoom(10L, DmRoomDto.BootstrapRequest.builder()
+                .targetHandle("@target")
+                .build());
+
+        assertThat(response.getRoomId()).isEqualTo(89L);
+        verify(dmRoomRepository).saveAndFlush(any());
+    }
+
+    @Test
     @DisplayName("block relationship rejects room bootstrap even when room exists")
     void bootstrapRoom_rejectsBlockedRelationship() {
         UserEntity target = targetUser();
 
-        when(userRepository.findByHandle("@target")).thenReturn(Optional.of(target));
+        when(userRepository.findByHandleWithFavoriteTeam("@target")).thenReturn(Optional.of(target));
         when(userBlockRepository.existsBidirectionalBlock(10L, 20L)).thenReturn(true);
 
         assertThatThrownBy(() -> dmRoomService.bootstrapRoom(10L, DmRoomDto.BootstrapRequest.builder()
@@ -136,7 +167,7 @@ class DmRoomServiceTest {
                 .participantTwoId(20L)
                 .build();
 
-        when(userRepository.findByHandle("@target")).thenReturn(Optional.of(target));
+        when(userRepository.findByHandleWithFavoriteTeam("@target")).thenReturn(Optional.of(target));
         when(userBlockRepository.existsBidirectionalBlock(10L, 20L)).thenReturn(false);
         when(dmRoomRepository.findByParticipantOneIdAndParticipantTwoId(10L, 20L)).thenReturn(Optional.of(existingRoom));
 
@@ -180,6 +211,34 @@ class DmRoomServiceTest {
 
         verify(dmRoomRepository).findAccessibleByIdAndParticipantId(88L, 30L);
         verify(userBlockRepository).existsBidirectionalBlock(30L, 40L);
+    }
+
+    @Test
+    @DisplayName("inbox unread state includes inbound messages after the watermark")
+    void getMyRooms_usesUnreadAggregateWhenLatestMessageWasSentByCurrentUser() {
+        DmRoom room = DmRoom.builder()
+                .id(88L)
+                .participantOneId(10L)
+                .participantTwoId(20L)
+                .build();
+        DmMessage latestMessage = DmMessage.builder()
+                .id(120L)
+                .roomId(88L)
+                .senderId(10L)
+                .content("내가 보낸 마지막 메시지")
+                .createdAt(Instant.parse("2026-10-01T10:03:00Z"))
+                .build();
+        when(dmRoomRepository.findAllByParticipantId(10L)).thenReturn(List.of(room));
+        when(dmMessageRepository.findLatestMessagePerRoom(List.of(88L))).thenReturn(List.of(latestMessage));
+        when(dmMessageRepository.findUnreadRoomIdsForParticipant(10L, List.of(88L))).thenReturn(List.of(88L));
+        when(userRepository.findAllById(List.of(20L))).thenReturn(List.of(targetUser()));
+
+        List<DmRoomDto.InboxItem> inbox = dmRoomService.getMyRooms(10L);
+
+        assertThat(inbox).hasSize(1);
+        assertThat(inbox.get(0).isHasUnread()).isTrue();
+        assertThat(inbox.get(0).getLastMessage().getContent()).isEqualTo("내가 보낸 마지막 메시지");
+        verify(dmMessageRepository).findUnreadRoomIdsForParticipant(10L, List.of(88L));
     }
 
     @Test

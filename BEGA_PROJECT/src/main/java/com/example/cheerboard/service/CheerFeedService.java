@@ -263,10 +263,6 @@ public class CheerFeedService {
         }
     }
 
-    private com.example.cheerboard.dto.PostLightweightSummaryRes buildFallbackPostLightweightSummary(CheerPost post) {
-        return buildFallbackPostLightweightSummary(post, Collections.emptyMap(), Collections.emptyMap());
-    }
-
     private com.example.cheerboard.dto.PostLightweightSummaryRes buildFallbackPostLightweightSummary(
             CheerPost post,
             Map<Long, String> feedProfileImageUrls,

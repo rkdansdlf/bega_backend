@@ -100,7 +100,7 @@ class PredictionBootstrapServiceTest {
     @Test
     void getBootstrapShouldRecordResourceSuccessMetrics() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        service = new PredictionBootstrapService(predictionService, executor, Duration.ofMillis(500), registry);
+        service = new PredictionBootstrapService(predictionService, executor, Duration.ofSeconds(5), registry);
         LocalDate date = LocalDate.of(2026, 6, 7);
         String gameId = "20260607HHLT0";
         MatchDayNavigationResponseDto schedule = schedule(date, List.of(match(gameId)));

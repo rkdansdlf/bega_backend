@@ -1,6 +1,7 @@
 package com.example.auth.config;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -9,6 +10,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.assertj.core.api.Assertions.assertThat;
+import com.example.auth.entity.UserEntity;
+import com.example.auth.entity.UserFollow;
+import com.example.auth.repository.UserFollowRepository;
+import com.example.auth.repository.UserRepository;
+import com.example.auth.service.TokenBlacklistService;
+import com.example.auth.service.AccountDeletionService;
+import com.example.auth.dto.AccountDeletionRecoveryInfoDto;
+import com.example.auth.util.JWTUtil;
+import com.example.common.ratelimit.RateLimitService;
+import jakarta.servlet.http.Cookie;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,10 +35,17 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -58,6 +76,44 @@ class SecuritySurfaceHardeningIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private UserFollowRepository userFollowRepository;
+
+    @Autowired
+    private JWTUtil jwtUtil;
+
+    @MockitoBean
+    private TokenBlacklistService tokenBlacklistService;
+
+    @MockitoBean
+    private AccountDeletionService accountDeletionService;
+
+    @MockitoBean
+    private RateLimitService rateLimitService;
+
+    @Test
+    void recoveryInfoAcceptsAnonymousRequestWithStaleAccessCookie() throws Exception {
+        org.mockito.Mockito.when(rateLimitService.isAllowed(
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyInt(),
+                        org.mockito.ArgumentMatchers.anyInt(),
+                        org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(true);
+        org.mockito.Mockito.when(accountDeletionService.getRecoveryInfo("synthetic-token"))
+                .thenReturn(new AccountDeletionRecoveryInfoDto("2099-12-31T09:00:00"));
+
+        mockMvc.perform(post("/api/auth/account/deletion/recovery/info")
+                        .cookie(new Cookie("Authorization", "stale-token"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"synthetic-token\"}"))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(accountDeletionService).getRecoveryInfo("synthetic-token");
+    }
 
     @Test
     @DisplayName("mypage preflight should allow configured production frontend origin")
@@ -104,6 +160,49 @@ class SecuritySurfaceHardeningIntegrationTest {
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"))
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS,
                         Matchers.not(Matchers.containsString("Set-Cookie"))));
+    }
+
+    @Test
+    @DisplayName("test diagnostics require authentication outside the exact local profile")
+    void testDiagnostics_requireAuthenticationOutsideExactLocalProfile() throws Exception {
+        mockMvc.perform(get("/api/test/counts"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("logout CSRF bootstrap requires authentication")
+    void logoutCsrfBootstrap_requiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/auth/logout/csrf")
+                        .header(HttpHeaders.ORIGIN, "https://www.begabaseball.xyz"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+    }
+
+    @Test
+    @DisplayName("logout CSRF bootstrap issues only a browser-readable same-origin cookie")
+    void logoutCsrfBootstrap_issuesCookieForAuthenticatedSameOriginRequest() throws Exception {
+        mockMvc.perform(get("/api/auth/logout/csrf")
+                        .with(authentication(UsernamePasswordAuthenticationToken.authenticated(
+                                42L, null, AuthorityUtils.createAuthorityList("ROLE_USER"))))
+                        .header(HttpHeaders.ORIGIN, "https://www.begabaseball.xyz"))
+                .andExpect(status().isNoContent())
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, Matchers.containsString("XSRF-TOKEN=")))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, Matchers.containsString("Path=/")))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, Matchers.containsString("SameSite=Lax")))
+                .andExpect(header().string(HttpHeaders.SET_COOKIE, Matchers.not(Matchers.containsString("HttpOnly"))))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, Matchers.containsString("no-store")))
+                .andExpect(content().string(""));
+    }
+
+    @Test
+    @DisplayName("logout CSRF bootstrap rejects a foreign same-site referrer without issuing a cookie")
+    void logoutCsrfBootstrap_rejectsForeignReferrer() throws Exception {
+        mockMvc.perform(get("/api/auth/logout/csrf")
+                        .with(authentication(UsernamePasswordAuthenticationToken.authenticated(
+                                42L, null, AuthorityUtils.createAuthorityList("ROLE_USER"))))
+                        .header(HttpHeaders.REFERER, "https://attacker.example/"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
     }
 
     @Test
@@ -180,6 +279,71 @@ class SecuritySurfaceHardeningIntegrationTest {
     void handleBasedPublicProfileRoute_remainsPublic() throws Exception {
         mockMvc.perform(get("/api/users/profile/missing"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("handle-based private profile route denies anonymous viewers")
+    void handleBasedPrivateProfileRoute_deniesAnonymousViewer() throws Exception {
+        UserEntity target = createSyntheticUser("private-route-target", true);
+
+        mockMvc.perform(get("/api/users/profile/{handle}", target.getHandle()))
+                .andExpect(status().isForbidden())
+                .andExpect(content().string(Matchers.not(Matchers.containsString("synthetic-private-bio"))));
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("handle-based private profile route allows the authenticated follower")
+    void handleBasedPrivateProfileRoute_allowsAuthenticatedFollower() throws Exception {
+        UserEntity target = createSyntheticUser("private-route-target", true);
+        UserEntity follower = createSyntheticUser("private-route-follower", false);
+        UserFollow follow = new UserFollow();
+        follow.setId(new UserFollow.Id(follower.getId(), target.getId()));
+        follow.setFollower(follower);
+        follow.setFollowing(target);
+        follow.setNotifyNewPosts(false);
+        userFollowRepository.saveAndFlush(follow);
+
+        mockMvc.perform(get("/api/users/profile/{handle}", target.getHandle())
+                        .with(authentication(UsernamePasswordAuthenticationToken.authenticated(
+                                follower.getId(), null, AuthorityUtils.createAuthorityList("ROLE_USER")))))
+                .andExpect(status().isOk())
+                .andExpect(content().string(Matchers.containsString("synthetic-private-bio")));
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("signed access token reaches private profile authorization with a Long principal")
+    void handleBasedPrivateProfileRoute_acceptsSignedAccessTokenForFollower() throws Exception {
+        UserEntity target = createSyntheticUser("private-jwt-target", true);
+        UserEntity follower = createSyntheticUser("private-jwt-follower", false);
+        UserFollow follow = new UserFollow();
+        follow.setId(new UserFollow.Id(follower.getId(), target.getId()));
+        follow.setFollower(follower);
+        follow.setFollowing(target);
+        follow.setNotifyNewPosts(false);
+        userFollowRepository.saveAndFlush(follow);
+        String accessToken = jwtUtil.createJwt(follower.getEmail(), follower.getRole(), follower.getId(), 60_000L);
+
+        mockMvc.perform(get("/api/users/profile/{handle}", target.getHandle())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(content().string(Matchers.containsString("synthetic-private-bio")));
+    }
+
+    private UserEntity createSyntheticUser(String name, boolean privateAccount) {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        return userRepository.saveAndFlush(UserEntity.builder()
+                .uniqueId(UUID.randomUUID())
+                .handle("@qa" + suffix.substring(0, 8))
+                .name(name)
+                .email(suffix + "@example.invalid")
+                .role("ROLE_USER")
+                .bio("synthetic-private-bio")
+                .privateAccount(privateAccount)
+                .createdAt(LocalDateTime.now())
+                .build());
     }
 
     @Test

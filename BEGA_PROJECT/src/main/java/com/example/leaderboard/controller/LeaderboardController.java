@@ -7,6 +7,7 @@ import com.example.leaderboard.service.PowerupService;
 import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.exception.BadRequestBusinessException;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
@@ -100,7 +101,7 @@ public class LeaderboardController {
     @PreAuthorize("permitAll()")
     public ResponseEntity<List<HotStreakDto>> getHotStreaks(
             @RequestParam(defaultValue = "3") int minStreak,
-            @RequestParam(defaultValue = "10") int limit,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int limit,
             Principal principal
     ) {
         log.debug("Get hot streaks: minStreak={}, limit={}", minStreak, limit);
@@ -114,7 +115,7 @@ public class LeaderboardController {
     @GetMapping("/recent-scores")
     @PreAuthorize("permitAll()")
     public ResponseEntity<List<RecentScoreDto>> getRecentScores(
-            @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int limit,
             Principal principal
     ) {
         log.debug("Get recent scores: limit={}", limit);
@@ -129,8 +130,8 @@ public class LeaderboardController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Page<RecentScoreDto>> getMyScoreHistory(
             Principal principal,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
         Long userId = requireUserId(principal);
 
@@ -179,21 +180,12 @@ public class LeaderboardController {
     public ResponseEntity<PowerupUseResultDto> usePowerup(
             Principal principal,
             @PathVariable String type,
-            @RequestParam(required = false) String gameId,
-            @RequestBody(required = false) Map<String, Object> body
+            @Valid @RequestBody UsePowerupRequest request
     ) {
         Long userId = requireUserId(principal);
 
-        String resolvedGameId = gameId;
-        if (resolvedGameId == null && body != null) {
-            Object value = body.get("gameId");
-            if (value != null) {
-                resolvedGameId = value.toString();
-            }
-        }
-
-        log.info("Use powerup: userId={}, type={}, gameId={}", userId, type, resolvedGameId);
-        Integer remainingCount = powerupService.usePowerup(userId, type, resolvedGameId);
+        log.info("Use powerup: userId={}, type={}, gameId={}", userId, type, request.gameId());
+        Integer remainingCount = powerupService.usePowerup(userId, type, request.gameId());
 
         if (remainingCount != null) {
             return ResponseEntity.ok(PowerupUseResultDto.builder()
@@ -232,7 +224,7 @@ public class LeaderboardController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<AchievementDto>> getRecentAchievements(
             Principal principal,
-            @RequestParam(defaultValue = "5") int limit
+            @RequestParam(defaultValue = "5") @Min(1) @Max(100) int limit
     ) {
         Long userId = requireUserId(principal);
 
@@ -247,7 +239,7 @@ public class LeaderboardController {
     @GetMapping("/achievements/rare")
     @PreAuthorize("permitAll()")
     public ResponseEntity<List<AchievementDto>> getRecentRareAchievements(
-            @RequestParam(defaultValue = "10") int limit
+            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int limit
     ) {
         log.debug("Get recent rare achievements: limit={}", limit);
         List<AchievementDto> achievements = achievementService.getRecentRareAchievements(limit);

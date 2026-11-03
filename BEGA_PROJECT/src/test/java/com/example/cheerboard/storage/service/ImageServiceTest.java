@@ -10,6 +10,7 @@ import com.example.cheerboard.storage.config.StorageConfig;
 import com.example.cheerboard.storage.entity.PostImage;
 import com.example.cheerboard.storage.repository.PostImageRepository;
 import com.example.cheerboard.storage.strategy.StorageStrategy;
+import com.example.cheerboard.storage.strategy.StorageOperationException;
 import com.example.cheerboard.storage.validator.ImageValidator;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.NotFoundBusinessException;
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -34,6 +36,10 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.serializer.SerializationException;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import reactor.core.publisher.Mono;
 
 import java.util.Collections;
@@ -47,6 +53,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -100,9 +107,34 @@ class ImageServiceTest {
     @Mock
     private PublicVisibilityVerifier publicVisibilityVerifier;
 
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
     @BeforeEach
     void setUp() {
         lenient().when(stringRedisTemplate.opsForValue()).thenReturn(stringValueOperations);
+        lenient().when(transactionManager.getTransaction(any(TransactionDefinition.class)))
+                .thenAnswer(invocation -> new SimpleTransactionStatus());
+    }
+
+    @Test
+    @DisplayName("게시글 이미지 수를 세기 전에 게시글 write-lock 조회를 먼저 사용한다")
+    void uploadPostImages_acquiresPostWriteLockBeforeCounting() {
+        UserEntity postOwner = UserEntity.builder().id(1L).role("ROLE_USER").build();
+        CheerPost post = CheerPost.builder().id(100L).author(postOwner).build();
+
+        when(currentUser.get()).thenReturn(postOwner);
+        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.of(post));
+        when(postImageRepo.countByPostId(100L)).thenReturn(0L);
+
+        var result = imageService.uploadPostImages(100L, List.of());
+
+        org.assertj.core.api.Assertions.assertThat(result).isEmpty();
+        InOrder writeOrder = inOrder(postRepo, postImageRepo);
+        writeOrder.verify(postRepo).findByIdForWrite(100L);
+        writeOrder.verify(postImageRepo).countByPostId(100L);
+        verify(postRepo, never()).findById(100L);
+        verify(postImageRepo, never()).save(any(PostImage.class));
     }
 
     @Test
@@ -129,9 +161,98 @@ class ImageServiceTest {
     }
 
     @Test
+    @DisplayName("개별 이미지 삭제가 실패하면 DB 레코드와 URL 캐시 무효화 기회를 보존한다")
+    void deleteImage_preservesRetryStateWhenStorageDeleteFails() {
+        UserEntity owner = UserEntity.builder().id(1L).role("ROLE_USER").build();
+        CheerPost post = CheerPost.builder().id(100L).author(owner).build();
+        PostImage image = PostImage.builder()
+                .id(10L)
+                .post(post)
+                .storagePath("posts/100/demo.webp")
+                .mimeType("image/webp")
+                .bytes(1024L)
+                .isThumbnail(false)
+                .build();
+        when(currentUser.get()).thenReturn(owner);
+        when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
+        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.of(post));
+        when(postImageRepo.findByIdAndPostId(10L, 100L)).thenReturn(Optional.of(image));
+        when(config.getCheerBucket()).thenReturn("cheer");
+        when(storageStrategy.deleteChecked("cheer", "posts/100/demo.webp"))
+                .thenReturn(Mono.error(new StorageOperationException(
+                        StorageOperationException.Kind.TRANSIENT,
+                        "temporary storage failure",
+                        new IllegalStateException("synthetic failure"))));
+
+        assertThrows(StorageOperationException.class, () -> imageService.deleteImage(10L));
+
+        verify(postRepo).findByIdForWrite(100L);
+        verify(postImageRepo).findByIdAndPostId(10L, 100L);
+        verify(storageStrategy).deleteChecked("cheer", "posts/100/demo.webp");
+        verify(postImageRepo, never()).delete(image);
+        verify(cacheManager, never()).getCache(anyString());
+    }
+
+    @Test
+    @DisplayName("개별 이미지 삭제는 게시글 잠금 후 스토리지 삭제 성공 시에만 DB와 URL 캐시를 정리한다")
+    void deleteImage_locksPostAndDeletesStorageBeforeDatabaseRow() {
+        UserEntity owner = UserEntity.builder().id(1L).role("ROLE_USER").build();
+        CheerPost post = CheerPost.builder().id(100L).author(owner).build();
+        PostImage image = PostImage.builder()
+                .id(10L)
+                .post(post)
+                .storagePath("posts/100/demo.webp")
+                .mimeType("image/webp")
+                .bytes(1024L)
+                .isThumbnail(false)
+                .build();
+        when(currentUser.get()).thenReturn(owner);
+        when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
+        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.of(post));
+        when(postImageRepo.findByIdAndPostId(10L, 100L)).thenReturn(Optional.of(image));
+        when(config.getCheerBucket()).thenReturn("cheer");
+        when(storageStrategy.deleteChecked("cheer", "posts/100/demo.webp")).thenReturn(Mono.empty());
+
+        imageService.deleteImage(10L);
+
+        InOrder deletionOrder = inOrder(postRepo, postImageRepo, storageStrategy);
+        deletionOrder.verify(postImageRepo).findById(10L);
+        deletionOrder.verify(postRepo).findByIdForWrite(100L);
+        deletionOrder.verify(postImageRepo).findByIdAndPostId(10L, 100L);
+        deletionOrder.verify(storageStrategy).deleteChecked("cheer", "posts/100/demo.webp");
+        deletionOrder.verify(postImageRepo).delete(image);
+        verify(cacheManager, org.mockito.Mockito.atLeastOnce()).getCache(anyString());
+    }
+
+    @Test
+    @DisplayName("게시글 이미지 삭제 실패는 미완료로 보고하고 재시도 경로를 보존한다")
+    void deleteImagesByPostId_reportsCheckedStorageFailure() {
+        CheerPost post = CheerPost.builder().id(100L).build();
+        PostImage image = PostImage.builder()
+                .id(10L)
+                .post(post)
+                .storagePath("posts/100/demo.webp")
+                .build();
+        when(postImageRepo.findByPostIdOrderByCreatedAtAsc(100L)).thenReturn(List.of(image));
+        when(config.getCheerBucket()).thenReturn("cheer");
+        when(storageStrategy.deleteChecked("cheer", "posts/100/demo.webp"))
+                .thenReturn(Mono.error(new StorageOperationException(
+                        StorageOperationException.Kind.TRANSIENT,
+                        "temporary storage failure",
+                        new IllegalStateException("synthetic failure"))));
+
+        boolean allDeleted = imageService.deleteImagesByPostId(100L);
+
+        org.assertj.core.api.Assertions.assertThat(allDeleted).isFalse();
+        verify(storageStrategy).deleteChecked("cheer", "posts/100/demo.webp");
+        verify(storageStrategy, never()).delete(anyString(), anyString());
+        verify(postImageRepo, never()).delete(image);
+    }
+
+    @Test
     @DisplayName("I-05: 삭제된 게시글의 이미지 목록은 다시 공개되지 않는다")
     void listPostImages_rejectsSoftDeletedPost() {
-        when(postRepo.findById(100L)).thenReturn(Optional.empty());
+        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.empty());
 
         NotFoundBusinessException ex = assertThrows(NotFoundBusinessException.class,
                 () -> imageService.listPostImages(100L));
@@ -145,7 +266,7 @@ class ImageServiceTest {
         UserEntity postOwner = UserEntity.builder().id(1L).role("ROLE_USER").build();
         CheerPost post = CheerPost.builder().id(100L).author(postOwner).build();
 
-        when(postRepo.findById(100L)).thenReturn(Optional.of(post));
+        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.of(post));
         doThrow(new AccessDeniedException("blocked")).when(publicVisibilityVerifier)
                 .validate(postOwner, 2L, "게시글");
 
@@ -169,7 +290,7 @@ class ImageServiceTest {
                 .build();
 
         when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
-        when(postRepo.findById(100L)).thenReturn(Optional.empty());
+        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.empty());
 
         NotFoundBusinessException ex = assertThrows(NotFoundBusinessException.class,
                 () -> imageService.renewSignedUrl(10L));
@@ -196,7 +317,7 @@ class ImageServiceTest {
 
         when(currentUser.get()).thenReturn(attacker);
         when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
-        when(postRepo.findById(100L)).thenReturn(Optional.of(post));
+        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.of(post));
 
         assertThrows(AccessDeniedException.class, () -> imageService.renewSignedUrl(10L));
         verify(storageStrategy, never()).getUrl(org.mockito.ArgumentMatchers.anyString(),
@@ -204,8 +325,106 @@ class ImageServiceTest {
     }
 
     @Test
+    @DisplayName("삭제된 게시글의 썸네일 응답은 signed URL을 발급하지 않는다")
+    void markAsThumbnail_rejectsSoftDeletedPost() {
+        UserEntity postOwner = UserEntity.builder().id(1L).role("ROLE_USER").build();
+        CheerPost deletedPost = CheerPost.builder().id(100L).author(postOwner).build();
+        PostImage image = PostImage.builder()
+                .id(10L)
+                .post(deletedPost)
+                .storagePath("posts/100/demo.webp")
+                .mimeType("image/webp")
+                .bytes(1024L)
+                .isThumbnail(false)
+                .build();
+
+        when(currentUser.get()).thenReturn(postOwner);
+        when(postImageRepo.findById(10L)).thenReturn(Optional.of(image));
+        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.empty());
+
+        NotFoundBusinessException ex = assertThrows(NotFoundBusinessException.class,
+                () -> imageService.markAsThumbnail(10L));
+
+        org.assertj.core.api.Assertions.assertThat(ex.getCode()).isEqualTo("CHEER_POST_NOT_FOUND");
+        verify(postImageRepo, never()).save(any(PostImage.class));
+        verify(storageStrategy, never()).getUrl(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    @DisplayName("피드의 캐시된 이미지 URL도 삭제된 게시글에 대해서는 반환하지 않는다")
+    void getPostImageUrlsByPostIds_doesNotReturnCachedUrlsForSoftDeletedPost() {
+        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.empty());
+
+        var result = imageService.getPostImageUrlsByPostIds(List.of(100L));
+
+        org.assertj.core.api.Assertions.assertThat(result).containsEntry(100L, List.of());
+        verify(stringValueOperations, never()).get("postImageUrls::100");
+        verify(postImageRepo, never()).findByPostIdInOrderByPostIdAscCreatedAtAsc(any());
+        verify(storageStrategy, never()).getUrl(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    @DisplayName("단건 매퍼 이미지 URL도 삭제된 게시글의 stale cache를 반환하지 않는다")
+    void getPostImageUrls_doesNotReturnCachedUrlsForSoftDeletedPost() {
+        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.empty());
+
+        var result = imageService.getPostImageUrls(100L);
+
+        org.assertj.core.api.Assertions.assertThat(result).isEmpty();
+        verify(stringValueOperations, never()).get("postImageUrls::100");
+        verify(storageStrategy, never()).getUrl(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    @DisplayName("URL 조회는 기존 쓰기 트랜잭션을 이어받아 게시글 잠금 재진입 교착을 피한다")
+    void getPostImageUrlsByPostIds_joinsExistingWritableTransaction() {
+        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.of(CheerPost.builder().id(100L).build()));
+        when(stringValueOperations.get("postImageUrls::100")).thenReturn("[]");
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        TransactionSynchronizationManager.setCurrentTransactionReadOnly(false);
+
+        try {
+            var result = imageService.getPostImageUrlsByPostIds(List.of(100L));
+
+            org.assertj.core.api.Assertions.assertThat(result).containsEntry(100L, List.of());
+            verify(transactionManager, never()).getTransaction(any(TransactionDefinition.class));
+        } finally {
+            TransactionSynchronizationManager.setCurrentTransactionReadOnly(false);
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+        }
+    }
+
+    @Test
+    @DisplayName("읽기 전용 호출자는 이미지 URL 발급을 위해 별도 쓰기 트랜잭션을 사용한다")
+    void getPostImageUrlsByPostIds_usesWritableTransactionForReadOnlyCaller() {
+        when(postRepo.findByIdForWrite(100L)).thenReturn(Optional.of(CheerPost.builder().id(100L).build()));
+        when(stringValueOperations.get("postImageUrls::100")).thenReturn("[]");
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        TransactionSynchronizationManager.setCurrentTransactionReadOnly(true);
+
+        try {
+            var result = imageService.getPostImageUrlsByPostIds(List.of(100L));
+
+            org.assertj.core.api.Assertions.assertThat(result).containsEntry(100L, List.of());
+            org.mockito.ArgumentCaptor<TransactionDefinition> definition = org.mockito.ArgumentCaptor
+                    .forClass(TransactionDefinition.class);
+            verify(transactionManager).getTransaction(definition.capture());
+            org.assertj.core.api.Assertions.assertThat(definition.getValue().getPropagationBehavior())
+                    .isEqualTo(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            org.assertj.core.api.Assertions.assertThat(definition.getValue().isReadOnly()).isFalse();
+        } finally {
+            TransactionSynchronizationManager.setCurrentTransactionReadOnly(false);
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+        }
+    }
+
+    @Test
     @DisplayName("I-08: 게시글 이미지 캐시가 손상되어도 DB fallback으로 목록 조회를 계속한다")
     void getPostImageUrlsByPostIds_fallsBackWhenCacheEntryIsCorrupted() {
+        when(postRepo.findByIdForWrite(1L)).thenReturn(Optional.of(CheerPost.builder().id(1L).build()));
         when(stringValueOperations.get("postImageUrls::1")).thenThrow(new SerializationException("broken cache payload"));
         when(postImageRepo.findByPostIdInOrderByPostIdAscCreatedAtAsc(Collections.singletonList(1L)))
                 .thenReturn(Collections.emptyList());
@@ -221,6 +440,7 @@ class ImageServiceTest {
     @Test
     @DisplayName("I-09: 게시글 이미지 캐시 저장이 실패해도 목록 응답은 계속된다")
     void getPostImageUrlsByPostIds_ignoresCacheWriteFailure() {
+        when(postRepo.findByIdForWrite(1L)).thenReturn(Optional.of(CheerPost.builder().id(1L).build()));
         when(stringValueOperations.get("postImageUrls::1")).thenReturn(null);
         when(postImageRepo.findByPostIdInOrderByPostIdAscCreatedAtAsc(Collections.singletonList(1L)))
                 .thenReturn(Collections.emptyList());
@@ -238,6 +458,7 @@ class ImageServiceTest {
     @Test
     @DisplayName("I-10: 단건 이미지 URL 조회는 stale cache payload가 깨져도 DB fallback으로 계속된다")
     void getPostImageUrls_fallsBackWhenCacheEntryIsCorrupted() {
+        when(postRepo.findByIdForWrite(1L)).thenReturn(Optional.of(CheerPost.builder().id(1L).build()));
         when(stringValueOperations.get("postImageUrls::1")).thenThrow(new SerializationException("broken cache payload"));
         when(postImageRepo.findByPostIdOrderByCreatedAtAsc(1L)).thenReturn(Collections.emptyList());
 
@@ -251,6 +472,7 @@ class ImageServiceTest {
     @Test
     @DisplayName("I-11: 단건 이미지 URL 조회는 legacy type wrapper JSON payload도 복구해서 읽는다")
     void getPostImageUrls_readsLegacyTypeWrappedCachePayload() {
+        when(postRepo.findByIdForWrite(1L)).thenReturn(Optional.of(CheerPost.builder().id(1L).build()));
         when(stringValueOperations.get("postImageUrls::1"))
                 .thenReturn("[\"java.util.ArrayList\",[\"https://signed.example/posts/1/demo.webp\"]]");
 
@@ -265,6 +487,7 @@ class ImageServiceTest {
     @Test
     @DisplayName("I-12: 단건 이미지 URL 조회는 빈 JSON 배열 cache payload를 그대로 읽는다")
     void getPostImageUrls_readsEmptyJsonArrayCachePayload() {
+        when(postRepo.findByIdForWrite(1L)).thenReturn(Optional.of(CheerPost.builder().id(1L).build()));
         when(stringValueOperations.get("postImageUrls::1")).thenReturn("[]");
 
         var result = imageService.getPostImageUrls(1L);
@@ -375,6 +598,8 @@ class ImageServiceTest {
 
         when(postImageRepo.findByPostIdInOrderByPostIdAscCreatedAtAsc(List.of(1L, 2L)))
                 .thenReturn(List.of(image1, image2, image3));
+        when(postRepo.findByIdForWrite(1L)).thenReturn(Optional.of(post1));
+        when(postRepo.findByIdForWrite(2L)).thenReturn(Optional.of(post2));
         when(config.getCheerBucket()).thenReturn("cheer-bucket");
         when(storageStrategy.getUrl(eq("cheer-bucket"), eq("posts/1/a.webp"), anyInt()))
                 .thenReturn(Mono.just("signed-1a"));
@@ -383,11 +608,14 @@ class ImageServiceTest {
         when(storageStrategy.getUrl(eq("cheer-bucket"), eq("posts/2/a.webp"), anyInt()))
                 .thenReturn(Mono.just("signed-2a"));
 
-        Map<Long, List<String>> result = imageService.getPostImageUrlsByPostIds(List.of(1L, 2L));
+        Map<Long, List<String>> result = imageService.getPostImageUrlsByPostIds(List.of(2L, 1L));
 
         org.assertj.core.api.Assertions.assertThat(result.get(1L)).containsExactly("signed-1a", "signed-1b");
         org.assertj.core.api.Assertions.assertThat(result.get(2L)).containsExactly("signed-2a");
         org.assertj.core.api.Assertions.assertThat(executor.executeCount()).isEqualTo(3);
+        InOrder lockOrder = inOrder(postRepo);
+        lockOrder.verify(postRepo).findByIdForWrite(1L);
+        lockOrder.verify(postRepo).findByIdForWrite(2L);
     }
 
     @Test

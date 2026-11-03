@@ -16,6 +16,7 @@ import java.util.HexFormat;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -32,7 +33,7 @@ public class OAuthEmailChallengeService {
     private final RateLimitService rateLimitService;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public String issue(String provider, String providerId, String email, String name, String profileImageUrl) {
         repository.deleteByProviderAndProviderId(provider, providerId);
         LocalDateTime now = LocalDateTime.now();
@@ -50,7 +51,7 @@ public class OAuthEmailChallengeService {
         return challenge.getChallengeId();
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public String issueEmailRequired(String provider, String providerId, String name, String profileImageUrl) {
         repository.deleteByProviderAndProviderId(provider, providerId);
         OAuthEmailChallenge challenge = repository.save(OAuthEmailChallenge.builder()

@@ -5,7 +5,7 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Schemas: **290**
+Schemas: **321**
 
 <a id="accountdeletionrecoveryinfodto"></a>
 ## AccountDeletionRecoveryInfoDto
@@ -148,26 +148,39 @@ Schema: `{<br>  "properties" : {<br>    "author" : {<br>      "type" : "string"<
 
 <a id="adminreportactionreq"></a>
 ## AdminReportActionReq
-Schema: `{<br>  "properties" : {<br>    "action" : {<br>      "enum" : [ "TAKE_DOWN", "REQUIRE_MODIFICATION", "WARNING", "DISMISS", "RESTORE" ],<br>      "type" : "string"<br>    },<br>    "adminMemo" : {<br>      "type" : "string"<br>    },<br>    "visibleUntil" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "action" : {<br>      "enum" : [ "TAKE_DOWN", "REQUIRE_MODIFICATION", "WARNING", "DISMISS", "RESTORE" ],<br>      "type" : "string"<br>    },<br>    "adminMemo" : {<br>      "maxLength" : 1000,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "visibleUntil" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `action` | no | `string` | — | — |
-| `adminMemo` | no | `string` | — | — |
+| `adminMemo` | no | `string` | — | minLength=0, maxLength=1000 |
 | `visibleUntil` | no | `string` | — | — |
 
 #### Property metadata: `action`
 - Enum: `TAKE_DOWN`, `REQUIRE_MODIFICATION`, `WARNING`, `DISMISS`, `RESTORE`
 
-<a id="adminreportappealreq"></a>
-## AdminReportAppealReq
-Schema: `{<br>  "properties" : {<br>    "appealReason" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+<a id="adminreportappealdecisionreq"></a>
+## AdminReportAppealDecisionReq
+Schema: `{<br>  "properties" : {<br>    "decision" : {<br>      "enum" : [ "REVIEWING", "ACCEPTED", "REJECTED" ],<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "decision" ],<br>  "type" : "object"<br>}`
+Required properties: `decision`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `appealReason` | no | `string` | — | — |
+| `decision` | yes | `string` | — | — |
+
+#### Property metadata: `decision`
+- Enum: `REVIEWING`, `ACCEPTED`, `REJECTED`
+
+<a id="adminreportappealreq"></a>
+## AdminReportAppealReq
+Schema: `{<br>  "properties" : {<br>    "appealReason" : {<br>      "maxLength" : 1200,<br>      "minLength" : 0,<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `appealReason` | no | `string` | — | minLength=0, maxLength=1200 |
 
 <a id="adminreportdto"></a>
 ## AdminReportDto
@@ -197,18 +210,18 @@ Schema: `{<br>  "properties" : {<br>    "adminAction" : {<br>      "type" : "str
 
 <a id="adminseatviewactionreq"></a>
 ## AdminSeatViewActionReq
-Schema: `{<br>  "properties" : {<br>    "adminLabel" : {<br>      "type" : "string"<br>    },<br>    "adminMemo" : {<br>      "type" : "string"<br>    },<br>    "moderationStatus" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "adminLabel" : {<br>      "type" : "string"<br>    },<br>    "adminMemo" : {<br>      "maxLength" : 1000,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "moderationStatus" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `adminLabel` | no | `string` | — | — |
-| `adminMemo` | no | `string` | — | — |
+| `adminMemo` | no | `string` | — | minLength=0, maxLength=1000 |
 | `moderationStatus` | no | `string` | — | — |
 
 <a id="adminseatviewdto"></a>
 ## AdminSeatViewDto
-Schema: `{<br>  "properties" : {<br>    "adminLabel" : {<br>      "type" : "string"<br>    },<br>    "adminMemo" : {<br>      "type" : "string"<br>    },<br>    "aiConfidence" : {<br>      "format" : "double",<br>      "type" : "number"<br>    },<br>    "aiReason" : {<br>      "type" : "string"<br>    },<br>    "aiSuggestedLabel" : {<br>      "type" : "string"<br>    },<br>    "block" : {<br>      "type" : "string"<br>    },<br>    "diaryDate" : {<br>      "type" : "string"<br>    },<br>    "diaryId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "moderationStatus" : {<br>      "type" : "string"<br>    },<br>    "photoUrl" : {<br>      "type" : "string"<br>    },<br>    "reviewedAt" : {<br>      "type" : "string"<br>    },<br>    "reviewedBy" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "rewardGranted" : {<br>      "type" : "boolean"<br>    },<br>    "seatNumber" : {<br>      "type" : "string"<br>    },<br>    "seatRow" : {<br>      "type" : "string"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "sourceType" : {<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "storagePath" : {<br>      "type" : "string"<br>    },<br>    "ticketVerified" : {<br>      "type" : "boolean"<br>    },<br>    "ticketVerifiedAt" : {<br>      "type" : "string"<br>    },<br>    "userId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "userSelected" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "adminLabel" : {<br>      "type" : "string"<br>    },<br>    "adminMemo" : {<br>      "type" : "string"<br>    },<br>    "aiConfidence" : {<br>      "format" : "double",<br>      "type" : "number"<br>    },<br>    "aiReason" : {<br>      "type" : "string"<br>    },<br>    "aiSuggestedLabel" : {<br>      "type" : "string"<br>    },<br>    "block" : {<br>      "type" : "string"<br>    },<br>    "comment" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "diaryDate" : {<br>      "type" : "string"<br>    },<br>    "diaryId" : {<br>      "format" : "int64",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "moderationStatus" : {<br>      "type" : "string"<br>    },<br>    "photoUrl" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "rating" : {<br>      "format" : "int32",<br>      "type" : [ "integer", "null" ]<br>    },<br>    "reviewedAt" : {<br>      "type" : "string"<br>    },<br>    "reviewedBy" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "rewardGranted" : {<br>      "type" : "boolean"<br>    },<br>    "seatNumber" : {<br>      "type" : "string"<br>    },<br>    "seatRow" : {<br>      "type" : "string"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "sourceType" : {<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "storagePath" : {<br>      "type" : "string"<br>    },<br>    "tags" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "ticketVerified" : {<br>      "type" : "boolean"<br>    },<br>    "ticketVerifiedAt" : {<br>      "type" : "string"<br>    },<br>    "userId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "userSelected" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
@@ -219,11 +232,13 @@ Schema: `{<br>  "properties" : {<br>    "adminLabel" : {<br>      "type" : "stri
 | `aiReason` | no | `string` | — | — |
 | `aiSuggestedLabel` | no | `string` | — | — |
 | `block` | no | `string` | — | — |
+| `comment` | no | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 | `diaryDate` | no | `string` | — | — |
-| `diaryId` | no | `integer (int64)` | — | — |
+| `diaryId` | no | `{<br>  "format" : "int64",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
 | `id` | no | `integer (int64)` | — | — |
 | `moderationStatus` | no | `string` | — | — |
-| `photoUrl` | no | `string` | — | — |
+| `photoUrl` | no | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `rating` | no | `{<br>  "format" : "int32",<br>  "type" : [ "integer", "null" ]<br>}` | — | — |
 | `reviewedAt` | no | `string` | — | — |
 | `reviewedBy` | no | `integer (int64)` | — | — |
 | `rewardGranted` | no | `boolean` | — | — |
@@ -233,6 +248,7 @@ Schema: `{<br>  "properties" : {<br>    "adminLabel" : {<br>      "type" : "stri
 | `sourceType` | no | `string` | — | — |
 | `stadium` | no | `string` | — | — |
 | `storagePath` | no | `string` | — | — |
+| `tags` | no | `array<string>` | — | — |
 | `ticketVerified` | no | `boolean` | — | — |
 | `ticketVerifiedAt` | no | `string` | — | — |
 | `userId` | no | `integer (int64)` | — | — |
@@ -263,6 +279,30 @@ Schema: `{<br>  "properties" : {<br>    "createdAt" : {<br>      "format" : "dat
 | `name` | no | `string` | — | — |
 | `postCount` | no | `integer (int64)` | — | — |
 | `role` | no | `string` | — | — |
+
+<a id="apiresponse"></a>
+## ApiResponse
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : { },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | `{ }` | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
 
 <a id="apiresponseaccountdeletionrecoveryinfodto"></a>
 ## ApiResponseAccountDeletionRecoveryInfoDto
@@ -600,6 +640,30 @@ Includes: `additionalProperties`
 }
 ```
 
+<a id="apiresponsedmmessageresponse"></a>
+## ApiResponseDmMessageResponse
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/DmMessageResponse"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [DmMessageResponse](openapi-schemas.md#dmmessageresponse) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
 <a id="apiresponsefinalizemediauploadresponse"></a>
 ## ApiResponseFinalizeMediaUploadResponse
 Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/FinalizeMediaUploadResponse"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -864,30 +928,6 @@ Includes: `additionalProperties`
 }
 ```
 
-<a id="apiresponselistadminseatviewdto"></a>
-## ApiResponseListAdminSeatViewDto
-Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/AdminSeatViewDto"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
-
-### Properties
-| Property | Required | Schema | Description | Constraints |
-| --- | --- | --- | --- | --- |
-| `code` | no | `string` | — | — |
-| `data` | no | `array<[AdminSeatViewDto](openapi-schemas.md#adminseatviewdto)>` | — | — |
-| `errors` | no | `composition` | — | — |
-| `message` | no | `string` | — | — |
-| `success` | no | `boolean` | — | — |
-
-#### Property composition: `errors`
-Includes: `additionalProperties`
-```json
-{
-  "additionalProperties" : {
-    "type" : "string"
-  },
-  "type" : "object"
-}
-```
-
 <a id="apiresponselistadminuserdto"></a>
 ## ApiResponseListAdminUserDto
 Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/AdminUserDto"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -984,6 +1024,30 @@ Includes: `additionalProperties`
 }
 ```
 
+<a id="apiresponselistdmmessageresponse"></a>
+## ApiResponseListDmMessageResponse
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/DmMessageResponse"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | `array<[DmMessageResponse](openapi-schemas.md#dmmessageresponse)>` | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
 <a id="apiresponselistinboxitem"></a>
 ## ApiResponseListInboxItem
 Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/InboxItem"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -1017,30 +1081,6 @@ Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
 | `data` | no | `array<[OffseasonMovementAdminDto](openapi-schemas.md#offseasonmovementadmindto)>` | — | — |
-| `errors` | no | `composition` | — | — |
-| `message` | no | `string` | — | — |
-| `success` | no | `boolean` | — | — |
-
-#### Property composition: `errors`
-Includes: `additionalProperties`
-```json
-{
-  "additionalProperties" : {
-    "type" : "string"
-  },
-  "type" : "object"
-}
-```
-
-<a id="apiresponselistresponse"></a>
-## ApiResponseListResponse
-Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/Response"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
-
-### Properties
-| Property | Required | Schema | Description | Constraints |
-| --- | --- | --- | --- | --- |
-| `code` | no | `string` | — | — |
-| `data` | no | `array<[Response](openapi-schemas.md#response)>` | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -1280,6 +1320,30 @@ Includes: `additionalProperties`
 }
 ```
 
+<a id="apiresponsematelinkreconciliationcasepagedto"></a>
+## ApiResponseMateLinkReconciliationCasePageDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/MateLinkReconciliationCasePageDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [MateLinkReconciliationCasePageDto](openapi-schemas.md#matelinkreconciliationcasepagedto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
 <a id="apiresponsematepaymentcancelintentresponse"></a>
 ## ApiResponseMatePaymentCancelIntentResponse
 Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/MatePaymentCancelIntentResponse"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -1426,13 +1490,37 @@ Includes: `additionalProperties`
 
 <a id="apiresponsepageadminreportdto"></a>
 ## ApiResponsePageAdminReportDto
-Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PageObject"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PageAdminReportDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
-| `data` | no | [PageObject](openapi-schemas.md#pageobject) | — | — |
+| `data` | no | [PageAdminReportDto](openapi-schemas.md#pageadminreportdto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponsepageadminseatviewdto"></a>
+## ApiResponsePageAdminSeatViewDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PageAdminSeatViewDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [PageAdminSeatViewDto](openapi-schemas.md#pageadminseatviewdto) | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -1450,13 +1538,133 @@ Includes: `additionalProperties`
 
 <a id="apiresponsepageauditlogdto"></a>
 ## ApiResponsePageAuditLogDto
-Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PageObject"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PageAuditLogDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
-| `data` | no | [PageObject](openapi-schemas.md#pageobject) | — | — |
+| `data` | no | [PageAuditLogDto](openapi-schemas.md#pageauditlogdto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponsepaymentintentproviderverificationresultdto"></a>
+## ApiResponsePaymentIntentProviderVerificationResultDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PaymentIntentProviderVerificationResultDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [PaymentIntentProviderVerificationResultDto](openapi-schemas.md#paymentintentproviderverificationresultdto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponsepaymentintentreconciliationpagedto"></a>
+## ApiResponsePaymentIntentReconciliationPageDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PaymentIntentReconciliationPageDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [PaymentIntentReconciliationPageDto](openapi-schemas.md#paymentintentreconciliationpagedto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponsepaymentintentreconciliationresolutionresultdto"></a>
+## ApiResponsePaymentIntentReconciliationResolutionResultDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PaymentIntentReconciliationResolutionResultDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [PaymentIntentReconciliationResolutionResultDto](openapi-schemas.md#paymentintentreconciliationresolutionresultdto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponsepaymentintentreconciliationreviewdto"></a>
+## ApiResponsePaymentIntentReconciliationReviewDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PaymentIntentReconciliationReviewDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [PaymentIntentReconciliationReviewDto](openapi-schemas.md#paymentintentreconciliationreviewdto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponsepayoutholdpagedto"></a>
+## ApiResponsePayoutHoldPageDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/PayoutHoldPageDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [PayoutHoldPageDto](openapi-schemas.md#payoutholdpagedto) | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -1568,15 +1776,15 @@ Includes: `additionalProperties`
 }
 ```
 
-<a id="apiresponseresponse"></a>
-## ApiResponseResponse
-Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/Response"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+<a id="apiresponserolechangeresponsedto"></a>
+## ApiResponseRoleChangeResponseDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/RoleChangeResponseDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
-| `data` | no | [Response](openapi-schemas.md#response) | — | — |
+| `data` | no | [RoleChangeResponseDto](openapi-schemas.md#rolechangeresponsedto) | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -1592,15 +1800,39 @@ Includes: `additionalProperties`
 }
 ```
 
-<a id="apiresponserolechangeresponsedto"></a>
-## ApiResponseRoleChangeResponseDto
-Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/RoleChangeResponseDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+<a id="apiresponseseatviewpreviewdto"></a>
+## ApiResponseSeatViewPreviewDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/SeatViewPreviewDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
-| `data` | no | [RoleChangeResponseDto](openapi-schemas.md#rolechangeresponsedto) | — | — |
+| `data` | no | [SeatViewPreviewDto](openapi-schemas.md#seatviewpreviewdto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponseseatviewsubmissiondto"></a>
+## ApiResponseSeatViewSubmissionDto
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/SeatViewSubmissionDto"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [SeatViewSubmissionDto](openapi-schemas.md#seatviewsubmissiondto) | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -1690,7 +1922,7 @@ Includes: `additionalProperties`
 
 <a id="auditlogdto"></a>
 ## AuditLogDto
-Schema: `{<br>  "properties" : {<br>    "action" : {<br>      "type" : "string"<br>    },<br>    "actionDescription" : {<br>      "type" : "string"<br>    },<br>    "adminEmail" : {<br>      "type" : "string"<br>    },<br>    "adminId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "adminName" : {<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "description" : {<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "newValue" : {<br>      "type" : "string"<br>    },<br>    "oldValue" : {<br>      "type" : "string"<br>    },<br>    "targetUserEmail" : {<br>      "type" : "string"<br>    },<br>    "targetUserId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "targetUserName" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "action" : {<br>      "type" : "string"<br>    },<br>    "actionDescription" : {<br>      "type" : "string"<br>    },<br>    "adminEmail" : {<br>      "type" : "string"<br>    },<br>    "adminId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "adminName" : {<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "description" : {<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "newValue" : {<br>      "type" : "string"<br>    },<br>    "oldValue" : {<br>      "type" : "string"<br>    },<br>    "targetUserEmail" : {<br>      "type" : "string"<br>    },<br>    "targetUserId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "targetUserName" : {<br>      "type" : "string"<br>    }<br>  }<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
@@ -2070,7 +2302,7 @@ Schema: `{<br>  "properties" : {<br>    "author" : {<br>      "type" : "string"<
 
 <a id="createassistantchatmessagerequest"></a>
 ## CreateAssistantChatMessageRequest
-Schema: `{<br>  "properties" : {<br>    "cached" : {<br>      "type" : "boolean"<br>    },<br>    "cancelled" : {<br>      "type" : "boolean"<br>    },<br>    "citations" : {<br>      "$ref" : "#/components/schemas/JsonNode"<br>    },<br>    "content" : {<br>      "maxLength" : 12000,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "errorCode" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "fallbackReason" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "finishReason" : {<br>      "maxLength" : 50,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "intent" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "metadata" : {<br>      "$ref" : "#/components/schemas/JsonNode"<br>    },<br>    "plannerCacheHit" : {<br>      "type" : "boolean"<br>    },<br>    "plannerMode" : {<br>      "maxLength" : 50,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "status" : {<br>      "type" : "string"<br>    },<br>    "strategy" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "toolCalls" : {<br>      "$ref" : "#/components/schemas/JsonNode"<br>    },<br>    "toolExecutionMode" : {<br>      "maxLength" : 50,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "verified" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "required" : [ "content" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "cached" : {<br>      "type" : "boolean"<br>    },<br>    "cancelled" : {<br>      "type" : "boolean"<br>    },<br>    "citations" : { },<br>    "content" : {<br>      "maxLength" : 12000,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "errorCode" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "fallbackReason" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "finishReason" : {<br>      "maxLength" : 50,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "intent" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "metadata" : { },<br>    "plannerCacheHit" : {<br>      "type" : "boolean"<br>    },<br>    "plannerMode" : {<br>      "maxLength" : 50,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "status" : {<br>      "type" : "string"<br>    },<br>    "strategy" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "toolCalls" : { },<br>    "toolExecutionMode" : {<br>      "maxLength" : 50,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "verified" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "required" : [ "content" ],<br>  "type" : "object"<br>}`
 Required properties: `content`
 
 ### Properties
@@ -2078,18 +2310,18 @@ Required properties: `content`
 | --- | --- | --- | --- | --- |
 | `cached` | no | `boolean` | — | — |
 | `cancelled` | no | `boolean` | — | — |
-| `citations` | no | [JsonNode](openapi-schemas.md#jsonnode) | — | — |
+| `citations` | no | `{ }` | — | — |
 | `content` | yes | `string` | — | minLength=0, maxLength=12000 |
 | `errorCode` | no | `string` | — | minLength=0, maxLength=100 |
 | `fallbackReason` | no | `string` | — | minLength=0, maxLength=100 |
 | `finishReason` | no | `string` | — | minLength=0, maxLength=50 |
 | `intent` | no | `string` | — | minLength=0, maxLength=100 |
-| `metadata` | no | [JsonNode](openapi-schemas.md#jsonnode) | — | — |
+| `metadata` | no | `{ }` | — | — |
 | `plannerCacheHit` | no | `boolean` | — | — |
 | `plannerMode` | no | `string` | — | minLength=0, maxLength=50 |
 | `status` | no | `string` | — | — |
 | `strategy` | no | `string` | — | minLength=0, maxLength=100 |
-| `toolCalls` | no | [JsonNode](openapi-schemas.md#jsonnode) | — | — |
+| `toolCalls` | no | `{ }` | — | — |
 | `toolExecutionMode` | no | `string` | — | minLength=0, maxLength=50 |
 | `verified` | no | `boolean` | — | — |
 
@@ -2322,6 +2554,20 @@ Includes: `additionalProperties`
 }
 ```
 
+<a id="dmmessageresponse"></a>
+## DmMessageResponse
+Schema: `{<br>  "properties" : {<br>    "clientMessageId" : {<br>      "type" : "string"<br>    },<br>    "content" : {<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "roomId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "senderId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `clientMessageId` | no | `string` | — | — |
+| `content` | no | `string` | — | — |
+| `createdAt` | no | `string (date-time)` | — | — |
+| `id` | no | `integer (int64)` | — | — |
+| `roomId` | no | `integer (int64)` | — | — |
+| `senderId` | no | `integer (int64)` | — | — |
+
 <a id="embeddedpostdto"></a>
 ## EmbeddedPostDto
 Schema: `{<br>  "properties" : {<br>    "author" : {<br>      "type" : "string"<br>    },<br>    "authorHandle" : {<br>      "type" : "string"<br>    },<br>    "authorProfileImageUrl" : {<br>      "type" : "string"<br>    },<br>    "commentCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "content" : {<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "deleted" : {<br>      "type" : "boolean"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "imageUrls" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "likeCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "linkedContent" : {<br>      "$ref" : "#/components/schemas/LinkedContentRes"<br>    },<br>    "postType" : {<br>      "type" : "string"<br>    },<br>    "repostCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "teamColor" : {<br>      "type" : "string"<br>    },<br>    "teamId" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -2344,6 +2590,26 @@ Schema: `{<br>  "properties" : {<br>    "author" : {<br>      "type" : "string"<
 | `repostCount` | no | `integer (int32)` | — | — |
 | `teamColor` | no | `string` | — | — |
 | `teamId` | no | `string` | — | — |
+
+<a id="event"></a>
+## Event
+Schema: `{<br>  "properties" : {<br>    "candidateAmount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "candidateOrderId" : {<br>      "type" : "string"<br>    },<br>    "candidatePaymentKey" : {<br>      "type" : "string"<br>    },<br>    "candidateStatus" : {<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "eventType" : {<br>      "type" : "string"<br>    },<br>    "evidenceReference" : {<br>      "type" : "string"<br>    },<br>    "recordedBy" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "verifiedAmount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "verifiedOrderId" : {<br>      "type" : "string"<br>    },<br>    "verifiedPaymentKey" : {<br>      "type" : "string"<br>    },<br>    "verifiedStatus" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `candidateAmount` | no | `integer (int32)` | — | — |
+| `candidateOrderId` | no | `string` | — | — |
+| `candidatePaymentKey` | no | `string` | — | — |
+| `candidateStatus` | no | `string` | — | — |
+| `createdAt` | no | `string (date-time)` | — | — |
+| `eventType` | no | `string` | — | — |
+| `evidenceReference` | no | `string` | — | — |
+| `recordedBy` | no | `integer (int64)` | — | — |
+| `verifiedAmount` | no | `integer (int32)` | — | — |
+| `verifiedOrderId` | no | `string` | — | — |
+| `verifiedPaymentKey` | no | `string` | — | — |
+| `verifiedStatus` | no | `string` | — | — |
 
 <a id="featuredmatecarddto"></a>
 ## FeaturedMateCardDto
@@ -2369,13 +2635,13 @@ Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "type" : "string
 
 <a id="finalizemediauploadresponse"></a>
 ## FinalizeMediaUploadResponse
-Schema: `{<br>  "properties" : {<br>    "assetId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "publicUrl" : {<br>      "type" : "string"<br>    },<br>    "storagePath" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "assetId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "publicUrl" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "storagePath" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `assetId` | no | `integer (int64)` | — | — |
-| `publicUrl` | no | `string` | — | — |
+| `publicUrl` | no | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
 | `storagePath` | no | `string` | — | — |
 
 <a id="followcountresponse"></a>
@@ -2829,7 +3095,7 @@ Schema: `{<br>  "properties" : {<br>    "hasUnread" : {<br>      "type" : "boole
 
 <a id="initmediauploadrequest"></a>
 ## InitMediaUploadRequest
-Schema: `{<br>  "properties" : {<br>    "contentLength" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "contentType" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "domain" : {<br>      "enum" : [ "PROFILE", "DIARY", "CHEER", "CHAT" ],<br>      "type" : "string"<br>    },<br>    "fileName" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "height" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "width" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "required" : [ "contentLength", "contentType", "domain", "fileName", "height", "width" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "contentLength" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "contentType" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "domain" : {<br>      "enum" : [ "PROFILE", "DIARY", "SEAT_VIEW", "CHEER", "CHAT" ],<br>      "type" : "string"<br>    },<br>    "fileName" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "height" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "width" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "required" : [ "contentLength", "contentType", "domain", "fileName", "height", "width" ],<br>  "type" : "object"<br>}`
 Required properties: `contentLength`, `contentType`, `domain`, `fileName`, `height`, `width`
 
 ### Properties
@@ -2843,7 +3109,7 @@ Required properties: `contentLength`, `contentType`, `domain`, `fileName`, `heig
 | `width` | yes | `integer (int32)` | — | — |
 
 #### Property metadata: `domain`
-- Enum: `PROFILE`, `DIARY`, `CHEER`, `CHAT`
+- Enum: `PROFILE`, `DIARY`, `SEAT_VIEW`, `CHEER`, `CHAT`
 
 <a id="initmediauploadresponse"></a>
 ## InitMediaUploadResponse
@@ -2987,6 +3253,26 @@ Schema: `{<br>  "properties" : {<br>    "blocking" : {<br>      "type" : "boolea
 | `missingItems` | no | `array<[ManualBaseballDataMissingItem](openapi-schemas.md#manualbaseballdatamissingitem)>` | — | — |
 | `operatorMessage` | no | `string` | — | — |
 | `scope` | no | `string` | — | — |
+
+<a id="markallasreadrequest"></a>
+## MarkAllAsReadRequest
+Schema: `{<br>  "properties" : {<br>    "notificationIds" : {<br>      "items" : {<br>        "format" : "int64",<br>        "type" : "integer"<br>      },<br>      "maxItems" : 100,<br>      "minItems" : 0,<br>      "type" : "array"<br>    }<br>  },<br>  "required" : [ "notificationIds" ],<br>  "type" : "object"<br>}`
+Required properties: `notificationIds`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `notificationIds` | yes | `array<integer (int64)>` | — | minItems=0, maxItems=100 |
+
+<a id="markallasreadresponse"></a>
+## MarkAllAsReadResponse
+Schema: `{<br>  "properties" : {<br>    "notificationIds" : {<br>      "items" : {<br>        "format" : "int64",<br>        "type" : "integer"<br>      },<br>      "type" : "array"<br>    }<br>  },<br>  "required" : [ "notificationIds" ],<br>  "type" : "object"<br>}`
+Required properties: `notificationIds`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `notificationIds` | yes | `array<integer (int64)>` | — | — |
 
 <a id="matchboundsresponsedto"></a>
 ## MatchBoundsResponseDto
@@ -3212,6 +3498,19 @@ Schema: `{<br>  "properties" : {<br>    "data" : {<br>      "format" : "int64",<
 | `data` | no | `integer (int64)` | — | — |
 | `success` | no | `boolean` | — | — |
 
+<a id="matecheckinhistorypageresponse"></a>
+## MateCheckInHistoryPageResponse
+Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/MateCheckInResponse"<br>      },<br>      "type" : "array"<br>    },<br>    "hasNext" : {<br>      "type" : "boolean"<br>    },<br>    "page" : {<br>      "format" : "int32",<br>      "minimum" : 0,<br>      "type" : "integer"<br>    },<br>    "size" : {<br>      "format" : "int32",<br>      "maximum" : 100,<br>      "minimum" : 1,<br>      "type" : "integer"<br>    }<br>  },<br>  "required" : [ "content", "hasNext", "page", "size" ],<br>  "type" : "object"<br>}`
+Required properties: `content`, `hasNext`, `page`, `size`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `content` | yes | `array<[MateCheckInResponse](openapi-schemas.md#matecheckinresponse)>` | — | — |
+| `hasNext` | yes | `boolean` | — | — |
+| `page` | yes | `integer (int32)` | — | minimum=0 |
+| `size` | yes | `integer (int32)` | — | minimum=1, maximum=100 |
+
 <a id="matecheckinqrsessionrequest"></a>
 ## MateCheckInQrSessionRequest
 Schema: `{<br>  "properties" : {<br>    "partyId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    }<br>  },<br>  "required" : [ "partyId" ],<br>  "type" : "object"<br>}`
@@ -3305,6 +3604,36 @@ Schema: `{<br>  "properties" : {<br>    "completedAt" : {<br>      "format" : "d
 
 #### Property metadata: `status`
 - Enum: `PENDING`, `REQUESTED`, `COMPLETED`, `FAILED`, `SKIPPED`, `REFUNDED_AFTER_SETTLEMENT`
+
+<a id="matelinkreconciliationcasedto"></a>
+## MateLinkReconciliationCaseDto
+Schema: `{<br>  "properties" : {<br>    "applicationId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "observedAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "partyId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "paymentTransactionId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "reasonCode" : {<br>      "enum" : [ "PAYMENT_TRANSACTION_MISSING", "PAYMENT_LINK_INCOMPLETE", "APPLICATION_LINK_MISSING", "APPLICATION_LINK_INCOMPLETE", "PARTY_LINK_MISSING", "PARTY_LINK_MISMATCH", "PAYMENT_APPLICATION_LINK_MISMATCH", "PAYMENT_PARTY_LINK_MISMATCH", "PAYMENT_BUYER_LINK_MISMATCH", "PAYMENT_ORDER_LINK_MISMATCH", "PAYMENT_SELLER_LINK_MISMATCH", "PAYOUT_TRANSACTION_MISSING", "PAYOUT_PAYMENT_LINK_MISMATCH", "PAYOUT_SELLER_LINK_MISMATCH" ],<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `applicationId` | no | `integer (int64)` | — | — |
+| `id` | no | `integer (int64)` | — | — |
+| `observedAt` | no | `string (date-time)` | — | — |
+| `partyId` | no | `integer (int64)` | — | — |
+| `paymentTransactionId` | no | `integer (int64)` | — | — |
+| `reasonCode` | no | `string` | — | — |
+
+#### Property metadata: `reasonCode`
+- Enum: `PAYMENT_TRANSACTION_MISSING`, `PAYMENT_LINK_INCOMPLETE`, `APPLICATION_LINK_MISSING`, `APPLICATION_LINK_INCOMPLETE`, `PARTY_LINK_MISSING`, `PARTY_LINK_MISMATCH`, `PAYMENT_APPLICATION_LINK_MISMATCH`, `PAYMENT_PARTY_LINK_MISMATCH`, `PAYMENT_BUYER_LINK_MISMATCH`, `PAYMENT_ORDER_LINK_MISMATCH`, `PAYMENT_SELLER_LINK_MISMATCH`, `PAYOUT_TRANSACTION_MISSING`, `PAYOUT_PAYMENT_LINK_MISMATCH`, `PAYOUT_SELLER_LINK_MISMATCH`
+
+<a id="matelinkreconciliationcasepagedto"></a>
+## MateLinkReconciliationCasePageDto
+Schema: `{<br>  "properties" : {<br>    "items" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/MateLinkReconciliationCaseDto"<br>      },<br>      "type" : "array"<br>    },<br>    "page" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "size" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "totalElements" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "totalPages" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `items` | no | `array<[MateLinkReconciliationCaseDto](openapi-schemas.md#matelinkreconciliationcasedto)>` | — | — |
+| `page` | no | `integer (int32)` | — | — |
+| `size` | no | `integer (int32)` | — | — |
+| `totalElements` | no | `integer (int64)` | — | — |
+| `totalPages` | no | `integer (int32)` | — | — |
 
 <a id="matepartycreaterequest"></a>
 ## MatePartyCreateRequest
@@ -3501,7 +3830,7 @@ Schema: `{<br>  "properties" : {<br>    "cancelReason" : {<br>      "maxLength" 
 
 <a id="matepaymentcancelintentresponse"></a>
 ## MatePaymentCancelIntentResponse
-Schema: `{<br>  "properties" : {<br>    "intentId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "status" : {<br>      "enum" : [ "PREPARED", "CONFIRMED", "APPLICATION_CREATED", "CANCEL_REQUESTED", "CANCELED", "CANCEL_FAILED", "EXPIRED" ],<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "intentId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "status" : {<br>      "enum" : [ "PREPARED", "CONFIRMED", "APPLICATION_CREATED", "CANCEL_REQUESTED", "CANCELED", "CANCEL_FAILED", "RECONCILIATION_REQUIRED", "EXPIRED" ],<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
@@ -3510,7 +3839,7 @@ Schema: `{<br>  "properties" : {<br>    "intentId" : {<br>      "format" : "int6
 | `status` | no | `string` | — | — |
 
 #### Property metadata: `status`
-- Enum: `PREPARED`, `CONFIRMED`, `APPLICATION_CREATED`, `CANCEL_REQUESTED`, `CANCELED`, `CANCEL_FAILED`, `EXPIRED`
+- Enum: `PREPARED`, `CONFIRMED`, `APPLICATION_CREATED`, `CANCEL_REQUESTED`, `CANCELED`, `CANCEL_FAILED`, `RECONCILIATION_REQUIRED`, `EXPIRED`
 
 <a id="matepaymentcapabilityresponse"></a>
 ## MatePaymentCapabilityResponse
@@ -3660,12 +3989,12 @@ Schema: `{<br>  "properties" : {<br>    "createdAt" : {<br>      "format" : "dat
 
 <a id="matesellerpayoutprofileupsertrequest"></a>
 ## MateSellerPayoutProfileUpsertRequest
-Schema: `{<br>  "properties" : {<br>    "kycStatus" : {<br>      "type" : "string"<br>    },<br>    "metadataJson" : {<br>      "type" : "string"<br>    },<br>    "provider" : {<br>      "type" : "string"<br>    },<br>    "providerSellerId" : {<br>      "type" : "string"<br>    },<br>    "userId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "kycStatus" : {<br>      "maxLength" : 50,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "metadataJson" : {<br>      "type" : "string"<br>    },<br>    "provider" : {<br>      "type" : "string"<br>    },<br>    "providerSellerId" : {<br>      "type" : "string"<br>    },<br>    "userId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `kycStatus` | no | `string` | — | — |
+| `kycStatus` | no | `string` | — | minLength=0, maxLength=50 |
 | `metadataJson` | no | `string` | — | — |
 | `provider` | no | `string` | — | — |
 | `providerSellerId` | no | `string` | — | — |
@@ -3757,7 +4086,7 @@ Schema: `{<br>  "properties" : {<br>    "deletedCount" : {<br>      "format" : "
 
 <a id="mediasmokedomainreport"></a>
 ## MediaSmokeDomainReport
-Schema: `{<br>  "properties" : {<br>    "checkedCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "domain" : {<br>      "enum" : [ "PROFILE", "DIARY", "CHEER", "CHAT" ],<br>      "type" : "string"<br>    },<br>    "failedObjectKeys" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "feedDerivativeMissingCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "missingObjectCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "urlFailureCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "checkedCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "domain" : {<br>      "enum" : [ "PROFILE", "DIARY", "SEAT_VIEW", "CHEER", "CHAT" ],<br>      "type" : "string"<br>    },<br>    "failedObjectKeys" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    },<br>    "feedDerivativeMissingCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "missingObjectCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "urlFailureCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
@@ -3770,7 +4099,7 @@ Schema: `{<br>  "properties" : {<br>    "checkedCount" : {<br>      "format" : "
 | `urlFailureCount` | no | `integer (int32)` | — | — |
 
 #### Property metadata: `domain`
-- Enum: `PROFILE`, `DIARY`, `CHEER`, `CHAT`
+- Enum: `PROFILE`, `DIARY`, `SEAT_VIEW`, `CHEER`, `CHAT`
 
 <a id="mediasmokereport"></a>
 ## MediaSmokeReport
@@ -3800,6 +4129,24 @@ Schema: `{<br>  "properties" : {<br>    "awayScore" : {<br>      "format" : "int
 | `rawStatus` | no | `string` | — | — |
 | `reasons` | no | `array<string>` | — | — |
 | `startTime` | no | `string` | — | — |
+
+<a id="notificationresponse"></a>
+## NotificationResponse
+Schema: `{<br>  "properties" : {<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "isRead" : {<br>      "type" : "boolean"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "relatedId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "title" : {<br>      "type" : "string"<br>    },<br>    "type" : {<br>      "enum" : [ "APPLICATION_RECEIVED", "APPLICATION_APPROVED", "APPLICATION_REJECTED", "PARTY_EXPIRED", "PARTY_AUTO_COMPLETED", "GAME_TOMORROW_REMINDER", "GAME_DAY_REMINDER", "HOST_RESPONSE_NUDGE", "REVIEW_REQUEST", "PARTY_CANCELLED_HOST_DELETED", "PARTY_PARTICIPANT_LEFT", "POST_COMMENT", "COMMENT_REPLY", "POST_LIKE", "POST_REPOST", "NEW_FOLLOWER", "FOLLOWING_NEW_POST", "NEW_DEVICE_LOGIN", "RANKING_PREDICTION_SETTLED" ],<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `createdAt` | no | `string (date-time)` | — | — |
+| `id` | no | `integer (int64)` | — | — |
+| `isRead` | no | `boolean` | — | — |
+| `message` | no | `string` | — | — |
+| `relatedId` | no | `integer (int64)` | — | — |
+| `title` | no | `string` | — | — |
+| `type` | no | `string` | — | — |
+
+#### Property metadata: `type`
+- Enum: `APPLICATION_RECEIVED`, `APPLICATION_APPROVED`, `APPLICATION_REJECTED`, `PARTY_EXPIRED`, `PARTY_AUTO_COMPLETED`, `GAME_TOMORROW_REMINDER`, `GAME_DAY_REMINDER`, `HOST_RESPONSE_NUDGE`, `REVIEW_REQUEST`, `PARTY_CANCELLED_HOST_DELETED`, `PARTY_PARTICIPANT_LEFT`, `POST_COMMENT`, `COMMENT_REPLY`, `POST_LIKE`, `POST_REPOST`, `NEW_FOLLOWER`, `FOLLOWING_NEW_POST`, `NEW_DEVICE_LOGIN`, `RANKING_PREDICTION_SETTLED`
 
 <a id="oauthemailchallengeconfirmdto"></a>
 ## OAuthEmailChallengeConfirmDto
@@ -3917,6 +4264,63 @@ Schema: `{<br>  "properties" : {<br>    "draws" : {<br>      "format" : "int32",
 | `winRate` | no | `number (double)` | — | — |
 | `wins` | no | `integer (int32)` | — | — |
 
+<a id="pageadminreportdto"></a>
+## PageAdminReportDto
+Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/AdminReportDto"<br>      },<br>      "type" : "array"<br>    },<br>    "empty" : {<br>      "type" : "boolean"<br>    },<br>    "first" : {<br>      "type" : "boolean"<br>    },<br>    "last" : {<br>      "type" : "boolean"<br>    },<br>    "number" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "numberOfElements" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "pageable" : {<br>      "$ref" : "#/components/schemas/PageableObject"<br>    },<br>    "size" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "sort" : {<br>      "$ref" : "#/components/schemas/SortObject"<br>    },<br>    "totalElements" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "totalPages" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  }<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `content` | no | `array<[AdminReportDto](openapi-schemas.md#adminreportdto)>` | — | — |
+| `empty` | no | `boolean` | — | — |
+| `first` | no | `boolean` | — | — |
+| `last` | no | `boolean` | — | — |
+| `number` | no | `integer (int32)` | — | — |
+| `numberOfElements` | no | `integer (int32)` | — | — |
+| `pageable` | no | [PageableObject](openapi-schemas.md#pageableobject) | — | — |
+| `size` | no | `integer (int32)` | — | — |
+| `sort` | no | [SortObject](openapi-schemas.md#sortobject) | — | — |
+| `totalElements` | no | `integer (int64)` | — | — |
+| `totalPages` | no | `integer (int32)` | — | — |
+
+<a id="pageadminseatviewdto"></a>
+## PageAdminSeatViewDto
+Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/AdminSeatViewDto"<br>      },<br>      "type" : "array"<br>    },<br>    "empty" : {<br>      "type" : "boolean"<br>    },<br>    "first" : {<br>      "type" : "boolean"<br>    },<br>    "last" : {<br>      "type" : "boolean"<br>    },<br>    "number" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "numberOfElements" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "pageable" : {<br>      "$ref" : "#/components/schemas/PageableObject"<br>    },<br>    "size" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "sort" : {<br>      "$ref" : "#/components/schemas/SortObject"<br>    },<br>    "totalElements" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "totalPages" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  }<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `content` | no | `array<[AdminSeatViewDto](openapi-schemas.md#adminseatviewdto)>` | — | — |
+| `empty` | no | `boolean` | — | — |
+| `first` | no | `boolean` | — | — |
+| `last` | no | `boolean` | — | — |
+| `number` | no | `integer (int32)` | — | — |
+| `numberOfElements` | no | `integer (int32)` | — | — |
+| `pageable` | no | [PageableObject](openapi-schemas.md#pageableobject) | — | — |
+| `size` | no | `integer (int32)` | — | — |
+| `sort` | no | [SortObject](openapi-schemas.md#sortobject) | — | — |
+| `totalElements` | no | `integer (int64)` | — | — |
+| `totalPages` | no | `integer (int32)` | — | — |
+
+<a id="pageauditlogdto"></a>
+## PageAuditLogDto
+Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/AuditLogDto"<br>      },<br>      "type" : "array"<br>    },<br>    "empty" : {<br>      "type" : "boolean"<br>    },<br>    "first" : {<br>      "type" : "boolean"<br>    },<br>    "last" : {<br>      "type" : "boolean"<br>    },<br>    "number" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "numberOfElements" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "pageable" : {<br>      "$ref" : "#/components/schemas/PageableObject"<br>    },<br>    "size" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "sort" : {<br>      "$ref" : "#/components/schemas/SortObject"<br>    },<br>    "totalElements" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "totalPages" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  }<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `content` | no | `array<[AuditLogDto](openapi-schemas.md#auditlogdto)>` | — | — |
+| `empty` | no | `boolean` | — | — |
+| `first` | no | `boolean` | — | — |
+| `last` | no | `boolean` | — | — |
+| `number` | no | `integer (int32)` | — | — |
+| `numberOfElements` | no | `integer (int32)` | — | — |
+| `pageable` | no | [PageableObject](openapi-schemas.md#pageableobject) | — | — |
+| `size` | no | `integer (int32)` | — | — |
+| `sort` | no | [SortObject](openapi-schemas.md#sortobject) | — | — |
+| `totalElements` | no | `integer (int64)` | — | — |
+| `totalPages` | no | `integer (int32)` | — | — |
+
 <a id="pagemetadata"></a>
 ## PageMetadata
 Schema: `{<br>  "properties" : {<br>    "number" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "size" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "totalElements" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "totalPages" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -3931,12 +4335,12 @@ Schema: `{<br>  "properties" : {<br>    "number" : {<br>      "format" : "int64"
 
 <a id="pageobject"></a>
 ## PageObject
-Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/AuditLogDto"<br>      },<br>      "type" : "array"<br>    },<br>    "empty" : {<br>      "type" : "boolean"<br>    },<br>    "first" : {<br>      "type" : "boolean"<br>    },<br>    "last" : {<br>      "type" : "boolean"<br>    },<br>    "number" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "numberOfElements" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "pageable" : {<br>      "$ref" : "#/components/schemas/PageableObject"<br>    },<br>    "size" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "sort" : {<br>      "$ref" : "#/components/schemas/SortObject"<br>    },<br>    "totalElements" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "totalPages" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "content" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/AdminSeatViewDto"<br>      },<br>      "type" : "array"<br>    },<br>    "empty" : {<br>      "type" : "boolean"<br>    },<br>    "first" : {<br>      "type" : "boolean"<br>    },<br>    "last" : {<br>      "type" : "boolean"<br>    },<br>    "number" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "numberOfElements" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "pageable" : {<br>      "$ref" : "#/components/schemas/PageableObject"<br>    },<br>    "size" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "sort" : {<br>      "$ref" : "#/components/schemas/SortObject"<br>    },<br>    "totalElements" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "totalPages" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `content` | no | `array<[AuditLogDto](openapi-schemas.md#auditlogdto)>` | — | — |
+| `content` | no | `array<[AdminSeatViewDto](openapi-schemas.md#adminseatviewdto)>` | — | — |
 | `empty` | no | `boolean` | — | — |
 | `first` | no | `boolean` | — | — |
 | `last` | no | `boolean` | — | — |
@@ -4065,6 +4469,109 @@ Required properties: `email`
 | --- | --- | --- | --- | --- |
 | `email` | yes | `string (email)` | — | minLength=1 |
 | `redirect` | no | `string` | — | — |
+
+<a id="paymentintentproviderverificationresultdto"></a>
+## PaymentIntentProviderVerificationResultDto
+Schema: `{<br>  "properties" : {<br>    "outcome" : {<br>      "enum" : [ "VERIFIED", "ALREADY_VERIFIED" ],<br>      "type" : "string"<br>    },<br>    "paymentIntentId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `outcome` | no | `string` | — | — |
+| `paymentIntentId` | no | `integer (int64)` | — | — |
+
+#### Property metadata: `outcome`
+- Enum: `VERIFIED`, `ALREADY_VERIFIED`
+
+<a id="paymentintentreconciliationpagedto"></a>
+## PaymentIntentReconciliationPageDto
+Schema: `{<br>  "properties" : {<br>    "items" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/PaymentIntentReconciliationReviewDto"<br>      },<br>      "type" : "array"<br>    },<br>    "page" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "size" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "totalElements" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "totalPages" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `items` | no | `array<[PaymentIntentReconciliationReviewDto](openapi-schemas.md#paymentintentreconciliationreviewdto)>` | — | — |
+| `page` | no | `integer (int32)` | — | — |
+| `size` | no | `integer (int32)` | — | — |
+| `totalElements` | no | `integer (int64)` | — | — |
+| `totalPages` | no | `integer (int32)` | — | — |
+
+<a id="paymentintentreconciliationresolutionrequest"></a>
+## PaymentIntentReconciliationResolutionRequest
+Schema: `{<br>  "properties" : {<br>    "evidenceReference" : {<br>      "description" : "Opaque administrator audit reference. The server does not dereference or verify this reference.",<br>      "maxLength" : 300,<br>      "minLength" : 0,<br>      "pattern" : "[A-Za-z0-9][A-Za-z0-9._:/-]{0,299}",<br>      "type" : "string"<br>    },<br>    "outcome" : {<br>      "description" : "Administrator-proposed outcome only; this field does not assert a provider-verified result.",<br>      "enum" : [ "VERIFIED_PAYMENT", "VERIFIED_CANCELED", "VERIFIED_REFUNDED" ],<br>      "type" : "string"<br>    },<br>    "verifiedAmount" : {<br>      "description" : "Administrator-submitted candidate amount; must match the internal payment intent.",<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "verifiedOrderId" : {<br>      "description" : "Administrator-submitted candidate order ID; must match the internal payment intent.",<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "verifiedPaymentKey" : {<br>      "description" : "Administrator-submitted candidate payment key; not independently verified by the server.",<br>      "maxLength" : 200,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "verifiedStatus" : {<br>      "description" : "Administrator-submitted candidate provider status; not independently verified by the server.",<br>      "maxLength" : 30,<br>      "minLength" : 0,<br>      "pattern" : "[A-Z_]{1,30}",<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "evidenceReference", "outcome", "verifiedAmount", "verifiedOrderId", "verifiedPaymentKey", "verifiedStatus" ],<br>  "type" : "object"<br>}`
+Required properties: `evidenceReference`, `outcome`, `verifiedAmount`, `verifiedOrderId`, `verifiedPaymentKey`, `verifiedStatus`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `evidenceReference` | yes | `string` | Opaque administrator audit reference. The server does not dereference or verify this reference. | minLength=0, maxLength=300, pattern=`[A-Za-z0-9][A-Za-z0-9._:/-]{0,299}` |
+| `outcome` | yes | `string` | Administrator-proposed outcome only; this field does not assert a provider-verified result. | — |
+| `verifiedAmount` | yes | `integer (int32)` | Administrator-submitted candidate amount; must match the internal payment intent. | — |
+| `verifiedOrderId` | yes | `string` | Administrator-submitted candidate order ID; must match the internal payment intent. | minLength=0, maxLength=100 |
+| `verifiedPaymentKey` | yes | `string` | Administrator-submitted candidate payment key; not independently verified by the server. | minLength=0, maxLength=200 |
+| `verifiedStatus` | yes | `string` | Administrator-submitted candidate provider status; not independently verified by the server. | minLength=0, maxLength=30, pattern=`[A-Z_]{1,30}` |
+
+#### Property metadata: `outcome`
+- Enum: `VERIFIED_PAYMENT`, `VERIFIED_CANCELED`, `VERIFIED_REFUNDED`
+
+<a id="paymentintentreconciliationresolutionresultdto"></a>
+## PaymentIntentReconciliationResolutionResultDto
+Schema: `{<br>  "properties" : {<br>    "awaitingIndependentReview" : {<br>      "description" : "True until a different administrator records the same proposal; this review does not resolve the payment.",<br>      "type" : "boolean"<br>    },<br>    "awaitingTrustedProviderProof" : {<br>      "description" : "Always true for this endpoint until trusted provider proof is independently obtained.",<br>      "type" : "boolean"<br>    },<br>    "outcome" : {<br>      "description" : "The requested proposal type, not a verified provider outcome.",<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `awaitingIndependentReview` | no | `boolean` | True until a different administrator records the same proposal; this review does not resolve the payment. | — |
+| `awaitingTrustedProviderProof` | no | `boolean` | Always true for this endpoint until trusted provider proof is independently obtained. | — |
+| `outcome` | no | `string` | The requested proposal type, not a verified provider outcome. | — |
+
+<a id="paymentintentreconciliationreviewdto"></a>
+## PaymentIntentReconciliationReviewDto
+Schema: `{<br>  "properties" : {<br>    "candidateAmount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "candidateOrderId" : {<br>      "type" : "string"<br>    },<br>    "candidatePaymentKey" : {<br>      "type" : "string"<br>    },<br>    "candidateStatus" : {<br>      "type" : "string"<br>    },<br>    "currency" : {<br>      "type" : "string"<br>    },<br>    "detectedAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "events" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/Event"<br>      },<br>      "type" : "array"<br>    },<br>    "expectedAmount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "intentId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "orderId" : {<br>      "type" : "string"<br>    },<br>    "requestedPaymentKey" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `candidateAmount` | no | `integer (int32)` | — | — |
+| `candidateOrderId` | no | `string` | — | — |
+| `candidatePaymentKey` | no | `string` | — | — |
+| `candidateStatus` | no | `string` | — | — |
+| `currency` | no | `string` | — | — |
+| `detectedAt` | no | `string (date-time)` | — | — |
+| `events` | no | `array<[Event](openapi-schemas.md#event)>` | — | — |
+| `expectedAmount` | no | `integer (int32)` | — | — |
+| `intentId` | no | `integer (int64)` | — | — |
+| `orderId` | no | `string` | — | — |
+| `requestedPaymentKey` | no | `string` | — | — |
+
+<a id="payoutholddto"></a>
+## PayoutHoldDto
+Schema: `{<br>  "properties" : {<br>    "paymentTransactionId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "payoutId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "reasonCode" : {<br>      "type" : "string"<br>    },<br>    "status" : {<br>      "enum" : [ "PENDING", "REQUESTED", "COMPLETED", "FAILED", "SKIPPED", "REFUNDED_AFTER_SETTLEMENT" ],<br>      "type" : "string"<br>    },<br>    "updatedAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `paymentTransactionId` | no | `integer (int64)` | — | — |
+| `payoutId` | no | `integer (int64)` | — | — |
+| `reasonCode` | no | `string` | — | — |
+| `status` | no | `string` | — | — |
+| `updatedAt` | no | `string (date-time)` | — | — |
+
+#### Property metadata: `status`
+- Enum: `PENDING`, `REQUESTED`, `COMPLETED`, `FAILED`, `SKIPPED`, `REFUNDED_AFTER_SETTLEMENT`
+
+<a id="payoutholdpagedto"></a>
+## PayoutHoldPageDto
+Schema: `{<br>  "properties" : {<br>    "items" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/PayoutHoldDto"<br>      },<br>      "type" : "array"<br>    },<br>    "page" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "size" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "totalElements" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "totalPages" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `items` | no | `array<[PayoutHoldDto](openapi-schemas.md#payoutholddto)>` | — | — |
+| `page` | no | `integer (int32)` | — | — |
+| `size` | no | `integer (int32)` | — | — |
+| `totalElements` | no | `integer (int64)` | — | — |
+| `totalPages` | no | `integer (int32)` | — | — |
 
 <a id="pitcherdto"></a>
 ## PitcherDto
@@ -4767,28 +5274,14 @@ Required properties: `content`, `roomId`
 | `content` | yes | `string` | — | minLength=0, maxLength=1000 |
 | `roomId` | yes | `integer (int64)` | — | — |
 
-<a id="response"></a>
-## Response
-Schema: `{<br>  "properties" : {<br>    "clientMessageId" : {<br>      "type" : "string"<br>    },<br>    "content" : {<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "roomId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "senderId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
-
-### Properties
-| Property | Required | Schema | Description | Constraints |
-| --- | --- | --- | --- | --- |
-| `clientMessageId` | no | `string` | — | — |
-| `content` | no | `string` | — | — |
-| `createdAt` | no | `string (date-time)` | — | — |
-| `id` | no | `integer (int64)` | — | — |
-| `roomId` | no | `integer (int64)` | — | — |
-| `senderId` | no | `integer (int64)` | — | — |
-
 <a id="rolechangerequestdto"></a>
 ## RoleChangeRequestDto
-Schema: `{<br>  "properties" : {<br>    "reason" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "reason" : {<br>      "maxLength" : 500,<br>      "minLength" : 0,<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `reason` | no | `string` | — | — |
+| `reason` | no | `string` | — | minLength=0, maxLength=500 |
 
 <a id="rolechangeresponsedto"></a>
 ## RoleChangeResponseDto
@@ -4828,16 +5321,28 @@ Schema: `{<br>  "properties" : {<br>    "sourceTypes" : {<br>      "items" : {<b
 
 <a id="seatviewphotodto"></a>
 ## SeatViewPhotoDto
-Schema: `{<br>  "properties" : {<br>    "block" : {<br>      "type" : "string"<br>    },<br>    "diaryDate" : {<br>      "type" : "string"<br>    },<br>    "photoUrl" : {<br>      "type" : "string"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "block" : {<br>      "type" : "string"<br>    },<br>    "comment" : {<br>      "type" : "string"<br>    },<br>    "diaryDate" : {<br>      "type" : "string"<br>    },<br>    "photoUrl" : {<br>      "type" : "string"<br>    },<br>    "rating" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "tags" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    }<br>  },<br>  "type" : "object"<br>}`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `block` | no | `string` | — | — |
+| `comment` | no | `string` | — | — |
 | `diaryDate` | no | `string` | — | — |
 | `photoUrl` | no | `string` | — | — |
+| `rating` | no | `integer (int32)` | — | — |
 | `section` | no | `string` | — | — |
 | `stadium` | no | `string` | — | — |
+| `tags` | no | `array<string>` | — | — |
+
+<a id="seatviewpreviewdto"></a>
+## SeatViewPreviewDto
+Schema: `{<br>  "properties" : {<br>    "photoUrl" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `photoUrl` | no | `string` | — | — |
 
 <a id="seatviewrewarddto"></a>
 ## SeatViewRewardDto
@@ -4859,6 +5364,47 @@ Schema: `{<br>  "properties" : {<br>    "candidateIds" : {<br>      "items" : {<
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
 | `candidateIds` | no | `array<integer (int64)>` | — | — |
+
+<a id="seatviewsubmissiondto"></a>
+## SeatViewSubmissionDto
+Schema: `{<br>  "properties" : {<br>    "aiConfidence" : {<br>      "format" : "double",<br>      "type" : "number"<br>    },<br>    "aiSuggestedLabel" : {<br>      "type" : "string"<br>    },<br>    "block" : {<br>      "type" : "string"<br>    },<br>    "comment" : {<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "moderationStatus" : {<br>      "type" : "string"<br>    },<br>    "photoUrl" : {<br>      "type" : [ "string", "null" ]<br>    },<br>    "rating" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "seatNumber" : {<br>      "type" : "string"<br>    },<br>    "seatRow" : {<br>      "type" : "string"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "sourceType" : {<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "storagePath" : {<br>      "type" : "string"<br>    },<br>    "tags" : {<br>      "items" : {<br>        "type" : "string"<br>      },<br>      "type" : "array"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `aiConfidence` | no | `number (double)` | — | — |
+| `aiSuggestedLabel` | no | `string` | — | — |
+| `block` | no | `string` | — | — |
+| `comment` | no | `string` | — | — |
+| `id` | no | `integer (int64)` | — | — |
+| `moderationStatus` | no | `string` | — | — |
+| `photoUrl` | no | `{<br>  "type" : [ "string", "null" ]<br>}` | — | — |
+| `rating` | no | `integer (int32)` | — | — |
+| `seatNumber` | no | `string` | — | — |
+| `seatRow` | no | `string` | — | — |
+| `section` | no | `string` | — | — |
+| `sourceType` | no | `string` | — | — |
+| `stadium` | no | `string` | — | — |
+| `storagePath` | no | `string` | — | — |
+| `tags` | no | `array<string>` | — | — |
+
+<a id="seatviewsubmissionrequest"></a>
+## SeatViewSubmissionRequest
+Schema: `{<br>  "properties" : {<br>    "block" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "comment" : {<br>      "maxLength" : 140,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "rating" : {<br>      "format" : "int32",<br>      "maximum" : 5,<br>      "minimum" : 1,<br>      "type" : "integer"<br>    },<br>    "seatNumber" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "seatRow" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "section" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "maxLength" : 100,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "storagePath" : {<br>      "maxLength" : 2048,<br>      "minLength" : 0,<br>      "type" : "string"<br>    },<br>    "tags" : {<br>      "items" : {<br>        "maxLength" : 40,<br>        "minLength" : 0,<br>        "type" : "string"<br>      },<br>      "maxItems" : 12,<br>      "minItems" : 0,<br>      "type" : "array"<br>    }<br>  },<br>  "required" : [ "rating", "stadium", "storagePath" ],<br>  "type" : "object"<br>}`
+Required properties: `rating`, `stadium`, `storagePath`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `block` | no | `string` | — | minLength=0, maxLength=100 |
+| `comment` | no | `string` | — | minLength=0, maxLength=140 |
+| `rating` | yes | `integer (int32)` | — | minimum=1, maximum=5 |
+| `seatNumber` | no | `string` | — | minLength=0, maxLength=100 |
+| `seatRow` | no | `string` | — | minLength=0, maxLength=100 |
+| `section` | no | `string` | — | minLength=0, maxLength=100 |
+| `stadium` | yes | `string` | — | minLength=0, maxLength=100 |
+| `storagePath` | yes | `string` | — | minLength=0, maxLength=2048 |
+| `tags` | no | `array<string>` | — | minItems=0, maxItems=12 |
 
 <a id="signedurldto"></a>
 ## SignedUrlDto
@@ -5094,12 +5640,13 @@ Schema: `{<br>  "properties" : {<br>    "isActive" : {<br>      "type" : "boolea
 
 <a id="teamuseranswersdto"></a>
 ## TeamUserAnswersDto
-Schema: `{<br>  "properties" : {<br>    "answers" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    }<br>  },<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "answers" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    }<br>  },<br>  "required" : [ "answers" ],<br>  "type" : "object"<br>}`
+Required properties: `answers`
 
 ### Properties
 | Property | Required | Schema | Description | Constraints |
 | --- | --- | --- | --- | --- |
-| `answers` | no | `composition` | — | — |
+| `answers` | yes | `composition` | — | — |
 
 #### Property composition: `answers`
 Includes: `additionalProperties`
@@ -5171,6 +5718,16 @@ Required properties: `content`
 
 #### Property metadata: `shareMode`
 - Enum: `INTERNAL_REPOST`, `INTERNAL_QUOTE`, `EXTERNAL_LINK`, `EXTERNAL_COPY`, `EXTERNAL_EMBED`, `EXTERNAL_SUMMARY`
+
+<a id="usepoweruprequest"></a>
+## UsePowerupRequest
+Schema: `{<br>  "properties" : {<br>    "gameId" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "gameId" ],<br>  "type" : "object"<br>}`
+Required properties: `gameId`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `gameId` | yes | `string` | — | minLength=1 |
 
 <a id="userfollowsummarydto"></a>
 ## UserFollowSummaryDto

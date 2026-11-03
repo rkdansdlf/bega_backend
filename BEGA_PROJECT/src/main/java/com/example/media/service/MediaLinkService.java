@@ -8,6 +8,8 @@ import com.example.media.entity.MediaDomain;
 import com.example.media.entity.MediaLinkRole;
 import com.example.media.repository.MediaAssetLinkRepository;
 import com.example.media.repository.MediaAssetRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -27,10 +29,32 @@ public class MediaLinkService {
 
     private final MediaAssetRepository mediaAssetRepository;
     private final MediaAssetLinkRepository mediaAssetLinkRepository;
+    private final EntityManager entityManager;
 
     @Transactional
     public ProfileLinkResult syncProfileLinks(Long userId, String profileKey) {
+        if (profileKey != null && !profileKey.isBlank()) {
+            resolveReadyAssets(userId, MediaDomain.PROFILE, List.of(profileKey));
+        }
+        entityManager.flush();
+        Set<Long> lockedIds = new java.util.TreeSet<>();
+        mediaAssetLinkRepository.findByDomainAndEntityId(MediaDomain.PROFILE, userId)
+                .forEach(link -> lockedIds.add(link.getAssetId()));
+        List<String> keys = profileKey == null ? List.of() : normalizeManagedKeys(MediaDomain.PROFILE, List.of(profileKey));
+        if (!keys.isEmpty()) {
+            List<Long> primaryIds = mediaAssetRepository.findIdsByObjectKeyInOrderById(keys);
+            lockedIds.addAll(primaryIds);
+            for (Long primaryId : primaryIds) {
+                mediaAssetRepository.findById(primaryId).map(MediaAsset::getDerivedFrom)
+                        .map(MediaAsset::getId).ifPresent(lockedIds::add);
+                mediaAssetRepository.findByDerivedFrom_Id(primaryId).map(MediaAsset::getId).ifPresent(lockedIds::add);
+            }
+        }
+        lockAssetIds(lockedIds);
         List<MediaAssetLink> existingLinks = mediaAssetLinkRepository.findByDomainAndEntityId(MediaDomain.PROFILE, userId);
+        if (existingLinks.stream().anyMatch(link -> !lockedIds.contains(link.getAssetId()))) {
+            throw new BadRequestBusinessException("MEDIA_ASSET_NOT_READY", "이미지 상태가 변경되었습니다. 다시 시도해주세요.");
+        }
         Map<Long, MediaAssetLink> existingByAssetId = new LinkedHashMap<>();
         for (MediaAssetLink link : existingLinks) {
             existingByAssetId.put(link.getAssetId(), link);
@@ -45,6 +69,16 @@ public class MediaLinkService {
 
         Map<String, MediaAsset> readyAssets = resolveReadyAssets(userId, MediaDomain.PROFILE, List.of(profileKey));
         MediaAsset primaryAsset = readyAssets.get(profileKey);
+        if (primaryAsset != null && !lockedIds.contains(primaryAsset.getId())) {
+            throw new BadRequestBusinessException("MEDIA_ASSET_NOT_READY", "이미지 상태가 변경되었습니다. 다시 시도해주세요.");
+        }
+        if (primaryAsset != null && primaryAsset.getDerivedFrom() != null
+                && (!lockedIds.contains(primaryAsset.getDerivedFrom().getId())
+                    || primaryAsset.getDerivedFrom().getStatus() != MediaAssetStatus.READY
+                    || primaryAsset.getDerivedFrom().getDomain() != MediaDomain.PROFILE
+                    || !Objects.equals(primaryAsset.getDerivedFrom().getOwnerUserId(), userId))) {
+            throw new BadRequestBusinessException("MEDIA_ASSET_NOT_READY", "이미지 상태가 변경되었습니다. 다시 시도해주세요.");
+        }
         if (primaryAsset == null) {
             for (MediaAssetLink link : existingLinks) {
                 mediaAssetLinkRepository.delete(link);
@@ -53,6 +87,14 @@ public class MediaLinkService {
         }
 
         Optional<MediaAsset> feedAsset = mediaAssetRepository.findByDerivedFrom_Id(primaryAsset.getId());
+        if (feedAsset.isPresent()) {
+            MediaAsset feed = feedAsset.get();
+            if (!lockedIds.contains(feed.getId()) || feed.getStatus() != MediaAssetStatus.READY
+                    || feed.getDomain() != MediaDomain.PROFILE || !Objects.equals(feed.getOwnerUserId(), userId)
+                    || feed.getObjectKey() == null || feed.getObjectKey().isBlank()) {
+                throw new BadRequestBusinessException("MEDIA_ASSET_NOT_READY", "이미지 상태가 변경되었습니다. 다시 시도해주세요.");
+            }
+        }
         Set<Long> desiredAssetIds = new LinkedHashSet<>();
         desiredAssetIds.add(primaryAsset.getId());
         feedAsset.map(MediaAsset::getId).ifPresent(desiredAssetIds::add);
@@ -75,22 +117,76 @@ public class MediaLinkService {
 
     @Transactional
     public void syncDiaryLinks(Long diaryId, Long userId, List<String> storagePaths) {
-        syncLinks(MediaDomain.DIARY, diaryId, userId, storagePaths, MediaLinkRole.DIARY_PHOTO);
+        Set<Long> lockedIds = lockAssetsForLink(MediaDomain.DIARY, diaryId, storagePaths);
+        syncLinks(MediaDomain.DIARY, diaryId, userId, storagePaths, MediaLinkRole.DIARY_PHOTO, lockedIds);
+    }
+
+    @Transactional
+    public void linkSeatViewAsset(Long userId, String storagePath, Long seatViewId) {
+        Set<Long> lockedIds = lockAssetsForLink(MediaDomain.SEAT_VIEW, seatViewId, List.of(storagePath));
+        Map<String, MediaAsset> readyAssets = resolveReadyAssets(
+                userId,
+                MediaDomain.SEAT_VIEW,
+                List.of(storagePath));
+        MediaAsset asset = readyAssets.get(storagePath);
+        if (asset == null || !lockedIds.contains(asset.getId())) {
+            throw new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요.");
+        }
+        createOrValidateLink(asset, MediaDomain.SEAT_VIEW, seatViewId, MediaLinkRole.SEAT_VIEW_PHOTO);
+    }
+
+    public MediaAsset requireLinkedSeatViewAsset(Long userId, String storagePath, Long seatViewId) {
+        Map<String, MediaAsset> readyAssets = resolveReadyAssets(
+                userId,
+                MediaDomain.SEAT_VIEW,
+                List.of(storagePath));
+        MediaAsset asset = readyAssets.get(storagePath);
+        if (asset == null || mediaAssetLinkRepository.findById(asset.getId())
+                .filter(link -> link.getDomain() == MediaDomain.SEAT_VIEW)
+                .filter(link -> Objects.equals(link.getEntityId(), seatViewId))
+                .filter(link -> link.getRole() == MediaLinkRole.SEAT_VIEW_PHOTO)
+                .isEmpty()) {
+            throw new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요.");
+        }
+        return asset;
     }
 
     @Transactional
     public void syncCheerLinks(Long postId, Long userId, List<String> storagePaths) {
-        syncLinks(MediaDomain.CHEER, postId, userId, storagePaths, MediaLinkRole.CHEER_IMAGE);
+        Set<Long> lockedIds = lockAssetsForLink(MediaDomain.CHEER, postId, storagePaths);
+        syncLinks(MediaDomain.CHEER, postId, userId, storagePaths, MediaLinkRole.CHEER_IMAGE, lockedIds);
+    }
+
+    private Set<Long> lockAssetsForLink(MediaDomain domain, Long entityId, Collection<String> storagePaths) {
+        entityManager.flush();
+        Set<Long> assetIds = new java.util.TreeSet<>();
+        mediaAssetLinkRepository.findByDomainAndEntityId(domain, entityId)
+                .forEach(link -> assetIds.add(link.getAssetId()));
+        List<String> keys = normalizeManagedKeys(domain, storagePaths);
+        if (!keys.isEmpty()) assetIds.addAll(mediaAssetRepository.findIdsByObjectKeyInOrderById(keys));
+        lockAssetIds(assetIds);
+        return assetIds;
+    }
+
+    private void lockAssetIds(Set<Long> assetIds) {
+        for (Long id : assetIds) {
+            MediaAsset asset = mediaAssetRepository.findByIdForUpdate(id)
+                    .orElseThrow(() -> new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요."));
+            entityManager.refresh(asset, LockModeType.PESSIMISTIC_WRITE);
+        }
     }
 
     @Transactional
     public void syncChatLink(Long messageId, Long userId, String storagePath) {
+        List<String> paths = storagePath == null || storagePath.isBlank() ? List.of() : List.of(storagePath);
+        Set<Long> lockedIds = lockAssetsForLink(MediaDomain.CHAT, messageId, paths);
         syncLinks(
                 MediaDomain.CHAT,
                 messageId,
                 userId,
-                storagePath == null || storagePath.isBlank() ? List.of() : List.of(storagePath),
-                MediaLinkRole.CHAT_IMAGE);
+                paths,
+                MediaLinkRole.CHAT_IMAGE,
+                lockedIds);
     }
 
     public Map<String, MediaAsset> resolveReadyAssets(Long userId, MediaDomain domain, Collection<String> storagePaths) {
@@ -141,13 +237,25 @@ public class MediaLinkService {
             Long userId,
             Collection<String> storagePaths,
             MediaLinkRole role) {
+        syncLinks(domain, entityId, userId, storagePaths, role, null);
+    }
+
+    private void syncLinks(
+            MediaDomain domain, Long entityId, Long userId, Collection<String> storagePaths,
+            MediaLinkRole role, Set<Long> lockedIds) {
         List<MediaAssetLink> existingLinks = mediaAssetLinkRepository.findByDomainAndEntityId(domain, entityId);
+        if (lockedIds != null && existingLinks.stream().anyMatch(link -> !lockedIds.contains(link.getAssetId()))) {
+            throw new BadRequestBusinessException("MEDIA_ASSET_NOT_READY", "이미지 상태가 변경되었습니다. 다시 시도해주세요.");
+        }
         Map<Long, MediaAssetLink> existingByAssetId = new LinkedHashMap<>();
         for (MediaAssetLink link : existingLinks) {
             existingByAssetId.put(link.getAssetId(), link);
         }
 
         Map<String, MediaAsset> readyAssets = resolveReadyAssets(userId, domain, storagePaths);
+        if (lockedIds != null && readyAssets.values().stream().anyMatch(asset -> !lockedIds.contains(asset.getId()))) {
+            throw new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요.");
+        }
         Set<Long> desiredAssetIds = new LinkedHashSet<>();
         for (MediaAsset asset : readyAssets.values()) {
             desiredAssetIds.add(asset.getId());

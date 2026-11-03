@@ -51,10 +51,13 @@ public class UserProfileDto {
 
     private String provider;
     private String providerId;
-    private boolean hasPassword;
+    @Builder.Default
+    private Boolean hasPassword = false;
 
-    private boolean policyConsentRequired;
-    private boolean policyConsentNoticeRequired;
+    @Builder.Default
+    private Boolean policyConsentRequired = false;
+    @Builder.Default
+    private Boolean policyConsentNoticeRequired = false;
     private List<String> missingPolicyTypes;
     private String policyConsentEffectiveDate;
     private String policyConsentHardGateDate;

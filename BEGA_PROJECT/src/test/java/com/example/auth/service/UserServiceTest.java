@@ -1,6 +1,7 @@
 package com.example.auth.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,11 +10,13 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.mockito.ArgumentCaptor;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.entity.UserProvider;
 import com.example.auth.dto.PublicUserProfileDto;
@@ -44,6 +47,12 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -51,7 +60,11 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -292,6 +305,22 @@ class UserServiceTest {
     }
 
     @Test
+    void changePassword_setsPasswordForPasswordlessSocialAccount() {
+        UserEntity user = baseUser(null);
+        user.setProvider("GOOGLE");
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.encode("new-password")).thenReturn("encoded-new-password");
+
+        userService.changePassword(1L, null, "new-password");
+
+        assertEquals("encoded-new-password", user.getPassword());
+        assertEquals(1, user.getTokenVersion());
+        verify(bCryptPasswordEncoder, never()).matches(any(), any());
+        verify(userRepository).save(user);
+        verify(refreshRepository).deleteByEmail("user@example.com");
+    }
+
+    @Test
     void checkAndApplyDailyLoginBonus_awardsPointsOnlyOncePerDay() {
         UserEntity user = baseUser(null);
         user.setCheerPoints(10);
@@ -338,7 +367,7 @@ class UserServiceTest {
     void unlinkProvider_removesProviderWhenPasswordExists() {
         UserEntity user = baseUser(null);
         user.setPassword("encoded-password");
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForWrite(1L)).thenReturn(Optional.of(user));
 
         userService.unlinkProvider(1L, "google");
 
@@ -350,7 +379,7 @@ class UserServiceTest {
     void unlinkProvider_throwsWhenLastProviderAndNoPassword() {
         UserEntity user = baseUser(null);
         user.setPassword(null);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForWrite(1L)).thenReturn(Optional.of(user));
         when(userProviderRepository.findByUserId(1L))
                 .thenReturn(List.of(buildProvider(user, "kakao")));
 
@@ -522,6 +551,142 @@ class UserServiceTest {
     }
 
     @Test
+    void signUp_evictsPreviouslyCachedMissingLoginEmail() {
+        when(userRepository.findLoginPasswordByEmail("new@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+        when(userRepository.existsByHandle("@newbie")).thenReturn(false);
+        when(bCryptPasswordEncoder.encode("raw-password")).thenReturn("ENCODED");
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("NEW@example.com", "raw-password"));
+
+        UserDto dto = UserDto.builder()
+                .name("tester")
+                .handle("@newbie")
+                .email("NEW@Example.com")
+                .password("raw-password")
+                .favoriteTeam(null)
+                .provider("LOCAL")
+                .build();
+        userService.signUp(dto);
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("new@example.com", "raw-password"));
+
+        verify(userRepository, times(2)).findLoginPasswordByEmail("new@example.com");
+        verify(bCryptPasswordEncoder, times(2)).matches("raw-password", null);
+        verify(userRepository).save(any(UserEntity.class));
+    }
+
+    @Test
+    void signUpInvalidatesMissingLoginCacheAfterTransactionCommit() {
+        when(userRepository.findLoginPasswordByEmail("new@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+        when(userRepository.existsByHandle("@newbie")).thenReturn(false);
+        when(bCryptPasswordEncoder.encode("raw-password")).thenReturn("ENCODED");
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("new@example.com", "raw-password"));
+
+        TransactionSynchronizationManager.initSynchronization();
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        try {
+            UserDto dto = UserDto.builder()
+                    .name("tester")
+                    .handle("@newbie")
+                    .email("NEW@Example.com")
+                    .password("raw-password")
+                    .favoriteTeam(null)
+                    .provider("LOCAL")
+                    .build();
+            userService.signUp(dto);
+
+            assertThrows(InvalidCredentialsException.class,
+                    () -> userService.authenticateAndGetToken("new@example.com", "raw-password"));
+            verify(userRepository, times(1)).findLoginPasswordByEmail("new@example.com");
+
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+        }
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("new@example.com", "raw-password"));
+        verify(userRepository, times(2)).findLoginPasswordByEmail("new@example.com");
+    }
+
+    @Test
+    void inFlightMissingLoginCannotRepopulateCacheAfterSignup() throws Exception {
+        CountDownLatch missingLookupStarted = new CountDownLatch(1);
+        CountDownLatch allowMissingLookupToReturn = new CountDownLatch(1);
+        AtomicBoolean pauseFirstLookup = new AtomicBoolean(true);
+        UserEntity createdUser = baseUser(null);
+        createdUser.setEmail("new@example.com");
+        createdUser.setPassword("ENCODED");
+        createdUser.setEnabled(true);
+        createdUser.setLocked(false);
+
+        when(userRepository.findLoginPasswordByEmail("new@example.com")).thenAnswer(invocation -> {
+            if (pauseFirstLookup.getAndSet(false)) {
+                missingLookupStarted.countDown();
+                if (!allowMissingLookupToReturn.await(5, TimeUnit.SECONDS)) {
+                    throw new AssertionError("Timed out waiting to release the missing-account lookup");
+                }
+                return Optional.empty();
+            }
+            return Optional.of(loginPassword("ENCODED"));
+        });
+        when(userRepository.findByEmail("new@example.com"))
+                .thenReturn(Optional.empty(), Optional.of(createdUser));
+        when(userRepository.existsByHandle("@newbie")).thenReturn(false);
+        when(bCryptPasswordEncoder.encode("raw-password")).thenReturn("ENCODED");
+        lenient().when(bCryptPasswordEncoder.matches("raw-password", null)).thenReturn(false);
+        when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
+        lenient().when(bCryptPasswordEncoder.matches("raw-password", dummyBcryptPasswordHashes().get(10)))
+                .thenReturn(false);
+        lenient().when(bCryptPasswordEncoder.matches("raw-password", dummyBcryptPasswordHashes().get(12)))
+                .thenReturn(false);
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(jwtUtil.getAccessTokenExpirationTime()).thenReturn(600_000L);
+        when(jwtUtil.createJwt(eq("new@example.com"), eq("ROLE_USER"), eq(1L), anyLong(), any()))
+                .thenReturn("access-token");
+        when(authSessionService.issueRefreshToken(eq("new@example.com"), eq("ROLE_USER"), eq(1L), any(), any()))
+                .thenReturn("refresh-token");
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> missingLogin = executor.submit(() -> assertThrows(
+                    InvalidCredentialsException.class,
+                    () -> userService.authenticateAndGetToken("NEW@example.com", "raw-password")));
+            assertTrue(missingLookupStarted.await(5, TimeUnit.SECONDS));
+
+            UserDto dto = UserDto.builder()
+                    .name("tester")
+                    .handle("@newbie")
+                    .email("NEW@Example.com")
+                    .password("raw-password")
+                    .favoriteTeam(null)
+                    .provider("LOCAL")
+                    .build();
+            userService.signUp(dto);
+
+            allowMissingLookupToReturn.countDown();
+            missingLogin.get(5, TimeUnit.SECONDS);
+
+            assertDoesNotThrow(() -> userService.authenticateAndGetToken("new@example.com", "raw-password"));
+            verify(userRepository, times(2)).findLoginPasswordByEmail("new@example.com");
+        } finally {
+            allowMissingLookupToReturn.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void signUp_throwsDuplicateEmail_whenLocalAccountExists() {
         UserDto dto = UserDto.builder()
                 .name("tester")
@@ -569,20 +734,26 @@ class UserServiceTest {
         verify(loginAttemptService).recordSuccessfulLogin(eq("user@example.com"), isNull());
         verify(accountSecurityService).handleSuccessfulLoginAsync(eq(user), any());
         verify(accountSecurityService, never()).handleSuccessfulLogin(eq(user), any());
+        verify(bCryptPasswordEncoder).matches("raw-password", "ENCODED");
     }
 
     @Test
     void authenticateAndGetToken_throwsInvalidCredentials_onBadPassword() {
         UserEntity user = baseUser(null);
-        user.setPassword("ENCODED");
+        String storedHash = bcryptHash(10);
+        user.setPassword(storedHash);
         user.setEnabled(true);
 
-        when(userRepository.findLoginPasswordByEmail("user@example.com")).thenReturn(Optional.of(loginPassword("ENCODED")));
+        when(userRepository.findLoginPasswordByEmail("user@example.com"))
+                .thenReturn(Optional.of(loginPassword(storedHash)));
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
-        when(bCryptPasswordEncoder.matches("wrong", "ENCODED")).thenReturn(false);
+        when(bCryptPasswordEncoder.matches("wrong", storedHash)).thenReturn(false);
+        ReflectionTestUtils.setField(userService, "dummyPasswordHash", "{argon2}dummy");
 
         assertThrows(InvalidCredentialsException.class,
                 () -> userService.authenticateAndGetToken("user@example.com", "wrong"));
+        verifyFailedPasswordChecks(
+                "wrong", 1, storedHash, "{argon2}dummy", dummyBcryptPasswordHashes().get(12));
         verify(loginAttemptService).recordFailedAttempt(eq("user@example.com"), eq(user), isNull());
         verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
         verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
@@ -591,6 +762,7 @@ class UserServiceTest {
     @Test
     void authenticateAndGetToken_runsPasswordCheckForMissingUser() {
         when(userRepository.findLoginPasswordByEmail("missing@example.com")).thenReturn(Optional.empty());
+        ReflectionTestUtils.setField(userService, "dummyPasswordHash", "{argon2}dummy");
 
         InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
                 () -> userService.authenticateAndGetToken("missing@example.com", "raw-password"));
@@ -601,7 +773,12 @@ class UserServiceTest {
         assertEquals("INVALID_CREDENTIALS", second.getCode());
         verify(userRepository, times(1)).findLoginPasswordByEmail("missing@example.com");
         verify(loginAttemptService, times(2)).recordFailedAttempt(eq("missing@example.com"), isNull(), isNull());
-        verify(bCryptPasswordEncoder, times(2)).matches(eq("raw-password"), any());
+        verifyFailedPasswordChecks(
+                "raw-password",
+                2,
+                "{argon2}dummy",
+                dummyBcryptPasswordHashes().get(10),
+                dummyBcryptPasswordHashes().get(12));
         verify(userRepository, never()).findByEmail("missing@example.com");
         verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
         verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
@@ -617,33 +794,132 @@ class UserServiceTest {
 
         when(userRepository.findLoginPasswordByEmail("user@example.com")).thenReturn(Optional.of(loginPassword(null)));
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        ReflectionTestUtils.setField(userService, "dummyPasswordHash", "{argon2}dummy");
 
         InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
                 () -> userService.authenticateAndGetToken("user@example.com", "raw-password"));
 
         assertEquals("INVALID_CREDENTIALS", exception.getCode());
-        verify(bCryptPasswordEncoder).matches(eq("raw-password"), any());
+        verifyFailedPasswordChecks(
+                "raw-password",
+                1,
+                "{argon2}dummy",
+                dummyBcryptPasswordHashes().get(10),
+                dummyBcryptPasswordHashes().get(12));
         verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
         verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
         verify(userRepository, never()).save(any(UserEntity.class));
     }
 
     @Test
+    void authenticateAndGetToken_balancesPasswordChecksForLegacyBcryptFailure() {
+        UserEntity user = baseUser(null);
+        String storedHash = bcryptHash(10);
+        user.setPassword(storedHash);
+        user.setEnabled(true);
+
+        when(userRepository.findLoginPasswordByEmail("user@example.com"))
+                .thenReturn(Optional.of(loginPassword(storedHash)));
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("wrong", storedHash)).thenReturn(false);
+        ReflectionTestUtils.setField(userService, "dummyPasswordHash", "{argon2}dummy");
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("user@example.com", "wrong"));
+
+        verifyFailedPasswordChecks(
+                "wrong", 1, storedHash, "{argon2}dummy", dummyBcryptPasswordHashes().get(12));
+    }
+
+    @Test
+    void authenticateAndGetToken_balancesPasswordChecksForDefaultBcryptFailure() {
+        UserEntity user = baseUser(null);
+        String storedHash = bcryptHash(12);
+        user.setPassword(storedHash);
+        user.setEnabled(true);
+
+        when(userRepository.findLoginPasswordByEmail("user@example.com"))
+                .thenReturn(Optional.of(loginPassword(storedHash)));
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("wrong", storedHash)).thenReturn(false);
+        ReflectionTestUtils.setField(userService, "dummyPasswordHash", "{argon2}dummy");
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("user@example.com", "wrong"));
+
+        verifyFailedPasswordChecks(
+                "wrong", 1, storedHash, "{argon2}dummy", dummyBcryptPasswordHashes().get(10));
+    }
+
+    @Test
+    void authenticateAndGetToken_balancesPasswordChecksForArgon2Failure() {
+        UserEntity user = baseUser(null);
+        user.setPassword("{argon2}ENCODED");
+        user.setEnabled(true);
+
+        when(userRepository.findLoginPasswordByEmail("user@example.com"))
+                .thenReturn(Optional.of(loginPassword("{argon2}ENCODED")));
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        when(bCryptPasswordEncoder.matches("wrong", "{argon2}ENCODED")).thenReturn(false);
+        ReflectionTestUtils.setField(userService, "dummyPasswordHash", "{argon2}dummy");
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("user@example.com", "wrong"));
+
+        verifyFailedPasswordChecks(
+                "wrong",
+                1,
+                "{argon2}ENCODED",
+                dummyBcryptPasswordHashes().get(10),
+                dummyBcryptPasswordHashes().get(12));
+    }
+
+    @Test
+    void authenticateAndGetToken_usesGenericFailureWorkloadForMalformedBcryptHash() {
+        UserEntity user = baseUser(null);
+        String malformedHash = "{bcrypt}$2a$10$synthetic-hash";
+        String rawPassword = "__never_match_placeholder__";
+        user.setPassword(malformedHash);
+        user.setEnabled(true);
+
+        when(userRepository.findLoginPasswordByEmail("user@example.com"))
+                .thenReturn(Optional.of(loginPassword(malformedHash)));
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+        ReflectionTestUtils.setField(userService, "dummyPasswordHash", "{argon2}dummy");
+        when(bCryptPasswordEncoder.matches(rawPassword, "{argon2}dummy")).thenReturn(true);
+
+        assertThrows(InvalidCredentialsException.class,
+                () -> userService.authenticateAndGetToken("user@example.com", rawPassword));
+
+        verifyFailedPasswordChecks(
+                rawPassword,
+                1,
+                "{argon2}dummy",
+                dummyBcryptPasswordHashes().get(10),
+                dummyBcryptPasswordHashes().get(12));
+        verify(bCryptPasswordEncoder, never()).matches(rawPassword, malformedHash);
+    }
+
+    @Test
     void authenticateAndGetToken_runsPasswordCheckForDisabledUser() {
         UserEntity user = baseUser(null);
-        user.setPassword("ENCODED");
+        String storedHash = bcryptHash(10);
+        user.setPassword(storedHash);
         user.setEnabled(false);
         user.setLocked(false);
 
-        when(userRepository.findLoginPasswordByEmail("user@example.com")).thenReturn(Optional.of(loginPassword("ENCODED")));
+        when(userRepository.findLoginPasswordByEmail("user@example.com"))
+                .thenReturn(Optional.of(loginPassword(storedHash)));
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
-        when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
+        when(bCryptPasswordEncoder.matches("raw-password", storedHash)).thenReturn(true);
+        ReflectionTestUtils.setField(userService, "dummyPasswordHash", "{argon2}dummy");
 
         InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
                 () -> userService.authenticateAndGetToken("user@example.com", "raw-password"));
 
         assertEquals("INVALID_CREDENTIALS", exception.getCode());
-        verify(bCryptPasswordEncoder).matches("raw-password", "ENCODED");
+        verifyFailedPasswordChecks(
+                "raw-password", 1, storedHash, "{argon2}dummy", dummyBcryptPasswordHashes().get(12));
         verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
         verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
         verify(userRepository, never()).save(any(UserEntity.class));
@@ -652,20 +928,24 @@ class UserServiceTest {
     @Test
     void authenticateAndGetToken_runsPasswordCheckForLockedUser() {
         UserEntity user = baseUser(null);
-        user.setPassword("ENCODED");
+        String storedHash = bcryptHash(10);
+        user.setPassword(storedHash);
         user.setEnabled(true);
         user.setLocked(true);
         user.setLockExpiresAt(null);
 
-        when(userRepository.findLoginPasswordByEmail("user@example.com")).thenReturn(Optional.of(loginPassword("ENCODED")));
+        when(userRepository.findLoginPasswordByEmail("user@example.com"))
+                .thenReturn(Optional.of(loginPassword(storedHash)));
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
-        when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
+        when(bCryptPasswordEncoder.matches("raw-password", storedHash)).thenReturn(true);
+        ReflectionTestUtils.setField(userService, "dummyPasswordHash", "{argon2}dummy");
 
         InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
                 () -> userService.authenticateAndGetToken("user@example.com", "raw-password"));
 
         assertEquals("INVALID_CREDENTIALS", exception.getCode());
-        verify(bCryptPasswordEncoder).matches("raw-password", "ENCODED");
+        verifyFailedPasswordChecks(
+                "raw-password", 1, storedHash, "{argon2}dummy", dummyBcryptPasswordHashes().get(12));
         verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
         verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
         verify(userRepository, never()).save(any(UserEntity.class));
@@ -674,20 +954,24 @@ class UserServiceTest {
     @Test
     void authenticateAndGetToken_runsPasswordCheckForPendingDeletionUser() {
         UserEntity user = baseUser(null);
-        user.setPassword("ENCODED");
+        String storedHash = bcryptHash(10);
+        user.setPassword(storedHash);
         user.setEnabled(true);
         user.setLocked(false);
         user.setPendingDeletion(true);
 
-        when(userRepository.findLoginPasswordByEmail("user@example.com")).thenReturn(Optional.of(loginPassword("ENCODED")));
+        when(userRepository.findLoginPasswordByEmail("user@example.com"))
+                .thenReturn(Optional.of(loginPassword(storedHash)));
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
-        when(bCryptPasswordEncoder.matches("raw-password", "ENCODED")).thenReturn(true);
+        when(bCryptPasswordEncoder.matches("raw-password", storedHash)).thenReturn(true);
+        ReflectionTestUtils.setField(userService, "dummyPasswordHash", "{argon2}dummy");
 
         InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
                 () -> userService.authenticateAndGetToken("user@example.com", "raw-password"));
 
         assertEquals("INVALID_CREDENTIALS", exception.getCode());
-        verify(bCryptPasswordEncoder).matches("raw-password", "ENCODED");
+        verifyFailedPasswordChecks(
+                "raw-password", 1, storedHash, "{argon2}dummy", dummyBcryptPasswordHashes().get(12));
         verify(jwtUtil, never()).createJwt(any(), any(), any(), anyLong(), any());
         verify(authSessionService, never()).issueRefreshToken(any(), any(), any(), any(), any());
         verify(userRepository, never()).save(any(UserEntity.class));
@@ -723,6 +1007,30 @@ class UserServiceTest {
                 return password;
             }
         };
+    }
+
+    private void verifyFailedPasswordChecks(
+            String rawPassword,
+            int occurrencesPerHash,
+            String... expectedHashes) {
+        ArgumentCaptor<String> passwordHashCaptor = ArgumentCaptor.forClass(String.class);
+        verify(bCryptPasswordEncoder, times(occurrencesPerHash * expectedHashes.length))
+                .matches(eq(rawPassword), passwordHashCaptor.capture());
+        for (String expectedHash : expectedHashes) {
+            assertEquals(
+                    occurrencesPerHash,
+                    passwordHashCaptor.getAllValues().stream().filter(expectedHash::equals).count());
+        }
+    }
+
+    private String bcryptHash(int strength) {
+        return "{bcrypt}" + new BCryptPasswordEncoder(strength).encode("stored-password");
+    }
+
+    @SuppressWarnings("unchecked")
+    private java.util.Map<Integer, String> dummyBcryptPasswordHashes() {
+        return (java.util.Map<Integer, String>) ReflectionTestUtils.getField(
+                userService, "dummyBcryptPasswordHashes");
     }
 
     private UserEntity baseUser(String profileImageUrl) {

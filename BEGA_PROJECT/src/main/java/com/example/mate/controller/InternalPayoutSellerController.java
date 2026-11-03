@@ -2,6 +2,7 @@ package com.example.mate.controller;
 
 import com.example.common.dto.ApiResponse;
 import com.example.common.exception.NotFoundBusinessException;
+import jakarta.validation.Valid;
 import com.example.mate.dto.SellerPayoutProfileDTO;
 import com.example.mate.entity.SellerPayoutProfile;
 import com.example.mate.service.SellerPayoutProfileService;
@@ -26,7 +27,7 @@ public class InternalPayoutSellerController {
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<SellerPayoutProfileDTO.Response>> upsertSellerProfile(
-            @RequestBody SellerPayoutProfileDTO.UpsertRequest request) {
+            @Valid @RequestBody SellerPayoutProfileDTO.UpsertRequest request) {
         SellerPayoutProfile profile = sellerPayoutProfileService.upsert(request);
         return ResponseEntity.ok(ApiResponse.success(
                 "판매자 정산 매핑이 저장되었습니다.",
