@@ -42,7 +42,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @DataJpaTest(properties = {"spring.flyway.enabled=false", "spring.jpa.hibernate.ddl-auto=create-drop"})
 @Import({MediaLinkService.class, CheerPostTransactionBoundary.class, CheerMediaPurgeReservation.class,
-        AccountDeletionContentService.class, CheerIndividualMediaDeletion.class})
+        AccountDeletionContentService.class, AccountCheerAssetVerifier.class, CheerIndividualMediaDeletion.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class CheerPurgedAssetReuseProbeTest {
     @Autowired MediaAssetRepository assets;
