@@ -200,6 +200,34 @@ class CheerPurgeLifecycleIntegrationTest {
     }
 
     @Test
+    void reportedPostLinkKeepsOwnedAssetDuringAccountCleanup() {
+        Long assetId = createReadyAsset();
+        linkService.syncCheerLinks(POST_ID, OWNER_ID, List.of(OBJECT_KEY));
+
+        // The post is protected evidence, so its linked asset is skipped and nothing is claimed for deletion.
+        int unclaimed = new TransactionTemplate(transactionManager).execute(status ->
+                uploadService.deleteOwnedAssetsForAccount(OWNER_ID, java.util.Set.of(POST_ID)));
+
+        assertThat(unclaimed).isZero();
+        assertThat(assets.findById(assetId).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.READY);
+        assertThat(links.existsByAssetId(assetId)).isTrue();
+        verify(storage, never()).deleteChecked(anyString(), anyString());
+    }
+
+    @Test
+    void unprotectedPostLinkLetsAccountCleanupClaimTheAsset() {
+        // Control for the test above: the same link, with the post not protected, is claimed.
+        Long assetId = createReadyAsset();
+        linkService.syncCheerLinks(POST_ID, OWNER_ID, List.of(OBJECT_KEY));
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                uploadService.deleteOwnedAssetsForAccount(OWNER_ID, java.util.Set.of()));
+
+        assertThat(assets.findById(assetId).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.DELETED);
+        assertThat(links.existsByAssetId(assetId)).isFalse();
+    }
+
+    @Test
     void committedOrphanClaimRejectsLinkWhileStorageIsStillRunning() throws Exception {
         Long assetId = createReadyAsset();
         CountDownLatch storageStarted = new CountDownLatch(1);
