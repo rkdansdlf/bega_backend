@@ -3,7 +3,6 @@ package com.example.cheerboard.service;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import com.example.cheerboard.entity.CheerBattleLog;
-import com.example.cheerboard.entity.CheerVoteEntity;
 import com.example.cheerboard.repository.CheerBattleLogRepository;
 import com.example.cheerboard.repository.CheerVoteRepository;
 import java.util.Objects;
@@ -50,11 +49,7 @@ public class CheerBattleVoteTransactionService {
         int updatedRows = cheerVoteRepository.incrementVoteCount(gameId, normalizedTeamId);
         if (updatedRows == 0) {
             try {
-                cheerVoteRepository.saveAndFlush(CheerVoteEntity.builder()
-                        .gameId(gameId)
-                        .teamId(normalizedTeamId)
-                        .voteCount(0)
-                        .build());
+                cheerVoteRepository.insertZeroVoteCount(gameId, normalizedTeamId);
             } catch (DataIntegrityViolationException race) {
                 throw new VoteCountInsertRaceException(race);
             }
