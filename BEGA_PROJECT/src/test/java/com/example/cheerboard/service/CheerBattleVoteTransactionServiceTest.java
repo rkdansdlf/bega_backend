@@ -2,7 +2,6 @@ package com.example.cheerboard.service;
 
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
-import com.example.cheerboard.entity.CheerVoteEntity;
 import com.example.cheerboard.repository.CheerBattleLogRepository;
 import com.example.cheerboard.repository.CheerVoteRepository;
 import org.junit.jupiter.api.Test;
@@ -50,7 +49,7 @@ class CheerBattleVoteTransactionServiceTest {
         assertThat(count).isEqualTo(6);
         verify(userRepository).deductOneCheerPointIfAvailable(1L);
         verify(userRepository, never()).save(any(UserEntity.class));
-        verify(cheerVoteRepository, never()).saveAndFlush(any(CheerVoteEntity.class));
+        verify(cheerVoteRepository, never()).insertZeroVoteCount(any(), any());
         verify(metricsService).recordBattleVote("success");
     }
 
@@ -71,7 +70,7 @@ class CheerBattleVoteTransactionServiceTest {
         when(userRepository.findByIdForWrite(3L)).thenReturn(Optional.of(user(3L, "racer@test.com", 10)));
         when(userRepository.deductOneCheerPointIfAvailable(3L)).thenReturn(1);
         when(cheerVoteRepository.incrementVoteCount("game1", "TEAMA")).thenReturn(0);
-        when(cheerVoteRepository.saveAndFlush(any(CheerVoteEntity.class)))
+        when(cheerVoteRepository.insertZeroVoteCount("game1", "TEAMA"))
                 .thenThrow(new DataIntegrityViolationException("concurrent aggregate insert"));
 
         assertThrows(CheerBattleVoteTransactionService.VoteCountInsertRaceException.class,

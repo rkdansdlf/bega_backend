@@ -2,7 +2,6 @@ package com.example.cheerboard.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.cheerboard.entity.CheerVoteEntity;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -75,7 +74,8 @@ class CheerVoteCountConcurrentInsertIntegrationTest {
         await(bothRequestsObservedMissingRow);
 
         try {
-            cheerVoteRepository.saveAndFlush(newVote());
+            transaction.executeWithoutResult(
+                    status -> cheerVoteRepository.insertZeroVoteCount(GAME_ID, TEAM_ID));
             Integer insertedRowUpdate = transaction.execute(
                     status -> cheerVoteRepository.incrementVoteCount(GAME_ID, TEAM_ID));
             assertThat(insertedRowUpdate).isEqualTo(1);
@@ -85,10 +85,6 @@ class CheerVoteCountConcurrentInsertIntegrationTest {
             assertThat(retryUpdatedRows).isEqualTo(1);
         }
         return null;
-    }
-
-    private CheerVoteEntity newVote() {
-        return CheerVoteEntity.builder().gameId(GAME_ID).teamId(TEAM_ID).voteCount(0).build();
     }
 
     private static void await(CountDownLatch latch) {
