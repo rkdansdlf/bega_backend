@@ -96,6 +96,26 @@ public class ReportEvidenceMediaRetention {
     @Column(name = "next_attempt_at")
     private LocalDateTime nextAttemptAt;
 
+    /** 삭제 점유 시각. 객체 삭제 호출 전에 DB에 찍고, 호출 전후로 DB 행 잠금은 잡지 않는다. 유효 시간이 지나면 풀린다. */
+    @Column(name = "delete_claimed_at")
+    private LocalDateTime deleteClaimedAt;
+
+    /** First committed deletion claim; unlike the retry lease this fence never expires. */
+    @Column(name = "delete_started_at")
+    private LocalDateTime deleteStartedAt;
+
+    @Column(name = "delete_claim_token", length = 36)
+    private String deleteClaimToken;
+
+    /** 삭제 대기로 넘어간 이유. 삭제 이력에 그대로 남긴다. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "delete_reason", length = 32)
+    private ReportEvidenceDeleteReason deleteReason;
+
+    /** 운영자가 삭제를 승인하면서 지정한 사건 번호. 이 사건이 유일한 미결 사건인 동안에만 승인이 유효하다. */
+    @Column(name = "release_case_ref", length = 64)
+    private String releaseCaseRef;
+
     @Column(name = "last_error", length = 512)
     private String lastError;
 
@@ -138,7 +158,7 @@ public class ReportEvidenceMediaRetention {
         }
         this.status = ReportEvidenceMediaStatus.URGENT_REVIEW;
         this.urgentReviewStartedAt = now;
-        this.urgentReviewDueAt = now.plus(ReportEvidenceRetentionPolicy.URGENT_REVIEW_GRACE);
+        this.urgentReviewDueAt = ReportEvidenceRetentionPolicy.urgentReviewDueAt(now, this.hardLimitAt);
         this.nextAttemptAt = null;
         this.updatedAt = now;
         return true;
@@ -164,9 +184,48 @@ public class ReportEvidenceMediaRetention {
                 .build();
     }
 
-    public void markDeletePending(LocalDateTime now) {
+    public void markDeletePending(ReportEvidenceDeleteReason reason, LocalDateTime now) {
         this.status = ReportEvidenceMediaStatus.DELETE_PENDING;
+        this.deleteReason = reason;
         this.nextAttemptAt = null;
+        this.updatedAt = now;
+    }
+
+    /** 검토 대기 기록을 운영자 승인으로 삭제 대기에 넣는다. 보존 근거와 점유 검사는 삭제 시점에 다시 한다. */
+    public void releaseForDeletion(String caseRef, LocalDateTime now) {
+        this.status = ReportEvidenceMediaStatus.DELETE_PENDING;
+        this.deleteReason = ReportEvidenceDeleteReason.OPERATOR_RELEASED;
+        this.releaseCaseRef = caseRef;
+        this.nextAttemptAt = null;
+        this.updatedAt = now;
+    }
+
+    /** 삭제 호출을 시작하기 전에 점유를 잡는다. 점유 중에는 다른 실행이 같은 행을 집지 않고, 보존 변경도 거부된다. */
+    public void claimForDelete(LocalDateTime now) {
+        if (deleteStartedAt == null) this.deleteStartedAt = now;
+        this.deleteClaimedAt = now;
+        this.deleteClaimToken = java.util.UUID.randomUUID().toString();
+        this.updatedAt = now;
+    }
+
+    public boolean isDeleteClaimed(LocalDateTime now) {
+        return deleteClaimedAt != null && now.isBefore(deleteClaimedAt.plus(ReportEvidenceRetentionPolicy.DELETE_CLAIM_LEASE));
+    }
+
+    public boolean hasDeletionStarted() {
+        return deleteStartedAt != null;
+    }
+
+    /** 저장소 호출이 끝나서 실행 중인 호출이 없을 때만 점유를 푼다. 제한 시간을 넘긴 호출에는 쓰지 않는다. */
+    public void releaseDeleteClaim(LocalDateTime now) {
+        this.deleteClaimedAt = null;
+        this.deleteClaimToken = null;
+        this.updatedAt = now;
+    }
+
+    /** 같은 객체를 다른 유효한 행이 아직 보호하고 있을 때 삭제를 하루 미룬다. 실패로 세지 않는다. */
+    public void deferDelete(LocalDateTime now) {
+        this.nextAttemptAt = now.plus(ReportEvidenceRetentionPolicy.DELETE_DEFERRAL);
         this.updatedAt = now;
     }
 
@@ -185,6 +244,8 @@ public class ReportEvidenceMediaRetention {
     public void markDeleted(LocalDateTime now) {
         this.status = ReportEvidenceMediaStatus.DELETED;
         this.deletedAt = now;
+        this.deleteClaimedAt = null;
+        this.deleteClaimToken = null;
         this.nextAttemptAt = null;
         this.lastError = null;
         this.updatedAt = now;
