@@ -64,4 +64,42 @@ class ModerationHoldAlertServiceTest {
         verify(reports).existsOpenModerationOlderThan(eq(7L), cutoff.capture());
         assertThat(cutoff.getValue()).isBetween(before, after);
     }
+
+    @Test
+    void purgeHoldAlertsOnlyAfterItHasLastedTwentyFourHours() {
+        LocalDateTime start = LocalDateTime.of(2026, 11, 1, 9, 0);
+
+        assertThat(service.alertIfPurgeHeld(7L, start)).isFalse();
+        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(23))).isFalse();
+        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(24))).isTrue();
+    }
+
+    @Test
+    void purgeHoldAlertsAtMostOncePerDay() {
+        LocalDateTime start = LocalDateTime.of(2026, 11, 1, 9, 0);
+        service.alertIfPurgeHeld(7L, start);
+
+        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(24))).isTrue();
+        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(25))).isFalse();
+        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(48))).isTrue();
+    }
+
+    @Test
+    void endingThePurgeHoldRestartsTheClock() {
+        LocalDateTime start = LocalDateTime.of(2026, 11, 1, 9, 0);
+        service.alertIfPurgeHeld(7L, start);
+        service.clearPurgeHold(7L);
+
+        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(30))).isFalse();
+        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(54))).isTrue();
+    }
+
+    @Test
+    void forgetEndsThePurgeHoldToo() {
+        LocalDateTime start = LocalDateTime.of(2026, 11, 1, 9, 0);
+        service.alertIfPurgeHeld(7L, start);
+        service.forget(7L);
+
+        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(30))).isFalse();
+    }
 }
