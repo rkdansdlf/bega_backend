@@ -1,8 +1,8 @@
 package com.example.cheerboard.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.example.cheerboard.entity.CheerVoteEntity;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -66,6 +66,23 @@ class CheerVoteCountConcurrentInsertIntegrationTest {
         assertThat(cheerVoteRepository.findVoteCount(GAME_ID, TEAM_ID)).isEqualTo(2);
     }
 
+    @Test
+    @DisplayName("a late first-vote attempt on an existing row must not reset the aggregate")
+    void lateFirstVoteAttempt_doesNotOverwriteExistingAggregate() {
+        String gameId = "test-game-late-first-vote";
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+        transaction.execute(status -> cheerVoteRepository.insertFirstVote(gameId, TEAM_ID));
+        transaction.execute(status -> cheerVoteRepository.incrementVoteCount(gameId, TEAM_ID));
+        assertThat(cheerVoteRepository.findVoteCount(gameId, TEAM_ID)).isEqualTo(1);
+
+        // The loser's first-vote insert arrives after the winner's increment. It must conflict, not overwrite.
+        assertThatThrownBy(() -> transaction.execute(status -> cheerVoteRepository.insertFirstVote(gameId, TEAM_ID)))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        assertThat(cheerVoteRepository.findVoteCount(gameId, TEAM_ID)).isEqualTo(1);
+    }
+
     private Void recordFirstVote(
             TransactionTemplate transaction,
             CountDownLatch bothRequestsObservedMissingRow) {
@@ -75,7 +92,7 @@ class CheerVoteCountConcurrentInsertIntegrationTest {
         await(bothRequestsObservedMissingRow);
 
         try {
-            cheerVoteRepository.saveAndFlush(newVote());
+            cheerVoteRepository.insertFirstVote(GAME_ID, TEAM_ID);
             Integer insertedRowUpdate = transaction.execute(
                     status -> cheerVoteRepository.incrementVoteCount(GAME_ID, TEAM_ID));
             assertThat(insertedRowUpdate).isEqualTo(1);
@@ -85,10 +102,6 @@ class CheerVoteCountConcurrentInsertIntegrationTest {
             assertThat(retryUpdatedRows).isEqualTo(1);
         }
         return null;
-    }
-
-    private CheerVoteEntity newVote() {
-        return CheerVoteEntity.builder().gameId(GAME_ID).teamId(TEAM_ID).voteCount(0).build();
     }
 
     private static void await(CountDownLatch latch) {
