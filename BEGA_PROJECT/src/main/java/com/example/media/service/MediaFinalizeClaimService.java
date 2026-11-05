@@ -1,5 +1,6 @@
 package com.example.media.service;
 
+import com.example.common.validation.OwnerIdentity;
 import com.example.media.entity.MediaAsset;
 import com.example.media.entity.MediaAssetStatus;
 import com.example.media.entity.MediaDomain;
@@ -249,7 +250,7 @@ public class MediaFinalizeClaimService {
             return Optional.empty();
         }
         entityManager.refresh(locked, LockModeType.PESSIMISTIC_WRITE);
-        if (!java.util.Objects.equals(locked.getOwnerUserId(), ownerUserId)) return Optional.empty();
+        if (!OwnerIdentity.isSameOwner(locked.getOwnerUserId(), ownerUserId)) return Optional.empty();
         if (hasDiarySeatViewReference(locked)) {
             throw new BadRequestBusinessException("MEDIA_ASSET_LINKED", "이미 사용 중인 이미지는 삭제할 수 없습니다.");
         }
@@ -278,7 +279,7 @@ public class MediaFinalizeClaimService {
         MediaAsset locked = mediaAssetRepository.findByIdForUpdate(assetId).orElse(null);
         if (locked == null) return Optional.empty();
         entityManager.refresh(locked, LockModeType.PESSIMISTIC_WRITE);
-        if (!java.util.Objects.equals(locked.getOwnerUserId(), ownerId)) return Optional.empty();
+        if (!OwnerIdentity.isSameOwner(locked.getOwnerUserId(), ownerId)) return Optional.empty();
         if (hasDiarySeatViewReference(locked)) return Optional.empty();
         LocalDateTime now = LocalDateTime.now();
         String token = UUID.randomUUID().toString();

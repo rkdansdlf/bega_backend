@@ -1,5 +1,6 @@
 package com.example.media.service;
 
+import com.example.common.validation.OwnerIdentity;
 import com.example.auth.repository.UserRepository;
 import com.example.BegaDiary.Repository.SeatViewPhotoRepository;
 import com.example.cheerboard.repo.CheerReportRepo;
@@ -63,7 +64,7 @@ public class CheerIndividualMediaDeletion {
         MediaAsset asset = assets.findByIdForUpdate(candidate.assetId()).orElseThrow(this::conflict);
         entityManager.refresh(asset, LockModeType.PESSIMISTIC_WRITE);
         if (!Objects.equals(asset.getObjectKey(), path)
-                || !Objects.equals(asset.getOwnerUserId(), candidate.ownerId())
+                || !OwnerIdentity.isSameOwner(asset.getOwnerUserId(), candidate.ownerId())
                 || asset.getDomain() != MediaDomain.CHEER || asset.getStatus() != MediaAssetStatus.READY
                 || links.countCheerPostLink(asset.getId(), postId) != 1
                 || hasSeatViewReference(path)

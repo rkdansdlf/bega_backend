@@ -1,5 +1,6 @@
 package com.example.cheerboard.retention;
 
+import com.example.common.validation.OwnerIdentity;
 import com.example.BegaDiary.Repository.SeatViewPhotoRepository;
 import com.example.admin.entity.AuditLog;
 import com.example.admin.repository.AuditLogRepository;
@@ -494,7 +495,7 @@ public class ReportEvidenceMediaRetentionService {
         var lockedOwner = userRepository.findByIdForWrite(ownerId);
         ReportEvidenceMediaRetention row = findRowForUpdate(retentionId);
         entityManager.refresh(row, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
-        if (!java.util.Objects.equals(ownerId, row.getOwnerUserId())) {
+        if (!OwnerIdentity.isSameOwner(ownerId, row.getOwnerUserId())) {
             throw new IllegalStateException("Retention owner changed during claim");
         }
         if (row.getStatus() != ReportEvidenceMediaStatus.DELETE_PENDING || row.isDeleteClaimed(now)) {
