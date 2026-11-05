@@ -6,6 +6,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.AccountDeletionTokenRepository;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.util.AccountStatusUtil;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.service.CheerPurgeCoordination;
 import com.example.common.exception.BadRequestBusinessException;
@@ -149,6 +150,10 @@ public class AccountDeletionService {
                         .flatMap(digest -> accountDeletionTokenRepository.findByTokenAndUser_Id(digest, userId)))
                 .orElseThrow(() -> new BadRequestBusinessException("INVALID_RECOVERY_LINK", "유효하지 않은 복구 링크입니다."));
         validateRecoverableDeletion(deletionToken, user, LocalDateTime.now());
+        // A locked account must not be reactivated from an emailed link: the lock is what stops the account.
+        if (!AccountStatusUtil.isAccountUsable(user)) {
+            throw new BadRequestBusinessException("RECOVERY_ACCOUNT_LOCKED", "잠긴 계정은 복구할 수 없습니다.");
+        }
 
         user.setPendingDeletion(false);
         user.setDeletionRequestedAt(null);
