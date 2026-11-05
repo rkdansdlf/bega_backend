@@ -29,8 +29,13 @@ public class AccountContentAnonymizationRetryService {
         AccountDeletionContentService.Result result = contentService.anonymize(userId);
         if (result == AccountDeletionContentService.Result.COMPLETED) {
             moderationHoldAlerts.forget(userId);
-        } else if (result == AccountDeletionContentService.Result.MODERATION_PENDING) {
-            checkModerationHold(userId);
+        } else if (result == AccountDeletionContentService.Result.PURGE_PENDING) {
+            checkPurgeHold(userId);
+        } else {
+            moderationHoldAlerts.clearPurgeHold(userId);
+            if (result == AccountDeletionContentService.Result.MODERATION_PENDING) {
+                checkModerationHold(userId);
+            }
         }
         UserEntity current = userRepository.findByIdForWrite(userId)
                 .orElseThrow(() -> new IllegalStateException("The account disappeared during content finalization"));
@@ -51,6 +56,16 @@ public class AccountContentAnonymizationRetryService {
         } catch (RuntimeException ex) {
             // The alert is observability only; the retry must still be rescheduled.
             log.warn("Moderation hold check failed; content retry continues: userId={} error={}",
+                    userId, ex.getClass().getSimpleName());
+        }
+    }
+
+    private void checkPurgeHold(Long userId) {
+        try {
+            moderationHoldAlerts.alertIfPurgeHeld(userId, LocalDateTime.now(ZoneOffset.UTC));
+        } catch (RuntimeException ex) {
+            // The alert is observability only; the retry must still be rescheduled.
+            log.warn("Purge hold check failed; content retry continues: userId={} error={}",
                     userId, ex.getClass().getSimpleName());
         }
     }
