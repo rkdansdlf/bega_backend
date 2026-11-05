@@ -77,7 +77,7 @@ public class MediaLinkService {
                 && (!lockedIds.contains(primaryAsset.getDerivedFrom().getId())
                     || primaryAsset.getDerivedFrom().getStatus() != MediaAssetStatus.READY
                     || primaryAsset.getDerivedFrom().getDomain() != MediaDomain.PROFILE
-                    || !Objects.equals(primaryAsset.getDerivedFrom().getOwnerUserId(), userId))) {
+                    || !OwnerIdentity.isSameOwner(primaryAsset.getDerivedFrom().getOwnerUserId(), userId))) {
             throw new BadRequestBusinessException("MEDIA_ASSET_NOT_READY", "이미지 상태가 변경되었습니다. 다시 시도해주세요.");
         }
         if (primaryAsset == null) {
