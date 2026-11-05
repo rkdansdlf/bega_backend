@@ -1,5 +1,6 @@
 package com.example.media.service;
 
+import com.example.common.validation.OwnerIdentity;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.media.entity.MediaAsset;
 import com.example.media.entity.MediaAssetLink;
@@ -90,7 +91,7 @@ public class MediaLinkService {
         if (feedAsset.isPresent()) {
             MediaAsset feed = feedAsset.get();
             if (!lockedIds.contains(feed.getId()) || feed.getStatus() != MediaAssetStatus.READY
-                    || feed.getDomain() != MediaDomain.PROFILE || !Objects.equals(feed.getOwnerUserId(), userId)
+                    || feed.getDomain() != MediaDomain.PROFILE || !OwnerIdentity.isSameOwner(feed.getOwnerUserId(), userId)
                     || feed.getObjectKey() == null || feed.getObjectKey().isBlank()) {
                 throw new BadRequestBusinessException("MEDIA_ASSET_NOT_READY", "이미지 상태가 변경되었습니다. 다시 시도해주세요.");
             }
@@ -203,7 +204,7 @@ public class MediaLinkService {
             if (asset == null) {
                 throw new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요.");
             }
-            if (!Objects.equals(asset.getOwnerUserId(), userId)) {
+            if (!OwnerIdentity.isSameOwner(asset.getOwnerUserId(), userId)) {
                 throw new BadRequestBusinessException("MEDIA_ASSET_NOT_FOUND", "업로드를 다시 완료한 뒤 저장해주세요.");
             }
             if (domain == MediaDomain.PROFILE) {

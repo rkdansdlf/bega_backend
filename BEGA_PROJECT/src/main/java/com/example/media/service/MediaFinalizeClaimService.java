@@ -1,5 +1,6 @@
 package com.example.media.service;
 
+import com.example.common.validation.OwnerIdentity;
 import com.example.media.entity.MediaAsset;
 import com.example.media.entity.MediaAssetStatus;
 import com.example.media.entity.MediaDomain;
@@ -261,7 +262,7 @@ public class MediaFinalizeClaimService {
             Long assetId, Long ownerId, MediaDomain domain, LocalDateTime cutoff) {
         if (domain == null) throw new IllegalArgumentException("A media domain is required.");
         MediaAsset locked = mediaAssetRepository.findByIdForUpdate(assetId).orElse(null);
-        if (locked == null || !java.util.Objects.equals(locked.getOwnerUserId(), ownerId)) return Optional.empty();
+        if (locked == null || !OwnerIdentity.isSameOwner(locked.getOwnerUserId(), ownerId)) return Optional.empty();
         LocalDateTime now = LocalDateTime.now();
         String token = UUID.randomUUID().toString();
         if (mediaAssetRepository.claimUnlinkedMediaForCleanup(
