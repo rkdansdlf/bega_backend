@@ -34,6 +34,7 @@ public class AccountDeletionFinalizationService {
     private final AccountDeletionFinancialService financialService;
     private final AccountDeletionIdentityService identityService;
     private final AuditLogRepository auditLogRepository;
+    private final ModerationHoldAlertService moderationHoldAlerts;
 
     public AccountDeletionFinalizationService(
             UserRepository userRepository,
@@ -45,7 +46,8 @@ public class AccountDeletionFinalizationService {
             AccountDeletionReviewService reviewService,
             AccountDeletionFinancialService financialService,
             AccountDeletionIdentityService identityService,
-            AuditLogRepository auditLogRepository) {
+            AuditLogRepository auditLogRepository,
+            ModerationHoldAlertService moderationHoldAlerts) {
         this.userRepository = userRepository;
         this.accountDeletionTokenRepository = accountDeletionTokenRepository;
         this.partyService = partyService;
@@ -56,6 +58,7 @@ public class AccountDeletionFinalizationService {
         this.financialService = financialService;
         this.identityService = identityService;
         this.auditLogRepository = auditLogRepository;
+        this.moderationHoldAlerts = moderationHoldAlerts;
     }
 
     public enum Outcome { FINALIZED, DEFERRED, SKIPPED }
@@ -107,6 +110,10 @@ public class AccountDeletionFinalizationService {
         identityService.anonymize(user);
         user.setContentAnonymizationRetryAt(contentResult != AccountDeletionContentService.Result.COMPLETED
                 ? LocalDateTime.now(java.time.ZoneOffset.UTC).plusMinutes(10) : null);
+        if (contentResult == AccountDeletionContentService.Result.COMPLETED) {
+            // The retry loop will not visit this account again, so end its alert state here.
+            moderationHoldAlerts.forget(userId);
+        }
         user.setDeletionScheduledFor(null);
         userRepository.save(user);
         accountDeletionTokenRepository.deleteByUser_Id(userId);
