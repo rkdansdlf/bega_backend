@@ -64,6 +64,9 @@ class AccountDeletionFinalizationServiceTest {
     @Mock
     private AuditLogRepository auditLogRepository;
 
+    @Mock
+    private ModerationHoldAlertService moderationHoldAlerts;
+
     @InjectMocks
     private AccountDeletionFinalizationService finalizationService;
 
@@ -257,6 +260,25 @@ class AccountDeletionFinalizationServiceTest {
 
         assertThat(finalized).isTrue();
         assertThat(user.getContentAnonymizationRetryAt()).isNull();
+    }
+
+    @Test
+    void completedContentEndsAnyHeldAlertStateAfterFinalization() {
+        LocalDateTime cutoff = LocalDateTime.now();
+        UserEntity user = UserEntity.builder()
+                .id(45L)
+                .pendingDeletion(true)
+                .deletionRequestedAt(cutoff.minusDays(7))
+                .deletionScheduledFor(cutoff.minusMinutes(1))
+                .contentAnonymizationRetryAt(cutoff.plusMinutes(10))
+                .build();
+        when(userRepository.findByIdForWrite(45L)).thenReturn(Optional.of(user));
+        when(userRepository.save(user)).thenReturn(user);
+        when(contentService.anonymize(45L)).thenReturn(AccountDeletionContentService.Result.COMPLETED);
+
+        finalizationService.finalizeIfDue(45L, cutoff);
+
+        verify(moderationHoldAlerts).forget(45L);
     }
 
     @Test
