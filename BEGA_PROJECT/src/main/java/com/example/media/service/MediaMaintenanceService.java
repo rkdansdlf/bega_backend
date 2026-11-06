@@ -1,5 +1,6 @@
 package com.example.media.service;
 
+import com.example.common.validation.OwnerIdentity;
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.auth.entity.UserEntity;
@@ -902,7 +903,7 @@ public class MediaMaintenanceService {
     }
 
     private void validateManagedAsset(MediaAsset asset, Long userId, MediaDomain domain) {
-        if (!Objects.equals(asset.getOwnerUserId(), userId)) {
+        if (!OwnerIdentity.isSameOwner(asset.getOwnerUserId(), userId)) {
             throw new IllegalStateException("기존 미디어의 소유자가 현재 사용자와 일치하지 않습니다.");
         }
         if (asset.getDomain() != domain) {

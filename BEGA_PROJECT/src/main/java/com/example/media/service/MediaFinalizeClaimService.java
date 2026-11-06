@@ -1,5 +1,6 @@
 package com.example.media.service;
 
+import com.example.common.validation.OwnerIdentity;
 import com.example.media.entity.MediaAsset;
 import com.example.media.entity.MediaAssetStatus;
 import com.example.media.entity.MediaDomain;
@@ -261,6 +262,7 @@ public class MediaFinalizeClaimService {
             Long assetId, Long ownerId, MediaDomain domain, LocalDateTime cutoff) {
         if (domain == null) throw new IllegalArgumentException("A media domain is required.");
         MediaAsset locked = mediaAssetRepository.findByIdForUpdate(assetId).orElse(null);
+        // this is a scan->lock TOCTOU guard on an immutable owner field (not an authorization check), so both-null must match so ownerless READY orphans can be claimed.
         if (locked == null || !java.util.Objects.equals(locked.getOwnerUserId(), ownerId)) return Optional.empty();
         LocalDateTime now = LocalDateTime.now();
         String token = UUID.randomUUID().toString();

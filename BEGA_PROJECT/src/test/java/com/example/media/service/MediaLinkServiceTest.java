@@ -83,6 +83,40 @@ class MediaLinkServiceTest {
     }
 
     @Test
+    @DisplayName("derivedFrom 자산의 소유자가 null이고 userId가 non-null이면 syncProfileLinks는 MEDIA_ASSET_NOT_READY로 거부된다")
+    void syncProfileLinks_rejectsWhenDerivedFromOwnerIsNullAndUserIdIsNonNull() {
+        MediaAsset parentAsset = MediaAsset.builder()
+                .id(30L)
+                .ownerUserId(null)
+                .domain(MediaDomain.PROFILE)
+                .status(MediaAssetStatus.READY)
+                .objectKey("media/profile/5/30.webp")
+                .build();
+        MediaAsset primaryAsset = MediaAsset.builder()
+                .id(31L)
+                .ownerUserId(5L)
+                .domain(MediaDomain.PROFILE)
+                .status(MediaAssetStatus.READY)
+                .objectKey("media/profile/5/31.webp")
+                .derivedFrom(parentAsset)
+                .build();
+
+        when(mediaAssetRepository.findByObjectKeyIn(List.of("media/profile/5/31.webp"))).thenReturn(List.of(primaryAsset));
+        when(mediaAssetLinkRepository.findByDomainAndEntityId(MediaDomain.PROFILE, 5L)).thenReturn(List.of());
+        when(mediaAssetRepository.findIdsByObjectKeyInOrderById(List.of("media/profile/5/31.webp"))).thenReturn(List.of(31L));
+        when(mediaAssetRepository.findById(31L)).thenReturn(Optional.of(primaryAsset));
+        when(mediaAssetRepository.findByDerivedFrom_Id(31L)).thenReturn(Optional.empty());
+        when(mediaAssetRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(parentAsset));
+        when(mediaAssetRepository.findByIdForUpdate(31L)).thenReturn(Optional.of(primaryAsset));
+
+        BadRequestBusinessException exception = assertThrows(
+                BadRequestBusinessException.class,
+                () -> mediaLinkService.syncProfileLinks(5L, "media/profile/5/31.webp"));
+
+        assertEquals("MEDIA_ASSET_NOT_READY", exception.getCode());
+    }
+
+    @Test
     @DisplayName("READY 상태가 아닌 managed key는 저장에 사용할 수 없다")
     void resolveReadyAssets_rejectsNonReadyManagedAsset() {
         MediaAsset pendingAsset = MediaAsset.builder()
