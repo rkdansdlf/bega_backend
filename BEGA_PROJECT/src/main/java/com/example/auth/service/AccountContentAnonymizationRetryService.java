@@ -29,16 +29,21 @@ public class AccountContentAnonymizationRetryService {
         AccountDeletionContentService.Result result = contentService.anonymize(userId);
         if (result == AccountDeletionContentService.Result.COMPLETED) {
             moderationHoldAlerts.forget(userId);
+        }
+        // Re-read after the content step: a bulk update inside it may have cleared the persistence context, and
+        // changes made to the earlier instance would then be lost.
+        UserEntity current = userRepository.findByIdForWrite(userId)
+                .orElseThrow(() -> new IllegalStateException("The account disappeared during content finalization"));
+        if (result == AccountDeletionContentService.Result.COMPLETED) {
+            moderationHoldAlerts.clearPurgeHold(current);
         } else if (result == AccountDeletionContentService.Result.PURGE_PENDING) {
-            checkPurgeHold(userId);
+            checkPurgeHold(current);
         } else {
-            moderationHoldAlerts.clearPurgeHold(userId);
+            moderationHoldAlerts.clearPurgeHold(current);
             if (result == AccountDeletionContentService.Result.MODERATION_PENDING) {
                 checkModerationHold(userId);
             }
         }
-        UserEntity current = userRepository.findByIdForWrite(userId)
-                .orElseThrow(() -> new IllegalStateException("The account disappeared during content finalization"));
         current.setContentAnonymizationRetryAt(result == AccountDeletionContentService.Result.COMPLETED
                 ? null : nextAttempt());
     }
@@ -60,13 +65,13 @@ public class AccountContentAnonymizationRetryService {
         }
     }
 
-    private void checkPurgeHold(Long userId) {
+    private void checkPurgeHold(UserEntity user) {
         try {
-            moderationHoldAlerts.alertIfPurgeHeld(userId, LocalDateTime.now(ZoneOffset.UTC));
+            moderationHoldAlerts.observePurgeHold(user, LocalDateTime.now(ZoneOffset.UTC));
         } catch (RuntimeException ex) {
             // The alert is observability only; the retry must still be rescheduled.
             log.warn("Purge hold check failed; content retry continues: userId={} error={}",
-                    userId, ex.getClass().getSimpleName());
+                    user.getId(), ex.getClass().getSimpleName());
         }
     }
 

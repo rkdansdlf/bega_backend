@@ -42,7 +42,7 @@ class AccountContentAnonymizationRetryServiceTest {
 
         service.retry(7L);
 
-        verify(moderationHoldAlerts).alertIfPurgeHeld(org.mockito.ArgumentMatchers.eq(7L),
+        verify(moderationHoldAlerts).observePurgeHold(org.mockito.ArgumentMatchers.any(UserEntity.class),
                 org.mockito.ArgumentMatchers.any(LocalDateTime.class));
         assertThat(user.getContentAnonymizationRetryAt()).isNotNull();
     }
@@ -53,7 +53,8 @@ class AccountContentAnonymizationRetryServiceTest {
         when(users.findByIdForWrite(7L)).thenReturn(Optional.of(user));
         when(content.anonymize(7L)).thenReturn(AccountDeletionContentService.Result.PURGE_PENDING);
         doThrow(new IllegalStateException("alert failed")).when(moderationHoldAlerts)
-                .alertIfPurgeHeld(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.any(LocalDateTime.class));
+                .observePurgeHold(org.mockito.ArgumentMatchers.any(UserEntity.class),
+                        org.mockito.ArgumentMatchers.any(LocalDateTime.class));
 
         service.retry(7L);
 
@@ -81,6 +82,7 @@ class AccountContentAnonymizationRetryServiceTest {
         service.retry(7L);
 
         verify(moderationHoldAlerts).forget(7L);
+        verify(moderationHoldAlerts).clearPurgeHold(user);
         assertThat(user.getContentAnonymizationRetryAt()).isNull();
     }
 

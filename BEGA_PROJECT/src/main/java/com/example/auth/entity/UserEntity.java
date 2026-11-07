@@ -124,6 +124,14 @@ public class UserEntity {
     @Column(name = "content_anonymization_retry_at")
     private LocalDateTime contentAnonymizationRetryAt;
 
+    /** 보류 시작 시각: 게시물 purge 보류가 처음 관찰된 때. 재시작과 무관하게 24시간 기준을 유지한다. */
+    @Column(name = "purge_hold_started_at")
+    private LocalDateTime purgeHoldStartedAt;
+
+    /** 보류 알림을 마지막으로 남긴 날짜. 하루에 한 번만 알린다. */
+    @Column(name = "purge_hold_alerted_on")
+    private java.time.LocalDate purgeHoldAlertedOn;
+
     /** 계정 잠금 여부 (비밀번호 오류 횟수 초과 등) */
     @Column(name = "locked", nullable = false)
     @Builder.Default
