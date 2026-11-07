@@ -201,6 +201,24 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
                 .isInstanceOf(BadRequestBusinessException.class);
     }
 
+    @Test
+    void lockedAccountRecoveryRefusalKeepsTokenUsableAndAccountPending() {
+        LocalDateTime expiry = LocalDateTime.now().plusDays(1).truncatedTo(ChronoUnit.MICROS);
+        UserEntity user = saveLockedPendingUser(expiry);
+        String raw = UUID.randomUUID().toString();
+        accountDeletionTokenRepository.saveAndFlush(AccountDeletionToken.builder()
+                .token(raw).user(user).expiryDate(expiry).build());
+
+        assertThatThrownBy(() -> accountDeletionService.recoverAccount(raw))
+                .isInstanceOf(BadRequestBusinessException.class)
+                .hasMessageContaining("잠긴 계정");
+
+        UserEntity reloaded = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(reloaded.isEnabled()).isFalse();
+        assertThat(reloaded.isPendingDeletion()).isTrue();
+        assertThat(accountDeletionTokenRepository.findByToken(raw)).isPresent();
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void concurrentRecoveriesConsumeTokenOnlyOnce(boolean hashed) throws Exception {
@@ -463,6 +481,24 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
                 .pendingDeletion(true)
                 .deletionRequestedAt(scheduledFor.minusDays(7))
                 .deletionScheduledFor(scheduledFor)
+                .tokenVersion(1)
+                .build());
+    }
+
+    private UserEntity saveLockedPendingUser(LocalDateTime scheduledFor) {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        return userRepository.saveAndFlush(UserEntity.builder()
+                .uniqueId(UUID.randomUUID())
+                .handle("@lock" + suffix)
+                .name("Locked deletion test")
+                .email("locked-deletion-" + suffix + "@example.test")
+                .role("ROLE_USER")
+                .enabled(false)
+                .pendingDeletion(true)
+                .deletionRequestedAt(scheduledFor.minusDays(7))
+                .deletionScheduledFor(scheduledFor)
+                .locked(true)
+                .lockExpiresAt(null)
                 .tokenVersion(1)
                 .build());
     }

@@ -299,6 +299,36 @@ class AccountDeletionServiceTest {
     }
 
     @Test
+    void recoverAccountRefusesWhileTemporaryLockIsStillActive() {
+        UserEntity temporarilyLockedUser = UserEntity.builder()
+                .id(48L)
+                .enabled(false)
+                .pendingDeletion(true)
+                .deletionScheduledFor(java.time.LocalDateTime.now().plusDays(3))
+                .locked(true)
+                .lockExpiresAt(java.time.LocalDateTime.now().plusMinutes(10))
+                .build();
+        AccountDeletionToken token = AccountDeletionToken.builder()
+                .token("123e4567-e89b-12d3-a456-426614174000")
+                .user(temporarilyLockedUser)
+                .expiryDate(java.time.LocalDateTime.now().plusDays(3))
+                .build();
+        when(accountDeletionTokenRepository.findUserIdByToken("123e4567-e89b-12d3-a456-426614174000"))
+                .thenReturn(Optional.of(48L));
+        when(userRepository.findByIdForWrite(48L)).thenReturn(Optional.of(temporarilyLockedUser));
+        when(accountDeletionTokenRepository.findByTokenAndUser_Id("123e4567-e89b-12d3-a456-426614174000", 48L))
+                .thenReturn(Optional.of(token));
+
+        assertThatThrownBy(() -> accountDeletionService.recoverAccount("123e4567-e89b-12d3-a456-426614174000"))
+                .hasMessageContaining("잠긴 계정");
+
+        verify(userRepository, never()).save(any());
+        verify(accountDeletionTokenRepository, never()).deleteByUser_Id(any());
+        assertThat(temporarilyLockedUser.isEnabled()).isFalse();
+        assertThat(temporarilyLockedUser.isPendingDeletion()).isTrue();
+    }
+
+    @Test
     void recoverAccountReloadsTokenAfterLockingUser() {
         UserEntity lockedUser = UserEntity.builder()
                 .id(44L)
