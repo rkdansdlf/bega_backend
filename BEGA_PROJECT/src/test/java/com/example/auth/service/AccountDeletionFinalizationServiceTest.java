@@ -279,6 +279,7 @@ class AccountDeletionFinalizationServiceTest {
         finalizationService.finalizeIfDue(45L, cutoff);
 
         verify(moderationHoldAlerts).forget(45L);
+        verify(moderationHoldAlerts).clearPurgeHold(user);
     }
 
     @Test

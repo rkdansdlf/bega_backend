@@ -1,5 +1,6 @@
 package com.example.auth.service;
 
+import com.example.auth.entity.UserEntity;
 import com.example.cheerboard.repo.CheerReportRepo;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -26,10 +27,6 @@ public class ModerationHoldAlertService {
     private final CheerReportRepo cheerReportRepo;
     /** Day of the last alert per account; keeps the every-10-minute retry from flooding the logs. */
     private final Map<Long, LocalDate> alertedOn = new ConcurrentHashMap<>();
-    /** When each account's purge hold was first seen; the alert measures how long that hold has lasted. */
-    private final Map<Long, LocalDateTime> purgeHeldSince = new ConcurrentHashMap<>();
-    /** Day of the last purge-hold alert per account. */
-    private final Map<Long, LocalDate> purgeAlertedOn = new ConcurrentHashMap<>();
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
     public void alertIfStale(Long userId) {
@@ -43,29 +40,30 @@ public class ModerationHoldAlertService {
     }
 
     /**
-     * Logs an error once a day when a purge hold has kept a deleted account's content for longer than
-     * {@link #ALERT_AFTER}. The hold start is kept in memory, so after a restart the clock begins again and the first
-     * alert can be late. Returns true when an alert was logged.
+     * Records and checks a purge hold on the account row. The hold start and the last alert day live on the user, so a
+     * restart does not reset the 24-hour threshold. The caller's transaction saves the row. This method makes no
+     * repository call, so a logging or check failure cannot mark that transaction rollback-only.
+     * Returns true when an alert was logged.
      */
-    public boolean alertIfPurgeHeld(Long userId, LocalDateTime now) {
-        LocalDateTime heldSince = purgeHeldSince.computeIfAbsent(userId, id -> now);
-        if (now.isBefore(heldSince.plus(ALERT_AFTER))) return false;
+    public boolean observePurgeHold(UserEntity user, LocalDateTime now) {
+        if (user.getPurgeHoldStartedAt() == null) user.setPurgeHoldStartedAt(now);
+        if (now.isBefore(user.getPurgeHoldStartedAt().plus(ALERT_AFTER))) return false;
         LocalDate today = now.toLocalDate();
-        if (today.equals(purgeAlertedOn.get(userId))) return false;
-        purgeAlertedOn.put(userId, today);
-        log.error("Account content anonymization is held by a purge for more than {}: userId={}", ALERT_AFTER, userId);
+        if (today.equals(user.getPurgeHoldAlertedOn())) return false;
+        user.setPurgeHoldAlertedOn(today);
+        log.error("Account content anonymization is held by a purge for more than {}: userId={}",
+                ALERT_AFTER, user.getId());
         return true;
     }
 
     /** Ends a purge hold that has stopped, for example after the hold changes to a moderation hold. */
-    public void clearPurgeHold(Long userId) {
-        purgeHeldSince.remove(userId);
-        purgeAlertedOn.remove(userId);
+    public void clearPurgeHold(UserEntity user) {
+        user.setPurgeHoldStartedAt(null);
+        user.setPurgeHoldAlertedOn(null);
     }
 
-    /** Drops the record once the account's content is finalized, so the map only tracks accounts still held. */
+    /** Drops the in-memory moderation record once the account's content is finalized. */
     public void forget(Long userId) {
         alertedOn.remove(userId);
-        clearPurgeHold(userId);
     }
 }

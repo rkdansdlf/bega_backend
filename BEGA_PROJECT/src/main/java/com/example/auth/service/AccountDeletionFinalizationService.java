@@ -113,6 +113,7 @@ public class AccountDeletionFinalizationService {
         if (contentResult == AccountDeletionContentService.Result.COMPLETED) {
             // The retry loop will not visit this account again, so end its alert state here.
             moderationHoldAlerts.forget(userId);
+            moderationHoldAlerts.clearPurgeHold(user);
         }
         user.setDeletionScheduledFor(null);
         userRepository.save(user);

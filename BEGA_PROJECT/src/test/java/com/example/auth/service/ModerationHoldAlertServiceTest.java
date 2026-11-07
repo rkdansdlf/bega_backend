@@ -7,6 +7,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.example.auth.entity.UserEntity;
 import com.example.cheerboard.repo.CheerReportRepo;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
@@ -67,39 +68,45 @@ class ModerationHoldAlertServiceTest {
 
     @Test
     void purgeHoldAlertsOnlyAfterItHasLastedTwentyFourHours() {
+        UserEntity user = UserEntity.builder().id(7L).build();
         LocalDateTime start = LocalDateTime.of(2026, 11, 1, 9, 0);
 
-        assertThat(service.alertIfPurgeHeld(7L, start)).isFalse();
-        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(23))).isFalse();
-        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(24))).isTrue();
+        assertThat(service.observePurgeHold(user, start)).isFalse();
+        assertThat(service.observePurgeHold(user, start.plusHours(23))).isFalse();
+        assertThat(service.observePurgeHold(user, start.plusHours(24))).isTrue();
     }
 
     @Test
     void purgeHoldAlertsAtMostOncePerDay() {
+        UserEntity user = UserEntity.builder().id(7L).build();
         LocalDateTime start = LocalDateTime.of(2026, 11, 1, 9, 0);
-        service.alertIfPurgeHeld(7L, start);
+        service.observePurgeHold(user, start);
 
-        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(24))).isTrue();
-        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(25))).isFalse();
-        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(48))).isTrue();
+        assertThat(service.observePurgeHold(user, start.plusHours(24))).isTrue();
+        assertThat(service.observePurgeHold(user, start.plusHours(25))).isFalse();
+        assertThat(service.observePurgeHold(user, start.plusHours(48))).isTrue();
     }
 
     @Test
     void endingThePurgeHoldRestartsTheClock() {
+        UserEntity user = UserEntity.builder().id(7L).build();
         LocalDateTime start = LocalDateTime.of(2026, 11, 1, 9, 0);
-        service.alertIfPurgeHeld(7L, start);
-        service.clearPurgeHold(7L);
+        service.observePurgeHold(user, start);
+        service.clearPurgeHold(user);
 
-        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(30))).isFalse();
-        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(54))).isTrue();
+        assertThat(service.observePurgeHold(user, start.plusHours(30))).isFalse();
+        assertThat(service.observePurgeHold(user, start.plusHours(54))).isTrue();
     }
 
     @Test
-    void forgetEndsThePurgeHoldToo() {
+    void purgeHoldClockSurvivesANewServiceInstance() {
+        // The clock lives on the account row, not in the service, so a restart (a new service) keeps the start.
+        UserEntity user = UserEntity.builder().id(7L).build();
         LocalDateTime start = LocalDateTime.of(2026, 11, 1, 9, 0);
-        service.alertIfPurgeHeld(7L, start);
-        service.forget(7L);
+        service.observePurgeHold(user, start);
 
-        assertThat(service.alertIfPurgeHeld(7L, start.plusHours(30))).isFalse();
+        ModerationHoldAlertService restarted = new ModerationHoldAlertService(reports);
+
+        assertThat(restarted.observePurgeHold(user, start.plusHours(24))).isTrue();
     }
 }
