@@ -152,6 +152,12 @@ public class AccountDeletionService {
         validateRecoverableDeletion(deletionToken, user, LocalDateTime.now());
         // A locked account must not be reactivated from an emailed link: the lock is what stops the account.
         if (!AccountStatusUtil.isAccountUsable(user)) {
+            if (user.getLockExpiresAt() != null) {
+                // Temporary lock (e.g. failed-login lockout): it lifts on its own, so tell the user to retry later.
+                // The error code stays the same, and the token is still not consumed.
+                throw new BadRequestBusinessException("RECOVERY_ACCOUNT_LOCKED",
+                        "계정이 일시적으로 잠겨 있습니다. 잠금이 풀린 뒤 다시 시도해 주세요.");
+            }
             throw new BadRequestBusinessException("RECOVERY_ACCOUNT_LOCKED", "잠긴 계정은 복구할 수 없습니다.");
         }
 
