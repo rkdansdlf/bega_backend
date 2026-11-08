@@ -320,7 +320,7 @@ class AccountDeletionServiceTest {
                 .thenReturn(Optional.of(token));
 
         assertThatThrownBy(() -> accountDeletionService.recoverAccount("123e4567-e89b-12d3-a456-426614174000"))
-                .hasMessageContaining("잠긴 계정");
+                .hasMessageContaining("일시적으로 잠겨");
 
         verify(userRepository, never()).save(any());
         verify(accountDeletionTokenRepository, never()).deleteByUser_Id(any());
