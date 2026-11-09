@@ -61,6 +61,9 @@ class AdminAccountDeletionProviderReloadIntegrationTest {
     private EntityManager entityManager;
 
     @MockitoBean
+    private ModerationHoldAlertService moderationHoldAlerts;
+
+    @MockitoBean
     private PartyService partyService;
 
     @MockitoBean

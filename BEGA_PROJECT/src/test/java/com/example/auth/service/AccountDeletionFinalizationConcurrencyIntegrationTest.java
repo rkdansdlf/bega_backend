@@ -98,6 +98,9 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
     private ScoreEventRepository scoreEventRepository;
 
     @MockitoBean
+    private ModerationHoldAlertService moderationHoldAlerts;
+
+    @MockitoBean
     private PartyService partyService;
 
     @MockitoBean
