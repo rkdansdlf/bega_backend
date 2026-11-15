@@ -448,9 +448,10 @@ class AdminReportAppealDecisionIntegrationTest {
         assertThat(refused).as("open appeal must block purge").isZero();
 
         jdbcTemplate.update("UPDATE cheer_post_reports SET appeal_status = ? WHERE id = ?", "NONE", fixture.firstReportId());
-        Integer allowed = transaction().execute(status -> postRepository.claimPurge(
+        // Report history itself keeps a reported post protected: closing the appeal does not reopen an immediate purge.
+        Integer stillProtected = transaction().execute(status -> postRepository.claimPurge(
                 fixture.postId(), "closed-claim", now, now.plusMinutes(15)));
-        assertThat(allowed).as("closed appeal allows purge").isEqualTo(1);
+        assertThat(stillProtected).as("report history keeps a reported post protected after the appeal closes").isZero();
     }
 
     @Test
