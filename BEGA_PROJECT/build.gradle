@@ -280,6 +280,41 @@ tasks.register('schemaValidationCiTest', Test) {
 	}
 }
 
+tasks.register('postgresAccountPurgeTest', Test) {
+	group = 'verification'
+	description = 'Runs account-deletion and purge-hold data-JPA tests on the disposable PostgreSQL verification database (H2 removed from the runtime classpath)'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	// Without H2 on the runtime classpath, @DataJpaTest keeps the configured PostgreSQL datasource instead of replacing it.
+	classpath = sourceSets.test.runtimeClasspath.filter { !it.name.startsWith('h2-') }
+	systemProperty 'spring.datasource.url', System.getenv('DB_URL') ?: ''
+	systemProperty 'spring.datasource.username', System.getenv('DB_USERNAME') ?: ''
+	systemProperty 'spring.datasource.password', System.getenv('DB_PASSWORD') ?: ''
+	systemProperty 'spring.datasource.driver-class-name', 'org.postgresql.Driver'
+	systemProperty 'spring.flyway.enabled', 'true'
+	systemProperty 'spring.flyway.locations', 'classpath:db/migration_postgresql/'
+	// The crawler owns the baseball tables (player_season_*), which are absent here, so validation would fail on them.
+	// Full-context schema validation is covered by schemaValidationCiTest.
+	systemProperty 'spring.jpa.hibernate.ddl-auto', 'none'
+	// @DataJpaTest replaces the datasource with an embedded database unless this autoconfiguration is excluded.
+	systemProperty 'spring.autoconfigure.exclude', [
+		'org.springframework.boot.jdbc.test.autoconfigure.TestDatabaseAutoConfiguration',
+		'org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration',
+		'org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration',
+		'io.awspring.cloud.autoconfigure.s3.S3AutoConfiguration'
+	].join(',')
+	doFirst {
+		if (System.getenv('DB_URL') != 'jdbc:postgresql://localhost:5432/bega') {
+			throw new IllegalStateException(
+				'postgresAccountPurgeTest is restricted to the disposable PostgreSQL verification database bega on localhost:5432')
+		}
+	}
+	filter {
+		includeTestsMatching "com.example.auth.service.AccountDeletionModerationHoldIntegrationTest"
+		includeTestsMatching "com.example.auth.service.AccountContentAnonymizationRetryPurgeHoldIntegrationTest"
+		includeTestsMatching "com.example.auth.service.AccountDeletionFinalizationConcurrencyIntegrationTest"
+	}
+}
+
 tasks.register('flywaySafetyTest', Test) {
 	group = 'verification'
 	description = 'Runs Flyway safety regression tests for migration version uniqueness and repair policy'

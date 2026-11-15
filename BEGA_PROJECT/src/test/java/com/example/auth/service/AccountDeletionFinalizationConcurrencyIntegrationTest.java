@@ -54,7 +54,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @DataJpaTest
-@Import({AccountDeletionService.class, AccountDeletionFinalizationService.class})
+@Import({AccountDeletionService.class, AccountDeletionFinalizationService.class, ModerationHoldAlertService.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class AccountDeletionFinalizationConcurrencyIntegrationTest {
 
@@ -339,7 +339,8 @@ class AccountDeletionFinalizationConcurrencyIntegrationTest {
         LocalDateTime dueAt = LocalDateTime.now().minusMinutes(1).truncatedTo(ChronoUnit.MICROS);
         UserEntity adminDeletedUser = saveAdminPendingUser(dueAt);
         String recoveryToken = saveRecoveryToken(adminDeletedUser, dueAt);
-        String teamId = "SYNTH" + UUID.randomUUID().toString().substring(0, 8);
+        // Uppercase: PostgreSQL normalizes cheer_post.team_id to upper case, so a lowercase id would not match the FK.
+        String teamId = "SYNTH" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(java.util.Locale.ROOT);
         TeamEntity team = teamRepository.saveAndFlush(TeamEntity.builder()
                 .teamId(teamId)
                 .teamName("Synthetic team")

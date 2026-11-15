@@ -436,7 +436,7 @@ class AccountDeletionModerationHoldIntegrationTest {
     /** Inserts a legacy image row with a database-generated id and returns that id. */
     private Long insertLegacyImage(Long postId, String storagePath) {
         jdbc.update("INSERT INTO post_images (post_id, storage_path, mime_type, bytes, is_thumbnail, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                postId, storagePath, "image/webp", 1L, false, java.time.Instant.now());
+                postId, storagePath, "image/webp", 1L, false, java.sql.Timestamp.from(java.time.Instant.now()));
         return jdbc.queryForObject("SELECT id FROM post_images WHERE post_id = ? AND storage_path = ?",
                 Long.class, postId, storagePath);
     }
