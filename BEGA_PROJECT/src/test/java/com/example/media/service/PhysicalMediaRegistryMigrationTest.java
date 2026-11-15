@@ -61,11 +61,11 @@ class PhysicalMediaRegistryMigrationTest {
                         .isInstanceOf(SQLException.class);
                 assertThatThrownBy(() -> statement.executeUpdate("UPDATE physical_media_objects SET state='DELETED', audit_generation=1, deletion_requested=" + trueLiteral + " WHERE object_hash='" + hash + "'"))
                         .isInstanceOf(SQLException.class);
-                assertThatThrownBy(() -> statement.executeUpdate("INSERT INTO physical_media_refs (source_kind, source_id, object_hash) VALUES ('POST_IMAGE', '1', 'missing')"))
+                assertThatThrownBy(() -> statement.executeUpdate("INSERT INTO physical_media_refs (source_kind, source_id, source_generation, object_hash) VALUES ('POST_IMAGE', '1', '00000000-0000-0000-0000-000000000001', 'missing')"))
                         .isInstanceOf(SQLException.class);
                 statement.executeUpdate("UPDATE physical_media_objects SET state='ACTIVE', audit_generation=1 WHERE object_hash='" + hash + "'");
-                statement.executeUpdate("INSERT INTO physical_media_refs (source_kind, source_id, object_hash) VALUES ('POST_IMAGE', '1', '" + hash + "')");
-                assertThatThrownBy(() -> statement.executeUpdate("INSERT INTO physical_media_refs (source_kind, source_id, object_hash) VALUES ('POST_IMAGE', '1', '" + hash + "')"))
+                statement.executeUpdate("INSERT INTO physical_media_refs (source_kind, source_id, source_generation, object_hash) VALUES ('POST_IMAGE', '1', '00000000-0000-0000-0000-000000000001', '" + hash + "')");
+                assertThatThrownBy(() -> statement.executeUpdate("INSERT INTO physical_media_refs (source_kind, source_id, source_generation, object_hash) VALUES ('POST_IMAGE', '1', '00000000-0000-0000-0000-000000000001', '" + hash + "')"))
                         .isInstanceOf(SQLException.class);
                 statement.executeUpdate("DELETE FROM physical_media_refs WHERE source_kind='POST_IMAGE' AND source_id='1'");
                 statement.executeUpdate("UPDATE physical_media_objects SET state='DELETE_PENDING', deletion_requested=" + trueLiteral);
