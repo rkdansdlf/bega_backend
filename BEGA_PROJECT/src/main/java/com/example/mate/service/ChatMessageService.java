@@ -50,7 +50,7 @@ public class ChatMessageService {
     public ChatMessageDTO.Response sendMessage(ChatMessageDTO.Request request, Long userId) {
         requireUserId(userId);
 
-        requireAccessibleParty(request.getPartyId(), userId);
+        requireAccessiblePartyForUpdate(request.getPartyId(), userId);
 
         MateContentPolicyValidator.validateChatMessage(request.getMessage(), request.getImageUrl());
 
@@ -196,39 +196,8 @@ public class ChatMessageService {
                 PartyStatus.MATCHED,
                 PartyStatus.SELLING,
                 PartyStatus.CHECKED_IN);
-        List<com.example.mate.entity.Party> hostedParties = partyRepository.findByHostIdAndStatusIn(userId, activeStatuses);
-        List<com.example.mate.entity.PartyApplication> applications = applicationRepository
-                .findApprovedByApplicantIdAndPartyStatusIn(userId, activeStatuses);
-
-        long totalUnread = 0;
-
-        for (com.example.mate.entity.Party party : hostedParties) {
-            Instant lastRead = resolveUnreadCountStart(party.getHostLastReadChatAt(), party.getCreatedAt());
-            totalUnread += chatMessageRepository.countByPartyIdAndCreatedAtAfterAndSenderIdNot(
-                    party.getId(),
-                    lastRead,
-                    userId);
-        }
-
-        for (com.example.mate.entity.PartyApplication app : applications) {
-            Instant lastRead = resolveUnreadCountStart(app.getLastReadChatAt(), app.getCreatedAt());
-            totalUnread += chatMessageRepository.countByPartyIdAndCreatedAtAfterAndSenderIdNot(
-                    app.getPartyId(),
-                    lastRead,
-                    userId);
-        }
-
-        return totalUnread;
-    }
-
-    private Instant resolveUnreadCountStart(Instant lastReadAt, Instant createdAt) {
-        if (lastReadAt != null) {
-            return lastReadAt;
-        }
-        if (createdAt != null) {
-            return createdAt;
-        }
-        return Instant.EPOCH;
+        return chatMessageRepository.countUnreadFromHostedParties(userId, activeStatuses, Instant.EPOCH)
+                + chatMessageRepository.countUnreadFromApprovedApplications(userId, activeStatuses, Instant.EPOCH);
     }
 
     private Long resolveUserId(Principal principal) {
@@ -261,6 +230,15 @@ public class ChatMessageService {
             throw new PartyNotFoundException(0L);
         }
         return partyRepository.findAccessibleByIdAndParticipantId(partyId, userId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+    }
+
+    private Party requireAccessiblePartyForUpdate(Long partyId, Long userId) {
+        requireUserId(userId);
+        if (partyId == null) {
+            throw new PartyNotFoundException(0L);
+        }
+        return partyRepository.findAccessibleByIdAndParticipantIdForUpdate(partyId, userId)
                 .orElseThrow(() -> new PartyNotFoundException(partyId));
     }
 

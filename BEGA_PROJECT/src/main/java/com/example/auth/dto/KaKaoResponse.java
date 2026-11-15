@@ -48,17 +48,6 @@ public class KaKaoResponse implements OAuth2Response {
             );
         }
 
-        // 이메일 유효성 확인
-        Boolean emailValid = asBoolean(kakaoAccount.get("is_email_valid"));
-        Boolean emailVerified = asBoolean(kakaoAccount.get("is_email_verified"));
-
-        if (Boolean.FALSE.equals(emailValid) || Boolean.FALSE.equals(emailVerified)) {
-            throw new IllegalStateException(
-                "KAKAO_EMAIL_UNVERIFIED:카카오 계정의 이메일이 인증되지 않았습니다. " +
-                "카카오 계정 설정에서 이메일 인증을 완료해주세요."
-            );
-        }
-
         // kakaoAccount에서 이메일 값 가져오기
         Object email = kakaoAccount.get("email");
         if (email == null || email.toString().isBlank()) {
@@ -115,8 +104,8 @@ public class KaKaoResponse implements OAuth2Response {
 
         return email != null
                 && !email.toString().isBlank()
-                && !Boolean.FALSE.equals(emailValid)
-                && !Boolean.FALSE.equals(emailVerified);
+                && Boolean.TRUE.equals(emailValid)
+                && Boolean.TRUE.equals(emailVerified);
     }
 
     @Override

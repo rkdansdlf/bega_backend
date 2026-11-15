@@ -3,6 +3,8 @@ package com.example.prediction;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -19,14 +21,19 @@ import com.example.kbo.entity.GameEntity;
 import com.example.kbo.repository.PredictionStatsGameProjection;
 import com.example.kbo.service.LeagueStageResolver;
 import com.example.kbo.validation.BaseballDataIntegrityGuard;
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.serializer.SerializationException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
@@ -262,8 +269,7 @@ class PredictionServiceVoteTest extends PredictionServiceTestFixture {
     @Test
     @DisplayName("getUserStats - 예측이 없으면 모든 통계가 0")
     void getUserStats_returnsZeroStatsWhenNoPredictions() {
-        when(predictionRepository.findStatsRowsByUserIdOrderByCreatedAtDesc(1L))
-                .thenReturn(List.of());
+        when(predictionRepository.findStatsCutoffIdByUserId(1L)).thenReturn(Optional.empty());
 
         var stats = predictionService.getUserStats(1L);
 
@@ -276,28 +282,23 @@ class PredictionServiceVoteTest extends PredictionServiceTestFixture {
     @Test
     @DisplayName("getUserStats - 완료된 경기에 대한 정확도와 연속 적중 계산")
     void getUserStats_calculatesAccuracyAndStreak() {
-        // Predictions fetched in DESC order: p1=newest (correct), p2=oldest (wrong)
-        PredictionStatsRowProjection p1 = mock(PredictionStatsRowProjection.class);
-        PredictionStatsRowProjection p2 = mock(PredictionStatsRowProjection.class);
-        when(predictionRepository.findStatsRowsByUserIdOrderByCreatedAtDesc(1L))
-                .thenReturn(List.of(p1, p2));
+        // p1 is newest and correct; p2 is older and breaks the streak.
+        PredictionStatsRowProjection p1 = statsRow(2L, "SYNTHETIC-GAME-2", "home", LocalDateTime.of(2026, 1, 2, 0, 0));
+        PredictionStatsRowProjection p2 = statsRow(1L, "SYNTHETIC-GAME-1", "home", LocalDateTime.of(2026, 1, 1, 0, 0));
+        stubStatsRows(1L, List.of(p1, p2));
 
         PredictionStatsGameProjection g1 = mock(PredictionStatsGameProjection.class);
         PredictionStatsGameProjection g2 = mock(PredictionStatsGameProjection.class);
-        when(gameRepository.findPredictionStatsGameSummaries(eq(List.of("202603200001", "202603210001")), anyList()))
+        when(gameRepository.findPredictionStatsGameSummaries(eq(List.of("SYNTHETIC-GAME-1", "SYNTHETIC-GAME-2")), anyList()))
                 .thenReturn(List.of(g1, g2));
 
         // p1: voted "home", winner "home" → correct
-        when(p1.getGameId()).thenReturn("202603200001");
-        when(p1.getVotedTeam()).thenReturn("home");
         when(g1.getWinner()).thenReturn("home");
-        when(g1.getGameId()).thenReturn("202603200001");
+        when(g1.getGameId()).thenReturn("SYNTHETIC-GAME-2");
 
         // p2: voted "home", winner "away" → wrong (breaks streak)
-        when(p2.getGameId()).thenReturn("202603210001");
-        when(p2.getVotedTeam()).thenReturn("home");
         when(g2.getWinner()).thenReturn("away");
-        when(g2.getGameId()).thenReturn("202603210001");
+        when(g2.getGameId()).thenReturn("SYNTHETIC-GAME-1");
 
         var stats = predictionService.getUserStats(1L);
 
@@ -310,22 +311,19 @@ class PredictionServiceVoteTest extends PredictionServiceTestFixture {
     @Test
     @DisplayName("getUserStats uses minimal projections instead of full prediction/game entities")
     void getUserStats_usesMinimalProjectionQueries() {
-        PredictionStatsRowProjection firstPrediction = mock(PredictionStatsRowProjection.class);
-        PredictionStatsRowProjection secondPrediction = mock(PredictionStatsRowProjection.class);
+        PredictionStatsRowProjection firstPrediction = statsRow(
+                2L, "SYNTHETIC-GAME-2", "home", LocalDateTime.of(2026, 1, 2, 0, 0));
+        PredictionStatsRowProjection secondPrediction = statsRow(
+                1L, "SYNTHETIC-GAME-1", "away", LocalDateTime.of(2026, 1, 1, 0, 0));
         PredictionStatsGameProjection firstGame = mock(PredictionStatsGameProjection.class);
         PredictionStatsGameProjection secondGame = mock(PredictionStatsGameProjection.class);
 
-        when(predictionRepository.findStatsRowsByUserIdOrderByCreatedAtDesc(7L))
-                .thenReturn(List.of(firstPrediction, secondPrediction));
-        when(firstPrediction.getGameId()).thenReturn("202603200001");
-        when(firstPrediction.getVotedTeam()).thenReturn("home");
-        when(secondPrediction.getGameId()).thenReturn("202603210001");
-        when(secondPrediction.getVotedTeam()).thenReturn("away");
-        when(firstGame.getGameId()).thenReturn("202603200001");
+        stubStatsRows(7L, List.of(firstPrediction, secondPrediction));
+        when(firstGame.getGameId()).thenReturn("SYNTHETIC-GAME-2");
         when(firstGame.getWinner()).thenReturn("home");
-        when(secondGame.getGameId()).thenReturn("202603210001");
+        when(secondGame.getGameId()).thenReturn("SYNTHETIC-GAME-1");
         when(secondGame.getWinner()).thenReturn("away");
-        when(gameRepository.findPredictionStatsGameSummaries(eq(List.of("202603200001", "202603210001")), anyList()))
+        when(gameRepository.findPredictionStatsGameSummaries(eq(List.of("SYNTHETIC-GAME-1", "SYNTHETIC-GAME-2")), anyList()))
                 .thenReturn(List.of(firstGame, secondGame));
 
         UserPredictionStatsDto stats = predictionService.getUserStats(7L);
@@ -334,9 +332,168 @@ class PredictionServiceVoteTest extends PredictionServiceTestFixture {
         assertThat(stats.getCorrectPredictions()).isEqualTo(2);
         assertThat(stats.getAccuracy()).isEqualTo(100.0);
         assertThat(stats.getStreak()).isEqualTo(2);
-        verify(predictionRepository, times(1)).findStatsRowsByUserIdOrderByCreatedAtDesc(7L);
-        verify(gameRepository, times(1)).findPredictionStatsGameSummaries(eq(List.of("202603200001", "202603210001")), anyList());
+        verify(predictionRepository).findStatsCutoffIdByUserId(7L);
+        verify(predictionRepository).findStatsRowsByUserIdAfterIdAndIdAtMostOrderByIdAsc(
+                eq(7L), eq(0L), eq(2L), any(Pageable.class));
+        verify(gameRepository).findPredictionStatsGameSummaries(
+                eq(List.of("SYNTHETIC-GAME-1", "SYNTHETIC-GAME-2")), anyList());
         verify(predictionRepository, never()).findAllByUserIdOrderByCreatedAtDesc(any());
         verify(gameRepository, never()).findByGameIdIn(any());
+    }
+
+    @Test
+    @DisplayName("getUserStats bounds history and game lookups to 500 rows per batch")
+    void getUserStats_batchesMoreThanOneThousandPredictions() {
+        List<PredictionStatsRowProjection> rows = IntStream.rangeClosed(1, 1_001)
+                .mapToObj(id -> statsRow(
+                        (long) id,
+                        "SYNTHETIC-GAME-%04d".formatted(id),
+                        id > 951 ? "home" : "away",
+                        LocalDateTime.of(2026, 1, 1, 0, 0).plusSeconds(id)))
+                .toList();
+        stubStatsRows(9L, rows);
+        when(gameRepository.findPredictionStatsGameSummaries(anyCollection(), anyList()))
+                .thenAnswer(invocation -> {
+                    Collection<String> gameIds = invocation.getArgument(0);
+                    assertThat(gameIds.size()).isLessThanOrEqualTo(500);
+                    return gameIds.stream()
+                            .map(gameId -> gameSummary(gameId, "home"))
+                            .toList();
+                });
+
+        UserPredictionStatsDto stats = predictionService.getUserStats(9L);
+
+        assertThat(stats.getTotalPredictions()).isEqualTo(1_001);
+        assertThat(stats.getCorrectPredictions()).isEqualTo(50);
+        assertThat(stats.getAccuracy()).isEqualTo(5.0);
+        assertThat(stats.getStreak()).isEqualTo(50);
+        verify(predictionRepository).findStatsRowsByUserIdAfterIdAndIdAtMostOrderByIdAsc(
+                eq(9L), eq(0L), eq(1_001L), any(Pageable.class));
+        verify(predictionRepository).findStatsRowsByUserIdAfterIdAndIdAtMostOrderByIdAsc(
+                eq(9L), eq(500L), eq(1_001L), any(Pageable.class));
+        verify(predictionRepository).findStatsRowsByUserIdAfterIdAndIdAtMostOrderByIdAsc(
+                eq(9L), eq(1_000L), eq(1_001L), any(Pageable.class));
+        verify(gameRepository, times(3)).findPredictionStatsGameSummaries(anyCollection(), anyList());
+    }
+
+    @Test
+    @DisplayName("getUserStats orders the latest completed streak by timestamp and then ID across batches")
+    void getUserStats_ordersRecentStreakIndependentlyOfKeysetOrder() {
+        LocalDateTime base = LocalDateTime.of(2026, 1, 1, 0, 0);
+        List<PredictionStatsRowProjection> rows = IntStream.rangeClosed(1, 502)
+                .mapToObj(id -> statsRow(
+                        (long) id,
+                        "SYNTHETIC-GAME-%04d".formatted(id),
+                        id == 502 ? "away" : "home",
+                        id == 1 ? base.plusDays(3) : id >= 501 ? base.plusDays(2) : base.plusSeconds(id)))
+                .toList();
+        stubStatsRows(11L, rows);
+        when(gameRepository.findPredictionStatsGameSummaries(anyCollection(), anyList()))
+                .thenAnswer(invocation -> {
+                    Collection<String> gameIds = invocation.getArgument(0);
+                    return gameIds.stream().map(gameId -> gameSummary(gameId, "home")).toList();
+                });
+
+        UserPredictionStatsDto stats = predictionService.getUserStats(11L);
+
+        assertThat(stats.getTotalPredictions()).isEqualTo(502);
+        assertThat(stats.getCorrectPredictions()).isEqualTo(501);
+        assertThat(stats.getStreak()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("getUserStats skips unfinished predictions when retaining the latest completed streak")
+    void getUserStats_streakSkipsUnfinishedRecentPredictions() {
+        List<PredictionStatsRowProjection> rows = IntStream.rangeClosed(1, 52)
+                .mapToObj(id -> statsRow(
+                        (long) id,
+                        "SYNTHETIC-GAME-%02d".formatted(id),
+                        "home",
+                        LocalDateTime.of(2026, 1, 1, 0, 0).plusSeconds(id)))
+                .toList();
+        stubStatsRows(10L, rows);
+        when(gameRepository.findPredictionStatsGameSummaries(anyCollection(), anyList()))
+                .thenAnswer(invocation -> {
+                    Collection<String> gameIds = invocation.getArgument(0);
+                    return gameIds.stream()
+                            .filter(gameId -> gameId.endsWith("01") || gameId.endsWith("02"))
+                            .map(gameId -> gameSummary(
+                                    gameId,
+                                    gameId.endsWith("02") ? "home" : "away"))
+                            .toList();
+                });
+
+        UserPredictionStatsDto stats = predictionService.getUserStats(10L);
+
+        assertThat(stats.getTotalPredictions()).isEqualTo(2);
+        assertThat(stats.getCorrectPredictions()).isEqualTo(1);
+        assertThat(stats.getAccuracy()).isEqualTo(50.0);
+        assertThat(stats.getStreak()).isEqualTo(1);
+    }
+
+    private void stubStatsRows(Long userId, List<PredictionStatsRowProjection> rows) {
+        Long cutoffId = rows.stream()
+                .map(PredictionStatsRowProjection::getId)
+                .max(Long::compareTo)
+                .orElse(null);
+        when(predictionRepository.findStatsCutoffIdByUserId(userId))
+                .thenReturn(Optional.ofNullable(cutoffId));
+        if (cutoffId == null) {
+            return;
+        }
+
+        when(predictionRepository.findStatsRowsByUserIdAfterIdAndIdAtMostOrderByIdAsc(
+                eq(userId), anyLong(), anyLong(), any(Pageable.class)))
+                .thenAnswer(invocation -> {
+                    Long afterId = invocation.getArgument(1);
+                    Long requestedCutoff = invocation.getArgument(2);
+                    Pageable pageable = invocation.getArgument(3);
+                    return rows.stream()
+                            .filter(row -> row.getId() > afterId && row.getId() <= requestedCutoff)
+                            .sorted(Comparator.comparing(PredictionStatsRowProjection::getId))
+                            .limit(pageable.getPageSize())
+                            .toList();
+                });
+    }
+
+    private PredictionStatsRowProjection statsRow(
+            Long id,
+            String gameId,
+            String votedTeam,
+            LocalDateTime createdAt) {
+        return new StatsRow(id, gameId, votedTeam, createdAt);
+    }
+
+    private PredictionStatsGameProjection gameSummary(String gameId, String winner) {
+        PredictionStatsGameProjection summary = mock(PredictionStatsGameProjection.class);
+        when(summary.getGameId()).thenReturn(gameId);
+        when(summary.getWinner()).thenReturn(winner);
+        return summary;
+    }
+
+    private record StatsRow(
+            Long id,
+            String gameId,
+            String votedTeam,
+            LocalDateTime createdAt) implements PredictionStatsRowProjection {
+        @Override
+        public Long getId() {
+            return id;
+        }
+
+        @Override
+        public String getGameId() {
+            return gameId;
+        }
+
+        @Override
+        public String getVotedTeam() {
+            return votedTeam;
+        }
+
+        @Override
+        public LocalDateTime getCreatedAt() {
+            return createdAt;
+        }
     }
 }

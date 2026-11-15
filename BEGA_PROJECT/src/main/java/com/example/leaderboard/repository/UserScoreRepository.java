@@ -1,9 +1,11 @@
 package com.example.leaderboard.repository;
 
 import com.example.leaderboard.entity.UserScore;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -24,28 +26,48 @@ public interface UserScoreRepository extends JpaRepository<UserScore, Long> {
 
     Optional<UserScore> findByUserId(Long userId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT us FROM UserScore us WHERE us.userId = :userId")
+    Optional<UserScore> findByUserIdForUpdate(@Param("userId") Long userId);
+
     // ============================================
     // LEADERBOARD QUERIES (TOTAL SCORE)
     // ============================================
 
-    @Query("SELECT us FROM UserScore us ORDER BY us.totalScore DESC")
-    Page<UserScore> findAllByTotalScoreDesc(Pageable pageable);
-
-    @Query("SELECT us FROM UserScore us ORDER BY us.seasonScore DESC")
-    Page<UserScore> findAllBySeasonScoreDesc(Pageable pageable);
-
-    @Query("SELECT us FROM UserScore us ORDER BY us.monthlyScore DESC")
-    Page<UserScore> findAllByMonthlyScoreDesc(Pageable pageable);
-
-    @Query("SELECT us FROM UserScore us ORDER BY us.weeklyScore DESC")
-    Page<UserScore> findAllByWeeklyScoreDesc(Pageable pageable);
+    @Query(
+            value = """
+                    SELECT us
+                    FROM UserScore us
+                    JOIN UserEntity u ON u.id = us.userId
+                    WHERE
+                    """ + LeaderboardVisibilityQueries.VISIBLE_USER_PREDICATE,
+            countQuery = """
+                    SELECT COUNT(us)
+                    FROM UserScore us
+                    JOIN UserEntity u ON u.id = us.userId
+                    WHERE
+                    """ + LeaderboardVisibilityQueries.VISIBLE_USER_PREDICATE)
+    Page<UserScore> findVisibleLeaderboard(
+            @Param("viewerId") Long viewerId,
+            Pageable pageable);
 
     // ============================================
     // HOT STREAKS
     // ============================================
 
-    @Query("SELECT us FROM UserScore us WHERE us.currentStreak >= :minStreak ORDER BY us.currentStreak DESC")
-    List<UserScore> findHotStreaks(@Param("minStreak") int minStreak, Pageable pageable);
+    @Query("""
+            SELECT us
+            FROM UserScore us
+            JOIN UserEntity u ON u.id = us.userId
+            WHERE us.currentStreak >= :minStreak
+              AND
+            """ + LeaderboardVisibilityQueries.VISIBLE_USER_PREDICATE + """
+            ORDER BY us.currentStreak DESC, us.userId ASC
+            """)
+    List<UserScore> findVisibleHotStreaks(
+            @Param("minStreak") int minStreak,
+            @Param("viewerId") Long viewerId,
+            Pageable pageable);
 
     @Query("SELECT us FROM UserScore us WHERE us.currentStreak >= 3 ORDER BY us.currentStreak DESC")
     List<UserScore> findTopStreakers(Pageable pageable);

@@ -73,7 +73,9 @@ public class S3StorageStrategy implements StorageStrategy {
                 s3Client.putObject(putOb, RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
                 return objectKey;
             } catch (Exception e) {
-                throw new RuntimeException("S3 업로드 실패", e);
+                // 일시 장애가 일반 RuntimeException 에 묻히면 호출자가 실패 원인을 알 수 없어
+                // 정상 staging 객체까지 정리해 버린다. 분류를 붙여 던진다.
+                throw new StorageOperationException(classify(e), "S3 업로드 실패", e);
             }
         });
     }
@@ -93,19 +95,29 @@ public class S3StorageStrategy implements StorageStrategy {
                 s3Client.putObject(putOb, RequestBody.fromBytes(bytes));
                 return objectKey;
             } catch (Exception e) {
-                throw new RuntimeException("S3 업로드 실패", e);
+                // 일시 장애가 일반 RuntimeException 에 묻히면 호출자가 실패 원인을 알 수 없어
+                // 정상 staging 객체까지 정리해 버린다. 분류를 붙여 던진다.
+                throw new StorageOperationException(classify(e), "S3 업로드 실패", e);
             }
         });
     }
 
     @Override
-    public Mono<PresignedUpload> presignPut(String bucket, String path, String contentType, int expiresInSeconds) {
+    public Mono<PresignedUpload> presignPut(
+            String bucket,
+            String path,
+            String contentType,
+            long contentLength,
+            int expiresInSeconds) {
         return Mono.fromCallable(() -> {
             String objectKey = buildObjectKey(bucket, path);
 
             PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
                     .signatureDuration(Duration.ofSeconds(expiresInSeconds))
-                    .putObjectRequest(b -> b.bucket(bucketName).key(objectKey).contentType(contentType))
+                    .putObjectRequest(b -> b.bucket(bucketName)
+                            .key(objectKey)
+                            .contentType(contentType)
+                            .contentLength(contentLength))
                     .build();
 
             String url = s3Presigner.presignPutObject(presignRequest).url().toString();
@@ -159,7 +171,8 @@ public class S3StorageStrategy implements StorageStrategy {
         }
         if (e instanceof S3Exception s3) {
             int status = s3.statusCode();
-            if (status == 404) {
+            String errorCode = s3.awsErrorDetails() == null ? null : s3.awsErrorDetails().errorCode();
+            if (status == 404 && "NoSuchKey".equals(errorCode)) {
                 return StorageOperationException.Kind.OBJECT_NOT_FOUND;
             }
             if (status == 408 || status == 429 || status >= 500) {

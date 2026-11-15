@@ -66,7 +66,7 @@ public class ProfileImageService {
      * 4. 기존 이미지 삭제 (Best-effort/Async recommended)
      */
     public ProfileImageDto uploadProfileImage(Long userId, MultipartFile file) {
-        log.info("프로필 이미지 업로드 시작: userId={}, filename={}", userId, file.getOriginalFilename());
+        log.info("프로필 이미지 업로드 시작: userId={}", userId);
         metricsService.recordRequest("profile");
         metricsService.recordLegacyEndpoint("profile_image_upload");
         if (userId == null) {

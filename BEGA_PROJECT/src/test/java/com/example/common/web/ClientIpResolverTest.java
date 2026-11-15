@@ -29,6 +29,16 @@ class ClientIpResolverTest {
     }
 
     @Test
+    void trustedProxyUsesCanonicalForwardedForHeaderAfterEdgeRewrite() {
+        ClientIpResolver resolver = new ClientIpResolver("10.0.0.10", new MockEnvironment());
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("10.0.0.10");
+        request.addHeader("X-Forwarded-For", "198.51.100.24");
+
+        assertThat(resolver.resolve(request)).isEqualTo("198.51.100.24");
+    }
+
+    @Test
     void localProfileTrustsLoopbackProxyHeaders() {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("local");

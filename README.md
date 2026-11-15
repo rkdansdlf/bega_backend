@@ -1,6 +1,6 @@
 <div id="top"> <!-- HEADER STYLE: CLASSIC --> <div align="center">
 
-# BACKEND
+# 백엔드
 
 <em>BEGA 야구 커뮤니티 플랫폼의 핵심 엔진</em>
 
@@ -29,14 +29,14 @@
 
 ## 개요
 
-BEGA(Baseball Guide) Backend는 한국 야구 팬 커뮤니티 플랫폼의 핵심 REST API 서버입니다. Spring Boot로 구축되어 게임 데이터 관리, 사용자 상호작용, KBO 야구 정보를 제공하는 강력하고 확장 가능한 서비스를 제공합니다.
+BEGA(Baseball Guide) 백엔드는 한국 야구 팬 커뮤니티 플랫폼의 핵심 REST API 서버입니다. Spring Boot로 구축되어 경기 데이터 관리, 사용자 상호작용, KBO 야구 정보를 제공하는 강력하고 확장 가능한 서비스를 제공합니다.
 
 야구 데이터 운영 원칙:
 - 외부 야구 웹 조회나 크롤링은 사용하지 않습니다.
 - 내부 DB 동기화와 운영자 제공 데이터만 사용합니다.
 - 데이터가 부족하거나 시즌 문맥이 어긋나면 `MANUAL_BASEBALL_DATA_REQUIRED` 계약으로 전환합니다.
 
-**왜 BEGA인가?**
+**BEGA인 이유**
 
 이 프로젝트는 다음을 지원하는 고성능 백엔드 인프라를 제공합니다:
 
@@ -47,7 +47,7 @@ BEGA(Baseball Guide) Backend는 한국 야구 팬 커뮤니티 플랫폼의 핵�
 -   🏟️ **구장 가이드:** KBO 10개 구장 정보 및 좌석 안내
 -   💬 **응원 게시판:** 댓글, 좋아요, 조회수, 필터링 기능
 -   🎯 **예측 & 투표:** 시즌 순위 예측 및 경기 승부 투표
--   📦 **클라우드 스토리지:** OCI Object Storage 기반 이미지 관리
+-   📦 **클라우드 저장소:** OCI Object Storage 기반 이미지 관리
 
 ----------
 
@@ -92,11 +92,11 @@ BEGA(Baseball Guide) Backend는 한국 야구 팬 커뮤니티 플랫폼의 핵�
 -   **파일 관리**
     
     -   OCI Object Storage(S3 호환) 통합
-    -   안전한 이미지 접근을 위한 Signed URL 생성
+    -   안전한 이미지 접근을 위한 서명 URL 생성
     -   이미지 업로드 및 삭제 처리
 -   **API 아키텍처**
     
-    -   RESTful API 설계
+    -   REST API 설계
     -   포괄적인 에러 처리
     -   요청 검증 및 정제
     -   크로스 오리진 요청을 위한 CORS 설정
@@ -109,10 +109,10 @@ BEGA(Baseball Guide) Backend는 한국 야구 팬 커뮤니티 플랫폼의 핵�
 
 -   **프레임워크:** Spring Boot 3.x
 -   **언어:** Java 17+
--   **데이터베이스:** Oracle Autonomous Database + PostgreSQL(Baseball 데이터 소스)
+-   **데이터베이스:** Oracle Autonomous Database + PostgreSQL(야구 데이터 소스)
 -   **ORM:** Spring Data JPA
--   **보안:** Spring Security with JWT
--   **스토리지:** OCI Object Storage (S3 compatible)
+-   **보안:** Spring Security + JWT
+-   **스토리지:** OCI Object Storage(S3 호환)
 -   **웹 서버:** Nginx (리버스 프록시)
 -   **배포:** AWS EC2
 -   **컨테이너화:** Docker
@@ -120,11 +120,11 @@ BEGA(Baseball Guide) Backend는 한국 야구 팬 커뮤니티 플랫폼의 핵�
 ### 시스템 설계
 
 ```
-Frontend (Cloudflare Worker Assets)
+프론트엔드 (Cloudflare Worker 정적 자산)
     ↓ HTTPS
 Nginx (EC2)
     ↓
-Spring Boot Application
+Spring Boot 애플리케이션
     ↓
 Oracle Autonomous Database
     ↓
@@ -147,7 +147,7 @@ OCI Object Storage
 
 ### 설치
 
-소스에서 backend를 빌드하고 종속성을 설치합니다:
+소스에서 백엔드를 빌드하고 종속성을 설치합니다:
 
 1.  **저장소 클론:**
     
@@ -230,13 +230,13 @@ OCI Object Storage
 
 ### 검증 게이트
 
-개발/CI에서 권장하는 backend 검증 명령:
+개발/CI에서 권장하는 백엔드 검증 명령:
 
 ```sh
-# Flyway 중복 버전 + stale build resource 빠른 검사 (DB 연결 불필요)
+# Flyway 중복 버전 + 오래된 빌드 리소스 빠른 검사 (DB 연결 불필요)
 ./gradlew migrationSafetyCheck
 
-# Flyway safety + 실제 schema validation 전체 검사 (DB 연결 필요)
+# Flyway 안전성 + 실제 스키마 검증 전체 검사 (DB 연결 필요)
 ./gradlew dbSafetyTest
 ```
 

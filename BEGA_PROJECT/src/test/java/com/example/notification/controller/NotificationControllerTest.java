@@ -1,6 +1,8 @@
 package com.example.notification.controller;
 
 import com.example.notification.dto.NotificationDTO;
+import com.example.notification.dto.MarkAllAsReadRequest;
+import com.example.notification.dto.MarkAllAsReadResponse;
 import com.example.notification.service.NotificationService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,6 +14,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.util.List;
 
@@ -37,7 +40,8 @@ class NotificationControllerTest {
         Pageable pageable = PageRequest.of(0, 30);
         when(notificationService.getMyNotifications(eq(42L), any(Pageable.class))).thenReturn(List.of(resp));
 
-        ResponseEntity<List<NotificationDTO.Response>> result = controller.getMyNotifications(42L, pageable);
+        ResponseEntity<List<NotificationDTO.Response>> result = controller.getMyNotifications(
+                42L, pageable, new MockHttpServletRequest());
 
         assertThat(result.getBody()).hasSize(1);
     }
@@ -59,6 +63,20 @@ class NotificationControllerTest {
 
         assertThat(result.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         verify(notificationService).markAsRead(1L, 42L);
+    }
+
+    @Test
+    @DisplayName("전체 읽음 처리에 조회 스냅샷 ID를 전달한다")
+    void markAllAsRead_forwardsSnapshotIds() {
+        List<Long> notificationIds = List.of(7L, 9L);
+        when(notificationService.markAllAsRead(42L, notificationIds)).thenReturn(notificationIds);
+
+        ResponseEntity<MarkAllAsReadResponse> result = controller.markAllAsRead(
+                new MarkAllAsReadRequest(notificationIds), 42L);
+
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(result.getBody()).isEqualTo(new MarkAllAsReadResponse(List.of(7L, 9L)));
+        verify(notificationService).markAllAsRead(42L, notificationIds);
     }
 
     @Test

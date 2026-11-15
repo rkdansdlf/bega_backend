@@ -80,6 +80,8 @@ public class RealtimeOutboxEvent {
             RealtimeMessageEnvelope envelope,
             String serializedPayload,
             Instant now) {
+        // 영속화 정밀도 계약은 RealtimeOutboxTime 한 곳에서 정의한다.
+        Instant persisted = RealtimeOutboxTime.persisted(now);
         return RealtimeOutboxEvent.builder()
                 .envelopeVersion(envelope.version())
                 .eventId(envelope.eventId())
@@ -89,8 +91,8 @@ public class RealtimeOutboxEvent {
                 .payload(serializedPayload)
                 .status(RealtimeOutboxStatus.PENDING)
                 .attemptCount(0)
-                .availableAt(now)
-                .createdAt(now)
+                .availableAt(persisted)
+                .createdAt(persisted)
                 .build();
     }
 }

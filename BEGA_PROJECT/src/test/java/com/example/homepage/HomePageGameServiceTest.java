@@ -1,6 +1,7 @@
 package com.example.homepage;
 
 import com.example.kbo.entity.GameEntity;
+import com.example.kbo.repository.CanonicalAdjacentGameDatesProjection;
 import com.example.kbo.repository.GameRepository;
 import com.example.kbo.repository.MatchRangeProjection;
 import com.example.kbo.service.LeagueStageResolver;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -21,11 +23,14 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -518,8 +523,7 @@ class HomePageGameServiceTest {
         LocalDate prevDate = LocalDate.of(2026, 4, 12);
         LocalDate nextDate = LocalDate.of(2026, 4, 14);
 
-        when(gameRepository.findPrevGameDate(selectedDate)).thenReturn(Optional.of(prevDate));
-        when(gameRepository.findNextGameDate(selectedDate)).thenReturn(Optional.of(nextDate));
+        stubAdjacentDates(selectedDate, prevDate, nextDate);
 
         ScheduleNavigationDto navigation = homePageGameService.getScheduleNavigation(selectedDate);
 
@@ -528,6 +532,251 @@ class HomePageGameServiceTest {
         assertThat(navigation.isHasPrev()).isTrue();
         assertThat(navigation.isHasNext()).isTrue();
         verifyNoInteractions(baseballDataIntegrityGuard);
+        verify(gameRepository, never()).findPrevGameDate(selectedDate);
+        verify(gameRepository, never()).findNextGameDate(selectedDate);
+    }
+
+    @Test
+    @DisplayName("홈 일정은 옛 팀 코드(HT/OB/SK/WO) 경기도 조회하고 canonical 코드와 팀 이름으로 응답한다")
+    void getGamesByDate_includesLegacyTeamCodeGamesAndNormalizesCodes() {
+        LocalDate date = LocalDate.of(2026, 10, 12);
+        MatchRangeProjection canonicalGame = projection(
+                "20261012KTSS0", date, "대구", "SS", "KT", 2, 4, 202603, null, "COMPLETED", null);
+        MatchRangeProjection kiaGame = projection(
+                "20261012LGHT0", date, "광주", "HT", "LG", 4, 2, 202603, null, "COMPLETED", null);
+        MatchRangeProjection doosanGame = projection(
+                "20261012LTOB0", date, "잠실", "OB", "LT", 4, 7, 202603, null, "COMPLETED", null);
+        MatchRangeProjection ssgKiwoomGame = projection(
+                "20261012WOSK0", date, "문학", "SK", "WO", 1, 0, 202603, null, "COMPLETED", null);
+
+        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(eq(date), anyList()))
+                .thenReturn(List.of(canonicalGame, kiaGame, doosanGame, ssgKiwoomGame));
+
+        List<HomePageGameDto> games = homePageGameService.getGamesByDate(date);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<String>> teamCodes = ArgumentCaptor.forClass(List.class);
+        verify(gameRepository).findCanonicalRangeProjectionByGameDate(eq(date), teamCodes.capture());
+        assertThat(teamCodes.getValue())
+                .contains("SS", "LT", "LG", "DB", "KIA", "KH", "HH", "SSG", "NC", "KT")
+                .contains("HT", "OB", "SK", "WO");
+
+        assertThat(games).extracting(HomePageGameDto::getGameId)
+                .containsExactly("20261012KTSS0", "20261012LGHT0", "20261012LTOB0", "20261012WOSK0");
+        assertThat(games).extracting(HomePageGameDto::getHomeTeam)
+                .containsExactly("SS", "KIA", "DB", "SSG");
+        assertThat(games).extracting(HomePageGameDto::getAwayTeam)
+                .containsExactly("KT", "LG", "LT", "KH");
+        assertThat(games.get(1).getHomeTeamFull()).isEqualTo("KIA 타이거즈");
+        assertThat(games.get(2).getHomeTeamFull()).isEqualTo("두산 베어스");
+        assertThat(games.get(3).getHomeTeamFull()).isEqualTo("SSG 랜더스");
+        assertThat(games.get(3).getAwayTeamFull()).isEqualTo("키움 히어로즈");
+        // teams 테이블이 비어 있어도 경기마다 다시 조회하지 않는다.
+        verify(homePageTeamRepository, times(1)).findAll();
+    }
+
+    @Test
+    @DisplayName("홈 일정은 같은 날 일부 경기만 수동 데이터가 필요하면 그 경기만 빼고 반환한다")
+    void getGamesByDate_skipsOnlyGamesThatNeedManualData() {
+        LocalDate date = LocalDate.of(2026, 10, 18);
+        MatchRangeProjection blocked = projection(
+                "20261018LGHT0", date, "광주", "HT", "LG", null, null, 202604, null, "SCHEDULED", null);
+        MatchRangeProjection valid = projection(
+                "20261018KTSS0", date, "대구", "SS", "KT", 3, 2, 202604, null, "COMPLETED", null);
+        ManualBaseballDataRequest manualDataRequest = new ManualBaseballDataRequest(
+                "home.schedule",
+                List.of(new ManualBaseballDataMissingItem(
+                        "final_score", "최종 점수", "과거 경기의 최종 점수가 비어 있습니다.", "home_score, away_score")),
+                "다음 야구 데이터가 필요합니다: 경기 ID=20261018LGHT0",
+                true);
+
+        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(eq(date), anyList()))
+                .thenReturn(List.of(blocked, valid));
+        org.mockito.Mockito.doThrow(new com.example.kbo.validation.ManualBaseballDataRequiredException(manualDataRequest))
+                .when(baseballDataIntegrityGuard)
+                .ensurePredictionDateMatches(eq("home.schedule"), eq(date), anyList());
+        when(baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.schedule", blocked))
+                .thenReturn(manualDataRequest);
+        when(baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.schedule", valid))
+                .thenReturn(null);
+
+        List<HomePageGameDto> games = homePageGameService.getGamesByDate(date);
+
+        assertThat(games).extracting(HomePageGameDto::getGameId).containsExactly("20261018KTSS0");
+    }
+
+    @Test
+    @DisplayName("bootstrap partial 조회도 옛 팀 코드 경기를 포함한다")
+    void getGamesByDateAllowingPartialManualData_includesLegacyTeamCodeGames() {
+        LocalDate date = LocalDate.of(2026, 10, 18);
+        MatchRangeProjection kiaGame = projection(
+                "20261018LGHT0", date, "광주", "HT", "LG", null, null, 202604, null, "SCHEDULED", null);
+
+        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(gameRepository.findCanonicalRangeProjectionByGameDate(
+                eq(date),
+                org.mockito.ArgumentMatchers.argThat(codes -> codes != null && codes.contains("HT"))))
+                .thenReturn(List.of(kiaGame));
+
+        HomePageGamesResult result = homePageGameService.getGamesByDateAllowingPartialManualData(date);
+
+        assertThat(result.games()).extracting(HomePageGameDto::getGameId).containsExactly("20261018LGHT0");
+        assertThat(result.games().get(0).getHomeTeam()).isEqualTo("KIA");
+    }
+
+    @Test
+    @DisplayName("예정 경기 윈도우도 옛 팀 코드 경기를 조회한다")
+    void getScheduledGamesWindow_includesLegacyTeamCodes() {
+        LocalDate startDate = LocalDate.of(2026, 10, 19);
+        LocalDate endDate = startDate.plusDays(7);
+        MatchRangeProjection game = projection(
+                "20261020HTLG0", LocalDate.of(2026, 10, 20), "잠실", "LG", "HT",
+                null, null, 202604, null, "SCHEDULED", LocalTime.of(18, 30));
+
+        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(gameRepository.findScheduledWindowProjectionByDateRange(
+                eq(startDate),
+                eq(endDate),
+                anyCollection(),
+                org.mockito.ArgumentMatchers.argThat(codes -> codes != null && codes.contains("HT"))))
+                .thenReturn(List.of(game));
+
+        List<HomePageScheduledGameDto> scheduledGames = homePageGameService.getScheduledGamesWindow(startDate, endDate);
+
+        assertThat(scheduledGames).hasSize(1);
+        assertThat(scheduledGames.get(0).getAwayTeam()).isEqualTo("KIA");
+        assertThat(scheduledGames.get(0).getAwayTeamFull()).isEqualTo("KIA 타이거즈");
+    }
+
+    @Test
+    @DisplayName("예정 경기 윈도우는 일부 경기만 수동 데이터가 필요하면 그 경기만 빼고 반환한다")
+    void getScheduledGamesWindow_skipsOnlyGamesThatNeedManualData() {
+        LocalDate startDate = LocalDate.of(2026, 10, 18);
+        LocalDate endDate = startDate.plusDays(7);
+        MatchRangeProjection blocked = projection(
+                "20261018LGHT0", startDate, "광주", "HT", "LG", null, null, 202604, null, "SCHEDULED", null);
+        MatchRangeProjection valid = projection(
+                "20261020HTLG0", LocalDate.of(2026, 10, 20), "잠실", "LG", "HT",
+                null, null, 202604, null, "SCHEDULED", LocalTime.of(18, 30));
+        ManualBaseballDataRequest manualDataRequest = new ManualBaseballDataRequest(
+                "home.scheduled_window",
+                List.of(new ManualBaseballDataMissingItem(
+                        "final_score", "최종 점수", "과거 경기의 최종 점수가 비어 있습니다.", "home_score, away_score")),
+                "다음 야구 데이터가 필요합니다: 경기 ID=20261018LGHT0",
+                true);
+
+        when(homePageTeamRepository.findAll()).thenReturn(List.of());
+        when(gameRepository.findScheduledWindowProjectionByDateRange(
+                eq(startDate), eq(endDate), anyCollection(), anyList()))
+                .thenReturn(List.of(blocked, valid));
+        org.mockito.Mockito.doThrow(new com.example.kbo.validation.ManualBaseballDataRequiredException(manualDataRequest))
+                .when(baseballDataIntegrityGuard)
+                .ensurePredictionRangeMatches(eq("home.scheduled_window"), anyList());
+        when(baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.scheduled_window", blocked))
+                .thenReturn(manualDataRequest);
+        when(baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.scheduled_window", valid))
+                .thenReturn(null);
+
+        List<HomePageScheduledGameDto> scheduledGames = homePageGameService.getScheduledGamesWindow(startDate, endDate);
+
+        assertThat(scheduledGames).extracting(HomePageScheduledGameDto::getGameId).containsExactly("20261020HTLG0");
+        assertThat(scheduledGames.get(0).getAwayTeam()).isEqualTo("KIA");
+    }
+
+    @Test
+    @DisplayName("예정 경기 윈도우의 모든 경기가 수동 데이터가 필요하면 기존 예외를 유지한다")
+    void getScheduledGamesWindow_keepsManualDataExceptionWhenEveryGameIsBlocked() {
+        LocalDate startDate = LocalDate.of(2026, 10, 18);
+        LocalDate endDate = startDate.plusDays(7);
+        MatchRangeProjection blocked = projection(
+                "20261018LGHT0", startDate, "광주", "HT", "LG", null, null, 202604, null, "SCHEDULED", null);
+        ManualBaseballDataRequest manualDataRequest = new ManualBaseballDataRequest(
+                "home.scheduled_window",
+                List.of(new ManualBaseballDataMissingItem(
+                        "final_score", "최종 점수", "과거 경기의 최종 점수가 비어 있습니다.", "home_score, away_score")),
+                "다음 야구 데이터가 필요합니다: 경기 ID=20261018LGHT0",
+                true);
+
+        when(gameRepository.findScheduledWindowProjectionByDateRange(
+                eq(startDate), eq(endDate), anyCollection(), anyList()))
+                .thenReturn(List.of(blocked));
+        org.mockito.Mockito.doThrow(new com.example.kbo.validation.ManualBaseballDataRequiredException(manualDataRequest))
+                .when(baseballDataIntegrityGuard)
+                .ensurePredictionRangeMatches(eq("home.scheduled_window"), anyList());
+        when(baseballDataIntegrityGuard.findMatchProjectionManualDataRequest("home.scheduled_window", blocked))
+                .thenReturn(manualDataRequest);
+
+        com.example.kbo.validation.ManualBaseballDataRequiredException exception = org.junit.jupiter.api.Assertions.assertThrows(
+                com.example.kbo.validation.ManualBaseballDataRequiredException.class,
+                () -> homePageGameService.getScheduledGamesWindow(startDate, endDate));
+
+        assertThat(exception.getData()).isEqualTo(manualDataRequest);
+    }
+
+    @Test
+    @DisplayName("scope 미지정/all navigation은 bootstrap navigation과 같은 이전/다음 경기일을 돌려준다")
+    void getScopedNavigation_allScopeMatchesBootstrapNavigation() {
+        LocalDate selectedDate = LocalDate.of(2026, 10, 19);
+        LocalDate prevDate = LocalDate.of(2026, 10, 18);
+        LocalDate nextDate = LocalDate.of(2026, 10, 20);
+        stubAdjacentDates(selectedDate, prevDate, nextDate);
+        stubAdjacentDates(selectedDate.plusDays(1), prevDate, nextDate);
+
+        ScheduleNavigationDto bootstrapNavigation = homePageGameService.getScheduleNavigation(selectedDate);
+        HomeScopedNavigationDto defaultNavigation = homePageGameService.getScopedNavigation(selectedDate, null, null);
+        HomeScopedNavigationDto allNavigation = homePageGameService.getScopedNavigation(selectedDate, "ALL", 2026);
+
+        for (HomeScopedNavigationDto navigation : List.of(defaultNavigation, allNavigation)) {
+            assertThat(navigation.getPrevGameDate()).isEqualTo(bootstrapNavigation.getPrevGameDate().toString());
+            assertThat(navigation.getNextGameDate()).isEqualTo(bootstrapNavigation.getNextGameDate().toString());
+            assertThat(navigation.isHasNext()).isTrue();
+            // 선택한 날짜에 경기가 없으면 다음 경기일로 이동한다.
+            assertThat(navigation.getResolvedDate()).isEqualTo("2026-10-20");
+        }
+        verify(gameRepository, never()).findNextScopedGameDate(any(), org.mockito.ArgumentMatchers.anyInt(), anyCollection(), anyCollection());
+    }
+
+    @Test
+    @DisplayName("all navigation은 선택한 날짜에 경기가 있으면 그 날짜를 resolvedDate로 쓴다")
+    void getScopedNavigation_allScopeResolvesToSelectedDateWhenGamesExist() {
+        LocalDate selectedDate = LocalDate.of(2026, 10, 18);
+        stubAdjacentDates(selectedDate, LocalDate.of(2026, 10, 15), LocalDate.of(2026, 10, 20));
+        stubAdjacentDates(selectedDate.plusDays(1), selectedDate, LocalDate.of(2026, 10, 20));
+
+        HomeScopedNavigationDto navigation = homePageGameService.getScopedNavigation(selectedDate, "all", null);
+
+        assertThat(navigation.getResolvedDate()).isEqualTo("2026-10-18");
+        assertThat(navigation.getPrevGameDate()).isEqualTo("2026-10-15");
+        assertThat(navigation.getNextGameDate()).isEqualTo("2026-10-20");
+    }
+
+    @Test
+    @DisplayName("regular scope navigation은 기존처럼 정규시즌 기준을 유지한다")
+    void getScopedNavigation_regularScopeKeepsLeagueFilter() {
+        LocalDate selectedDate = LocalDate.of(2026, 10, 19);
+        when(gameRepository.findScopedGameDateOnOrAfter(eq(selectedDate), eq(2026), anyCollection(), anyCollection()))
+                .thenReturn(Optional.empty());
+        when(gameRepository.findNextScopedGameDate(any(), eq(2026), anyCollection(), anyCollection()))
+                .thenReturn(Optional.empty());
+        when(gameRepository.findPrevScopedGameDate(any(), eq(2026), anyCollection(), anyCollection()))
+                .thenReturn(Optional.of(LocalDate.of(2026, 10, 5)));
+
+        HomeScopedNavigationDto navigation = homePageGameService.getScopedNavigation(selectedDate, "regular", null);
+
+        assertThat(navigation.getResolvedDate()).isEqualTo("2026-10-05");
+        verify(gameRepository, never()).findCanonicalAdjacentGameDates(any(), anyList());
+    }
+
+    private void stubAdjacentDates(LocalDate date, LocalDate prevDate, LocalDate nextDate) {
+        CanonicalAdjacentGameDatesProjection adjacentDates = mock(CanonicalAdjacentGameDatesProjection.class);
+        lenient().when(adjacentDates.getPrevDate()).thenReturn(prevDate);
+        lenient().when(adjacentDates.getNextDate()).thenReturn(nextDate);
+        when(gameRepository.findCanonicalAdjacentGameDates(
+                eq(date),
+                org.mockito.ArgumentMatchers.argThat(codes -> codes != null && codes.contains("HT"))))
+                .thenReturn(adjacentDates);
     }
 
     private MatchRangeProjection projection(

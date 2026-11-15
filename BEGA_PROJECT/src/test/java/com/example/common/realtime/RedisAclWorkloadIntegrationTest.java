@@ -102,6 +102,7 @@ class RedisAclWorkloadIntegrationTest {
             cache.put(cacheKey, cachedValue);
             String redisCacheKey = CacheConfig.LIVE_GAME_STATUS + "::" + cacheKey;
             assertThat(redisTemplate.hasKey(redisCacheKey)).isTrue();
+            assertThat(redisTemplate.getExpire(redisCacheKey)).isPositive();
             Cache.ValueWrapper cached = cache.get(cacheKey);
             assertThat(cached).isNotNull();
             assertThat(cached.get()).isEqualTo(cachedValue);

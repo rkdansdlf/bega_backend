@@ -1,5 +1,8 @@
 package com.example.mate.scheduler;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
+import org.springframework.context.annotation.Profile;
+
 import com.example.mate.service.PaymentIntentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
+@Profile("!" + ReadOnlyVerificationPolicy.PROFILE)
 @RequiredArgsConstructor
 public class PaymentCompensationScheduler implements ApplicationRunner {
 

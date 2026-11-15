@@ -5,6 +5,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.util.JWTUtil;
+import com.example.auth.service.RefreshTokenDigestService;
 import com.example.common.ratelimit.RateLimitService;
 import jakarta.servlet.http.Cookie;
 import java.time.LocalDateTime;
@@ -71,6 +72,9 @@ class PasswordSessionInvalidationIntegrationTest {
     @Autowired
     private JWTUtil jwtUtil;
 
+    @Autowired
+    private RefreshTokenDigestService refreshTokenDigestService;
+
     @MockitoBean
     private RateLimitService rateLimitService;
 
@@ -101,7 +105,7 @@ class PasswordSessionInvalidationIntegrationTest {
 
         RefreshToken persistedRefresh = new RefreshToken();
         persistedRefresh.setEmail(user.getEmail());
-        persistedRefresh.setToken(refreshToken);
+        persistedRefresh.setTokenDigest(refreshTokenDigestService.digest(refreshToken));
         persistedRefresh.setExpiryDate(LocalDateTime.now().plusDays(7));
         persistedRefresh.setDeviceType("desktop");
         persistedRefresh.setDeviceLabel("Test Browser");
@@ -145,9 +149,8 @@ class PasswordSessionInvalidationIntegrationTest {
 
         mockMvc.perform(post("/api/auth/reissue")
                         .cookie(new Cookie("Refresh", refreshToken)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("REFRESH_TOKEN_NOT_FOUND"))
-                .andExpect(jsonPath("$.message").value("잘못된 Refresh Token입니다."));
+                .andExpect(jsonPath("$.code").value("INVALID_AUTHOR"));
     }
 }

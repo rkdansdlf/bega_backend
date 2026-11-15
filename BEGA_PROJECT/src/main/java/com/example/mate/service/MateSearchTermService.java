@@ -42,7 +42,6 @@ public class MateSearchTermService {
     private final MateSearchTermRepository mateSearchTermRepository;
     private final CacheManager cacheManager;
 
-    @Transactional
     public void recordSearchTerm(String rawTerm) {
         Optional<NormalizedSearchTerm> normalizedTerm = normalize(rawTerm);
         if (normalizedTerm.isEmpty()) {

@@ -11,8 +11,12 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, Long> {
+
+    boolean existsByPartyId(Long partyId);
 
     Optional<PaymentIntent> findByOrderId(String orderId);
 
@@ -41,4 +45,11 @@ public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, Lo
             @Param("applicantId") Long applicantId);
 
     List<PaymentIntent> findByStatusInAndUpdatedAtBefore(Collection<PaymentIntent.IntentStatus> statuses, Instant updatedBefore);
+
+    Page<PaymentIntent> findByStatusOrderByCreatedAtAsc(PaymentIntent.IntentStatus status, Pageable pageable);
+
+    Page<PaymentIntent> findByStatusAndFailureCodeInOrderByCreatedAtAsc(
+            PaymentIntent.IntentStatus status,
+            Collection<String> failureCodes,
+            Pageable pageable);
 }

@@ -53,6 +53,9 @@ public class ReissueController {
         ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(
                 tokens.refreshToken(), tokens.refreshTokenMaxAgeSeconds());
         authCookieUtil.addCookieHeader(response, refreshCookie);
+        authCookieUtil.addCookieHeader(
+                response,
+                authCookieUtil.issueCsrfCookie(tokens.refreshTokenMaxAgeSeconds()));
     }
 
     private void validateProvidedOrigin(HttpServletRequest request) {

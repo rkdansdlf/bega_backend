@@ -41,6 +41,7 @@ public class PartyMapper {
     private final PartyRepository partyRepository;
     private final PartyApplicationRepository partyApplicationRepository;
     private final PartyReviewRepository partyReviewRepository;
+    private final PartyReviewRatingService partyReviewRatingService;
     private final ProfileImageService profileImageService;
 
     public PartyDTO.Response toResponse(Party party) {
@@ -185,7 +186,7 @@ public class PartyMapper {
             return Map.of();
         }
 
-        List<PartyReviewRepository.RevieweeRatingSummary> summaries = partyReviewRepository
+        List<PartyReviewRatingService.RatingSummary> summaries = partyReviewRatingService
                 .findRatingSummariesByRevieweeIds(hostIds);
         if (summaries == null || summaries.isEmpty()) {
             return Map.of();
@@ -193,12 +194,12 @@ public class PartyMapper {
 
         Map<Long, HostRatingMetrics> metricsByHostId = new HashMap<>();
         summaries.forEach(summary -> {
-            if (summary.getRevieweeId() == null) {
+            if (summary.revieweeId() == null) {
                 return;
             }
             metricsByHostId.put(
-                    summary.getRevieweeId(),
-                    new HostRatingMetrics(summary.getAverageRating(), summary.getReviewCount()));
+                    summary.revieweeId(),
+                    new HostRatingMetrics(summary.averageRating(), summary.reviewCount()));
         });
         return metricsByHostId;
     }

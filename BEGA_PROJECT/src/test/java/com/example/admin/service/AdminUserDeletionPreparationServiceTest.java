@@ -5,9 +5,12 @@ import com.example.auth.repository.AccountDeletionTokenRepository;
 import com.example.auth.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,9 +19,11 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class AdminUserDeletionPreparationServiceTest {
@@ -36,6 +41,7 @@ class AdminUserDeletionPreparationServiceTest {
     void disableForDeletionLocksAndDisablesActiveUser() {
         UserEntity user = UserEntity.builder()
                 .id(41L)
+                .role("ROLE_USER")
                 .enabled(true)
                 .tokenVersion(3)
                 .lockExpiresAt(LocalDateTime.now().plusHours(1))
@@ -43,14 +49,33 @@ class AdminUserDeletionPreparationServiceTest {
         given(userRepository.findByIdForWrite(41L)).willReturn(Optional.of(user));
         given(userRepository.save(user)).willReturn(user);
 
-        UserEntity result = preparationService.disableForDeletion(41L);
+        UserEntity result = preparationService.disableForDeletion(41L, 99L);
 
         assertThat(result).isSameAs(user);
         assertThat(user.isEnabled()).isFalse();
         assertThat(user.getTokenVersion()).isEqualTo(4);
         assertThat(user.getLockExpiresAt()).isNull();
-        assertThat(user.isPendingDeletion()).isFalse();
+        assertThat(user.isPendingDeletion()).isTrue();
+        assertThat(user.getDeletionRequestedAt()).isNull();
+        assertThat(user.getDeletionScheduledFor()).isNotNull().isBeforeOrEqualTo(LocalDateTime.now());
         verify(userRepository).findByIdForWrite(41L);
+        verify(userRepository).save(user);
+        verify(accountDeletionTokenRepository).deleteByUser_Id(41L);
+    }
+
+    @Test
+    void disableForDeletionStillDisablesAccountWhileAPostPurgeIsRunning() {
+        UserEntity user = UserEntity.builder().id(41L).role("ROLE_USER").enabled(true).tokenVersion(3).build();
+        given(userRepository.findByIdForWrite(41L)).willReturn(Optional.of(user));
+        given(userRepository.save(user)).willReturn(user);
+
+        UserEntity result = preparationService.disableForDeletion(41L, 99L);
+
+        assertThat(result).isSameAs(user);
+        assertThat(user.isEnabled()).isFalse();
+        assertThat(user.getTokenVersion()).isEqualTo(4);
+        assertThat(user.isPendingDeletion()).isTrue();
+        assertThat(user.getDeletionScheduledFor()).isNotNull().isBeforeOrEqualTo(LocalDateTime.now());
         verify(userRepository).save(user);
         verify(accountDeletionTokenRepository).deleteByUser_Id(41L);
     }
@@ -59,14 +84,20 @@ class AdminUserDeletionPreparationServiceTest {
     void disableForDeletionDoesNotIncrementTokenVersionAgainOnRetry() {
         UserEntity user = UserEntity.builder()
                 .id(42L)
+                .role("ROLE_USER")
                 .enabled(false)
                 .tokenVersion(7)
+                .pendingDeletion(true)
+                .deletionScheduledFor(LocalDateTime.now().minusMinutes(1))
                 .build();
+        LocalDateTime scheduledFor = user.getDeletionScheduledFor();
         given(userRepository.findByIdForWrite(42L)).willReturn(Optional.of(user));
 
-        preparationService.disableForDeletion(42L);
+        preparationService.disableForDeletion(42L, 99L);
 
         assertThat(user.getTokenVersion()).isEqualTo(7);
+        assertThat(user.isPendingDeletion()).isTrue();
+        assertThat(user.getDeletionScheduledFor()).isEqualTo(scheduledFor);
         verify(userRepository, never()).save(user);
         verify(accountDeletionTokenRepository).deleteByUser_Id(42L);
     }
@@ -75,6 +106,7 @@ class AdminUserDeletionPreparationServiceTest {
     void disableForDeletionClearsRecoveryStateEvenWhenAlreadyDisabled() {
         UserEntity user = UserEntity.builder()
                 .id(43L)
+                .role("ROLE_USER")
                 .enabled(false)
                 .tokenVersion(8)
                 .pendingDeletion(true)
@@ -84,24 +116,85 @@ class AdminUserDeletionPreparationServiceTest {
         given(userRepository.findByIdForWrite(43L)).willReturn(Optional.of(user));
         given(userRepository.save(user)).willReturn(user);
 
-        preparationService.disableForDeletion(43L);
+        preparationService.disableForDeletion(43L, 99L);
 
         assertThat(user.getTokenVersion()).isEqualTo(8);
-        assertThat(user.isPendingDeletion()).isFalse();
+        assertThat(user.isPendingDeletion()).isTrue();
         assertThat(user.getDeletionRequestedAt()).isNull();
-        assertThat(user.getDeletionScheduledFor()).isNull();
+        assertThat(user.getDeletionScheduledFor()).isNotNull().isBeforeOrEqualTo(LocalDateTime.now());
         verify(userRepository).save(user);
         verify(accountDeletionTokenRepository).deleteByUser_Id(43L);
     }
 
     @Test
+    void disableForDeletionDoesNotRescheduleAnAlreadyAnonymizedTombstone() {
+        UserEntity tombstone = UserEntity.builder()
+                .id(45L)
+                .role("ROLE_USER")
+                .enabled(false)
+                .pendingDeletion(true)
+                .locked(true)
+                .name("탈퇴한 사용자")
+                .email("deleted-45@deleted.invalid")
+                .build();
+        given(userRepository.findByIdForWrite(45L)).willReturn(Optional.of(tombstone));
+
+        UserEntity result = preparationService.disableForDeletion(45L, 99L);
+
+        assertThat(result).isSameAs(tombstone);
+        assertThat(tombstone.getDeletionScheduledFor()).isNull();
+        verify(userRepository, never()).save(tombstone);
+        verifyNoInteractions(accountDeletionTokenRepository);
+    }
+
+    @Test
     void disableForDeletionUsesRequiresNewTransaction() throws Exception {
         Method method = AdminUserDeletionPreparationService.class
-                .getMethod("disableForDeletion", Long.class);
+                .getMethod("disableForDeletion", Long.class, Long.class);
 
         Transactional transactional = method.getAnnotation(Transactional.class);
 
         assertThat(transactional).isNotNull();
         assertThat(transactional.propagation()).isEqualTo(Propagation.REQUIRES_NEW);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ROLE_ADMIN", "ROLE_SUPER_ADMIN", "ROLE_UNKNOWN"})
+    void disableForDeletionRechecksLockedTargetAndHasNoSideEffectsForAdministrators(String role) {
+        UserEntity user = UserEntity.builder()
+                .id(44L)
+                .role(role)
+                .enabled(true)
+                .tokenVersion(9)
+                .build();
+        given(userRepository.findByIdForWrite(44L)).willReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> preparationService.disableForDeletion(44L, 99L))
+                .isInstanceOf(AccessDeniedException.class);
+
+        assertThat(user.isEnabled()).isTrue();
+        assertThat(user.getTokenVersion()).isEqualTo(9);
+        verify(userRepository).findByIdForWrite(44L);
+        verifyNoInteractions(accountDeletionTokenRepository);
+        verify(userRepository, never()).save(user);
+    }
+
+    @Test
+    void disableForDeletionRejectsSelfDeletionUnderTheLockWithoutSideEffects() {
+        UserEntity user = UserEntity.builder()
+                .id(44L)
+                .role("ROLE_USER")
+                .enabled(true)
+                .tokenVersion(9)
+                .build();
+        given(userRepository.findByIdForWrite(44L)).willReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> preparationService.disableForDeletion(44L, 44L))
+                .isInstanceOf(AccessDeniedException.class);
+
+        assertThat(user.isEnabled()).isTrue();
+        assertThat(user.getTokenVersion()).isEqualTo(9);
+        verifyNoInteractions(accountDeletionTokenRepository);
+        verify(userRepository, never()).save(user);
     }
 }

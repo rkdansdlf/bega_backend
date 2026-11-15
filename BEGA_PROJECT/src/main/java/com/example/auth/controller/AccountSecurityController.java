@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -52,9 +51,10 @@ public class AccountSecurityController {
         return ResponseEntity.ok(ApiResponse.success("신뢰 기기가 해제되었습니다. 현재 로그인 세션은 유지됩니다."));
     }
 
-    @GetMapping("/account/deletion/recovery")
-    public ResponseEntity<ApiResponse<AccountDeletionRecoveryInfoDto>> getDeletionRecoveryInfo(@RequestParam("token") String token) {
-        AccountDeletionRecoveryInfoDto info = accountDeletionService.getRecoveryInfo(token);
+    @PostMapping("/account/deletion/recovery/info")
+    public ResponseEntity<ApiResponse<AccountDeletionRecoveryInfoDto>> getDeletionRecoveryInfo(
+            @Valid @RequestBody AccountDeletionRecoveryRequestDto request) {
+        AccountDeletionRecoveryInfoDto info = accountDeletionService.getRecoveryInfo(request.getToken());
         return ResponseEntity.ok(ApiResponse.success("계정 삭제 복구 정보 조회 성공", info));
     }
 

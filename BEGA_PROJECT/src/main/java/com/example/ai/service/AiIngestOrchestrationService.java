@@ -1,5 +1,8 @@
 package com.example.ai.service;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
+import org.springframework.context.annotation.Profile;
+
 import com.example.ai.config.AiIngestProperties;
 import com.example.ai.ingest.AiIngestRunRequest;
 import com.example.ai.ingest.AiIngestRunStatusResponse;
@@ -20,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
+@Profile("!" + ReadOnlyVerificationPolicy.PROFILE)
 @Slf4j
 public class AiIngestOrchestrationService {
 

@@ -6,21 +6,34 @@ import com.example.auth.util.JWTUtil;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDateTime;
+import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@RequiredArgsConstructor
 public class AuthSessionService {
 
     private final RefreshRepository refreshRepository;
     private final JWTUtil jwtUtil;
     private final AuthSessionMetadataResolver authSessionMetadataResolver;
     private final RefreshTokenReuseDetector refreshTokenReuseDetector;
+    private final RefreshTokenDigestService refreshTokenDigestService;
+
+    public AuthSessionService(
+            RefreshRepository refreshRepository,
+            JWTUtil jwtUtil,
+            AuthSessionMetadataResolver authSessionMetadataResolver,
+            RefreshTokenReuseDetector refreshTokenReuseDetector,
+            RefreshTokenDigestService refreshTokenDigestService) {
+        this.refreshRepository = refreshRepository;
+        this.jwtUtil = jwtUtil;
+        this.authSessionMetadataResolver = authSessionMetadataResolver;
+        this.refreshTokenReuseDetector = refreshTokenReuseDetector;
+        this.refreshTokenDigestService = refreshTokenDigestService;
+    }
 
     public record PreparedRefreshSession(
             String sessionId,
@@ -93,9 +106,20 @@ public class AuthSessionService {
         }
 
         // [Security Fix - Medium #4] 회전 전 원본 token을 재사용 탐지 마커로 등록.
-        String previousTokenValue = existingToken == null ? null : existingToken.getToken();
+        String previousTokenValue = extractRefreshToken(request);
         if (previousTokenValue != null && !previousTokenValue.isBlank() && userId != null) {
-            refreshTokenReuseDetector.markRotated(previousTokenValue, userId, jwtUtil.getRefreshTokenExpirationTime());
+            long mappingTtlMillis = jwtUtil.getRefreshTokenExpirationTime();
+            Date previousTokenExpiration = jwtUtil.getExpiration(previousTokenValue);
+            if (previousTokenExpiration != null) {
+                mappingTtlMillis = Math.min(
+                        mappingTtlMillis,
+                        previousTokenExpiration.getTime() - System.currentTimeMillis());
+            }
+            refreshTokenReuseDetector.markRotated(
+                    previousTokenValue,
+                    userId,
+                    sessionId,
+                    mappingTtlMillis);
         }
 
         String refreshToken = jwtUtil.createRefreshToken(email, role, userId, tokenVersion, sessionId);
@@ -158,7 +182,8 @@ public class AuthSessionService {
         if (email == null || email.isBlank() || currentRefreshToken == null || currentRefreshToken.isBlank()) {
             return null;
         }
-        return refreshRepository.findAllByToken(currentRefreshToken).stream()
+        String tokenDigest = refreshTokenDigestService.digest(currentRefreshToken);
+        return refreshRepository.findAllByTokenDigest(tokenDigest).stream()
                 .filter(token -> token.getEmail() != null)
                 .filter(token -> email.equalsIgnoreCase(token.getEmail()))
                 .findFirst()
@@ -215,9 +240,10 @@ public class AuthSessionService {
                 }
             }
 
+            String tokenDigest = refreshTokenDigestService.digest(currentRefreshToken);
             RefreshToken cookieMatchedToken = refreshTokens.stream()
-                    .filter(token -> token.getToken() != null)
-                    .filter(token -> currentRefreshToken.equals(token.getToken()))
+                    .filter(token -> token.getTokenDigest() != null)
+                    .filter(token -> tokenDigest.equals(token.getTokenDigest()))
                     .filter(token -> !isRefreshTokenExpired(token))
                     .findFirst()
                     .orElse(null);
@@ -298,7 +324,7 @@ public class AuthSessionService {
         if (refreshToken.getId() != null) {
             return String.valueOf(refreshToken.getId());
         }
-        return String.valueOf(Math.abs(Objects.hash(refreshToken.getEmail(), refreshToken.getToken())));
+        return String.valueOf(Math.abs(Objects.hash(refreshToken.getEmail(), refreshToken.getTokenDigest())));
     }
 
     private RefreshToken persistRefreshToken(
@@ -310,7 +336,7 @@ public class AuthSessionService {
         RefreshToken target = existingToken != null ? existingToken : new RefreshToken();
         target.setEmail(email);
         target.setSessionId(sessionId);
-        target.setToken(token);
+        target.setTokenDigest(refreshTokenDigestService.digest(token));
         target.setExpiryDate(metadata.now().plusSeconds(Math.max(1L, jwtUtil.getRefreshTokenExpirationTime() / 1000)));
         target.setDeviceType(metadata.deviceType());
         target.setDeviceLabel(metadata.deviceLabel());

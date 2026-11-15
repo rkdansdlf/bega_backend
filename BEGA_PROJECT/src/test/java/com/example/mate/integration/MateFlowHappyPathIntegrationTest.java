@@ -10,6 +10,8 @@ import com.example.kbo.service.TicketVerificationTokenStore;
 import com.example.mate.dto.TossPaymentDTO;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PaymentFlowType;
+import com.example.mate.entity.PaymentStatus;
+import com.example.mate.entity.PaymentTransaction;
 import com.example.mate.repository.CheckInRecordRepository;
 import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PartyRepository;
@@ -42,6 +44,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -236,9 +239,10 @@ class MateFlowHappyPathIntegrationTest {
                 "message", "승인 부탁드려요. 함께 즐겁게 관람해요."));
 
         String confirmJson = mockMvc.perform(post("/api/payments/toss/confirm")
-                        .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
+                .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
                         .contentType("application/json")
                         .content(confirmBody))
+                .andDo(org.springframework.test.web.servlet.result.MockMvcResultHandlers.print())
                 .andExpect(status().isCreated())
                 .andReturn()
                 .getResponse()
@@ -355,6 +359,8 @@ class MateFlowHappyPathIntegrationTest {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
     @DisplayName("Happy path: 판매 전환(PENDING->SELLING) 후 SELLING_FULL 결제 승인 성공")
     void sellingFlow_convertAndConfirmPayment() throws Exception {
         LocalDate gameDate = LocalDate.now().plusDays(1);
@@ -437,14 +443,15 @@ class MateFlowHappyPathIntegrationTest {
                 "paymentType", "FULL",
                 "message", "티켓 구매 요청을 진행합니다."));
 
-        String firstConfirmJson = mockMvc.perform(post("/api/payments/toss/confirm")
+        var firstConfirmResult = mockMvc.perform(post("/api/payments/toss/confirm")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
                         .contentType("application/json")
                         .content(confirmBody))
-                .andExpect(status().isCreated())
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
+                .andReturn();
+        assertThat(firstConfirmResult.getResponse().getStatus())
+                .as(firstConfirmResult.getResponse().getContentAsString())
+                .isEqualTo(201);
+        String firstConfirmJson = firstConfirmResult.getResponse().getContentAsString();
 
         JsonNode firstConfirmNode = objectMapper.readTree(firstConfirmJson);
         long applicationId = firstConfirmNode.get("id").asLong();
@@ -452,14 +459,22 @@ class MateFlowHappyPathIntegrationTest {
         assertThat(firstConfirmNode.get("isPaid").asBoolean()).isTrue();
         assertThat(firstConfirmNode.get("isApproved").asBoolean()).isTrue();
 
-        String secondConfirmJson = mockMvc.perform(post("/api/payments/toss/confirm")
+        given(paymentTransactionService.findByOrderId(orderId)).willReturn(Optional.of(PaymentTransaction.builder()
+                .orderId(orderId)
+                .paymentKey("pay-key-selling-happy")
+                .flowType(PaymentFlowType.SELLING_FULL)
+                .paymentStatus(PaymentStatus.PAID)
+                .build()));
+
+        var secondConfirmResult = mockMvc.perform(post("/api/payments/toss/confirm")
                         .with(MateTestTokenHelper.principalAs(APPLICANT_EMAIL))
                         .contentType("application/json")
                         .content(confirmBody))
-                .andExpect(status().isOk())
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
+                .andReturn();
+        assertThat(secondConfirmResult.getResponse().getStatus())
+                .as(secondConfirmResult.getResponse().getContentAsString())
+                .isEqualTo(200);
+        String secondConfirmJson = secondConfirmResult.getResponse().getContentAsString();
 
         JsonNode secondConfirmNode = objectMapper.readTree(secondConfirmJson);
         assertThat(secondConfirmNode.get("id").asLong()).isEqualTo(applicationId);

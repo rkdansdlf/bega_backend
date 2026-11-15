@@ -1,5 +1,7 @@
 package com.example.mate.service;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
+
 import com.example.auth.entity.UserEntity;
 import com.example.auth.service.UserService;
 import com.example.common.exception.AuthenticationRequiredException;
@@ -9,6 +11,7 @@ import com.example.mate.dto.PartyApplicationDTO;
 import com.example.mate.entity.CancelReasonType;
 import com.example.mate.entity.Party;
 import com.example.mate.entity.PartyApplication;
+import com.example.mate.entity.PaymentIntent;
 import com.example.mate.entity.PaymentStatus;
 import com.example.mate.exception.DuplicateApplicationException;
 import com.example.mate.exception.InvalidApplicationStatusException;
@@ -21,6 +24,9 @@ import com.example.mate.repository.PaymentIntentRepository;
 import com.example.mate.repository.PartyReviewRepository;
 import com.example.notification.service.NotificationService;
 import com.example.notification.entity.Notification;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +47,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PartyApplicationService {
 
+    private record LockedApplicationContext(PartyApplication application, PaymentIntent paymentIntent) {}
+
     public record PaymentCreationResult(PartyApplicationDTO.Response response, boolean created) {}
 
     private final PartyApplicationRepository applicationRepository;
@@ -53,6 +61,10 @@ public class PartyApplicationService {
     private final TicketVerificationTokenStore ticketVerificationTokenStore;
     private final PaymentTransactionService paymentTransactionService;
     private final MatePaymentModeService matePaymentModeService;
+    private final ReadOnlyVerificationPolicy readOnlyVerificationPolicy;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Value("${payment.selling.enforced:true}")
     private boolean sellingPaymentEnforced;
@@ -65,11 +77,13 @@ public class PartyApplicationService {
      */
     @Transactional
     public PartyApplicationDTO.Response createApplication(PartyApplicationDTO.Request request, Principal principal) {
+        readOnlyVerificationPolicy.requireWritable();
         return createApplication(request, resolveUserId(principal), principal.getName());
     }
 
     @Transactional
     public PartyApplicationDTO.Response createApplication(PartyApplicationDTO.Request request, Long userId) {
+        readOnlyVerificationPolicy.requireWritable();
         return createApplication(request, userId, null);
     }
 
@@ -78,7 +92,9 @@ public class PartyApplicationService {
             Long userId,
             String principalName) {
         try {
-            ApplicationCreationContext context = prepareCreationContext(request, userId);
+            preflightPartyStatus(request, null);
+            userService.findUserByIdForUpdate(requireUserId(userId));
+            ApplicationCreationContext context = prepareCreationContext(request, userId, null);
             validateFullPaymentPolicy(request, context.party());
             ApplicationPaymentSnapshot paymentSnapshot = resolveApplicationPaymentSnapshot(request, context.party());
 
@@ -132,6 +148,7 @@ public class PartyApplicationService {
             String orderId,
             Integer confirmedAmount,
             PartyApplication.PaymentType forcedPaymentType) {
+        readOnlyVerificationPolicy.requireWritable();
         return createOrGetApplicationWithPayment(
                 request,
                 resolveUserId(principal),
@@ -150,6 +167,7 @@ public class PartyApplicationService {
             String orderId,
             Integer confirmedAmount,
             PartyApplication.PaymentType forcedPaymentType) {
+        readOnlyVerificationPolicy.requireWritable();
         return createOrGetApplicationWithPayment(
                 request,
                 userId,
@@ -167,6 +185,7 @@ public class PartyApplicationService {
             String orderId,
             Integer confirmedAmount,
             PartyApplication.PaymentType forcedPaymentType) {
+        readOnlyVerificationPolicy.requireWritable();
         return createOrGetApplicationWithPayment(
                 request,
                 resolveUserId(principal),
@@ -185,6 +204,7 @@ public class PartyApplicationService {
             String orderId,
             Integer confirmedAmount,
             PartyApplication.PaymentType forcedPaymentType) {
+        readOnlyVerificationPolicy.requireWritable();
         return createOrGetApplicationWithPayment(
                 request,
                 applicantId,
@@ -213,9 +233,10 @@ public class PartyApplicationService {
             throw new InvalidApplicationStatusException("결제 금액이 올바르지 않습니다.");
         }
 
-        paymentIntentRepository.findByOrderIdForUpdate(orderId);
-
+        preflightPartyStatus(request, forcedPaymentType);
         requireUserId(applicantId);
+        userService.findUserByIdForUpdate(applicantId);
+        paymentIntentRepository.findByOrderIdForUpdate(orderId);
         PartyApplication applicantIdExisting = resolveExistingPaymentApplication(orderId, paymentKey, applicantId);
         if (applicantIdExisting != null) {
             return new PaymentCreationResult(
@@ -227,7 +248,7 @@ public class PartyApplicationService {
             request.setMessage("함께 즐거운 관람 부탁드립니다!");
         }
 
-        ApplicationCreationContext context = prepareCreationContext(request, applicantId);
+        ApplicationCreationContext context = prepareCreationContext(request, applicantId, forcedPaymentType);
         PartyApplication contextExisting = resolveExistingPaymentApplication(orderId, paymentKey,
                 context.applicantId());
         if (contextExisting != null) {
@@ -371,13 +392,21 @@ public class PartyApplicationService {
     // 신청 승인
     @Transactional
     public PartyApplicationDTO.Response approveApplication(Long applicationId, Principal principal) {
+        readOnlyVerificationPolicy.requireWritable();
         return approveApplication(applicationId, resolveUserId(principal));
     }
 
     @Transactional
     public PartyApplicationDTO.Response approveApplication(Long applicationId, Long userId) {
+        readOnlyVerificationPolicy.requireWritable();
         Long hostId = requireUserId(userId);
-        PartyApplication application = requireHostedApplicationForUpdate(applicationId, hostId);
+        PartyApplication observed = requireHostedApplication(applicationId, hostId);
+        UserEntity applicant = userService.findUserByIdForUpdate(observed.getApplicantId());
+        LockedApplicationContext context = requireHostedApplicationForUpdate(applicationId, hostId);
+        PartyApplication application = context.application();
+        if (!Objects.equals(observed.getApplicantId(), application.getApplicantId())) {
+            throw new PartyApplicationNotFoundException(applicationId);
+        }
         Party lockedParty = partyRepository.findById(application.getPartyId())
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
 
@@ -386,7 +415,6 @@ public class PartyApplicationService {
             throw new InvalidApplicationStatusException("모집 중인 파티의 신청만 승인할 수 있습니다.");
         }
 
-        UserEntity applicant = userService.findUserByIdForUpdate(application.getApplicantId());
         if (!applicant.isEnabled() || applicant.isPendingDeletion()) {
             throw new InvalidApplicationStatusException("탈퇴 예정이거나 비활성화된 사용자의 신청은 승인할 수 없습니다.");
         }
@@ -424,13 +452,16 @@ public class PartyApplicationService {
     // 신청 거절
     @Transactional
     public PartyApplicationDTO.Response rejectApplication(Long applicationId, Principal principal) {
+        readOnlyVerificationPolicy.requireWritable();
         return rejectApplication(applicationId, resolveUserId(principal));
     }
 
     @Transactional
     public PartyApplicationDTO.Response rejectApplication(Long applicationId, Long userId) {
+        readOnlyVerificationPolicy.requireWritable();
         Long hostId = requireUserId(userId);
-        PartyApplication application = requireHostedApplicationForUpdate(applicationId, hostId);
+        LockedApplicationContext context = requireHostedApplicationForUpdate(applicationId, hostId);
+        PartyApplication application = context.application();
 
         if (application.getIsApproved()) {
             throw new InvalidApplicationStatusException("승인된 신청은 거절할 수 없습니다.");
@@ -450,6 +481,7 @@ public class PartyApplicationService {
             if (cancelResponse == null || cancelResponse.getPaymentStatus() != PaymentStatus.CANCELED) {
                 throw new InvalidApplicationStatusException("환불 완료를 확인할 수 없어 신청을 거절하지 않았습니다.");
             }
+            markIntentCanceled(context.paymentIntent());
             application.setIsPaid(false);
         }
 
@@ -473,11 +505,13 @@ public class PartyApplicationService {
     // 신청 취소 (신청자가 취소) — Principal 기반
     @Transactional
     public void cancelApplication(Long applicationId, Principal principal) {
+        readOnlyVerificationPolicy.requireWritable();
         cancelApplication(applicationId, resolveUserId(principal));
     }
 
     @Transactional
     public void cancelApplication(Long applicationId, Long userId) {
+        readOnlyVerificationPolicy.requireWritable();
         cancelApplication(applicationId, userId, PartyApplicationDTO.CancelRequest.builder()
                 .cancelReasonType(CancelReasonType.BUYER_CHANGED_MIND)
                 .build());
@@ -488,6 +522,7 @@ public class PartyApplicationService {
             Long applicationId,
             Principal principal,
             PartyApplicationDTO.CancelRequest cancelRequest) {
+        readOnlyVerificationPolicy.requireWritable();
         return cancelApplication(applicationId, resolveUserId(principal), cancelRequest);
     }
 
@@ -496,8 +531,10 @@ public class PartyApplicationService {
             Long applicationId,
             Long userId,
             PartyApplicationDTO.CancelRequest cancelRequest) {
+        readOnlyVerificationPolicy.requireWritable();
         Long applicantId = requireUserId(userId);
-        PartyApplication application = requireApplicantApplicationForUpdate(applicationId, applicantId);
+        LockedApplicationContext context = requireApplicantApplicationForUpdate(applicationId, applicantId);
+        PartyApplication application = context.application();
         PartyApplicationDTO.CancelRequest applicantCancelRequest = sanitizeApplicantCancelRequest(cancelRequest);
 
         // 거절된 신청은 취소 불필요
@@ -507,11 +544,15 @@ public class PartyApplicationService {
 
         Party party = partyRepository.findById(java.util.Objects.requireNonNull(application.getPartyId()))
                 .orElseThrow(() -> new PartyNotFoundException(application.getPartyId()));
+        boolean verifiedCancellationAlreadyPersisted = Boolean.TRUE.equals(application.getIsPaid())
+                && paymentTransactionService.isVerifiedCancellationFor(application);
 
         // 승인 전: 자유롭게 취소 가능
         if (!application.getIsApproved()) {
             PartyApplicationDTO.CancelResponse cancelResponse = paymentTransactionService
                     .processCancellation(application, applicantCancelRequest);
+            requireCompletedPaidCancellation(application, cancelResponse);
+            markIntentCanceled(context.paymentIntent());
             applicationRepository.delete(application);
             return Objects.requireNonNull(cancelResponse);
         }
@@ -520,19 +561,21 @@ public class PartyApplicationService {
         LocalDate today = LocalDate.now();
         long daysUntilGame = ChronoUnit.DAYS.between(today, party.getGameDate());
 
-        if (daysUntilGame < 1) {
+        if (daysUntilGame < 1 && !verifiedCancellationAlreadyPersisted) {
             throw new InvalidApplicationStatusException("경기 하루 전부터는 취소할 수 없습니다.");
         }
 
         // 체크인 이후에는 취소 불가
-        if (party.getStatus() == Party.PartyStatus.CHECKED_IN ||
-                party.getStatus() == Party.PartyStatus.COMPLETED) {
+        if (!verifiedCancellationAlreadyPersisted && (party.getStatus() == Party.PartyStatus.CHECKED_IN ||
+                party.getStatus() == Party.PartyStatus.COMPLETED)) {
             throw new InvalidApplicationStatusException("체크인 이후에는 참여를 취소할 수 없습니다.");
         }
 
         PartyApplicationDTO.CancelResponse cancelResponse = paymentTransactionService.processCancellation(
                 application,
                 applicantCancelRequest);
+        requireCompletedPaidCancellation(application, cancelResponse);
+        markIntentCanceled(context.paymentIntent());
 
         // 승인된 신청 취소 시 참여 인원 감소
         partyService.decrementParticipants(application.getPartyId());
@@ -567,21 +610,24 @@ public class PartyApplicationService {
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
     }
 
-    private PartyApplication requireHostedApplicationForUpdate(Long applicationId, Long hostId) {
+    private LockedApplicationContext requireHostedApplicationForUpdate(Long applicationId, Long hostId) {
         Long requiredApplicationId = java.util.Objects.requireNonNull(applicationId);
         PartyApplication candidate = applicationRepository.findByIdAndPartyHostId(requiredApplicationId, hostId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
         Long partyId = java.util.Objects.requireNonNull(candidate.getPartyId());
+        PaymentIntent paymentIntent = lockLinkedIntent(candidate);
 
         partyRepository.findByIdForUpdate(partyId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
 
         PartyApplication locked = applicationRepository.findByIdAndPartyHostIdForUpdate(requiredApplicationId, hostId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+        entityManager.refresh(locked, LockModeType.PESSIMISTIC_WRITE);
         if (!partyId.equals(locked.getPartyId())) {
             throw new PartyApplicationNotFoundException(applicationId);
         }
-        return locked;
+        requireApplicationIdentityUnchanged(candidate, locked, applicationId);
+        return new LockedApplicationContext(locked, paymentIntent);
     }
 
     private PartyApplication requireApplicantApplication(Long applicationId, Long applicantId) {
@@ -589,11 +635,12 @@ public class PartyApplicationService {
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
     }
 
-    private PartyApplication requireApplicantApplicationForUpdate(Long applicationId, Long applicantId) {
+    private LockedApplicationContext requireApplicantApplicationForUpdate(Long applicationId, Long applicantId) {
         Long requiredApplicationId = java.util.Objects.requireNonNull(applicationId);
         PartyApplication candidate = applicationRepository.findByIdAndApplicantId(requiredApplicationId, applicantId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
         Long partyId = java.util.Objects.requireNonNull(candidate.getPartyId());
+        PaymentIntent paymentIntent = lockLinkedIntent(candidate);
 
         partyRepository.findByIdForUpdate(partyId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
@@ -601,21 +648,85 @@ public class PartyApplicationService {
         PartyApplication locked = applicationRepository.findByIdAndApplicantIdForUpdate(
                         requiredApplicationId, applicantId)
                 .orElseThrow(() -> new PartyApplicationNotFoundException(applicationId));
+        entityManager.refresh(locked, LockModeType.PESSIMISTIC_WRITE);
         if (!partyId.equals(locked.getPartyId())) {
             throw new PartyApplicationNotFoundException(applicationId);
+        }
+        requireApplicationIdentityUnchanged(candidate, locked, applicationId);
+        return new LockedApplicationContext(locked, paymentIntent);
+    }
+
+    private PaymentIntent lockLinkedIntent(PartyApplication application) {
+        String orderId = application.getOrderId();
+        if (orderId == null || orderId.isBlank()) {
+            return null;
+        }
+        PaymentIntent observed = paymentIntentRepository.findByOrderId(orderId).orElse(null);
+        if (observed == null) {
+            return null;
+        }
+        if (!Objects.equals(observed.getApplicantId(), application.getApplicantId())
+                || !Objects.equals(observed.getPartyId(), application.getPartyId())) {
+            throw new InvalidApplicationStatusException("결제 요청과 신청 소유자가 일치하지 않습니다.");
+        }
+        PaymentIntent locked = paymentIntentRepository
+                .findByOrderIdAndApplicantIdForUpdate(orderId, application.getApplicantId())
+                .orElseThrow(() -> new InvalidApplicationStatusException("연결된 결제 요청을 잠글 수 없습니다."));
+        entityManager.refresh(locked, LockModeType.PESSIMISTIC_WRITE);
+        if (!Objects.equals(locked.getApplicantId(), application.getApplicantId())
+                || !Objects.equals(locked.getPartyId(), application.getPartyId())
+                || !Objects.equals(locked.getOrderId(), orderId)) {
+            throw new InvalidApplicationStatusException("결제 요청과 신청 정보가 일치하지 않습니다.");
+        }
+        if (Boolean.TRUE.equals(application.getIsPaid())
+                && (!Objects.equals(locked.getPaymentKey(), application.getPaymentKey())
+                        || !Objects.equals(locked.getExpectedAmount(), application.getDepositAmount()))) {
+            throw new InvalidApplicationStatusException("결제 금액 또는 결제 키가 신청 정보와 일치하지 않습니다.");
         }
         return locked;
     }
 
+    private void requireApplicationIdentityUnchanged(
+            PartyApplication candidate,
+            PartyApplication locked,
+            Long applicationId) {
+        if (!Objects.equals(candidate.getPartyId(), locked.getPartyId())
+                || !Objects.equals(candidate.getApplicantId(), locked.getApplicantId())
+                || !Objects.equals(candidate.getOrderId(), locked.getOrderId())
+                || !Objects.equals(candidate.getPaymentKey(), locked.getPaymentKey())) {
+            throw new PartyApplicationNotFoundException(applicationId);
+        }
+    }
+
+    private void requireCompletedPaidCancellation(
+            PartyApplication application,
+            PartyApplicationDTO.CancelResponse response) {
+        if (Boolean.TRUE.equals(application.getIsPaid())
+                && (response == null || response.getPaymentStatus() != PaymentStatus.CANCELED)) {
+            throw new InvalidApplicationStatusException("환불 완료를 확인할 수 없어 신청을 취소하지 않았습니다.");
+        }
+    }
+
+    private void markIntentCanceled(PaymentIntent paymentIntent) {
+        if (paymentIntent == null) {
+            return;
+        }
+        paymentIntent.setStatus(PaymentIntent.IntentStatus.CANCELED);
+        paymentIntent.setCanceledAt(Instant.now());
+        paymentIntentRepository.save(paymentIntent);
+    }
+
     private ApplicationCreationContext prepareCreationContext(
             PartyApplicationDTO.Request request,
-            Long applicantId) {
+            Long applicantId,
+            PartyApplication.PaymentType confirmedPaymentType) {
         requireUserId(applicantId);
         MateContentPolicyValidator.validateApplicationMessage(request.getMessage());
 
         Long partyId = java.util.Objects.requireNonNull(request.getPartyId());
         Party party = partyRepository.findByIdForUpdate(partyId)
                 .orElseThrow(() -> new PartyNotFoundException(partyId));
+        validatePartyStatusForApplication(party, request.getPaymentType(), confirmedPaymentType);
         UserEntity applicant = userService.findUserByIdForUpdate(applicantId);
         if (!applicant.isEnabled() || applicant.isPendingDeletion()) {
             throw new InvalidApplicationStatusException("탈퇴 예정이거나 비활성화된 사용자는 신청할 수 없습니다.");
@@ -660,6 +771,49 @@ public class PartyApplicationService {
                 badge,
                 applicantRating,
                 deadline);
+    }
+
+    private void validatePartyStatusForApplication(
+            Party party,
+            PartyApplication.PaymentType requestedPaymentType,
+            PartyApplication.PaymentType confirmedPaymentType) {
+        Party.PartyStatus partyStatus = party.getStatus();
+        if (matePaymentModeService.isDirectTrade()) {
+            if (partyStatus == Party.PartyStatus.PENDING || partyStatus == Party.PartyStatus.SELLING) {
+                return;
+            }
+            throw new InvalidApplicationStatusException(
+                    "모집 중이거나 판매 중인 파티만 신청할 수 있습니다.");
+        }
+
+        if (confirmedPaymentType == null
+                && requestedPaymentType == PartyApplication.PaymentType.FULL
+                && matePaymentModeService.isInAppPayment()
+                && sellingPaymentEnforced) {
+            throw new InvalidApplicationStatusException("전액 결제 신청은 결제 승인 API를 통해서만 생성할 수 있습니다.");
+        }
+
+        PartyApplication.PaymentType paymentType = confirmedPaymentType != null
+                ? confirmedPaymentType
+                : requestedPaymentType;
+        boolean sellingFull = paymentType == PartyApplication.PaymentType.FULL;
+        Party.PartyStatus requiredStatus = sellingFull
+                ? Party.PartyStatus.SELLING
+                : Party.PartyStatus.PENDING;
+        if (partyStatus != requiredStatus) {
+            throw new InvalidApplicationStatusException(sellingFull
+                    ? "SELLING 상태 파티만 전액 결제를 진행할 수 있습니다."
+                    : "모집 중인 파티만 예약금 결제를 진행할 수 있습니다.");
+        }
+    }
+
+    private void preflightPartyStatus(
+            PartyApplicationDTO.Request request,
+            PartyApplication.PaymentType confirmedPaymentType) {
+        Long partyId = Objects.requireNonNull(request.getPartyId());
+        Party observedParty = partyRepository.findById(partyId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
+        validatePartyStatusForApplication(observedParty, request.getPaymentType(), confirmedPaymentType);
     }
 
     private boolean consumeAndValidateTicketToken(

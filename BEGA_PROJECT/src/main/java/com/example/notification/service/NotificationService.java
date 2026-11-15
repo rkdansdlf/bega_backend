@@ -3,17 +3,21 @@ package com.example.notification.service;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import java.util.Collection;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.jspecify.annotations.NonNull;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.realtime.RealtimeOutboxWriter;
 import com.example.mate.exception.UnauthorizedAccessException;
+import com.example.mate.repository.PartyRepository;
 import com.example.notification.dto.NotificationDTO;
 import com.example.notification.entity.Notification;
 import com.example.notification.exception.NotificationNotFoundException;
@@ -27,33 +31,46 @@ public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final RealtimeOutboxWriter realtimeOutboxWriter;
+    private final PartyRepository partyRepository;
+    private final PlatformTransactionManager transactionManager;
 
     // 알림 생성
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void createNotification(
             @NonNull Long userId,
             Notification.@NonNull NotificationType type,
             @NonNull String title,
             @NonNull String message,
             Long relatedId) {
-        Notification notification = Notification.builder()
-                .userId(userId)
-                .type(type)
-                .title(title)
-                .message(message)
-                .relatedId(relatedId)
-                .isRead(false)
-                .build();
+        boolean referencesParty = type.referencesParty();
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        transactionTemplate.setPropagationBehavior(referencesParty
+                ? TransactionDefinition.PROPAGATION_REQUIRED
+                : TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        transactionTemplate.executeWithoutResult(status -> {
+            if (referencesParty
+                    && (relatedId == null || partyRepository.findByIdForUpdate(relatedId).isEmpty())) {
+                return;
+            }
 
-        Notification saved = notificationRepository.save(notification);
+            Notification notification = Notification.builder()
+                    .userId(userId)
+                    .type(type)
+                    .title(title)
+                    .message(message)
+                    .relatedId(relatedId)
+                    .isRead(false)
+                    .build();
 
-        // DTO 생성
-        NotificationDTO.Response dto = NotificationDTO.Response.from(saved);
+            Notification saved = notificationRepository.save(notification);
 
-        realtimeOutboxWriter.sendToUser(
-                String.valueOf(userId),
-                "/queue/notifications",
-                dto);
+            // DTO 생성
+            NotificationDTO.Response dto = NotificationDTO.Response.from(saved);
+
+            realtimeOutboxWriter.sendToUser(
+                    String.valueOf(userId),
+                    "/queue/notifications",
+                    dto);
+        });
 
     }
 
@@ -102,9 +119,18 @@ public class NotificationService {
 
     // 전체 알림 일괄 읽음 처리
     @Transactional
-    public void markAllAsRead(@NonNull Long userId) {
+    public List<Long> markAllAsRead(
+            @NonNull Long userId,
+            @NonNull List<Long> notificationIds) {
         ensureAuthenticatedUser(userId);
-        notificationRepository.markAllAsReadByUserId(userId);
+        if (notificationIds.isEmpty()) {
+            return List.of();
+        }
+        Collection<Long> distinctNotificationIds = notificationIds.stream().distinct().toList();
+        List<Notification> notifications = notificationRepository
+                .findUnreadForUserByIdsForUpdate(userId, distinctNotificationIds);
+        notifications.forEach(notification -> notification.setIsRead(true));
+        return notifications.stream().map(Notification::getId).toList();
     }
 
     // 알림 삭제

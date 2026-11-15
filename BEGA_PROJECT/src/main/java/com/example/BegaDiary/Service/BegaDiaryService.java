@@ -46,6 +46,8 @@ import com.example.mate.repository.PartyApplicationRepository;
 import com.example.kbo.dto.TicketInfo;
 import com.example.kbo.service.TicketVerificationTokenStore;
 import com.example.media.entity.MediaDomain;
+import com.example.leaderboard.entity.Achievement;
+import com.example.leaderboard.service.AchievementService;
 import com.example.media.service.MediaLinkService;
 
 import lombok.RequiredArgsConstructor;
@@ -68,6 +70,7 @@ public class BegaDiaryService {
     private final TicketVerificationTokenStore ticketVerificationTokenStore;
     private final SeatViewService seatViewService;
     private final MediaLinkService mediaLinkService;
+    private final AchievementService achievementService;
 
     // 전체 다이어리 조회
     public List<DiaryResponseDto> getAllDiaries(Long userId) {
@@ -112,6 +115,24 @@ public class BegaDiaryService {
 
         List<List<String>> signedUrls = resolveDiarySignedUrls(List.of(diary));
         return Objects.requireNonNull(DiaryResponseDto.from(diary, signedUrls.isEmpty() ? null : signedUrls.get(0)));
+    }
+
+    /** 다이어리 저장 결과와 그 저장으로 새로 달성한 직관 업적. */
+    public record SavedDiaryResult(BegaDiary diary, List<Achievement> unlockedAchievements) {
+    }
+
+    /**
+     * 다이어리 저장과 직관 업적 부여를 하나의 트랜잭션으로 수행한다.
+     * 업적 부여가 실패하면 다이어리 저장도 롤백되므로, 클라이언트가 재시도해도
+     * "실패했는데 이미 저장돼 있는" 상태(DiaryAlreadyExistsException)가 생기지 않는다.
+     */
+    @CacheEvict(value = CacheConfig.DIARY_STATS, key = "#userId")
+    @Transactional
+    public SavedDiaryResult saveWithAttendanceAchievements(Long userId, DiaryRequestDto requestDto) {
+        BegaDiary savedDiary = save(userId, requestDto);
+        int totalAttendances = diaryRepository.countByUserIdAndType(userId, DiaryType.ATTENDED);
+        List<Achievement> unlocked = achievementService.checkAttendanceAchievements(userId, totalAttendances);
+        return new SavedDiaryResult(savedDiary, unlocked);
     }
 
     // 다이어리 저장

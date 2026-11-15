@@ -40,7 +40,7 @@ public class MediaQuotaService {
     private int resolveDailyCountLimit(MediaDomain domain) {
         return switch (domain) {
             case PROFILE -> storageConfig.getMediaProfileDailyCountLimit();
-            case DIARY -> storageConfig.getMediaDiaryDailyCountLimit();
+            case DIARY, SEAT_VIEW -> storageConfig.getMediaDiaryDailyCountLimit();
             case CHEER -> storageConfig.getMediaCheerDailyCountLimit();
             case CHAT -> storageConfig.getMediaChatDailyCountLimit();
         };

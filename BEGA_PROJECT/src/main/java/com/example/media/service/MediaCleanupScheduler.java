@@ -27,6 +27,9 @@ public class MediaCleanupScheduler {
         }
         log.debug("Running media cleanup scheduler");
         mediaUploadService.cleanupExpiredPendingAssets();
+        mediaUploadService.cleanupExpiredFinalizeAttempts();
+        mediaUploadService.cleanupReadyStagingObjects();
+        mediaUploadService.cleanupDeletedFinalizeTombstones();
         mediaUploadService.cleanupUnlinkedReadyAssets();
     }
 }

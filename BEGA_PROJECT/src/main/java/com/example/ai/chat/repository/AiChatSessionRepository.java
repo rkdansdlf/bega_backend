@@ -10,4 +10,6 @@ public interface AiChatSessionRepository extends JpaRepository<AiChatSession, Lo
     List<AiChatSession> findByUserIdOrderByLastMessageAtDescCreatedAtDesc(Long userId);
 
     Optional<AiChatSession> findByIdAndUserId(Long id, Long userId);
+
+    void deleteByUserId(Long userId);
 }

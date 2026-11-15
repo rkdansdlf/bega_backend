@@ -23,9 +23,9 @@ public class RefreshToken {
     // 토큰 소유자를 식별용 이메일
     private String email;
 
-    // 리프레시 토큰
-    @jakarta.persistence.Column(length = 1024)
-    private String token;
+    // HMAC-SHA256 digest only. Raw refresh bearer tokens must never be persisted.
+    @Column(name = "token_digest", nullable = false, unique = true, length = 64)
+    private String tokenDigest;
 
     @Column(name = "session_id", length = 64)
     private String sessionId;

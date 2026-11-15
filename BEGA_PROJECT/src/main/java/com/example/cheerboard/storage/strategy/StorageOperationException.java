@@ -9,7 +9,7 @@ package com.example.cheerboard.storage.strategy;
 public class StorageOperationException extends RuntimeException {
 
     public enum Kind {
-        /** 객체가 실제로 존재하지 않는다(404). 호출자는 정리(cleanup)를 진행해도 된다. */
+        /** 객체 키가 명시적으로 존재하지 않는다(NoSuchKey). 호출자는 정리(cleanup)를 진행해도 된다. */
         OBJECT_NOT_FOUND,
         /** 재시도하면 성공할 수 있다(5xx, 429, timeout, 연결 실패). 상태를 바꾸지 말 것. */
         TRANSIENT,

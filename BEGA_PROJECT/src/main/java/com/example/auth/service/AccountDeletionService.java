@@ -6,16 +6,22 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.AccountDeletionTokenRepository;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserRepository;
+import com.example.auth.util.AccountStatusUtil;
+import com.example.cheerboard.repo.CheerPostRepo;
+import com.example.cheerboard.service.CheerPurgeCoordination;
 import com.example.common.exception.BadRequestBusinessException;
 import com.example.common.exception.InvalidCredentialsException;
 import com.example.common.exception.UserNotFoundException;
-import com.example.mate.service.PartyService;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,7 +39,12 @@ public class AccountDeletionService {
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
     private final AccountSecurityService accountSecurityService;
-    private final PartyService partyService;
+    private final AccountDeletionFinalizationService accountDeletionFinalizationService;
+    private final CheerPostRepo cheerPostRepo;
+    private final com.example.media.repository.MediaAssetRepository mediaAssetRepository;
+
+    @Value("${app.auth.account-deletion.hash-new-tokens:true}")
+    private boolean hashNewTokens = true;
 
     public AccountDeletionService(
             UserRepository userRepository,
@@ -42,14 +53,18 @@ public class AccountDeletionService {
             PasswordEncoder passwordEncoder,
             EmailService emailService,
             AccountSecurityService accountSecurityService,
-            @Lazy PartyService partyService) {
+            AccountDeletionFinalizationService accountDeletionFinalizationService,
+            CheerPostRepo cheerPostRepo,
+            com.example.media.repository.MediaAssetRepository mediaAssetRepository) {
         this.userRepository = userRepository;
         this.refreshRepository = refreshRepository;
         this.accountDeletionTokenRepository = accountDeletionTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailService = emailService;
         this.accountSecurityService = accountSecurityService;
-        this.partyService = partyService;
+        this.accountDeletionFinalizationService = accountDeletionFinalizationService;
+        this.cheerPostRepo = cheerPostRepo;
+        this.mediaAssetRepository = mediaAssetRepository;
     }
 
     @Transactional
@@ -78,6 +93,9 @@ public class AccountDeletionService {
             }
         }
 
+        CheerPurgeCoordination.assertNoStartedPurge(cheerPostRepo, userId);
+        CheerPurgeCoordination.assertNoOwnedReservedAssets(mediaAssetRepository, userId);
+
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime scheduledFor = now.plusDays(ACCOUNT_DELETION_GRACE_DAYS);
         String token = UUID.randomUUID().toString();
@@ -92,7 +110,7 @@ public class AccountDeletionService {
         refreshRepository.deleteByEmail(user.getEmail());
         accountDeletionTokenRepository.deleteByUser_Id(user.getId());
         accountDeletionTokenRepository.save(AccountDeletionToken.builder()
-                .token(token)
+                .token(hashNewTokens ? hashRecoveryToken(token) : token)
                 .user(user)
                 .expiryDate(scheduledFor)
                 .used(false)
@@ -119,11 +137,29 @@ public class AccountDeletionService {
 
     @Transactional
     public void recoverAccount(String token) {
-        AccountDeletionToken deletionToken = validateRecoveryToken(token);
-        Long userId = deletionToken.getUser().getId();
+        String storedToken = resolveStoredToken(token);
+        Long userId = accountDeletionTokenRepository.findUserIdByToken(storedToken)
+                .or(() -> legacyFallback(storedToken, token)
+                        .flatMap(accountDeletionTokenRepository::findUserIdByToken))
+                .orElseThrow(() -> new BadRequestBusinessException("INVALID_RECOVERY_LINK", "유효하지 않은 복구 링크입니다."));
         UserEntity user = userRepository.findByIdForWrite(userId)
                 .orElseThrow(() -> new UserNotFoundException(userId));
-        validateRecoverableDeletion(user);
+        AccountDeletionToken deletionToken = accountDeletionTokenRepository
+                .findByTokenAndUser_Id(storedToken, userId)
+                .or(() -> legacyFallback(storedToken, token)
+                        .flatMap(digest -> accountDeletionTokenRepository.findByTokenAndUser_Id(digest, userId)))
+                .orElseThrow(() -> new BadRequestBusinessException("INVALID_RECOVERY_LINK", "유효하지 않은 복구 링크입니다."));
+        validateRecoverableDeletion(deletionToken, user, LocalDateTime.now());
+        // A locked account must not be reactivated from an emailed link: the lock is what stops the account.
+        if (!AccountStatusUtil.isAccountUsable(user)) {
+            if (user.getLockExpiresAt() != null) {
+                // Temporary lock (e.g. failed-login lockout): it lifts on its own, so tell the user to retry later.
+                // The error code stays the same, and the token is still not consumed.
+                throw new BadRequestBusinessException("RECOVERY_ACCOUNT_LOCKED",
+                        "계정이 일시적으로 잠겨 있습니다. 잠금이 풀린 뒤 다시 시도해 주세요.");
+            }
+            throw new BadRequestBusinessException("RECOVERY_ACCOUNT_LOCKED", "잠긴 계정은 복구할 수 없습니다.");
+        }
 
         user.setPendingDeletion(false);
         user.setDeletionRequestedAt(null);
@@ -136,43 +172,63 @@ public class AccountDeletionService {
         accountSecurityService.recordAccountDeletionCancelled(user.getId());
     }
 
-    @Transactional
     public void finalizeDueDeletions() {
-        List<UserEntity> dueUsers = userRepository.findByPendingDeletionTrueAndDeletionScheduledForLessThanEqual(LocalDateTime.now());
-        for (UserEntity user : dueUsers) {
+        LocalDateTime cutoff = LocalDateTime.now();
+        List<Long> dueUserIds = userRepository.findDuePendingDeletionUserIds(cutoff);
+        for (Long userId : dueUserIds) {
             try {
-                partyService.handleUserDeletion(user.getId());
-                user.setDeletionScheduledFor(null);
-                userRepository.save(user);
-                accountDeletionTokenRepository.deleteByUser_Id(user.getId());
-                log.info("Finalized pending account deletion for userId={}", user.getId());
+                accountDeletionFinalizationService.finalizeIfDue(userId, cutoff);
             } catch (RuntimeException e) {
-                log.error("Failed to finalize pending account deletion for userId={}", user.getId(), e);
+                log.error("Failed to finalize pending account deletion for userId={}", userId, e);
             }
         }
     }
 
     private AccountDeletionToken validateRecoveryToken(String token) {
-        AccountDeletionToken deletionToken = accountDeletionTokenRepository.findByToken(token)
+        String storedToken = resolveStoredToken(token);
+        AccountDeletionToken deletionToken = accountDeletionTokenRepository.findByToken(storedToken)
+                .or(() -> legacyFallback(storedToken, token)
+                        .flatMap(accountDeletionTokenRepository::findByToken))
                 .orElseThrow(() -> new BadRequestBusinessException("INVALID_RECOVERY_LINK", "유효하지 않은 복구 링크입니다."));
-
-        if (deletionToken.isUsed()) {
-            throw new BadRequestBusinessException("RECOVERY_LINK_ALREADY_USED", "이미 사용된 복구 링크입니다.");
-        }
-        if (deletionToken.isExpired()) {
-            throw new BadRequestBusinessException("RECOVERY_LINK_EXPIRED", "복구 링크가 만료되었습니다.");
-        }
-        UserEntity user = deletionToken.getUser();
-        if (user == null || user.getId() == null || !user.isPendingDeletion() || user.getDeletionScheduledFor() == null) {
-            throw new BadRequestBusinessException(
-                    "RECOVERABLE_DELETION_NOT_FOUND",
-                    "복구 가능한 계정 삭제 예약을 찾을 수 없습니다.");
-        }
+        validateRecoverableDeletion(deletionToken, deletionToken.getUser(), LocalDateTime.now());
         return deletionToken;
     }
 
-    private void validateRecoverableDeletion(UserEntity user) {
-        if (user == null || user.getId() == null || !user.isPendingDeletion() || user.getDeletionScheduledFor() == null) {
+    private String resolveStoredToken(String token) {
+        // Previously issued links contain canonical UUIDs. Restricting the fallback
+        // prevents a leaked stored digest from being replayed as a legacy token.
+        if (token == null || !token.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) {
+            throw new BadRequestBusinessException("INVALID_RECOVERY_LINK", "유효하지 않은 복구 링크입니다.");
+        }
+        String digest = hashRecoveryToken(token);
+        return accountDeletionTokenRepository.findByToken(digest).isPresent() ? digest : token;
+    }
+
+    private static String hashRecoveryToken(String token) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(token.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
+    }
+
+    private static Optional<String> legacyFallback(String storedToken, String rawToken) {
+        return storedToken.equals(rawToken) ? Optional.of(hashRecoveryToken(rawToken)) : Optional.empty();
+    }
+
+    private void validateRecoverableDeletion(
+            AccountDeletionToken deletionToken,
+            UserEntity user,
+            LocalDateTime now) {
+        if (deletionToken.isUsed()) {
+            throw new BadRequestBusinessException("RECOVERY_LINK_ALREADY_USED", "이미 사용된 복구 링크입니다.");
+        }
+        if (deletionToken.getExpiryDate() == null || !deletionToken.getExpiryDate().isAfter(now)) {
+            throw new BadRequestBusinessException("RECOVERY_LINK_EXPIRED", "복구 링크가 만료되었습니다.");
+        }
+        if (user == null || user.getId() == null || !user.isPendingDeletion()
+                || user.getDeletionScheduledFor() == null || !user.getDeletionScheduledFor().isAfter(now)) {
             throw new BadRequestBusinessException(
                     "RECOVERABLE_DELETION_NOT_FOUND",
                     "복구 가능한 계정 삭제 예약을 찾을 수 없습니다.");

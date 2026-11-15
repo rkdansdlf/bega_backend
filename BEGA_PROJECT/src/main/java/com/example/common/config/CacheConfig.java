@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.cache.RedisCacheWriter;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.RedisSerializer;
@@ -197,7 +198,11 @@ public class CacheConfig {
                 cacheConfigs.put(PREDICTION_VOTE_STATUS,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(60))));
 
-                return RedisCacheManager.builder(Objects.requireNonNull(connectionFactory))
+                RedisCacheWriter cacheWriter = RedisCacheWriter.create(
+                                Objects.requireNonNull(connectionFactory),
+                                configurer -> configurer.immediateWrites(true));
+
+                return RedisCacheManager.builder(cacheWriter)
                                 .cacheDefaults(defaultConfig)
                                 .withInitialCacheConfigurations(cacheConfigs)
                                 .transactionAware()

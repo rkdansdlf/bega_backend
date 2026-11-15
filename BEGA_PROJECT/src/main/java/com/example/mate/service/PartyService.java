@@ -499,7 +499,9 @@ public class PartyService {
         }
 
         party.setCurrentParticipants(party.getCurrentParticipants() - 1);
-        party.setStatus(Party.PartyStatus.PENDING);
+        if (party.getStatus() == Party.PartyStatus.MATCHED) {
+            party.setStatus(Party.PartyStatus.PENDING);
+        }
 
         Party updatedParty = partyRepository.save(party);
         return Objects.requireNonNull(partyMapper.toResponse(updatedParty));
@@ -767,14 +769,11 @@ public class PartyService {
 
                     // 호스트에게 알림 발송
                     try {
-                        String applicantName = application.getApplicantName() != null ? application.getApplicantName()
-                                : "참여자";
-
                         notificationService.createNotification(
                                 party.getHostId(),
                                 com.example.notification.entity.Notification.NotificationType.PARTY_PARTICIPANT_LEFT,
                                 "참여자가 탈퇴했습니다",
-                                applicantName + "님이 계정 삭제로 인해 파티에서 자동 탈퇴되었습니다. (현재 인원: " +
+                                "참여자가 파티에서 탈퇴했습니다. (현재 인원: " +
                                         party.getCurrentParticipants() + "/" + party.getMaxParticipants() + ")",
                                 party.getId());
                         log.info("참여자 탈퇴 알림 발송: hostId={}, partyId={}",

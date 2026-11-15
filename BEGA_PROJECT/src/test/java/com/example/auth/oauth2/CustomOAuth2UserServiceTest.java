@@ -5,6 +5,7 @@ import com.example.auth.entity.UserProvider;
 import com.example.auth.repository.UserProviderRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.service.AuthSecurityMonitoringService;
+import com.example.auth.service.OAuthEmailChallengeService;
 import com.example.bega.auth.dto.OAuth2LinkStateData;
 import com.example.bega.auth.service.OAuth2LinkStateService;
 import org.junit.jupiter.api.DisplayName;
@@ -23,6 +24,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -48,6 +50,9 @@ class CustomOAuth2UserServiceTest {
 
     @Mock
     private AuthSecurityMonitoringService securityMonitoringService;
+
+    @Mock
+    private OAuthEmailChallengeService oauthEmailChallengeService;
 
     @InjectMocks
     private CustomOAuth2UserService customOAuth2UserService;
@@ -109,6 +114,103 @@ class CustomOAuth2UserServiceTest {
                 null))
                 .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
                         assertThat(exception.getError().getErrorCode()).isEqualTo("manual_link_required"));
+    }
+
+    @Test
+    @DisplayName("검증되지 않은 이메일의 신규 OAuth 가입은 앱 이메일 challenge를 요구한다")
+    void processNormalLogin_unverifiedNewAccountRequiresChallenge() {
+        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> invokeProcessNormalLogin(
+                Optional.empty(),
+                "new@example.com",
+                "신규유저",
+                "naver",
+                "naver-provider-id",
+                null,
+                false))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                        assertThat(exception.getError().getErrorCode())
+                                .isEqualTo("oauth2_email_verification_required"));
+
+        verify(oauthEmailChallengeService).issue(
+                "naver", "naver-provider-id", "new@example.com", "신규유저", null);
+        verify(userRepository, never()).save(org.mockito.ArgumentMatchers.any(UserEntity.class));
+    }
+
+    @Test
+    @DisplayName("이메일 challenge 발송 rate limit 초과는 OAuth2 실패(rate_limited)로 변환된다")
+    void processNormalLogin_challengeRateLimitedBecomesOAuth2Failure() {
+        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+        com.example.common.exception.RateLimitExceededException cause =
+                new com.example.common.exception.RateLimitExceededException("too many");
+        when(oauthEmailChallengeService.issue(any(), any(), any(), any(), any())).thenThrow(cause);
+
+        assertThatThrownBy(() -> invokeProcessNormalLogin(
+                Optional.empty(), "new@example.com", "신규유저", "naver", "naver-provider-id", null, false))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception -> {
+                    assertThat(exception.getError().getErrorCode())
+                            .isEqualTo(CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_RATE_LIMITED);
+                    assertThat(exception.getMessage())
+                            .isEqualTo(CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_RATE_LIMITED);
+                    assertThat(exception.getCause()).isSameAs(cause);
+                });
+        verify(request, never()).setAttribute(
+                org.mockito.ArgumentMatchers.eq(CustomOAuth2UserService.OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE), any());
+    }
+
+    @Test
+    @DisplayName("이메일 challenge 메일 발송 실패는 OAuth2 실패(unavailable)로 변환된다")
+    void processNormalLogin_challengeMailFailureBecomesOAuth2Failure() {
+        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+        org.springframework.mail.MailSendException cause = new org.springframework.mail.MailSendException("smtp down");
+        when(oauthEmailChallengeService.issue(any(), any(), any(), any(), any())).thenThrow(cause);
+
+        assertThatThrownBy(() -> invokeProcessNormalLogin(
+                Optional.empty(), "new@example.com", "신규유저", "naver", "naver-provider-id", null, false))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception -> {
+                    assertThat(exception.getError().getErrorCode())
+                            .isEqualTo(CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_UNAVAILABLE);
+                    assertThat(exception.getCause()).isSameAs(cause);
+                });
+        verify(request, never()).setAttribute(
+                org.mockito.ArgumentMatchers.eq(CustomOAuth2UserService.OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE), any());
+    }
+
+    @Test
+    @DisplayName("읽기 전용 모드 등 BusinessException 도 OAuth2 실패(unavailable)로 변환된다")
+    void processNormalLogin_challengeReadOnlyBecomesOAuth2Failure() {
+        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+        when(oauthEmailChallengeService.issue(any(), any(), any(), any(), any()))
+                .thenThrow(new com.example.common.readonly.ReadOnlyVerificationUnavailableException());
+
+        assertThatThrownBy(() -> invokeProcessNormalLogin(
+                Optional.empty(), "new@example.com", "신규유저", "naver", "naver-provider-id", null, false))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                        assertThat(exception.getError().getErrorCode())
+                                .isEqualTo(CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_UNAVAILABLE));
+    }
+
+    @Test
+    @DisplayName("이메일 미제공 challenge 발급 실패도 OAuth2 실패(unavailable)로 변환된다")
+    void emailRequiredChallenge_issueFailureBecomesOAuth2Failure() throws Exception {
+        when(oauthEmailChallengeService.issueEmailRequired(any(), any(), any(), any()))
+                .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("db down"));
+        Method method = CustomOAuth2UserService.class.getDeclaredMethod(
+                "emailRequiredChallenge", String.class, String.class, String.class, String.class);
+        method.setAccessible(true);
+
+        assertThatThrownBy(() -> {
+            try {
+                method.invoke(customOAuth2UserService, "naver", "naver-provider-id", "신규유저", null);
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                throw e.getCause();
+            }
+        }).isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                assertThat(exception.getError().getErrorCode())
+                        .isEqualTo(CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_UNAVAILABLE));
+        verify(request, never()).setAttribute(
+                org.mockito.ArgumentMatchers.eq(CustomOAuth2UserService.OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE), any());
     }
 
     @Test
@@ -235,6 +337,44 @@ class CustomOAuth2UserServiceTest {
         }
     }
 
+    private UserEntity invokeProcessNormalLogin(
+            Optional<UserProvider> userProviderOpt,
+            String email,
+            String userName,
+            String provider,
+            String providerId,
+            String profileImageUrl,
+            boolean emailVerified) {
+        try {
+            Method method = CustomOAuth2UserService.class.getDeclaredMethod(
+                    "processNormalLogin",
+                    Optional.class,
+                    String.class,
+                    String.class,
+                    String.class,
+                    String.class,
+                    String.class,
+                    boolean.class);
+            method.setAccessible(true);
+            return (UserEntity) method.invoke(
+                    customOAuth2UserService,
+                    userProviderOpt,
+                    email,
+                    userName,
+                    provider,
+                    providerId,
+                    profileImageUrl,
+                    emailVerified);
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            if (e.getCause() instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new RuntimeException(e);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private UserEntity invokeProcessAccountLink(
             OAuth2LinkStateData linkData,
             String provider,
@@ -257,6 +397,169 @@ class CustomOAuth2UserServiceTest {
         } catch (ReflectiveOperationException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    @Test
+    @DisplayName("일반 로그인: 비활성화된 계정은 oauth2_account_not_eligible 예외를 발생시킨다")
+    void processNormalLogin_rejectsDisabledUser() {
+        UserEntity disabledUser = oauthOnlyUser(20L, "disabled@example.com");
+        disabledUser.setEnabled(false);
+
+        UserProvider userProvider = UserProvider.builder()
+                .id(10L)
+                .user(disabledUser)
+                .provider("google")
+                .providerId("google-p-id")
+                .email("disabled@example.com")
+                .build();
+
+        assertThatThrownBy(() -> invokeProcessNormalLogin(
+                Optional.of(userProvider),
+                "disabled@example.com",
+                "비활성유저",
+                "google",
+                "google-p-id",
+                null))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                        assertThat(exception.getError().getErrorCode()).isEqualTo("oauth2_account_not_eligible"));
+    }
+
+    @Test
+    @DisplayName("일반 로그인: 삭제 유예된 계정은 oauth2_account_not_eligible 예외를 발생시킨다")
+    void processNormalLogin_rejectsPendingDeletionUser() {
+        UserEntity pendingUser = oauthOnlyUser(21L, "pending@example.com");
+        pendingUser.setPendingDeletion(true);
+
+        UserProvider userProvider = UserProvider.builder()
+                .id(11L)
+                .user(pendingUser)
+                .provider("google")
+                .providerId("google-p-id-2")
+                .email("pending@example.com")
+                .build();
+
+        assertThatThrownBy(() -> invokeProcessNormalLogin(
+                Optional.of(userProvider),
+                "pending@example.com",
+                "삭제유예유저",
+                "google",
+                "google-p-id-2",
+                null))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                        assertThat(exception.getError().getErrorCode()).isEqualTo("oauth2_account_not_eligible"));
+    }
+
+    @Test
+    @DisplayName("일반 로그인: 잠금된 계정(만료 전)은 oauth2_account_not_eligible 예외를 발생시킨다")
+    void processNormalLogin_rejectsActiveLockedUser() {
+        UserEntity lockedUser = oauthOnlyUser(22L, "locked@example.com");
+        lockedUser.setLocked(true);
+        lockedUser.setLockExpiresAt(java.time.LocalDateTime.now().plusHours(1));
+
+        UserProvider userProvider = UserProvider.builder()
+                .id(12L)
+                .user(lockedUser)
+                .provider("google")
+                .providerId("google-p-id-3")
+                .email("locked@example.com")
+                .build();
+
+        assertThatThrownBy(() -> invokeProcessNormalLogin(
+                Optional.of(userProvider),
+                "locked@example.com",
+                "잠금유저",
+                "google",
+                "google-p-id-3",
+                null))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                        assertThat(exception.getError().getErrorCode()).isEqualTo("oauth2_account_not_eligible"));
+    }
+
+    @Test
+    @DisplayName("일반 로그인: 잠금이 만료된 계정은 로그인을 허용한다")
+    void processNormalLogin_allowsExpiredLockedUser() {
+        UserEntity expiredLockedUser = oauthOnlyUser(23L, "expired-lock@example.com");
+        expiredLockedUser.setLocked(true);
+        expiredLockedUser.setLockExpiresAt(java.time.LocalDateTime.now().minusMinutes(5));
+
+        UserProvider userProvider = UserProvider.builder()
+                .id(13L)
+                .user(expiredLockedUser)
+                .provider("google")
+                .providerId("google-p-id-4")
+                .email("expired-lock@example.com")
+                .build();
+
+        UserEntity result = invokeProcessNormalLogin(
+                Optional.of(userProvider),
+                "expired-lock@example.com",
+                "만료잠금유저",
+                "google",
+                "google-p-id-4",
+                null);
+
+        assertThat(result).isSameAs(expiredLockedUser);
+    }
+
+    @Test
+    @DisplayName("계정 연동: 연동 대상 사용자가 비활성화 상태이면 oauth2_account_not_eligible 예외를 던진다")
+    void processAccountLink_rejectsDisabledTargetUser() {
+        UserEntity disabledUser = oauthOnlyUser(24L, "disabled-target@example.com");
+        disabledUser.setEnabled(false);
+
+        when(userRepository.findByIdForWrite(24L)).thenReturn(Optional.of(disabledUser));
+
+        assertThatThrownBy(() -> invokeProcessAccountLink(
+                new OAuth2LinkStateData(24L, System.currentTimeMillis(), null),
+                "google",
+                "new-provider-id",
+                "disabled-target@example.com"))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                        assertThat(exception.getError().getErrorCode()).isEqualTo("oauth2_account_not_eligible"));
+
+        verify(userProviderRepository, never()).save(any(UserProvider.class));
+        verify(userProviderRepository, never()).saveAndFlush(any(UserProvider.class));
+    }
+
+    @Test
+    @DisplayName("계정 연동: 연동 대상 사용자가 삭제 유예 상태이면 oauth2_account_not_eligible 예외를 던진다")
+    void processAccountLink_rejectsPendingDeletionTargetUser() {
+        UserEntity pendingUser = oauthOnlyUser(25L, "pending-target@example.com");
+        pendingUser.setPendingDeletion(true);
+
+        when(userRepository.findByIdForWrite(25L)).thenReturn(Optional.of(pendingUser));
+
+        assertThatThrownBy(() -> invokeProcessAccountLink(
+                new OAuth2LinkStateData(25L, System.currentTimeMillis(), null),
+                "google",
+                "new-provider-id",
+                "pending-target@example.com"))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                        assertThat(exception.getError().getErrorCode()).isEqualTo("oauth2_account_not_eligible"));
+
+        verify(userProviderRepository, never()).save(any(UserProvider.class));
+        verify(userProviderRepository, never()).saveAndFlush(any(UserProvider.class));
+    }
+
+    @Test
+    @DisplayName("계정 연동: 연동 대상 사용자가 잠금 상태(만료 전)이면 oauth2_account_not_eligible 예외를 던진다")
+    void processAccountLink_rejectsActiveLockedTargetUser() {
+        UserEntity lockedUser = oauthOnlyUser(26L, "locked-target@example.com");
+        lockedUser.setLocked(true);
+        lockedUser.setLockExpiresAt(java.time.LocalDateTime.now().plusMinutes(30));
+
+        when(userRepository.findByIdForWrite(26L)).thenReturn(Optional.of(lockedUser));
+
+        assertThatThrownBy(() -> invokeProcessAccountLink(
+                new OAuth2LinkStateData(26L, System.currentTimeMillis(), null),
+                "google",
+                "new-provider-id",
+                "locked-target@example.com"))
+                .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                        assertThat(exception.getError().getErrorCode()).isEqualTo("oauth2_account_not_eligible"));
+
+        verify(userProviderRepository, never()).save(any(UserProvider.class));
+        verify(userProviderRepository, never()).saveAndFlush(any(UserProvider.class));
     }
 
     private UserEntity oauthOnlyUser(Long id, String email) {

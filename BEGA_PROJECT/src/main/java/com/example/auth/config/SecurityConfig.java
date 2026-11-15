@@ -38,6 +38,7 @@ import com.example.auth.filter.JWTFilter;
 import com.example.auth.ratelimit.RateLimitFilter;
 import com.example.auth.repository.UserRepository;
 import com.example.auth.util.JWTUtil;
+import com.example.auth.util.PasswordEncoderPolicy;
 
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.DispatcherType;
@@ -74,9 +75,11 @@ public class SecurityConfig {
                         "/api/auth/password/reset/request",
                         "/api/auth/password/reset/confirm",
                         "/api/auth/account/deletion/recovery",
+                        "/api/auth/account/deletion/recovery/info",
                         "/api/auth/password-reset/request",
                         "/api/auth/password-reset/confirm",
                         "/api/auth/oauth2/state/**",
+                        "/api/auth/oauth2/email-challenge/**",
                         "/oauth2/authorization/**",
                         "/login/oauth2/code/**",
                         "/login",
@@ -86,6 +89,7 @@ public class SecurityConfig {
         /** 인증 필요 엔드포인트 (auth 하위 경로 일부) */
         private static final String[] PRIVATE_AUTH_ENDPOINTS = {
                         "/api/auth/mypage",
+                        "/api/auth/logout/csrf",
                         "/api/auth/policies/consents",
                         "/api/auth/password",
                         "/api/auth/account",
@@ -107,10 +111,14 @@ public class SecurityConfig {
 
         /** 개발/로컬에서만 공개되는 시스템 엔드포인트 */
         private static final String[] DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS = {
-                        "/api/test/**",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
                         "/swagger-ui.html"
+        };
+
+        /** 정확히 local 프로필만 활성화된 경우 익명 접근을 허용하는 테스트 엔드포인트 */
+        private static final String[] EXACT_LOCAL_PUBLIC_SYSTEM_ENDPOINTS = {
+                        "/api/test/**"
         };
 
         /** 조건부 공개 시스템 엔드포인트 */
@@ -241,6 +249,11 @@ public class SecurityConfig {
                                                 || "local".equalsIgnoreCase(profile));
         }
 
+        private boolean isExactLocalProfile() {
+                String[] activeProfiles = environment.getActiveProfiles();
+                return activeProfiles.length == 1 && "local".equals(activeProfiles[0]);
+        }
+
         boolean isProdProfile() {
                 return Arrays.stream(environment.getActiveProfiles())
                                 .anyMatch(profile -> "prod".equalsIgnoreCase(profile));
@@ -276,19 +289,25 @@ public class SecurityConfig {
         }
 
         String[] publicSystemEndpoints() {
-                int conditionalLength = shouldExposePrometheusEndpointPublicly()
+                boolean devOrLocalProfile = isDevOrLocalProfile();
+                int conditionalLength = devOrLocalProfile || shouldExposePrometheusEndpointPublicly()
                                 ? CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS.length
                                 : 0;
-                if (!isDevOrLocalProfile()) {
-                        return mergeEndpoints(PUBLIC_SYSTEM_ENDPOINTS, CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS,
-                                        conditionalLength);
-                }
-
-                String[] devLocalEndpoints = mergeEndpoints(
-                                DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS,
+                String[] profileEndpoints = devOrLocalProfile
+                                ? DEV_LOCAL_PUBLIC_SYSTEM_ENDPOINTS
+                                : new String[0];
+                String[] localOnlyEndpoints = isExactLocalProfile()
+                                ? EXACT_LOCAL_PUBLIC_SYSTEM_ENDPOINTS
+                                : new String[0];
+                String[] environmentEndpoints = mergeEndpoints(
+                                profileEndpoints,
+                                localOnlyEndpoints,
+                                localOnlyEndpoints.length);
+                String[] conditionalEndpoints = mergeEndpoints(
+                                environmentEndpoints,
                                 CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS,
-                                CONDITIONAL_PUBLIC_SYSTEM_ENDPOINTS.length);
-                return mergeEndpoints(PUBLIC_SYSTEM_ENDPOINTS, devLocalEndpoints, devLocalEndpoints.length);
+                                conditionalLength);
+                return mergeEndpoints(PUBLIC_SYSTEM_ENDPOINTS, conditionalEndpoints, conditionalEndpoints.length);
         }
 
         boolean allowUnauthenticatedAiProxy() {
@@ -355,10 +374,14 @@ public class SecurityConfig {
          */
         @Bean
         public PasswordEncoder passwordEncoder() {
+                return createPasswordEncoder();
+        }
+
+        static PasswordEncoder createPasswordEncoder() {
                 String idForEncode = "argon2";
                 java.util.Map<String, PasswordEncoder> encoders = new java.util.HashMap<>();
                 encoders.put("argon2", Argon2PasswordEncoder.defaultsForSpringSecurity_v5_8());
-                encoders.put("bcrypt", new BCryptPasswordEncoder(12));
+                encoders.put("bcrypt", new BCryptPasswordEncoder(PasswordEncoderPolicy.DEFAULT_BCRYPT_STRENGTH));
                 return new DelegatingPasswordEncoder(idForEncode, encoders);
         }
 
@@ -515,7 +538,12 @@ public class SecurityConfig {
                                                         }
 
                                                         String errorMessage = sanitizeOAuth2FailureCode(exception);
-                                                        redirectToFrontendLogin(response, errorMessage);
+                                                        Object challengeId = request.getAttribute(
+                                                                        CustomOAuth2UserService.OAUTH_EMAIL_CHALLENGE_ID_ATTRIBUTE);
+                                                        redirectToFrontendLogin(
+                                                                        response,
+                                                                        errorMessage,
+                                                                        challengeId instanceof String value ? value : null);
                                                 })
                                                 .authorizationEndpoint(authorization -> authorization
                                                                 .authorizationRequestRepository(
@@ -536,6 +564,8 @@ public class SecurityConfig {
 
                                                 // 3. 시스템/테스트 엔드포인트
                                                 .requestMatchers(publicSystemEndpoints()).permitAll()
+                                                // /api/test/**는 위의 정확한 local 프로필 예외 외에는 인증 필요.
+                                                .requestMatchers("/api/test/**").authenticated()
                                                 .requestMatchers("/actuator/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
 
                                                 // 4. 관리자 전용 엔드포인트
@@ -560,6 +590,7 @@ public class SecurityConfig {
                                                 .requestMatchers(HttpMethod.GET, "/api/cheer/posts/following")
                                                 .authenticated()
                                                 .requestMatchers(HttpMethod.GET, "/api/diary/games").permitAll()
+                                                .requestMatchers(HttpMethod.GET, "/api/diary/seat-views").permitAll()
                                                 .requestMatchers("/api/diary/**").authenticated()
                                                 .requestMatchers(HttpMethod.POST, "/api/predictions/vote")
                                                 .authenticated()
@@ -627,10 +658,21 @@ public class SecurityConfig {
         }
 
         private void redirectToFrontendLogin(HttpServletResponse response, String errorCode) throws java.io.IOException {
+                redirectToFrontendLogin(response, errorCode, null);
+        }
+
+        private void redirectToFrontendLogin(
+                        HttpServletResponse response,
+                        String errorCode,
+                        String challengeId) throws java.io.IOException {
                 String encoded = URLEncoder.encode(
                                 errorCode == null ? "oauth2_auth_failed" : errorCode,
                                 StandardCharsets.UTF_8);
-                response.sendRedirect(frontendUrl + "/login?error=" + encoded);
+                String redirect = frontendUrl + "/login?error=" + encoded;
+                if (challengeId != null && !challengeId.isBlank()) {
+                        redirect += "&challengeId=" + URLEncoder.encode(challengeId, StandardCharsets.UTF_8);
+                }
+                response.sendRedirect(redirect);
         }
 
         private String sanitizeOAuth2FailureCode(Exception exception) {
@@ -651,7 +693,20 @@ public class SecurityConfig {
                 if ("oauth2_provider_payload_invalid".equals(message)) {
                         return message;
                 }
+                if ("oauth2_account_not_eligible".equals(message)) {
+                        return message;
+                }
                 if ("manual_link_required".equals(message)) {
+                        return message;
+                }
+                if ("oauth2_email_verification_required".equals(message)) {
+                        return message;
+                }
+                if ("oauth2_email_required".equals(message)) {
+                        return message;
+                }
+                if (CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_RATE_LIMITED.equals(message)
+                                || CustomOAuth2UserService.OAUTH2_EMAIL_CHALLENGE_UNAVAILABLE.equals(message)) {
                         return message;
                 }
                 if ("oauth2_link_conflict".equals(message)

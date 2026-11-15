@@ -4,8 +4,10 @@ import com.example.auth.entity.RefreshToken;
 import com.example.auth.entity.UserEntity;
 import com.example.auth.service.AuthSessionMetadataResolver;
 import com.example.auth.service.AuthSessionService;
+import com.example.auth.service.IdentityRefreshTokenDigestService;
 import com.example.auth.service.AuthSecurityMonitoringService;
 import com.example.auth.service.RefreshTokenReuseDetector;
+import com.example.auth.service.RefreshTokenDigestService;
 import com.example.auth.service.RefreshTokenRevocationService;
 import com.example.auth.service.ReissueService;
 import com.example.auth.util.AuthCookieUtil;
@@ -78,7 +80,8 @@ class ReissueControllerTokenTypeTest {
                 refreshRepository,
                 jwtUtil,
                 new AuthSessionMetadataResolver(clientIpResolver),
-                refreshTokenReuseDetector);
+                refreshTokenReuseDetector,
+                new IdentityRefreshTokenDigestService());
         ReissueService reissueService = new ReissueService(
                 jwtUtil,
                 refreshRepository,
@@ -86,7 +89,8 @@ class ReissueControllerTokenTypeTest {
                 authSessionService,
                 authSecurityMonitoringService,
                 refreshTokenReuseDetector,
-                refreshTokenRevocationService);
+                refreshTokenRevocationService,
+                identityDigestService());
         reissueController = new ReissueController(
                 authCookieUtil,
                 authSessionService,
@@ -98,6 +102,15 @@ class ReissueControllerTokenTypeTest {
         mockMvc = MockMvcBuilders.standaloneSetup(reissueController)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
+    }
+
+    private RefreshTokenDigestService identityDigestService() {
+        return new RefreshTokenDigestService("test-refresh-token-pepper-value") {
+            @Override
+            public String digest(String rawToken) {
+                return rawToken;
+            }
+        };
     }
 
     @Test
@@ -141,7 +154,7 @@ class ReissueControllerTokenTypeTest {
 
         RefreshToken stored = new RefreshToken();
         stored.setEmail("user@test.com");
-        stored.setToken("refresh-token");
+        stored.setTokenDigest("refresh-token");
         stored.setSessionId("session-1");
         UserEntity user = UserEntity.builder()
                 .id(1L)
@@ -154,11 +167,11 @@ class ReissueControllerTokenTypeTest {
 
         when(jwtUtil.getTokenType("refresh-token")).thenReturn("refresh");
         when(jwtUtil.isExpired("refresh-token")).thenReturn(false);
-        when(refreshRepository.findAllByTokenForUpdate("refresh-token")).thenReturn(List.of(stored));
+        when(refreshRepository.findAllByTokenDigestForUpdate("refresh-token")).thenReturn(List.of(stored));
         when(jwtUtil.getUserId("refresh-token")).thenReturn(1L);
         when(jwtUtil.getTokenVersion("refresh-token")).thenReturn(0);
         when(jwtUtil.getAccessTokenExpirationTime()).thenReturn(1000L * 60 * 60 * 2);
-        when(userRepository.findById(1L)).thenReturn(java.util.Optional.of(user));
+        when(userRepository.findByIdForWrite(1L)).thenReturn(java.util.Optional.of(user));
         when(jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 1000L * 60 * 60 * 2, 0))
                 .thenReturn("new-access-token");
         when(jwtUtil.createRefreshToken("user@test.com", "ROLE_USER", 1L, 0, "session-1"))

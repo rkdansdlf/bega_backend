@@ -1,5 +1,8 @@
 package com.example.profile.storage.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -28,9 +31,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.mock.web.MockMultipartFile;
 import reactor.core.publisher.Mono;
 
 @ExtendWith(MockitoExtension.class)
@@ -73,6 +78,26 @@ class ProfileImageServiceTest {
     void setUp() {
         lenient().when(config.getSignedUrlTtlSeconds()).thenReturn(518400);
         lenient().when(cacheManager.getCache("signedUrls")).thenReturn(signedUrlCache);
+    }
+
+    @Test
+    void uploadProfileImageDoesNotLogFilenameWhenRequestIsRejected() {
+        String filename = "private-profile-filename-sentinel.png";
+        MultipartFile file = new MockMultipartFile("file", filename, "image/png", new byte[] {1});
+        Logger logger = (Logger) LoggerFactory.getLogger(ProfileImageService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            assertThrows(BadRequestBusinessException.class,
+                    () -> profileImageService.uploadProfileImage(null, file));
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .noneMatch(message -> message.contains(filename));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
@@ -224,7 +249,6 @@ class ProfileImageServiceTest {
                 .thenReturn(java.util.Optional.of("https://cdn.example.com/profiles/7/feed/old.webp?token=def"));
         when(mediaObjectKeyGuard.canReadProfileKey("profiles/7/old.webp", userId, true)).thenReturn(true);
         when(mediaObjectKeyGuard.canReadProfileKey("profiles/7/feed/old.webp", userId, true)).thenReturn(true);
-        when(multipartFile.getOriginalFilename()).thenReturn("avatar.png");
         when(imageUtil.processProfileImage(multipartFile)).thenReturn(processedImage);
         when(imageUtil.processFeedProfileImage(multipartFile)).thenReturn(feedProcessedImage);
         when(storageStrategy.uploadBytes(eq(processedBytes), eq("image/webp"), eq(profileBucket), any(String.class)))
@@ -467,7 +491,6 @@ class ProfileImageServiceTest {
         when(userRepository.existsById(userId)).thenReturn(true);
         when(userRepository.findProfileImageUrlById(userId)).thenReturn(java.util.Optional.empty());
         when(userRepository.findProfileFeedImageUrlById(userId)).thenReturn(java.util.Optional.empty());
-        when(multipartFile.getOriginalFilename()).thenReturn("avatar.png");
         when(imageUtil.processProfileImage(multipartFile)).thenReturn(processedImage);
         when(imageUtil.processFeedProfileImage(multipartFile)).thenReturn(feedProcessedImage);
         when(storageStrategy.uploadBytes(eq(processedBytes), eq("image/webp"), eq(profileBucket), any(String.class)))

@@ -1,5 +1,6 @@
 package com.example.mate.service;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
 import com.example.auth.dto.UserDto;
 import com.example.auth.service.UserService;
 import com.example.kbo.dto.TicketInfo;
@@ -56,6 +57,11 @@ class PartyApplicationVerificationTest {
         @Mock
         private MatePaymentModeService matePaymentModeService;
 
+        @Mock
+
+        private ReadOnlyVerificationPolicy readOnlyVerificationPolicy;
+
+
         @InjectMocks
         private PartyApplicationService service;
 
@@ -107,6 +113,7 @@ class PartyApplicationVerificationTest {
                                 .willReturn(false);
                 given(applicationRepository.countByPartyIdAndIsApprovedFalseAndIsRejectedFalse(1L))
                                 .willReturn(0L);
+                given(partyRepository.findById(1L)).willReturn(Optional.of(testParty));
                 given(partyRepository.findByIdForUpdate(1L)).willReturn(Optional.of(testParty));
                 given(applicationRepository.save(any(PartyApplication.class)))
                                 .willAnswer(inv -> {

@@ -497,6 +497,35 @@ class OpenApiMarkdownRendererTest {
     }
 
     @Test
+    void rendersParameterBoundsInEndpointMarkdown() throws Exception {
+        JsonNode schema = objectMapper.readTree("""
+                {
+                  "openapi": "3.1.0",
+                  "info": {"title": "Fixture API", "version": "1"},
+                  "paths": {
+                    "/api/admin/seat-views": {
+                      "get": {
+                        "parameters": [
+                          {"name": "page", "in": "query", "schema": {"type": "integer", "format": "int32", "minimum": 0}},
+                          {"name": "size", "in": "query", "schema": {"type": "integer", "format": "int32", "minimum": 1, "maximum": 100}}
+                        ],
+                        "responses": {"200": {"description": "OK"}}
+                      }
+                    }
+                  },
+                  "components": {"schemas": {}}
+                }
+                """);
+
+        OpenApiMarkdownRenderer.RenderedDocuments rendered =
+                OpenApiMarkdownRenderer.render(schema, "contracts/openapi.json", "./gradlew updateOpenApiContract");
+
+        assertThat(rendered.endpoints())
+                .contains("| `page` | query | no | `integer (int32) [minimum=0]` | — | — |")
+                .contains("| `size` | query | no | `integer (int32) [minimum=1, maximum=100]` | — | — |");
+    }
+
+    @Test
     void rendersSchemaPropertiesConstraintsCompositionAndExplicitMetadata() throws Exception {
         JsonNode schema = objectMapper.readTree("""
                 {

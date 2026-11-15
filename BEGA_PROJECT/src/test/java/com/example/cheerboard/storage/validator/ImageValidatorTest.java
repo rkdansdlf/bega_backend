@@ -2,6 +2,10 @@ package com.example.cheerboard.storage.validator;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.cheerboard.storage.config.StorageConfig;
@@ -104,5 +108,47 @@ class ImageValidatorTest {
         when(imageUtil.getImageDimension(malformed)).thenThrow(new IllegalArgumentException("decode failed"));
 
         assertThrows(IllegalArgumentException.class, () -> validator.validateFile(malformed));
+    }
+
+    @Test
+    void validateFiles_acceptsMultipleFilesAtExactPostImageLimit() {
+        MultipartFile first = validImageFile("first.webp");
+        MultipartFile second = validImageFile("second.webp");
+        MultipartFile third = validImageFile("third.webp");
+        when(config.getMaxImagesPerPost()).thenReturn(10);
+
+        assertDoesNotThrow(() -> validator.validateFiles(java.util.List.of(first, second, third), 7));
+
+        verify(imageUtil, times(1)).getImageDimension(first);
+        verify(imageUtil, times(1)).getImageDimension(second);
+        verify(imageUtil, times(1)).getImageDimension(third);
+    }
+
+    @Test
+    void validateFiles_rejectsBatchOneOverPostImageLimitBeforeInspectingFiles() {
+        MultipartFile first = mock(MultipartFile.class);
+        MultipartFile second = mock(MultipartFile.class);
+        MultipartFile third = mock(MultipartFile.class);
+        when(config.getMaxImagesPerPost()).thenReturn(10);
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> validator.validateFiles(java.util.List.of(first, second, third), 8));
+
+        org.junit.jupiter.api.Assertions.assertEquals("이미지는 최대 10개까지 업로드 가능합니다.", exception.getMessage());
+        verifyNoInteractions(imageUtil);
+    }
+
+    private MultipartFile validImageFile(String filename) {
+        MultipartFile candidate = mock(MultipartFile.class);
+        when(candidate.isEmpty()).thenReturn(false);
+        when(candidate.getOriginalFilename()).thenReturn(filename);
+        when(candidate.getContentType()).thenReturn("image/webp");
+        when(candidate.getSize()).thenReturn(1024L);
+        when(config.getMaxImageBytes()).thenReturn(5L * 1024L * 1024L);
+        when(config.getMaxImageLongSidePixels()).thenReturn(4096);
+        when(config.getMaxImageTotalPixels()).thenReturn(16_000_000L);
+        when(imageUtil.getImageDimension(candidate)).thenReturn(new ImageUtil.ImageDimension(1280, 720));
+        return candidate;
     }
 }

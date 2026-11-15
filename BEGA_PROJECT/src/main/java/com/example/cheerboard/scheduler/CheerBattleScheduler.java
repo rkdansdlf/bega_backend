@@ -1,5 +1,8 @@
 package com.example.cheerboard.scheduler;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
+import org.springframework.context.annotation.Profile;
+
 import com.example.cheerboard.entity.CheerVoteEntity;
 import com.example.cheerboard.entity.CheerVoteId;
 import com.example.cheerboard.repository.CheerVoteRepository;
@@ -23,6 +26,7 @@ import java.util.List;
 
 @Slf4j
 @Component
+@Profile("!" + ReadOnlyVerificationPolicy.PROFILE)
 @RequiredArgsConstructor
 public class CheerBattleScheduler implements ApplicationRunner {
 

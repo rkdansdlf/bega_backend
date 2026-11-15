@@ -37,11 +37,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -51,6 +49,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -100,6 +99,9 @@ class AccountLinkingIntegrationTest {
         private OAuth2LinkStateService oAuth2LinkStateService;
 
         @Autowired
+        private OAuth2CallbackFinalizationService callbackFinalizationService;
+
+        @Autowired
         private CookieAuthorizationRequestRepository cookieAuthorizationRequestRepository;
 
         @Autowired
@@ -132,6 +134,13 @@ class AccountLinkingIntegrationTest {
                         redisStorage.put(key, value);
                         return null;
                 }).when(valueOperations).set(anyString(), anyString(), anyLong(), any());
+
+                lenient().doAnswer(invocation -> {
+                        String key = invocation.getArgument(0);
+                        String value = invocation.getArgument(1);
+                        redisStorage.put(key, value);
+                        return null;
+                }).when(valueOperations).set(anyString(), anyString(), any(Duration.class));
 
                 lenient().when(valueOperations.getAndDelete(anyString()))
                                 .thenAnswer(invocation -> {
@@ -199,12 +208,18 @@ class AccountLinkingIntegrationTest {
                 assertThat(linkData.userId()).isEqualTo(user.getId());
                 assertThat(linkData.failureReason()).isNull();
 
-                UserEntity linkedUser = invokeProcessAccountLink(
-                                service,
-                                linkData,
-                                "google",
-                                "google-provider-id",
-                                "social@example.com");
+                UserEntity linkedUser = callbackFinalizationService.finalizeCallback(
+                                new OAuth2LoginIntent(
+                                                "google",
+                                                "google-provider-id",
+                                                "social@example.com",
+                                                "Social User",
+                                                null,
+                                                true,
+                                                false,
+                                                linkData),
+                                callbackRequest)
+                                .user();
 
                 assertThat(linkedUser).isNotNull();
                 assertThat(linkedUser.getId()).isEqualTo(user.getId());
@@ -252,23 +267,20 @@ class AccountLinkingIntegrationTest {
                 UserEntity existing = localUser("manual");
 
                 for (String provider : List.of("google", "kakao", "naver")) {
-                        CustomOAuth2UserService service = new CustomOAuth2UserService(
-                                        userRepository,
-                                        userProviderRepository,
-                                        new MockHttpServletRequest(),
-                                        oAuth2LinkStateService,
-                                        cookieAuthorizationRequestRepository,
-                                        mock(AuthSecurityMonitoringService.class));
-
-                        assertThat(invokeProcessNormalLoginCode(
-                                        service,
-                                        Optional.empty(),
-                                        existing.getEmail(),
-                                        "기존유저",
-                                        provider,
-                                        provider + "-provider-id",
-                                        null))
-                                        .isEqualTo("manual_link_required");
+                        assertThatThrownBy(() -> callbackFinalizationService.finalizeCallback(
+                                        new OAuth2LoginIntent(
+                                                        provider,
+                                                        provider + "-provider-id",
+                                                        existing.getEmail(),
+                                                        "기존유저",
+                                                        null,
+                                                        true,
+                                                        false,
+                                                        null),
+                                        new MockHttpServletRequest()))
+                                        .isInstanceOfSatisfying(OAuth2AuthenticationException.class, exception ->
+                                                        assertThat(exception.getError().getErrorCode())
+                                                                        .isEqualTo("manual_link_required"));
                 }
 
                 assertThat(userProviderRepository.findByUserId(existing.getId())).isEmpty();
@@ -284,19 +296,20 @@ class AccountLinkingIntegrationTest {
                 try {
                         return tx.execute(status -> {
                                 try {
-                                        CustomOAuth2UserService service = new CustomOAuth2UserService(
-                                                        userRepository,
-                                                        userProviderRepository,
-                                                        new MockHttpServletRequest(),
-                                                        oAuth2LinkStateService,
-                                                        cookieAuthorizationRequestRepository,
-                                                        mock(AuthSecurityMonitoringService.class));
-                                        invokeProcessAccountLink(
-                                                        service,
-                                                        new OAuth2LinkStateData(user.getId(), System.currentTimeMillis(), null),
-                                                        "google",
-                                                        "shared-provider-id",
-                                                        user.getEmail());
+                                        callbackFinalizationService.finalizeCallback(
+                                                        new OAuth2LoginIntent(
+                                                                        "google",
+                                                                        "shared-provider-id",
+                                                                        user.getEmail(),
+                                                                        user.getName(),
+                                                                        null,
+                                                                        true,
+                                                                        false,
+                                                                        new OAuth2LinkStateData(
+                                                                                        user.getId(),
+                                                                                        System.currentTimeMillis(),
+                                                                                        null)),
+                                                        new MockHttpServletRequest());
                                         return "success:" + user.getId();
                                 } catch (Exception e) {
                                         throw new ConcurrentLinkAttemptException(e);
@@ -347,60 +360,6 @@ class AccountLinkingIntegrationTest {
                                         return end > start ? header.substring(start, end) : header.substring(start);
                                 })
                                 .orElseThrow(() -> new IllegalStateException("쿠키가 존재하지 않습니다: " + cookieName));
-        }
-
-        private UserEntity invokeProcessAccountLink(
-                        CustomOAuth2UserService service,
-                        OAuth2LinkStateData linkData,
-                        String provider,
-                        String providerId,
-                        String email) throws Exception {
-                Method method = CustomOAuth2UserService.class.getDeclaredMethod(
-                                "processAccountLink",
-                                OAuth2LinkStateData.class,
-                                String.class,
-                                String.class,
-                                String.class);
-                method.setAccessible(true);
-
-                try {
-                        return (UserEntity) method.invoke(service, linkData, provider, providerId, email);
-                } catch (InvocationTargetException e) {
-                        if (e.getCause() instanceof Exception exception) {
-                                throw exception;
-                        }
-                        throw e;
-                }
-        }
-
-        private String invokeProcessNormalLoginCode(
-                        CustomOAuth2UserService service,
-                        Optional<UserProvider> userProviderOpt,
-                        String email,
-                        String userName,
-                        String provider,
-                        String providerId,
-                        String profileImageUrl) {
-                try {
-                        Method method = CustomOAuth2UserService.class.getDeclaredMethod(
-                                        "processNormalLogin",
-                                        Optional.class,
-                                        String.class,
-                                        String.class,
-                                        String.class,
-                                        String.class,
-                                        String.class);
-                        method.setAccessible(true);
-                        method.invoke(service, userProviderOpt, email, userName, provider, providerId, profileImageUrl);
-                        return "success";
-                } catch (InvocationTargetException e) {
-                        if (e.getCause() instanceof OAuth2AuthenticationException authException) {
-                                return authException.getError().getErrorCode();
-                        }
-                        throw new RuntimeException(e.getCause());
-                } catch (ReflectiveOperationException e) {
-                        throw new RuntimeException(e);
-                }
         }
 
         private static final class ConcurrentLinkAttemptException extends RuntimeException {

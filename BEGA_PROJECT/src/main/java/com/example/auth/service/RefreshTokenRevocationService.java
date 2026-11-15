@@ -4,6 +4,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.RefreshRepository;
 import com.example.auth.repository.UserRepository;
 import com.example.common.exception.RefreshTokenRevokeFailedException;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +53,34 @@ public class RefreshTokenRevocationService {
             throw e;
         } catch (RuntimeException e) {
             log.warn("Failed to revoke refresh sessions: userId={}", userId, e);
+            throw new RefreshTokenRevokeFailedException(e);
+        }
+    }
+
+    @Transactional
+    public RevokedRefreshSessions revokeSessionAfterReuse(Long userId, String sessionId) {
+        if (userId == null || sessionId == null || sessionId.isBlank()) {
+            throw new RefreshTokenRevokeFailedException();
+        }
+
+        try {
+            UserEntity user = userRepository.findByIdForWrite(userId)
+                    .orElseThrow(RefreshTokenRevokeFailedException::new);
+            if (user.getId() == null || !userId.equals(user.getId())
+                    || !StringUtils.hasText(user.getEmail())) {
+                throw new RefreshTokenRevokeFailedException();
+            }
+
+            List<com.example.auth.entity.RefreshToken> sessionTokens =
+                    refreshRepository.findAllByEmailAndSessionId(user.getEmail(), sessionId);
+            if (!sessionTokens.isEmpty()) {
+                refreshRepository.deleteAll(sessionTokens);
+            }
+            return new RevokedRefreshSessions(userId, user.getEmail());
+        } catch (RefreshTokenRevokeFailedException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            log.warn("Failed to revoke refresh session: userId={}", userId, e);
             throw new RefreshTokenRevokeFailedException(e);
         }
     }

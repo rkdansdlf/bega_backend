@@ -72,6 +72,67 @@ class PayoutStateServiceTest {
     }
 
     @Test
+    void lateUnknownResultPreservesExpirationManualHoldAndDoesNotScheduleRetry() {
+        PaymentTransaction payment = PaymentTransaction.builder()
+                .id(22L)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.REQUESTED)
+                .build();
+        PayoutTransaction held = PayoutTransaction.builder()
+                .id(23L)
+                .paymentTransactionId(22L)
+                .status(SettlementStatus.REQUESTED)
+                .failureCode("PAYOUT_MANUAL_RECONCILIATION_REQUIRED")
+                .failReason("expired party requires operator reconciliation")
+                .build();
+        given(paymentTransactionRepository.findByIdForUpdate(22L)).willReturn(Optional.of(payment));
+        given(payoutTransactionRepository.findByIdForUpdate(23L)).willReturn(Optional.of(held));
+
+        PayoutTransaction result = stateService.keepRequested(
+                payment,
+                held,
+                "provider-23",
+                "PROVIDER_PENDING",
+                "still processing",
+                true);
+
+        assertThat(result).isSameAs(held);
+        assertThat(result.getProviderRef()).isEqualTo("provider-23");
+        assertThat(result.getFailureCode()).isEqualTo("PAYOUT_MANUAL_RECONCILIATION_REQUIRED");
+        assertThat(result.getFailReason()).contains("operator reconciliation");
+        assertThat(result.getNextRetryAt()).isNull();
+        verify(payoutTransactionRepository).save(held);
+        verify(paymentTransactionRepository).save(payment);
+    }
+
+    @Test
+    void inFlightConfirmedCompletionKeepsManualReconciliationMarker() {
+        PaymentTransaction payment = PaymentTransaction.builder()
+                .id(24L)
+                .paymentStatus(PaymentStatus.PAID)
+                .settlementStatus(SettlementStatus.REQUESTED)
+                .build();
+        PayoutTransaction held = PayoutTransaction.builder()
+                .id(25L)
+                .paymentTransactionId(24L)
+                .status(SettlementStatus.REQUESTED)
+                .failureCode("PAYOUT_MANUAL_RECONCILIATION_REQUIRED")
+                .failReason("expired party requires operator reconciliation")
+                .build();
+        given(paymentTransactionRepository.findByIdForUpdate(24L)).willReturn(Optional.of(payment));
+        given(payoutTransactionRepository.findByIdForUpdate(25L)).willReturn(Optional.of(held));
+
+        PayoutTransaction result = stateService.complete(payment, held, "provider-25");
+
+        assertThat(result.getStatus()).isEqualTo(SettlementStatus.COMPLETED);
+        assertThat(result.getProviderRef()).isEqualTo("provider-25");
+        assertThat(result.getFailureCode()).isEqualTo("PAYOUT_MANUAL_RECONCILIATION_REQUIRED");
+        assertThat(result.getFailReason()).contains("operator reconciliation");
+        assertThat(result.getNextRetryAt()).isNull();
+        assertThat(payment.getSettlementStatus()).isEqualTo(SettlementStatus.COMPLETED);
+    }
+
+    @Test
     void completionAfterRefundAtomicallyCreatesSellerRecovery() {
         PaymentTransaction payment = PaymentTransaction.builder()
                 .id(30L)

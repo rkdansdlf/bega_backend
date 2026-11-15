@@ -5,6 +5,8 @@ import com.example.admin.dto.RoleChangeRequestDto;
 import com.example.admin.dto.RoleChangeResponseDto;
 import com.example.admin.service.AdminRoleService;
 import com.example.common.dto.ApiResponse;
+import com.example.common.exception.GlobalExceptionHandler;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,12 +18,19 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
 class AdminRoleControllerTest {
@@ -31,6 +40,15 @@ class AdminRoleControllerTest {
 
     @InjectMocks
     private AdminRoleController controller;
+
+    private MockMvc mockMvc;
+
+    @BeforeEach
+    void setUpMockMvc() {
+        mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+    }
 
     @Test
     @DisplayName("사용자를 ADMIN으로 승격한다")
@@ -64,6 +82,32 @@ class AdminRoleControllerTest {
         ResponseEntity<ApiResponse<RoleChangeResponseDto>> result = controller.demoteToUser(42L, 1L, null);
 
         assertThat(result.getBody().isSuccess()).isTrue();
+    }
+
+    @Test
+    @DisplayName("승격 요청의 501자 사유를 서비스 호출 전에 거부한다")
+    void promoteToAdmin_rejectsOverlongReasonAtHttpBoundary() throws Exception {
+        mockMvc.perform(post("/api/admin/roles/users/1/promote")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"" + "r".repeat(501) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errors.reason").value("변경 사유는 500자 이하여야 합니다."));
+
+        verifyNoInteractions(adminRoleService);
+    }
+
+    @Test
+    @DisplayName("강등 요청의 501자 사유를 서비스 호출 전에 거부한다")
+    void demoteToUser_rejectsOverlongReasonAtHttpBoundary() throws Exception {
+        mockMvc.perform(post("/api/admin/roles/users/1/demote")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"" + "r".repeat(501) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errors.reason").value("변경 사유는 500자 이하여야 합니다."));
+
+        verifyNoInteractions(adminRoleService);
     }
 
     @Test

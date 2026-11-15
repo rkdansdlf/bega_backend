@@ -46,9 +46,11 @@ public class GameResultScheduler {
         try {
             LocalDate today = LocalDate.now(SEOUL_ZONE);
             int processed = gameResultScoringService.processGamesForDate(today);
+            int pendingProcessed = gameResultScoringService.processPendingGames();
 
-            if (processed > 0) {
-                log.info("Scheduled processing: {} predictions processed for date {}", processed, today);
+            if (processed + pendingProcessed > 0) {
+                log.info("Scheduled processing: {} predictions processed for date {}, {} from pending games",
+                        processed, today, pendingProcessed);
             }
         } catch (Exception e) {
             log.error("Error in scheduled game result processing: {}", e.getMessage(), e);

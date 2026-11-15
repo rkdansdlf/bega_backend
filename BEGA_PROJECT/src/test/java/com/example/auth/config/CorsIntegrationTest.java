@@ -114,6 +114,7 @@ class CorsIntegrationTest {
                                 Matchers.containsString("X-AI-Event-Version"),
                                 Matchers.containsString("Retry-After"),
                                 Matchers.not(Matchers.containsString("Set-Cookie")),
-                                Matchers.not(Matchers.containsString("Authorization")))));
+                                Matchers.not(Matchers.containsString("Authorization")),
+                                Matchers.not(Matchers.containsString("X-Server-Time")))));
     }
 }

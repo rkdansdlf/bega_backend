@@ -5,14 +5,15 @@ import com.example.auth.util.LogMaskingUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.jobrunr.jobs.annotations.Job;
-import org.jobrunr.scheduling.JobScheduler;
-import org.springframework.beans.factory.ObjectProvider;
+import com.example.common.jobs.JobSubmissionGateway;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -22,20 +23,61 @@ import java.time.format.DateTimeFormatter;
 public class EmailService {
 
     private final JavaMailSender mailSender;
-    private final JobScheduler jobScheduler;
+    private final JobSubmissionGateway jobScheduler;
+    private final EmailJobTokenCipher emailJobTokenCipher;
     private final boolean mailEnabled;
 
     public EmailService(
             JavaMailSender mailSender,
-            ObjectProvider<JobScheduler> jobSchedulerProvider,
+            JobSubmissionGateway jobScheduler,
+            EmailJobTokenCipher emailJobTokenCipher,
             @Value("${app.mail.enabled:false}") boolean mailEnabled) {
         this.mailSender = mailSender;
-        this.jobScheduler = jobSchedulerProvider.getIfAvailable();
+        this.jobScheduler = jobScheduler;
+        this.emailJobTokenCipher = emailJobTokenCipher;
         this.mailEnabled = mailEnabled;
     }
 
     @Value("${app.frontend.url:http://localhost:5176}")
     private String frontendUrl;
+
+    public void sendOAuthEmailChallenge(String toEmail, String challengeId, String rawToken) {
+        jobScheduler.requireWritable();
+        if (!mailEnabled) {
+            log.warn("Mail delivery disabled. OAuth email challenge cannot be delivered to {}",
+                    LogMaskingUtil.maskEmail(toEmail));
+            return;
+        }
+        // Do not enqueue this one-time bearer token: JobRunr persists method
+        // arguments, which would create a second plaintext token store.
+        sendOAuthEmailChallengeJob(toEmail, challengeId, rawToken);
+    }
+
+    @Job(name = "Send OAuth Email Challenge")
+    public void sendOAuthEmailChallengeJob(String toEmail, String challengeId, String rawToken) {
+        jobScheduler.requireWritable();
+        if (!mailEnabled) {
+            return;
+        }
+        String confirmationLink = UriComponentsBuilder.fromUriString(frontendUrl)
+                .path("/oauth/email/confirm")
+                .queryParam("challengeId", challengeId)
+                .queryParam("token", rawToken)
+                .build()
+                .encode()
+                .toUriString();
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(toEmail);
+        message.setSubject("[BEGA] 소셜 가입 이메일 확인");
+        message.setText(
+                "안녕하세요,\n\n"
+                        + "소셜 계정의 이메일이 제공자에서 검증되지 않아 BEGA 이메일 확인이 필요합니다.\n\n"
+                        + "아래 링크를 열어 가입을 완료해주세요:\n"
+                        + confirmationLink + "\n\n"
+                        + "이 링크는 30분 동안 한 번만 사용할 수 있습니다.\n"
+                        + "본인이 요청하지 않았다면 이 이메일을 무시해주세요.\n");
+        mailSender.send(message);
+    }
 
     @PostConstruct
     void logMailMode() {
@@ -51,14 +93,18 @@ public class EmailService {
     }
 
     public void sendPasswordResetEmail(String toEmail, String resetToken, String redirectPath) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             log.debug("Mail delivery disabled. Skipping password reset email enqueue for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
-        if (jobScheduler != null) {
+        if (jobScheduler.isAvailable()) {
             try {
+                String protectedResetToken = emailJobTokenCipher.encrypt(
+                        EmailJobTokenCipher.Purpose.PASSWORD_RESET,
+                        resetToken);
                 jobScheduler.enqueue((EmailService emailService) ->
-                        emailService.sendPasswordResetEmailJob(toEmail, resetToken, redirectPath));
+                        emailService.sendPasswordResetEmailJob(toEmail, protectedResetToken, redirectPath));
                 log.info("Password reset email job enqueued for {}", LogMaskingUtil.maskEmail(toEmail));
                 return;
             } catch (RuntimeException e) {
@@ -80,14 +126,18 @@ public class EmailService {
 
     @Job(name = "Send Password Reset Email")
     public void sendPasswordResetEmailJob(String toEmail, String resetToken, String redirectPath) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             log.debug("Mail delivery disabled. Skipping password reset email job for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
+        String rawResetToken = emailJobTokenCipher.decrypt(
+                EmailJobTokenCipher.Purpose.PASSWORD_RESET,
+                resetToken);
         log.info("Starting email sending to {}", LogMaskingUtil.maskEmail(toEmail));
         String resetLink = UriComponentsBuilder.fromUriString(frontendUrl)
                 .path("/password/reset/confirm")
-                .queryParam("token", resetToken)
+                .queryParam("token", rawResetToken)
                 .queryParamIfPresent("redirect",
                         java.util.Optional.ofNullable(FrontendRedirectUtil.sanitizeRedirect(redirectPath)))
                 .build()
@@ -117,11 +167,12 @@ public class EmailService {
     }
 
     public void sendNewDeviceLoginEmail(String toEmail, String deviceLabel, String browser, String os, String ipAddress) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             log.debug("Mail delivery disabled. Skipping new device login email enqueue for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
-        if (jobScheduler != null) {
+        if (jobScheduler.isAvailable()) {
             try {
                 jobScheduler.enqueue((EmailService emailService) ->
                         emailService.sendNewDeviceLoginEmailJob(toEmail, deviceLabel, browser, os, ipAddress));
@@ -137,6 +188,7 @@ public class EmailService {
 
     @Job(name = "Send New Device Login Email")
     public void sendNewDeviceLoginEmailJob(String toEmail, String deviceLabel, String browser, String os, String ipAddress) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             log.debug("Mail delivery disabled. Skipping new device login email job for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
@@ -177,14 +229,22 @@ public class EmailService {
     }
 
     public void sendAccountDeletionRecoveryEmail(String toEmail, String recoveryToken, LocalDateTime scheduledFor, String redirectPath) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             log.debug("Mail delivery disabled. Skipping account deletion recovery email enqueue for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
-        if (jobScheduler != null) {
+        if (jobScheduler.isAvailable()) {
             try {
+                String protectedRecoveryToken = emailJobTokenCipher.encrypt(
+                        EmailJobTokenCipher.Purpose.ACCOUNT_DELETION_RECOVERY,
+                        recoveryToken);
                 jobScheduler.enqueue((EmailService emailService) ->
-                        emailService.sendAccountDeletionRecoveryEmailJob(toEmail, recoveryToken, scheduledFor, redirectPath));
+                        emailService.sendAccountDeletionRecoveryEmailJob(
+                                toEmail,
+                                protectedRecoveryToken,
+                                scheduledFor,
+                                redirectPath));
                 log.info("Account deletion recovery email job enqueued for {}", LogMaskingUtil.maskEmail(toEmail));
                 return;
             } catch (RuntimeException e) {
@@ -205,18 +265,21 @@ public class EmailService {
             String recoveryToken,
             LocalDateTime scheduledFor,
             String redirectPath) {
+        jobScheduler.requireWritable();
         if (!mailEnabled) {
             log.debug("Mail delivery disabled. Skipping account deletion recovery email job for {}", LogMaskingUtil.maskEmail(toEmail));
             return;
         }
+        String rawRecoveryToken = emailJobTokenCipher.decrypt(
+                EmailJobTokenCipher.Purpose.ACCOUNT_DELETION_RECOVERY,
+                recoveryToken);
         String recoveryLink = UriComponentsBuilder.fromUriString(frontendUrl)
                 .path("/account/deletion/recovery")
-                .queryParam("token", recoveryToken)
                 .queryParamIfPresent("redirect",
                         java.util.Optional.ofNullable(FrontendRedirectUtil.sanitizeRedirect(redirectPath)))
                 .build()
                 .encode()
-                .toUriString();
+                .toUriString() + "#token=" + UriUtils.encode(rawRecoveryToken, StandardCharsets.UTF_8);
         String requestedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"))
                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
         String formattedSchedule = scheduledFor == null

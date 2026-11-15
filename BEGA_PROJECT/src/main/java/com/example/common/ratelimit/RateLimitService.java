@@ -66,7 +66,8 @@ public class RateLimitService {
                     member);
             return result != null && result == 1L;
         } catch (Exception e) {
-            log.error("Error executing rate limit script for key {}: {}", key, e.getMessage());
+            log.error("Error executing rate limit script: failClosed={}, exceptionType={}",
+                    failClosed, e.getClass().getSimpleName());
             return !failClosed;
         }
     }

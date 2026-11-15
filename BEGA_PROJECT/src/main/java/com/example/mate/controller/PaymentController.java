@@ -9,8 +9,10 @@ import com.example.mate.entity.PaymentIntent;
 import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.PaymentFlowType;
 import com.example.mate.entity.PaymentStatus;
+import com.example.mate.entity.PaymentTransaction;
 import com.example.mate.exception.TossPaymentException;
 import com.example.mate.service.PartyApplicationService;
+import com.example.mate.service.PaymentApplicationInputPreflight;
 import com.example.mate.service.PaymentMetricsService;
 import com.example.mate.service.PaymentIntentService;
 import com.example.mate.service.MatePaymentModeService;
@@ -114,7 +116,35 @@ public class PaymentController {
         PartyApplicationDTO.Response existingByOrderId = resolveExistingResponseOrThrow(request, applicantId);
         if (existingByOrderId != null) {
             PaymentIntent existingIntent = paymentIntentService.findIntentByOrderId(request.getOrderId()).orElse(null);
-            validateRequestCompatibilityWithExisting(existingByOrderId, request, existingIntent);
+            if (existingIntent != null) {
+                return paymentIntentService.withApplicantIntentLocked(
+                        existingIntent.getId(),
+                        applicantId,
+                        lockedIntent -> {
+                            if (isReconciliationHeld(lockedIntent)) {
+                                throw reconciliationRequiredConflict();
+                            }
+                            if (isClosedIntent(lockedIntent)) {
+                                throw paymentConflict(
+                                        "PAYMENT_INTENT_ALREADY_CLOSED",
+                                        "이미 종료된 결제 신청은 재사용할 수 없습니다.");
+                            }
+                            PartyApplicationDTO.Response currentApplication = resolveExistingResponseOrThrow(
+                                    lockedIntent.getOrderId(), applicantId, request);
+                            if (currentApplication == null) {
+                                throw paymentConflict(
+                                        "PAYMENT_APPLICATION_ALREADY_CLOSED",
+                                        "이미 종료된 신청은 다시 생성할 수 없습니다.");
+                            }
+                            validateRequestCompatibilityWithExisting(currentApplication, request, lockedIntent);
+                            validateExistingPaymentKeyCompatibility(currentApplication, request, lockedIntent);
+                            paymentTransactionService.enrichResponse(currentApplication);
+                            paymentMetricsService.recordConfirm("retry");
+                            return ResponseEntity.ok(currentApplication);
+                        });
+            }
+            validateRequestCompatibilityWithExisting(existingByOrderId, request, null);
+            validateExistingPaymentKeyCompatibility(existingByOrderId, request, null);
             paymentTransactionService.enrichResponse(existingByOrderId);
             paymentMetricsService.recordConfirm("retry");
             return ResponseEntity.ok(existingByOrderId);
@@ -122,15 +152,44 @@ public class PaymentController {
 
         PaymentIntent intent = paymentIntentService.resolveIntentForConfirm(request, applicantId);
 
+        return confirmResolvedIntent(request, applicantId, intent);
+    }
+
+    private ResponseEntity<PartyApplicationDTO.Response> confirmResolvedIntent(
+            TossPaymentDTO.ClientConfirmRequest request,
+            Long applicantId,
+            PaymentIntent intent) {
         validateIntentAndRequestCompatibility(intent, request);
 
-        existingByOrderId = resolveExistingResponseOrThrow(intent.getOrderId(), applicantId, request);
-        if (existingByOrderId != null) {
-            validateRequestCompatibilityWithExisting(existingByOrderId, request, intent);
-            paymentIntentService.markApplicationCreated(intent);
-            paymentTransactionService.enrichResponse(existingByOrderId);
-            paymentMetricsService.recordConfirm("retry");
-            return ResponseEntity.ok(existingByOrderId);
+        PartyApplicationDTO.Response existingForIntent =
+                resolveExistingResponseOrThrow(intent.getOrderId(), applicantId, request);
+        if (existingForIntent != null) {
+            return paymentIntentService.withApplicantIntentLocked(
+                    intent.getId(),
+                    applicantId,
+                    lockedIntent -> {
+                        if (isReconciliationHeld(lockedIntent)) {
+                            throw reconciliationRequiredConflict();
+                        }
+                        if (isClosedIntent(lockedIntent)) {
+                            throw paymentConflict(
+                                    "PAYMENT_INTENT_ALREADY_CLOSED",
+                                    "이미 종료된 결제 신청은 재사용할 수 없습니다.");
+                        }
+                        PartyApplicationDTO.Response currentApplication = resolveExistingResponseOrThrow(
+                                lockedIntent.getOrderId(), applicantId, request);
+                        if (currentApplication == null) {
+                            throw paymentConflict(
+                                    "PAYMENT_APPLICATION_ALREADY_CLOSED",
+                                    "이미 종료된 신청은 다시 생성할 수 없습니다.");
+                        }
+                        validateRequestCompatibilityWithExisting(currentApplication, request, lockedIntent);
+                        validateExistingPaymentKeyCompatibility(currentApplication, request, lockedIntent);
+                        paymentIntentService.markApplicationCreated(lockedIntent);
+                        paymentTransactionService.enrichResponse(currentApplication);
+                        paymentMetricsService.recordConfirm("retry");
+                        return ResponseEntity.ok(currentApplication);
+                    });
         }
 
         PartyApplication.PaymentType requestedPaymentType = resolveRequestedPaymentType(request);
@@ -139,73 +198,73 @@ public class PaymentController {
             throw paymentConflict("PAYMENT_TYPE_SERVER_MISMATCH", "요청한 결제 타입이 서버 계산값과 일치하지 않습니다.");
         }
 
-        TossPaymentDTO.ConfirmResponse tossResponse;
-        if (intent.getStatus() == PaymentIntent.IntentStatus.CONFIRMED) {
-            if (intent.getPaymentKey() == null || intent.getPaymentKey().isBlank()) {
-                // CONFIRMED 상태인데 paymentKey가 없는 것은 데이터 불일치 상황
-                throw paymentInternalServer(
-                        "CONFIRMED_PAYMENT_KEY_MISSING",
-                        "이미 승인된 결제이지만 결제 키 정보를 찾을 수 없습니다. 고객센터에 문의해주세요.");
-            }
-            tossResponse = new TossPaymentDTO.ConfirmResponse(
-                    intent.getPaymentKey(),
-                    intent.getOrderId(),
-                    "DONE",
-                    intent.getExpectedAmount(),
-                    null);
-        } else {
-            tossResponse = tossPaymentService.confirmPayment(
-                    request.getPaymentKey(),
-                    intent.getOrderId(),
-                    intent.getExpectedAmount());
-
-            if (tossResponse == null || tossResponse.getTotalAmount() == null) {
-                throw paymentBadGateway("TOSS_CONFIRM_RESPONSE_INVALID", "결제 승인 응답이 올바르지 않습니다.");
-            }
-            if (!"DONE".equalsIgnoreCase(tossResponse.getStatus())) {
-                throw paymentBadRequest(
-                        "TOSS_CONFIRM_NOT_DONE",
-                        "결제 승인이 완료되지 않았습니다: " + tossResponse.getStatus());
-            }
-            if (!intent.getExpectedAmount().equals(tossResponse.getTotalAmount())) {
-                throw paymentConflict("TOSS_CONFIRM_AMOUNT_MISMATCH", "결제 금액이 서버 계산값과 일치하지 않습니다.");
-            }
-
-            paymentIntentService.markConfirmed(intent, tossResponse.getPaymentKey());
+        if (intent.getStatus() == PaymentIntent.IntentStatus.PREPARED
+                || intent.getStatus() == PaymentIntent.IntentStatus.CONFIRMED
+                || (intent.getStatus() == PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED
+                        && paymentIntentService.hasVerifiedIdentityPaymentBinding(intent.getId()))) {
+            request.setMessage(PaymentApplicationInputPreflight.validateAndResolveMessage(
+                    request.getMessage(), request.getTicketImageUrl()));
         }
 
-        PartyApplicationDTO.Request appRequest = PartyApplicationDTO.Request.builder()
-                .partyId(intent.getPartyId())
-                .message(request.getMessage())
-                .depositAmount(intent.getExpectedAmount())
-                .paymentType(intent.getPaymentType())
-                .verificationToken(request.getVerificationToken())
-                .ticketVerified(request.getTicketVerified())
-                .ticketImageUrl(request.getTicketImageUrl())
-                .build();
+        ConfirmationAttempt confirmationAttempt = paymentIntentService.withApplicantConfirmationSerialized(
+                applicantId,
+                () -> {
+                    boolean ambiguousRetry = paymentIntentService.reserveConfirmationAttempt(
+                            intent.getId(), applicantId, request.getPaymentKey());
+                    return paymentIntentService.withApplicantIntentLocked(
+                            intent.getId(),
+                            applicantId,
+                            lockedIntent -> confirmLockedIntent(
+                                    lockedIntent, request, applicantId, ambiguousRetry));
+                });
+
+        if (confirmationAttempt.identityMismatch()) {
+            throw paymentConflict(
+                    "TOSS_CONFIRM_IDENTITY_MISMATCH_RECONCILIATION_REQUIRED",
+                    "결제 승인 응답의 주문 정보가 일치하지 않아 확인이 필요합니다. 고객센터에 문의해주세요.");
+        }
+        if (confirmationAttempt.reconciliationRequired()) {
+            throw reconciliationRequiredConflict();
+        }
+        TossPaymentDTO.ConfirmResponse tossResponse = confirmationAttempt.response();
 
         try {
-            PartyApplicationService.PaymentCreationResult applicationResult = applicationService
-                    .createOrGetApplicationWithPayment(
-                            appRequest,
+            PartyApplicationService.PaymentCreationResult applicationResult =
+                    paymentIntentService.withConfirmedIntentForApplicationCreation(
+                            intent.getId(),
                             applicantId,
                             tossResponse.getPaymentKey(),
-                            tossResponse.getOrderId(),
-                            intent.getExpectedAmount(),
-                            intent.getPaymentType());
+                            lockedIntent -> {
+                                PartyApplicationDTO.Request appRequest = PartyApplicationDTO.Request.builder()
+                                        .partyId(lockedIntent.getPartyId())
+                                        .message(request.getMessage())
+                                        .depositAmount(lockedIntent.getExpectedAmount())
+                                        .paymentType(lockedIntent.getPaymentType())
+                                        .verificationToken(request.getVerificationToken())
+                                        .ticketVerified(request.getTicketVerified())
+                                        .ticketImageUrl(request.getTicketImageUrl())
+                                        .build();
+                                PartyApplicationService.PaymentCreationResult created = applicationService
+                                        .createOrGetApplicationWithPayment(
+                                                appRequest,
+                                                applicantId,
+                                                tossResponse.getPaymentKey(),
+                                                tossResponse.getOrderId(),
+                                                lockedIntent.getExpectedAmount(),
+                                                lockedIntent.getPaymentType());
+                                PartyApplication applicationEntity = applicationService
+                                        .getApplicationEntity(created.response().getId());
+                                paymentTransactionService.createOrGetOnConfirm(
+                                        applicationEntity,
+                                        lockedIntent,
+                                        tossResponse.getPaymentKey());
+                                if (Boolean.TRUE.equals(applicationEntity.getIsApproved())) {
+                                    paymentTransactionService.requestSettlementOnApproval(applicationEntity);
+                                }
+                                paymentTransactionService.enrichResponse(created.response());
+                                return created;
+                            });
             PartyApplicationDTO.Response application = applicationResult.response();
-
-            var applicationEntity = applicationService.getApplicationEntity(application.getId());
-            paymentTransactionService.createOrGetOnConfirm(
-                    applicationEntity,
-                    intent,
-                    tossResponse.getPaymentKey());
-            if (Boolean.TRUE.equals(applicationEntity.getIsApproved())) {
-                paymentTransactionService.requestSettlementOnApproval(applicationEntity);
-            }
-            paymentTransactionService.enrichResponse(application);
-
-            paymentIntentService.markApplicationCreated(intent);
             paymentMetricsService.recordConfirm("success");
             log.info("[Payment] 파티 신청 완료: applicationId={}, orderId={}", application.getId(), intent.getOrderId());
             HttpStatus responseStatus = applicationResult.created() ? HttpStatus.CREATED : HttpStatus.OK;
@@ -215,6 +274,95 @@ public class PaymentController {
             paymentMetricsService.recordConfirm("fail");
             throw e;
         }
+    }
+
+    private ConfirmationAttempt confirmLockedIntent(
+            PaymentIntent lockedIntent,
+            TossPaymentDTO.ClientConfirmRequest request,
+            Long applicantId,
+            boolean ambiguousRetry) {
+        if (isReconciliationHeld(lockedIntent)) {
+            throw reconciliationRequiredConflict();
+        }
+        validateIntentAndRequestCompatibility(lockedIntent, request);
+        if (lockedIntent.getStatus() == PaymentIntent.IntentStatus.CONFIRMED
+                || lockedIntent.getStatus() == PaymentIntent.IntentStatus.APPLICATION_CREATED
+                || paymentIntentService.hasVerifiedIdentityPaymentBinding(lockedIntent.getId())) {
+            if (lockedIntent.getPaymentKey() == null
+                    || lockedIntent.getPaymentKey().isBlank()
+                    || (!lockedIntent.getPaymentKey().equals(request.getPaymentKey())
+                            && !paymentIntentService.isVerifiedIdentityResolutionRetry(
+                                    lockedIntent.getId(), request.getPaymentKey()))) {
+                throw paymentConflict(
+                        "CONFIRMED_PAYMENT_KEY_MISMATCH",
+                        "이미 승인된 결제 키와 요청 정보가 일치하지 않습니다.");
+            }
+            if (lockedIntent.getStatus() == PaymentIntent.IntentStatus.APPLICATION_CREATED) {
+                PartyApplicationDTO.Response existingApplication = resolveExistingResponseOrThrow(
+                        lockedIntent.getOrderId(), applicantId, request);
+                if (existingApplication == null) {
+                    throw paymentConflict(
+                            "PAYMENT_APPLICATION_ALREADY_CLOSED",
+                            "이미 종료된 신청은 다시 생성할 수 없습니다.");
+                }
+                validateRequestCompatibilityWithExisting(existingApplication, request, lockedIntent);
+            }
+            return new ConfirmationAttempt(new TossPaymentDTO.ConfirmResponse(
+                    lockedIntent.getPaymentKey(),
+                    lockedIntent.getOrderId(),
+                    "DONE",
+                    lockedIntent.getExpectedAmount(),
+                    null), false, false);
+        }
+        if (lockedIntent.getStatus() != PaymentIntent.IntentStatus.PREPARED) {
+            throw paymentConflict(
+                    "PAYMENT_INTENT_NOT_CONFIRMABLE",
+                    "이미 종료되었거나 승인할 수 없는 결제 요청입니다.");
+        }
+
+        TossPaymentDTO.ConfirmResponse providerResponse;
+        if (ambiguousRetry) {
+            try {
+                providerResponse = tossPaymentService.getPayment(request.getPaymentKey());
+            } catch (RuntimeException lookupFailure) {
+                log.warn("[Payment] 모호한 결제 승인 상태 조회 실패: intentId={}, exceptionType={}",
+                        lockedIntent.getId(), lookupFailure.getClass().getSimpleName());
+                paymentIntentService.quarantineUnverifiedConfirmation(
+                        lockedIntent, request.getPaymentKey(), null);
+                return new ConfirmationAttempt(null, false, true);
+            }
+            if (!isExactCompletedProviderPayment(lockedIntent, request.getPaymentKey(), providerResponse)) {
+                paymentIntentService.quarantineUnverifiedConfirmation(
+                        lockedIntent, request.getPaymentKey(), providerResponse);
+                return new ConfirmationAttempt(providerResponse, false, true);
+            }
+        } else {
+            providerResponse = tossPaymentService.confirmPayment(
+                    request.getPaymentKey(),
+                    lockedIntent.getOrderId(),
+                    lockedIntent.getExpectedAmount());
+            if (providerResponse == null || providerResponse.getTotalAmount() == null) {
+                throw paymentBadGateway("TOSS_CONFIRM_RESPONSE_INVALID", "결제 승인 응답이 올바르지 않습니다.");
+            }
+            if (!hasText(providerResponse.getPaymentKey())
+                    || !hasText(providerResponse.getOrderId())
+                    || !request.getPaymentKey().equals(providerResponse.getPaymentKey())
+                    || !lockedIntent.getOrderId().equals(providerResponse.getOrderId())) {
+                paymentIntentService.quarantineProviderIdentityMismatch(
+                        lockedIntent, request.getPaymentKey(), providerResponse);
+                return new ConfirmationAttempt(providerResponse, true, false);
+            }
+            if (!"DONE".equalsIgnoreCase(providerResponse.getStatus())) {
+                throw paymentBadRequest(
+                        "TOSS_CONFIRM_NOT_DONE",
+                        "결제 승인이 완료되지 않았습니다: " + providerResponse.getStatus());
+            }
+            if (!lockedIntent.getExpectedAmount().equals(providerResponse.getTotalAmount())) {
+                throw paymentConflict("TOSS_CONFIRM_AMOUNT_MISMATCH", "결제 금액이 서버 계산값과 일치하지 않습니다.");
+            }
+        }
+        paymentIntentService.markConfirmed(lockedIntent, providerResponse.getPaymentKey());
+        return new ConfirmationAttempt(providerResponse, false, false);
     }
 
     private PartyApplicationDTO.Response resolveExistingResponseOrThrow(
@@ -322,16 +470,71 @@ public class PaymentController {
             return;
         }
 
+        PaymentTransaction transaction = paymentTransactionService.findByOrderId(orderId)
+                .orElseThrow(this::existingPaymentKeyConflict);
+        String requestedPaymentKey = request != null ? request.getPaymentKey() : null;
+        PaymentIntent intent = paymentIntentService.findIntentByOrderId(orderId).orElse(null);
+        boolean verifiedResolutionRetry = intent != null
+                && paymentIntentService.isVerifiedIdentityResolutionRetry(intent.getId(), requestedPaymentKey);
+        if (!hasText(requestedPaymentKey)
+                || !hasText(transaction.getPaymentKey())
+                || (!requestedPaymentKey.equals(transaction.getPaymentKey())
+                        && !(verifiedResolutionRetry
+                                && intent != null
+                                && intent.getPaymentKey().equals(transaction.getPaymentKey())))) {
+            throw existingPaymentKeyConflict();
+        }
+
         PaymentFlowType requestedFlowType = resolveRequestedFlowType(request);
-        paymentTransactionService.findByOrderId(orderId).ifPresent(tx -> {
-            if (requestedFlowType != null && tx.getFlowType() != requestedFlowType) {
-                throw paymentConflict("PAYMENT_TRANSACTION_FLOW_MISMATCH", "요청한 결제 흐름이 기존 결제 트랜잭션과 일치하지 않습니다.");
-            }
-            if (tx.getPaymentStatus() == PaymentStatus.CANCELED
-                    || tx.getPaymentStatus() == PaymentStatus.REFUND_FAILED) {
-                throw paymentConflict("PAYMENT_TRANSACTION_ALREADY_CLOSED", "기존 결제가 종료되어 재요청할 수 없습니다.");
-            }
-        });
+        if (requestedFlowType != null && transaction.getFlowType() != requestedFlowType) {
+            throw paymentConflict("PAYMENT_TRANSACTION_FLOW_MISMATCH", "요청한 결제 흐름이 기존 결제 트랜잭션과 일치하지 않습니다.");
+        }
+        if (transaction.getPaymentStatus() == PaymentStatus.CANCELED
+                || transaction.getPaymentStatus() == PaymentStatus.REFUND_FAILED) {
+            throw paymentConflict("PAYMENT_TRANSACTION_ALREADY_CLOSED", "기존 결제가 종료되어 재요청할 수 없습니다.");
+        }
+    }
+
+    private void validateExistingPaymentKeyCompatibility(
+            PartyApplicationDTO.Response application,
+            TossPaymentDTO.ClientConfirmRequest request,
+            PaymentIntent intent) {
+        String requestedPaymentKey = request != null ? request.getPaymentKey() : null;
+        PartyApplication existingApplication = application == null || application.getId() == null
+                ? null
+                : applicationService.getApplicationEntity(application.getId());
+        boolean verifiedResolutionRetry = intent != null
+                && paymentIntentService.isVerifiedIdentityResolutionRetry(intent.getId(), requestedPaymentKey);
+
+        if (!hasText(requestedPaymentKey)
+                || existingApplication == null
+                || !hasText(existingApplication.getPaymentKey())
+                || (!requestedPaymentKey.equals(existingApplication.getPaymentKey())
+                        && !(verifiedResolutionRetry
+                                && intent != null
+                                && intent.getPaymentKey().equals(existingApplication.getPaymentKey())))
+                || intent == null
+                || !hasText(intent.getPaymentKey())
+                || (!requestedPaymentKey.equals(intent.getPaymentKey()) && !verifiedResolutionRetry)) {
+            throw existingPaymentKeyConflict();
+        }
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private boolean isClosedIntent(PaymentIntent intent) {
+        return intent.getStatus() == PaymentIntent.IntentStatus.CANCELED
+                || intent.getStatus() == PaymentIntent.IntentStatus.CANCEL_REQUESTED
+                || intent.getStatus() == PaymentIntent.IntentStatus.CANCEL_FAILED
+                || intent.getStatus() == PaymentIntent.IntentStatus.EXPIRED;
+    }
+
+    private TossPaymentException existingPaymentKeyConflict() {
+        return paymentConflict(
+                "EXISTING_APPLICATION_PAYMENT_KEY_MISMATCH",
+                "요청한 결제 키와 기존 신청의 결제 정보가 일치하지 않습니다.");
     }
 
     private void validateIntentAndRequestCompatibility(PaymentIntent intent, TossPaymentDTO.ClientConfirmRequest request) {
@@ -361,10 +564,12 @@ public class PaymentController {
             throw paymentConflict("PREPARED_PARTY_MISMATCH", "요청한 파티와 결제 준비 정보가 일치하지 않습니다.");
         }
 
-        if (intent.getStatus() == PaymentIntent.IntentStatus.CONFIRMED
+        if ((intent.getStatus() == PaymentIntent.IntentStatus.CONFIRMED
+                        || intent.getStatus() == PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED)
                 && intent.getPaymentKey() != null
                 && request.getPaymentKey() != null
-                && !intent.getPaymentKey().equals(request.getPaymentKey())) {
+                && !intent.getPaymentKey().equals(request.getPaymentKey())
+                && !paymentIntentService.isVerifiedIdentityResolutionRetry(intent.getId(), request.getPaymentKey())) {
             throw paymentConflict("CONFIRMED_PAYMENT_KEY_MISMATCH", "기존 승인된 결제 요청과 결제 키가 일치하지 않습니다.");
         }
     }
@@ -399,7 +604,8 @@ public class PaymentController {
      * 결제 Intent를 취소합니다.
      *
      * - PREPARED 상태: Toss API 호출 없이 DB 상태만 CANCELED로 변경
-     * - CONFIRMED / APPLICATION_CREATED 상태: Toss 결제 취소 API 호출 후 CANCELED로 변경
+     * - 신청 생성된 Intent: 신청 취소 경로 사용을 요구하며 provider 호출 없이 409 반환
+     * - CONFIRMED 상태: Toss 결제 취소 API 호출 후 CANCELED로 변경
      * - CANCELED 상태: 멱등 처리 (200 반환)
      * - CANCEL_REQUESTED / CANCEL_FAILED 상태: 409 반환
      *
@@ -464,4 +670,39 @@ public class PaymentController {
     private TossPaymentException paymentServiceUnavailable(String code, String message) {
         return new TossPaymentException(code, message, HttpStatus.SERVICE_UNAVAILABLE);
     }
+
+    private boolean isReconciliationHeld(PaymentIntent intent) {
+        return intent != null
+                && intent.getStatus() == PaymentIntent.IntentStatus.RECONCILIATION_REQUIRED
+                && !paymentIntentService.hasVerifiedIdentityPaymentBinding(intent.getId());
+    }
+
+    private TossPaymentException reconciliationRequiredConflict() {
+        return paymentConflict(
+                "PAYMENT_INTENT_RECONCILIATION_REQUIRED",
+                "결제 승인 응답 대사가 필요합니다. 고객센터에 문의해주세요.");
+    }
+
+    private boolean isExactCompletedProviderPayment(
+            PaymentIntent intent,
+            String requestedPaymentKey,
+            TossPaymentDTO.ConfirmResponse response) {
+        return response != null
+                && intent != null
+                && requestedPaymentKey != null
+                && hasText(response.getPaymentKey())
+                && hasText(response.getOrderId())
+                && hasText(response.getStatus())
+                && requestedPaymentKey.equals(response.getPaymentKey())
+                && intent.getOrderId() != null
+                && intent.getOrderId().equals(response.getOrderId())
+                && "DONE".equals(response.getStatus())
+                && intent.getExpectedAmount() != null
+                && intent.getExpectedAmount().equals(response.getTotalAmount());
+    }
+
+    private record ConfirmationAttempt(
+            TossPaymentDTO.ConfirmResponse response,
+            boolean identityMismatch,
+            boolean reconciliationRequired) {}
 }

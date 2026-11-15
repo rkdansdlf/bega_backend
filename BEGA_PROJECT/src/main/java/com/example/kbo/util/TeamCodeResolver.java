@@ -35,7 +35,7 @@ public final class TeamCodeResolver {
         putCanonical("KIA", "KIA", "HT", "해태");
         putCanonical("DB", "DB", "OB", "DO");
         putCanonical("KH", "KH", "WO", "NX", "KI", "KW");
-        putCanonical("SSG", "SSG", "SK");
+        putCanonical("SSG", "SSG", "SK", "SL");
         putCanonical("HH", "HH", "BE", "빙그레");
         putCanonical("LG", "LG", "MBC");
         putCanonical("LT", "LT", "LOT");

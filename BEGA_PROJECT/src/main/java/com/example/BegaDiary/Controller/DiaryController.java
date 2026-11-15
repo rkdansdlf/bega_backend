@@ -35,7 +35,6 @@ import com.example.BegaDiary.Entity.SeatViewPhotoDto;
 import com.example.BegaDiary.Entity.SeatViewSelectionRequest;
 import com.example.BegaDiary.Service.BegaDiaryService;
 import com.example.BegaDiary.Service.BegaGameService;
-import com.example.BegaDiary.Service.DiaryCreationService;
 import com.example.BegaDiary.Service.SeatViewService;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.common.exception.AuthenticationRequiredException;
@@ -57,7 +56,6 @@ public class DiaryController {
     private final BegaGameService gameService;
     private final ImageService imageService;
     private final SeatViewService seatViewService;
-    private final DiaryCreationService diaryCreationService;
 
     @GetMapping("/games")
     public ResponseEntity<List<GameResponseDto>> getGamesByDate(
@@ -81,9 +79,9 @@ public class DiaryController {
             @RequestBody DiaryRequestDto requestDto,
             Principal principal) {
         Long userId = requireUserId(principal);
-        DiaryCreationService.DiaryCreateResult created = this.diaryCreationService.create(userId, requestDto);
-        DiaryResponseDto response = DiaryResponseDto.from(created.diary());
-        response.setUnlockedAchievements(created.unlockedAchievements().stream()
+        BegaDiaryService.SavedDiaryResult result = this.diaryService.saveWithAttendanceAchievements(userId, requestDto);
+        DiaryResponseDto response = DiaryResponseDto.from(result.diary());
+        response.setUnlockedAchievements(result.unlockedAchievements().stream()
                 .map(achievement -> AchievementDto.from(achievement, true, LocalDateTime.now()))
                 .toList());
 
@@ -101,6 +99,11 @@ public class DiaryController {
         Long userId = requireUserId(principal);
 
         diaryService.getOwnedDiaryEntity(diaryId, userId);
+        List<SeatViewPhoto.SourceType> parsedSourceTypes = parseSourceTypes(sourceTypes);
+        if (parsedSourceTypes.stream().limit(images.size())
+                .anyMatch(type -> type == SeatViewPhoto.SourceType.SEATMAP_UPLOAD)) {
+            throw new IllegalArgumentException("SEATMAP_UPLOAD은 독립 시야뷰 등록 경로에서만 사용할 수 있습니다.");
+        }
 
         List<String> storagePaths;
         try {
@@ -119,7 +122,6 @@ public class DiaryController {
                     .build());
         }
 
-        List<SeatViewPhoto.SourceType> parsedSourceTypes = parseSourceTypes(sourceTypes);
         try {
             List<SeatViewCandidateDto> candidates = seatViewService.createCandidates(
                     diaryId,

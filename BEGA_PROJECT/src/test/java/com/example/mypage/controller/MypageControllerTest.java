@@ -1,5 +1,8 @@
 package com.example.mypage.controller;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -15,6 +18,7 @@ import com.example.auth.repository.RefreshRepository;
 import com.example.auth.service.AccountSecurityService;
 import com.example.auth.service.AuthSessionMetadataResolver;
 import com.example.auth.service.AuthSessionService;
+import com.example.auth.service.IdentityRefreshTokenDigestService;
 import com.example.auth.service.PolicyConsentService;
 import com.example.auth.service.RefreshTokenReuseDetector;
 import com.example.auth.service.UserService;
@@ -36,6 +40,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -84,7 +89,8 @@ class MypageControllerTest {
                 refreshRepository,
                 jwtUtil,
                 new AuthSessionMetadataResolver(clientIpResolver),
-                refreshTokenReuseDetector);
+                refreshTokenReuseDetector,
+                new IdentityRefreshTokenDigestService());
         lenient().when(clientIpResolver.resolveOrUnknown(any())).thenAnswer(invocation -> {
             MockHttpServletRequest request = (MockHttpServletRequest) invocation.getArgument(0);
             return request.getRemoteAddr() == null ? "unknown" : request.getRemoteAddr();
@@ -97,6 +103,34 @@ class MypageControllerTest {
                 policyConsentService,
                 accountSecurityService,
                 authSessionService);
+    }
+
+    @Test
+    void getMyProfile_doesNotWriteEmailToLogsAndKeepsItInResponse() {
+        String email = "private-profile@example.test";
+        UserEntity user = createUser(42L, email);
+        when(userService.findUserById(42L)).thenReturn(user);
+        when(policyConsentService.evaluatePolicyConsentStatus(42L))
+                .thenReturn(new PolicyConsentService.PolicyConsentStatus(false, false, List.of(), null, null));
+
+        Logger logger = (Logger) LoggerFactory.getLogger(MypageController.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            ResponseEntity<ApiResponse<com.example.mypage.dto.UserProfileDto>> response =
+                    controller.getMyProfile(42L);
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().getData().getEmail()).isEqualTo(email);
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .noneMatch(message -> message.contains(email));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
@@ -342,7 +376,7 @@ class MypageControllerTest {
         refreshToken.setId(id);
         refreshToken.setSessionId(sessionId);
         refreshToken.setEmail(email);
-        refreshToken.setToken(token);
+        refreshToken.setTokenDigest(token);
         refreshToken.setDeviceType(deviceType);
         refreshToken.setDeviceLabel(deviceLabel);
         refreshToken.setBrowser(browser);

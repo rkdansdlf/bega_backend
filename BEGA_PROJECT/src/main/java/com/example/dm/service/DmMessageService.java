@@ -1,5 +1,6 @@
 package com.example.dm.service;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -28,18 +29,31 @@ public class DmMessageService {
 
     @Transactional
     public List<DmMessageDto.Response> getMessages(Long roomId, Long currentUserId) {
-        dmRoomService.getAccessibleRoom(roomId, currentUserId);
-        List<DmMessageDto.Response> messages = dmMessageRepository.findByRoomIdOrderByCreatedAtAsc(roomId).stream()
+        var room = dmRoomService.getAccessibleRoomForUpdate(roomId, currentUserId);
+        List<DmMessage> records = dmMessageRepository.findByRoomIdOrderByCreatedAtAscIdAsc(roomId);
+        List<DmMessageDto.Response> messages = records.stream()
                 .map(DmMessageDto.Response::from)
                 .toList();
-        dmRoomService.markAsRead(roomId, currentUserId);
+        Long lastReadMessageId = records.stream()
+                .map(DmMessage::getId)
+                .filter(id -> id != null)
+                .max(Comparator.naturalOrder())
+                .orElse(null);
+        if (lastReadMessageId != null) {
+            var lastReadAt = records.stream()
+                    .map(DmMessage::getCreatedAt)
+                    .filter(createdAt -> createdAt != null)
+                    .max(Comparator.naturalOrder())
+                    .orElse(null);
+            dmRoomService.markAsReadThrough(room, currentUserId, lastReadMessageId, lastReadAt);
+        }
         return messages;
     }
 
     @Transactional
     public DmMessageDto.Response sendMessage(Long currentUserId, DmMessageDto.Request request) {
         String normalizedContent = normalizeContent(request.getContent());
-        dmRoomService.getAccessibleRoom(request.getRoomId(), currentUserId);
+        dmRoomService.getAccessibleRoomForUpdate(request.getRoomId(), currentUserId);
 
         if (request.getClientMessageId() != null && !request.getClientMessageId().isBlank()) {
             DmMessage existingMessage = dmMessageRepository.findByRoomIdAndSenderIdAndClientMessageId(

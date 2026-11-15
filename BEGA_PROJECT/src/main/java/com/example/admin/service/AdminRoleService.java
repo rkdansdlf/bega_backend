@@ -34,9 +34,17 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AdminRoleService {
 
+        private static final int MAX_ROLE_CHANGE_REASON_LENGTH = 500;
+
         private final UserRepository userRepository;
         private final AuditLogRepository auditLogRepository;
         private final RefreshTokenRevocationService refreshTokenRevocationService;
+
+        private void validateReason(String reason) {
+                if (reason != null && reason.length() > MAX_ROLE_CHANGE_REASON_LENGTH) {
+                        throw new InvalidRoleChangeException("변경 사유는 500자 이하여야 합니다.");
+                }
+        }
 
         /**
          * 사용자를 ADMIN으로 승격 (SUPER_ADMIN만 가능)
@@ -52,11 +60,18 @@ public class AdminRoleService {
                         throw new InsufficientPrivilegeException();
                 }
 
+                validateReason(reason);
+
                 // 3. 대상 사용자 조회
-                UserEntity targetUser = userRepository.findById(Objects.requireNonNull(targetUserId))
+                UserEntity targetUser = userRepository.findByIdForWrite(Objects.requireNonNull(targetUserId))
                                 .orElseThrow(() -> new UserNotFoundException(targetUserId));
 
-                // 4. 이미 ADMIN 이상인지 확인
+                // 4. 삭제 처리로 비활성화된 계정은 관리자 권한으로 승격할 수 없음
+                if (!targetUser.isEnabled()) {
+                        throw new InvalidRoleChangeException("비활성화된 계정은 관리자로 승격할 수 없습니다.");
+                }
+
+                // 5. 이미 ADMIN 이상인지 확인
                 if (targetUser.isAdmin()) {
                         throw new InvalidRoleChangeException(
                                         "해당 사용자는 이미 관리자 권한을 보유하고 있습니다. 현재 역할: " + targetUser.getRole());
@@ -107,6 +122,8 @@ public class AdminRoleService {
                 if (!admin.isSuperAdmin()) {
                         throw new InsufficientPrivilegeException();
                 }
+
+                validateReason(reason);
 
                 // 3. 대상 사용자 조회
                 UserEntity targetUser = userRepository.findById(Objects.requireNonNull(targetUserId))

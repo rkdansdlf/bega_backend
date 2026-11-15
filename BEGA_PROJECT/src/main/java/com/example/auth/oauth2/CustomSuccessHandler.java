@@ -3,6 +3,7 @@ package com.example.auth.oauth2;
 import com.example.auth.dto.CustomOAuth2User;
 import com.example.auth.service.AuthSessionService;
 import com.example.auth.service.OAuth2StateService;
+import com.example.auth.util.AccountStatusUtil;
 import com.example.auth.util.AuthCookieUtil;
 import com.example.auth.util.JWTUtil;
 import com.example.auth.entity.UserEntity;
@@ -85,6 +86,13 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         UserEntity userEntity = userEntityOptional.get();
 
+        if (!AccountStatusUtil.isAccountEligible(userEntity)) {
+            log.warn("OAuth2 login rejected for ineligible user: id={}, enabled={}, pendingDeletion={}, locked={}",
+                    userEntity.getId(), userEntity.isEnabled(), userEntity.isPendingDeletion(), userEntity.isLocked());
+            redirectWithError(request, response, "oauth2_account_not_eligible");
+            return;
+        }
+
         // ✅ 수정: getFavoriteTeamId() 사용 (String 반환)
         String favoriteTeamId = userEntity.getFavoriteTeamId();
 
@@ -113,6 +121,9 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
             ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
             response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+            response.addHeader(
+                    HttpHeaders.SET_COOKIE,
+                    authCookieUtil.issueCsrfCookie(refreshTokenMaxAge).toString());
             accountSecurityService.recordProviderLinked(userId, resolveProviderFromRequest(request));
 
             String stateId;
@@ -120,7 +131,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
                 // [Security Fix] State 데이터 저장 - userId만 Redis에 저장 (민감 정보 최소화)
                 stateId = oAuth2StateService.saveState(userId);
             } catch (OAuth2StateService.OAuth2StateStoreException e) {
-                log.error("Failed to save OAuth2 state in link mode", e);
+                log.error("Failed to save OAuth2 state in link mode: errorType={}", e.getClass().getSimpleName());
                 redirectWithError(request, response, OAuth2StateService.ERROR_CODE_STATE_STORE_UNAVAILABLE);
                 return;
             }
@@ -150,6 +161,9 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         int refreshTokenMaxAge = (int) (jwtUtil.getRefreshTokenExpirationTime() / 1000);
         ResponseCookie refreshCookie = authCookieUtil.buildRefreshCookie(refreshToken, refreshTokenMaxAge);
         response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+        response.addHeader(
+                HttpHeaders.SET_COOKIE,
+                authCookieUtil.issueCsrfCookie(refreshTokenMaxAge).toString());
 
         if (request.getSession(false) != null) {
             request.getSession(false).invalidate();
@@ -160,7 +174,7 @@ public class CustomSuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
             // [Security Fix] 사용자 정보를 Redis에 저장 - userId만 저장 (민감 정보 최소화)
             stateId = oAuth2StateService.saveState(userId);
         } catch (OAuth2StateService.OAuth2StateStoreException e) {
-            log.error("Failed to save OAuth2 state in normal mode", e);
+            log.error("Failed to save OAuth2 state in normal mode: errorType={}", e.getClass().getSimpleName());
             redirectWithError(request, response, OAuth2StateService.ERROR_CODE_STATE_STORE_UNAVAILABLE);
             return;
         }

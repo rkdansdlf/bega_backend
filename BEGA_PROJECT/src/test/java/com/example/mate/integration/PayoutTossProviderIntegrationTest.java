@@ -2,16 +2,23 @@ package com.example.mate.integration;
 
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.repo.CheerReportRepo;
+import com.example.auth.entity.UserEntity;
+import com.example.auth.repository.UserRepository;
+import com.example.mate.entity.Party;
+import com.example.mate.entity.PartyApplication;
 import com.example.mate.entity.PaymentFlowType;
 import com.example.mate.entity.PaymentStatus;
 import com.example.mate.entity.PaymentTransaction;
 import com.example.mate.entity.PayoutTransaction;
 import com.example.mate.entity.SellerPayoutProfile;
 import com.example.mate.entity.SettlementStatus;
+import com.example.mate.repository.PartyRepository;
 import com.example.mate.repository.PaymentTransactionRepository;
+import com.example.mate.repository.PartyApplicationRepository;
 import com.example.mate.repository.PayoutTransactionRepository;
 import com.example.mate.repository.SellerPayoutProfileRepository;
 import com.example.mate.service.PaymentTransactionService;
+import com.example.mate.service.PartyLifecycleMutationService;
 import com.example.mate.service.PayoutService;
 import com.example.mate.service.payout.PayoutGateway;
 import org.jobrunr.jobs.lambdas.JobLambda;
@@ -27,8 +34,12 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -72,10 +83,19 @@ class PayoutTossProviderIntegrationTest {
     private PaymentTransactionRepository paymentTransactionRepository;
 
     @Autowired
+    private PartyApplicationRepository partyApplicationRepository;
+
+    @Autowired
+    private PartyRepository partyRepository;
+
+    @Autowired
     private PayoutTransactionRepository payoutTransactionRepository;
 
     @Autowired
     private SellerPayoutProfileRepository sellerPayoutProfileRepository;
+
+    @Autowired
+    private UserRepository userRepository;
 
     @Autowired
     private ControlledTossGateway controlledTossGateway;
@@ -93,7 +113,10 @@ class PayoutTossProviderIntegrationTest {
     void setUp() {
         payoutTransactionRepository.deleteAll();
         paymentTransactionRepository.deleteAll();
+        partyApplicationRepository.deleteAll();
+        partyRepository.deleteAll();
         sellerPayoutProfileRepository.deleteAll();
+        userRepository.deleteAll();
 
         controlledTossGateway.reset();
         ReflectionTestUtils.setField(payoutService, "payoutEnabled", true);
@@ -104,11 +127,10 @@ class PayoutTossProviderIntegrationTest {
     @DisplayName("provider=TOSS + seller 매핑 존재 시 수동 정산 요청은 COMPLETED와 providerRef를 저장한다")
     void manualPayout_withTossProviderAndSellerProfile_completesSuccessfully() {
         PaymentTransaction paymentTransaction = savePaymentTransaction(
-                701L,
                 "MATE-TOSS-SUCCESS-ORDER-1",
                 "MATE-TOSS-SUCCESS-PK-1",
                 42000);
-        saveSellerProfile(701L, "seller-toss-701");
+        saveSellerProfile(paymentTransaction.getSellerUserId(), "seller-toss-701");
 
         controlledTossGateway.configureSuccess("toss-payout-ref-701");
 
@@ -137,11 +159,10 @@ class PayoutTossProviderIntegrationTest {
     @DisplayName("provider=TOSS + seller 매핑 존재 + 게이트웨이 실패 시 failure_code와 FAILED 상태를 기록한다")
     void manualPayout_withTossProviderFailure_recordsFailureCode() {
         PaymentTransaction paymentTransaction = savePaymentTransaction(
-                702L,
                 "MATE-TOSS-FAIL-ORDER-1",
                 "MATE-TOSS-FAIL-PK-1",
                 33000);
-        saveSellerProfile(702L, "seller-toss-702");
+        saveSellerProfile(paymentTransaction.getSellerUserId(), "seller-toss-702");
 
         controlledTossGateway.configureFailure(new PayoutGateway.PayoutGatewayException(
                 "invalid seller profile",
@@ -169,7 +190,6 @@ class PayoutTossProviderIntegrationTest {
     @DisplayName("provider=TOSS + seller 매핑 미존재 시 failure_code=SELLER_PROFILE_MISSING을 기록한다")
     void manualPayout_withoutSellerProfile_recordsSellerProfileMissing() {
         PaymentTransaction paymentTransaction = savePaymentTransaction(
-                703L,
                 "MATE-TOSS-MISSING-ORDER-1",
                 "MATE-TOSS-MISSING-PK-1",
                 29000);
@@ -191,14 +211,82 @@ class PayoutTossProviderIntegrationTest {
         verify(jobScheduler, never()).schedule(any(Instant.class), any(JobLambda.class));
     }
 
+    @Test
+    @DisplayName("dispatch intent 커밋 후 gateway 호출 중 만료돼도 1회 호출과 수동 대사 표식을 보존한다")
+    void manualPayout_commitsDispatchIntentBeforeGatewayAndPreservesExpiryHold() {
+        PaymentTransaction payment = savePaymentTransaction(
+                "MATE-TOSS-EXPIRY-ORDER-1",
+                "MATE-TOSS-EXPIRY-PK-1",
+                31000);
+        saveSellerProfile(payment.getSellerUserId(), "seller-toss-704");
+        controlledTossGateway.configureSuccess("toss-payout-after-expiry-704");
+        controlledTossGateway.expirePartyBeforeProviderAccepts(payment.getPartyId());
+
+        PayoutTransaction result = paymentTransactionService.requestManualPayout(payment.getId());
+
+        assertThat(controlledTossGateway.wasDispatchIntentCommittedBeforeRequest()).isTrue();
+        assertThat(controlledTossGateway.wasTransactionActiveAtGatewayEntry()).isFalse();
+        assertThat(controlledTossGateway.wasPartyExpiredBeforeProviderAccepts()).isTrue();
+        assertThat(controlledTossGateway.getCallCount()).isEqualTo(1);
+        assertThat(result.getProviderDispatchIntentAt()).isNotNull();
+        assertThat(result.getStatus()).isEqualTo(SettlementStatus.COMPLETED);
+        assertThat(result.getFailureCode()).isEqualTo("PAYOUT_MANUAL_RECONCILIATION_REQUIRED");
+        assertThat(result.getNextRetryAt()).isNull();
+
+        PaymentTransaction savedPayment = paymentTransactionRepository.findById(payment.getId()).orElseThrow();
+        assertThat(savedPayment.getPaymentStatus()).isEqualTo(PaymentStatus.PAID);
+        assertThat(savedPayment.getSettlementStatus()).isEqualTo(SettlementStatus.COMPLETED);
+    }
+
     private PaymentTransaction savePaymentTransaction(
-            Long sellerUserId,
             String orderId,
             String paymentKey,
             int amount) {
-        return paymentTransactionRepository.save(PaymentTransaction.builder()
-                .partyId(1L)
-                .applicationId(Math.abs(orderId.hashCode()) + 1000L)
+        String sellerSuffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        UserEntity seller = userRepository.saveAndFlush(UserEntity.builder()
+                .uniqueId(UUID.randomUUID())
+                .handle("@payout" + sellerSuffix)
+                .name("Synthetic payout seller")
+                .email("payout-" + sellerSuffix + "@synthetic.test")
+                .role("ROLE_USER")
+                .enabled(true)
+                .pendingDeletion(false)
+                .build());
+        Long sellerUserId = seller.getId();
+        Party party = partyRepository.saveAndFlush(Party.builder()
+                .hostId(sellerUserId)
+                .hostName("Synthetic payout seller")
+                .hostBadge(Party.BadgeType.NEW)
+                .teamId("LG")
+                .gameDate(LocalDate.now().plusDays(1))
+                .gameTime(LocalTime.of(18, 30))
+                .stadium("Synthetic stadium")
+                .homeTeam("LG")
+                .awayTeam("KT")
+                .section("Synthetic section")
+                .maxParticipants(4)
+                .currentParticipants(2)
+                .description("Synthetic payout integration party")
+                .ticketVerified(true)
+                .status(Party.PartyStatus.PENDING)
+                .build());
+        PartyApplication application = partyApplicationRepository.saveAndFlush(PartyApplication.builder()
+                .partyId(party.getId())
+                .applicantId(200L)
+                .applicantName("Synthetic payout applicant")
+                .applicantBadge(Party.BadgeType.NEW)
+                .message("synthetic approved payout application")
+                .depositAmount(amount)
+                .paymentType(PartyApplication.PaymentType.FULL)
+                .isPaid(true)
+                .isApproved(true)
+                .isRejected(false)
+                .orderId(orderId)
+                .paymentKey(paymentKey)
+                .build());
+        return paymentTransactionRepository.saveAndFlush(PaymentTransaction.builder()
+                .partyId(party.getId())
+                .applicationId(application.getId())
                 .buyerUserId(200L)
                 .sellerUserId(sellerUserId)
                 .flowType(PaymentFlowType.SELLING_FULL)
@@ -226,16 +314,38 @@ class PayoutTossProviderIntegrationTest {
     @TestConfiguration
     static class TossGatewayTestConfig {
         @Bean
-        ControlledTossGateway controlledTossGateway() {
-            return new ControlledTossGateway();
+        ControlledTossGateway controlledTossGateway(
+                PayoutTransactionRepository payoutTransactionRepository,
+                PartyRepository partyRepository,
+                PartyLifecycleMutationService partyLifecycleMutationService) {
+            return new ControlledTossGateway(
+                    payoutTransactionRepository,
+                    partyRepository,
+                    partyLifecycleMutationService);
         }
     }
 
     static class ControlledTossGateway implements PayoutGateway {
+        private final PayoutTransactionRepository payoutTransactionRepository;
+        private final PartyRepository partyRepository;
+        private final PartyLifecycleMutationService partyLifecycleMutationService;
         private volatile PayoutResult successResult = new PayoutResult("toss-payout-default", "REQUESTED");
         private volatile RuntimeException nextFailure;
         private volatile PayoutRequest lastRequest;
+        private volatile Long expirePartyIdBeforeProviderAccepts;
+        private volatile boolean dispatchIntentCommittedBeforeRequest;
+        private volatile boolean transactionActiveAtGatewayEntry;
+        private volatile boolean partyExpiredBeforeProviderAccepts;
         private final AtomicInteger callCount = new AtomicInteger(0);
+
+        ControlledTossGateway(
+                PayoutTransactionRepository payoutTransactionRepository,
+                PartyRepository partyRepository,
+                PartyLifecycleMutationService partyLifecycleMutationService) {
+            this.payoutTransactionRepository = payoutTransactionRepository;
+            this.partyRepository = partyRepository;
+            this.partyLifecycleMutationService = partyLifecycleMutationService;
+        }
 
         @Override
         public String getProviderCode() {
@@ -244,6 +354,19 @@ class PayoutTossProviderIntegrationTest {
 
         @Override
         public PayoutResult requestPayout(PayoutRequest request) {
+            Long partyId = expirePartyIdBeforeProviderAccepts;
+            if (partyId != null) {
+                PayoutTransaction committedPayout = payoutTransactionRepository
+                        .findTopByPaymentTransactionIdOrderByIdDesc(request.paymentTransactionId())
+                        .orElseThrow();
+                dispatchIntentCommittedBeforeRequest = committedPayout.getProviderDispatchIntentAt() != null;
+                transactionActiveAtGatewayEntry = TransactionSynchronizationManager.isActualTransactionActive();
+                partyLifecycleMutationService.expirePendingParty(partyId, LocalDate.now().plusDays(2));
+                partyExpiredBeforeProviderAccepts = partyRepository.findById(partyId)
+                        .map(expiredParty -> expiredParty.getStatus() == Party.PartyStatus.FAILED)
+                        .orElse(false);
+                expirePartyIdBeforeProviderAccepts = null;
+            }
             lastRequest = request;
             callCount.incrementAndGet();
             RuntimeException failure = nextFailure;
@@ -262,10 +385,21 @@ class PayoutTossProviderIntegrationTest {
             this.nextFailure = failure;
         }
 
+        void expirePartyBeforeProviderAccepts(Long partyId) {
+            this.expirePartyIdBeforeProviderAccepts = partyId;
+            this.dispatchIntentCommittedBeforeRequest = false;
+            this.transactionActiveAtGatewayEntry = true;
+            this.partyExpiredBeforeProviderAccepts = false;
+        }
+
         void reset() {
             this.successResult = new PayoutResult("toss-payout-default", "REQUESTED");
             this.nextFailure = null;
             this.lastRequest = null;
+            this.expirePartyIdBeforeProviderAccepts = null;
+            this.dispatchIntentCommittedBeforeRequest = false;
+            this.transactionActiveAtGatewayEntry = false;
+            this.partyExpiredBeforeProviderAccepts = false;
             this.callCount.set(0);
         }
 
@@ -275,6 +409,18 @@ class PayoutTossProviderIntegrationTest {
 
         int getCallCount() {
             return callCount.get();
+        }
+
+        boolean wasDispatchIntentCommittedBeforeRequest() {
+            return dispatchIntentCommittedBeforeRequest;
+        }
+
+        boolean wasTransactionActiveAtGatewayEntry() {
+            return transactionActiveAtGatewayEntry;
+        }
+
+        boolean wasPartyExpiredBeforeProviderAccepts() {
+            return partyExpiredBeforeProviderAccepts;
         }
     }
 }

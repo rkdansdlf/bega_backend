@@ -77,7 +77,9 @@ class AccountSecurityControllerTest {
         AccountDeletionRecoveryInfoDto info = AccountDeletionRecoveryInfoDto.builder().build();
         when(accountDeletionService.getRecoveryInfo("token123")).thenReturn(info);
 
-        ResponseEntity<ApiResponse<AccountDeletionRecoveryInfoDto>> result = controller.getDeletionRecoveryInfo("token123");
+        AccountDeletionRecoveryRequestDto request = new AccountDeletionRecoveryRequestDto();
+        request.setToken("token123");
+        ResponseEntity<ApiResponse<AccountDeletionRecoveryInfoDto>> result = controller.getDeletionRecoveryInfo(request);
 
         assertThat(result.getBody().getData()).isEqualTo(info);
     }

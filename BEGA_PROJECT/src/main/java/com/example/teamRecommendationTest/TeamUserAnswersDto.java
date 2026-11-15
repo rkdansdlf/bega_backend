@@ -2,6 +2,7 @@ package com.example.teamRecommendationTest;
 
 import java.util.Map;
 
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -9,5 +10,6 @@ import lombok.Setter;
 @Setter
 public class TeamUserAnswersDto {
 	
-private Map<String, String> answers;
+	@NotNull(message = "answers는 필수입니다.")
+	private Map<String, String> answers;
 }

@@ -19,6 +19,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.SliceImpl;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
@@ -450,12 +452,15 @@ class CheckInRecordServiceTest {
         when(userService.getUserIdByEmail("host@test.com")).thenReturn(10L);
         when(partyRepository.findByIdAndHostId(1L, 10L)).thenReturn(Optional.of(party));
         when(checkInRecordRepository.findByPartyId(1L)).thenReturn(List.of(record));
-        when(userRepository.findById(10L)).thenReturn(Optional.of(UserEntity.builder().id(10L).name("호스트").handle("@host").build()));
+        when(userRepository.findAllById(List.of(10L)))
+                .thenReturn(List.of(UserEntity.builder().id(10L).name("호스트").handle("@host").build()));
 
         var responses = checkInRecordService.getCheckInsByPartyId(1L, principal);
 
         assertThat(responses).hasSize(1);
         assertThat(responses.get(0).getUserHandle()).isEqualTo("@host");
+        verify(userRepository).findAllById(List.of(10L));
+        verify(userRepository, never()).findById(10L);
     }
 
     @Test
@@ -536,9 +541,71 @@ class CheckInRecordServiceTest {
         Principal principal = () -> "viewer@test.com";
         when(userService.getUserIdByEmail("viewer@test.com")).thenReturn(77L);
 
-        assertThatThrownBy(() -> checkInRecordService.getCheckInsByUserId(10L, principal))
+        assertThatThrownBy(() -> checkInRecordService.getCheckInsByUserId(
+                10L, principal, PageRequest.of(0, 30)))
                 .isInstanceOf(UnauthorizedAccessException.class)
                 .hasMessageContaining("본인의 체크인 기록만 조회할 수 있습니다.");
+        verify(checkInRecordRepository, never())
+                .findByUserIdOrderByCheckedInAtDescIdDesc(eq(10L), any());
+    }
+
+    @Test
+    @DisplayName("getCheckInsByUserId resolves the owner once for all history rows")
+    void getCheckInsByUserId_resolvesOwnerOnce() {
+        Long ownerId = 42L;
+        List<CheckInRecord> records = List.of(
+                CheckInRecord.builder().id(1L).userId(ownerId).partyId(10L)
+                        .location("A").checkedInAt(LocalDateTime.of(2026, 10, 1, 18, 0)).build(),
+                CheckInRecord.builder().id(2L).userId(ownerId).partyId(11L)
+                        .location("B").checkedInAt(LocalDateTime.of(2026, 10, 2, 18, 0)).build(),
+                CheckInRecord.builder().id(3L).userId(ownerId).partyId(12L)
+                        .location("C").checkedInAt(LocalDateTime.of(2026, 10, 3, 18, 0)).build());
+        UserEntity owner = UserEntity.builder()
+                .id(ownerId)
+                .handle("@fan")
+                .name("Fan")
+                .build();
+        var pageable = PageRequest.of(2, 3);
+        when(checkInRecordRepository.findByUserIdOrderByCheckedInAtDescIdDesc(ownerId, pageable))
+                .thenReturn(new SliceImpl<>(records, pageable, true));
+        when(userRepository.findById(ownerId)).thenReturn(Optional.of(owner));
+
+        CheckInRecordDTO.HistoryPageResponse result = checkInRecordService
+                .getCheckInsByUserId(ownerId, ownerId, pageable);
+
+        assertThat(result.getContent()).hasSize(3)
+                .allSatisfy(item -> {
+                    assertThat(item.getUserHandle()).isEqualTo("@fan");
+                    assertThat(item.getUserName()).isEqualTo("Fan");
+                });
+        assertThat(result.getPage()).isEqualTo(2);
+        assertThat(result.getSize()).isEqualTo(3);
+        assertThat(result.isHasNext()).isTrue();
+        verify(userRepository, org.mockito.Mockito.times(1)).findById(ownerId);
+    }
+
+    @Test
+    @DisplayName("getCheckInsByPartyId loads distinct users in one batch")
+    void getCheckInsByPartyId_loadsDistinctUsersInOneBatch() {
+        Party party = createParty(1L, 10L);
+        List<CheckInRecord> records = List.of(
+                CheckInRecord.builder().id(1L).partyId(1L).userId(20L).location("A").build(),
+                CheckInRecord.builder().id(2L).partyId(1L).userId(30L).location("B").build(),
+                CheckInRecord.builder().id(3L).partyId(1L).userId(20L).location("C").build());
+        List<UserEntity> users = List.of(
+                UserEntity.builder().id(20L).handle("@first").name("First").build(),
+                UserEntity.builder().id(30L).handle("@second").name("Second").build());
+        when(partyRepository.findByIdAndHostId(1L, 10L)).thenReturn(Optional.of(party));
+        when(checkInRecordRepository.findByPartyId(1L)).thenReturn(records);
+        when(userRepository.findAllById(List.of(20L, 30L))).thenReturn(users);
+
+        List<CheckInRecordDTO.Response> result = checkInRecordService.getCheckInsByPartyId(1L, 10L);
+
+        assertThat(result).hasSize(3)
+                .extracting(CheckInRecordDTO.Response::getUserHandle)
+                .containsExactly("@first", "@second", "@first");
+        verify(userRepository).findAllById(List.of(20L, 30L));
+        verify(userRepository, never()).findById(any());
     }
 
     private Party createParty(Long partyId, Long hostId) {

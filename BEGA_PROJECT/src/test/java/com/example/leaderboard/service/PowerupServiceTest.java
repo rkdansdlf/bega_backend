@@ -1,5 +1,8 @@
 package com.example.leaderboard.service;
 
+import com.example.common.exception.BadRequestBusinessException;
+import com.example.kbo.entity.GameEntity;
+import com.example.kbo.repository.GameRepository;
 import com.example.leaderboard.dto.PowerupInventoryDto;
 import com.example.leaderboard.entity.ActivePowerup;
 import com.example.leaderboard.entity.UserPowerup;
@@ -14,12 +17,20 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.example.leaderboard.support.LeaderboardTestFixtureFactory.*;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -34,6 +45,9 @@ class PowerupServiceTest {
 
     @Mock
     private ActivePowerupRepository activePowerupRepository;
+
+    @Mock
+    private GameRepository gameRepository;
 
     // ============================================
     // getUserPowerups
@@ -72,27 +86,117 @@ class PowerupServiceTest {
     // ============================================
 
     @Test
+    @DisplayName("경기 ID가 없으면 인벤토리를 차감하지 않고 거부한다")
+    void usePowerup_rejectsMissingGameIdBeforeInventoryLookup() {
+        assertThatThrownBy(() -> powerupService.usePowerup(3L, "MAGIC_BAT", null))
+                .isInstanceOf(BadRequestBusinessException.class)
+                .hasMessageContaining("경기 ID");
+        assertThatThrownBy(() -> powerupService.usePowerup(3L, "MAGIC_BAT", "   "))
+                .isInstanceOf(BadRequestBusinessException.class)
+                .hasMessageContaining("경기 ID");
+
+        verifyNoInteractions(gameRepository, userPowerupRepository, activePowerupRepository);
+    }
+
+    @Test
+    @DisplayName("내부에 없거나 예정 상태가 아닌 경기는 재고를 차감하지 않고 거부한다")
+    void usePowerup_rejectsUnknownOrUnavailableGame() {
+        when(gameRepository.findByGameId("missing-game")).thenReturn(Optional.empty());
+        when(gameRepository.findByGameId("completed-game")).thenReturn(Optional.of(GameEntity.builder()
+                .gameId("completed-game")
+                .gameStatus("COMPLETED")
+                .build()));
+        GameEntity dummyGame = GameEntity.builder()
+                .gameId("dummy-game")
+                .gameStatus("SCHEDULED")
+                .build();
+        dummyGame.setIsDummy(true);
+        when(gameRepository.findByGameId("dummy-game")).thenReturn(Optional.of(dummyGame));
+
+        assertThatThrownBy(() -> powerupService.usePowerup(3L, "MAGIC_BAT", "missing-game"))
+                .isInstanceOf(BadRequestBusinessException.class)
+                .hasMessageContaining("예정 경기");
+        assertThatThrownBy(() -> powerupService.usePowerup(3L, "MAGIC_BAT", "completed-game"))
+                .isInstanceOf(BadRequestBusinessException.class)
+                .hasMessageContaining("예정 경기");
+        assertThatThrownBy(() -> powerupService.usePowerup(3L, "MAGIC_BAT", "dummy-game"))
+                .isInstanceOf(BadRequestBusinessException.class)
+                .hasMessageContaining("예정 경기");
+
+        verifyNoInteractions(userPowerupRepository, activePowerupRepository);
+    }
+
+    @Test
     @DisplayName("파워업 사용 성공 시 차감 후 남은 수량 반환")
     void usePowerup_successfulActivation() {
         Long userId = 3L;
-        UserPowerup inv = powerup(userId, PowerupType.MAGIC_BAT, 3);
+        allowScheduledGame("game1");
+        UserPowerup remainingInventory = powerup(userId, PowerupType.MAGIC_BAT, 2);
+        when(userPowerupRepository.usePowerup(userId, PowerupType.MAGIC_BAT)).thenReturn(1);
         when(userPowerupRepository.findByUserIdAndPowerupType(userId, PowerupType.MAGIC_BAT))
-                .thenReturn(Optional.of(inv));
-        when(userPowerupRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+                .thenReturn(Optional.of(remainingInventory));
         when(activePowerupRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
         Integer remaining = powerupService.usePowerup(userId, "MAGIC_BAT", "game1");
 
         assertThat(remaining).isEqualTo(2);
-        verify(activePowerupRepository).save(any(ActivePowerup.class));
+        verify(activePowerupRepository).save(argThat(activePowerup ->
+                "game1".equals(activePowerup.getGameId())));
+    }
+
+    @Test
+    @DisplayName("동시에 사용해도 보유 수량 한 개로 활성화는 한 번만 성공한다")
+    void usePowerup_concurrentRequestsCannotOverdrawInventory() throws Exception {
+        Long userId = 30L;
+        allowScheduledGame("game-30");
+        CyclicBarrier bothRequestsReachedInventory = new CyclicBarrier(2);
+        AtomicInteger remainingQuantity = new AtomicInteger(1);
+        AtomicInteger activationCount = new AtomicInteger();
+        AtomicBoolean atomicPathEntered = new AtomicBoolean();
+
+        lenient().when(userPowerupRepository.findByUserIdAndPowerupType(userId, PowerupType.MAGIC_BAT))
+                .thenAnswer(invocation -> {
+                    if (!atomicPathEntered.get()) {
+                        bothRequestsReachedInventory.await(5, TimeUnit.SECONDS);
+                    }
+                    return Optional.of(powerup(userId, PowerupType.MAGIC_BAT, remainingQuantity.get()));
+                });
+        lenient().when(userPowerupRepository.usePowerup(userId, PowerupType.MAGIC_BAT))
+                .thenAnswer(invocation -> {
+                    atomicPathEntered.set(true);
+                    bothRequestsReachedInventory.await(5, TimeUnit.SECONDS);
+                    return remainingQuantity.compareAndSet(1, 0) ? 1 : 0;
+                });
+        lenient().when(userPowerupRepository.save(any(UserPowerup.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(activePowerupRepository.save(any(ActivePowerup.class)))
+                .thenAnswer(invocation -> {
+                    activationCount.incrementAndGet();
+                    return invocation.getArgument(0);
+                });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            var firstRequest = executor.submit(() -> powerupService.usePowerup(userId, "MAGIC_BAT", "game-30"));
+            var secondRequest = executor.submit(() -> powerupService.usePowerup(userId, "MAGIC_BAT", "game-30"));
+
+            assertThat(Arrays.asList(firstRequest.get(5, TimeUnit.SECONDS), secondRequest.get(5, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(0, null);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(remainingQuantity).hasValue(0);
+        assertThat(activationCount).hasValue(1);
+        verify(activePowerupRepository, times(1)).save(any(ActivePowerup.class));
     }
 
     @Test
     @DisplayName("인벤토리에 없으면 null 반환")
     void usePowerup_noInventory() {
         Long userId = 4L;
-        when(userPowerupRepository.findByUserIdAndPowerupType(userId, PowerupType.MAGIC_BAT))
-                .thenReturn(Optional.empty());
+        allowScheduledGame("game1");
+        when(userPowerupRepository.usePowerup(userId, PowerupType.MAGIC_BAT)).thenReturn(0);
 
         Integer result = powerupService.usePowerup(userId, "MAGIC_BAT", "game1");
 
@@ -104,9 +208,8 @@ class PowerupServiceTest {
     @DisplayName("수량 0이면 null 반환")
     void usePowerup_zeroQuantity() {
         Long userId = 5L;
-        UserPowerup inv = powerup(userId, PowerupType.GOLDEN_GLOVE, 0);
-        when(userPowerupRepository.findByUserIdAndPowerupType(userId, PowerupType.GOLDEN_GLOVE))
-                .thenReturn(Optional.of(inv));
+        allowScheduledGame("game1");
+        when(userPowerupRepository.usePowerup(userId, PowerupType.GOLDEN_GLOVE)).thenReturn(0);
 
         Integer result = powerupService.usePowerup(userId, "GOLDEN_GLOVE", "game1");
 
@@ -127,15 +230,23 @@ class PowerupServiceTest {
     @DisplayName("소문자 타입 입력도 대문자로 변환되어 처리")
     void usePowerup_caseInsensitive() {
         Long userId = 7L;
-        UserPowerup inv = powerup(userId, PowerupType.MAGIC_BAT, 1);
+        allowScheduledGame("game1");
+        UserPowerup remainingInventory = powerup(userId, PowerupType.MAGIC_BAT, 0);
+        when(userPowerupRepository.usePowerup(userId, PowerupType.MAGIC_BAT)).thenReturn(1);
         when(userPowerupRepository.findByUserIdAndPowerupType(userId, PowerupType.MAGIC_BAT))
-                .thenReturn(Optional.of(inv));
-        when(userPowerupRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+                .thenReturn(Optional.of(remainingInventory));
         when(activePowerupRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
         Integer remaining = powerupService.usePowerup(userId, "magic_bat", "game1");
 
         assertThat(remaining).isEqualTo(0);
+    }
+
+    private void allowScheduledGame(String gameId) {
+        when(gameRepository.findByGameId(gameId)).thenReturn(Optional.of(GameEntity.builder()
+                .gameId(gameId)
+                .gameStatus("SCHEDULED")
+                .build()));
     }
 
     // ============================================

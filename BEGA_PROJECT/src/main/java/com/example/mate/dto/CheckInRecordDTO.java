@@ -13,6 +13,7 @@ import lombok.Builder;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.List;
 
 public class CheckInRecordDTO {
 
@@ -82,5 +83,24 @@ public class CheckInRecordDTO {
                     .checkedInAt(record.getCheckedInAt())
                     .build();
         }
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @Schema(name = "MateCheckInHistoryPageResponse")
+    public static class HistoryPageResponse {
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
+        private List<Response> content;
+
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0")
+        private int page;
+
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1", maximum = "100")
+        private int size;
+
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
+        private boolean hasNext;
     }
 }

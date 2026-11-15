@@ -174,6 +174,7 @@ class CheerQueryCountIntegrationTest {
                 commentRepo,
                 repostRepo,
                 userRepository,
+                mock(com.example.media.repository.MediaAssetRepository.class),
                 notificationService,
                 blockService,
                 publicVisibilityVerifier,

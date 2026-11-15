@@ -18,15 +18,21 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import com.example.common.exception.AuthenticationRequiredException;
 import com.example.common.realtime.RealtimeOutboxWriter;
+import com.example.mate.entity.Party;
 import com.example.mate.exception.UnauthorizedAccessException;
+import com.example.mate.repository.PartyRepository;
 import com.example.notification.dto.NotificationDTO;
 import com.example.notification.entity.Notification;
 import com.example.notification.exception.NotificationNotFoundException;
@@ -43,6 +49,13 @@ class NotificationServiceTest {
 
     @Mock
     private RealtimeOutboxWriter realtimeOutboxWriter;
+
+    @Mock
+    private PartyRepository partyRepository;
+
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
 
     @Test
     void notificationTypeNamesFitDatabaseColumn() throws NoSuchFieldException {
@@ -152,6 +165,37 @@ class NotificationServiceTest {
                 .isInstanceOf(UnauthorizedAccessException.class);
     }
 
+    @Test
+    void markAllAsReadReturnsOnlySelectedNotificationIds() {
+        Notification first = buildNotification(11L, 10L, Notification.NotificationType.NEW_FOLLOWER, "첫 알림", "메시지");
+        Notification second = buildNotification(12L, 10L, Notification.NotificationType.POST_COMMENT, "둘째 알림", "메시지");
+        List<Long> snapshotIds = List.of(11L, 12L);
+        when(notificationRepository.findUnreadForUserByIdsForUpdate(10L, snapshotIds))
+                .thenReturn(List.of(first, second));
+
+        List<Long> result = notificationService.markAllAsRead(10L, snapshotIds);
+
+        assertThat(result).containsExactly(11L, 12L);
+        assertThat(first.getIsRead()).isTrue();
+        assertThat(second.getIsRead()).isTrue();
+        verify(notificationRepository).findUnreadForUserByIdsForUpdate(10L, snapshotIds);
+    }
+
+    @Test
+    void markAllAsReadDeduplicatesSnapshotIdsBeforeQuerying() {
+        List<Long> snapshotIds = List.of(4L);
+        notificationService.markAllAsRead(10L, List.of(4L, 4L));
+
+        verify(notificationRepository).findUnreadForUserByIdsForUpdate(10L, snapshotIds);
+    }
+
+    @Test
+    void markAllAsReadDoesNotQueryWhenSnapshotIsEmpty() {
+        assertThat(notificationService.markAllAsRead(10L, List.of())).isEmpty();
+
+        org.mockito.Mockito.verifyNoInteractions(notificationRepository);
+    }
+
     // --- deleteNotification ---
 
     @Test
@@ -185,6 +229,10 @@ class NotificationServiceTest {
 
     @Test
     void createNotification_savesNotification() {
+        when(transactionManager.getTransaction(any(TransactionDefinition.class)))
+                .thenReturn(new SimpleTransactionStatus());
+        when(partyRepository.findByIdForUpdate(100L))
+                .thenReturn(Optional.of(Party.builder().id(100L).build()));
         when(notificationRepository.save(any(Notification.class)))
                 .thenAnswer(invocation -> {
                     Notification n = invocation.getArgument(0);
@@ -211,6 +259,51 @@ class NotificationServiceTest {
                 eq("10"),
                 eq("/queue/notifications"),
                 any(NotificationDTO.Response.class));
+        ArgumentCaptor<TransactionDefinition> transactionCaptor = ArgumentCaptor.forClass(TransactionDefinition.class);
+        verify(transactionManager).getTransaction(transactionCaptor.capture());
+        assertThat(transactionCaptor.getValue().getPropagationBehavior())
+                .isEqualTo(TransactionDefinition.PROPAGATION_REQUIRED);
+        InOrder writeOrder = org.mockito.Mockito.inOrder(partyRepository, notificationRepository);
+        writeOrder.verify(partyRepository).findByIdForUpdate(100L);
+        writeOrder.verify(notificationRepository).save(any(Notification.class));
+    }
+
+    @Test
+    void createNotification_skipsPartyEventWhenPartyNoLongerExists() {
+        when(transactionManager.getTransaction(any(TransactionDefinition.class)))
+                .thenReturn(new SimpleTransactionStatus());
+
+        notificationService.createNotification(
+                10L,
+                Notification.NotificationType.PARTY_EXPIRED,
+                "모집 만료",
+                "파티가 만료되었습니다.",
+                404L);
+
+        verify(notificationRepository, org.mockito.Mockito.never()).save(any(Notification.class));
+        verify(realtimeOutboxWriter, org.mockito.Mockito.never()).sendToUser(any(), any(), any());
+        verify(partyRepository).findByIdForUpdate(404L);
+    }
+
+    @Test
+    void createNotification_keepsIndependentTransactionForNonPartyEvents() {
+        when(transactionManager.getTransaction(any(TransactionDefinition.class)))
+                .thenReturn(new SimpleTransactionStatus());
+        when(notificationRepository.save(any(Notification.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        notificationService.createNotification(
+                10L,
+                Notification.NotificationType.POST_COMMENT,
+                "새 댓글",
+                "댓글이 등록되었습니다.",
+                100L);
+
+        ArgumentCaptor<TransactionDefinition> transactionCaptor = ArgumentCaptor.forClass(TransactionDefinition.class);
+        verify(transactionManager).getTransaction(transactionCaptor.capture());
+        assertThat(transactionCaptor.getValue().getPropagationBehavior())
+                .isEqualTo(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        verify(partyRepository, org.mockito.Mockito.never()).findByIdForUpdate(any());
     }
 
     // --- helpers ---

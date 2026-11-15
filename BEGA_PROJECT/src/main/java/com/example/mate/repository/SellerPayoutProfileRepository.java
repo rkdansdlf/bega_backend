@@ -8,10 +8,15 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import java.util.List;
 
 public interface SellerPayoutProfileRepository extends JpaRepository<SellerPayoutProfile, Long> {
 
     Optional<SellerPayoutProfile> findByUserIdAndProvider(Long userId, String provider);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select spp from SellerPayoutProfile spp where spp.userId = :userId order by spp.id")
+    List<SellerPayoutProfile> findAllByUserIdForUpdate(@Param("userId") Long userId);
 
     Optional<SellerPayoutProfile> findByProviderAndProviderSellerId(String provider, String providerSellerId);
 

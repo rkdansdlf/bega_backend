@@ -20,6 +20,7 @@ import java.util.Optional;
 
 import static com.example.leaderboard.support.LeaderboardTestFixtureFactory.*;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -283,6 +284,39 @@ class AchievementServiceTest {
 
         assertThat(result).hasSize(1);
         verify(userAchievementRepository).findRecentByUserId(userId, PageRequest.of(0, 5));
+    }
+
+    @Test
+    @DisplayName("최근 업적 limit은 1–100 범위만 허용한다")
+    void getRecentAchievements_rejectsOutOfRangeLimit() {
+        assertThatThrownBy(() -> achievementService.getRecentAchievements(21L, 0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> achievementService.getRecentAchievements(21L, 101))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(userAchievementRepository);
+    }
+
+    @Test
+    @DisplayName("최근 업적은 경계 limit 1과 100을 허용한다")
+    void getRecentAchievements_acceptsBoundaryLimits() {
+        when(userAchievementRepository.findRecentByUserId(eq(21L), any(PageRequest.class)))
+                .thenReturn(List.of());
+
+        achievementService.getRecentAchievements(21L, 1);
+        achievementService.getRecentAchievements(21L, 100);
+
+        verify(userAchievementRepository).findRecentByUserId(21L, PageRequest.of(0, 1));
+        verify(userAchievementRepository).findRecentByUserId(21L, PageRequest.of(0, 100));
+    }
+
+    @Test
+    @DisplayName("희귀 업적 피드는 1–100 범위만 허용한다")
+    void getRecentRareAchievements_rejectsOutOfRangeLimit() {
+        assertThatThrownBy(() -> achievementService.getRecentRareAchievements(0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> achievementService.getRecentRareAchievements(101))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(userAchievementRepository);
     }
 
     // ============================================

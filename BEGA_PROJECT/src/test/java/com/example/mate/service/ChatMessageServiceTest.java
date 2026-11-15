@@ -71,42 +71,36 @@ class ChatMessageServiceTest {
     @DisplayName("getTotalUnreadCount falls back to epoch when legacy timestamps are missing")
     void getTotalUnreadCount_usesEpochFallbackForLegacyRows() {
         Principal principal = () -> "host@example.com";
-        Party hostedParty = Party.builder()
-                .id(10L)
-                .hostId(77L)
-                .status(Party.PartyStatus.PENDING)
-                .createdAt(null)
-                .hostLastReadChatAt(null)
-                .build();
-        PartyApplication approvedApplication = PartyApplication.builder()
-                .partyId(11L)
-                .applicantId(77L)
-                .isApproved(true)
-                .createdAt(null)
-                .lastReadChatAt(null)
-                .build();
-
         when(userService.getUserIdByEmail("host@example.com")).thenReturn(77L);
-        when(partyRepository.findByHostIdAndStatusIn(eq(77L), eq(List.of(
+        when(chatMessageRepository.countUnreadFromHostedParties(eq(77L), eq(List.of(
                 Party.PartyStatus.PENDING,
                 Party.PartyStatus.MATCHED,
                 Party.PartyStatus.SELLING,
-                Party.PartyStatus.CHECKED_IN))))
-                .thenReturn(List.of(hostedParty));
-        when(applicationRepository.findApprovedByApplicantIdAndPartyStatusIn(eq(77L), eq(List.of(
+                Party.PartyStatus.CHECKED_IN)), eq(Instant.EPOCH)))
+                .thenReturn(2L);
+        when(chatMessageRepository.countUnreadFromApprovedApplications(eq(77L), eq(List.of(
                 Party.PartyStatus.PENDING,
                 Party.PartyStatus.MATCHED,
                 Party.PartyStatus.SELLING,
-                Party.PartyStatus.CHECKED_IN))))
-                .thenReturn(List.of(approvedApplication));
-        when(chatMessageRepository.countByPartyIdAndCreatedAtAfterAndSenderIdNot(anyLong(), eq(Instant.EPOCH), eq(77L)))
-                .thenReturn(2L, 3L);
+                Party.PartyStatus.CHECKED_IN)), eq(Instant.EPOCH)))
+                .thenReturn(3L);
 
         long unreadCount = chatMessageService.getTotalUnreadCount(principal);
 
         assertThat(unreadCount).isEqualTo(5L);
-        verify(chatMessageRepository).countByPartyIdAndCreatedAtAfterAndSenderIdNot(10L, Instant.EPOCH, 77L);
-        verify(chatMessageRepository).countByPartyIdAndCreatedAtAfterAndSenderIdNot(11L, Instant.EPOCH, 77L);
+        verify(chatMessageRepository).countUnreadFromHostedParties(77L, List.of(
+                Party.PartyStatus.PENDING,
+                Party.PartyStatus.MATCHED,
+                Party.PartyStatus.SELLING,
+                Party.PartyStatus.CHECKED_IN), Instant.EPOCH);
+        verify(chatMessageRepository).countUnreadFromApprovedApplications(77L, List.of(
+                Party.PartyStatus.PENDING,
+                Party.PartyStatus.MATCHED,
+                Party.PartyStatus.SELLING,
+                Party.PartyStatus.CHECKED_IN), Instant.EPOCH);
+        verifyNoInteractions(partyRepository, applicationRepository);
+        verify(chatMessageRepository, never())
+                .countByPartyIdAndCreatedAtAfterAndSenderIdNot(anyLong(), any(), anyLong());
     }
 
     @Test
@@ -129,7 +123,7 @@ class ChatMessageServiceTest {
                 .build();
 
         when(userService.getUserIdByEmail("host@example.com")).thenReturn(77L);
-        when(partyRepository.findAccessibleByIdAndParticipantId(55L, 77L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(55L, 77L)).thenReturn(Optional.of(party));
         when(chatMessageRepository.findByPartyIdAndSenderIdAndClientMessageId(55L, 77L, "client-msg-1"))
                 .thenReturn(Optional.of(existingMessage));
 
@@ -154,7 +148,7 @@ class ChatMessageServiceTest {
                 .status(Party.PartyStatus.MATCHED)
                 .build();
 
-        when(partyRepository.findAccessibleByIdAndParticipantId(56L, 88L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(56L, 88L)).thenReturn(Optional.of(party));
         when(userRepository.findById(88L)).thenReturn(Optional.of(com.example.auth.entity.UserEntity.builder()
                 .id(88L)
                 .name("Guest")
@@ -186,7 +180,7 @@ class ChatMessageServiceTest {
                 .build();
         String imageUrl = "chat/77/secret.webp";
 
-        when(partyRepository.findAccessibleByIdAndParticipantId(56L, 88L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(56L, 88L)).thenReturn(Optional.of(party));
         when(userRepository.findById(88L)).thenReturn(Optional.of(com.example.auth.entity.UserEntity.builder()
                 .id(88L)
                 .name("Guest")
@@ -216,7 +210,7 @@ class ChatMessageServiceTest {
                 .build();
         String imageUrl = "media/chat/88/asset.webp";
 
-        when(partyRepository.findAccessibleByIdAndParticipantId(56L, 88L)).thenReturn(Optional.of(party));
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(56L, 88L)).thenReturn(Optional.of(party));
         when(userRepository.findById(88L)).thenReturn(Optional.of(com.example.auth.entity.UserEntity.builder()
                 .id(88L)
                 .name("Guest")
@@ -244,7 +238,7 @@ class ChatMessageServiceTest {
     @Test
     @DisplayName("sendMessage treats a non-participant party as not found before saving")
     void sendMessage_nonParticipantIsTreatedAsNotFoundBeforeSaving() {
-        when(partyRepository.findAccessibleByIdAndParticipantId(56L, 99L)).thenReturn(Optional.empty());
+        when(partyRepository.findAccessibleByIdAndParticipantIdForUpdate(56L, 99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> chatMessageService.sendMessage(ChatMessageDTO.Request.builder()
                 .partyId(56L)

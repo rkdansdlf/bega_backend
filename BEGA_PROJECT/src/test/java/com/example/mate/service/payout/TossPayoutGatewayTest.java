@@ -61,6 +61,76 @@ class TossPayoutGatewayTest {
     }
 
     @Test
+    void requestPayoutUsesNextNonblankProviderReference() {
+        TossPayoutConfig config = new TossPayoutConfig();
+        config.setApiSecret("test-secret");
+        config.setBaseUrl("https://api.tosspayments.com");
+        config.setSecurityMode("PLAIN");
+
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ObjectMapper objectMapper = new ObjectMapper();
+        TossPayoutGateway gateway = new TossPayoutGateway(
+                config,
+                builder.build(),
+                new TossPayoutEncryptionService(objectMapper),
+                objectMapper);
+        server.expect(once(), requestTo("https://api.tosspayments.com/v2/payouts"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess(
+                        "{\"payoutId\":\"  \",\"id\":\"provider-id-fallback\",\"status\":\"COMPLETED\"}",
+                        MediaType.APPLICATION_JSON));
+
+        PayoutGateway.PayoutResult result = gateway.requestPayout(new PayoutGateway.PayoutRequest(
+                98L,
+                "ORDER-98",
+                124L,
+                "seller-124",
+                12000,
+                "KRW",
+                "mate-payout-98"));
+
+        assertThat(result.providerRef()).isEqualTo("provider-id-fallback");
+        assertThat(result.rawStatus()).isEqualTo("COMPLETED");
+        server.verify();
+    }
+
+    @Test
+    void requestPayoutCompletedWithoutProviderReferenceReturnsUnidentifiedCompletion() {
+        TossPayoutConfig config = new TossPayoutConfig();
+        config.setApiSecret("test-secret");
+        config.setBaseUrl("https://api.tosspayments.com");
+        config.setSecurityMode("PLAIN");
+
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ObjectMapper objectMapper = new ObjectMapper();
+        TossPayoutGateway gateway = new TossPayoutGateway(
+                config,
+                builder.build(),
+                new TossPayoutEncryptionService(objectMapper),
+                objectMapper);
+        server.expect(once(), requestTo("https://api.tosspayments.com/v2/payouts"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess(
+                        "{\"payoutId\":\" \",\"status\":\"COMPLETED\"}",
+                        MediaType.APPLICATION_JSON));
+
+        PayoutGateway.PayoutResult result = gateway.requestPayout(new PayoutGateway.PayoutRequest(
+                98L,
+                "ORDER-98",
+                124L,
+                "seller-124",
+                12000,
+                "KRW",
+                "mate-payout-98"));
+
+        assertThat(result.providerRef()).isNull();
+        assertThat(result.rawStatus()).isEqualTo("COMPLETED");
+        server.verify();
+    }
+
+    @Test
     void payoutStatusHttpFailureRemainsUnknownUntilExplicitProviderOutcome() {
         TossPayoutConfig config = new TossPayoutConfig();
         config.setApiSecret("test-secret");
@@ -86,6 +156,63 @@ class TossPayoutGatewayTest {
 
         assertThat(result.rawStatus()).isEqualTo("UNKNOWN");
         assertThat(result.failureCode()).isEqualTo("PROVIDER_TEMPORARY_ERROR");
+        server.verify();
+    }
+
+    @Test
+    void payoutStatusPreservesProviderReferenceReturnedBySuccessfulResponse() {
+        TossPayoutConfig config = new TossPayoutConfig();
+        config.setApiSecret("test-secret");
+        config.setBaseUrl("https://api.tosspayments.com");
+        config.setSecurityMode("PLAIN");
+
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ObjectMapper objectMapper = new ObjectMapper();
+        TossPayoutGateway gateway = new TossPayoutGateway(
+                config,
+                builder.build(),
+                new TossPayoutEncryptionService(objectMapper),
+                objectMapper);
+        server.expect(once(), requestTo("https://api.tosspayments.com/v2/payouts/requested-ref"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(
+                        "{\"payoutId\":\"provider-ref-from-response\",\"status\":\"COMPLETED\"}",
+                        MediaType.APPLICATION_JSON));
+
+        PayoutGateway.PayoutStatusResult result = gateway.getPayoutStatus("requested-ref");
+
+        assertThat(result.providerRef()).isEqualTo("provider-ref-from-response");
+        assertThat(result.rawStatus()).isEqualTo("COMPLETED");
+        server.verify();
+    }
+
+    @Test
+    void payoutStatusWithoutProviderReferenceCannotSupplyIdentity() {
+        TossPayoutConfig config = new TossPayoutConfig();
+        config.setApiSecret("test-secret");
+        config.setBaseUrl("https://api.tosspayments.com");
+        config.setSecurityMode("PLAIN");
+
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ObjectMapper objectMapper = new ObjectMapper();
+        TossPayoutGateway gateway = new TossPayoutGateway(
+                config,
+                builder.build(),
+                new TossPayoutEncryptionService(objectMapper),
+                objectMapper);
+        server.expect(once(), requestTo("https://api.tosspayments.com/v2/payouts/requested-ref"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(
+                        "{\"status\":\"COMPLETED\"}",
+                        MediaType.APPLICATION_JSON));
+
+        PayoutGateway.PayoutStatusResult result = gateway.getPayoutStatus("requested-ref");
+
+        assertThat(result.providerRef()).isNull();
+        assertThat(result.rawStatus()).isEqualTo("COMPLETED");
+        assertThat(result.failureCode()).isEqualTo("TOSS_PAYOUT_NO_PROVIDER_REF");
         server.verify();
     }
 }

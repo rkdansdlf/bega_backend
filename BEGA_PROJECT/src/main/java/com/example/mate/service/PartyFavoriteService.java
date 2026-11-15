@@ -22,9 +22,8 @@ public class PartyFavoriteService {
 
     @Transactional
     public void addFavorite(Long userId, Long partyId) {
-        if (!partyRepository.existsById(partyId)) {
-            throw new PartyNotFoundException(partyId);
-        }
+        partyRepository.findByIdForUpdate(partyId)
+                .orElseThrow(() -> new PartyNotFoundException(partyId));
         if (!favoriteRepository.existsByUserIdAndPartyId(userId, partyId)) {
             favoriteRepository.save(new UserPartyFavorite(userId, partyId));
         }

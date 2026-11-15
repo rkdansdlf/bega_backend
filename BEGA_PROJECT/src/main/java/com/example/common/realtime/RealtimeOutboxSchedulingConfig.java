@@ -1,11 +1,15 @@
 package com.example.common.realtime;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
+import org.springframework.context.annotation.Profile;
+
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 @Configuration
+@Profile("!" + ReadOnlyVerificationPolicy.PROFILE)
 @ConditionalOnProperty(
         prefix = "app.realtime.outbox",
         name = "enabled",

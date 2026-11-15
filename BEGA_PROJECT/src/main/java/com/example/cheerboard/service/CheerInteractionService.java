@@ -23,6 +23,7 @@ import com.example.auth.repository.UserRepository;
 import com.example.auth.service.BlockService;
 import com.example.auth.service.PublicVisibilityVerifier;
 import com.example.notification.service.NotificationService;
+import com.example.media.repository.MediaAssetRepository;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +48,7 @@ public class CheerInteractionService {
     private final CheerCommentRepo commentRepo;
     private final CheerPostRepostRepo repostRepo;
     private final UserRepository userRepo;
+    private final MediaAssetRepository mediaAssetRepository;
     private final NotificationService notificationService;
     private final BlockService blockService;
     private final PublicVisibilityVerifier publicVisibilityVerifier;
@@ -163,10 +165,27 @@ public class CheerInteractionService {
 
     @Transactional
     public ReportCaseRes reportPost(Long postId, ReportRequest req, UserEntity me) {
+        if (me == null || me.getId() == null) {
+            throw new com.example.common.exception.InvalidAuthorException("인증된 사용자의 계정이 유효하지 않습니다. 다시 로그인해 주세요.");
+        }
+        Long ownerId = postRepo.findPurgeAuthorId(Objects.requireNonNull(postId))
+                .orElseThrow(() -> new java.util.NoSuchElementException("게시글을 찾을 수 없습니다: " + postId));
+        for (Long userId : java.util.stream.Stream.of(me.getId(), ownerId).distinct().sorted().toList()) {
+            userRepo.findByIdForWrite(userId)
+                    .orElseThrow(() -> new com.example.common.exception.InvalidAuthorException("계정을 확인할 수 없습니다."));
+        }
         UserEntity reporter = CheerAuthorWriteGuard.resolveWriteAuthor(me, userRepo, entityManager);
-        CheerPost post = postService.findPostById(postId);
+        CheerPost post = findPostByIdForInteractionWrite(postId);
+        if (!Objects.equals(ownerId, post.getAuthor().getId())) {
+            throw new com.example.common.exception.ConflictBusinessException("POST_OWNER_CHANGED", "게시글 작성자가 변경되어 다시 시도해주세요.");
+        }
+        if (userRepo.existsFinalizedTombstoneById(post.getAuthor().getId())) {
+            throw new IllegalStateException("탈퇴 처리된 게시글은 신고할 수 없습니다.");
+        }
         publicVisibilityVerifier.validate(post.getAuthor(), reporter.getId(), "게시글");
         validateNoBlockBetween(reporter.getId(), post.getAuthor().getId(), "신고할 수 없습니다.");
+        CheerPurgeCoordination.assertNoStartedPurge(postRepo, ownerId);
+        CheerPurgeCoordination.assertNoOwnedReservedAssets(mediaAssetRepository, ownerId);
 
         if (req.reason() == null) {
             throw new IllegalArgumentException("신고 사유를 선택해 주세요.");

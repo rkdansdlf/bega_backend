@@ -3,6 +3,7 @@ package com.example.BegaDiary.Repository;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -16,7 +17,7 @@ public interface SeatViewPhotoRepository extends JpaRepository<SeatViewPhoto, Lo
 
     @Query("""
             SELECT sv FROM SeatViewPhoto sv
-            JOIN FETCH sv.diary d
+            LEFT JOIN FETCH sv.diary d
             WHERE d.id = :diaryId
               AND sv.userId = :userId
             ORDER BY sv.createdAt ASC
@@ -25,7 +26,7 @@ public interface SeatViewPhotoRepository extends JpaRepository<SeatViewPhoto, Lo
 
     @Query("""
             SELECT sv FROM SeatViewPhoto sv
-            JOIN FETCH sv.diary d
+            LEFT JOIN FETCH sv.diary d
             WHERE sv.id IN :ids
               AND d.id = :diaryId
               AND sv.userId = :userId
@@ -37,9 +38,9 @@ public interface SeatViewPhotoRepository extends JpaRepository<SeatViewPhoto, Lo
 
     @Query("""
             SELECT sv FROM SeatViewPhoto sv
-            JOIN FETCH sv.diary d
-            WHERE d.stadium = :stadium
-              AND (:section IS NULL OR :section = '' OR d.section = :section)
+            LEFT JOIN FETCH sv.diary d
+            WHERE COALESCE(sv.stadium, d.stadium) = :stadium
+              AND (:section IS NULL OR :section = '' OR COALESCE(sv.section, d.section) = :section)
               AND sv.userSelected = true
               AND sv.moderationStatus = :status
               AND sv.adminLabel = :adminLabel
@@ -52,26 +53,41 @@ public interface SeatViewPhotoRepository extends JpaRepository<SeatViewPhoto, Lo
             @Param("adminLabel") ClassificationLabel adminLabel,
             Pageable pageable);
 
-    @Query("""
+    @Query(value = """
             SELECT sv FROM SeatViewPhoto sv
-            JOIN FETCH sv.diary d
+            LEFT JOIN FETCH sv.diary d
             WHERE (:status IS NULL OR sv.moderationStatus = :status)
-              AND (:stadium IS NULL OR :stadium = '' OR d.stadium = :stadium)
+              AND (:stadium IS NULL OR :stadium = '' OR COALESCE(sv.stadium, d.stadium) = :stadium)
               AND (:aiLabel IS NULL OR sv.aiSuggestedLabel = :aiLabel)
               AND (:adminLabel IS NULL OR sv.adminLabel = :adminLabel)
-              AND (:ticketVerified IS NULL OR d.ticketVerified = :ticketVerified)
-            ORDER BY sv.createdAt DESC
-            """)
-    List<SeatViewPhoto> findForAdmin(
+              AND (:ticketVerified IS NULL OR COALESCE(d.ticketVerified, false) = :ticketVerified)
+            ORDER BY CASE WHEN sv.moderationStatus = :pendingStatus THEN 0
+                          WHEN sv.moderationStatus IS NULL THEN 1 ELSE 2 END,
+                     CASE WHEN d.diaryDate IS NULL THEN 1 ELSE 0 END,
+                     d.diaryDate DESC,
+                     sv.id DESC
+            """,
+            countQuery = """
+                    SELECT COUNT(sv) FROM SeatViewPhoto sv
+                    LEFT JOIN sv.diary d
+                    WHERE (:status IS NULL OR sv.moderationStatus = :status)
+                      AND (:stadium IS NULL OR :stadium = '' OR COALESCE(sv.stadium, d.stadium) = :stadium)
+                      AND (:aiLabel IS NULL OR sv.aiSuggestedLabel = :aiLabel)
+                      AND (:adminLabel IS NULL OR sv.adminLabel = :adminLabel)
+                      AND (:ticketVerified IS NULL OR COALESCE(d.ticketVerified, false) = :ticketVerified)
+                    """)
+    Page<SeatViewPhoto> findForAdmin(
             @Param("status") ModerationStatus status,
             @Param("stadium") String stadium,
             @Param("aiLabel") ClassificationLabel aiLabel,
             @Param("adminLabel") ClassificationLabel adminLabel,
-            @Param("ticketVerified") Boolean ticketVerified);
+            @Param("ticketVerified") Boolean ticketVerified,
+            @Param("pendingStatus") ModerationStatus pendingStatus,
+            Pageable pageable);
 
     @Query("""
             SELECT sv FROM SeatViewPhoto sv
-            JOIN FETCH sv.diary d
+            LEFT JOIN FETCH sv.diary d
             WHERE sv.id = :id
             """)
     Optional<SeatViewPhoto> findDetailById(@Param("id") Long id);

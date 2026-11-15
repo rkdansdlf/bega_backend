@@ -1,5 +1,7 @@
 package com.example.auth.config;
 
+import com.example.common.readonly.ReadOnlyVerificationPolicy;
+
 import com.example.auth.entity.UserEntity;
 import com.example.auth.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +25,7 @@ import java.util.Locale;
 
 @Slf4j
 @Component
-@Profile({ "dev", "dev-adb", "local" })
+@Profile("(dev | dev-adb | local) & !" + ReadOnlyVerificationPolicy.PROFILE)
 @ConditionalOnProperty(prefix = "app.dev-data", name = "enabled", havingValue = "true")
 @RequiredArgsConstructor
 public class DevDataInitializer implements CommandLineRunner {

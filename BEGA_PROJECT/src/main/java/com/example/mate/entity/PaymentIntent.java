@@ -114,6 +114,7 @@ public class PaymentIntent {
         CANCEL_REQUESTED,
         CANCELED,
         CANCEL_FAILED,
+        RECONCILIATION_REQUIRED,
         EXPIRED
     }
 }

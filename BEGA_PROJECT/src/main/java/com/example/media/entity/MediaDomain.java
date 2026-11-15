@@ -6,6 +6,7 @@ import java.util.Locale;
 public enum MediaDomain {
     PROFILE("profile"),
     DIARY("diary"),
+    SEAT_VIEW("seat-view"),
     CHEER("cheer"),
     CHAT("chat");
 
@@ -33,6 +34,17 @@ public enum MediaDomain {
         return String.format(Locale.ROOT, "media/%s/%d/%d.%s", pathSegment, userId, assetId, sanitizeExtension(extension));
     }
 
+    public String buildFinalObjectKey(Long userId, Long assetId, String attemptToken, String extension) {
+        return String.format(
+                Locale.ROOT,
+                "media/%s/%d/%d/%s.%s",
+                pathSegment,
+                userId,
+                assetId,
+                sanitizeAttemptToken(attemptToken),
+                sanitizeExtension(extension));
+    }
+
     public String buildProfileFeedObjectKey(Long userId, Long assetId, String extension) {
         if (this != PROFILE) {
             throw new IllegalStateException("PROFILE 도메인에서만 feed derivative key를 생성할 수 있습니다.");
@@ -40,10 +52,23 @@ public enum MediaDomain {
         return String.format(Locale.ROOT, "media/profile-feed/%d/%d.%s", userId, assetId, sanitizeExtension(extension));
     }
 
+    public String buildProfileFeedObjectKey(Long userId, Long assetId, String attemptToken, String extension) {
+        if (this != PROFILE) {
+            throw new IllegalStateException("PROFILE 도메인에서만 feed derivative key를 생성할 수 있습니다.");
+        }
+        return String.format(
+                Locale.ROOT,
+                "media/profile-feed/%d/%d/%s.%s",
+                userId,
+                assetId,
+                sanitizeAttemptToken(attemptToken),
+                sanitizeExtension(extension));
+    }
+
     public String resolveBucket(StorageConfig storageConfig) {
         return switch (this) {
             case PROFILE -> storageConfig.getProfileBucket();
-            case DIARY -> storageConfig.getDiaryBucket();
+            case DIARY, SEAT_VIEW -> storageConfig.getDiaryBucket();
             case CHEER, CHAT -> storageConfig.getCheerBucket();
         };
     }
@@ -69,5 +94,12 @@ public enum MediaDomain {
             return "bin";
         }
         return extension.replaceAll("[^a-zA-Z0-9]", "").toLowerCase(Locale.ROOT);
+    }
+
+    private String sanitizeAttemptToken(String attemptToken) {
+        if (attemptToken == null || !attemptToken.matches("[a-fA-F0-9-]{36}")) {
+            throw new IllegalArgumentException("A UUID finalize token is required.");
+        }
+        return attemptToken.toLowerCase(Locale.ROOT);
     }
 }

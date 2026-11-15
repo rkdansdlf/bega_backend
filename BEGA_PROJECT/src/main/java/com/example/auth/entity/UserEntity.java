@@ -110,6 +110,9 @@ public class UserEntity {
     @Column(name = "deletion_scheduled_for")
     private LocalDateTime deletionScheduledFor;
 
+    @Column(name = "content_anonymization_retry_at")
+    private LocalDateTime contentAnonymizationRetryAt;
+
     /** 계정 잠금 여부 (비밀번호 오류 횟수 초과 등) */
     @Column(name = "locked", nullable = false)
     @Builder.Default

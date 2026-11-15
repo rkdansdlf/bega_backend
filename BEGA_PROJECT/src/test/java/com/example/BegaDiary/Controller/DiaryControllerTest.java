@@ -27,13 +27,14 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Entity.GameResponseDto;
 import com.example.BegaDiary.Exception.DiaryNotFoundException;
+import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.BegaDiary.Service.BegaDiaryService;
 import com.example.BegaDiary.Service.BegaGameService;
-import com.example.BegaDiary.Service.DiaryCreationService;
 import com.example.BegaDiary.Service.SeatViewService;
 import com.example.auth.entity.UserEntity;
 import com.example.cheerboard.storage.service.ImageService;
 import com.example.common.exception.GlobalExceptionHandler;
+import com.example.leaderboard.service.AchievementService;
 
 import reactor.core.publisher.Mono;
 
@@ -51,9 +52,6 @@ class DiaryControllerTest {
 
     @Mock
     private SeatViewService seatViewService;
-
-    @Mock
-    private DiaryCreationService diaryCreationService;
 
     @InjectMocks
     private DiaryController diaryController;
@@ -98,8 +96,8 @@ class DiaryControllerTest {
                 .rarity(com.example.leaderboard.entity.Achievement.Rarity.COMMON)
                 .build();
 
-        when(diaryCreationService.create(eq(1L), org.mockito.ArgumentMatchers.any()))
-                .thenReturn(new DiaryCreationService.DiaryCreateResult(savedDiary, List.of(achievement)));
+        when(diaryService.saveWithAttendanceAchievements(eq(1L), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new BegaDiaryService.SavedDiaryResult(savedDiary, List.of(achievement)));
 
         mockMvc.perform(post("/api/diary/save")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -111,8 +109,8 @@ class DiaryControllerTest {
     }
 
     @Test
-    @DisplayName("예정(SCHEDULED) 다이어리 저장 시에는 직관 출석 카운트에 예정 기록을 포함하지 않는다")
-    void saveDiary_scheduledTypeDoesNotInflateAttendanceCount() throws Exception {
+    @DisplayName("신규 업적이 없으면 unlockedAchievements 는 빈 배열이다")
+    void saveDiary_returnsEmptyUnlockedAchievementsWhenNoneEarned() throws Exception {
         BegaDiary savedDiary = BegaDiary.builder()
                 .user(UserEntity.builder().id(1L).build())
                 .diaryDate(java.time.LocalDate.of(2026, 3, 23))
@@ -120,8 +118,8 @@ class DiaryControllerTest {
                 .type(BegaDiary.DiaryType.SCHEDULED)
                 .build();
 
-        when(diaryCreationService.create(eq(1L), org.mockito.ArgumentMatchers.any()))
-                .thenReturn(new DiaryCreationService.DiaryCreateResult(savedDiary, List.of()));
+        when(diaryService.saveWithAttendanceAchievements(eq(1L), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new BegaDiaryService.SavedDiaryResult(savedDiary, List.of()));
 
         mockMvc.perform(post("/api/diary/save")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -168,8 +166,6 @@ class DiaryControllerTest {
     @DisplayName("잘못된 sourceTypes 값은 표준 400 응답을 반환한다")
     void uploadImages_rejectsInvalidSourceTypes() throws Exception {
         when(diaryService.getOwnedDiaryEntity(1L, 1L)).thenReturn(ownedDiary(1L));
-        when(imageService.uploadDiaryImages(eq(1L), eq(1L), anyList()))
-                .thenReturn(Mono.just(List.of("diary/1/1/test.webp")));
 
         mockMvc.perform(multipart("/api/diary/{id}/images", 1L)
                         .file(imageFile())
@@ -180,7 +176,19 @@ class DiaryControllerTest {
                 .andExpect(jsonPath("$.code").value("INVALID_SEAT_VIEW_SOURCE_TYPE"))
                 .andExpect(jsonPath("$.message").value("sourceTypes 값이 올바르지 않습니다: invalid"));
 
-        verifyNoInteractions(seatViewService);
+        verifyNoInteractions(imageService, seatViewService);
+    }
+
+    @Test
+    void uploadImages_rejectsSeatmapSourceBeforeStorageUpload() throws Exception {
+        when(diaryService.getOwnedDiaryEntity(1L, 1L)).thenReturn(ownedDiary(1L));
+        mockMvc.perform(multipart("/api/diary/{id}/images", 1L)
+                        .file(imageFile())
+                        .file(imageFile())
+                        .param("sourceTypes", "DIARY_UPLOAD", "SEATMAP_UPLOAD")
+                        .principal(() -> "1"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(imageService, seatViewService);
     }
 
     @Test

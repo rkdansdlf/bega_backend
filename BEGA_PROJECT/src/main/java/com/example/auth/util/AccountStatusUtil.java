@@ -21,6 +21,13 @@ public final class AccountStatusUtil {
         return user.getLockExpiresAt().isBefore(LocalDateTime.now());
     }
 
+    public static boolean isAccountEligible(UserEntity user) {
+        if (user == null || !user.isEnabled() || user.isPendingDeletion()) {
+            return false;
+        }
+        return isAccountUsable(user);
+    }
+
     public static int currentTokenVersion(UserEntity user) {
         if (user == null || user.getTokenVersion() == null) {
             return 0;

@@ -1,5 +1,6 @@
 package com.example.mate.service;
 
+import com.example.auth.entity.UserEntity;
 import com.example.mate.dto.CheckInRecordDTO;
 import com.example.mate.entity.CheckInRecord;
 import com.example.mate.entity.Party;
@@ -15,6 +16,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -190,30 +194,74 @@ public class CheckInRecordService {
         Party party = partyRepository.findByIdAndHostId(partyId, requesterId)
                 .orElseThrow(() -> new PartyNotFoundException(partyId));
 
-        return checkInRecordRepository.findByPartyId(party.getId()).stream()
-                .map(this::toResponse)
+        List<CheckInRecord> records = checkInRecordRepository.findByPartyId(party.getId());
+        if (records.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> userIds = records.stream()
+                .map(CheckInRecord::getUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, UserEntity> usersById = userIds.isEmpty()
+                ? Map.of()
+                : userRepository.findAllById(userIds).stream()
+                        .collect(Collectors.toMap(UserEntity::getId, user -> user));
+
+        return records.stream()
+                .map(record -> toResponse(record, usersById.get(record.getUserId())))
                 .collect(Collectors.toList());
     }
 
     // 사용자별 체크인 기록 조회
     @Transactional(readOnly = true)
-    public List<CheckInRecordDTO.Response> getCheckInsByUserId(Long userId, Principal principal) {
-        return getCheckInsByUserIdForRequester(userId, resolveUserId(principal));
+    public CheckInRecordDTO.HistoryPageResponse getCheckInsByUserId(
+            Long userId,
+            Principal principal,
+            Pageable pageable) {
+        return getCheckInsByUserIdForRequester(userId, resolveUserId(principal), pageable);
     }
 
     @Transactional(readOnly = true)
-    public List<CheckInRecordDTO.Response> getCheckInsByUserId(Long targetUserId, Long requesterUserId) {
-        return getCheckInsByUserIdForRequester(targetUserId, requireUserId(requesterUserId));
+    public CheckInRecordDTO.HistoryPageResponse getCheckInsByUserId(
+            Long targetUserId,
+            Long requesterUserId,
+            Pageable pageable) {
+        return getCheckInsByUserIdForRequester(targetUserId, requireUserId(requesterUserId), pageable);
     }
 
-    private List<CheckInRecordDTO.Response> getCheckInsByUserIdForRequester(Long userId, Long requesterId) {
+    private CheckInRecordDTO.HistoryPageResponse getCheckInsByUserIdForRequester(
+            Long userId,
+            Long requesterId,
+            Pageable pageable) {
         if (!requesterId.equals(userId)) {
             throw new UnauthorizedAccessException("본인의 체크인 기록만 조회할 수 있습니다.");
         }
 
-        return checkInRecordRepository.findByUserId(userId).stream()
-                .map(this::toResponse)
-                .collect(Collectors.toList());
+        Slice<CheckInRecord> records = checkInRecordRepository
+                .findByUserIdOrderByCheckedInAtDescIdDesc(userId, pageable);
+        if (records.isEmpty()) {
+            return CheckInRecordDTO.HistoryPageResponse.builder()
+                    .content(List.of())
+                    .page(records.getNumber())
+                    .size(records.getSize())
+                    .hasNext(false)
+                    .build();
+        }
+
+        UserEntity user = userRepository.findById(userId).orElse(null);
+        String userHandle = user != null ? user.getHandle() : null;
+        String userName = user != null ? user.getName() : "Unknown";
+        List<CheckInRecordDTO.Response> content = records.getContent().stream()
+                .map(record -> CheckInRecordDTO.Response.from(record, userHandle, userName))
+                .toList();
+        return CheckInRecordDTO.HistoryPageResponse.builder()
+                .content(content)
+                .page(records.getNumber())
+                .size(records.getSize())
+                .hasNext(records.hasNext())
+                .build();
     }
 
     // 체크인 여부 확인
@@ -282,7 +330,11 @@ public class CheckInRecordService {
     }
 
     private CheckInRecordDTO.Response toResponse(CheckInRecord record) {
-        com.example.auth.entity.UserEntity user = userRepository.findById(record.getUserId()).orElse(null);
+        UserEntity user = userRepository.findById(record.getUserId()).orElse(null);
+        return toResponse(record, user);
+    }
+
+    private CheckInRecordDTO.Response toResponse(CheckInRecord record, UserEntity user) {
         String userHandle = user != null ? user.getHandle() : null;
         String userName = user != null ? user.getName() : "Unknown";
         return CheckInRecordDTO.Response.from(record, userHandle, userName);

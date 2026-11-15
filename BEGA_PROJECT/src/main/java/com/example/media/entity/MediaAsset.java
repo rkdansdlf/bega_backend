@@ -29,11 +29,13 @@ import lombok.Setter;
 @Builder
 public class MediaAsset {
 
+    public static final String CLEARED_STAGING_OBJECT_KEY = "__MEDIA_STAGING_CLEARED__";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "owner_user_id", nullable = false)
+    @Column(name = "owner_user_id")
     private Long ownerUserId;
 
     @Enumerated(EnumType.STRING)
@@ -83,6 +85,21 @@ public class MediaAsset {
     @Column(name = "finalized_at")
     private LocalDateTime finalizedAt;
 
+    @Column(name = "finalize_token", length = 36)
+    private String finalizeToken;
+
+    @Column(name = "finalize_lease_until")
+    private LocalDateTime finalizeLeaseUntil;
+
+    @Column(name = "finalize_object_key", length = 2048)
+    private String finalizeObjectKey;
+
+    @Column(name = "finalize_feed_object_key", length = 2048)
+    private String finalizeFeedObjectKey;
+
+    @Column(name = "finalize_cleanup_verified_at")
+    private LocalDateTime finalizeCleanupVerifiedAt;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "derived_from_asset_id")
     private MediaAsset derivedFrom;
@@ -123,5 +140,10 @@ public class MediaAsset {
 
     public void markDeleted() {
         this.status = MediaAssetStatus.DELETED;
+        this.finalizeToken = null;
+        this.finalizeLeaseUntil = null;
+        this.finalizeObjectKey = null;
+        this.finalizeFeedObjectKey = null;
+        this.finalizeCleanupVerifiedAt = null;
     }
 }

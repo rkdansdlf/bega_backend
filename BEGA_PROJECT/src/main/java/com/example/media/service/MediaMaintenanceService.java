@@ -1,5 +1,6 @@
 package com.example.media.service;
 
+import com.example.common.validation.OwnerIdentity;
 import com.example.BegaDiary.Entity.BegaDiary;
 import com.example.BegaDiary.Repository.BegaDiaryRepository;
 import com.example.auth.entity.UserEntity;
@@ -94,6 +95,8 @@ public class MediaMaintenanceService {
                 .map(domain -> switch (domain) {
                     case PROFILE -> backfillProfiles(apply, normalizedBatchSize);
                     case DIARY -> backfillDiaries(apply, normalizedBatchSize);
+                    case SEAT_VIEW -> new MediaBackfillDomainReport(
+                            "SEAT_VIEW", 0, 0, 0, 0, 0, 0, 0, List.of(), List.of(), List.of());
                     case CHAT -> backfillChats(apply, normalizedBatchSize, clearBrokenChatImages);
                     case CHEER -> new MediaBackfillDomainReport(
                             "CHEER",
@@ -134,7 +137,7 @@ public class MediaMaintenanceService {
     }
 
     private MediaSmokeDomainReport smokeDomain(MediaDomain domain, int sampleLimit) {
-        Pageable pageable = PageRequest.of(0, sampleLimit, Sort.by(Sort.Direction.DESC, "id"));
+        Pageable pageable = PageRequest.of(0, sampleLimit, Sort.by(Sort.Direction.DESC, MediaAsset::getId));
         List<MediaAsset> assets = domain == MediaDomain.PROFILE
                 ? mediaAssetRepository.findByDomainAndStatusAndDerivedFromIsNullOrderByIdDesc(
                         domain,
@@ -198,7 +201,7 @@ public class MediaMaintenanceService {
         List<String> sampleManualReviewTargets = new ArrayList<>();
         BackfillAudit audit = new BackfillAudit();
 
-        Pageable pageable = PageRequest.of(0, batchSize, Sort.by(Sort.Direction.ASC, "id"));
+        Pageable pageable = PageRequest.of(0, batchSize, Sort.by(Sort.Direction.ASC, UserEntity::getId));
         while (true) {
             Page<UserEntity> page = userRepository.findAll(pageable);
             for (UserEntity user : page.getContent()) {
@@ -305,7 +308,7 @@ public class MediaMaintenanceService {
         List<String> sampleManualReviewTargets = new ArrayList<>();
         BackfillAudit audit = new BackfillAudit();
 
-        Pageable pageable = PageRequest.of(0, batchSize, Sort.by(Sort.Direction.ASC, "id"));
+        Pageable pageable = PageRequest.of(0, batchSize, Sort.by(Sort.Direction.ASC, BegaDiary::getId));
         while (true) {
             Page<BegaDiary> page = begaDiaryRepository.findAllBy(pageable);
             for (BegaDiary diary : page.getContent()) {
@@ -900,7 +903,7 @@ public class MediaMaintenanceService {
     }
 
     private void validateManagedAsset(MediaAsset asset, Long userId, MediaDomain domain) {
-        if (!Objects.equals(asset.getOwnerUserId(), userId)) {
+        if (!OwnerIdentity.isSameOwner(asset.getOwnerUserId(), userId)) {
             throw new IllegalStateException("기존 미디어의 소유자가 현재 사용자와 일치하지 않습니다.");
         }
         if (asset.getDomain() != domain) {
@@ -939,6 +942,7 @@ public class MediaMaintenanceService {
         return switch (domain) {
             case PROFILE -> storagePath.startsWith("profiles/");
             case DIARY -> storagePath.startsWith("diary/");
+            case SEAT_VIEW -> false;
             case CHAT -> storagePath.startsWith("chat/");
             case CHEER -> false;
         };
@@ -1040,7 +1044,8 @@ public class MediaMaintenanceService {
 
     private List<MediaDomain> resolveDomains(Collection<MediaDomain> requestedDomains) {
         if (requestedDomains == null || requestedDomains.isEmpty()) {
-            return List.of(MediaDomain.PROFILE, MediaDomain.DIARY, MediaDomain.CHEER, MediaDomain.CHAT);
+            return List.of(MediaDomain.PROFILE, MediaDomain.DIARY, MediaDomain.SEAT_VIEW,
+                    MediaDomain.CHEER, MediaDomain.CHAT);
         }
 
         Set<MediaDomain> deduped = java.util.EnumSet.copyOf(requestedDomains);

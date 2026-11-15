@@ -21,6 +21,7 @@ import com.example.auth.entity.UserEntity;
 import com.example.cheerboard.domain.CheerPost;
 import com.example.cheerboard.domain.PostType;
 import com.example.cheerboard.dto.LinkedContentRes;
+import com.example.cheerboard.repo.CheerPostAuthorCountProjection;
 import com.example.cheerboard.repo.CheerPostRepo;
 import com.example.cheerboard.service.CheerLinkedPostService;
 import com.example.kbo.entity.GameEntity;
@@ -93,6 +94,32 @@ class CheerLinkedPostRepositoryIntegrationTest {
         assertThat(statistics.getPrepareStatementCount())
                 .as("owner-scoped diary lookup statements")
                 .isLessThanOrEqualTo(2);
+    }
+
+    @Test
+    void adminPostCountsAggregateAuthorsAndIgnoreSoftDeletedPostsInOneStatement() {
+        UserEntity firstAuthor = persistUser("count-first");
+        UserEntity secondAuthor = persistUser("count-second");
+        TeamEntity team = persistTeam();
+        persistPost(firstAuthor, team, PostType.NORMAL, null, null, false);
+        persistPost(firstAuthor, team, PostType.NORMAL, null, null, false);
+        persistPost(firstAuthor, team, PostType.NORMAL, null, null, true);
+        persistPost(secondAuthor, team, PostType.NORMAL, null, null, false);
+        flushAndClear();
+
+        Statistics statistics = HibernateQueryCountSupport.reset(entityManagerFactory);
+
+        List<CheerPostAuthorCountProjection> counts = postRepository.findPostCountsByAuthorIds(
+                List.of(firstAuthor.getId(), secondAuthor.getId()));
+
+        assertThat(counts).hasSize(2);
+        assertThat(counts).extracting(CheerPostAuthorCountProjection::getAuthorId)
+                .containsExactlyInAnyOrder(firstAuthor.getId(), secondAuthor.getId());
+        assertThat(counts).extracting(CheerPostAuthorCountProjection::getPostCount)
+                .containsExactlyInAnyOrder(2L, 1L);
+        assertThat(statistics.getPrepareStatementCount())
+                .as("admin post counts for all returned users")
+                .isEqualTo(1);
     }
 
     @Test

@@ -1,5 +1,9 @@
 package com.example.common.ratelimit;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -13,12 +17,16 @@ import com.example.common.exception.RateLimitExceededException;
 import com.example.common.web.ClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Method;
+import java.util.List;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -52,6 +60,32 @@ class RateLimitAspectTest {
                 .isInstanceOf(RateLimitExceededException.class);
 
         verify(reporter).recordRejected();
+    }
+
+    @Test
+    void rejectedRequestDoesNotLogPrincipalOrRateLimitKey() throws Exception {
+        String email = "private@example.test";
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                email, "ignored", List.of(new SimpleGrantedAuthority("ROLE_USER"))));
+        RateLimitAspect aspect = new RateLimitAspect(rateLimitService, clientIpResolver, reporter);
+        Logger logger = (Logger) LoggerFactory.getLogger(RateLimitAspect.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            assertThatThrownBy(() -> aspect.checkRateLimit(joinPointFor("authLimited")))
+                    .isInstanceOf(RateLimitExceededException.class);
+
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .singleElement()
+                    .asString()
+                    .contains("endpoint=Fixture.authLimited()", "limit=1", "windowSeconds=60")
+                    .doesNotContain(email, "rate:limit:");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
