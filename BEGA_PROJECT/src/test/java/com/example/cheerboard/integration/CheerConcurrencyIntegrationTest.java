@@ -165,7 +165,7 @@ class CheerConcurrencyIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    @Autowired
+    @MockitoSpyBean
     private PostImageRepository postImageRepository;
 
     @Autowired
