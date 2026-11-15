@@ -1303,6 +1303,32 @@
         },
         "type" : "object"
       },
+      "ApiResponseListEventItem" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/EventItem"
+            },
+            "type" : "array"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseListInboxItem" : {
         "properties" : {
           "code" : {
@@ -1977,6 +2003,29 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/PublicUserProfileDto"
+          },
+          "errors" : {
+            "additionalProperties" : {
+              "type" : "string"
+            },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "success" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseReviewPage" : {
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ReviewPage"
           },
           "errors" : {
             "additionalProperties" : {
@@ -3455,6 +3504,60 @@
         },
         "type" : "object"
       },
+      "EventItem" : {
+        "properties" : {
+          "actor" : {
+            "type" : "string"
+          },
+          "basisText" : {
+            "type" : "string"
+          },
+          "caseRef" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "eventType" : {
+            "enum" : [ "REGISTERED", "REVIEW_REQUIRED", "URGENT_REVIEW_STARTED", "DELETE_PENDING", "RESOLVED_RESTORED", "EXTENSION_APPROVED", "LEGAL_HOLD_PLACED", "RELEASED_FOR_DELETION", "DELETED" ],
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "newValue" : {
+            "type" : "string"
+          },
+          "previousActor" : {
+            "type" : "string"
+          },
+          "previousBasis" : {
+            "type" : "string"
+          },
+          "previousValue" : {
+            "type" : "string"
+          },
+          "reason" : {
+            "enum" : [ "CASE_CLOSED", "HOLD_LAPSED", "URGENT_GRACE_EXPIRED", "OVER_CAP_NO_GRACE", "OPERATOR_RELEASED" ],
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ExtensionRequest" : {
+        "properties" : {
+          "caseRef" : {
+            "type" : "string"
+          },
+          "until" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "FeaturedMateCardDto" : {
         "properties" : {
           "awayTeam" : {
@@ -4591,6 +4694,18 @@
             "type" : "string"
           },
           "regularSeasonStart" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "LegalHoldRequest" : {
+        "properties" : {
+          "basis" : {
+            "type" : "string"
+          },
+          "reviewDueAt" : {
+            "format" : "date-time",
             "type" : "string"
           }
         },
@@ -8166,6 +8281,17 @@
         },
         "type" : "object"
       },
+      "ReleaseRequest" : {
+        "properties" : {
+          "caseRef" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ReportCaseRes" : {
         "properties" : {
           "adminMessage" : {
@@ -8251,6 +8377,85 @@
           }
         },
         "required" : [ "content", "roomId" ],
+        "type" : "object"
+      },
+      "ReviewItem" : {
+        "properties" : {
+          "attemptCount" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "deleteReason" : {
+            "enum" : [ "CASE_CLOSED", "HOLD_LAPSED", "URGENT_GRACE_EXPIRED", "OVER_CAP_NO_GRACE", "OPERATOR_RELEASED" ],
+            "type" : "string"
+          },
+          "extensionUntil" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "hardLimitAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "lastError" : {
+            "type" : "string"
+          },
+          "legalReviewDueAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "nextAttemptAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "ownerUserId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "postId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "retainUntil" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "ACTIVE", "DELETE_PENDING", "DELETED", "REVIEW_REQUIRED", "URGENT_REVIEW", "RESOLVED_RESTORED" ],
+            "type" : "string"
+          },
+          "urgentReviewDueAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ReviewPage" : {
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/ReviewItem"
+            },
+            "type" : "array"
+          },
+          "page" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "size" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "totalElements" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
         "type" : "object"
       },
       "RoleChangeRequestDto" : {
@@ -10476,6 +10681,181 @@
           }
         },
         "tags" : [ "admin-controller" ]
+      }
+    },
+    "/api/admin/report-evidence-retention/reviews" : {
+      "get" : {
+        "operationId" : "listReviews",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "page",
+          "required" : false,
+          "schema" : {
+            "default" : 0,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        }, {
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "default" : 20,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseReviewPage"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "report-evidence-retention-admin-controller" ]
+      }
+    },
+    "/api/admin/report-evidence-retention/{id}/events" : {
+      "get" : {
+        "operationId" : "listEvents",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseListEventItem"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "report-evidence-retention-admin-controller" ]
+      }
+    },
+    "/api/admin/report-evidence-retention/{id}/extension" : {
+      "post" : {
+        "operationId" : "approveExtension",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ExtensionRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "report-evidence-retention-admin-controller" ]
+      }
+    },
+    "/api/admin/report-evidence-retention/{id}/legal-hold" : {
+      "post" : {
+        "operationId" : "placeLegalHold",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/LegalHoldRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "report-evidence-retention-admin-controller" ]
+      }
+    },
+    "/api/admin/report-evidence-retention/{id}/release" : {
+      "post" : {
+        "operationId" : "releaseForDeletion",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ReleaseRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "report-evidence-retention-admin-controller" ]
       }
     },
     "/api/admin/reports" : {
