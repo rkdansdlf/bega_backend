@@ -16,7 +16,10 @@ class MediaFinalizeReleaseLockOrderTest {
     void releaseLocksAssetBeforeAttemptLikeAccountCleanup() {
         MediaAssetRepository assets = mock(MediaAssetRepository.class);
         MediaFinalizeAttemptRepository attempts = mock(MediaFinalizeAttemptRepository.class);
-        MediaFinalizeClaimService service = new MediaFinalizeClaimService(assets, attempts);
+        MediaFinalizeClaimService service = new MediaFinalizeClaimService(assets, attempts,
+                mock(com.example.BegaDiary.Repository.SeatViewPhotoRepository.class),
+                mock(com.example.cheerboard.storage.config.StorageConfig.class),
+                mock(jakarta.persistence.EntityManager.class));
         MediaAsset asset = MediaAsset.builder().id(17L).build();
 
         service.release(new MediaFinalizeClaimService.FinalizeClaim(asset, "synthetic-token"));

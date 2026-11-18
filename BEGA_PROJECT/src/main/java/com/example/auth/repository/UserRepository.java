@@ -14,6 +14,10 @@ import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
+    boolean existsByIdAndPendingDeletionTrue(Long id);
+
+    boolean existsByIdAndPendingDeletionTrueAndDeletionScheduledForIsNotNull(Long id);
+
   Optional<UserEntity> findByHandle(String handle);
 
   @org.springframework.data.jpa.repository.EntityGraph(attributePaths = { "favoriteTeam" })

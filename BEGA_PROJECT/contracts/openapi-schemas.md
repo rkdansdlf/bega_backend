@@ -5,7 +5,7 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Schemas: **321**
+Schemas: **329**
 
 <a id="accountdeletionrecoveryinfodto"></a>
 ## AccountDeletionRecoveryInfoDto
@@ -1048,6 +1048,30 @@ Includes: `additionalProperties`
 }
 ```
 
+<a id="apiresponselisteventitem"></a>
+## ApiResponseListEventItem
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/EventItem"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | `array<[EventItem](openapi-schemas.md#eventitem)>` | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
 <a id="apiresponselistinboxitem"></a>
 ## ApiResponseListInboxItem
 Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/InboxItem"<br>      },<br>      "type" : "array"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -1761,6 +1785,30 @@ Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br
 | --- | --- | --- | --- | --- |
 | `code` | no | `string` | — | — |
 | `data` | no | [PublicUserProfileDto](openapi-schemas.md#publicuserprofiledto) | — | — |
+| `errors` | no | `composition` | — | — |
+| `message` | no | `string` | — | — |
+| `success` | no | `boolean` | — | — |
+
+#### Property composition: `errors`
+Includes: `additionalProperties`
+```json
+{
+  "additionalProperties" : {
+    "type" : "string"
+  },
+  "type" : "object"
+}
+```
+
+<a id="apiresponsereviewpage"></a>
+## ApiResponseReviewPage
+Schema: `{<br>  "properties" : {<br>    "code" : {<br>      "type" : "string"<br>    },<br>    "data" : {<br>      "$ref" : "#/components/schemas/ReviewPage"<br>    },<br>    "errors" : {<br>      "additionalProperties" : {<br>        "type" : "string"<br>      },<br>      "type" : "object"<br>    },<br>    "message" : {<br>      "type" : "string"<br>    },<br>    "success" : {<br>      "type" : "boolean"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `code` | no | `string` | — | — |
+| `data` | no | [ReviewPage](openapi-schemas.md#reviewpage) | — | — |
 | `errors` | no | `composition` | — | — |
 | `message` | no | `string` | — | — |
 | `success` | no | `boolean` | — | — |
@@ -2611,6 +2659,41 @@ Schema: `{<br>  "properties" : {<br>    "candidateAmount" : {<br>      "format" 
 | `verifiedPaymentKey` | no | `string` | — | — |
 | `verifiedStatus` | no | `string` | — | — |
 
+<a id="eventitem"></a>
+## EventItem
+Schema: `{<br>  "properties" : {<br>    "actor" : {<br>      "type" : "string"<br>    },<br>    "basisText" : {<br>      "type" : "string"<br>    },<br>    "caseRef" : {<br>      "type" : "string"<br>    },<br>    "createdAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "eventType" : {<br>      "enum" : [ "REGISTERED", "REVIEW_REQUIRED", "URGENT_REVIEW_STARTED", "DELETE_PENDING", "RESOLVED_RESTORED", "EXTENSION_APPROVED", "LEGAL_HOLD_PLACED", "RELEASED_FOR_DELETION", "DELETED" ],<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "newValue" : {<br>      "type" : "string"<br>    },<br>    "previousActor" : {<br>      "type" : "string"<br>    },<br>    "previousBasis" : {<br>      "type" : "string"<br>    },<br>    "previousValue" : {<br>      "type" : "string"<br>    },<br>    "reason" : {<br>      "enum" : [ "CASE_CLOSED", "HOLD_LAPSED", "URGENT_GRACE_EXPIRED", "OVER_CAP_NO_GRACE", "OPERATOR_RELEASED" ],<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `actor` | no | `string` | — | — |
+| `basisText` | no | `string` | — | — |
+| `caseRef` | no | `string` | — | — |
+| `createdAt` | no | `string (date-time)` | — | — |
+| `eventType` | no | `string` | — | — |
+| `id` | no | `integer (int64)` | — | — |
+| `newValue` | no | `string` | — | — |
+| `previousActor` | no | `string` | — | — |
+| `previousBasis` | no | `string` | — | — |
+| `previousValue` | no | `string` | — | — |
+| `reason` | no | `string` | — | — |
+
+#### Property metadata: `eventType`
+- Enum: `REGISTERED`, `REVIEW_REQUIRED`, `URGENT_REVIEW_STARTED`, `DELETE_PENDING`, `RESOLVED_RESTORED`, `EXTENSION_APPROVED`, `LEGAL_HOLD_PLACED`, `RELEASED_FOR_DELETION`, `DELETED`
+
+#### Property metadata: `reason`
+- Enum: `CASE_CLOSED`, `HOLD_LAPSED`, `URGENT_GRACE_EXPIRED`, `OVER_CAP_NO_GRACE`, `OPERATOR_RELEASED`
+
+<a id="extensionrequest"></a>
+## ExtensionRequest
+Schema: `{<br>  "properties" : {<br>    "caseRef" : {<br>      "type" : "string"<br>    },<br>    "until" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `caseRef` | no | `string` | — | — |
+| `until` | no | `string (date-time)` | — | — |
+
 <a id="featuredmatecarddto"></a>
 ## FeaturedMateCardDto
 Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "type" : "string"<br>    },<br>    "currentParticipants" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "description" : {<br>      "type" : "string"<br>    },<br>    "gameDate" : {<br>      "type" : "string"<br>    },<br>    "gameTime" : {<br>      "type" : "string"<br>    },<br>    "homeTeam" : {<br>      "type" : "string"<br>    },<br>    "hostId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "maxParticipants" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "section" : {<br>      "type" : "string"<br>    },<br>    "stadium" : {<br>      "type" : "string"<br>    },<br>    "status" : {<br>      "type" : "string"<br>    },<br>    "teamId" : {<br>      "type" : "string"<br>    },<br>    "ticketPrice" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -3178,6 +3261,16 @@ Schema: `{<br>  "properties" : {<br>    "koreanSeriesStart" : {<br>      "type" 
 | `koreanSeriesStart` | no | `string` | — | — |
 | `postseasonStart` | no | `string` | — | — |
 | `regularSeasonStart` | no | `string` | — | — |
+
+<a id="legalholdrequest"></a>
+## LegalHoldRequest
+Schema: `{<br>  "properties" : {<br>    "basis" : {<br>      "type" : "string"<br>    },<br>    "reviewDueAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `basis` | no | `string` | — | — |
+| `reviewDueAt` | no | `string (date-time)` | — | — |
 
 <a id="liketoggleresponse"></a>
 ## LikeToggleResponse
@@ -5219,6 +5312,16 @@ Schema: `{<br>  "properties" : {<br>    "awayTeam" : {<br>      "type" : "string
 #### Property metadata: `gameTime`
 - Example: `"18:30:00"`
 
+<a id="releaserequest"></a>
+## ReleaseRequest
+Schema: `{<br>  "properties" : {<br>    "caseRef" : {<br>      "type" : "string"<br>    },<br>    "note" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `caseRef` | no | `string` | — | — |
+| `note` | no | `string` | — | — |
+
 <a id="reportcaseres"></a>
 ## ReportCaseRes
 Schema: `{<br>  "properties" : {<br>    "adminMessage" : {<br>      "type" : "string"<br>    },<br>    "caseId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "handledAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "nextAction" : {<br>      "type" : "string"<br>    },<br>    "reportStatus" : {<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
@@ -5273,6 +5376,45 @@ Required properties: `content`, `roomId`
 | `clientMessageId` | no | `string` | — | minLength=0, maxLength=64 |
 | `content` | yes | `string` | — | minLength=0, maxLength=1000 |
 | `roomId` | yes | `integer (int64)` | — | — |
+
+<a id="reviewitem"></a>
+## ReviewItem
+Schema: `{<br>  "properties" : {<br>    "attemptCount" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "deleteReason" : {<br>      "enum" : [ "CASE_CLOSED", "HOLD_LAPSED", "URGENT_GRACE_EXPIRED", "OVER_CAP_NO_GRACE", "OPERATOR_RELEASED" ],<br>      "type" : "string"<br>    },<br>    "extensionUntil" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "hardLimitAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "id" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "lastError" : {<br>      "type" : "string"<br>    },<br>    "legalReviewDueAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "nextAttemptAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "ownerUserId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "postId" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    },<br>    "retainUntil" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    },<br>    "status" : {<br>      "enum" : [ "ACTIVE", "DELETE_PENDING", "DELETED", "REVIEW_REQUIRED", "URGENT_REVIEW", "RESOLVED_RESTORED" ],<br>      "type" : "string"<br>    },<br>    "urgentReviewDueAt" : {<br>      "format" : "date-time",<br>      "type" : "string"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `attemptCount` | no | `integer (int32)` | — | — |
+| `deleteReason` | no | `string` | — | — |
+| `extensionUntil` | no | `string (date-time)` | — | — |
+| `hardLimitAt` | no | `string (date-time)` | — | — |
+| `id` | no | `integer (int64)` | — | — |
+| `lastError` | no | `string` | — | — |
+| `legalReviewDueAt` | no | `string (date-time)` | — | — |
+| `nextAttemptAt` | no | `string (date-time)` | — | — |
+| `ownerUserId` | no | `integer (int64)` | — | — |
+| `postId` | no | `integer (int64)` | — | — |
+| `retainUntil` | no | `string (date-time)` | — | — |
+| `status` | no | `string` | — | — |
+| `urgentReviewDueAt` | no | `string (date-time)` | — | — |
+
+#### Property metadata: `deleteReason`
+- Enum: `CASE_CLOSED`, `HOLD_LAPSED`, `URGENT_GRACE_EXPIRED`, `OVER_CAP_NO_GRACE`, `OPERATOR_RELEASED`
+
+#### Property metadata: `status`
+- Enum: `ACTIVE`, `DELETE_PENDING`, `DELETED`, `REVIEW_REQUIRED`, `URGENT_REVIEW`, `RESOLVED_RESTORED`
+
+<a id="reviewpage"></a>
+## ReviewPage
+Schema: `{<br>  "properties" : {<br>    "items" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/ReviewItem"<br>      },<br>      "type" : "array"<br>    },<br>    "page" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "size" : {<br>      "format" : "int32",<br>      "type" : "integer"<br>    },<br>    "totalElements" : {<br>      "format" : "int64",<br>      "type" : "integer"<br>    }<br>  },<br>  "type" : "object"<br>}`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `items` | no | `array<[ReviewItem](openapi-schemas.md#reviewitem)>` | — | — |
+| `page` | no | `integer (int32)` | — | — |
+| `size` | no | `integer (int32)` | — | — |
+| `totalElements` | no | `integer (int64)` | — | — |
 
 <a id="rolechangerequestdto"></a>
 ## RoleChangeRequestDto

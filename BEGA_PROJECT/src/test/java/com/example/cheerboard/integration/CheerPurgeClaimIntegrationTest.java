@@ -109,9 +109,10 @@ class CheerPurgeClaimIntegrationTest {
                 posts.claimPurge(id, "blocked", now, now.plusMinutes(15)));
         assertThat(claim).isZero();
         jdbc.update("UPDATE cheer_post_reports SET status = ? WHERE post_id = ?", "RESOLVED", id);
+        // Reports keep the post out of purge for good, so closing the case does not release it.
         Integer afterResolution = new TransactionTemplate(transactionManager).execute(status ->
-                posts.claimPurge(id, "allowed", now, now.plusMinutes(15)));
-        assertThat(afterResolution).isEqualTo(1);
+                posts.claimPurge(id, "still-held", now, now.plusMinutes(15)));
+        assertThat(afterResolution).isZero();
     }
 
     @Test

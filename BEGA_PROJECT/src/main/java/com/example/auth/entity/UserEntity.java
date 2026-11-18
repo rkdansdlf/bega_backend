@@ -106,12 +106,31 @@ public class UserEntity {
     @Column(name = "deletion_requested_at")
     private LocalDateTime deletionRequestedAt;
 
+    /** 계정 삭제 최초 요청 시각. 취소·재요청과 무관하게 한 번만 기록하며, 신고 증거 미디어 보관 기준일이다. */
+    @Column(name = "first_deletion_requested_at")
+    private LocalDateTime firstDeletionRequestedAt;
+
+    /**
+     * 현재 삭제 주기의 시작 시각. 요청마다 갱신하고 취소·확정 익명화에서도 지우지 않는다. 확정 뒤에 신고 증거를
+     * 등록하는 경우에도 주기 시작일을 잃지 않게 하려고 deletionRequestedAt과 따로 둔다.
+     */
+    @Column(name = "deletion_cycle_started_at")
+    private LocalDateTime deletionCycleStartedAt;
+
     /** 계정 최종 삭제 예정 시각 */
     @Column(name = "deletion_scheduled_for")
     private LocalDateTime deletionScheduledFor;
 
     @Column(name = "content_anonymization_retry_at")
     private LocalDateTime contentAnonymizationRetryAt;
+
+    /** 보류 시작 시각: 게시물 purge 보류가 처음 관찰된 때. 재시작과 무관하게 24시간 기준을 유지한다. */
+    @Column(name = "purge_hold_started_at")
+    private LocalDateTime purgeHoldStartedAt;
+
+    /** 보류 알림을 마지막으로 남긴 날짜. 하루에 한 번만 알린다. */
+    @Column(name = "purge_hold_alerted_on")
+    private java.time.LocalDate purgeHoldAlertedOn;
 
     /** 계정 잠금 여부 (비밀번호 오류 횟수 초과 등) */
     @Column(name = "locked", nullable = false)

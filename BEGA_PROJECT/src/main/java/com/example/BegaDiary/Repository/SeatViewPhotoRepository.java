@@ -15,6 +15,17 @@ import com.example.BegaDiary.Entity.SeatViewPhoto.ModerationStatus;
 
 public interface SeatViewPhotoRepository extends JpaRepository<SeatViewPhoto, Long> {
 
+    @Query("SELECT CASE WHEN COUNT(sv) > 0 THEN true ELSE false END FROM SeatViewPhoto sv WHERE TRIM(sv.storagePath) IN :paths")
+    boolean existsByTrimmedStoragePathIn(@Param("paths") java.util.Collection<String> storagePaths);
+
+    @Query("""
+            SELECT CASE WHEN COUNT(sv) > 0 THEN true ELSE false END FROM SeatViewPhoto sv
+            WHERE LENGTH(TRIM(sv.storagePath)) > 0
+              AND (TRIM(sv.storagePath) LIKE CONCAT('%', :path, '%')
+                   OR :path LIKE CONCAT('%', TRIM(sv.storagePath), '%'))
+            """)
+    boolean existsPossiblyReferencingStoragePath(@Param("path") String path);
+
     @Query("""
             SELECT sv FROM SeatViewPhoto sv
             LEFT JOIN FETCH sv.diary d

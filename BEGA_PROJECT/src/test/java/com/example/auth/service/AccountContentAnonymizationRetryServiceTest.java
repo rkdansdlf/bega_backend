@@ -35,6 +35,33 @@ class AccountContentAnonymizationRetryServiceTest {
     }
 
     @Test
+    void checksPurgeHoldAndKeepsRetryingWhenPurgePending() {
+        UserEntity user = tombstoneDueForRetry();
+        when(users.findByIdForWrite(7L)).thenReturn(Optional.of(user));
+        when(content.anonymize(7L)).thenReturn(AccountDeletionContentService.Result.PURGE_PENDING);
+
+        service.retry(7L);
+
+        verify(moderationHoldAlerts).observePurgeHold(org.mockito.ArgumentMatchers.any(UserEntity.class),
+                org.mockito.ArgumentMatchers.any(LocalDateTime.class));
+        assertThat(user.getContentAnonymizationRetryAt()).isNotNull();
+    }
+
+    @Test
+    void keepsRetryingWhenPurgeHoldCheckFails() {
+        UserEntity user = tombstoneDueForRetry();
+        when(users.findByIdForWrite(7L)).thenReturn(Optional.of(user));
+        when(content.anonymize(7L)).thenReturn(AccountDeletionContentService.Result.PURGE_PENDING);
+        doThrow(new IllegalStateException("alert failed")).when(moderationHoldAlerts)
+                .observePurgeHold(org.mockito.ArgumentMatchers.any(UserEntity.class),
+                        org.mockito.ArgumentMatchers.any(LocalDateTime.class));
+
+        service.retry(7L);
+
+        assertThat(user.getContentAnonymizationRetryAt()).isNotNull();
+    }
+
+    @Test
     void keepsRetryingWhenModerationHoldCheckFails() {
         UserEntity user = tombstoneDueForRetry();
         when(users.findByIdForWrite(7L)).thenReturn(Optional.of(user));
@@ -55,6 +82,7 @@ class AccountContentAnonymizationRetryServiceTest {
         service.retry(7L);
 
         verify(moderationHoldAlerts).forget(7L);
+        verify(moderationHoldAlerts).clearPurgeHold(user);
         assertThat(user.getContentAnonymizationRetryAt()).isNull();
     }
 

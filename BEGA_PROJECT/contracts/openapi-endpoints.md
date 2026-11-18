@@ -5,8 +5,8 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Paths: **275**
-Operations: **300**
+Paths: **280**
+Operations: **305**
 
 ## account-security-controller
 
@@ -3361,6 +3361,112 @@ Schema: [RankingPredictionResponseDto](openapi-schemas.md#rankingpredictionrespo
 - Tags: `reissue-controller`
 - Security: Not specified in OpenAPI
 - Deprecated: no
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
+
+## report-evidence-retention-admin-controller
+
+### GET `/api/admin/report-evidence-retention/reviews`
+- Operation ID: `listReviews`
+- Tags: `report-evidence-retention-admin-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `page` | query | no | `integer (int32)` | — | — |
+| `size` | query | no | `integer (int32)` | — | — |
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseReviewPage](openapi-schemas.md#apiresponsereviewpage)
+
+### GET `/api/admin/report-evidence-retention/{id}/events`
+- Operation ID: `listEvents`
+- Tags: `report-evidence-retention-admin-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `id` | path | yes | `integer (int64)` | — | — |
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseListEventItem](openapi-schemas.md#apiresponselisteventitem)
+
+### POST `/api/admin/report-evidence-retention/{id}/extension`
+- Operation ID: `approveExtension`
+- Tags: `report-evidence-retention-admin-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `id` | path | yes | `integer (int64)` | — | — |
+
+#### Request body
+Required: **yes**
+
+Media type: `application/json`
+Schema: [ExtensionRequest](openapi-schemas.md#extensionrequest)
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
+
+### POST `/api/admin/report-evidence-retention/{id}/legal-hold`
+- Operation ID: `placeLegalHold`
+- Tags: `report-evidence-retention-admin-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `id` | path | yes | `integer (int64)` | — | — |
+
+#### Request body
+Required: **yes**
+
+Media type: `application/json`
+Schema: [LegalHoldRequest](openapi-schemas.md#legalholdrequest)
+
+### Response `200`
+OK
+
+Media type: `*/*`
+Schema: [ApiResponseVoid](openapi-schemas.md#apiresponsevoid)
+
+### POST `/api/admin/report-evidence-retention/{id}/release`
+- Operation ID: `releaseForDeletion`
+- Tags: `report-evidence-retention-admin-controller`
+- Security: Not specified in OpenAPI
+- Deprecated: no
+
+#### Parameters
+| Name | In | Required | Schema | Description | Example |
+| --- | --- | --- | --- | --- | --- |
+| `id` | path | yes | `integer (int64)` | — | — |
+
+#### Request body
+Required: **yes**
+
+Media type: `application/json`
+Schema: [ReleaseRequest](openapi-schemas.md#releaserequest)
 
 ### Response `200`
 OK

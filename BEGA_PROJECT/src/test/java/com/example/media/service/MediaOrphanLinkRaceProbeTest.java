@@ -20,6 +20,7 @@ import java.time.LocalDateTime;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -62,6 +63,7 @@ class MediaOrphanLinkRaceProbeTest {
         links.deleteAll();
         jdbc.update("UPDATE media_assets SET derived_from_asset_id = NULL WHERE derived_from_asset_id IS NOT NULL");
         assets.deleteAll();
+        when(config.getDiaryBucket()).thenReturn("synthetic-bucket");
     }
 
     @Test
@@ -142,6 +144,191 @@ class MediaOrphanLinkRaceProbeTest {
         }
         assertThat(links.existsByAssetId(id)).isFalse();
         assertThat(assets.findById(id).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.DELETED);
+    }
+
+    @Test
+    void diaryObjectStillReferencedBySeatViewIsNotAnOrphan() {
+        String key = "media/diary/7/shared-seat-view.webp";
+        Long id = new TransactionTemplate(transactionManager).execute(status -> assets.saveAndFlush(MediaAsset.builder()
+                .ownerUserId(7L).domain(MediaDomain.DIARY).status(MediaAssetStatus.READY)
+                .objectKey(key).stagingObjectKey("staging/shared-seat-view")
+                .declaredContentType("image/webp").declaredBytes(10L).declaredWidth(1).declaredHeight(1)
+                .createdAt(LocalDateTime.now().minusDays(2)).uploadExpiresAt(LocalDateTime.now().minusDays(1))
+                .build()).getId());
+        jdbc.update("INSERT INTO seat_view_photo (user_id, storage_path, source_type, user_selected, reward_granted, createdat, updatedat) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                7L, "synthetic-bucket/" + key, "DIARY_UPLOAD", false, false, LocalDateTime.now(), LocalDateTime.now());
+        try {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> uploadService.deleteUpload(7L, id))
+                    .isInstanceOf(com.example.common.exception.BadRequestBusinessException.class);
+            assertThat(claimService.claimUnlinkedMediaForCleanup(id, 7L, MediaDomain.DIARY, LocalDateTime.now().minusDays(1)))
+                    .isEmpty();
+            assertThat(assets.findById(id).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.READY);
+            org.mockito.Mockito.verify(storage, org.mockito.Mockito.never()).deleteChecked(any(), any());
+        } finally {
+            jdbc.update("DELETE FROM seat_view_photo WHERE storage_path = ?", "synthetic-bucket/" + key);
+        }
+        String url = "https://synthetic.invalid/synthetic-bucket/" + key + "?fake=1";
+        jdbc.update("INSERT INTO seat_view_photo (user_id, storage_path, source_type, user_selected, reward_granted, createdat, updatedat) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                7L, url, "DIARY_UPLOAD", false, false, LocalDateTime.now(), LocalDateTime.now());
+        try {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> uploadService.deleteUpload(7L, id))
+                    .isInstanceOf(com.example.common.exception.BadRequestBusinessException.class);
+            assertThat(claimService.claimUnlinkedMediaForCleanup(id, 7L, MediaDomain.DIARY, LocalDateTime.now().minusDays(1)))
+                    .isEmpty();
+        } finally {
+            jdbc.update("DELETE FROM seat_view_photo WHERE storage_path = ?", url);
+        }
+        when(config.getDiaryBucket()).thenReturn("media");
+        String shorterAlias = "\tdiary/7/shared-seat-view.webp\t";
+        jdbc.update("INSERT INTO seat_view_photo (user_id, storage_path, source_type, user_selected, reward_granted, createdat, updatedat) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                7L, shorterAlias, "DIARY_UPLOAD", false, false, LocalDateTime.now(), LocalDateTime.now());
+        try {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> uploadService.deleteUpload(7L, id))
+                    .isInstanceOf(com.example.common.exception.BadRequestBusinessException.class);
+            assertThat(claimService.claimUnlinkedMediaForCleanup(id, 7L, MediaDomain.DIARY, LocalDateTime.now().minusDays(1)))
+                    .isEmpty();
+        } finally {
+            jdbc.update("DELETE FROM seat_view_photo WHERE storage_path = ?", shorterAlias);
+        }
+    }
+
+    @Test
+    void deletingDiaryLinkPreservesManagedObjectUsedByAnotherSeatViewEvenAfterRollback() {
+        String key = "media/diary/7/shared-other-diary.webp";
+        Long id = new TransactionTemplate(transactionManager).execute(status -> assets.saveAndFlush(MediaAsset.builder()
+                .ownerUserId(7L).domain(MediaDomain.DIARY).status(MediaAssetStatus.READY)
+                .objectKey(key).stagingObjectKey("staging/shared-other-diary")
+                .declaredContentType("image/webp").declaredBytes(10L).declaredWidth(1).declaredHeight(1)
+                .createdAt(LocalDateTime.now().minusDays(2)).uploadExpiresAt(LocalDateTime.now().minusDays(1))
+                .build()).getId());
+        linkService.syncDiaryLinks(101L, 7L, java.util.List.of(key));
+        jdbc.update("INSERT INTO seat_view_photo (user_id, storage_path, source_type, user_selected, reward_granted, createdat, updatedat) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                7L, key, "DIARY_UPLOAD", false, false, LocalDateTime.now(), LocalDateTime.now());
+        var guard = org.mockito.Mockito.mock(MediaObjectKeyGuard.class);
+        when(guard.canReadDiaryKey(key, 7L, 101L)).thenReturn(true);
+        when(storage.delete("synthetic-bucket", key)).thenReturn(Mono.empty());
+        var imageService = new com.example.cheerboard.storage.service.ImageService(
+                org.mockito.Mockito.mock(com.example.cheerboard.storage.repository.PostImageRepository.class),
+                org.mockito.Mockito.mock(com.example.cheerboard.repo.CheerPostRepo.class), storage,
+                org.mockito.Mockito.mock(com.example.cheerboard.storage.validator.ImageValidator.class), config,
+                org.mockito.Mockito.mock(com.example.cheerboard.config.CurrentUser.class),
+                org.mockito.Mockito.mock(com.example.cheerboard.service.PermissionValidator.class),
+                org.mockito.Mockito.mock(org.springframework.cache.CacheManager.class),
+                org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class), imageUtil, metricsService,
+                org.mockito.Mockito.mock(com.example.auth.service.PublicVisibilityVerifier.class), guard,
+                org.mockito.Mockito.mock(CheerIndividualMediaDeletion.class), transactionManager,
+                org.mockito.Mockito.mock(com.example.media.repository.MediaAssetRepository.class),
+                org.mockito.Mockito.mock(com.example.media.repository.MediaAssetLinkRepository.class));
+        try {
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                imageService.deleteDiaryImages(java.util.List.of(key), 7L, 101L).block();
+                linkService.unlinkEntity(MediaDomain.DIARY, 101L);
+                status.setRollbackOnly();
+            });
+            assertThat(links.existsByAssetId(id)).isTrue();
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                imageService.deleteDiaryImages(java.util.List.of(key), 7L, 101L).block();
+                linkService.unlinkEntity(MediaDomain.DIARY, 101L);
+            });
+            assertThat(links.existsByAssetId(id)).isFalse();
+            assertThat(claimService.claimUnlinkedMediaForCleanup(id, 7L, MediaDomain.DIARY, LocalDateTime.now().minusDays(1)))
+                    .isEmpty();
+            assertThat(assets.findById(id).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.READY);
+            org.mockito.Mockito.verify(storage, org.mockito.Mockito.never()).delete(any(), any());
+        } finally {
+            jdbc.update("DELETE FROM seat_view_photo WHERE storage_path = ?", key);
+        }
+    }
+
+    @Test
+    void seatViewCommitBeforeWaitingOrphanClaimKeepsTheDiaryObject() throws Exception {
+        String key = "media/diary/7/seat-writer-first.webp";
+        Long id = new TransactionTemplate(transactionManager).execute(status -> assets.saveAndFlush(MediaAsset.builder()
+                .ownerUserId(7L).domain(MediaDomain.DIARY).status(MediaAssetStatus.READY)
+                .objectKey(key).stagingObjectKey("staging/seat-writer-first")
+                .declaredContentType("image/webp").declaredBytes(10L).declaredWidth(1).declaredHeight(1)
+                .createdAt(LocalDateTime.now().minusDays(2)).uploadExpiresAt(LocalDateTime.now().minusDays(1))
+                .build()).getId());
+        CountDownLatch writerLocked = new CountDownLatch(1);
+        CountDownLatch finishWriter = new CountDownLatch(1);
+        AtomicLong writerSession = new AtomicLong();
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var writer = executor.submit(() -> new TransactionTemplate(transactionManager).execute(status -> {
+                writerSession.set(jdbc.queryForObject("SELECT SESSION_ID()", Long.class));
+                linkService.lockDiaryAssetsForSeatView(7L, java.util.List.of(key));
+                jdbc.update("INSERT INTO seat_view_photo (user_id, storage_path, source_type, user_selected, reward_granted, createdat, updatedat) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        7L, key, "DIARY_UPLOAD", false, false, LocalDateTime.now(), LocalDateTime.now());
+                writerLocked.countDown();
+                try {
+                    if (!finishWriter.await(20, TimeUnit.SECONDS)) throw new IllegalStateException("claim did not block");
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(ex);
+                }
+                return null;
+            }));
+            try {
+                assertThat(writerLocked.await(20, TimeUnit.SECONDS)).isTrue();
+                var cleanup = executor.submit(() -> claimService.claimUnlinkedMediaForCleanup(
+                        id, 7L, MediaDomain.DIARY, LocalDateTime.now().minusDays(1)));
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+                boolean blocked = false;
+                while (System.nanoTime() < deadline) {
+                    Integer waiters = jdbc.queryForObject("SELECT COUNT(*) FROM INFORMATION_SCHEMA.SESSIONS WHERE BLOCKER_ID = ?", Integer.class, writerSession.get());
+                    if (waiters != null && waiters > 0) { blocked = true; break; }
+                    Thread.sleep(10);
+                }
+                assertThat(blocked).isTrue();
+                finishWriter.countDown();
+                writer.get(20, TimeUnit.SECONDS);
+                assertThat(cleanup.get(20, TimeUnit.SECONDS)).isEmpty();
+                assertThat(assets.findById(id).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.READY);
+            } finally {
+                finishWriter.countDown();
+            }
+        } finally {
+            jdbc.update("DELETE FROM seat_view_photo WHERE storage_path = ?", key);
+        }
+    }
+
+    @Test
+    void completedOrphanClaimRejectsLaterSeatViewCreation() {
+        String key = "media/diary/7/seat-cleanup-first.webp";
+        Long id = new TransactionTemplate(transactionManager).execute(status -> assets.saveAndFlush(MediaAsset.builder()
+                .ownerUserId(7L).domain(MediaDomain.DIARY).status(MediaAssetStatus.READY)
+                .objectKey(key).stagingObjectKey("staging/seat-cleanup-first")
+                .declaredContentType("image/webp").declaredBytes(10L).declaredWidth(1).declaredHeight(1)
+                .createdAt(LocalDateTime.now().minusDays(2)).uploadExpiresAt(LocalDateTime.now().minusDays(1))
+                .build()).getId());
+        assertThat(claimService.claimUnlinkedMediaForCleanup(id, 7L, MediaDomain.DIARY, LocalDateTime.now().minusDays(1)))
+                .isPresent();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                linkService.lockDiaryAssetsForSeatView(7L, java.util.List.of(key)))
+                .isInstanceOf(com.example.common.exception.BadRequestBusinessException.class);
+    }
+
+    @Test
+    void protectedSeatViewAssetsDoNotFillTheOrphanCandidatePage() {
+        String prefix = "media/diary/7/seat-page-";
+        for (int i = 0; i < 3; i++) {
+            assets.saveAndFlush(MediaAsset.builder().ownerUserId(7L).domain(MediaDomain.DIARY)
+                    .status(MediaAssetStatus.READY).objectKey(prefix + i + ".webp")
+                    .stagingObjectKey("staging/page-" + i).declaredContentType("image/webp")
+                    .declaredBytes(10L).declaredWidth(1).declaredHeight(1)
+                    .createdAt(LocalDateTime.now().minusDays(4).plusMinutes(i))
+                    .uploadExpiresAt(LocalDateTime.now().minusDays(1)).build());
+        }
+        for (int i = 0; i < 2; i++) {
+            jdbc.update("INSERT INTO seat_view_photo (user_id, storage_path, source_type, user_selected, reward_granted, createdat, updatedat) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    7L, "synthetic-bucket/" + prefix + i + ".webp", "DIARY_UPLOAD", false, false, LocalDateTime.now(), LocalDateTime.now());
+        }
+        try {
+            assertThat(assets.findUnlinkedAssetsOlderThan(MediaAssetStatus.READY,
+                    LocalDateTime.now().minusDays(1), org.springframework.data.domain.PageRequest.of(0, 2)))
+                    .extracting(MediaAsset::getObjectKey).containsExactly(prefix + "2.webp");
+        } finally {
+            jdbc.update("DELETE FROM seat_view_photo WHERE storage_path LIKE ?", "synthetic-bucket/" + prefix + "%");
+        }
     }
 
     @Test

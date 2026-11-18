@@ -187,7 +187,7 @@ class CheerInteractionServiceTest {
         when(userRepo.findByIdForWrite(100L)).thenReturn(Optional.of(author));
         when(postRepo.findPurgeAuthorId(5L)).thenReturn(Optional.of(100L));
         when(postRepo.findByIdForWrite(5L)).thenReturn(Optional.of(post));
-        when(postRepo.findStartedPurgeIdsByAuthor(eq(100L), any())).thenReturn(java.util.List.of(6L));
+        when(postRepo.findStartedPurgeIdsByAuthor(eq(100L), any(), any())).thenReturn(java.util.List.of(6L));
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> interactionService.reportPost(
                 5L, new ReportRequest(ReportReason.OTHER, "synthetic"), reporter))
@@ -207,8 +207,7 @@ class CheerInteractionServiceTest {
         when(userRepo.findByIdForWrite(100L)).thenReturn(Optional.of(author));
         when(postRepo.findPurgeAuthorId(5L)).thenReturn(Optional.of(100L));
         when(postRepo.findByIdForWrite(5L)).thenReturn(Optional.of(post));
-        when(mediaAssetRepository.existsByOwnerUserIdAndStatus(100L, MediaAssetStatus.CHEER_PURGE_PENDING))
-                .thenReturn(true);
+        when(mediaAssetRepository.existsOwnerPurgePendingNotStale(eq(100L), any())).thenReturn(true);
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> interactionService.reportPost(
                 5L, new ReportRequest(ReportReason.OTHER, "synthetic"), reporter))
@@ -231,7 +230,7 @@ class CheerInteractionServiceTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> interactionService.reportPost(
                 5L, new ReportRequest(ReportReason.OTHER, "synthetic"), reporter))
                 .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
-        verify(postRepo, never()).findStartedPurgeIdsByAuthor(anyLong(), any());
+        verify(postRepo, never()).findStartedPurgeIdsByAuthor(anyLong(), any(), any());
     }
 
     private void mockWriteEnabledAuthor(UserEntity me) {
