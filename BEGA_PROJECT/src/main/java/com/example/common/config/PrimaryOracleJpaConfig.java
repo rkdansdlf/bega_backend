@@ -52,6 +52,12 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 )
 public class PrimaryOracleJpaConfig {
 
+	/**
+	 * primary(app-db) 풀 이름. Prometheus 의 {@code pool} 라벨과 로그에 그대로 노출된다.
+	 * 지정하지 않으면 생성 순서대로 HikariPool-1, -2 가 붙어 어느 DB 의 풀인지 알 수 없다.
+	 */
+	public static final String PRIMARY_POOL_NAME = "primary";
+
 	private final Environment environment;
 
 	public PrimaryOracleJpaConfig(Environment environment) {
@@ -81,6 +87,7 @@ public class PrimaryOracleJpaConfig {
 	) {
 		validateOracleWalletIfNeeded(primaryProperties.getUrl());
 		HikariConfig config = new HikariConfig();
+		config.setPoolName(PRIMARY_POOL_NAME);
 		config.setJdbcUrl(primaryProperties.getUrl());
 		config.setUsername(primaryProperties.getUsername());
 		config.setPassword(primaryProperties.getPassword());
