@@ -169,7 +169,7 @@ public class UserService {
         Optional<UserEntity> existingUser = userRepository.findByEmail(userDto.getEmail());
 
         if (existingUser.isPresent()) {
-            handleExistingUser(existingUser.get(), userDto);
+            handleExistingUser(existingUser.get());
             return;
         }
 
@@ -177,41 +177,14 @@ public class UserService {
     }
 
     /**
-     * 기존 사용자 처리 (중복 체크 및 소셜 연동)
+     * 기존 사용자 처리.
+     * 일반 회원가입은 이미 등록된 이메일이면 항상 409(중복)로 거절한다.
+     * 소셜 계정 연동은 인증된 사용자 + OAuth2 검증을 거치는 전용 절차에서만 허용하며,
+     * 비로그인 회원가입 요청으로는 기존 계정의 provider 정보를 절대 변경하지 않는다.
      */
-    private void handleExistingUser(UserEntity existingUser, UserDto userDto) {
-        log.info("Existing User Found - ID: {}, Provider: {}",
-                existingUser.getId(), existingUser.getProvider());
-
-        boolean isLocalSignup = isLocalSignupAttempt(userDto);
-
-        if (isLocalSignup) {
-            handleLocalSignupConflict(existingUser);
-            return;
-        }
-
-        if (userDto.getProviderId() != null) {
-            handleSocialLinking(existingUser, userDto);
-        }
-    }
-
-    /**
-     * 로컬 회원가입 충돌 처리
-     */
-    private void handleLocalSignupConflict(UserEntity existingUser) {
-        log.warn("Attempted Local Signup with existing account: userId={}", existingUser.getId());
+    private void handleExistingUser(UserEntity existingUser) {
+        log.warn("Attempted signup with existing account: userId={}", existingUser.getId());
         throw new DuplicateEmailException(existingUser.getEmail());
-    }
-
-    /**
-     * 소셜 계정 연동 처리
-     */
-    private void handleSocialLinking(UserEntity existingUser, UserDto userDto) {
-        if (existingUser.getProvider() == null || "LOCAL".equals(existingUser.getProvider())) {
-            existingUser.setProvider(userDto.getProvider());
-            existingUser.setProviderId(userDto.getProviderId());
-            userRepository.save(existingUser);
-        }
     }
 
     /**
@@ -237,8 +210,8 @@ public class UserService {
                 .password(encodedPassword)
                 .favoriteTeam(team)
                 .role(roleKey)
-                .provider(Optional.ofNullable(userDto.getProvider()).orElse("LOCAL"))
-                .providerId(userDto.getProviderId())
+                .provider("LOCAL")
+                .providerId(null)
                 .build();
 
         try {
@@ -802,13 +775,6 @@ public class UserService {
             log.warn("Failed to resolve public profile image URL: {}", e.getMessage());
             return null;
         }
-    }
-
-    /**
-     * Private 헬퍼 메서드
-     */
-    private boolean isLocalSignupAttempt(UserDto userDto) {
-        return userDto.getProvider() == null || "LOCAL".equals(userDto.getProvider());
     }
 
     /**

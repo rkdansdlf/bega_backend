@@ -8761,12 +8761,6 @@
             },
             "minItems" : 1,
             "type" : "array"
-          },
-          "provider" : {
-            "type" : "string"
-          },
-          "providerId" : {
-            "type" : "string"
           }
         },
         "required" : [ "confirmPassword", "email", "handle", "name", "password", "policyConsents" ],

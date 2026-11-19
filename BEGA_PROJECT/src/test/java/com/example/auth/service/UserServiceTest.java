@@ -3,6 +3,7 @@ package com.example.auth.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -706,6 +707,49 @@ class UserServiceTest {
 
         assertThrows(DuplicateEmailException.class, () -> userService.signUp(dto));
         verify(userRepository, never()).save(any(UserEntity.class));
+    }
+
+    @Test
+    void signUp_throwsDuplicateEmail_andDoesNotMutateExistingAccount_whenSocialProviderSupplied() {
+        // 회귀 테스트: 비로그인 회원가입 요청이 기존 LOCAL 계정의 provider 를 바꾸면 안 된다.
+        UserDto dto = UserDto.builder()
+                .name("attacker")
+                .handle("@attacker")
+                .email("victim@example.com")
+                .password("raw-password")
+                .provider("GOOGLE")
+                .providerId("attacker-google-id")
+                .build();
+
+        UserEntity existing = UserEntity.builder()
+                .id(7L)
+                .email("victim@example.com")
+                .password("already-encoded")
+                .provider("LOCAL")
+                .build();
+        when(userRepository.findByEmail("victim@example.com")).thenReturn(Optional.of(existing));
+
+        assertThrows(DuplicateEmailException.class, () -> userService.signUp(dto));
+
+        verify(userRepository, never()).save(any(UserEntity.class));
+        assertEquals("LOCAL", existing.getProvider());
+        assertNull(existing.getProviderId());
+    }
+
+    @Test
+    void signupDtoToUserDto_alwaysForcesLocalProvider() {
+        var signupDto = com.example.auth.dto.SignupDto.builder()
+                .name("tester")
+                .handle("@tester")
+                .email("tester@example.com")
+                .password("Test1234!")
+                .confirmPassword("Test1234!")
+                .build();
+
+        UserDto userDto = signupDto.toUserDto();
+
+        assertEquals("LOCAL", userDto.getProvider());
+        assertNull(userDto.getProviderId());
     }
 
     @Test

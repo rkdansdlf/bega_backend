@@ -5560,7 +5560,7 @@ Schema: `{<br>  "properties" : {<br>    "expiresAt" : {<br>      "format" : "dat
 
 <a id="signupdto"></a>
 ## SignupDto
-Schema: `{<br>  "properties" : {<br>    "confirmPassword" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "email" : {<br>      "format" : "email",<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "favoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "handle" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "name" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "password" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "policyConsents" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/PolicyConsentItemDto"<br>      },<br>      "minItems" : 1,<br>      "type" : "array"<br>    },<br>    "provider" : {<br>      "type" : "string"<br>    },<br>    "providerId" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "confirmPassword", "email", "handle", "name", "password", "policyConsents" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "confirmPassword" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "email" : {<br>      "format" : "email",<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "favoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "handle" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "name" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "password" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "policyConsents" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/PolicyConsentItemDto"<br>      },<br>      "minItems" : 1,<br>      "type" : "array"<br>    }<br>  },<br>  "required" : [ "confirmPassword", "email", "handle", "name", "password", "policyConsents" ],<br>  "type" : "object"<br>}`
 Required properties: `confirmPassword`, `email`, `handle`, `name`, `password`, `policyConsents`
 
 ### Properties
@@ -5573,8 +5573,6 @@ Required properties: `confirmPassword`, `email`, `handle`, `name`, `password`, `
 | `name` | yes | `string` | — | minLength=1 |
 | `password` | yes | `string` | — | minLength=1 |
 | `policyConsents` | yes | `array<[PolicyConsentItemDto](openapi-schemas.md#policyconsentitemdto)>` | — | minItems=1 |
-| `provider` | no | `string` | — | — |
-| `providerId` | no | `string` | — | — |
 
 <a id="sortobject"></a>
 ## SortObject
