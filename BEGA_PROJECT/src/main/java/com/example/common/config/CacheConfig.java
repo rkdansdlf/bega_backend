@@ -42,6 +42,11 @@ public class CacheConfig {
         // Redis 전용 또는 공유 캐시
         public static final String TEAM_RANKINGS = "teamRankings";
         public static final String LEAGUE_DATES = "leagueDates";
+        /**
+         * 리그 시작일 캐시 TTL. 시작일은 야구 데이터 갱신 시 BaseballReadCacheInvalidator 로 명시적으로 비우지만,
+         * 그 경로를 타지 않는 갱신(DB 직접 수정 등)은 TTL 만이 방어선이므로 길게 두지 않는다.
+         */
+        public static final Duration LEAGUE_DATES_TTL = Duration.ofMinutes(30);
         public static final String STADIUMS = "stadiums";
         public static final String TEAM_DATA = "teamData";
         public static final String GAME_SCHEDULE = "gameSchedule";
@@ -167,7 +172,7 @@ public class CacheConfig {
                 cacheConfigs.put(STADIUM_PLACES, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofHours(1))));
                 cacheConfigs.put(GAME_DETAIL, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(30))));
                 cacheConfigs.put(RECENT_COMPLETED_GAMES, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(15))));
-                cacheConfigs.put(LEAGUE_DATES, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofHours(12))));
+                cacheConfigs.put(LEAGUE_DATES, defaultConfig.entryTtl(Objects.requireNonNull(LEAGUE_DATES_TTL)));
                 cacheConfigs.put(TEAM_DATA, defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofMinutes(30))));
                 cacheConfigs.put(HOME_BOOTSTRAP,
                                 defaultConfig.entryTtl(Objects.requireNonNull(Duration.ofSeconds(60))));

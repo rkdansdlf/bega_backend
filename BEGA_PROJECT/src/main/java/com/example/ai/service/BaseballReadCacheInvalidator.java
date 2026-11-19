@@ -4,6 +4,7 @@ import static com.example.common.config.CacheConfig.GAME_SCHEDULE;
 import static com.example.common.config.CacheConfig.HOME_BOOTSTRAP;
 import static com.example.common.config.CacheConfig.HOME_RANKING_SNAPSHOT;
 import static com.example.common.config.CacheConfig.HOME_WIDGETS;
+import static com.example.common.config.CacheConfig.LEAGUE_DATES;
 import static com.example.common.config.CacheConfig.TEAM_RANKINGS;
 
 import java.util.List;
@@ -23,7 +24,8 @@ public class BaseballReadCacheInvalidator {
             TEAM_RANKINGS,
             HOME_BOOTSTRAP,
             HOME_WIDGETS,
-            HOME_RANKING_SNAPSHOT);
+            HOME_RANKING_SNAPSHOT,
+            LEAGUE_DATES);
 
     private final CacheManager cacheManager;
 
