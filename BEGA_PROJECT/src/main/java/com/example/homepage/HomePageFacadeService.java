@@ -41,8 +41,16 @@ public class HomePageFacadeService {
 
     private static final Duration DEFAULT_SECTION_TIMEOUT = Duration.ofMillis(2500);
     private static final Duration DEFAULT_WIDGETS_SECTION_TIMEOUT = Duration.ofMillis(1200);
-    private static final int DEFAULT_SECTION_MAX_CONCURRENCY = 32;
+    /**
+     * 홈 섹션이 동시에 실행할 수 있는 최대 개수. 섹션 하나가 DB 커넥션 하나를 잡으므로
+     * 이 값이 곧 홈이 야구 풀(baseball.datasource.hikari.maximum-pool-size)에서 가져갈 수 있는
+     * 커넥션의 상한이다. 야구 풀은 예측·다이어리·정산도 함께 쓰므로 반드시 풀 크기보다 작게
+     * 유지해 다른 기능 몫을 남겨야 한다. (HomeSectionConcurrencyConfigTest 가 이 관계를 검증한다.)
+     */
+    static final int DEFAULT_SECTION_MAX_CONCURRENCY = 16;
     private static final Duration MANUAL_DATA_NEGATIVE_CACHE_TTL = Duration.ofSeconds(60);
+    private static final String SECTION_MAX_CONCURRENCY_PROPERTY =
+            "${app.home.sections.max-concurrency:" + DEFAULT_SECTION_MAX_CONCURRENCY + "}";
     private static final String SECTION_TIMEOUT_PROPERTY = "${app.home.bootstrap.section-timeout-ms:2500}";
     private static final String WIDGETS_SECTION_TIMEOUT_PROPERTY = "${app.home.widgets.section-timeout-ms:1200}";
     private static final String RANKING_FALLBACK_SOURCE_MESSAGE = "순위 데이터를 불러오지 못했습니다.";
@@ -72,7 +80,7 @@ public class HomePageFacadeService {
     private volatile Semaphore sectionBulkhead = new Semaphore(DEFAULT_SECTION_MAX_CONCURRENCY);
     private volatile int sectionBulkheadPermits = DEFAULT_SECTION_MAX_CONCURRENCY;
 
-    @Value("${app.home.sections.max-concurrency:32}")
+    @Value(SECTION_MAX_CONCURRENCY_PROPERTY)
     private int sectionMaxConcurrency = DEFAULT_SECTION_MAX_CONCURRENCY;
 
     public HomePageFacadeService(
