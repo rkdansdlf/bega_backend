@@ -281,6 +281,12 @@ app:
     manual-data:
       required-dates: ${APP_BASEBALL_MANUAL_DATA_REQUIRED_DATES:}
   home:
+    sections:
+      # 홈 섹션(부트스트랩 4 + 위젯 3)이 동시에 실행할 수 있는 최대 개수 = 홈이 야구 풀에서
+      # 가져갈 수 있는 커넥션 상한. 야구 풀(baseball.datasource.hikari.maximum-pool-size)은
+      # 예측·다이어리·정산과 공유하므로 반드시 풀 크기보다 작게 둔다.
+      # 코드 기본값(HomePageFacadeService.DEFAULT_SECTION_MAX_CONCURRENCY)과 같아야 한다.
+      max-concurrency: ${APP_HOME_SECTIONS_MAX_CONCURRENCY:16}
     bootstrap:
       section-timeout-ms: ${APP_HOME_BOOTSTRAP_SECTION_TIMEOUT_MS:2500}
       warmup:
