@@ -82,6 +82,13 @@ public class StadiumPostgresJpaConfig {
 		for (Map.Entry<String, String> entry : jdbcProperties.entrySet()) {
 			config.addDataSourceProperty(entry.getKey(), entry.getValue());
 		}
+		// 아래 값은 "yml 에 해당 키가 없을 때의 폴백"이다. 이 빈은 @ConfigurationProperties 로 바인딩되어
+		// baseball.datasource.hikari.* 가 있으면 그 값이 이 값을 덮어쓴다. 운영(prod)은 application.yml 의
+		// 값(minimum-idle 5, connection-timeout 30000 등)이 적용되므로 여기 값은 쓰이지 않는다.
+		// 다만 src/test/resources/application.yml 에는 hikari 블록이 없어서 테스트에서는 이 값이 실제로
+		// 적용된다. 그러니 "죽은 코드"로 보고 지우면 테스트의 풀 동작이 바뀐다.
+		// 반면 initializationFailTimeout(-1)은 yml 에 없는 키라 모든 환경에서 이 값이 쓰인다
+		// (기동 시 야구 DB 에 연결하지 못해도 앱이 뜨도록).
 		config.setMinimumIdle(0);
 		config.setInitializationFailTimeout(-1);
 		config.setConnectionTimeout(3000);
