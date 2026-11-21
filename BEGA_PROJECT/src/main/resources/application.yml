@@ -35,9 +35,6 @@ spring:
   threads:
     virtual:
       enabled: ${SPRING_THREADS_VIRTUAL_ENABLED:true}
-  thymeleaf:
-    cache: false
-    check-template-location: false
   devtools:
     restart:
       enabled: false # 자동 재시작 비활성화
