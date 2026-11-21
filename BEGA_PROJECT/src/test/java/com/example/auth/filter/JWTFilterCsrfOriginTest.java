@@ -164,6 +164,23 @@ class JWTFilterCsrfOriginTest {
         assertThat(result.chainInvoked()).isFalse();
     }
 
+    // ---- 공개 인증 엔드포인트: 오래된 세션 쿠키가 남아 있어도 막히면 안 된다 ----
+
+    @Test
+    @DisplayName("이메일 인증 확인/재발송은 만료된 세션 쿠키가 있어도 필터가 막지 않는다")
+    void emailVerificationEndpoints_ignoreExpiredSessionCookie() throws Exception {
+        for (String path : List.of("/api/auth/email-verification/confirm", "/api/auth/email-verification/resend")) {
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", path);
+            request.setCookies(new Cookie("Authorization", expiredToken()));
+            request.addHeader("Origin", ALLOWED_ORIGIN);
+
+            Result result = run(request);
+
+            assertThat(result.chainInvoked()).as(path).isTrue();
+            assertThat(result.response.getStatus()).as(path).isEqualTo(200);
+        }
+    }
+
     // ---- Bearer 전용 인증: Origin/Referer 불필요 ----
 
     @Test
