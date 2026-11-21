@@ -76,6 +76,12 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
       
+      - name: Install redis-server for Redis-backed integration tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server
+          redis-server --version
+
       - name: Grant execute permission
         working-directory: ./BEGA_PROJECT
         run: chmod +x gradlew
