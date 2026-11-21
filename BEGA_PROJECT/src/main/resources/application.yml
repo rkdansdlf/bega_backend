@@ -666,6 +666,8 @@ management:
 # 배경 작업 서버는 켜되 대시보드는 끈다. 대시보드는 인증이 없고 작업 조회·삭제·재실행을
 # 허용하는데, 포트 8000 은 호스트에 발행되지 않아도 같은 내부 네트워크의 컨테이너
 # (ai-chatbot, prometheus 등)에서는 닿는다. 운영 점검이 필요하면 일시적으로만 켠다.
+# JOBRUNR_DASHBOARD_ENABLED=true 로 켜려면 JOBRUNR_DASHBOARD_USERNAME / JOBRUNR_DASHBOARD_PASSWORD(12자 이상)
+# 기본 인증이 반드시 필요하다. 없으면 SecurityStartupValidator 가 기동을 거부한다.
 jobrunr:
   dashboard:
     enabled: ${JOBRUNR_DASHBOARD_ENABLED:false}

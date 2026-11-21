@@ -20,6 +20,7 @@ import org.springframework.util.StringUtils;
 public class SecurityStartupValidator implements ApplicationRunner {
 
     private static final Set<String> DEVELOPMENT_PROFILES = Set.of("dev", "dev-adb", "local");
+    private static final int MIN_DASHBOARD_PASSWORD_LENGTH = 12;
 
     private final Environment environment;
     private final boolean secureCookie;
@@ -90,6 +91,34 @@ public class SecurityStartupValidator implements ApplicationRunner {
                     "prod profile requires APP_MAIL_ENABLED=true for OAuth email challenges");
         }
 
+        if (activeProfiles.contains("prod")) {
+            assertJobRunrDashboardProtected();
+        }
+
         log.info("Security startup validation passed for runtime auth profile(s): {}", activeProfiles);
+    }
+
+    /**
+     * JobRunr 대시보드는 기본적으로 인증이 없고 작업 조회·삭제·재실행을 허용한다. 포트가 호스트에 발행되지 않아도
+     * 같은 내부 네트워크의 다른 컨테이너에서는 닿으므로, prod 에서 켜려면 기본 인증을 반드시 함께 설정해야 한다.
+     * 기본값(JOBRUNR_DASHBOARD_ENABLED=false)이 유지되는 한 이 검사는 아무 영향이 없다.
+     * 값은 relaxed binding 으로 JOBRUNR_DASHBOARD_USERNAME / JOBRUNR_DASHBOARD_PASSWORD 환경 변수에서 읽힌다.
+     */
+    private void assertJobRunrDashboardProtected() {
+        boolean dashboardEnabled = environment.getProperty("jobrunr.dashboard.enabled", Boolean.class, false);
+        if (!dashboardEnabled) {
+            return;
+        }
+
+        String username = environment.getProperty("jobrunr.dashboard.username");
+        String password = environment.getProperty("jobrunr.dashboard.password");
+        if (!StringUtils.hasText(username)
+                || !StringUtils.hasText(password)
+                || password.length() < MIN_DASHBOARD_PASSWORD_LENGTH) {
+            throw new IllegalStateException(
+                    "prod profile forbids jobrunr.dashboard.enabled=true without basic auth: set "
+                            + "JOBRUNR_DASHBOARD_USERNAME and JOBRUNR_DASHBOARD_PASSWORD (at least "
+                            + MIN_DASHBOARD_PASSWORD_LENGTH + " characters), or leave the dashboard disabled");
+        }
     }
 }
