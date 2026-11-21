@@ -39,6 +39,18 @@ public class OAuth2StateService {
     private static final DefaultRedisScript<String> CONSUME_STATE_SCRIPT = new DefaultRedisScript<>("""
             local state = redis.call('GET', KEYS[1])
             if state then
+                local decoded, payload = pcall(cjson.decode, state)
+                local createdAt = nil
+                if decoded and type(payload) == 'table' then
+                    createdAt = tonumber(payload.createdAt)
+                end
+                local nowMillis = tonumber(ARGV[2])
+                local stateTtlMillis = tonumber(ARGV[3])
+                if not createdAt or not nowMillis or not stateTtlMillis
+                    or nowMillis - createdAt > stateTtlMillis then
+                    redis.call('DEL', KEYS[1])
+                    return false
+                end
                 redis.call('RENAME', KEYS[1], KEYS[2])
                 redis.call('EXPIRE', KEYS[2], ARGV[1])
                 return 'C:' .. state
@@ -98,7 +110,9 @@ public class OAuth2StateService {
             stateResult = redisTemplate.execute(
                     CONSUME_STATE_SCRIPT,
                     List.of(key, REPLAY_PREFIX + stateId),
-                    String.valueOf(REPLAY_TTL.toSeconds()));
+                    String.valueOf(REPLAY_TTL.toSeconds()),
+                    String.valueOf(System.currentTimeMillis()),
+                    String.valueOf(TTL.toMillis()));
         } catch (Exception e) {
             log.error("Failed to consume OAuth2 state from Redis: errorType={}", e.getClass().getSimpleName());
             securityMonitoringService.recordOAuth2StateReject();
@@ -118,12 +132,6 @@ public class OAuth2StateService {
 
         try {
             OAuth2StateStorageData storageData = objectMapper.readValue(json, OAuth2StateStorageData.class);
-            if (storageData.isExpired()) {
-                log.warn("OAuth2 state expired: createdAt={}", storageData.createdAt());
-                securityMonitoringService.recordOAuth2StateReject();
-                return null;
-            }
-
             Long userId = storageData.userId();
             if (userId == null) {
                 log.warn("OAuth2 state has null userId");
@@ -163,36 +171,6 @@ public class OAuth2StateService {
         } catch (Exception e) {
             log.error("Failed to process OAuth2 state", e);
             securityMonitoringService.recordOAuth2StateReject();
-            return null;
-        }
-    }
-
-    /**
-     * 저장된 userId만 조회 (state 삭제하지 않음)
-     * 
-     * @param stateId state ID
-     * @return userId (없으면 null)
-     */
-    public Long peekUserId(String stateId) {
-        String key = PREFIX + stateId;
-        String json;
-        try {
-            json = redisTemplate.opsForValue().get(key);
-        } catch (Exception e) {
-            log.error("Failed to peek OAuth2 state in Redis: errorType={}", e.getClass().getSimpleName());
-            return null;
-        }
-        if (json == null) {
-            return null;
-        }
-        try {
-            OAuth2StateStorageData storageData = objectMapper.readValue(json, OAuth2StateStorageData.class);
-            return storageData.userId();
-        } catch (JsonProcessingException e) {
-            log.error("Failed to peek OAuth2 state", e);
-            return null;
-        } catch (Exception e) {
-            log.error("Failed to process peek OAuth2 state", e);
             return null;
         }
     }
