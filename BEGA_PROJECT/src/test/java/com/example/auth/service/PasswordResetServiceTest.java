@@ -159,6 +159,9 @@ class PasswordResetServiceTest {
         assertThat(resetToken.getToken()).doesNotContain(rawToken);
         assertThat(user.getTokenVersion()).isEqualTo(5);
         assertThat(user.getPassword()).isEqualTo("encoded-password");
+        // 재설정 링크 완료 = 이메일 소유 확인 (Issue #48)
+        assertThat(user.isEmailVerified()).isTrue();
+        assertThat(user.getEmailVerifiedAt()).isNotNull();
         verify(userRepository).save(user);
         verify(refreshRepository).deleteByEmail("user@example.com");
         verify(tokenRepository).save(resetToken);
