@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -211,6 +213,45 @@ class OAuth2CallbackFinalizationServiceTest {
         stateBeforeSession.verify(oAuth2StateService).saveState(21L);
         stateBeforeSession.verify(authSessionService)
                 .issueRefreshToken(anyString(), anyString(), anyLong(), any(), eq(request));
+    }
+
+    @Test
+    @DisplayName("신규 소셜 계정은 미검증 이메일을 거른 뒤 emailVerified=true로 저장한다")
+    void finalizeCallback_marksNewSocialUserEmailVerified() {
+        when(userProviderRepository.findByProviderAndProviderId("google", "provider-id"))
+                .thenReturn(Optional.empty());
+        when(userRepository.findByEmail("oauth-user@example.com")).thenReturn(Optional.empty());
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> {
+            UserEntity user = invocation.getArgument(0);
+            if (user.getId() == null) {
+                user.setId(21L);
+            }
+            return user;
+        });
+        when(userProviderRepository.findByUserIdAndProviderForUpdate(21L, "google"))
+                .thenReturn(Optional.empty());
+        when(userProviderRepository.findByProviderAndProviderIdForUpdate("google", "provider-id"))
+                .thenReturn(Optional.empty());
+        when(oAuth2StateService.saveState(21L)).thenReturn("callback-state");
+        when(authSessionService.issueRefreshToken(anyString(), anyString(), anyLong(), any(), eq(request)))
+                .thenReturn("refresh-token");
+
+        LocalDateTime before = LocalDateTime.now().minusSeconds(1);
+        OAuth2CallbackFinalizationResult result = service.finalizeCallback(intent(), request);
+        LocalDateTime after = LocalDateTime.now().plusSeconds(1);
+
+        assertThat(result.user().isEmailVerified()).isTrue();
+        assertThat(result.user().getEmailVerifiedAt()).isNotNull()
+                .isAfterOrEqualTo(before)
+                .isBeforeOrEqualTo(after);
+
+        ArgumentCaptor<UserEntity> savedUsers = ArgumentCaptor.forClass(UserEntity.class);
+        verify(userRepository, atLeastOnce()).save(savedUsers.capture());
+        UserEntity firstSave = savedUsers.getAllValues().get(0);
+        assertThat(firstSave.isEmailVerified()).isTrue();
+        assertThat(firstSave.getEmailVerifiedAt()).isNotNull()
+                .isAfterOrEqualTo(before)
+                .isBeforeOrEqualTo(after);
     }
 
     private void stubExistingProviderLogin(UserEntity user) {

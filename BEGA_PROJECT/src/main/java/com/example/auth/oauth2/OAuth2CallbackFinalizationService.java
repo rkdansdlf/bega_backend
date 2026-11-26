@@ -13,6 +13,7 @@ import com.example.auth.util.JWTUtil;
 import com.example.bega.auth.dto.OAuth2LinkStateData;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -153,6 +154,8 @@ public class OAuth2CallbackFinalizationService {
                 .favoriteTeam(null)
                 .uniqueId(UUID.randomUUID())
                 .handle(generateRandomHandle())
+                .emailVerified(true)
+                .emailVerifiedAt(LocalDateTime.now())
                 .build();
 
         UserEntity savedUser = userRepository.save(Objects.requireNonNull(userEntity));
