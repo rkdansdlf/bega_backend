@@ -42,10 +42,6 @@ public class SignupDto {
 
     private String favoriteTeam;
 
-    // 소셜 연동 관련 필드
-    private String provider;
-    private String providerId;
-
     @Valid
     @NotEmpty(message = "필수 정책 동의가 필요합니다.")
     private List<PolicyConsentItemDto> policyConsents;
@@ -57,8 +53,10 @@ public class SignupDto {
                 .email(this.email)
                 .password(this.password)
                 .favoriteTeam(this.favoriteTeam)
-                .provider(this.provider)
-                .providerId(this.providerId)
+                // 일반 회원가입은 항상 LOCAL 계정이다. provider/providerId 를 클라이언트 입력으로 받으면
+                // 비로그인 요청으로 기존 계정의 로그인 제공자 정보를 바꿀 수 있다 (소셜 연동은 OAuth2 전용 절차만 허용).
+                .provider("LOCAL")
+                .providerId(null)
                 .build();
     }
 }

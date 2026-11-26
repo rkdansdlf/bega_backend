@@ -35,9 +35,6 @@ spring:
   threads:
     virtual:
       enabled: ${SPRING_THREADS_VIRTUAL_ENABLED:true}
-  thymeleaf:
-    cache: false
-    check-template-location: false
   devtools:
     restart:
       enabled: false # 자동 재시작 비활성화
@@ -367,6 +364,12 @@ app:
     # token_type claim이 없는 레거시 토큰을 access 토큰으로 인정하지 않는다(기본 true=거부).
     # 신규 발급 토큰은 항상 token_type을 포함하므로 거부가 안전. 문제 시 false로 즉시 롤백.
     reject-legacy-access-tokens: ${APP_AUTH_REJECT_LEGACY_ACCESS_TOKENS:true}
+    # Issue #48: 이메일 회원가입 인증. 인증 메일은 기존 메일 설정(APP_MAIL_ENABLED, MAIL_USERNAME/PASSWORD,
+    # APP_FRONTEND_URL)을 그대로 쓴다. required 는 로그인 차단 여부만 정한다(메일 발송과 인증 기록은 항상 동작).
+    # 기본 false: 프론트 인증 화면(/signup/verify-email)이 배포될 때 APP_AUTH_EMAIL_VERIFICATION_REQUIRED=true 로 켠다.
+    email-verification:
+      required: ${APP_AUTH_EMAIL_VERIFICATION_REQUIRED:false}
+      token-ttl-minutes: ${APP_AUTH_EMAIL_VERIFICATION_TOKEN_TTL_MINUTES:1440}
 
 
 
@@ -660,6 +663,8 @@ management:
 # 배경 작업 서버는 켜되 대시보드는 끈다. 대시보드는 인증이 없고 작업 조회·삭제·재실행을
 # 허용하는데, 포트 8000 은 호스트에 발행되지 않아도 같은 내부 네트워크의 컨테이너
 # (ai-chatbot, prometheus 등)에서는 닿는다. 운영 점검이 필요하면 일시적으로만 켠다.
+# JOBRUNR_DASHBOARD_ENABLED=true 로 켜려면 JOBRUNR_DASHBOARD_USERNAME / JOBRUNR_DASHBOARD_PASSWORD(12자 이상)
+# 기본 인증이 반드시 필요하다. 없으면 SecurityStartupValidator 가 기동을 거부한다.
 jobrunr:
   dashboard:
     enabled: ${JOBRUNR_DASHBOARD_ENABLED:false}

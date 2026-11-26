@@ -135,6 +135,7 @@ class JWTFilterTokenTypeTest {
         String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/protected/resource");
         request.addHeader("Authorization", "Bearer " + accessToken);
+        request.addHeader("Origin", "http://evil.test");
         request.setRemoteAddr("127.0.0.1");
         MockHttpServletResponse response = new MockHttpServletResponse();
         MockFilterChain chain = new MockFilterChain();
@@ -261,6 +262,7 @@ class JWTFilterTokenTypeTest {
         String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/protected/resource");
         request.addHeader("Authorization", "Bearer " + accessToken);
+        request.addHeader("Origin", "http://evil.test");
         request.setRemoteAddr("127.0.0.1");
         MockHttpServletResponse response = new MockHttpServletResponse();
         MockFilterChain chain = new MockFilterChain();
@@ -408,11 +410,11 @@ class JWTFilterTokenTypeTest {
     }
 
     @Test
-    @DisplayName("AI 프록시 변경 요청도 JWT가 있으면 Origin/Referer 검증 대상이다")
-    void aiProxyMutableRequestWithJwtWithoutOrigin_isRejectedByCsrfCheck() throws Exception {
+    @DisplayName("AI 프록시 변경 요청도 쿠키 인증이면 Origin/Referer 검증 대상이다")
+    void aiProxyMutableRequestWithCookieJwtWithoutOrigin_isRejectedByCsrfCheck() throws Exception {
         String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/ai/chat/completion");
-        request.addHeader("Authorization", "Bearer " + accessToken);
+        request.setCookies(new jakarta.servlet.http.Cookie("Authorization", accessToken));
         MockHttpServletResponse response = new MockHttpServletResponse();
         DummyFilterChain chain = new DummyFilterChain();
 
@@ -422,6 +424,22 @@ class JWTFilterTokenTypeTest {
         assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
         assertThat(response.getContentAsString()).contains("CSRF Protection");
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("AI 프록시 변경 요청이 Bearer 전용이고 Origin/Referer 가 없으면 브라우저가 아닌 클라이언트로 보고 통과한다")
+    void aiProxyMutableRequestWithBearerJwtWithoutOrigin_isAcceptedAsNonBrowserClient() throws Exception {
+        String accessToken = jwtUtil.createJwt("user@test.com", "ROLE_USER", 1L, 60_000L);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/ai/chat/completion");
+        request.addHeader("Authorization", "Bearer " + accessToken);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        DummyFilterChain chain = new DummyFilterChain();
+
+        jwtFilter.doFilter(request, response, chain);
+
+        assertThat(chain.invoked).isTrue();
+        assertThat(response.getStatus()).isNotEqualTo(HttpStatus.FORBIDDEN.value());
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
     }
 
     @Test

@@ -127,7 +127,8 @@ public class EmailJobTokenCipher {
 
     public enum Purpose {
         PASSWORD_RESET("password-reset"),
-        ACCOUNT_DELETION_RECOVERY("account-deletion-recovery");
+        ACCOUNT_DELETION_RECOVERY("account-deletion-recovery"),
+        EMAIL_VERIFICATION("email-verification");
 
         private final String wireName;
 

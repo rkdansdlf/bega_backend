@@ -2,23 +2,46 @@ package com.example.kbo.service;
 
 import com.example.kbo.entity.GameEntity;
 import com.example.kbo.repository.GameRepository;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
-@RequiredArgsConstructor
 @Slf4j
 public class LeagueStageResolver {
 
-    private final GameRepository gameRepository;
+    /** 값이 모두 확정된 조회 결과를 보관하는 시간. */
+    static final Duration RESOLVED_TTL = Duration.ofMinutes(30);
 
-    private final Map<Integer, Optional<Integer>> rawLeagueTypeCache = new ConcurrentHashMap<>();
-    private final Map<Integer, PostseasonStartDates> postseasonStartDateCache = new ConcurrentHashMap<>();
+    /**
+     * 비어 있거나 일부만 확정된 조회 결과를 보관하는 시간.
+     * 시즌 도중에는 아직 시작하지 않은 단계의 시작일이 비어 있는 것이 정상이고, 최초 조회 시점의 빈 값이
+     * 서버가 살아 있는 동안 계속 재사용되면 안 되므로 짧게 둔다.
+     */
+    static final Duration UNRESOLVED_TTL = Duration.ofMinutes(5);
+
+    private final GameRepository gameRepository;
+    private final Clock clock;
+
+    private final Map<Integer, CacheEntry<Optional<Integer>>> rawLeagueTypeCache = new ConcurrentHashMap<>();
+    private final Map<Integer, CacheEntry<PostseasonStartDates>> postseasonStartDateCache = new ConcurrentHashMap<>();
+
+    @Autowired
+    public LeagueStageResolver(GameRepository gameRepository) {
+        this(gameRepository, Clock.systemDefaultZone());
+    }
+
+    LeagueStageResolver(GameRepository gameRepository, Clock clock) {
+        this.gameRepository = gameRepository;
+        this.clock = clock;
+    }
 
     public Integer resolveEffectiveLeagueTypeCode(GameEntity game) {
         if (game == null) {
@@ -69,9 +92,10 @@ public class LeagueStageResolver {
         if (seasonId == null) {
             return null;
         }
-        Optional<Integer> cached = rawLeagueTypeCache.get(seasonId);
-        if (cached != null) {
-            return cached.orElse(null);
+        Instant now = clock.instant();
+        CacheEntry<Optional<Integer>> cached = rawLeagueTypeCache.get(seasonId);
+        if (cached != null && cached.isFresh(now)) {
+            return cached.value().orElse(null);
         }
 
         Optional<Integer> fetched = Optional.empty();
@@ -79,7 +103,8 @@ public class LeagueStageResolver {
         if (repositoryValue != null) {
             fetched = repositoryValue;
         }
-        rawLeagueTypeCache.put(seasonId, fetched);
+        Duration ttl = fetched.isPresent() ? RESOLVED_TTL : UNRESOLVED_TTL;
+        rawLeagueTypeCache.put(seasonId, new CacheEntry<>(fetched, now.plus(ttl)));
         return fetched.orElse(null);
     }
 
@@ -94,10 +119,20 @@ public class LeagueStageResolver {
         if (gameDate == null) {
             return null;
         }
-        PostseasonStartDates startDates = postseasonStartDateCache.computeIfAbsent(
-                gameDate.getYear(),
-                this::loadPostseasonStartDates);
-        return startDates.resolveLeagueTypeCode(gameDate, rawLeagueTypeCode);
+        return resolvePostseasonStartDates(gameDate.getYear()).resolveLeagueTypeCode(gameDate, rawLeagueTypeCode);
+    }
+
+    private PostseasonStartDates resolvePostseasonStartDates(int seasonYear) {
+        Instant now = clock.instant();
+        CacheEntry<PostseasonStartDates> cached = postseasonStartDateCache.get(seasonYear);
+        if (cached != null && cached.isFresh(now)) {
+            return cached.value();
+        }
+
+        PostseasonStartDates loaded = loadPostseasonStartDates(seasonYear);
+        Duration ttl = loaded.isComplete() ? RESOLVED_TTL : UNRESOLVED_TTL;
+        postseasonStartDateCache.put(seasonYear, new CacheEntry<>(loaded, now.plus(ttl)));
+        return loaded;
     }
 
     private PostseasonStartDates loadPostseasonStartDates(int seasonYear) {
@@ -118,11 +153,25 @@ public class LeagueStageResolver {
         return leagueTypeCode != null && leagueTypeCode >= 2 && leagueTypeCode <= 5;
     }
 
+    private record CacheEntry<T>(T value, Instant expiresAt) {
+
+        private boolean isFresh(Instant now) {
+            return now.isBefore(expiresAt);
+        }
+    }
+
     private record PostseasonStartDates(
             LocalDate wildCardStart,
             LocalDate semiPlayoffStart,
             LocalDate playoffStart,
             LocalDate koreanSeriesStart) {
+
+        private boolean isComplete() {
+            return wildCardStart != null
+                    && semiPlayoffStart != null
+                    && playoffStart != null
+                    && koreanSeriesStart != null;
+        }
 
         private Integer resolveLeagueTypeCode(LocalDate gameDate, Integer rawLeagueTypeCode) {
             if (gameDate == null) {

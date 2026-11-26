@@ -926,17 +926,20 @@ public interface GameRepository extends JpaRepository<GameEntity, Long> {
   Optional<LocalDate> findFirstKoreanSeriesDate(@Param("seasonYear") int seasonYear);
 
   /**
-   * 특정 리그 타입의 해당 시즌 연도 기준 첫 경기 날짜 조회
+   * 특정 리그 타입의 해당 시즌 연도 기준 첫 경기 날짜 조회.
+   *
+   * <p>경기는 {@code season_id} 로 시즌 행에 정확히 연결된 것만 센다. {@code season_id} 가 NULL 인 경기를
+   * "같은 연도의 모든 단계"에 붙이면 정규시즌 경기가 포스트시즌 단계 시작일로 잡혀 단계가 오분류되므로
+   * 단계를 특정할 수 없는 경기는 제외한다. 더미/MOCK 경기는 {@link #findFirstKoreanSeriesDate} 와 같은 규칙으로 제외한다.
    */
   @Query(value = """
       SELECT MIN(g.game_date)
       FROM game g
-      JOIN kbo_seasons s ON (
-          g.season_id = s.season_id
-          OR (g.season_id IS NULL AND s.season_year = EXTRACT(YEAR FROM g.game_date))
-      )
-      WHERE COALESCE(s.season_year, EXTRACT(YEAR FROM g.game_date)) = :seasonYear
-        AND COALESCE(s.league_type_code, 0) = :leagueTypeCode
+      JOIN kbo_seasons s ON g.season_id = s.season_id
+      WHERE s.season_year = :seasonYear
+        AND s.league_type_code = :leagueTypeCode
+        AND g.is_dummy IS NOT TRUE
+        AND g.game_id NOT LIKE 'MOCK%'
       """, nativeQuery = true)
   Optional<LocalDate> findFirstStartDateByTypeFromSeasonYear(
       @Param("leagueTypeCode") int leagueTypeCode,

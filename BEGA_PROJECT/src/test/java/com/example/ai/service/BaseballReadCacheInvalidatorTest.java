@@ -4,6 +4,7 @@ import static com.example.common.config.CacheConfig.GAME_SCHEDULE;
 import static com.example.common.config.CacheConfig.HOME_BOOTSTRAP;
 import static com.example.common.config.CacheConfig.HOME_RANKING_SNAPSHOT;
 import static com.example.common.config.CacheConfig.HOME_WIDGETS;
+import static com.example.common.config.CacheConfig.LEAGUE_DATES;
 import static com.example.common.config.CacheConfig.TEAM_RANKINGS;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -23,7 +24,8 @@ class BaseballReadCacheInvalidatorTest {
                 TEAM_RANKINGS, org.mockito.Mockito.mock(Cache.class),
                 HOME_BOOTSTRAP, org.mockito.Mockito.mock(Cache.class),
                 HOME_WIDGETS, org.mockito.Mockito.mock(Cache.class),
-                HOME_RANKING_SNAPSHOT, org.mockito.Mockito.mock(Cache.class));
+                HOME_RANKING_SNAPSHOT, org.mockito.Mockito.mock(Cache.class),
+                LEAGUE_DATES, org.mockito.Mockito.mock(Cache.class));
         caches.forEach((name, cache) -> when(cacheManager.getCache(name)).thenReturn(cache));
         BaseballReadCacheInvalidator invalidator = new BaseballReadCacheInvalidator(cacheManager);
 

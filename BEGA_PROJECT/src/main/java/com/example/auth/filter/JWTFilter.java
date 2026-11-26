@@ -62,6 +62,9 @@ public class JWTFilter extends OncePerRequestFilter {
             @NonNull FilterChain filterChain)
             throws ServletException, IOException {
         String authorization = null;
+        // 토큰이 쿠키에서 왔는지 여부. 쿠키는 브라우저가 교차 사이트 요청에도 자동으로 붙이므로 CSRF 방어가
+        // 필요하지만, Authorization 헤더는 스크립트가 명시적으로 넣어야 해서 같은 방식의 CSRF 대상이 아니다.
+        boolean tokenFromCookie = false;
 
         // 쿠키에서 Authorization 토큰 추출 시도
         Cookie[] cookies = request.getCookies();
@@ -69,6 +72,7 @@ public class JWTFilter extends OncePerRequestFilter {
             for (Cookie cookie : cookies) {
                 if (cookie.getName().equals("Authorization")) {
                     authorization = cookie.getValue();
+                    tokenFromCookie = true;
                     break;
                 }
             }
@@ -107,6 +111,8 @@ public class JWTFilter extends OncePerRequestFilter {
                 normalizedRequestUri.equals("/api/auth/password/reset/confirm") ||
                 normalizedRequestUri.equals("/api/auth/account/deletion/recovery") ||
                 normalizedRequestUri.equals("/api/auth/account/deletion/recovery/info") ||
+                normalizedRequestUri.equals("/api/auth/email-verification/confirm") ||
+                normalizedRequestUri.equals("/api/auth/email-verification/resend") ||
                 normalizedRequestUri.startsWith("/api/auth/oauth2/email-challenge/") ||
                 normalizedRequestUri.equals("/api/auth/password-reset/request") ||
                 normalizedRequestUri.equals("/api/auth/password-reset/confirm"))) {
@@ -127,23 +133,32 @@ public class JWTFilter extends OncePerRequestFilter {
             return;
         }
 
-        // 🚨 CSRF 방지: Referer 체크 (상태 변경 요청에 대해)
+        // 🚨 CSRF 방지: Origin/Referer 체크 (상태 변경 요청에 대해)
+        // - 쿠키 인증: 브라우저가 쿠키를 자동으로 붙이므로 항상 검사한다. Origin/Referer 가 없어도 차단한다.
+        //   (쿠키와 Bearer 헤더가 함께 오면 쿠키가 우선 사용되므로 tokenFromCookie=true 로 여기에 해당한다.)
+        // - Bearer 전용 인증: Authorization 헤더는 스크립트가 명시적으로 넣어야 해서 CSRF 대상이 아니다.
+        //   브라우저는 상태 변경 요청에 Origin 을 보내므로, Origin/Referer 가 둘 다 없으면 브라우저가 아닌
+        //   클라이언트(모바일 앱, 서버 간 호출)로 보고 통과시킨다. 둘 중 하나라도 있으면 허용 목록과 대조한다.
         String method = request.getMethod();
         if (!method.equals("GET") && !method.equals("HEAD") && !method.equals("OPTIONS")) {
             String referer = request.getHeader("Referer");
             String origin = request.getHeader("Origin");
 
-            String refererOrigin = extractOrigin(referer);
-            String originValue = extractOrigin(origin);
+            boolean nonBrowserBearerRequest = !tokenFromCookie && isBlank(referer) && isBlank(origin);
 
-            boolean isAllowed = isAllowedOrigin(refererOrigin) || isAllowedOrigin(originValue);
+            if (!nonBrowserBearerRequest) {
+                String refererOrigin = extractOrigin(referer);
+                String originValue = extractOrigin(origin);
 
-            if (!isAllowed) {
-                recordInvalidOrigin();
-                // Referer나 Origin이 없거나 허용되지 않은 도메인이면 차단
-                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                response.getWriter().write("CSRF Protection: Invalid Referer/Origin");
-                return;
+                boolean isAllowed = isAllowedOrigin(refererOrigin) || isAllowedOrigin(originValue);
+
+                if (!isAllowed) {
+                    recordInvalidOrigin();
+                    // 쿠키 인증인데 Referer/Origin 이 없거나, 허용되지 않은 도메인이면 차단
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.getWriter().write("CSRF Protection: Invalid Referer/Origin");
+                    return;
+                }
             }
         }
 
@@ -283,6 +298,10 @@ public class JWTFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private String extractOrigin(String headerValue) {

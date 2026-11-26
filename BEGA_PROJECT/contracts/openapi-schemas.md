@@ -5,7 +5,7 @@
 > Regenerate with: `./gradlew updateOpenApiContract`
 
 Version: `1.0`
-Schemas: **329**
+Schemas: **331**
 
 <a id="accountdeletionrecoveryinfodto"></a>
 ## AccountDeletionRecoveryInfoDto
@@ -2615,6 +2615,26 @@ Schema: `{<br>  "properties" : {<br>    "clientMessageId" : {<br>      "type" : 
 | `id` | no | `integer (int64)` | — | — |
 | `roomId` | no | `integer (int64)` | — | — |
 | `senderId` | no | `integer (int64)` | — | — |
+
+<a id="emailverificationconfirmdto"></a>
+## EmailVerificationConfirmDto
+Schema: `{<br>  "properties" : {<br>    "token" : {<br>      "maxLength" : 256,<br>      "minLength" : 0,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "token" ],<br>  "type" : "object"<br>}`
+Required properties: `token`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `token` | yes | `string` | — | minLength=0, maxLength=256 |
+
+<a id="emailverificationresenddto"></a>
+## EmailVerificationResendDto
+Schema: `{<br>  "properties" : {<br>    "email" : {<br>      "format" : "email",<br>      "maxLength" : 320,<br>      "minLength" : 0,<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "email" ],<br>  "type" : "object"<br>}`
+Required properties: `email`
+
+### Properties
+| Property | Required | Schema | Description | Constraints |
+| --- | --- | --- | --- | --- |
+| `email` | yes | `string (email)` | — | minLength=0, maxLength=320 |
 
 <a id="embeddedpostdto"></a>
 ## EmbeddedPostDto
@@ -5560,7 +5580,7 @@ Schema: `{<br>  "properties" : {<br>    "expiresAt" : {<br>      "format" : "dat
 
 <a id="signupdto"></a>
 ## SignupDto
-Schema: `{<br>  "properties" : {<br>    "confirmPassword" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "email" : {<br>      "format" : "email",<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "favoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "handle" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "name" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "password" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "policyConsents" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/PolicyConsentItemDto"<br>      },<br>      "minItems" : 1,<br>      "type" : "array"<br>    },<br>    "provider" : {<br>      "type" : "string"<br>    },<br>    "providerId" : {<br>      "type" : "string"<br>    }<br>  },<br>  "required" : [ "confirmPassword", "email", "handle", "name", "password", "policyConsents" ],<br>  "type" : "object"<br>}`
+Schema: `{<br>  "properties" : {<br>    "confirmPassword" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "email" : {<br>      "format" : "email",<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "favoriteTeam" : {<br>      "type" : "string"<br>    },<br>    "handle" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "name" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "password" : {<br>      "minLength" : 1,<br>      "type" : "string"<br>    },<br>    "policyConsents" : {<br>      "items" : {<br>        "$ref" : "#/components/schemas/PolicyConsentItemDto"<br>      },<br>      "minItems" : 1,<br>      "type" : "array"<br>    }<br>  },<br>  "required" : [ "confirmPassword", "email", "handle", "name", "password", "policyConsents" ],<br>  "type" : "object"<br>}`
 Required properties: `confirmPassword`, `email`, `handle`, `name`, `password`, `policyConsents`
 
 ### Properties
@@ -5573,8 +5593,6 @@ Required properties: `confirmPassword`, `email`, `handle`, `name`, `password`, `
 | `name` | yes | `string` | — | minLength=1 |
 | `password` | yes | `string` | — | minLength=1 |
 | `policyConsents` | yes | `array<[PolicyConsentItemDto](openapi-schemas.md#policyconsentitemdto)>` | — | minItems=1 |
-| `provider` | no | `string` | — | — |
-| `providerId` | no | `string` | — | — |
 
 <a id="sortobject"></a>
 ## SortObject

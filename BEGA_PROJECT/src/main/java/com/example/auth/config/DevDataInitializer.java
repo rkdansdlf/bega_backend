@@ -101,6 +101,7 @@ public class DevDataInitializer implements CommandLineRunner {
                     .role(role)
                     .enabled(true)
                     .locked(false)
+                    .emailVerified(true)
                     .cheerPoints(100000) // 넉넉한 초기 포인트 지급 (테스트용)
                     .build();
 
@@ -138,6 +139,10 @@ public class DevDataInitializer implements CommandLineRunner {
                 }
                 if (u.isLocked()) {
                     u.setLocked(false);
+                    updated = true;
+                }
+                if (!u.isEmailVerified()) {
+                    u.markEmailVerified(java.time.LocalDateTime.now());
                     updated = true;
                 }
                 if (u.getCheerPoints() == null || u.getCheerPoints() < 100000) {

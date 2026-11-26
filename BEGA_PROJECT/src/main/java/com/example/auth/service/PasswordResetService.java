@@ -119,6 +119,9 @@ public class PasswordResetService {
         UserEntity user = resetToken.getUser();
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         user.setTokenVersion(Optional.ofNullable(user.getTokenVersion()).orElse(0) + 1);
+        // 메일로 받은 재설정 링크를 완료했으므로 이메일 소유가 확인됐다 (Issue #48).
+        // 다른 사람이 내 이메일로 먼저 가입해 둔 미인증 계정도 실소유자가 이 경로로 되찾을 수 있다.
+        user.markEmailVerified(LocalDateTime.now());
         userRepository.save(Objects.requireNonNull(user));
         refreshRepository.deleteByEmail(user.getEmail());
 

@@ -4,7 +4,7 @@
 
 <em>BEGA 야구 커뮤니티 플랫폼의 핵심 엔진</em>
 
-<!-- BADGES --> <img src="https://img.shields.io/github/last-commit/737genie/backend?style=flat&logo=git&logoColor=white&color=0080ff" alt="last-commit"> <img src="https://img.shields.io/github/languages/top/737genie/backend?style=flat&color=0080ff" alt="repo-top-language"> <img src="https://img.shields.io/github/languages/count/737genie/backend?style=flat&color=0080ff" alt="repo-language-count">
+<!-- BADGES --> <img src="https://img.shields.io/github/last-commit/rkdansdlf/bega_backend?style=flat&logo=git&logoColor=white&color=0080ff" alt="last-commit"> <img src="https://img.shields.io/github/languages/top/rkdansdlf/bega_backend?style=flat&color=0080ff" alt="repo-top-language"> <img src="https://img.shields.io/github/languages/count/rkdansdlf/bega_backend?style=flat&color=0080ff" alt="repo-language-count">
 
 <em>사용된 기술 스택:</em>
 
@@ -14,16 +14,16 @@
 
 ## 목차
 
--   [개요](https://claude.ai/chat/b41b67c5-88a7-4ded-a9a2-4bed83ecd0c6#%EA%B0%9C%EC%9A%94)
--   [주요 기능](https://claude.ai/chat/b41b67c5-88a7-4ded-a9a2-4bed83ecd0c6#%EC%A3%BC%EC%9A%94-%EA%B8%B0%EB%8A%A5)
--   [아키텍처](https://claude.ai/chat/b41b67c5-88a7-4ded-a9a2-4bed83ecd0c6#%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98)
--   [시작하기](https://claude.ai/chat/b41b67c5-88a7-4ded-a9a2-4bed83ecd0c6#%EC%8B%9C%EC%9E%91%ED%95%98%EA%B8%B0)
-    -   [사전 요구사항](https://claude.ai/chat/b41b67c5-88a7-4ded-a9a2-4bed83ecd0c6#%EC%82%AC%EC%A0%84-%EC%9A%94%EA%B5%AC%EC%82%AC%ED%95%AD)
-    -   [설치](https://claude.ai/chat/b41b67c5-88a7-4ded-a9a2-4bed83ecd0c6#%EC%84%A4%EC%B9%98)
-    -   [환경 설정](https://claude.ai/chat/b41b67c5-88a7-4ded-a9a2-4bed83ecd0c6#%ED%99%98%EA%B2%BD-%EC%84%A4%EC%A0%95)
-    -   [실행](https://claude.ai/chat/b41b67c5-88a7-4ded-a9a2-4bed83ecd0c6#%EC%8B%A4%ED%96%89)
--   [API 문서](https://claude.ai/chat/b41b67c5-88a7-4ded-a9a2-4bed83ecd0c6#api-%EB%AC%B8%EC%84%9C)
--   [배포](https://claude.ai/chat/b41b67c5-88a7-4ded-a9a2-4bed83ecd0c6#%EB%B0%B0%ED%8F%AC)
+-   [개요](#개요)
+-   [주요 기능](#주요-기능)
+-   [아키텍처](#아키텍처)
+-   [시작하기](#시작하기)
+    -   [사전 요구사항](#사전-요구사항)
+    -   [설치](#설치)
+    -   [환경 설정](#환경-설정)
+    -   [실행](#실행)
+-   [API 문서](#api-문서)
+-   [배포](#배포)
 
 ----------
 
@@ -32,6 +32,7 @@
 BEGA(Baseball Guide) 백엔드는 한국 야구 팬 커뮤니티 플랫폼의 핵심 REST API 서버입니다. Spring Boot로 구축되어 경기 데이터 관리, 사용자 상호작용, KBO 야구 정보를 제공하는 강력하고 확장 가능한 서비스를 제공합니다.
 
 야구 데이터 운영 원칙:
+- 야구 데이터의 소유자는 크롤러([KBO_playwright](https://github.com/rkdansdlf/KBO_playwright))이며, 이 저장소는 그 데이터를 읽기만 합니다.
 - 외부 야구 웹 조회나 크롤링은 사용하지 않습니다.
 - 내부 DB 동기화와 운영자 제공 데이터만 사용합니다.
 - 데이터가 부족하거나 시즌 문맥이 어긋나면 `MANUAL_BASEBALL_DATA_REQUIRED` 계약으로 전환합니다.
@@ -107,9 +108,9 @@ BEGA(Baseball Guide) 백엔드는 한국 야구 팬 커뮤니티 플랫폼의 �
 
 ### 기술 스택
 
--   **프레임워크:** Spring Boot 3.x
--   **언어:** Java 17+
--   **데이터베이스:** Oracle Autonomous Database + PostgreSQL(야구 데이터 소스)
+-   **프레임워크:** Spring Boot 4.1
+-   **언어:** Java 21
+-   **데이터베이스:** PostgreSQL(`app-db`, 사용자 생성 데이터) + 별도 야구 데이터소스(`BASEBALL_DB_*`, 읽기 전용 사용)
 -   **ORM:** Spring Data JPA
 -   **보안:** Spring Security + JWT
 -   **스토리지:** OCI Object Storage(S3 호환)
@@ -125,10 +126,9 @@ BEGA(Baseball Guide) 백엔드는 한국 야구 팬 커뮤니티 플랫폼의 �
 Nginx (EC2)
     ↓
 Spring Boot 애플리케이션
-    ↓
-Oracle Autonomous Database
-    ↓
-OCI Object Storage
+    ├─ PostgreSQL (app-db: 사용자 생성 데이터)
+    ├─ 야구 데이터소스 (BASEBALL_DB_*: 읽기 전용)
+    └─ OCI Object Storage (이미지/파일)
 
 ```
 
@@ -140,9 +140,8 @@ OCI Object Storage
 
 이 프로젝트는 다음 종속성을 필요로 합니다:
 
--   **Java:** 17 이상
--   **빌드 도구:** Gradle
--   **데이터베이스:** PostgreSQL 14+
+-   **Java:** 21 (Gradle Wrapper가 포함되어 있어 Gradle은 따로 설치하지 않아도 됩니다)
+-   **데이터베이스:** PostgreSQL (CI는 16으로 검증합니다). `local` 프로필은 H2 인메모리라 DB 없이도 실행됩니다
 -   **컨테이너 런타임:** Docker (선택사항)
 
 ### 설치
@@ -152,13 +151,13 @@ OCI Object Storage
 1.  **저장소 클론:**
     
     ```sh
-    ❯ git clone https://github.com/737genie/backend
+    ❯ git clone https://github.com/rkdansdlf/bega_backend
     ```
     
-2.  **프로젝트 디렉토리로 이동:**
+2.  **프로젝트 디렉토리로 이동:** (Gradle 프로젝트는 `BEGA_PROJECT/` 아래에 있습니다)
     
     ```sh
-    ❯ cd backend
+    ❯ cd bega_backend/BEGA_PROJECT
     ```
     
 3.  **종속성 설치:**
@@ -172,87 +171,96 @@ OCI Object Storage
     **Docker 사용:**
     
     ```sh
-    ❯ docker build -t 737genie/backend .
+    ❯ docker build -t bega-backend .
     ```
     
 
 ### 환경 설정
 
-> 운영 경로는 **OCI Autonomous Database + OCI Object Storage** 기준입니다.
+Spring 프로필에 따라 필요한 설정이 다릅니다. 기본 프로필은 `dev`입니다.
 
-1.  **application.yml 생성:**
-    
-    ```yaml
-    spring:
-      datasource:
-        url: ${SPRING_DATASOURCE_URL}
-        username: ${SPRING_DATASOURCE_USERNAME}
-        password: ${SPRING_DATASOURCE_PASSWORD}
-      jpa:
-        hibernate:
-          ddl-auto: none
-        show-sql: true
-    
-    jwt:
-      secret: ${JWT_SECRET}
-      expiration: 86400000
+| 프로필 | 용도 | 데이터베이스 |
+|---|---|---|
+| `local` | 빠른 로컬 확인 | H2 인메모리 (DB 설치 불필요) |
+| `dev` | 기본 개발 환경 (`./gradlew bootRun` 기본값) | PostgreSQL (`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`) |
+| `prod` | 배포 환경 | PostgreSQL `app-db` + 별도 야구 데이터소스 |
 
-    # OCI Object Storage (S3 compatible)
-    oci:
-      s3:
-        access-key: ${OCI_S3_ACCESS_KEY}
-        secret-key: ${OCI_S3_SECRET_KEY}
-        endpoint: ${OCI_S3_ENDPOINT}
-        region: ${OCI_S3_REGION}
-        bucket: ${OCI_S3_BUCKET}
-    
-    ```
-    
-2.  **환경 변수 설정:**
-    
-    ```sh
-    export SPRING_DATASOURCE_URL=jdbc:oracle:thin:@your-oracle-host:1521/yourdb
-    export SPRING_DATASOURCE_USERNAME=your_db_username
-    export SPRING_DATASOURCE_PASSWORD=your_db_password
-    export JWT_SECRET=your_jwt_secret
-    export OCI_S3_ACCESS_KEY=your_access_key
-    export OCI_S3_SECRET_KEY=your_secret_key
-    export OCI_S3_ENDPOINT=https://<namespace>.compat.objectstorage.<region>.oraclecloud.com
-    export OCI_S3_REGION=ap-seoul-1
-    export OCI_S3_BUCKET=your_bucket
-    
-    ```
-    
+공통 설정이 `.env`(현재 디렉토리 또는 저장소 루트)를 자동으로 읽으므로, 로컬에서는 `.env`에 값을 넣어 두면 됩니다.
+
+**운영(`prod`)에서 반드시 주입해야 하는 값** — 누락되면 기동이 중단됩니다.
+
+```sh
+# 사용자 데이터 DB (app-db)
+export SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:5432/<db>
+export SPRING_DATASOURCE_USERNAME=your_db_username
+export SPRING_DATASOURCE_PASSWORD=your_db_password
+export SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
+export SPRING_FLYWAY_LOCATIONS=classpath:db/migration_postgresql/   # 데이터소스 엔진과 반드시 일치시킬 것
+
+# 야구 데이터소스 (읽기 전용)
+export BASEBALL_DB_URL=...
+export BASEBALL_DB_USERNAME=...
+export BASEBALL_DB_PASSWORD=...
+
+# 인증/보안
+export JWT_SECRET=your_jwt_secret
+export OAUTH2_COOKIE_SECRET=your_cookie_secret
+export APP_REFRESH_TOKEN_PEPPER=...        # 32자 이상
+export APP_MAIL_ENABLED=true                # prod 에서 필수 (OAuth 이메일 확인/가입 인증 메일)
+
+# OCI Object Storage (S3 호환)
+export OCI_S3_ACCESS_KEY=your_access_key
+export OCI_S3_SECRET_KEY=your_secret_key
+export OCI_S3_ENDPOINT=https://<namespace>.compat.objectstorage.<region>.oraclecloud.com
+export OCI_S3_REGION=ap-seoul-1
+export OCI_S3_BUCKET=your_bucket
+```
+
+> `prod` 프로필은 쿠키 `Secure` 속성과 위 보안 값들을 기동 시 검증합니다(`SecurityStartupValidator`).
+> 운영의 `SPRING_FLYWAY_LOCATIONS` 기본값은 레거시 Oracle 세트이므로, PostgreSQL을 쓸 때는 위처럼 명시해야 합니다.
+
+**선택 설정**
+
+-   `APP_AUTH_EMAIL_VERIFICATION_REQUIRED` (기본 `false`): `true`로 켜면 이메일 인증 전에는 비밀번호 로그인이 `403 EMAIL_NOT_VERIFIED`로 막힙니다. 인증 메일 링크를 처리하는 프런트 화면이 배포된 뒤에 켜세요.
+-   `JOBRUNR_DASHBOARD_ENABLED` (기본 `false`): `prod`에서 켜려면 `JOBRUNR_DASHBOARD_USERNAME`과 12자 이상의 `JOBRUNR_DASHBOARD_PASSWORD`가 반드시 필요합니다. 없으면 기동이 거부됩니다.
 
 ### 실행
 
-프로젝트를 실행합니다:
+**Gradle 사용:**
+
+```sh
+# 기본(dev) 프로필 — PostgreSQL 연결 정보 필요
+❯ ./gradlew bootRun
+
+# DB 없이 빠르게 확인하려면 local 프로필 (H2 인메모리)
+❯ ./gradlew bootRun --args='--spring.profiles.active=local'
+```
+
+**Docker 사용:**
+
+```sh
+❯ docker run -p 8080:8080 --env-file .env -e SPRING_PROFILES_ACTIVE=prod bega-backend
+```
+
+API는 `http://localhost:8080`에서 사용 가능합니다
 
 ### 검증 게이트
 
 개발/CI에서 권장하는 백엔드 검증 명령:
 
 ```sh
+# 전체 테스트
+./gradlew test
+
 # Flyway 중복 버전 + 오래된 빌드 리소스 빠른 검사 (DB 연결 불필요)
 ./gradlew migrationSafetyCheck
 
 # Flyway 안전성 + 실제 스키마 검증 전체 검사 (DB 연결 필요)
 ./gradlew dbSafetyTest
+
+# API 변경 후 OpenAPI 계약(contracts/openapi.*) 재생성
+./gradlew updateOpenApiContract
 ```
-
-**Gradle 사용:**
-
-```sh
-❯ ./gradlew bootRun
-```
-
-**Docker 사용:**
-
-```sh
-❯ docker run -p 8080:8080 737genie/backend
-```
-
-API는 `http://localhost:8080`에서 사용 가능합니다
 
 ----------
 
@@ -261,16 +269,22 @@ API는 `http://localhost:8080`에서 사용 가능합니다
 ### 인증 엔드포인트
 
 ```
-POST   /api/auth/signup       - 사용자 등록
+POST   /api/auth/signup       - 사용자 등록 (항상 LOCAL 계정으로 생성, 이미 등록된 이메일이면 409)
 POST   /api/auth/login        - 사용자 로그인
 POST   /api/auth/logout       - 사용자 로그아웃
-POST   /auth/kakao/login      - 카카오 로그인
-POST   /auth/google/login     - 구글 로그인
+GET    /oauth2/authorization/{provider} - 소셜 로그인 시작 (provider: google, kakao)
 ```
+### 이메일 인증 엔드포인트
+```
+POST   /api/auth/email-verification/confirm - 메일 링크의 토큰으로 이메일 인증 완료
+POST   /api/auth/email-verification/resend  - 인증 메일 재발송 (계정 존재 여부는 노출하지 않음)
+```
+> 가입 시 인증 메일이 발송됩니다. 인증 전 로그인 차단은 `APP_AUTH_EMAIL_VERIFICATION_REQUIRED=true`일 때만 동작합니다.
+
 ### 사용자 설정 엔드포인트
 ```
-POST   /api/auth/password-reset/request - 비밀번호 재설정 이메일 발송
-POST   /api/auth/password-reset/confirm - 비밀번호 재설정 성공 요청
+POST   /api/auth/password/reset/request - 비밀번호 재설정 이메일 발송
+POST   /api/auth/password/reset/confirm - 비밀번호 재설정 완료
 ```
 ### 마이페이지 엔드포인트
 ```
@@ -285,8 +299,9 @@ POST   /api/profile/image      - 프로필 사진 업로드
 ### 경기 데이터 엔드포인트
 
 ```
-GET    /api/schedule              - 경기 목록 조회
-GET    /api/rankings/{seasonYear} - 경기 상세 정보 조회
+GET    /api/kbo/schedule              - 경기 목록 조회
+GET    /api/kbo/rankings/{seasonYear} - 시즌 팀 순위 조회
+GET    /api/kbo/league-start-dates    - 리그 단계별 시작일 조회
 ```
 
 ### 커뮤니티 엔드포인트
@@ -296,7 +311,7 @@ GET    /api/rankings/{seasonYear} - 경기 상세 정보 조회
 GET    /api/diary/entries     - 경기 다이어리 전체 조회
 GET    /api/diary/games       - 경기 조회
 POST   /api/diary/save        - 경기 다이어리 저장
-POST   /api/diary/{id}        - 경기 다이어리 특정 조회
+GET    /api/diary/{id}        - 경기 다이어리 특정 조회
 POST   /api/diary/{id}/images - 경기 다이어리 사진 저장
 POST   /api/diary/{id}/modify - 경기 다이어리 수정
 POST   /api/diary/{id}/delete - 경기 다이어리 삭제
@@ -308,10 +323,10 @@ POST   /api/diary/{id}/delete - 경기 다이어리 삭제
 GET    /api/parties                 - 파티 전체 조회 
 GET    /api/parties/{id}            - 파티 특정 조회 
 GET    /api/parties/status/{status} - 상태별 파티 조회 
-GET    /api/parties/host/{hostId}   - 호스트별 파티 조회 
 GET    /api/parties/search          - 파티 검색 
 GET    /api/parties/upcoming        - 경기 예정 파티 조회 
-GET    /api/parties/my/{userId}     - 내가 참여한 파티 조회 
+GET    /api/parties/my              - 내가 참여한 파티 조회 
+GET    /api/parties/my/history      - 내가 참여한 파티 이력 조회 
 GET    /api/parties/search-terms/popular?limit=5 - 최근 7일 인기 검색어 조회
 POST   /api/parties/search-terms    - 검색어 일별 집계 기록(공개, 60 req/min/IP)
 POST   /api/parties                 - 파티 생성 
@@ -320,7 +335,7 @@ DELETE /api/parties/{id}            - 파티 삭제
 
 # 신청 관리 
 GET    /api/applications/party/{partyId}          - 파티별 신청 목록 조회 
-GET    /api/applications/applicant/{applicantId}  - 신청자별 신청 목록 조회 
+GET    /api/applications/my                       - 내 신청 목록 조회 
 GET    /api/applications/party/{partyId}/pending  - 대기중인 신청 목록 조회 
 GET    /api/applications/party/{partyId}/approved - 승인된 신청 목록 조회 
 GET    /api/applications/party/{partyId}/rejected - 거절된 신청 목록 조회 
@@ -369,7 +384,6 @@ POST   /api/cheer/comments/{commentId}/like - 댓글 좋아요
 GET    /api/posts/{postId}/images        - 이미지 목록 조회 
 POST   /api/posts/{postId}/images        - 이미지 업로드 
 DELETE /api/images/{imageId}             - 이미지 삭제 
-GET    /api/images/{imageId}/signed-url  - 서명된 URL 조회 
 POST   /api/images/{imageId}/signed-url  - 서명된 URL 생성 
 ```
 
@@ -389,10 +403,9 @@ GET    /api/matches                - 특정 날짜의 경기 조회
 POST   /api/predictions/vote       - 순위 예측 투표 or 투표 변경
 GET    /api/predictions/status/{gameId}  - 특정 경기 실시간 투표 현황
 DELETE /api/predictions/{gameId}   - 사용자 특정 경기 투표 취소
-GET    /api/predictions/my-vote/{gameId} - 사용자 특정 경기 투표 팀 조회 (Legacy; 예측 페이지에서 단건 조회 미사용)
 POST   /api/predictions/my-votes         - 사용자 투표 일괄 조회
 
-> 예측 페이지는 사용자 투표 조회를 단건 API(`/api/predictions/my-vote/{gameId}`) 대신 일괄 API(`POST /api/predictions/my-votes`)로 호출합니다.
+> 사용자 투표 조회는 일괄 API(`POST /api/predictions/my-votes`)만 제공합니다. 단건 API(`GET /api/predictions/my-vote/{gameId}`)는 제거되었습니다.
 
 ### 예측 페이지 회귀 점검
 
@@ -401,10 +414,10 @@ POST   /api/predictions/my-votes         - 사용자 투표 일괄 조회
 - [x] 예측 페이지에서 `my-vote` 단건 API 사용 재출현 시 경보
 
 # 순위 예측
-GET    /api/current-season               - 현재 시즌 연도 조회
+GET    /api/predictions/ranking/current-season - 현재 시즌 연도 조회
 POST   /api/predictions/ranking          - 사용자 예측 결과 저장, 수정
 GET    /api/predictions/ranking          - 특정 시즌 사용자 예측 결과 조회
-GET    /api/share/{userId}/{seasonYear}  - 특정 시즌 사용자 예측 결과를 공유 목적으로 조회
+GET    /api/predictions/ranking/share/{shareId}/{seasonYear} - 특정 시즌 사용자 예측 결과를 공유 목적으로 조회
 ```
 
 ### 구장 엔드포인트
@@ -414,9 +427,8 @@ GET    /api/stadiums     - 모든 구장 조회
 GET    /api/stadiums/{stadiumsId}       - 구장 아이디로 조회
 GET    /api/stadiums/name/{stadiumName} - 구장 이름으로 조회
 GET    /api/stadiums/{stadiumId}/places - 구장 장소 조회
-GET    /api/stadiums/{name}/{stadiumName}/places 
-- 구장 이름으로 장소 조회
-GET    /api/places/all   - 전체 장소 조회
+GET    /api/stadiums/name/{stadiumName}/places - 구장 이름으로 장소 조회
+GET    /api/stadiums/places/all - 전체 장소 조회
 ```
 
 ----------
@@ -463,9 +475,10 @@ GET    /api/places/all   - 전체 장소 조회
     
 4.  **애플리케이션 실행:**
     
-    ```sh
-    docker-compose up -d
-    ```
+    운영용 Compose 파일(`docker-compose.prod.yml`)은 이 저장소가 아니라 배포 저장소
+    [KBO_platform-deploy](https://github.com/rkdansdlf/KBO_platform-deploy)에 있습니다. 그 저장소의 절차를 따르세요.
+    Compose는 `SPRING_PROFILES_ACTIVE=prod`를 고정합니다. 프로필을 지정하지 않으면 `dev`로 기동하므로
+    직접 컨테이너를 띄울 때는 반드시 `prod`를 지정하세요.
     
 
 ----------
