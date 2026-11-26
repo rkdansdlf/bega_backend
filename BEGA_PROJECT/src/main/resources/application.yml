@@ -195,9 +195,13 @@ baseball:
     password: ${BASEBALL_DB_PASSWORD:${DB_PASSWORD}}
     hikari:
       # 가상 스레드 활성화(SPRING_THREADS_VIRTUAL_ENABLED:true) 시 동시 커넥션 수요 증가를 고려해 상향.
-      maximum-pool-size: 25
-      minimum-idle: 5
-      connection-timeout: 30000
+      # 이 풀은 홈 화면·예측·다이어리·정산이 함께 쓴다. 아래 세 값은 환경변수로 조정할 수 있다
+      # (기본값은 기존 고정값과 같아 지정하지 않으면 동작이 바뀌지 않는다).
+      # 홈 섹션 한도(app.home.sections.max-concurrency)는 반드시 이 풀 크기보다 작아야 한다.
+      # dev-adb / local-postgres 프로파일은 자체 값을 가지므로 이 환경변수의 영향을 받지 않는다.
+      maximum-pool-size: ${BASEBALL_DB_HIKARI_MAXIMUM_POOL_SIZE:25}
+      minimum-idle: ${BASEBALL_DB_HIKARI_MINIMUM_IDLE:5}
+      connection-timeout: ${BASEBALL_DB_HIKARI_CONNECTION_TIMEOUT:30000}
       validation-timeout: 5000
       idle-timeout: 300000
       max-lifetime: 1200000
