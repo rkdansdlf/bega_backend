@@ -36,6 +36,13 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 )
 public class StadiumPostgresJpaConfig {
 
+	/**
+	 * 야구 데이터소스(stadiumDataSource) 풀 이름. 홈 화면, 예측, 다이어리, 정산이 모두 이 풀을 공유한다.
+	 * Prometheus 의 {@code pool} 라벨과 로그에 그대로 노출된다.
+	 * 지정하지 않으면 생성 순서대로 HikariPool-1, -2 가 붙어 어느 DB 의 풀인지 알 수 없다.
+	 */
+	public static final String BASEBALL_POOL_NAME = "baseball";
+
 	private static final String HIBERNATE_DEFAULT_SCHEMA = "hibernate.default_schema";
 	private static final String HIBERNATE_HBM2DDL_AUTO = "hibernate.hbm2ddl.auto";
 	private static final String HIBERNATE_DIALECT = "hibernate.dialect";
@@ -73,6 +80,7 @@ public class StadiumPostgresJpaConfig {
 			@Qualifier("stadiumDataSourceProperties") DataSourceProperties stadiumProperties,
 			@Qualifier("stadiumDataSourceJdbcProperties") Map<String, String> jdbcProperties) {
 		HikariConfig config = new HikariConfig();
+		config.setPoolName(BASEBALL_POOL_NAME);
 		config.setJdbcUrl(stadiumProperties.getUrl());
 		config.setUsername(stadiumProperties.getUsername());
 		config.setPassword(stadiumProperties.getPassword());
